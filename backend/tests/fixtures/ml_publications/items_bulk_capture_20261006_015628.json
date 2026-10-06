@@ -1,0 +1,4418 @@
+{
+  "captured_at": "2026-10-06T04:56:26.165075+00:00",
+  "ids": [
+    "MLA935110613",
+    "MLA934406852"
+  ],
+  "unknown_id": "MLA1",
+  "calls": [
+    {
+      "name": "bulk_full",
+      "path": "/items/bulk?ids=MLA935110613,MLA934406852,MLA1",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8",
+        "date": "Tue, 06 Oct 2026 04:56:26 GMT",
+        "x-request-id": "34398b6c-6a0a-4f9a-af31-3630147866dc"
+      },
+      "body": [
+        {
+          "id": "MLA935110613",
+          "status_code": 200,
+          "body": {
+            "id": "MLA935110613",
+            "site_id": "MLA",
+            "title": "Combo Gamer 4 En 1 Marvo Teclado Mouse Auricular Pad Cm409 Negro",
+            "family_name": "Combo Gamer 4 En 1 Marvo Teclado Mouse Auricular Pad Cm409",
+            "family_id": 7695306917964170,
+            "seller_id": 413658225,
+            "category_id": "MLA6263",
+            "user_product_id": "MLAU282291766",
+            "official_store_id": 57997,
+            "price": 24863.0,
+            "base_price": 24863.0,
+            "original_price": null,
+            "inventory_id": "BWQF98066",
+            "currency_id": "ARS",
+            "initial_quantity": 79,
+            "available_quantity": 0,
+            "sold_quantity": 79,
+            "sale_terms": [
+              {
+                "id": "INVOICE",
+                "name": "Facturación",
+                "value_id": "6891885",
+                "value_name": "Factura A",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "6891885",
+                    "name": "Factura A",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TYPE",
+                "name": "Tipo de garantía",
+                "value_id": "2230279",
+                "value_name": "Garantía de fábrica",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "2230279",
+                    "name": "Garantía de fábrica",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TIME",
+                "name": "Tiempo de garantía",
+                "value_id": null,
+                "value_name": "6 meses",
+                "value_struct": {
+                  "number": 6,
+                  "unit": "meses"
+                },
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6 meses",
+                    "struct": {
+                      "number": 6,
+                      "unit": "meses"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              }
+            ],
+            "buying_mode": "buy_it_now",
+            "listing_type_id": "gold_special",
+            "start_time": "2021-08-20T01:25:10.000Z",
+            "stop_time": "2041-08-14T04:00:00.000Z",
+            "end_time": "2041-08-14T04:00:00.000Z",
+            "expiration_time": "2025-10-16T14:51:13.286Z",
+            "condition": "new",
+            "permalink": "https://articulo.mercadolibre.com.ar/MLA-935110613-combo-gamer-4-en-1-marvo-teclado-mouse-auricular-pad-cm409-negro-_JM",
+            "thumbnail_id": "639463-MLA74117407878_012024",
+            "thumbnail": "http://http2.mlstatic.com/D_639463-MLA74117407878_012024-I.jpg",
+            "pictures": [
+              {
+                "id": "639463-MLA74117407878_012024",
+                "url": "http://http2.mlstatic.com/D_639463-MLA74117407878_012024-O.jpg",
+                "secure_url": "https://http2.mlstatic.com/D_639463-MLA74117407878_012024-O.jpg",
+                "size": "500x231",
+                "max_size": "1200x556",
+                "quality": ""
+              },
+              {
+                "id": "783357-MLA47169822626_082021",
+                "url": "http://http2.mlstatic.com/D_783357-MLA47169822626_082021-O.webp",
+                "secure_url": "https://http2.mlstatic.com/D_783357-MLA47169822626_082021-O.webp",
+                "size": "333x500",
+                "max_size": "616x924",
+                "quality": ""
+              }
+            ],
+            "video_id": null,
+            "accepts_mercadopago": true,
+            "non_mercado_pago_payment_methods": [],
+            "shipping": {
+              "mode": "me2",
+              "methods": [],
+              "tags": [
+                "self_service_in"
+              ],
+              "dimensions": null,
+              "local_pick_up": true,
+              "free_shipping": false,
+              "logistic_type": "cross_docking",
+              "store_pick_up": false
+            },
+            "international_delivery_mode": "none",
+            "seller_address": {
+              "address_line": "Calle Felipe Vallese 1563",
+              "zip_code": "1406",
+              "city": {
+                "id": "TUxBQkNBQjM4MDda",
+                "name": "Caballito"
+              },
+              "state": {
+                "id": "AR-C",
+                "name": "Capital Federal"
+              },
+              "country": {
+                "id": "AR",
+                "name": "Argentina"
+              },
+              "search_location": {
+                "neighborhood": {
+                  "id": "TUxBQkNBQjM4MDda",
+                  "name": "Caballito"
+                },
+                "city": {
+                  "id": "TUxBQ0NBUGZlZG1sYQ",
+                  "name": "Capital Federal"
+                },
+                "state": {
+                  "id": "TUxBUENBUGw3M2E1",
+                  "name": "Capital Federal"
+                }
+              },
+              "latitude": -34.617049,
+              "longitude": -58.456287,
+              "id": 1483942080
+            },
+            "seller_contact": null,
+            "location": {},
+            "geolocation": {
+              "latitude": -34.617049,
+              "longitude": -58.456287
+            },
+            "coverage_areas": [],
+            "attributes": [
+              {
+                "id": "SELLER_PACKAGE_TYPE",
+                "name": "Tipo de paquete del seller",
+                "value_id": "47115156",
+                "value_name": "Con embalaje adicional",
+                "values": [
+                  {
+                    "id": "47115156",
+                    "name": "Con embalaje adicional",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "BRAND",
+                "name": "Marca",
+                "value_id": "271057",
+                "value_name": "Marvo",
+                "values": [
+                  {
+                    "id": "271057",
+                    "name": "Marvo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COLOR",
+                "name": "Color del teclado",
+                "value_id": "52049",
+                "value_name": "Negro",
+                "values": [
+                  {
+                    "id": "52049",
+                    "name": "Negro",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPATIBLE_GAME_CONSOLES",
+                "name": "Consolas de juegos compatibles",
+                "value_id": null,
+                "value_name": "PlayStation 4,Xbox One",
+                "values": [
+                  {
+                    "id": "923447",
+                    "name": "PlayStation 4",
+                    "struct": null
+                  },
+                  {
+                    "id": "923450",
+                    "name": "Xbox One",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPATIBLE_OPERATING_SYSTEMS",
+                "name": "Sistemas operativos compatibles",
+                "value_id": null,
+                "value_name": "Windows 7,Windows 8,Windows 9",
+                "values": [
+                  {
+                    "id": "3211255",
+                    "name": "Windows 7",
+                    "struct": null
+                  },
+                  {
+                    "id": "3211254",
+                    "name": "Windows 8",
+                    "struct": null
+                  },
+                  {
+                    "id": "9014150",
+                    "name": "Windows 9",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "DETAILED_MODEL",
+                "name": "Modelo detallado",
+                "value_id": "13455902",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455902",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "GTIN",
+                "name": "Código universal de producto",
+                "value_id": null,
+                "value_name": "6932391923160",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6932391923160",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "IMPORT_DUTY",
+                "name": "Impuesto interno",
+                "value_id": "49553239",
+                "value_name": "0 %",
+                "values": [
+                  {
+                    "id": "49553239",
+                    "name": "0 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "INCLUDES_BATTERY",
+                "name": "Incluye batería",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_HEADPHONES",
+                "name": "Incluye auriculares",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_MOUSE_PAD",
+                "name": "Incluye mouse pad",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_SPEAKERS",
+                "name": "Incluye parlantes",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_GAMER",
+                "name": "Es gamer",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_ONE_HANDED_KEYBOARD",
+                "name": "Es teclado para una mano",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_RECHARGEABLE",
+                "name": "Es recargable",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_SPLASH_RESISTANT",
+                "name": "Es resistente a salpicaduras",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_WIRELESS",
+                "name": "Es inalámbrico",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "ITEM_CONDITION",
+                "name": "Condición del ítem",
+                "value_id": "2230284",
+                "value_name": "Nuevo",
+                "values": [
+                  {
+                    "id": "2230284",
+                    "name": "Nuevo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "KEYBOARD_ARCHITECTURE",
+                "name": "Arquitectura del teclado",
+                "value_id": "9014139",
+                "value_name": "Membrana",
+                "values": [
+                  {
+                    "id": "9014139",
+                    "name": "Membrana",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_BACKLIGHTING_COLOR",
+                "name": "Color de la retroiluminación del teclado",
+                "value_id": "3267129",
+                "value_name": "Rainbow",
+                "values": [
+                  {
+                    "id": "3267129",
+                    "name": "Rainbow",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_INTERFACE",
+                "name": "Conexión del teclado",
+                "value_id": "9014141",
+                "value_name": "USB 2.0",
+                "values": [
+                  {
+                    "id": "9014141",
+                    "name": "USB 2.0",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_LANGUAGE",
+                "name": "Idioma del teclado",
+                "value_id": "9026934",
+                "value_name": "Español",
+                "values": [
+                  {
+                    "id": "9026934",
+                    "name": "Español",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_MODEL",
+                "name": "Modelo del teclado",
+                "value_id": "13455904",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455904",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_SWITCH_TYPE",
+                "name": "Tipo de switch del teclado",
+                "value_id": "20102836",
+                "value_name": "Membrana",
+                "values": [
+                  {
+                    "id": "20102836",
+                    "name": "Membrana",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MAIN_COLOR",
+                "name": "Color principal",
+                "value_id": "2450295",
+                "value_name": "Negro",
+                "values": [
+                  {
+                    "id": "2450295",
+                    "name": "Negro",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "MODEL",
+                "name": "Modelo",
+                "value_id": "13355326",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13355326",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_BACKLIGHTING_COLOR",
+                "name": "Color de la retroiluminación del mouse",
+                "value_id": "9017822",
+                "value_name": "7 colores",
+                "values": [
+                  {
+                    "id": "9017822",
+                    "name": "7 colores",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_INTERFACE",
+                "name": "Conexión del mouse",
+                "value_id": "9014145",
+                "value_name": "USB 2.0",
+                "values": [
+                  {
+                    "id": "9014145",
+                    "name": "USB 2.0",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_MODEL",
+                "name": "Modelo del mouse",
+                "value_id": "13455906",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455906",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_SENSOR_RESOLUTION",
+                "name": "Resolución del sensor del mouse",
+                "value_id": null,
+                "value_name": "3200 dpi",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "3200 dpi",
+                    "struct": {
+                      "number": 3200,
+                      "unit": "dpi"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "MOUSE_SENSOR_TYPE",
+                "name": "Tipo de sensor del mouse",
+                "value_id": "9014128",
+                "value_name": "Óptico",
+                "values": [
+                  {
+                    "id": "9014128",
+                    "name": "Óptico",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "PACKAGE_HEIGHT",
+                "name": "Altura del paquete",
+                "value_id": null,
+                "value_name": "18.4 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "18.4 cm",
+                    "struct": {
+                      "number": 18.4,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_LENGTH",
+                "name": "Largo del paquete",
+                "value_id": null,
+                "value_name": "47 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "47 cm",
+                    "struct": {
+                      "number": 47,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_WEIGHT",
+                "name": "Peso del paquete",
+                "value_id": null,
+                "value_name": "1220 g",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "1220 g",
+                    "struct": {
+                      "number": 1220,
+                      "unit": "g"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_WIDTH",
+                "name": "Ancho del paquete",
+                "value_id": null,
+                "value_name": "13.8 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "13.8 cm",
+                    "struct": {
+                      "number": 13.8,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PRODUCT_FEATURES",
+                "name": "Características del producto",
+                "value_id": "8847339",
+                "value_name": "Sin vencimiento",
+                "values": [
+                  {
+                    "id": "8847339",
+                    "name": "Sin vencimiento",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "SELLER_PACKAGE_HEIGHT",
+                "name": "Altura del paquete del seller",
+                "value_id": null,
+                "value_name": "48 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "48 cm",
+                    "struct": {
+                      "number": 48,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_LENGTH",
+                "name": "Largo del paquete del seller",
+                "value_id": null,
+                "value_name": "15 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "15 cm",
+                    "struct": {
+                      "number": 15,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_WEIGHT",
+                "name": "Peso del paquete del seller",
+                "value_id": null,
+                "value_name": "1470 g",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "1470 g",
+                    "struct": {
+                      "number": 1470,
+                      "unit": "g"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_WIDTH",
+                "name": "Ancho del paquete del seller",
+                "value_id": null,
+                "value_name": "20 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "20 cm",
+                    "struct": {
+                      "number": 20,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_SKU",
+                "name": "SKU",
+                "value_id": null,
+                "value_name": "6932391923481",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6932391923481",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SENSOR_TECHNOLOGY",
+                "name": "Tecnología del sensor",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SHIPMENT_PACKING",
+                "name": "Embalaje del envío",
+                "value_id": "7435892",
+                "value_name": "Caja",
+                "values": [
+                  {
+                    "id": "7435892",
+                    "name": "Caja",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "VALUE_ADDED_TAX",
+                "name": "IVA",
+                "value_id": "48405909",
+                "value_name": "21 %",
+                "values": [
+                  {
+                    "id": "48405909",
+                    "name": "21 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WITH_ANTI_GHOST_KEYS",
+                "name": "Con teclas anti-ghost",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_KEYBOARD_BLUETOOTH_CONNECTION",
+                "name": "Con conexión bluetooth para teclado",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_MOUSE_BLUETOOTH_CONNECTION",
+                "name": "Con conexión bluetooth para mouse",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_WRIST_REST",
+                "name": "Con reposa muñeca",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              }
+            ],
+            "listing_source": "",
+            "variations": [],
+            "status": "paused",
+            "sub_status": [
+              "out_of_stock"
+            ],
+            "tags": [
+              "extended_warranty_eligible",
+              "picture_crop_fix",
+              "user_product_listing",
+              "poor_quality_thumbnail",
+              "immediate_payment",
+              "cart_eligible"
+            ],
+            "warranty": "Garantía de fábrica: 6 meses",
+            "catalog_product_id": "MLA19771902",
+            "domain_id": "MLA-KEYBOARD_AND_MOUSE_KITS",
+            "seller_custom_field": null,
+            "parent_item_id": null,
+            "differential_pricing": null,
+            "deal_ids": [],
+            "automatic_relist": false,
+            "date_created": "2021-08-20T01:25:10.000Z",
+            "last_updated": "2026-10-02T22:47:49.854Z",
+            "health": 0.66,
+            "catalog_listing": false,
+            "item_relations": [
+              {
+                "id": "MLA1275211355",
+                "variation_id": null,
+                "stock_relation": 1
+              }
+            ],
+            "channels": [
+              "marketplace"
+            ]
+          }
+        },
+        {
+          "id": "MLA934406852",
+          "status_code": 200,
+          "body": {
+            "id": "MLA934406852",
+            "site_id": "MLA",
+            "title": "Fuente De Alimentación Para Pc Corsair Rmx Series Rm850x 850w Black",
+            "family_name": "Fuente De Alimentación Para Pc Corsair Rmx Series Rm850x 850w Black",
+            "family_id": 4395795880542864,
+            "seller_id": 413658225,
+            "category_id": "MLA1695",
+            "user_product_id": "MLAU312190127",
+            "official_store_id": 57997,
+            "price": 492325.0,
+            "base_price": 492325.0,
+            "original_price": null,
+            "inventory_id": "DBBD88438",
+            "currency_id": "ARS",
+            "initial_quantity": 26,
+            "available_quantity": 0,
+            "sold_quantity": 26,
+            "sale_terms": [
+              {
+                "id": "WARRANTY_TIME",
+                "name": "Tiempo de garantía",
+                "value_id": null,
+                "value_name": "5 años",
+                "value_struct": {
+                  "number": 5,
+                  "unit": "años"
+                },
+                "values": [
+                  {
+                    "id": null,
+                    "name": "5 años",
+                    "struct": {
+                      "number": 5,
+                      "unit": "años"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "INVOICE",
+                "name": "Facturación",
+                "value_id": "6891885",
+                "value_name": "Factura A",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "6891885",
+                    "name": "Factura A",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TYPE",
+                "name": "Tipo de garantía",
+                "value_id": "2230279",
+                "value_name": "Garantía de fábrica",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "2230279",
+                    "name": "Garantía de fábrica",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              }
+            ],
+            "buying_mode": "buy_it_now",
+            "listing_type_id": "gold_pro",
+            "start_time": "2021-08-15T03:39:41.000Z",
+            "stop_time": "2042-08-25T19:07:19.000Z",
+            "end_time": "2042-08-25T19:07:19.000Z",
+            "expiration_time": "2027-04-14T15:48:18.414Z",
+            "condition": "new",
+            "permalink": "https://articulo.mercadolibre.com.ar/MLA-934406852-fuente-de-alimentacion-para-pc-corsair-rmx-series-rm850x-850w-black-_JM",
+            "thumbnail_id": "639976-MLA45772593351_042021",
+            "thumbnail": "http://http2.mlstatic.com/D_639976-MLA45772593351_042021-I.jpg",
+            "pictures": [
+              {
+                "id": "639976-MLA45772593351_042021",
+                "url": "http://http2.mlstatic.com/D_639976-MLA45772593351_042021-O.jpg",
+                "secure_url": "https://http2.mlstatic.com/D_639976-MLA45772593351_042021-O.jpg",
+                "size": "500x385",
+                "max_size": "1200x926",
+                "quality": ""
+              },
+              {
+                "id": "834153-MLA45772736208_042021",
+                "url": "http://http2.mlstatic.com/D_834153-MLA45772736208_042021-O.webp",
+                "secure_url": "https://http2.mlstatic.com/D_834153-MLA45772736208_042021-O.webp",
+                "size": "500x260",
+                "max_size": "1200x626",
+                "quality": ""
+              },
+              {
+                "id": "847680-MLU76732591081_052024",
+                "url": "http://http2.mlstatic.com/D_847680-MLU76732591081_052024-O.jpg",
+                "secure_url": "https://http2.mlstatic.com/D_847680-MLU76732591081_052024-O.jpg",
+                "size": "500x461",
+                "max_size": "1196x1103",
+                "quality": ""
+              },
+              {
+                "id": "751491-MLU76732717605_052024",
+                "url": "http://http2.mlstatic.com/D_751491-MLU76732717605_052024-O.webp",
+                "secure_url": "https://http2.mlstatic.com/D_751491-MLU76732717605_052024-O.webp",
+                "size": "500x250",
+                "max_size": "1190x596",
+                "quality": ""
+              }
+            ],
+            "video_id": null,
+            "accepts_mercadopago": true,
+            "non_mercado_pago_payment_methods": [],
+            "shipping": {
+              "mode": "me2",
+              "methods": [],
+              "tags": [
+                "self_service_in",
+                "mandatory_free_shipping"
+              ],
+              "dimensions": null,
+              "local_pick_up": true,
+              "free_shipping": true,
+              "logistic_type": "cross_docking",
+              "store_pick_up": false
+            },
+            "international_delivery_mode": "none",
+            "seller_address": {
+              "address_line": "Calle Felipe Vallese 1563",
+              "zip_code": "1406",
+              "city": {
+                "id": "TUxBQkNBQjM4MDda",
+                "name": "Caballito"
+              },
+              "state": {
+                "id": "AR-C",
+                "name": "Capital Federal"
+              },
+              "country": {
+                "id": "AR",
+                "name": "Argentina"
+              },
+              "search_location": {
+                "neighborhood": {
+                  "id": "TUxBQkNBQjM4MDda",
+                  "name": "Caballito"
+                },
+                "city": {
+                  "id": "TUxBQ0NBUGZlZG1sYQ",
+                  "name": "Capital Federal"
+                },
+                "state": {
+                  "id": "TUxBUENBUGw3M2E1",
+                  "name": "Capital Federal"
+                }
+              },
+              "latitude": -34.617049,
+              "longitude": -58.456287,
+              "id": 1483942080
+            },
+            "seller_contact": null,
+            "location": {},
+            "geolocation": {
+              "latitude": -34.617049,
+              "longitude": -58.456287
+            },
+            "coverage_areas": [],
+            "attributes": [
+              {
+                "id": "INCLUDES_INSTALLATION_MANUAL",
+                "name": "Incluye manual de instalación",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "MOLEX_CONNECTORS_NUMBER",
+                "name": "Cantidad de conectores MOLEX",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "integer"
+              },
+              {
+                "id": "POWER_CORD_LENGTH",
+                "name": "Largo del cable de alimentación",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "ACCESSORIES_INCLUDED",
+                "name": "Accesorios incluidos",
+                "value_id": "17968126",
+                "value_name": "Cable de alimentación",
+                "values": [
+                  {
+                    "id": "17968126",
+                    "name": "Cable de alimentación",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "BRAND",
+                "name": "Marca de la fuente",
+                "value_id": "47354",
+                "value_name": "Corsair",
+                "values": [
+                  {
+                    "id": "47354",
+                    "name": "Corsair",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COLOR",
+                "name": "Color",
+                "value_id": "116435",
+                "value_name": "Black",
+                "values": [
+                  {
+                    "id": "116435",
+                    "name": "Black",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_HEIGHT",
+                "name": "Altura de la fuente de alimentación para PC",
+                "value_id": "3692090",
+                "value_name": "8.6 cm",
+                "values": [
+                  {
+                    "id": "3692090",
+                    "name": "8.6 cm",
+                    "struct": {
+                      "number": 8.6,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_LENGTH",
+                "name": "Largo de la fuente de alimentación para PC",
+                "value_id": "20133156",
+                "value_name": "18 cm",
+                "values": [
+                  {
+                    "id": "20133156",
+                    "name": "18 cm",
+                    "struct": {
+                      "number": 18,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_WEIGHT",
+                "name": "Peso de la fuente de alimentación para PC",
+                "value_id": "8026361",
+                "value_name": "3.27 kg",
+                "values": [
+                  {
+                    "id": "8026361",
+                    "name": "3.27 kg",
+                    "struct": {
+                      "number": 3.27,
+                      "unit": "kg"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_WIDTH",
+                "name": "Ancho de la fuente de alimentación para PC",
+                "value_id": "570734",
+                "value_name": "15 cm",
+                "values": [
+                  {
+                    "id": "570734",
+                    "name": "15 cm",
+                    "struct": {
+                      "number": 15,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "EFFICIENCY_CERTIFICATION",
+                "name": "Certificación de eficiencia",
+                "value_id": "2996165",
+                "value_name": "80 Plus Gold",
+                "values": [
+                  {
+                    "id": "2996165",
+                    "name": "80 Plus Gold",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "EMPTY_GTIN_REASON",
+                "name": "Motivo de GTIN vacío",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "ENERGY_EFFICIENCY",
+                "name": "Eficiencia energética",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "FAN_DIAMETER",
+                "name": "Diámetro del ventilador",
+                "value_id": "8630096",
+                "value_name": "14 cm",
+                "values": [
+                  {
+                    "id": "8630096",
+                    "name": "14 cm",
+                    "struct": {
+                      "number": 14,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "FORM_FACTOR",
+                "name": "Factor de forma",
+                "value_id": "116819",
+                "value_name": "ATX",
+                "values": [
+                  {
+                    "id": "116819",
+                    "name": "ATX",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "FREQUENCY",
+                "name": "Frecuencia",
+                "value_id": "7892720",
+                "value_name": "63 Hz",
+                "values": [
+                  {
+                    "id": "7892720",
+                    "name": "63 Hz",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "GTIN",
+                "name": "Código universal de producto",
+                "value_id": null,
+                "value_name": "840006604815",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "840006604815",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "HEIGHT",
+                "name": "Altura",
+                "value_id": "60049868",
+                "value_name": "86 mm",
+                "values": [
+                  {
+                    "id": "60049868",
+                    "name": "86 mm",
+                    "struct": {
+                      "number": 86,
+                      "unit": "mm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "IMPORT_DUTY",
+                "name": "Impuesto interno",
+                "value_id": "49553239",
+                "value_name": "0 %",
+                "values": [
+                  {
+                    "id": "49553239",
+                    "name": "0 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "INCLUDES_ACCESSORIES",
+                "name": "Incluye accesorios",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_KIT",
+                "name": "Es kit",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "ITEM_CONDITION",
+                "name": "Condición del ítem",
+                "value_id": "2230284",
+                "value_name": "Nuevo",
+                "values": [
+                  {
+                    "id": "2230284",
+                    "name": "Nuevo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "LENGTH",
+                "name": "Largo",
+                "value_id": "2279701",
+                "value_name": "160 mm",
+                "values": [
+                  {
+                    "id": "2279701",
+                    "name": "160 mm",
+                    "struct": {
+                      "number": 160,
+                      "unit": "mm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "LINE",
+                "name": "Línea",
+                "value_id": "3768779",
+                "value_name": "RMx Series",
+                "values": [
+                  {
+                    "id": "3768779",
+                    "name": "RMx Series",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MODEL",
+                "name": "Modelo de la fuente",
+                "value_id": "7928556",
+                "value_name": "RM850x",
+                "values": [
+                  {
+                    "id": "7928556",
+                    "name": "RM850x",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MODULATION_TYPE",
+                "name": "Tipo de modulación",
+                "value_id": "8234701",
+                "value_name": "Modular",
+                "values": [
+                  {
+                    "id": "8234701",
+                    "name": "Modular",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "MPN",
+                "name": "MPN",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "POWER_OUTPUT",
+                "name": "Potencia de salida",
+                "value_id": "1262011",
+                "value_name": "850 W",
+                "values": [
+                  {
+                    "id": "1262011",
+                    "name": "850 W",
+                    "struct": {
+                      "number": 850,
+                      "unit": "W"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "POWER_SUPPLY_COOLING_TYPE",
+                "name": "Tipo de refrigeración de la fuente",
+                "value_id": "59937886",
+                "value_name": "Aire",
+                "values": [
+                  {
+                    "id": "59937886",
+                    "name": "Aire",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "PRODUCT_DATA_SOURCE",
+                "name": "Fuente del producto",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "PRODUCT_FEATURES",
+                "name": "Características del producto",
+                "value_id": "8847339",
+                "value_name": "Sin vencimiento",
+                "values": [
+                  {
+                    "id": "8847339",
+                    "name": "Sin vencimiento",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "PROTECTIONS",
+                "name": "Protecciones",
+                "value_id": null,
+                "value_name": "Voltaje,Potencia,Cortocircuito",
+                "values": [
+                  {
+                    "id": "59937882",
+                    "name": "Voltaje",
+                    "struct": null
+                  },
+                  {
+                    "id": "59937883",
+                    "name": "Potencia",
+                    "struct": null
+                  },
+                  {
+                    "id": "59937885",
+                    "name": "Cortocircuito",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SELLER_SKU",
+                "name": "SKU",
+                "value_id": null,
+                "value_name": "840006604815",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "840006604815",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "VALUE_ADDED_TAX",
+                "name": "IVA",
+                "value_id": "48405909",
+                "value_name": "21 %",
+                "values": [
+                  {
+                    "id": "48405909",
+                    "name": "21 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "VOLTAGE",
+                "name": "Voltaje",
+                "value_id": "198813",
+                "value_name": "220V",
+                "values": [
+                  {
+                    "id": "198813",
+                    "name": "220V",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "WIDTH",
+                "name": "Ancho",
+                "value_id": "51859938",
+                "value_name": "150 mm",
+                "values": [
+                  {
+                    "id": "51859938",
+                    "name": "150 mm",
+                    "struct": {
+                      "number": 150,
+                      "unit": "mm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "WITH_ACTIVE_POWER_FACTOR_CORRECTION",
+                "name": "Con corrección activa del factor de potencia",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_RGB_LIGHTING",
+                "name": "Con iluminación RGB",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_SILENT_OPERATION",
+                "name": "Con funcionamiento silencioso",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              }
+            ],
+            "listing_source": "",
+            "variations": [],
+            "status": "paused",
+            "sub_status": [
+              "out_of_stock"
+            ],
+            "tags": [
+              "extended_warranty_eligible",
+              "good_quality_thumbnail",
+              "good_quality_picture",
+              "immediate_payment",
+              "cart_eligible"
+            ],
+            "warranty": "Garantía de fábrica: 5 años",
+            "catalog_product_id": "MLA43936107",
+            "domain_id": "MLA-DESKTOP_COMPUTER_POWER_SUPPLIES",
+            "seller_custom_field": "126",
+            "parent_item_id": null,
+            "differential_pricing": null,
+            "deal_ids": [],
+            "automatic_relist": false,
+            "date_created": "2021-08-15T03:39:42.000Z",
+            "last_updated": "2026-09-26T15:48:18.545Z",
+            "health": null,
+            "catalog_listing": true,
+            "item_relations": [
+              {
+                "id": "MLA934405212",
+                "variation_id": null,
+                "stock_relation": 1
+              }
+            ],
+            "channels": [
+              "marketplace"
+            ]
+          }
+        },
+        {
+          "id": "MLA1",
+          "status_code": 404,
+          "error": {
+            "message": "Item with id MLA1 not found"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bulk_attributes",
+      "path": "/items/bulk?ids=MLA935110613,MLA934406852,MLA1&attributes=body.id,body.status,body.available_quantity",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8",
+        "date": "Tue, 06 Oct 2026 04:56:26 GMT",
+        "x-request-id": "3a891302-6790-449e-8f1d-114471584de5"
+      },
+      "body": [
+        {
+          "body": {
+            "id": "MLA935110613",
+            "available_quantity": 0,
+            "status": "paused"
+          }
+        },
+        {
+          "body": {
+            "id": "MLA934406852",
+            "available_quantity": 0,
+            "status": "paused"
+          }
+        },
+        {}
+      ]
+    },
+    {
+      "name": "bulk_single",
+      "path": "/items/bulk?ids=MLA935110613",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8",
+        "date": "Tue, 06 Oct 2026 04:56:27 GMT",
+        "x-request-id": "f1ab3a01-d352-4409-8765-9189b0a59aa5"
+      },
+      "body": [
+        {
+          "id": "MLA935110613",
+          "status_code": 200,
+          "body": {
+            "id": "MLA935110613",
+            "site_id": "MLA",
+            "title": "Combo Gamer 4 En 1 Marvo Teclado Mouse Auricular Pad Cm409 Negro",
+            "family_name": "Combo Gamer 4 En 1 Marvo Teclado Mouse Auricular Pad Cm409",
+            "family_id": 7695306917964170,
+            "seller_id": 413658225,
+            "category_id": "MLA6263",
+            "user_product_id": "MLAU282291766",
+            "official_store_id": 57997,
+            "price": 24863.0,
+            "base_price": 24863.0,
+            "original_price": null,
+            "inventory_id": "BWQF98066",
+            "currency_id": "ARS",
+            "initial_quantity": 79,
+            "available_quantity": 0,
+            "sold_quantity": 79,
+            "sale_terms": [
+              {
+                "id": "INVOICE",
+                "name": "Facturación",
+                "value_id": "6891885",
+                "value_name": "Factura A",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "6891885",
+                    "name": "Factura A",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TYPE",
+                "name": "Tipo de garantía",
+                "value_id": "2230279",
+                "value_name": "Garantía de fábrica",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "2230279",
+                    "name": "Garantía de fábrica",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TIME",
+                "name": "Tiempo de garantía",
+                "value_id": null,
+                "value_name": "6 meses",
+                "value_struct": {
+                  "number": 6,
+                  "unit": "meses"
+                },
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6 meses",
+                    "struct": {
+                      "number": 6,
+                      "unit": "meses"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              }
+            ],
+            "buying_mode": "buy_it_now",
+            "listing_type_id": "gold_special",
+            "start_time": "2021-08-20T01:25:10.000Z",
+            "stop_time": "2041-08-14T04:00:00.000Z",
+            "end_time": "2041-08-14T04:00:00.000Z",
+            "expiration_time": "2025-10-16T14:51:13.286Z",
+            "condition": "new",
+            "permalink": "https://articulo.mercadolibre.com.ar/MLA-935110613-combo-gamer-4-en-1-marvo-teclado-mouse-auricular-pad-cm409-negro-_JM",
+            "thumbnail_id": "639463-MLA74117407878_012024",
+            "thumbnail": "http://http2.mlstatic.com/D_639463-MLA74117407878_012024-I.jpg",
+            "pictures": [
+              {
+                "id": "639463-MLA74117407878_012024",
+                "url": "http://http2.mlstatic.com/D_639463-MLA74117407878_012024-O.jpg",
+                "secure_url": "https://http2.mlstatic.com/D_639463-MLA74117407878_012024-O.jpg",
+                "size": "500x231",
+                "max_size": "1200x556",
+                "quality": ""
+              },
+              {
+                "id": "783357-MLA47169822626_082021",
+                "url": "http://http2.mlstatic.com/D_783357-MLA47169822626_082021-O.webp",
+                "secure_url": "https://http2.mlstatic.com/D_783357-MLA47169822626_082021-O.webp",
+                "size": "333x500",
+                "max_size": "616x924",
+                "quality": ""
+              }
+            ],
+            "video_id": null,
+            "accepts_mercadopago": true,
+            "non_mercado_pago_payment_methods": [],
+            "shipping": {
+              "mode": "me2",
+              "methods": [],
+              "tags": [
+                "self_service_in"
+              ],
+              "dimensions": null,
+              "local_pick_up": true,
+              "free_shipping": false,
+              "logistic_type": "cross_docking",
+              "store_pick_up": false
+            },
+            "international_delivery_mode": "none",
+            "seller_address": {
+              "address_line": "Calle Felipe Vallese 1563",
+              "zip_code": "1406",
+              "city": {
+                "id": "TUxBQkNBQjM4MDda",
+                "name": "Caballito"
+              },
+              "state": {
+                "id": "AR-C",
+                "name": "Capital Federal"
+              },
+              "country": {
+                "id": "AR",
+                "name": "Argentina"
+              },
+              "search_location": {
+                "neighborhood": {
+                  "id": "TUxBQkNBQjM4MDda",
+                  "name": "Caballito"
+                },
+                "city": {
+                  "id": "TUxBQ0NBUGZlZG1sYQ",
+                  "name": "Capital Federal"
+                },
+                "state": {
+                  "id": "TUxBUENBUGw3M2E1",
+                  "name": "Capital Federal"
+                }
+              },
+              "latitude": -34.617049,
+              "longitude": -58.456287,
+              "id": 1483942080
+            },
+            "seller_contact": null,
+            "location": {},
+            "geolocation": {
+              "latitude": -34.617049,
+              "longitude": -58.456287
+            },
+            "coverage_areas": [],
+            "attributes": [
+              {
+                "id": "SELLER_PACKAGE_TYPE",
+                "name": "Tipo de paquete del seller",
+                "value_id": "47115156",
+                "value_name": "Con embalaje adicional",
+                "values": [
+                  {
+                    "id": "47115156",
+                    "name": "Con embalaje adicional",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "BRAND",
+                "name": "Marca",
+                "value_id": "271057",
+                "value_name": "Marvo",
+                "values": [
+                  {
+                    "id": "271057",
+                    "name": "Marvo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COLOR",
+                "name": "Color del teclado",
+                "value_id": "52049",
+                "value_name": "Negro",
+                "values": [
+                  {
+                    "id": "52049",
+                    "name": "Negro",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPATIBLE_GAME_CONSOLES",
+                "name": "Consolas de juegos compatibles",
+                "value_id": null,
+                "value_name": "PlayStation 4,Xbox One",
+                "values": [
+                  {
+                    "id": "923447",
+                    "name": "PlayStation 4",
+                    "struct": null
+                  },
+                  {
+                    "id": "923450",
+                    "name": "Xbox One",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPATIBLE_OPERATING_SYSTEMS",
+                "name": "Sistemas operativos compatibles",
+                "value_id": null,
+                "value_name": "Windows 7,Windows 8,Windows 9",
+                "values": [
+                  {
+                    "id": "3211255",
+                    "name": "Windows 7",
+                    "struct": null
+                  },
+                  {
+                    "id": "3211254",
+                    "name": "Windows 8",
+                    "struct": null
+                  },
+                  {
+                    "id": "9014150",
+                    "name": "Windows 9",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "DETAILED_MODEL",
+                "name": "Modelo detallado",
+                "value_id": "13455902",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455902",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "GTIN",
+                "name": "Código universal de producto",
+                "value_id": null,
+                "value_name": "6932391923160",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6932391923160",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "IMPORT_DUTY",
+                "name": "Impuesto interno",
+                "value_id": "49553239",
+                "value_name": "0 %",
+                "values": [
+                  {
+                    "id": "49553239",
+                    "name": "0 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "INCLUDES_BATTERY",
+                "name": "Incluye batería",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_HEADPHONES",
+                "name": "Incluye auriculares",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_MOUSE_PAD",
+                "name": "Incluye mouse pad",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_SPEAKERS",
+                "name": "Incluye parlantes",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_GAMER",
+                "name": "Es gamer",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_ONE_HANDED_KEYBOARD",
+                "name": "Es teclado para una mano",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_RECHARGEABLE",
+                "name": "Es recargable",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_SPLASH_RESISTANT",
+                "name": "Es resistente a salpicaduras",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_WIRELESS",
+                "name": "Es inalámbrico",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "ITEM_CONDITION",
+                "name": "Condición del ítem",
+                "value_id": "2230284",
+                "value_name": "Nuevo",
+                "values": [
+                  {
+                    "id": "2230284",
+                    "name": "Nuevo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "KEYBOARD_ARCHITECTURE",
+                "name": "Arquitectura del teclado",
+                "value_id": "9014139",
+                "value_name": "Membrana",
+                "values": [
+                  {
+                    "id": "9014139",
+                    "name": "Membrana",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_BACKLIGHTING_COLOR",
+                "name": "Color de la retroiluminación del teclado",
+                "value_id": "3267129",
+                "value_name": "Rainbow",
+                "values": [
+                  {
+                    "id": "3267129",
+                    "name": "Rainbow",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_INTERFACE",
+                "name": "Conexión del teclado",
+                "value_id": "9014141",
+                "value_name": "USB 2.0",
+                "values": [
+                  {
+                    "id": "9014141",
+                    "name": "USB 2.0",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_LANGUAGE",
+                "name": "Idioma del teclado",
+                "value_id": "9026934",
+                "value_name": "Español",
+                "values": [
+                  {
+                    "id": "9026934",
+                    "name": "Español",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_MODEL",
+                "name": "Modelo del teclado",
+                "value_id": "13455904",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455904",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_SWITCH_TYPE",
+                "name": "Tipo de switch del teclado",
+                "value_id": "20102836",
+                "value_name": "Membrana",
+                "values": [
+                  {
+                    "id": "20102836",
+                    "name": "Membrana",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MAIN_COLOR",
+                "name": "Color principal",
+                "value_id": "2450295",
+                "value_name": "Negro",
+                "values": [
+                  {
+                    "id": "2450295",
+                    "name": "Negro",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "MODEL",
+                "name": "Modelo",
+                "value_id": "13355326",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13355326",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_BACKLIGHTING_COLOR",
+                "name": "Color de la retroiluminación del mouse",
+                "value_id": "9017822",
+                "value_name": "7 colores",
+                "values": [
+                  {
+                    "id": "9017822",
+                    "name": "7 colores",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_INTERFACE",
+                "name": "Conexión del mouse",
+                "value_id": "9014145",
+                "value_name": "USB 2.0",
+                "values": [
+                  {
+                    "id": "9014145",
+                    "name": "USB 2.0",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_MODEL",
+                "name": "Modelo del mouse",
+                "value_id": "13455906",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455906",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_SENSOR_RESOLUTION",
+                "name": "Resolución del sensor del mouse",
+                "value_id": null,
+                "value_name": "3200 dpi",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "3200 dpi",
+                    "struct": {
+                      "number": 3200,
+                      "unit": "dpi"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "MOUSE_SENSOR_TYPE",
+                "name": "Tipo de sensor del mouse",
+                "value_id": "9014128",
+                "value_name": "Óptico",
+                "values": [
+                  {
+                    "id": "9014128",
+                    "name": "Óptico",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "PACKAGE_HEIGHT",
+                "name": "Altura del paquete",
+                "value_id": null,
+                "value_name": "18.4 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "18.4 cm",
+                    "struct": {
+                      "number": 18.4,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_LENGTH",
+                "name": "Largo del paquete",
+                "value_id": null,
+                "value_name": "47 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "47 cm",
+                    "struct": {
+                      "number": 47,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_WEIGHT",
+                "name": "Peso del paquete",
+                "value_id": null,
+                "value_name": "1220 g",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "1220 g",
+                    "struct": {
+                      "number": 1220,
+                      "unit": "g"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_WIDTH",
+                "name": "Ancho del paquete",
+                "value_id": null,
+                "value_name": "13.8 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "13.8 cm",
+                    "struct": {
+                      "number": 13.8,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PRODUCT_FEATURES",
+                "name": "Características del producto",
+                "value_id": "8847339",
+                "value_name": "Sin vencimiento",
+                "values": [
+                  {
+                    "id": "8847339",
+                    "name": "Sin vencimiento",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "SELLER_PACKAGE_HEIGHT",
+                "name": "Altura del paquete del seller",
+                "value_id": null,
+                "value_name": "48 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "48 cm",
+                    "struct": {
+                      "number": 48,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_LENGTH",
+                "name": "Largo del paquete del seller",
+                "value_id": null,
+                "value_name": "15 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "15 cm",
+                    "struct": {
+                      "number": 15,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_WEIGHT",
+                "name": "Peso del paquete del seller",
+                "value_id": null,
+                "value_name": "1470 g",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "1470 g",
+                    "struct": {
+                      "number": 1470,
+                      "unit": "g"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_WIDTH",
+                "name": "Ancho del paquete del seller",
+                "value_id": null,
+                "value_name": "20 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "20 cm",
+                    "struct": {
+                      "number": 20,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_SKU",
+                "name": "SKU",
+                "value_id": null,
+                "value_name": "6932391923481",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6932391923481",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SENSOR_TECHNOLOGY",
+                "name": "Tecnología del sensor",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SHIPMENT_PACKING",
+                "name": "Embalaje del envío",
+                "value_id": "7435892",
+                "value_name": "Caja",
+                "values": [
+                  {
+                    "id": "7435892",
+                    "name": "Caja",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "VALUE_ADDED_TAX",
+                "name": "IVA",
+                "value_id": "48405909",
+                "value_name": "21 %",
+                "values": [
+                  {
+                    "id": "48405909",
+                    "name": "21 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WITH_ANTI_GHOST_KEYS",
+                "name": "Con teclas anti-ghost",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_KEYBOARD_BLUETOOTH_CONNECTION",
+                "name": "Con conexión bluetooth para teclado",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_MOUSE_BLUETOOTH_CONNECTION",
+                "name": "Con conexión bluetooth para mouse",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_WRIST_REST",
+                "name": "Con reposa muñeca",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              }
+            ],
+            "listing_source": "",
+            "variations": [],
+            "status": "paused",
+            "sub_status": [
+              "out_of_stock"
+            ],
+            "tags": [
+              "poor_quality_thumbnail",
+              "extended_warranty_eligible",
+              "user_product_listing",
+              "picture_crop_fix",
+              "immediate_payment",
+              "cart_eligible"
+            ],
+            "warranty": "Garantía de fábrica: 6 meses",
+            "catalog_product_id": "MLA19771902",
+            "domain_id": "MLA-KEYBOARD_AND_MOUSE_KITS",
+            "seller_custom_field": null,
+            "parent_item_id": null,
+            "differential_pricing": null,
+            "deal_ids": [],
+            "automatic_relist": false,
+            "date_created": "2021-08-20T01:25:10.000Z",
+            "last_updated": "2026-10-02T22:47:49.854Z",
+            "health": 0.66,
+            "catalog_listing": false,
+            "item_relations": [
+              {
+                "id": "MLA1275211355",
+                "variation_id": null,
+                "stock_relation": 1
+              }
+            ],
+            "channels": [
+              "marketplace"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "legacy_multiget",
+      "path": "/items?ids=MLA935110613,MLA934406852,MLA1",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "date": "Tue, 06 Oct 2026 04:56:28 GMT",
+        "x-request-id": "4e844bdd-2374-4a7c-82b3-0d25daa51254"
+      },
+      "body": [
+        {
+          "code": 200,
+          "body": {
+            "id": "MLA934406852",
+            "site_id": "MLA",
+            "title": "Fuente De Alimentación Para Pc Corsair Rmx Series Rm850x 850w Black",
+            "family_name": "Fuente De Alimentación Para Pc Corsair Rmx Series Rm850x 850w Black",
+            "family_id": 4395795880542864,
+            "seller_id": 413658225,
+            "category_id": "MLA1695",
+            "user_product_id": "MLAU312190127",
+            "official_store_id": 57997,
+            "price": 492325.0,
+            "base_price": 492325.0,
+            "original_price": null,
+            "inventory_id": "DBBD88438",
+            "currency_id": "ARS",
+            "initial_quantity": 26,
+            "available_quantity": 0,
+            "sold_quantity": 26,
+            "sale_terms": [
+              {
+                "id": "WARRANTY_TIME",
+                "name": "Tiempo de garantía",
+                "value_id": null,
+                "value_name": "5 años",
+                "value_struct": {
+                  "number": 5,
+                  "unit": "años"
+                },
+                "values": [
+                  {
+                    "id": null,
+                    "name": "5 años",
+                    "struct": {
+                      "number": 5,
+                      "unit": "años"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "INVOICE",
+                "name": "Facturación",
+                "value_id": "6891885",
+                "value_name": "Factura A",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "6891885",
+                    "name": "Factura A",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TYPE",
+                "name": "Tipo de garantía",
+                "value_id": "2230279",
+                "value_name": "Garantía de fábrica",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "2230279",
+                    "name": "Garantía de fábrica",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              }
+            ],
+            "buying_mode": "buy_it_now",
+            "listing_type_id": "gold_pro",
+            "start_time": "2021-08-15T03:39:41.000Z",
+            "stop_time": "2042-08-25T19:07:19.000Z",
+            "end_time": "2042-08-25T19:07:19.000Z",
+            "expiration_time": "2027-04-14T15:48:18.414Z",
+            "condition": "new",
+            "permalink": "https://articulo.mercadolibre.com.ar/MLA-934406852-fuente-de-alimentacion-para-pc-corsair-rmx-series-rm850x-850w-black-_JM",
+            "thumbnail_id": "639976-MLA45772593351_042021",
+            "thumbnail": "http://http2.mlstatic.com/D_639976-MLA45772593351_042021-I.jpg",
+            "pictures": [
+              {
+                "id": "639976-MLA45772593351_042021",
+                "url": "http://http2.mlstatic.com/D_639976-MLA45772593351_042021-O.jpg",
+                "secure_url": "https://http2.mlstatic.com/D_639976-MLA45772593351_042021-O.jpg",
+                "size": "500x385",
+                "max_size": "1200x926",
+                "quality": ""
+              },
+              {
+                "id": "834153-MLA45772736208_042021",
+                "url": "http://http2.mlstatic.com/D_834153-MLA45772736208_042021-O.webp",
+                "secure_url": "https://http2.mlstatic.com/D_834153-MLA45772736208_042021-O.webp",
+                "size": "500x260",
+                "max_size": "1200x626",
+                "quality": ""
+              },
+              {
+                "id": "847680-MLU76732591081_052024",
+                "url": "http://http2.mlstatic.com/D_847680-MLU76732591081_052024-O.jpg",
+                "secure_url": "https://http2.mlstatic.com/D_847680-MLU76732591081_052024-O.jpg",
+                "size": "500x461",
+                "max_size": "1196x1103",
+                "quality": ""
+              },
+              {
+                "id": "751491-MLU76732717605_052024",
+                "url": "http://http2.mlstatic.com/D_751491-MLU76732717605_052024-O.webp",
+                "secure_url": "https://http2.mlstatic.com/D_751491-MLU76732717605_052024-O.webp",
+                "size": "500x250",
+                "max_size": "1190x596",
+                "quality": ""
+              }
+            ],
+            "video_id": null,
+            "accepts_mercadopago": true,
+            "non_mercado_pago_payment_methods": [],
+            "shipping": {
+              "mode": "me2",
+              "methods": [],
+              "tags": [
+                "self_service_in",
+                "mandatory_free_shipping"
+              ],
+              "dimensions": null,
+              "local_pick_up": true,
+              "free_shipping": true,
+              "logistic_type": "cross_docking",
+              "store_pick_up": false
+            },
+            "international_delivery_mode": "none",
+            "seller_address": {
+              "address_line": "Calle Felipe Vallese 1563",
+              "zip_code": "1406",
+              "city": {
+                "id": "TUxBQkNBQjM4MDda",
+                "name": "Caballito"
+              },
+              "state": {
+                "id": "AR-C",
+                "name": "Capital Federal"
+              },
+              "country": {
+                "id": "AR",
+                "name": "Argentina"
+              },
+              "search_location": {
+                "neighborhood": {
+                  "id": "TUxBQkNBQjM4MDda",
+                  "name": "Caballito"
+                },
+                "city": {
+                  "id": "TUxBQ0NBUGZlZG1sYQ",
+                  "name": "Capital Federal"
+                },
+                "state": {
+                  "id": "TUxBUENBUGw3M2E1",
+                  "name": "Capital Federal"
+                }
+              },
+              "latitude": -34.617049,
+              "longitude": -58.456287,
+              "id": 1483942080
+            },
+            "seller_contact": null,
+            "location": {},
+            "geolocation": {
+              "latitude": -34.617049,
+              "longitude": -58.456287
+            },
+            "coverage_areas": [],
+            "attributes": [
+              {
+                "id": "INCLUDES_INSTALLATION_MANUAL",
+                "name": "Incluye manual de instalación",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "MOLEX_CONNECTORS_NUMBER",
+                "name": "Cantidad de conectores MOLEX",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "integer"
+              },
+              {
+                "id": "POWER_CORD_LENGTH",
+                "name": "Largo del cable de alimentación",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "ACCESSORIES_INCLUDED",
+                "name": "Accesorios incluidos",
+                "value_id": "17968126",
+                "value_name": "Cable de alimentación",
+                "values": [
+                  {
+                    "id": "17968126",
+                    "name": "Cable de alimentación",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "BRAND",
+                "name": "Marca de la fuente",
+                "value_id": "47354",
+                "value_name": "Corsair",
+                "values": [
+                  {
+                    "id": "47354",
+                    "name": "Corsair",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COLOR",
+                "name": "Color",
+                "value_id": "116435",
+                "value_name": "Black",
+                "values": [
+                  {
+                    "id": "116435",
+                    "name": "Black",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_HEIGHT",
+                "name": "Altura de la fuente de alimentación para PC",
+                "value_id": "3692090",
+                "value_name": "8.6 cm",
+                "values": [
+                  {
+                    "id": "3692090",
+                    "name": "8.6 cm",
+                    "struct": {
+                      "number": 8.6,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_LENGTH",
+                "name": "Largo de la fuente de alimentación para PC",
+                "value_id": "20133156",
+                "value_name": "18 cm",
+                "values": [
+                  {
+                    "id": "20133156",
+                    "name": "18 cm",
+                    "struct": {
+                      "number": 18,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_WEIGHT",
+                "name": "Peso de la fuente de alimentación para PC",
+                "value_id": "8026361",
+                "value_name": "3.27 kg",
+                "values": [
+                  {
+                    "id": "8026361",
+                    "name": "3.27 kg",
+                    "struct": {
+                      "number": 3.27,
+                      "unit": "kg"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "COMPUTER_POWER_SUPPLY_WIDTH",
+                "name": "Ancho de la fuente de alimentación para PC",
+                "value_id": "570734",
+                "value_name": "15 cm",
+                "values": [
+                  {
+                    "id": "570734",
+                    "name": "15 cm",
+                    "struct": {
+                      "number": 15,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "EFFICIENCY_CERTIFICATION",
+                "name": "Certificación de eficiencia",
+                "value_id": "2996165",
+                "value_name": "80 Plus Gold",
+                "values": [
+                  {
+                    "id": "2996165",
+                    "name": "80 Plus Gold",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "EMPTY_GTIN_REASON",
+                "name": "Motivo de GTIN vacío",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "ENERGY_EFFICIENCY",
+                "name": "Eficiencia energética",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "FAN_DIAMETER",
+                "name": "Diámetro del ventilador",
+                "value_id": "8630096",
+                "value_name": "14 cm",
+                "values": [
+                  {
+                    "id": "8630096",
+                    "name": "14 cm",
+                    "struct": {
+                      "number": 14,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "FORM_FACTOR",
+                "name": "Factor de forma",
+                "value_id": "116819",
+                "value_name": "ATX",
+                "values": [
+                  {
+                    "id": "116819",
+                    "name": "ATX",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "FREQUENCY",
+                "name": "Frecuencia",
+                "value_id": "7892720",
+                "value_name": "63 Hz",
+                "values": [
+                  {
+                    "id": "7892720",
+                    "name": "63 Hz",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "GTIN",
+                "name": "Código universal de producto",
+                "value_id": null,
+                "value_name": "840006604815",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "840006604815",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "HEIGHT",
+                "name": "Altura",
+                "value_id": "60049868",
+                "value_name": "86 mm",
+                "values": [
+                  {
+                    "id": "60049868",
+                    "name": "86 mm",
+                    "struct": {
+                      "number": 86,
+                      "unit": "mm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "IMPORT_DUTY",
+                "name": "Impuesto interno",
+                "value_id": "49553239",
+                "value_name": "0 %",
+                "values": [
+                  {
+                    "id": "49553239",
+                    "name": "0 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "INCLUDES_ACCESSORIES",
+                "name": "Incluye accesorios",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_KIT",
+                "name": "Es kit",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "ITEM_CONDITION",
+                "name": "Condición del ítem",
+                "value_id": "2230284",
+                "value_name": "Nuevo",
+                "values": [
+                  {
+                    "id": "2230284",
+                    "name": "Nuevo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "LENGTH",
+                "name": "Largo",
+                "value_id": "2279701",
+                "value_name": "160 mm",
+                "values": [
+                  {
+                    "id": "2279701",
+                    "name": "160 mm",
+                    "struct": {
+                      "number": 160,
+                      "unit": "mm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "LINE",
+                "name": "Línea",
+                "value_id": "3768779",
+                "value_name": "RMx Series",
+                "values": [
+                  {
+                    "id": "3768779",
+                    "name": "RMx Series",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MODEL",
+                "name": "Modelo de la fuente",
+                "value_id": "7928556",
+                "value_name": "RM850x",
+                "values": [
+                  {
+                    "id": "7928556",
+                    "name": "RM850x",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MODULATION_TYPE",
+                "name": "Tipo de modulación",
+                "value_id": "8234701",
+                "value_name": "Modular",
+                "values": [
+                  {
+                    "id": "8234701",
+                    "name": "Modular",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "MPN",
+                "name": "MPN",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "POWER_OUTPUT",
+                "name": "Potencia de salida",
+                "value_id": "1262011",
+                "value_name": "850 W",
+                "values": [
+                  {
+                    "id": "1262011",
+                    "name": "850 W",
+                    "struct": {
+                      "number": 850,
+                      "unit": "W"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "POWER_SUPPLY_COOLING_TYPE",
+                "name": "Tipo de refrigeración de la fuente",
+                "value_id": "59937886",
+                "value_name": "Aire",
+                "values": [
+                  {
+                    "id": "59937886",
+                    "name": "Aire",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "PRODUCT_DATA_SOURCE",
+                "name": "Fuente del producto",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "PRODUCT_FEATURES",
+                "name": "Características del producto",
+                "value_id": "8847339",
+                "value_name": "Sin vencimiento",
+                "values": [
+                  {
+                    "id": "8847339",
+                    "name": "Sin vencimiento",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "PROTECTIONS",
+                "name": "Protecciones",
+                "value_id": null,
+                "value_name": "Voltaje,Potencia,Cortocircuito",
+                "values": [
+                  {
+                    "id": "59937882",
+                    "name": "Voltaje",
+                    "struct": null
+                  },
+                  {
+                    "id": "59937883",
+                    "name": "Potencia",
+                    "struct": null
+                  },
+                  {
+                    "id": "59937885",
+                    "name": "Cortocircuito",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SELLER_SKU",
+                "name": "SKU",
+                "value_id": null,
+                "value_name": "840006604815",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "840006604815",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "VALUE_ADDED_TAX",
+                "name": "IVA",
+                "value_id": "48405909",
+                "value_name": "21 %",
+                "values": [
+                  {
+                    "id": "48405909",
+                    "name": "21 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "VOLTAGE",
+                "name": "Voltaje",
+                "value_id": "198813",
+                "value_name": "220V",
+                "values": [
+                  {
+                    "id": "198813",
+                    "name": "220V",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "WIDTH",
+                "name": "Ancho",
+                "value_id": "51859938",
+                "value_name": "150 mm",
+                "values": [
+                  {
+                    "id": "51859938",
+                    "name": "150 mm",
+                    "struct": {
+                      "number": 150,
+                      "unit": "mm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "WITH_ACTIVE_POWER_FACTOR_CORRECTION",
+                "name": "Con corrección activa del factor de potencia",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_RGB_LIGHTING",
+                "name": "Con iluminación RGB",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_SILENT_OPERATION",
+                "name": "Con funcionamiento silencioso",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              }
+            ],
+            "listing_source": "",
+            "variations": [],
+            "status": "paused",
+            "sub_status": [
+              "out_of_stock"
+            ],
+            "tags": [
+              "good_quality_picture",
+              "good_quality_thumbnail",
+              "extended_warranty_eligible",
+              "immediate_payment",
+              "cart_eligible"
+            ],
+            "warranty": "Garantía de fábrica: 5 años",
+            "catalog_product_id": "MLA43936107",
+            "domain_id": "MLA-DESKTOP_COMPUTER_POWER_SUPPLIES",
+            "seller_custom_field": "126",
+            "parent_item_id": null,
+            "differential_pricing": null,
+            "deal_ids": [],
+            "automatic_relist": false,
+            "date_created": "2021-08-15T03:39:42.000Z",
+            "last_updated": "2026-09-26T15:48:18.545Z",
+            "health": null,
+            "catalog_listing": true,
+            "item_relations": [
+              {
+                "id": "MLA934405212",
+                "variation_id": null,
+                "stock_relation": 1
+              }
+            ],
+            "channels": [
+              "marketplace"
+            ]
+          }
+        },
+        {
+          "code": 200,
+          "body": {
+            "id": "MLA935110613",
+            "site_id": "MLA",
+            "title": "Combo Gamer 4 En 1 Marvo Teclado Mouse Auricular Pad Cm409 Negro",
+            "family_name": "Combo Gamer 4 En 1 Marvo Teclado Mouse Auricular Pad Cm409",
+            "family_id": 7695306917964170,
+            "seller_id": 413658225,
+            "category_id": "MLA6263",
+            "user_product_id": "MLAU282291766",
+            "official_store_id": 57997,
+            "price": 24863.0,
+            "base_price": 24863.0,
+            "original_price": null,
+            "inventory_id": "BWQF98066",
+            "currency_id": "ARS",
+            "initial_quantity": 79,
+            "available_quantity": 0,
+            "sold_quantity": 79,
+            "sale_terms": [
+              {
+                "id": "INVOICE",
+                "name": "Facturación",
+                "value_id": "6891885",
+                "value_name": "Factura A",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "6891885",
+                    "name": "Factura A",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TYPE",
+                "name": "Tipo de garantía",
+                "value_id": "2230279",
+                "value_name": "Garantía de fábrica",
+                "value_struct": null,
+                "values": [
+                  {
+                    "id": "2230279",
+                    "name": "Garantía de fábrica",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WARRANTY_TIME",
+                "name": "Tiempo de garantía",
+                "value_id": null,
+                "value_name": "6 meses",
+                "value_struct": {
+                  "number": 6,
+                  "unit": "meses"
+                },
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6 meses",
+                    "struct": {
+                      "number": 6,
+                      "unit": "meses"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              }
+            ],
+            "buying_mode": "buy_it_now",
+            "listing_type_id": "gold_special",
+            "start_time": "2021-08-20T01:25:10.000Z",
+            "stop_time": "2041-08-14T04:00:00.000Z",
+            "end_time": "2041-08-14T04:00:00.000Z",
+            "expiration_time": "2025-10-16T14:51:13.286Z",
+            "condition": "new",
+            "permalink": "https://articulo.mercadolibre.com.ar/MLA-935110613-combo-gamer-4-en-1-marvo-teclado-mouse-auricular-pad-cm409-negro-_JM",
+            "thumbnail_id": "639463-MLA74117407878_012024",
+            "thumbnail": "http://http2.mlstatic.com/D_639463-MLA74117407878_012024-I.jpg",
+            "pictures": [
+              {
+                "id": "639463-MLA74117407878_012024",
+                "url": "http://http2.mlstatic.com/D_639463-MLA74117407878_012024-O.jpg",
+                "secure_url": "https://http2.mlstatic.com/D_639463-MLA74117407878_012024-O.jpg",
+                "size": "500x231",
+                "max_size": "1200x556",
+                "quality": ""
+              },
+              {
+                "id": "783357-MLA47169822626_082021",
+                "url": "http://http2.mlstatic.com/D_783357-MLA47169822626_082021-O.webp",
+                "secure_url": "https://http2.mlstatic.com/D_783357-MLA47169822626_082021-O.webp",
+                "size": "333x500",
+                "max_size": "616x924",
+                "quality": ""
+              }
+            ],
+            "video_id": null,
+            "accepts_mercadopago": true,
+            "non_mercado_pago_payment_methods": [],
+            "shipping": {
+              "mode": "me2",
+              "methods": [],
+              "tags": [
+                "self_service_in"
+              ],
+              "dimensions": null,
+              "local_pick_up": true,
+              "free_shipping": false,
+              "logistic_type": "cross_docking",
+              "store_pick_up": false
+            },
+            "international_delivery_mode": "none",
+            "seller_address": {
+              "address_line": "Calle Felipe Vallese 1563",
+              "zip_code": "1406",
+              "city": {
+                "id": "TUxBQkNBQjM4MDda",
+                "name": "Caballito"
+              },
+              "state": {
+                "id": "AR-C",
+                "name": "Capital Federal"
+              },
+              "country": {
+                "id": "AR",
+                "name": "Argentina"
+              },
+              "search_location": {
+                "neighborhood": {
+                  "id": "TUxBQkNBQjM4MDda",
+                  "name": "Caballito"
+                },
+                "city": {
+                  "id": "TUxBQ0NBUGZlZG1sYQ",
+                  "name": "Capital Federal"
+                },
+                "state": {
+                  "id": "TUxBUENBUGw3M2E1",
+                  "name": "Capital Federal"
+                }
+              },
+              "latitude": -34.617049,
+              "longitude": -58.456287,
+              "id": 1483942080
+            },
+            "seller_contact": null,
+            "location": {},
+            "geolocation": {
+              "latitude": -34.617049,
+              "longitude": -58.456287
+            },
+            "coverage_areas": [],
+            "attributes": [
+              {
+                "id": "SELLER_PACKAGE_TYPE",
+                "name": "Tipo de paquete del seller",
+                "value_id": "47115156",
+                "value_name": "Con embalaje adicional",
+                "values": [
+                  {
+                    "id": "47115156",
+                    "name": "Con embalaje adicional",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "BRAND",
+                "name": "Marca",
+                "value_id": "271057",
+                "value_name": "Marvo",
+                "values": [
+                  {
+                    "id": "271057",
+                    "name": "Marvo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COLOR",
+                "name": "Color del teclado",
+                "value_id": "52049",
+                "value_name": "Negro",
+                "values": [
+                  {
+                    "id": "52049",
+                    "name": "Negro",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPATIBLE_GAME_CONSOLES",
+                "name": "Consolas de juegos compatibles",
+                "value_id": null,
+                "value_name": "PlayStation 4,Xbox One",
+                "values": [
+                  {
+                    "id": "923447",
+                    "name": "PlayStation 4",
+                    "struct": null
+                  },
+                  {
+                    "id": "923450",
+                    "name": "Xbox One",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "COMPATIBLE_OPERATING_SYSTEMS",
+                "name": "Sistemas operativos compatibles",
+                "value_id": null,
+                "value_name": "Windows 7,Windows 8,Windows 9",
+                "values": [
+                  {
+                    "id": "3211255",
+                    "name": "Windows 7",
+                    "struct": null
+                  },
+                  {
+                    "id": "3211254",
+                    "name": "Windows 8",
+                    "struct": null
+                  },
+                  {
+                    "id": "9014150",
+                    "name": "Windows 9",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "DETAILED_MODEL",
+                "name": "Modelo detallado",
+                "value_id": "13455902",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455902",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "GTIN",
+                "name": "Código universal de producto",
+                "value_id": null,
+                "value_name": "6932391923160",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6932391923160",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "IMPORT_DUTY",
+                "name": "Impuesto interno",
+                "value_id": "49553239",
+                "value_name": "0 %",
+                "values": [
+                  {
+                    "id": "49553239",
+                    "name": "0 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "INCLUDES_BATTERY",
+                "name": "Incluye batería",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_HEADPHONES",
+                "name": "Incluye auriculares",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_MOUSE_PAD",
+                "name": "Incluye mouse pad",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "INCLUDES_SPEAKERS",
+                "name": "Incluye parlantes",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_GAMER",
+                "name": "Es gamer",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_ONE_HANDED_KEYBOARD",
+                "name": "Es teclado para una mano",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_RECHARGEABLE",
+                "name": "Es recargable",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_SPLASH_RESISTANT",
+                "name": "Es resistente a salpicaduras",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "IS_WIRELESS",
+                "name": "Es inalámbrico",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "ITEM_CONDITION",
+                "name": "Condición del ítem",
+                "value_id": "2230284",
+                "value_name": "Nuevo",
+                "values": [
+                  {
+                    "id": "2230284",
+                    "name": "Nuevo",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "KEYBOARD_ARCHITECTURE",
+                "name": "Arquitectura del teclado",
+                "value_id": "9014139",
+                "value_name": "Membrana",
+                "values": [
+                  {
+                    "id": "9014139",
+                    "name": "Membrana",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_BACKLIGHTING_COLOR",
+                "name": "Color de la retroiluminación del teclado",
+                "value_id": "3267129",
+                "value_name": "Rainbow",
+                "values": [
+                  {
+                    "id": "3267129",
+                    "name": "Rainbow",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_INTERFACE",
+                "name": "Conexión del teclado",
+                "value_id": "9014141",
+                "value_name": "USB 2.0",
+                "values": [
+                  {
+                    "id": "9014141",
+                    "name": "USB 2.0",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_LANGUAGE",
+                "name": "Idioma del teclado",
+                "value_id": "9026934",
+                "value_name": "Español",
+                "values": [
+                  {
+                    "id": "9026934",
+                    "name": "Español",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_MODEL",
+                "name": "Modelo del teclado",
+                "value_id": "13455904",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455904",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "KEYBOARD_SWITCH_TYPE",
+                "name": "Tipo de switch del teclado",
+                "value_id": "20102836",
+                "value_name": "Membrana",
+                "values": [
+                  {
+                    "id": "20102836",
+                    "name": "Membrana",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MAIN_COLOR",
+                "name": "Color principal",
+                "value_id": "2450295",
+                "value_name": "Negro",
+                "values": [
+                  {
+                    "id": "2450295",
+                    "name": "Negro",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "MODEL",
+                "name": "Modelo",
+                "value_id": "13355326",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13355326",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_BACKLIGHTING_COLOR",
+                "name": "Color de la retroiluminación del mouse",
+                "value_id": "9017822",
+                "value_name": "7 colores",
+                "values": [
+                  {
+                    "id": "9017822",
+                    "name": "7 colores",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_INTERFACE",
+                "name": "Conexión del mouse",
+                "value_id": "9014145",
+                "value_name": "USB 2.0",
+                "values": [
+                  {
+                    "id": "9014145",
+                    "name": "USB 2.0",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_MODEL",
+                "name": "Modelo del mouse",
+                "value_id": "13455906",
+                "value_name": "CM409",
+                "values": [
+                  {
+                    "id": "13455906",
+                    "name": "CM409",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "MOUSE_SENSOR_RESOLUTION",
+                "name": "Resolución del sensor del mouse",
+                "value_id": null,
+                "value_name": "3200 dpi",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "3200 dpi",
+                    "struct": {
+                      "number": 3200,
+                      "unit": "dpi"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "MOUSE_SENSOR_TYPE",
+                "name": "Tipo de sensor del mouse",
+                "value_id": "9014128",
+                "value_name": "Óptico",
+                "values": [
+                  {
+                    "id": "9014128",
+                    "name": "Óptico",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "PACKAGE_HEIGHT",
+                "name": "Altura del paquete",
+                "value_id": null,
+                "value_name": "18.4 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "18.4 cm",
+                    "struct": {
+                      "number": 18.4,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_LENGTH",
+                "name": "Largo del paquete",
+                "value_id": null,
+                "value_name": "47 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "47 cm",
+                    "struct": {
+                      "number": 47,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_WEIGHT",
+                "name": "Peso del paquete",
+                "value_id": null,
+                "value_name": "1220 g",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "1220 g",
+                    "struct": {
+                      "number": 1220,
+                      "unit": "g"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PACKAGE_WIDTH",
+                "name": "Ancho del paquete",
+                "value_id": null,
+                "value_name": "13.8 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "13.8 cm",
+                    "struct": {
+                      "number": 13.8,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "PRODUCT_FEATURES",
+                "name": "Características del producto",
+                "value_id": "8847339",
+                "value_name": "Sin vencimiento",
+                "values": [
+                  {
+                    "id": "8847339",
+                    "name": "Sin vencimiento",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "SELLER_PACKAGE_HEIGHT",
+                "name": "Altura del paquete del seller",
+                "value_id": null,
+                "value_name": "48 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "48 cm",
+                    "struct": {
+                      "number": 48,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_LENGTH",
+                "name": "Largo del paquete del seller",
+                "value_id": null,
+                "value_name": "15 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "15 cm",
+                    "struct": {
+                      "number": 15,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_WEIGHT",
+                "name": "Peso del paquete del seller",
+                "value_id": null,
+                "value_name": "1470 g",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "1470 g",
+                    "struct": {
+                      "number": 1470,
+                      "unit": "g"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_PACKAGE_WIDTH",
+                "name": "Ancho del paquete del seller",
+                "value_id": null,
+                "value_name": "20 cm",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "20 cm",
+                    "struct": {
+                      "number": 20,
+                      "unit": "cm"
+                    }
+                  }
+                ],
+                "value_type": "number_unit"
+              },
+              {
+                "id": "SELLER_SKU",
+                "name": "SKU",
+                "value_id": null,
+                "value_name": "6932391923481",
+                "values": [
+                  {
+                    "id": null,
+                    "name": "6932391923481",
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SENSOR_TECHNOLOGY",
+                "name": "Tecnología del sensor",
+                "value_id": "-1",
+                "value_name": null,
+                "values": [
+                  {
+                    "id": "-1",
+                    "name": null,
+                    "struct": null
+                  }
+                ],
+                "value_type": "string"
+              },
+              {
+                "id": "SHIPMENT_PACKING",
+                "name": "Embalaje del envío",
+                "value_id": "7435892",
+                "value_name": "Caja",
+                "values": [
+                  {
+                    "id": "7435892",
+                    "name": "Caja",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "VALUE_ADDED_TAX",
+                "name": "IVA",
+                "value_id": "48405909",
+                "value_name": "21 %",
+                "values": [
+                  {
+                    "id": "48405909",
+                    "name": "21 %",
+                    "struct": null
+                  }
+                ],
+                "value_type": "list"
+              },
+              {
+                "id": "WITH_ANTI_GHOST_KEYS",
+                "name": "Con teclas anti-ghost",
+                "value_id": "242085",
+                "value_name": "Sí",
+                "values": [
+                  {
+                    "id": "242085",
+                    "name": "Sí",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_KEYBOARD_BLUETOOTH_CONNECTION",
+                "name": "Con conexión bluetooth para teclado",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_MOUSE_BLUETOOTH_CONNECTION",
+                "name": "Con conexión bluetooth para mouse",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              },
+              {
+                "id": "WITH_WRIST_REST",
+                "name": "Con reposa muñeca",
+                "value_id": "242084",
+                "value_name": "No",
+                "values": [
+                  {
+                    "id": "242084",
+                    "name": "No",
+                    "struct": null
+                  }
+                ],
+                "value_type": "boolean"
+              }
+            ],
+            "listing_source": "",
+            "variations": [],
+            "status": "paused",
+            "sub_status": [
+              "out_of_stock"
+            ],
+            "tags": [
+              "poor_quality_thumbnail",
+              "user_product_listing",
+              "picture_crop_fix",
+              "extended_warranty_eligible",
+              "immediate_payment",
+              "cart_eligible"
+            ],
+            "warranty": "Garantía de fábrica: 6 meses",
+            "catalog_product_id": "MLA19771902",
+            "domain_id": "MLA-KEYBOARD_AND_MOUSE_KITS",
+            "seller_custom_field": null,
+            "parent_item_id": null,
+            "differential_pricing": null,
+            "deal_ids": [],
+            "automatic_relist": false,
+            "date_created": "2021-08-20T01:25:10.000Z",
+            "last_updated": "2026-10-02T22:47:49.854Z",
+            "health": 0.66,
+            "catalog_listing": false,
+            "item_relations": [
+              {
+                "id": "MLA1275211355",
+                "variation_id": null,
+                "stock_relation": 1
+              }
+            ],
+            "channels": [
+              "marketplace"
+            ]
+          }
+        },
+        {
+          "code": 404,
+          "body": {
+            "id": "MLA1",
+            "message": "Item with id MLA1 not found",
+            "error": "not_found",
+            "status": 404,
+            "cause": []
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3255 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json call items_bulk_samples (subset)",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "elements": [
+  {
+   "id": "MLA874027718",
+   "status_code": 200,
+   "body": {
+    "id": "MLA874027718",
+    "site_id": "MLA",
+    "title": "Teclado Mecanico Marvo Kg901 Rgb Switch Blue Negro Inglés Us",
+    "family_name": "Teclado Mecanico Marvo Kg901 Rgb Switch Blue",
+    "family_id": 5385385211222674,
+    "seller_id": 413658225,
+    "category_id": "MLA418448",
+    "user_product_id": "MLAU245334053",
+    "official_store_id": 57997,
+    "price": 55882.0,
+    "base_price": 55882.0,
+    "original_price": null,
+    "inventory_id": "YCIS13967",
+    "currency_id": "ARS",
+    "initial_quantity": 190,
+    "available_quantity": 2,
+    "sold_quantity": 188,
+    "sale_terms": [
+     {
+      "id": "WARRANTY_TYPE",
+      "name": "Tipo de garantía",
+      "value_id": "2230279",
+      "value_name": "Garantía de fábrica",
+      "value_struct": null,
+      "values": [
+       {
+        "id": "2230279",
+        "name": "Garantía de fábrica",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "WARRANTY_TIME",
+      "name": "Tiempo de garantía",
+      "value_id": null,
+      "value_name": "6 meses",
+      "value_struct": {
+       "number": 6,
+       "unit": "meses"
+      },
+      "values": [
+       {
+        "id": null,
+        "name": "6 meses",
+        "struct": {
+         "number": 6,
+         "unit": "meses"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "INVOICE",
+      "name": "Facturación",
+      "value_id": "6891885",
+      "value_name": "Factura A",
+      "value_struct": null,
+      "values": [
+       {
+        "id": "6891885",
+        "name": "Factura A",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     }
+    ],
+    "buying_mode": "buy_it_now",
+    "listing_type_id": "gold_special",
+    "start_time": "2020-08-19T03:49:44.000Z",
+    "stop_time": "2040-08-13T04:00:00.000Z",
+    "end_time": "2040-08-13T04:00:00.000Z",
+    "expiration_time": "2027-03-28T15:14:56.812Z",
+    "condition": "new",
+    "permalink": "https://articulo.mercadolibre.com.ar/MLA-874027718-teclado-mecanico-marvo-kg901-rgb-switch-blue-negro-ingles-us-_JM",
+    "thumbnail_id": "796320-MLA92851137533_092025",
+    "thumbnail": "http://http2.mlstatic.com/D_796320-MLA92851137533_092025-I.webp",
+    "pictures": [
+     {
+      "id": "796320-MLA92851137533_092025",
+      "url": "http://http2.mlstatic.com/D_796320-MLA92851137533_092025-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_796320-MLA92851137533_092025-O.webp",
+      "size": "500x193",
+      "max_size": "1200x464",
+      "quality": ""
+     },
+     {
+      "id": "605143-MLA43557625595_092020",
+      "url": "http://http2.mlstatic.com/D_605143-MLA43557625595_092020-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_605143-MLA43557625595_092020-O.jpg",
+      "size": "500x248",
+      "max_size": "1200x597",
+      "quality": ""
+     },
+     {
+      "id": "865003-MLU78853040345_082024",
+      "url": "http://http2.mlstatic.com/D_865003-MLU78853040345_082024-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_865003-MLU78853040345_082024-O.webp",
+      "size": "500x490",
+      "max_size": "1200x1178",
+      "quality": ""
+     },
+     {
+      "id": "917963-MLU72836405301_112023",
+      "url": "http://http2.mlstatic.com/D_917963-MLU72836405301_112023-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_917963-MLU72836405301_112023-O.webp",
+      "size": "500x248",
+      "max_size": "1200x596",
+      "quality": ""
+     },
+     {
+      "id": "937794-MLU72836356331_112023",
+      "url": "http://http2.mlstatic.com/D_937794-MLU72836356331_112023-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_937794-MLU72836356331_112023-O.webp",
+      "size": "500x247",
+      "max_size": "1200x595",
+      "quality": ""
+     },
+     {
+      "id": "614055-MLU78852914265_082024",
+      "url": "http://http2.mlstatic.com/D_614055-MLU78852914265_082024-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_614055-MLU78852914265_082024-O.jpg",
+      "size": "500x391",
+      "max_size": "1199x940",
+      "quality": ""
+     },
+     {
+      "id": "837291-MLU78853040353_082024",
+      "url": "http://http2.mlstatic.com/D_837291-MLU78853040353_082024-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_837291-MLU78853040353_082024-O.jpg",
+      "size": "500x452",
+      "max_size": "1200x1085",
+      "quality": ""
+     }
+    ],
+    "video_id": null,
+    "accepts_mercadopago": true,
+    "non_mercado_pago_payment_methods": [],
+    "shipping": {
+     "mode": "me2",
+     "methods": [],
+     "tags": [
+      "self_service_in",
+      "mandatory_free_shipping"
+     ],
+     "dimensions": null,
+     "local_pick_up": false,
+     "free_shipping": true,
+     "logistic_type": "cross_docking",
+     "store_pick_up": false
+    },
+    "international_delivery_mode": "none",
+    "seller_address": {
+     "address_line": "Calle Felipe Vallese 1563",
+     "zip_code": "1406",
+     "city": {
+      "id": "TUxBQkNBQjM4MDda",
+      "name": "Caballito"
+     },
+     "state": {
+      "id": "AR-C",
+      "name": "Capital Federal"
+     },
+     "country": {
+      "id": "AR",
+      "name": "Argentina"
+     },
+     "search_location": {
+      "neighborhood": {
+       "id": "TUxBQkNBQjM4MDda",
+       "name": "Caballito"
+      },
+      "city": {
+       "id": "TUxBQ0NBUGZlZG1sYQ",
+       "name": "Capital Federal"
+      },
+      "state": {
+       "id": "TUxBUENBUGw3M2E1",
+       "name": "Capital Federal"
+      }
+     },
+     "latitude": -34.617049,
+     "longitude": -58.456287,
+     "id": 1483942080
+    },
+    "seller_contact": null,
+    "location": {},
+    "geolocation": {
+     "latitude": -34.617049,
+     "longitude": -58.456287
+    },
+    "coverage_areas": [],
+    "attributes": [
+     {
+      "id": "CONNECTOR_TYPE",
+      "name": "Tipo de conector",
+      "value_id": "102761",
+      "value_name": "USB 2.0",
+      "values": [
+       {
+        "id": "102761",
+        "name": "USB 2.0",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "GIFTABLE",
+      "name": "Regalable",
+      "value_id": "54973164",
+      "value_name": "vppfull",
+      "values": [
+       {
+        "id": "54973164",
+        "name": "vppfull",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "INCLUDES_CELL_BATTERIES",
+      "name": "Incluye pilas",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_ERGONOMIC",
+      "name": "Es ergonómica",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_GAMER",
+      "name": "Es gamer",
+      "value_id": "242085",
+      "value_name": "Sí",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "KEYBOARDS_KEYS_NUMBER",
+      "name": "Cantidad de teclas",
+      "value_id": null,
+      "value_name": "87",
+      "values": [
+       {
+        "id": null,
+        "name": "87",
+        "struct": null
+       }
+      ],
+      "value_type": "integer"
+     },
+     {
+      "id": "KEYS_SHAPE",
+      "name": "Forma de las teclas",
+      "value_id": "111014",
+      "value_name": "Cilíndrica",
+      "values": [
+       {
+        "id": "111014",
+        "name": "Cilíndrica",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "WITH_BLUETOOTH",
+      "name": "Con Bluetooth",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_INTERFACE_USB",
+      "name": "Con interfaz USB",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_WIRELESS_CAPABILITY",
+      "name": "Con recepción inalámbrica",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "BACKLIGHTING_COLOR",
+      "name": "Color de la retroiluminación",
+      "value_id": "559747",
+      "value_name": "Rainbow",
+      "values": [
+       {
+        "id": "559747",
+        "name": "Rainbow",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "BRAND",
+      "name": "Marca",
+      "value_id": "271057",
+      "value_name": "Marvo",
+      "values": [
+       {
+        "id": "271057",
+        "name": "Marvo",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "CABLE_LENGTH",
+      "name": "Largo del cable",
+      "value_id": null,
+      "value_name": "1.6 m",
+      "values": [
+       {
+        "id": null,
+        "name": "1.6 m",
+        "struct": {
+         "number": 1.6,
+         "unit": "m"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "CONNECTIVITY",
+      "name": "Conectividad",
+      "value_id": "102761",
+      "value_name": "USB 2.0",
+      "values": [
+       {
+        "id": "102761",
+        "name": "USB 2.0",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "GTIN",
+      "name": "Código universal de producto",
+      "value_id": null,
+      "value_name": "6932391923412,6932391920954",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391923412",
+        "struct": null
+       },
+       {
+        "id": null,
+        "name": "6932391920954",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "IMPORT_DUTY",
+      "name": "Impuesto interno",
+      "value_id": "49553239",
+      "value_name": "0 %",
+      "values": [
+       {
+        "id": "49553239",
+        "name": "0 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "IS_NUMERIC_KEYBOARD",
+      "name": "Es teclado numérico",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_ONE_HANDED",
+      "name": "Es para una mano",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_SPLASH_RESISTANT",
+      "name": "Es resistente a salpicaduras",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_WIRELESS",
+      "name": "Es inalámbrico",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "ITEM_CONDITION",
+      "name": "Condición del ítem",
+      "value_id": "2230284",
+      "value_name": "Nuevo",
+      "values": [
+       {
+        "id": "2230284",
+        "name": "Nuevo",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "KEYBOARD_COLOR",
+      "name": "Color del teclado",
+      "value_id": "52049",
+      "value_name": "Negro",
+      "values": [
+       {
+        "id": "52049",
+        "name": "Negro",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "KEYBOARD_DEPTH",
+      "name": "Profundidad del teclado",
+      "value_id": null,
+      "value_name": "14 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "14 cm",
+        "struct": {
+         "number": 14,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "KEYBOARD_HEIGHT",
+      "name": "Altura del teclado",
+      "value_id": null,
+      "value_name": "3 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "3 cm",
+        "struct": {
+         "number": 3,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "KEYBOARD_SIZE",
+      "name": "Tamaño del teclado",
+      "value_id": "61683452",
+      "value_name": "60%",
+      "values": [
+       {
+        "id": "61683452",
+        "name": "60%",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "KEYBOARD_WEIGHT",
+      "name": "Peso del teclado",
+      "value_id": null,
+      "value_name": "758 g",
+      "values": [
+       {
+        "id": null,
+        "name": "758 g",
+        "struct": {
+         "number": 758,
+         "unit": "g"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "KEYBOARD_WIDTH",
+      "name": "Ancho del teclado",
+      "value_id": null,
+      "value_name": "34 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "34 cm",
+        "struct": {
+         "number": 34,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "LANGUAGE",
+      "name": "Idioma",
+      "value_id": "328561",
+      "value_name": "Inglés US",
+      "values": [
+       {
+        "id": "328561",
+        "name": "Inglés US",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "LAYOUT",
+      "name": "Layout",
+      "value_id": "110991",
+      "value_name": "QWERTY",
+      "values": [
+       {
+        "id": "110991",
+        "name": "QWERTY",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "LINE",
+      "name": "Línea",
+      "value_id": "217536",
+      "value_name": "Scorpion",
+      "values": [
+       {
+        "id": "217536",
+        "name": "Scorpion",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "MODEL",
+      "name": "Modelo",
+      "value_id": "8706241",
+      "value_name": "KG901",
+      "values": [
+       {
+        "id": "8706241",
+        "name": "KG901",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "PACKAGE_HEIGHT",
+      "name": "Altura del paquete",
+      "value_id": null,
+      "value_name": "4.2 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "4.2 cm",
+        "struct": {
+         "number": 4.2,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PACKAGE_LENGTH",
+      "name": "Largo del paquete",
+      "value_id": null,
+      "value_name": "37.6 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "37.6 cm",
+        "struct": {
+         "number": 37.6,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PACKAGE_WEIGHT",
+      "name": "Peso del paquete",
+      "value_id": null,
+      "value_name": "1060 g",
+      "values": [
+       {
+        "id": null,
+        "name": "1060 g",
+        "struct": {
+         "number": 1060,
+         "unit": "g"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PACKAGE_WIDTH",
+      "name": "Ancho del paquete",
+      "value_id": null,
+      "value_name": "16.6 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "16.6 cm",
+        "struct": {
+         "number": 16.6,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PC_KEYBOARDS_SWITCH_TYPE",
+      "name": "Tipo de switch",
+      "value_id": "8706243",
+      "value_name": "Marvo Blue",
+      "values": [
+       {
+        "id": "8706243",
+        "name": "Marvo Blue",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "PC_KEYBOARD_ARCHITECTURE",
+      "name": "Arquitectura",
+      "value_id": "108463",
+      "value_name": "Mecánico",
+      "values": [
+       {
+        "id": "108463",
+        "name": "Mecánico",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "PRODUCT_FEATURES",
+      "name": "Características del producto",
+      "value_id": "8847339",
+      "value_name": "Sin vencimiento",
+      "values": [
+       {
+        "id": "8847339",
+        "name": "Sin vencimiento",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "SELLER_PACKAGE_HEIGHT",
+      "name": "Altura del paquete del seller",
+      "value_id": null,
+      "value_name": "38 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "38 cm",
+        "struct": {
+         "number": 38,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_LENGTH",
+      "name": "Largo del paquete del seller",
+      "value_id": null,
+      "value_name": "5 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "5 cm",
+        "struct": {
+         "number": 5,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_TYPE",
+      "name": "Tipo de paquete del seller",
+      "value_id": "47115156",
+      "value_name": "Con embalaje adicional",
+      "values": [
+       {
+        "id": "47115156",
+        "name": "Con embalaje adicional",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "SELLER_PACKAGE_WEIGHT",
+      "name": "Peso del paquete del seller",
+      "value_id": null,
+      "value_name": "1040 g",
+      "values": [
+       {
+        "id": null,
+        "name": "1040 g",
+        "struct": {
+         "number": 1040,
+         "unit": "g"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_WIDTH",
+      "name": "Ancho del paquete del seller",
+      "value_id": null,
+      "value_name": "17 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "17 cm",
+        "struct": {
+         "number": 17,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_SKU",
+      "name": "SKU",
+      "value_id": null,
+      "value_name": "6932391923412",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391923412",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "SHIPMENT_PACKING",
+      "name": "Embalaje del envío",
+      "value_id": "7575939",
+      "value_name": "Auto-despachable",
+      "values": [
+       {
+        "id": "7575939",
+        "name": "Auto-despachable",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "SWITCH_TECHNOLOGY",
+      "name": "Tecnología de switch",
+      "value_id": "61683420",
+      "value_name": "Mecánico",
+      "values": [
+       {
+        "id": "61683420",
+        "name": "Mecánico",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "VALUE_ADDED_TAX",
+      "name": "IVA",
+      "value_id": "48405909",
+      "value_name": "21 %",
+      "values": [
+       {
+        "id": "48405909",
+        "name": "21 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "WITH_ANTI_GHOST_KEYS",
+      "name": "Con teclas anti-ghost",
+      "value_id": "242085",
+      "value_name": "Sí",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_DISPLAY",
+      "name": "Con pantalla",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_NUMERIC_PAD",
+      "name": "Con pad numérico",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_REMOVABLE_CABLE",
+      "name": "Con cable removible",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_RETROILLUMINATION",
+      "name": "Con retroiluminación",
+      "value_id": "242085",
+      "value_name": "Sí",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_TOUCHPAD",
+      "name": "Con touchpad",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_TRACKBALL",
+      "name": "Con trackball",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_WRIST_REST",
+      "name": "Con reposa muñeca",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     }
+    ],
+    "listing_source": "",
+    "variations": [],
+    "status": "active",
+    "sub_status": [],
+    "tags": [
+     "extended_warranty_eligible",
+     "loyalty_discount_eligible",
+     "brand_verified",
+     "good_quality_thumbnail",
+     "picture_crop_fix",
+     "good_quality_picture",
+     "user_product_listing",
+     "immediate_payment",
+     "cart_eligible"
+    ],
+    "warranty": "Garantía de fábrica: 6 meses",
+    "catalog_product_id": "MLA15810042",
+    "domain_id": "MLA-PC_KEYBOARDS",
+    "seller_custom_field": null,
+    "parent_item_id": null,
+    "differential_pricing": null,
+    "deal_ids": [],
+    "automatic_relist": false,
+    "date_created": "2020-08-19T03:49:45.000Z",
+    "last_updated": "2026-10-02T19:21:52.100Z",
+    "health": 0.9,
+    "catalog_listing": false,
+    "item_relations": [
+     {
+      "id": "MLA882393030",
+      "variation_id": null,
+      "stock_relation": 1
+     }
+    ],
+    "channels": [
+     "marketplace"
+    ]
+   }
+  },
+  {
+   "id": "MLA882393030",
+   "status_code": 200,
+   "body": {
+    "id": "MLA882393030",
+    "site_id": "MLA",
+    "title": "Teclado Mecánico Marvo Kg901 Blue Switch Retroiluminación Rainbow 60% Qwerty Inglés Negro Inglés Us",
+    "family_name": "Teclado Mecánico Marvo Kg901 Blue Switch Retroiluminación Rainbow 60% Qwerty Inglés Negro Inglés Us",
+    "family_id": 5385385211222674,
+    "seller_id": 413658225,
+    "category_id": "MLA418448",
+    "user_product_id": "MLAU245334053",
+    "official_store_id": 57997,
+    "price": 55882.0,
+    "base_price": 55882.0,
+    "original_price": null,
+    "inventory_id": "YCIS13967",
+    "currency_id": "ARS",
+    "initial_quantity": 1242,
+    "available_quantity": 2,
+    "sold_quantity": 1240,
+    "sale_terms": [
+     {
+      "id": "WARRANTY_TYPE",
+      "name": "Tipo de garantía",
+      "value_id": "2230279",
+      "value_name": "Garantía de fábrica",
+      "value_struct": null,
+      "values": [
+       {
+        "id": "2230279",
+        "name": "Garantía de fábrica",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "INVOICE",
+      "name": "Facturación",
+      "value_id": "6891885",
+      "value_name": "Factura A",
+      "value_struct": null,
+      "values": [
+       {
+        "id": "6891885",
+        "name": "Factura A",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "WARRANTY_TIME",
+      "name": "Tiempo de garantía",
+      "value_id": null,
+      "value_name": "6 meses",
+      "value_struct": {
+       "number": 6,
+       "unit": "meses"
+      },
+      "values": [
+       {
+        "id": null,
+        "name": "6 meses",
+        "struct": {
+         "number": 6,
+         "unit": "meses"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     }
+    ],
+    "buying_mode": "buy_it_now",
+    "listing_type_id": "gold_special",
+    "start_time": "2020-10-05T00:41:56.000Z",
+    "stop_time": "2040-09-29T04:00:00.000Z",
+    "end_time": "2040-09-29T04:00:00.000Z",
+    "expiration_time": "2027-03-28T15:16:45.045Z",
+    "condition": "new",
+    "permalink": "https://articulo.mercadolibre.com.ar/MLA-882393030-teclado-mecanico-marvo-kg901-blue-switch-retroiluminacion-rainbow-60-qwerty-ingles-negro-ingles-us-_JM",
+    "thumbnail_id": "955895-MLA97351784515_112025",
+    "thumbnail": "http://http2.mlstatic.com/D_955895-MLA97351784515_112025-I.webp",
+    "pictures": [
+     {
+      "id": "955895-MLA97351784515_112025",
+      "url": "http://http2.mlstatic.com/D_955895-MLA97351784515_112025-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_955895-MLA97351784515_112025-O.webp",
+      "size": "500x193",
+      "max_size": "1200x464",
+      "quality": ""
+     },
+     {
+      "id": "605143-MLA43557625595_092020",
+      "url": "http://http2.mlstatic.com/D_605143-MLA43557625595_092020-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_605143-MLA43557625595_092020-O.jpg",
+      "size": "500x248",
+      "max_size": "1200x597",
+      "quality": ""
+     },
+     {
+      "id": "865003-MLU78853040345_082024",
+      "url": "http://http2.mlstatic.com/D_865003-MLU78853040345_082024-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_865003-MLU78853040345_082024-O.webp",
+      "size": "500x490",
+      "max_size": "1200x1178",
+      "quality": ""
+     },
+     {
+      "id": "917963-MLU72836405301_112023",
+      "url": "http://http2.mlstatic.com/D_917963-MLU72836405301_112023-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_917963-MLU72836405301_112023-O.webp",
+      "size": "500x248",
+      "max_size": "1200x596",
+      "quality": ""
+     },
+     {
+      "id": "937794-MLU72836356331_112023",
+      "url": "http://http2.mlstatic.com/D_937794-MLU72836356331_112023-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_937794-MLU72836356331_112023-O.webp",
+      "size": "500x247",
+      "max_size": "1200x595",
+      "quality": ""
+     },
+     {
+      "id": "614055-MLU78852914265_082024",
+      "url": "http://http2.mlstatic.com/D_614055-MLU78852914265_082024-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_614055-MLU78852914265_082024-O.jpg",
+      "size": "500x391",
+      "max_size": "1199x940",
+      "quality": ""
+     },
+     {
+      "id": "837291-MLU78853040353_082024",
+      "url": "http://http2.mlstatic.com/D_837291-MLU78853040353_082024-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_837291-MLU78853040353_082024-O.jpg",
+      "size": "500x452",
+      "max_size": "1200x1085",
+      "quality": ""
+     }
+    ],
+    "video_id": null,
+    "accepts_mercadopago": true,
+    "non_mercado_pago_payment_methods": [],
+    "shipping": {
+     "mode": "me2",
+     "methods": [],
+     "tags": [
+      "self_service_in",
+      "mandatory_free_shipping"
+     ],
+     "dimensions": null,
+     "local_pick_up": false,
+     "free_shipping": true,
+     "logistic_type": "cross_docking",
+     "store_pick_up": false
+    },
+    "international_delivery_mode": "none",
+    "seller_address": {
+     "address_line": "Calle Felipe Vallese 1563",
+     "zip_code": "1406",
+     "city": {
+      "id": "TUxBQkNBQjM4MDda",
+      "name": "Caballito"
+     },
+     "state": {
+      "id": "AR-C",
+      "name": "Capital Federal"
+     },
+     "country": {
+      "id": "AR",
+      "name": "Argentina"
+     },
+     "search_location": {
+      "neighborhood": {
+       "id": "TUxBQkNBQjM4MDda",
+       "name": "Caballito"
+      },
+      "city": {
+       "id": "TUxBQ0NBUGZlZG1sYQ",
+       "name": "Capital Federal"
+      },
+      "state": {
+       "id": "TUxBUENBUGw3M2E1",
+       "name": "Capital Federal"
+      }
+     },
+     "latitude": -34.617049,
+     "longitude": -58.456287,
+     "id": 1483942080
+    },
+    "seller_contact": null,
+    "location": {},
+    "geolocation": {
+     "latitude": -34.617049,
+     "longitude": -58.456287
+    },
+    "coverage_areas": [],
+    "attributes": [
+     {
+      "id": "GIFTABLE",
+      "name": "Regalable",
+      "value_id": "54973164",
+      "value_name": "vppfull",
+      "values": [
+       {
+        "id": "54973164",
+        "name": "vppfull",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "BACKLIGHTING_COLOR",
+      "name": "Color de la retroiluminación",
+      "value_id": "559747",
+      "value_name": "Rainbow",
+      "values": [
+       {
+        "id": "559747",
+        "name": "Rainbow",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "BRAND",
+      "name": "Marca",
+      "value_id": "271057",
+      "value_name": "Marvo",
+      "values": [
+       {
+        "id": "271057",
+        "name": "Marvo",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "CABLE_LENGTH",
+      "name": "Largo del cable",
+      "value_id": "129115",
+      "value_name": "1.5 m",
+      "values": [
+       {
+        "id": "129115",
+        "name": "1.5 m",
+        "struct": {
+         "number": 1.5,
+         "unit": "m"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "CONNECTIVITY",
+      "name": "Conectividad",
+      "value_id": "102761",
+      "value_name": "USB 2.0",
+      "values": [
+       {
+        "id": "102761",
+        "name": "USB 2.0",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "GTIN",
+      "name": "Código universal de producto",
+      "value_id": null,
+      "value_name": "6932391923412,6932391920954",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391923412",
+        "struct": null
+       },
+       {
+        "id": null,
+        "name": "6932391920954",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "IMPORT_DUTY",
+      "name": "Impuesto interno",
+      "value_id": "49553239",
+      "value_name": "0 %",
+      "values": [
+       {
+        "id": "49553239",
+        "name": "0 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "IS_NUMERIC_KEYBOARD",
+      "name": "Es teclado numérico",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_ONE_HANDED",
+      "name": "Es para una mano",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_SPLASH_RESISTANT",
+      "name": "Es resistente a salpicaduras",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "IS_WIRELESS",
+      "name": "Es inalámbrico",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "ITEM_CONDITION",
+      "name": "Condición del ítem",
+      "value_id": "2230284",
+      "value_name": "Nuevo",
+      "values": [
+       {
+        "id": "2230284",
+        "name": "Nuevo",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "KEYBOARD_COLOR",
+      "name": "Color del teclado",
+      "value_id": "52049",
+      "value_name": "Negro",
+      "values": [
+       {
+        "id": "52049",
+        "name": "Negro",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "KEYBOARD_DEPTH",
+      "name": "Profundidad del teclado",
+      "value_id": "8702305",
+      "value_name": "3.7 cm",
+      "values": [
+       {
+        "id": "8702305",
+        "name": "3.7 cm",
+        "struct": {
+         "number": 3.7,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "KEYBOARD_HEIGHT",
+      "name": "Altura del teclado",
+      "value_id": "19358145",
+      "value_name": "14.07 cm",
+      "values": [
+       {
+        "id": "19358145",
+        "name": "14.07 cm",
+        "struct": {
+         "number": 14.07,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "KEYBOARD_SIZE",
+      "name": "Tamaño del teclado",
+      "value_id": "61683452",
+      "value_name": "60%",
+      "values": [
+       {
+        "id": "61683452",
+        "name": "60%",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "KEYBOARD_WEIGHT",
+      "name": "Peso del teclado",
+      "value_id": "11106367",
+      "value_name": "758 g",
+      "values": [
+       {
+        "id": "11106367",
+        "name": "758 g",
+        "struct": {
+         "number": 758,
+         "unit": "g"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "KEYBOARD_WIDTH",
+      "name": "Ancho del teclado",
+      "value_id": "48601779",
+      "value_name": "36.37 cm",
+      "values": [
+       {
+        "id": "48601779",
+        "name": "36.37 cm",
+        "struct": {
+         "number": 36.37,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "LANGUAGE",
+      "name": "Idioma",
+      "value_id": "328561",
+      "value_name": "Inglés US",
+      "values": [
+       {
+        "id": "328561",
+        "name": "Inglés US",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "LAYOUT",
+      "name": "Layout",
+      "value_id": "110991",
+      "value_name": "QWERTY",
+      "values": [
+       {
+        "id": "110991",
+        "name": "QWERTY",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "MODEL",
+      "name": "Modelo",
+      "value_id": "8706241",
+      "value_name": "KG901",
+      "values": [
+       {
+        "id": "8706241",
+        "name": "KG901",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "PACKAGE_HEIGHT",
+      "name": "Altura del paquete",
+      "value_id": null,
+      "value_name": "4.2 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "4.2 cm",
+        "struct": {
+         "number": 4.2,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PACKAGE_LENGTH",
+      "name": "Largo del paquete",
+      "value_id": null,
+      "value_name": "37.6 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "37.6 cm",
+        "struct": {
+         "number": 37.6,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PACKAGE_WEIGHT",
+      "name": "Peso del paquete",
+      "value_id": null,
+      "value_name": "1060 g",
+      "values": [
+       {
+        "id": null,
+        "name": "1060 g",
+        "struct": {
+         "number": 1060,
+         "unit": "g"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PACKAGE_WIDTH",
+      "name": "Ancho del paquete",
+      "value_id": null,
+      "value_name": "16.6 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "16.6 cm",
+        "struct": {
+         "number": 16.6,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "PC_KEYBOARDS_SWITCH_TYPE",
+      "name": "Tipo de switch",
+      "value_id": "11106371",
+      "value_name": "Jixian Blue",
+      "values": [
+       {
+        "id": "11106371",
+        "name": "Jixian Blue",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "PC_KEYBOARD_ARCHITECTURE",
+      "name": "Arquitectura",
+      "value_id": "108463",
+      "value_name": "Mecánico",
+      "values": [
+       {
+        "id": "108463",
+        "name": "Mecánico",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "PRODUCT_FEATURES",
+      "name": "Características del producto",
+      "value_id": "8847339",
+      "value_name": "Sin vencimiento",
+      "values": [
+       {
+        "id": "8847339",
+        "name": "Sin vencimiento",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "SELLER_PACKAGE_HEIGHT",
+      "name": "Altura del paquete del seller",
+      "value_id": null,
+      "value_name": "38 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "38 cm",
+        "struct": {
+         "number": 38,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_LENGTH",
+      "name": "Largo del paquete del seller",
+      "value_id": null,
+      "value_name": "5 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "5 cm",
+        "struct": {
+         "number": 5,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_TYPE",
+      "name": "Tipo de paquete del seller",
+      "value_id": "47115156",
+      "value_name": "Con embalaje adicional",
+      "values": [
+       {
+        "id": "47115156",
+        "name": "Con embalaje adicional",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "SELLER_PACKAGE_WEIGHT",
+      "name": "Peso del paquete del seller",
+      "value_id": null,
+      "value_name": "1040 g",
+      "values": [
+       {
+        "id": null,
+        "name": "1040 g",
+        "struct": {
+         "number": 1040,
+         "unit": "g"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_WIDTH",
+      "name": "Ancho del paquete del seller",
+      "value_id": null,
+      "value_name": "17 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "17 cm",
+        "struct": {
+         "number": 17,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_SKU",
+      "name": "SKU",
+      "value_id": null,
+      "value_name": "6932391923412",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391923412",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "SHIPMENT_PACKING",
+      "name": "Embalaje del envío",
+      "value_id": "7575939",
+      "value_name": "Auto-despachable",
+      "values": [
+       {
+        "id": "7575939",
+        "name": "Auto-despachable",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "SWITCH_TECHNOLOGY",
+      "name": "Tecnología de switch",
+      "value_id": "61683420",
+      "value_name": "Mecánico",
+      "values": [
+       {
+        "id": "61683420",
+        "name": "Mecánico",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "VALUE_ADDED_TAX",
+      "name": "IVA",
+      "value_id": "48405909",
+      "value_name": "21 %",
+      "values": [
+       {
+        "id": "48405909",
+        "name": "21 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "WITH_ANTI_GHOST_KEYS",
+      "name": "Con teclas anti-ghost",
+      "value_id": "242085",
+      "value_name": "Sí",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_DISPLAY",
+      "name": "Con pantalla",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_NUMERIC_PAD",
+      "name": "Con pad numérico",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_REMOVABLE_CABLE",
+      "name": "Con cable removible",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_RETROILLUMINATION",
+      "name": "Con retroiluminación",
+      "value_id": "242085",
+      "value_name": "Sí",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_TOUCHPAD",
+      "name": "Con touchpad",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_TRACKBALL",
+      "name": "Con trackball",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_WRIST_REST",
+      "name": "Con reposa muñeca",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     }
+    ],
+    "listing_source": "",
+    "variations": [],
+    "status": "active",
+    "sub_status": [],
+    "tags": [
+     "extended_warranty_eligible",
+     "good_quality_picture",
+     "brand_verified",
+     "good_quality_thumbnail",
+     "immediate_payment",
+     "cart_eligible"
+    ],
+    "warranty": "Garantía de fábrica: 6 meses",
+    "catalog_product_id": "MLA15810042",
+    "domain_id": "MLA-PC_KEYBOARDS",
+    "seller_custom_field": "355",
+    "parent_item_id": null,
+    "differential_pricing": null,
+    "deal_ids": [],
+    "automatic_relist": false,
+    "date_created": "2020-10-05T00:41:56.000Z",
+    "last_updated": "2026-09-26T15:47:58.995Z",
+    "health": null,
+    "catalog_listing": true,
+    "item_relations": [
+     {
+      "id": "MLA874027718",
+      "variation_id": null,
+      "stock_relation": 1
+     }
+    ],
+    "channels": [
+     "marketplace"
+    ]
+   }
+  },
+  {
+   "id": "MLA862580589",
+   "status_code": 200,
+   "body": {
+    "id": "MLA862580589",
+    "site_id": "MLA",
+    "title": "Pack X10 Lampara Led 7w Interelec Luz Dia Luz Dia 6500k",
+    "family_name": "Pack X10 Lampara Led 7w Interelec Luz Dia",
+    "family_id": 5457370687625708,
+    "seller_id": 413658225,
+    "category_id": "MLA377395",
+    "user_product_id": "MLAU294022469",
+    "official_store_id": 57997,
+    "price": 827.5,
+    "base_price": 827.5,
+    "original_price": null,
+    "inventory_id": null,
+    "currency_id": "ARS",
+    "initial_quantity": 20,
+    "available_quantity": 20,
+    "sold_quantity": 0,
+    "sale_terms": [
+     {
+      "id": "WARRANTY_TIME",
+      "name": "Tiempo de garantía",
+      "value_id": null,
+      "value_name": "90 días",
+      "value_struct": {
+       "number": 90,
+       "unit": "días"
+      },
+      "values": [
+       {
+        "id": null,
+        "name": "90 días",
+        "struct": {
+         "number": 90,
+         "unit": "días"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "WARRANTY_TYPE",
+      "name": "Tipo de garantía",
+      "value_id": "2230279",
+      "value_name": "Garantía de fábrica",
+      "value_struct": null,
+      "values": [
+       {
+        "id": "2230279",
+        "name": "Garantía de fábrica",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     }
+    ],
+    "buying_mode": "buy_it_now",
+    "listing_type_id": "gold_special",
+    "start_time": "2020-06-16T16:33:44.000Z",
+    "stop_time": "2040-06-11T04:00:00.000Z",
+    "end_time": "2040-06-11T04:00:00.000Z",
+    "expiration_time": "2025-06-08T04:23:51.899Z",
+    "condition": "new",
+    "permalink": "https://articulo.mercadolibre.com.ar/MLA-862580589-pack-x10-lampara-led-7w-interelec-luz-dia-luz-dia-6500k-_JM",
+    "thumbnail_id": "908882-MLA31635209496_072019",
+    "thumbnail": "http://http2.mlstatic.com/D_908882-MLA31635209496_072019-I.jpg",
+    "pictures": [
+     {
+      "id": "908882-MLA31635209496_072019",
+      "url": "http://http2.mlstatic.com/D_908882-MLA31635209496_072019-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_908882-MLA31635209496_072019-O.jpg",
+      "size": "500x491",
+      "max_size": "916x900",
+      "quality": ""
+     },
+     {
+      "id": "877045-MLA31635210866_072019",
+      "url": "http://http2.mlstatic.com/D_877045-MLA31635210866_072019-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_877045-MLA31635210866_072019-O.jpg",
+      "size": "238x440",
+      "max_size": "238x440",
+      "quality": ""
+     }
+    ],
+    "video_id": null,
+    "accepts_mercadopago": true,
+    "non_mercado_pago_payment_methods": [],
+    "shipping": {
+     "mode": "me2",
+     "methods": [],
+     "tags": [
+      "self_service_in"
+     ],
+     "dimensions": null,
+     "local_pick_up": true,
+     "free_shipping": false,
+     "logistic_type": "cross_docking",
+     "store_pick_up": false
+    },
+    "international_delivery_mode": "none",
+    "seller_address": {
+     "address_line": "Calle Felipe Vallese 1563",
+     "zip_code": "1406",
+     "city": {
+      "id": "TUxBQkNBQjM4MDda",
+      "name": "Caballito"
+     },
+     "state": {
+      "id": "AR-C",
+      "name": "Capital Federal"
+     },
+     "country": {
+      "id": "AR",
+      "name": "Argentina"
+     },
+     "search_location": {
+      "neighborhood": {
+       "id": "TUxBQkNBQjM4MDda",
+       "name": "Caballito"
+      },
+      "city": {
+       "id": "TUxBQ0NBUGZlZG1sYQ",
+       "name": "Capital Federal"
+      },
+      "state": {
+       "id": "TUxBUENBUGw3M2E1",
+       "name": "Capital Federal"
+      }
+     },
+     "latitude": -34.617049,
+     "longitude": -58.456287,
+     "id": 1483942080
+    },
+    "seller_contact": null,
+    "location": {},
+    "geolocation": {
+     "latitude": -34.617049,
+     "longitude": -58.456287
+    },
+    "coverage_areas": [],
+    "attributes": [
+     {
+      "id": "SELLER_PACKAGE_TYPE",
+      "name": "Tipo de paquete del seller",
+      "value_id": "47115156",
+      "value_name": "Con embalaje adicional",
+      "values": [
+       {
+        "id": "47115156",
+        "name": "Con embalaje adicional",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "AMBIENTS",
+      "name": "Ambientes",
+      "value_id": "115340",
+      "value_name": "Interior",
+      "values": [
+       {
+        "id": "115340",
+        "name": "Interior",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "BRAND",
+      "name": "Marca",
+      "value_id": "411109",
+      "value_name": "Interelec",
+      "values": [
+       {
+        "id": "411109",
+        "name": "Interelec",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "COMPATIBLE_SMART_APPS",
+      "name": "Aplicaciones inteligentes compatibles",
+      "value_id": "16548938",
+      "value_name": "No especificado",
+      "values": [
+       {
+        "id": "16548938",
+        "name": "No especificado",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY",
+      "name": "Eficiencia energética",
+      "value_id": "98473",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "98473",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY_ARGENTINA",
+      "name": "Eficiencia energética Argentina",
+      "value_id": "33344208",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "33344208",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY_BRASIL",
+      "name": "Eficiencia energética Brasil",
+      "value_id": "33344215",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "33344215",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY_CHILE",
+      "name": "Eficiencia energética Chile",
+      "value_id": "33344231",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "33344231",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY_COLOMBIA",
+      "name": "Eficiencia energética Colombia",
+      "value_id": "33344222",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "33344222",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY_ECUADOR",
+      "name": "Eficiencia energética Ecuador",
+      "value_id": "33344245",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "33344245",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY_PERU",
+      "name": "Eficiencia energética Perú",
+      "value_id": "33344252",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "33344252",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "ENERGY_EFFICIENCY_URUGUAY",
+      "name": "Eficiencia energética Uruguay",
+      "value_id": "33344238",
+      "value_name": "A",
+      "values": [
+       {
+        "id": "33344238",
+        "name": "A",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "FITTING_TYPES",
+      "name": "Tipos de rosca",
+      "value_id": "417541",
+      "value_name": "E27",
+      "values": [
+       {
+        "id": "417541",
+        "name": "E27",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "GTIN",
+      "name": "Código universal de producto",
+      "value_id": null,
+      "value_name": "7798321941203",
+      "values": [
+       {
+        "id": null,
+        "name": "7798321941203",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "IMPORT_DUTY",
+      "name": "Impuesto interno",
+      "value_id": "49553239",
+      "value_name": "0 %",
+      "values": [
+       {
+        "id": "49553239",
+        "name": "0 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "IS_DIMMABLE",
+      "name": "Es dimeable",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "ITEM_CONDITION",
+      "name": "Condición del ítem",
+      "value_id": "2230284",
+      "value_name": "Nuevo",
+      "values": [
+       {
+        "id": "2230284",
+        "name": "Nuevo",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "LIFE_CYCLE",
+      "name": "Vida útil",
+      "value_id": "16182218",
+      "value_name": "625 días",
+      "values": [
+       {
+        "id": "16182218",
+        "name": "625 días",
+        "struct": {
+         "number": 625,
+         "unit": "días"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "LIGHTING_TECHNOLOGY",
+      "name": "Tecnología de iluminación",
+      "value_id": "411127",
+      "value_name": "LED",
+      "values": [
+       {
+        "id": "411127",
+        "name": "LED",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "LIGHT_BULB_SHAPE",
+      "name": "Forma",
+      "value_id": "-1",
+      "value_name": null,
+      "values": [
+       {
+        "id": "-1",
+        "name": null,
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "LIGHT_COLOR",
+      "name": "Color de la luz",
+      "value_id": "20310828",
+      "value_name": "Luz Dia 6500k",
+      "values": [
+       {
+        "id": "20310828",
+        "name": "Luz Dia 6500k",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "MODEL",
+      "name": "Modelo",
+      "value_id": "27263405",
+      "value_name": "INTER-A60-7W",
+      "values": [
+       {
+        "id": "27263405",
+        "name": "INTER-A60-7W",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "POWER",
+      "name": "Potencia",
+      "value_id": null,
+      "value_name": "7 W",
+      "values": [
+       {
+        "id": null,
+        "name": "7 W",
+        "struct": {
+         "number": 7,
+         "unit": "W"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_HEIGHT",
+      "name": "Altura del paquete del seller",
+      "value_id": null,
+      "value_name": "32 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "32 cm",
+        "struct": {
+         "number": 32,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_LENGTH",
+      "name": "Largo del paquete del seller",
+      "value_id": null,
+      "value_name": "12 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "12 cm",
+        "struct": {
+         "number": 12,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_WEIGHT",
+      "name": "Peso del paquete del seller",
+      "value_id": null,
+      "value_name": "440 g",
+      "values": [
+       {
+        "id": null,
+        "name": "440 g",
+        "struct": {
+         "number": 440,
+         "unit": "g"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "SELLER_PACKAGE_WIDTH",
+      "name": "Ancho del paquete del seller",
+      "value_id": null,
+      "value_name": "13 cm",
+      "values": [
+       {
+        "id": null,
+        "name": "13 cm",
+        "struct": {
+         "number": 13,
+         "unit": "cm"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "UNITS_PER_PACK",
+      "name": "Cantidad de lámparas",
+      "value_id": null,
+      "value_name": "10",
+      "values": [
+       {
+        "id": null,
+        "name": "10",
+        "struct": null
+       }
+      ],
+      "value_type": "number"
+     },
+     {
+      "id": "VALUE_ADDED_TAX",
+      "name": "IVA",
+      "value_id": "48405909",
+      "value_name": "21 %",
+      "values": [
+       {
+        "id": "48405909",
+        "name": "21 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "WITH_BLUETOOTH",
+      "name": "Con Bluetooth",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_MOVEMENT_SENSOR",
+      "name": "Con sensor de movimiento",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_NOM_CERTIFICATION",
+      "name": "Con certificación NOM",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "WITH_WI_FI",
+      "name": "Con Wi-Fi",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     }
+    ],
+    "listing_source": "",
+    "variations": [],
+    "status": "paused",
+    "sub_status": [],
+    "tags": [
+     "brand_verified",
+     "user_product_listing",
+     "good_quality_thumbnail",
+     "immediate_payment",
+     "cart_eligible"
+    ],
+    "warranty": "Garantía de fábrica: 90 días",
+    "catalog_product_id": "MLA21451930",
+    "domain_id": "MLA-LIGHT_BULBS",
+    "seller_custom_field": null,
+    "parent_item_id": "MLA787729514",
+    "differential_pricing": null,
+    "deal_ids": [],
+    "automatic_relist": false,
+    "date_created": "2020-06-16T16:33:44.000Z",
+    "last_updated": "2026-10-03T09:27:02.022Z",
+    "health": 0.77,
+    "catalog_listing": false,
+    "item_relations": [],
+    "channels": [
+     "marketplace"
+    ]
+   }
+  },
+  {
+   "id": "MLA1207279308",
+   "status_code": 200,
+   "body": {
+    "id": "MLA1207279308",
+    "site_id": "MLA",
+    "title": "Pack X10 Lampara Led Gota Opal 1w E27",
+    "family_name": null,
+    "seller_id": 413658225,
+    "category_id": "MLA377395",
+    "user_product_id": null,
+    "official_store_id": 57997,
+    "price": 2670,
+    "base_price": 2670,
+    "original_price": null,
+    "inventory_id": null,
+    "currency_id": "ARS",
+    "initial_quantity": 54,
+    "available_quantity": 54,
+    "sold_quantity": 0,
+    "sale_terms": [
+     {
+      "id": "WARRANTY_TYPE",
+      "name": "Tipo de garantía",
+      "value_id": "2230279",
+      "value_name": "Garantía de fábrica",
+      "value_struct": null,
+      "values": [
+       {
+        "id": "2230279",
+        "name": "Garantía de fábrica",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "WARRANTY_TIME",
+      "name": "Tiempo de garantía",
+      "value_id": null,
+      "value_name": "3 meses",
+      "value_struct": {
+       "number": 3,
+       "unit": "meses"
+      },
+      "values": [
+       {
+        "id": null,
+        "name": "3 meses",
+        "struct": {
+         "number": 3,
+         "unit": "meses"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     }
+    ],
+    "buying_mode": "buy_it_now",
+    "listing_type_id": "gold_special",
+    "start_time": "2022-10-21T17:55:20.000Z",
+    "stop_time": "2026-05-07T16:56:42.001Z",
+    "end_time": "2042-10-16T04:00:00.000Z",
+    "expiration_time": "2024-02-04T09:31:06.000Z",
+    "condition": "new",
+    "permalink": "https://articulo.mercadolibre.com.ar/MLA-1207279308-pack-x10-lampara-led-gota-opal-1w-e27-_JM",
+    "thumbnail_id": "823823-MLA52067102622_102022",
+    "thumbnail": "http://http2.mlstatic.com/D_823823-MLA52067102622_102022-I.webp",
+    "pictures": [
+     {
+      "id": "823823-MLA52067102622_102022",
+      "url": "http://http2.mlstatic.com/D_823823-MLA52067102622_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_823823-MLA52067102622_102022-O.webp",
+      "size": "333x500",
+      "max_size": "503x753",
+      "quality": ""
+     },
+     {
+      "id": "773641-MLA52067018919_102022",
+      "url": "http://http2.mlstatic.com/D_773641-MLA52067018919_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_773641-MLA52067018919_102022-O.webp",
+      "size": "500x500",
+      "max_size": "1200x1200",
+      "quality": ""
+     },
+     {
+      "id": "822577-MLA52067297296_102022",
+      "url": "http://http2.mlstatic.com/D_822577-MLA52067297296_102022-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_822577-MLA52067297296_102022-O.jpg",
+      "size": "500x500",
+      "max_size": "1080x1080",
+      "quality": ""
+     },
+     {
+      "id": "963145-MLA52067360419_102022",
+      "url": "http://http2.mlstatic.com/D_963145-MLA52067360419_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_963145-MLA52067360419_102022-O.webp",
+      "size": "340x500",
+      "max_size": "508x747",
+      "quality": ""
+     },
+     {
+      "id": "764829-MLA52067342541_102022",
+      "url": "http://http2.mlstatic.com/D_764829-MLA52067342541_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_764829-MLA52067342541_102022-O.webp",
+      "size": "500x500",
+      "max_size": "1200x1200",
+      "quality": ""
+     },
+     {
+      "id": "993147-MLA52067534015_102022",
+      "url": "http://http2.mlstatic.com/D_993147-MLA52067534015_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_993147-MLA52067534015_102022-O.webp",
+      "size": "500x500",
+      "max_size": "1080x1080",
+      "quality": ""
+     },
+     {
+      "id": "737568-MLA52067466146_102022",
+      "url": "http://http2.mlstatic.com/D_737568-MLA52067466146_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_737568-MLA52067466146_102022-O.webp",
+      "size": "339x500",
+      "max_size": "508x748",
+      "quality": ""
+     },
+     {
+      "id": "798501-MLA52067390339_102022",
+      "url": "http://http2.mlstatic.com/D_798501-MLA52067390339_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_798501-MLA52067390339_102022-O.webp",
+      "size": "500x500",
+      "max_size": "1200x1200",
+      "quality": ""
+     },
+     {
+      "id": "767289-MLA52067296706_102022",
+      "url": "http://http2.mlstatic.com/D_767289-MLA52067296706_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_767289-MLA52067296706_102022-O.webp",
+      "size": "500x500",
+      "max_size": "1080x1080",
+      "quality": ""
+     },
+     {
+      "id": "702113-MLA52067300759_102022",
+      "url": "http://http2.mlstatic.com/D_702113-MLA52067300759_102022-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_702113-MLA52067300759_102022-O.jpg",
+      "size": "347x500",
+      "max_size": "455x654",
+      "quality": ""
+     },
+     {
+      "id": "832865-MLA52067428254_102022",
+      "url": "http://http2.mlstatic.com/D_832865-MLA52067428254_102022-O.jpg",
+      "secure_url": "https://http2.mlstatic.com/D_832865-MLA52067428254_102022-O.jpg",
+      "size": "500x500",
+      "max_size": "1200x1200",
+      "quality": ""
+     },
+     {
+      "id": "786213-MLA52067349542_102022",
+      "url": "http://http2.mlstatic.com/D_786213-MLA52067349542_102022-O.webp",
+      "secure_url": "https://http2.mlstatic.com/D_786213-MLA52067349542_102022-O.webp",
+      "size": "500x500",
+      "max_size": "1080x1080",
+      "quality": ""
+     }
+    ],
+    "video_id": null,
+    "accepts_mercadopago": true,
+    "non_mercado_pago_payment_methods": [],
+    "shipping": {
+     "mode": "me2",
+     "methods": [],
+     "tags": [
+      "self_service_in"
+     ],
+     "dimensions": null,
+     "local_pick_up": true,
+     "free_shipping": false,
+     "logistic_type": "cross_docking",
+     "store_pick_up": false
+    },
+    "international_delivery_mode": "none",
+    "seller_address": {
+     "address_line": "Calle Felipe Vallese 1563",
+     "zip_code": "1406",
+     "city": {
+      "id": "TUxBQkNBQjM4MDda",
+      "name": "Caballito"
+     },
+     "state": {
+      "id": "AR-C",
+      "name": "Capital Federal"
+     },
+     "country": {
+      "id": "AR",
+      "name": "Argentina"
+     },
+     "search_location": {
+      "neighborhood": {
+       "id": "TUxBQkNBQjM4MDda",
+       "name": "Caballito"
+      },
+      "city": {
+       "id": "TUxBQ0NBUGZlZG1sYQ",
+       "name": "Capital Federal"
+      },
+      "state": {
+       "id": "TUxBUENBUGw3M2E1",
+       "name": "Capital Federal"
+      }
+     },
+     "latitude": -34.617049,
+     "longitude": -58.456287,
+     "id": 1483942080
+    },
+    "seller_contact": null,
+    "location": {},
+    "geolocation": {
+     "latitude": -34.617049,
+     "longitude": -58.456287
+    },
+    "coverage_areas": [],
+    "attributes": [
+     {
+      "id": "BRAND",
+      "name": "Marca",
+      "value_id": "16315881",
+      "value_name": "LEMP",
+      "values": [
+       {
+        "id": "16315881",
+        "name": "LEMP",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "COMPATIBLE_SMART_APPS",
+      "name": "Aplicaciones inteligentes compatibles",
+      "value_id": "-1",
+      "value_name": null,
+      "values": [
+       {
+        "id": "-1",
+        "name": null,
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "COMPATIBLE_VIRTUAL_ASSISTANTS",
+      "name": "Asistentes virtuales compatibles",
+      "value_id": "-1",
+      "value_name": null,
+      "values": [
+       {
+        "id": "-1",
+        "name": null,
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "FITTING_TYPES",
+      "name": "Tipos de rosca",
+      "value_id": "417541",
+      "value_name": "E27",
+      "values": [
+       {
+        "id": "417541",
+        "name": "E27",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "IMPORT_DUTY",
+      "name": "Impuesto interno",
+      "value_id": "49553239",
+      "value_name": "0 %",
+      "values": [
+       {
+        "id": "49553239",
+        "name": "0 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "IS_DIMMABLE",
+      "name": "Es dimeable",
+      "value_id": "242084",
+      "value_name": "No",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     },
+     {
+      "id": "ITEM_CONDITION",
+      "name": "Condición del ítem",
+      "value_id": "2230284",
+      "value_name": "Nuevo",
+      "values": [
+       {
+        "id": "2230284",
+        "name": "Nuevo",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "LIFE_CYCLE",
+      "name": "Vida útil",
+      "value_id": null,
+      "value_name": "25000 h",
+      "values": [
+       {
+        "id": null,
+        "name": "25000 h",
+        "struct": {
+         "number": 25000,
+         "unit": "h"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "LIGHTING_TECHNOLOGY",
+      "name": "Tecnología de iluminación",
+      "value_id": "411127",
+      "value_name": "LED",
+      "values": [
+       {
+        "id": "411127",
+        "name": "LED",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "LIGHT_BULB_SHAPE",
+      "name": "Forma",
+      "value_id": "7310262",
+      "value_name": "Gota",
+      "values": [
+       {
+        "id": "7310262",
+        "name": "Gota",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "MATERIALS",
+      "name": "Materiales",
+      "value_id": "2748302",
+      "value_name": "Plástico",
+      "values": [
+       {
+        "id": "2748302",
+        "name": "Plástico",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "MODEL",
+      "name": "Modelo",
+      "value_id": null,
+      "value_name": "Gote Opal E27",
+      "values": [
+       {
+        "id": null,
+        "name": "Gote Opal E27",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "POWER",
+      "name": "Potencia",
+      "value_id": null,
+      "value_name": "1 W",
+      "values": [
+       {
+        "id": null,
+        "name": "1 W",
+        "struct": {
+         "number": 1,
+         "unit": "W"
+        }
+       }
+      ],
+      "value_type": "number_unit"
+     },
+     {
+      "id": "UNITS_PER_PACK",
+      "name": "Unidades por pack",
+      "value_id": null,
+      "value_name": "10",
+      "values": [
+       {
+        "id": null,
+        "name": "10",
+        "struct": null
+       }
+      ],
+      "value_type": "number"
+     },
+     {
+      "id": "VALUE_ADDED_TAX",
+      "name": "IVA",
+      "value_id": "48405909",
+      "value_name": "21 %",
+      "values": [
+       {
+        "id": "48405909",
+        "name": "21 %",
+        "struct": null
+       }
+      ],
+      "value_type": "list"
+     },
+     {
+      "id": "VOLTAGE",
+      "name": "Voltaje",
+      "value_id": "198813",
+      "value_name": "220V",
+      "values": [
+       {
+        "id": "198813",
+        "name": "220V",
+        "struct": null
+       }
+      ],
+      "value_type": "string"
+     },
+     {
+      "id": "WITH_WI_FI",
+      "name": "Con Wi-Fi",
+      "value_id": "-1",
+      "value_name": null,
+      "values": [
+       {
+        "id": "-1",
+        "name": null,
+        "struct": null
+       }
+      ],
+      "value_type": "boolean"
+     }
+    ],
+    "listing_source": "",
+    "variations": [
+     {
+      "id": 175550253195,
+      "price": 2670,
+      "attribute_combinations": [
+       {
+        "id": "LIGHT_COLOR",
+        "name": "Color de la luz",
+        "value_id": "51993",
+        "value_name": "Rojo",
+        "values": [
+         {
+          "id": "51993",
+          "name": "Rojo",
+          "struct": null
+         }
+        ],
+        "value_type": "string"
+       }
+      ],
+      "available_quantity": 15,
+      "sold_quantity": 0,
+      "sale_terms": [],
+      "picture_ids": [
+       "823823-MLA52067102622_102022",
+       "773641-MLA52067018919_102022",
+       "822577-MLA52067297296_102022"
+      ],
+      "seller_custom_field": null,
+      "catalog_product_id": null,
+      "inventory_id": null,
+      "item_relations": [],
+      "user_product_id": "MLAU224074749"
+     },
+     {
+      "id": 175550253196,
+      "price": 2670,
+      "attribute_combinations": [
+       {
+        "id": "LIGHT_COLOR",
+        "name": "Color de la luz",
+        "value_id": "52028",
+        "value_name": "Azul",
+        "values": [
+         {
+          "id": "52028",
+          "name": "Azul",
+          "struct": null
+         }
+        ],
+        "value_type": "string"
+       }
+      ],
+      "available_quantity": 14,
+      "sold_quantity": 0,
+      "sale_terms": [],
+      "picture_ids": [
+       "963145-MLA52067360419_102022",
+       "764829-MLA52067342541_102022",
+       "993147-MLA52067534015_102022"
+      ],
+      "seller_custom_field": null,
+      "catalog_product_id": null,
+      "inventory_id": null,
+      "item_relations": [],
+      "user_product_id": "MLAU224071573"
+     },
+     {
+      "id": 175550253197,
+      "price": 2670,
+      "attribute_combinations": [
+       {
+        "id": "LIGHT_COLOR",
+        "name": "Color de la luz",
+        "value_id": "52007",
+        "value_name": "Amarillo",
+        "values": [
+         {
+          "id": "52007",
+          "name": "Amarillo",
+          "struct": null
+         }
+        ],
+        "value_type": "string"
+       }
+      ],
+      "available_quantity": 13,
+      "sold_quantity": 0,
+      "sale_terms": [],
+      "picture_ids": [
+       "737568-MLA52067466146_102022",
+       "798501-MLA52067390339_102022",
+       "767289-MLA52067296706_102022"
+      ],
+      "seller_custom_field": null,
+      "catalog_product_id": null,
+      "inventory_id": null,
+      "item_relations": [],
+      "user_product_id": "MLAU224080247"
+     },
+     {
+      "id": 175550253198,
+      "price": 2670,
+      "attribute_combinations": [
+       {
+        "id": "LIGHT_COLOR",
+        "name": "Color de la luz",
+        "value_id": "52014",
+        "value_name": "Verde",
+        "values": [
+         {
+          "id": "52014",
+          "name": "Verde",
+          "struct": null
+         }
+        ],
+        "value_type": "string"
+       }
+      ],
+      "available_quantity": 12,
+      "sold_quantity": 0,
+      "sale_terms": [],
+      "picture_ids": [
+       "702113-MLA52067300759_102022",
+       "832865-MLA52067428254_102022",
+       "786213-MLA52067349542_102022"
+      ],
+      "seller_custom_field": null,
+      "catalog_product_id": null,
+      "inventory_id": null,
+      "item_relations": [],
+      "user_product_id": "MLAU224076659"
+     }
+    ],
+    "status": "closed",
+    "sub_status": [],
+    "tags": [
+     "good_quality_thumbnail",
+     "good_quality_picture",
+     "variations_migration_source",
+     "immediate_payment",
+     "cart_eligible"
+    ],
+    "warranty": "Garantía de fábrica: 3 meses",
+    "catalog_product_id": "MLA21488342",
+    "domain_id": "MLA-LIGHT_BULBS",
+    "seller_custom_field": null,
+    "parent_item_id": null,
+    "differential_pricing": null,
+    "deal_ids": [],
+    "automatic_relist": false,
+    "date_created": "2022-10-21T17:55:20.000Z",
+    "last_updated": "2026-05-07T16:56:42.002Z",
+    "health": 0.77,
+    "catalog_listing": false,
+    "item_relations": [],
+    "channels": [
+     "marketplace"
+    ]
+   }
+  }
+ ]
+}
