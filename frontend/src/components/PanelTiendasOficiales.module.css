@@ -14,7 +14,7 @@
 }
 
 .error {
-  background: rgba(239, 68, 68, 0.1);
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
   color: var(--cf-accent-red);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
