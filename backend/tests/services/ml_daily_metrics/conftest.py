@@ -24,6 +24,19 @@ CREATE TABLE productos_erp (
 """
 
 
+# The product-facet option lists read the PM pairs, the subcategory names and the
+# PM user names: minimal copies (only the columns read) when no other fixture
+# left the real tables.
+FACET_LOOKUPS_DDL = {
+    "marcas_pm": "CREATE TABLE marcas_pm (id SERIAL PRIMARY KEY, marca VARCHAR(100), categoria VARCHAR(100), "
+    "usuario_id INTEGER)",
+    "subcategorias_grupos": "CREATE TABLE subcategorias_grupos (id SERIAL PRIMARY KEY, subcat_id INTEGER, "
+    "grupo_id INTEGER, nombre_subcategoria VARCHAR(200), cat_id VARCHAR(10), nombre_categoria VARCHAR(200), "
+    "oculta BOOLEAN)",
+    "usuarios": "CREATE TABLE usuarios (id SERIAL PRIMARY KEY, nombre VARCHAR(255))",
+}
+
+
 @pytest.fixture(scope="module")
 def board_pg_engine():
     from tests.conftest import (
@@ -66,6 +79,10 @@ def board_pg_engine():
     if created_productos:
         with engine.begin() as conn:
             conn.execute(text(PRODUCTOS_MIN_DDL))
+    created_lookups = [name for name in FACET_LOOKUPS_DDL if not sa_inspect(engine).has_table(name)]
+    with engine.begin() as conn:
+        for name in created_lookups:
+            conn.execute(text(FACET_LOOKUPS_DDL[name]))
     # Hand the shared Column types back to the SQLite suite (ARRAY -> JSON):
     # leaving them pristine breaks every SQLite test that runs after this
     # module in the same process.
@@ -76,6 +93,9 @@ def board_pg_engine():
     if created_productos:
         with engine.begin() as conn:
             conn.execute(text("DROP TABLE IF EXISTS productos_erp"))
+    with engine.begin() as conn:
+        for name in created_lookups:
+            conn.execute(text(f"DROP TABLE IF EXISTS {name}"))
     engine.dispose()
 
 

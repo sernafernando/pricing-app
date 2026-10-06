@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import pytest
 
+from sqlalchemy import select
+
 from app.models.comision_config import SubcategoriaGrupo
 from app.models.marca_pm import MarcaPM
+from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
-from app.services.product_facets import ProductSelection, product_facet_options
+from app.services.product_facets import ProductSelection, product_combo_rows, product_facet_options
 
 # (marca, categoria, subcategoria_id): the distinct combinations of a screen's
 # universe. Epson/Impresoras has two subcategories; HP prints too; Logitech
@@ -27,6 +30,16 @@ COMBOS = [
     ("Logitech", "Perifericos", 30),
     ("Gauss", "Perifericos", 31),
 ]
+
+
+def _options(db, combos, selection):
+    """The way a screen uses the helper: one statement over its universe (here, products)."""
+    db.query(ProductoERP).delete()
+    for n, (marca, categoria, subcat) in enumerate(combos):
+        db.add(ProductoERP(item_id=1000 + n, codigo=f"S{n}", marca=marca, categoria=categoria, subcategoria_id=subcat))
+    db.flush()
+    rows = product_combo_rows(db, select(ProductoERP.marca, ProductoERP.categoria, ProductoERP.subcategoria_id))
+    return product_facet_options(db, rows, selection)
 
 
 @pytest.fixture()
@@ -68,7 +81,7 @@ def _names(options):
 
 
 def test_no_selection_offers_everything(db, seeded) -> None:
-    options = product_facet_options(db, COMBOS, ProductSelection())
+    options = _options(db, COMBOS, ProductSelection())
     assert _names(options) == {
         "marcas": ["Epson", "Gauss", "HP", "Logitech"],
         "categorias": ["Impresoras", "Insumos", "Perifericos"],
@@ -81,7 +94,7 @@ def test_no_selection_offers_everything(db, seeded) -> None:
 
 
 def test_marca_narrows_categorias_subcategorias_and_pms(db, seeded) -> None:
-    options = product_facet_options(db, COMBOS, ProductSelection(marcas=("epson",)))
+    options = _options(db, COMBOS, ProductSelection(marcas=("epson",)))
     assert _names(options) == {
         "marcas": ["Epson", "Gauss", "HP", "Logitech"],  # own facet is not self-restricted
         "categorias": ["Impresoras", "Insumos"],
@@ -91,7 +104,7 @@ def test_marca_narrows_categorias_subcategorias_and_pms(db, seeded) -> None:
 
 
 def test_subcategoria_narrows_marcas_categorias_and_pms(db, seeded) -> None:
-    options = product_facet_options(db, COMBOS, ProductSelection(subcategorias=(10,)))
+    options = _options(db, COMBOS, ProductSelection(subcategorias=(10,)))
     assert _names(options) == {
         "marcas": ["Epson", "HP"],
         "categorias": ["Impresoras"],
@@ -101,7 +114,7 @@ def test_subcategoria_narrows_marcas_categorias_and_pms(db, seeded) -> None:
 
 
 def test_pm_narrows_marcas_categorias_and_subcategorias(db, seeded) -> None:
-    options = product_facet_options(db, COMBOS, ProductSelection(pms=(seeded["beto"],)))
+    options = _options(db, COMBOS, ProductSelection(pms=(seeded["beto"],)))
     assert _names(options) == {
         "marcas": ["HP", "Logitech"],
         "categorias": ["Impresoras", "Perifericos"],
@@ -111,7 +124,7 @@ def test_pm_narrows_marcas_categorias_and_subcategorias(db, seeded) -> None:
 
 
 def test_categoria_narrows_marcas_subcategorias_and_pms(db, seeded) -> None:
-    options = product_facet_options(db, COMBOS, ProductSelection(categorias=("perifericos",)))
+    options = _options(db, COMBOS, ProductSelection(categorias=("perifericos",)))
     assert _names(options) == {
         "marcas": ["Gauss", "Logitech"],
         "categorias": ["Impresoras", "Insumos", "Perifericos"],
@@ -121,7 +134,7 @@ def test_categoria_narrows_marcas_subcategorias_and_pms(db, seeded) -> None:
 
 
 def test_selections_combine_and_each_facet_ignores_only_its_own(db, seeded) -> None:
-    options = product_facet_options(
+    options = _options(
         db, COMBOS, ProductSelection(marcas=("Epson",), categorias=("Impresoras",), pms=(seeded["ana"],))
     )
     assert _names(options) == {
@@ -136,7 +149,7 @@ def test_a_pm_without_any_pair_matches_nothing(db, seeded) -> None:
     ghost = Usuario(username="ghost", email="g@x.com", nombre="Sin pares", password_hash="x", activo=True)
     db.add(ghost)
     db.commit()
-    options = product_facet_options(db, COMBOS, ProductSelection(pms=(ghost.id,)))
+    options = _options(db, COMBOS, ProductSelection(pms=(ghost.id,)))
     assert _names(options)["marcas"] == []
     assert _names(options)["categorias"] == []
     assert _names(options)["subcategorias"] == []
@@ -144,19 +157,26 @@ def test_a_pm_without_any_pair_matches_nothing(db, seeded) -> None:
 
 def test_a_selected_value_stays_offered_even_when_the_others_exclude_it(db, seeded) -> None:
     # Brand and category that never meet: each is still listed so it can be unticked.
-    options = product_facet_options(db, COMBOS, ProductSelection(marcas=("Logitech",), categorias=("Insumos",)))
+    options = _options(db, COMBOS, ProductSelection(marcas=("Logitech",), categorias=("Insumos",)))
     assert "Logitech" in options.marcas
     assert "Insumos" in options.categorias
     # Same for a selected subcategory or PM the others rule out.
-    options = product_facet_options(db, COMBOS, ProductSelection(marcas=("Logitech",), subcategorias=(10,)))
+    options = _options(db, COMBOS, ProductSelection(marcas=("Logitech",), subcategorias=(10,)))
     assert 10 in _names(options)["subcategorias"]
-    options = product_facet_options(db, COMBOS, ProductSelection(marcas=("Logitech",), pms=(seeded["ana"],)))
+    options = _options(db, COMBOS, ProductSelection(marcas=("Logitech",), pms=(seeded["ana"],)))
     assert seeded["ana"] in _names(options)["pms"]
 
 
 def test_duplicate_spellings_collapse_and_blank_values_are_dropped(db, seeded) -> None:
     combos = COMBOS + [("EPSON", "impresoras", 10), (None, "Impresoras", 10), ("", "", None), ("HP", None, None)]
-    options = product_facet_options(db, combos, ProductSelection())
+    options = _options(db, combos, ProductSelection())
     # One entry per case-insensitive value, whichever spelling is shown.
     assert [m.upper() for m in options.marcas] == ["EPSON", "GAUSS", "HP", "LOGITECH"]
     assert [c.upper() for c in options.categorias] == ["IMPRESORAS", "INSUMOS", "PERIFERICOS"]
+
+
+def test_a_selected_id_missing_from_the_universe_is_looked_up_by_name(db, seeded) -> None:
+    # Subcategory 11 and the PM "Beto" sell nothing in this universe (Epson only).
+    options = _options(db, [("Epson", "Impresoras", 10)], ProductSelection(subcategorias=(11,), pms=(seeded["beto"],)))
+    assert [s["nombre"] for g in options.subcategorias for s in g["subcategorias"] if s["id"] == 11] == ["Tinta"]
+    assert {p["id"]: p["nombre"] for p in options.pms}[seeded["beto"]] == "Beto"

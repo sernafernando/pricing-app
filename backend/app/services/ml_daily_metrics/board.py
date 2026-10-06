@@ -97,6 +97,12 @@ from app.services.ml_daily_metrics.sales import (
 )
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_sales_query.filters import NO_STORE, _resolve_pm_pairs
+from app.services.product_facets import (
+    ProductFacetOptions,
+    ProductSelection,
+    product_combo_rows,
+    product_facet_options,
+)
 
 GROUP_BY = ("product", "publication")
 COMPARE = ("periodo_anterior", "anio_anterior")
@@ -119,7 +125,11 @@ AGEING_BUCKETS = ("up_to_30", "from_31_to_60", "over_60")
 AGEING_NO_REFERENCE = "sin_referencia"
 # The chip axes a facet count can clear: PAIR axes filter (product, MLA)
 # pairs before they are summed into rows; ROW axes filter the summed rows.
-PAIR_AXES = ("stores", "pub_status", "pub_type")
+PRODUCT_AXIS = "product"
+# "product" stands for the four product facets at once (marca, categoría,
+# subcategoría, PM): the option lists read the pairs with ALL of them cleared and
+# cascade among themselves (`app.services.product_facets`).
+PAIR_AXES = ("stores", "pub_status", "pub_type", PRODUCT_AXIS)
 ROW_AXES = ("alerts", "stock", "ageing")
 SORTS = (
     "gross",
@@ -200,6 +210,7 @@ class BoardFilter:
     group_by: str = "product"
     stores: Tuple[str, ...] = ()
     marcas: Tuple[str, ...] = ()
+    categorias: Tuple[str, ...] = ()
     subcategorias: Tuple[int, ...] = ()
     pms: Tuple[int, ...] = ()
     q: Optional[str] = None
@@ -369,6 +380,9 @@ class Facets:
     alerts: Dict[str, int]
     stock: Dict[str, int]
     ageing: Dict[str, int]
+    # Cross-filtered marca / categoría / subcategoría / PM options: each list
+    # under every other filter (stores included), never its own.
+    product: ProductFacetOptions = field(default_factory=ProductFacetOptions)
 
 
 CENT = Decimal("0.01")
@@ -639,11 +653,13 @@ class Board:
                 conditions.append(t.c.is_catalog.isnot(True))
             if "full" in f.pub_type_exclude:
                 conditions.append(t.c.is_full.isnot(True))
-        if f.marcas:
+        if f.marcas and skip != PRODUCT_AXIS:
             conditions.append(func.upper(t.c.marca).in_([m.upper() for m in f.marcas]))
-        if f.subcategorias:
+        if f.categorias and skip != PRODUCT_AXIS:
+            conditions.append(func.upper(t.c.categoria).in_([c.upper() for c in f.categorias]))
+        if f.subcategorias and skip != PRODUCT_AXIS:
             conditions.append(t.c.subcategoria_id.in_(f.subcategorias))
-        if self.pm_pairs is not None:
+        if self.pm_pairs is not None and skip != PRODUCT_AXIS:
             conditions.append(
                 or_(
                     *(
@@ -1140,6 +1156,21 @@ class Board:
             alerts=alerts,
             stock=stock,
             ageing=ageing,
+            product=self._product_options(),
+        )
+
+    def _product_options(self) -> ProductFacetOptions:
+        """The four product lists: the distinct (marca, categoría,
+        subcategoría) combinations of the rows that survive every NON-product
+        filter, cascaded among themselves. One set-based statement over the
+        materialized pairs; the rest is `product_facets`."""
+        joined, fp = self._members(PRODUCT_AXIS)
+        rows = product_combo_rows(self.db, select(fp.c.marca, fp.c.categoria, fp.c.subcategoria_id).select_from(joined))
+        f = self.f
+        return product_facet_options(
+            self.db,
+            rows,
+            ProductSelection(marcas=f.marcas, categorias=f.categorias, subcategorias=f.subcategorias, pms=f.pms),
         )
 
 

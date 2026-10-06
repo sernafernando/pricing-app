@@ -34,6 +34,7 @@ from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board
 from app.services.permisos_service import PermisosService
+from app.services.product_facets import ProductFacetOptions
 from app.utils.csv_cells import csv_text
 
 PERMISO_VER = "ml_metricas.ver"
@@ -170,6 +171,9 @@ class BoardFacets(BaseModel):
     stock: Dict[str, int]
     # Same buckets as `KpiAgeing` (`over_60` is the "Ageing > 60d" alert).
     ageing: Dict[str, int]
+    # Marca / categoría / subcategoría / PM options, each narrowed by every
+    # OTHER active filter (stores included), never by its own.
+    product: ProductFacetOptions
 
 
 class BoardResponse(BaseModel):
@@ -223,6 +227,7 @@ def board_filter(
     group_by: str = Query(default="product", description=" | ".join(board.GROUP_BY)),
     stores: Optional[str] = Query(default=None, description="CSV de mlp_official_store_id y/o 'sin_tienda'"),
     marcas: Optional[str] = Query(default=None),
+    categorias: Optional[str] = Query(default=None, description="CSV de categorías (productos_erp.categoria)"),
     subcategorias: Optional[str] = Query(default=None),
     pms: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None, description="Producto, SKU, marca, MLA o título"),
@@ -293,6 +298,7 @@ def board_filter(
         group_by=group_by,
         stores=parse_csv_stores(stores),
         marcas=parse_csv_strings(marcas, "marcas"),
+        categorias=parse_csv_strings(categorias, "categorias"),
         subcategorias=parse_csv_ids(subcategorias, "subcategorias"),
         pms=parse_csv_ids(pms, "pms"),
         q=q.strip() if q and q.strip() else None,
@@ -421,6 +427,7 @@ def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
         alerts=alerts,
         stock=facets.stock,
         ageing=facets.ageing,
+        product=facets.product,
     )
 
 

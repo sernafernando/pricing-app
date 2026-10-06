@@ -62,8 +62,8 @@ triviales por tarea.
 
 ## Tareas
 
-- [ ] T1 Helper compartido `product_facets` (cascada simétrica, selección siempre visible, nombres de subcategoría/PM). Tests unitarios + resolución de nombres.
-- [ ] T2 Tablero (backend): filtro `categorias`, `facets.product` simétrico incl. tienda/filas, tests Postgres + router.
+- [x] T1 Helper compartido `product_facets` (cascada simétrica, selección siempre visible, nombres de subcategoría/PM). Tests unitarios + resolución de nombres.
+- [x] T2 Tablero (backend): filtro `categorias`, `facets.product` simétrico incl. tienda/filas, tests Postgres + router.
 - [ ] T3 Ventas ML (backend): `categorias` en `/sales`, `/sales/export`, `/sales/kpis`; `facets.product` simétrico incl. tienda, tests Postgres + router.
 - [ ] T4 Frontend compartido: `ProductFiltersPanel` con Categoría y opciones del servidor (sin carga propia), tests vitest.
 - [ ] T5 Frontend cableado: Métricas ML + Ventas ML (params `categorias`, `options` desde `facets.product`, limpiar filtros), tests vitest + visual.
@@ -86,4 +86,6 @@ pytest (tests tocados + `pytest tests -q`), `ruff format --check app/ tests/`,
 
 ## Progreso / evidencia
 
-(se completa por tarea)
+- T1 (c57979db, rehecho en T2): RED = ImportError (módulo inexistente); GREEN = 10 tests `test_product_facets.py`. El helper terminó en dos piezas: `product_combo_rows` (UNA sentencia: combinaciones distintas del universo + nombres de subcategoría + pares PM/nombres por LEFT JOIN) y `product_facet_options` (cascada en memoria).
+- T2 (commit al cerrar T2): RED = 11 tests de router fallaban (sin `facets.product` ni `categorias`); GREEN = 11 router (SQLite) + 1 Postgres (`test_board_product_facets_postgres.py`). Techo de sentencias del tablero (volumen, <=19) se mantiene: +1 sentencia (19 con página llena, 17 vacía).
+
