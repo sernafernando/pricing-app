@@ -91,6 +91,45 @@ describe('ProductFiltersPanel options', () => {
     expect(await screen.findByLabelText('Philips')).toBeChecked();
   });
 
+  it('shows a selection spelled differently from the server once, checked, under the server spelling', async () => {
+    render(panel({ value: { ...EMPTY, marcas: ['sony'], categorias: ['AUDIO'] } }));
+    await userEvent.click(screen.getByRole('button', { name: /Marca/ }));
+    expect(await screen.findAllByLabelText(/^sony$/i)).toHaveLength(1);
+    expect(screen.getByLabelText('Sony')).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: /Categoría/ }));
+    expect(await screen.findAllByLabelText(/^audio$/i)).toHaveLength(1);
+    expect(screen.getByLabelText('Audio')).toBeChecked();
+  });
+
+  it('un-ticking the server spelling removes the differently spelled selection', async () => {
+    const onChange = vi.fn();
+    render(panel({ onChange, value: { ...EMPTY, marcas: ['sony', 'LG'] } }));
+    await userEvent.click(screen.getByRole('button', { name: /Marca/ }));
+    await userEvent.click(await screen.findByLabelText('Sony'));
+    expect(onChange).toHaveBeenCalledWith({ marcas: ['LG'], categorias: [], subcategorias: [], pms: [] });
+  });
+
+  it.each([
+    ['before the first response', undefined],
+    ['when the request failed (empty lists)', EMPTY],
+  ])('keeps a selected subcategoría and PM visible %s', async (_label, options) => {
+    render(panel({ options, value: { ...EMPTY, subcategorias: [99], pms: [55] } }));
+    await userEvent.click(screen.getByRole('button', { name: /Subcategoría/ }));
+    expect(await screen.findByLabelText('Subcategoría #99')).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: /PM/ }));
+    expect(await screen.findByLabelText('PM #55')).toBeChecked();
+  });
+
+  it('keeps a selected subcategoría and PM the lists no longer hold, without duplicating listed ones', async () => {
+    render(panel({ value: { ...EMPTY, subcategorias: [3, 99], pms: [10, 55] } }));
+    await userEvent.click(screen.getByRole('button', { name: /Subcategoría/ }));
+    expect(await screen.findByLabelText('Subcategoría #99')).toBeChecked();
+    expect(screen.getAllByLabelText('Parlantes')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: /PM/ }));
+    expect(await screen.findByLabelText('PM #55')).toBeChecked();
+    expect(screen.getAllByLabelText('Ana')).toHaveLength(1);
+  });
+
   it('shows the selected count in each button badge', () => {
     render(
       panel({ value: { marcas: ['Sony', 'LG'], categorias: ['Audio'], subcategorias: [3], pms: [10] } }),

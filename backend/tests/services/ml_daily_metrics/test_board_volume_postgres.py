@@ -536,9 +536,15 @@ def test_ventas_product_option_lists_cost_on_volume(volume_session) -> None:
     """Same measurement for Ventas ML: the options read the items of the groups the
     listing shows (30 days, product facet cleared) -- one statement, plus the
     whole `build_scope` it hangs from (timings printed, never asserted)."""
-    from sqlalchemy import select  # noqa: F401 -- kept next to the statement it builds
+    from dataclasses import replace
 
-    from app.services.ml_sales_query.filters import SalesFilter, build_scope, product_facet_source
+    from app.services.ml_sales_query.filters import (
+        SalesFilter,
+        build_scope,
+        product_facet_source,
+        sales_product_options,
+        store_facet_counts,
+    )
     from app.services.product_facets import product_combo_statement, product_combo_rows
 
     session = volume_session
@@ -564,22 +570,37 @@ def test_ventas_product_option_lists_cost_on_volume(volume_session) -> None:
         include_mixed=True,
         include_provisional=True,
     )
+
+    def timed(label, fn, repeats=2):
+        """Runs `fn` `repeats` times (the first warms the cache) and prints the last run."""
+        result = None
+        for _ in range(repeats):
+            started = time.perf_counter()
+            result = fn()
+        print(f"{label}: {(time.perf_counter() - started) * 1000:.0f} ms")
+        return result
+
     scope = build_scope(session, f)
     source = product_facet_source(scope)
     statement = product_combo_statement(source)
     compiled = str(statement.compile(session.get_bind(), compile_kwargs={"literal_binds": True}))
     plan = session.execute(text("EXPLAIN (ANALYZE, BUFFERS) " + compiled)).scalars().all()
     print("\n".join(plan[-4:]))
-    started = time.perf_counter()
-    rows = product_combo_rows(session, source)
-    scope_count = session.execute(
-        text("SELECT 1")  # keeps the connection warm; the group count below is what the listing would page
-    ).scalar()
-    assert scope_count == 1
-    from app.services.ml_sales_query.filters import store_facet_counts
 
-    started = time.perf_counter()
-    store_facet_counts(scope)
-    print(f"(for scale) existing store chip counts on the same scope: {(time.perf_counter() - started) * 1000:.0f} ms")
-    print(f"ventas product options statement: {len(rows)} rows, {(time.perf_counter() - started) * 1000:.0f} ms")
-    assert rows
+    # No product facet active: the scope IS the universe -- the options are this one statement.
+    rows = timed(
+        "ventas options, no facet active: the combos statement alone", lambda: product_combo_rows(session, source)
+    )
+    print(f"  -> {len(rows)} combinations")
+    # Each piece on its own, for scale.
+    timed("  build_scope alone", lambda: build_scope(session, f))
+    timed("  existing store chip counts on the same scope", lambda: store_facet_counts(scope))
+
+    # A product facet active: `sales_product_options` builds a SECOND scope (facets cleared), then runs the statement.
+    active = replace(f, marcas=("Epson",))
+    active_scope = build_scope(session, active)
+    options = timed(
+        "ventas options, facet active (marcas=Epson): second build_scope + the statement",
+        lambda: sales_product_options(session, active, active_scope),
+    )
+    assert rows and options.marcas

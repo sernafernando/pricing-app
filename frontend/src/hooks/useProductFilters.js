@@ -5,6 +5,11 @@ const NONE = [];
 const EMPTY_VALUE = { marcas: [], categorias: [], subcategorias: [], pms: [] };
 const EMPTY_OPTIONS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
 
+// Same normalisation as the server (`product_facets._upper`): trimmed, case-insensitive.
+const norm = (text) => text.trim().toLowerCase();
+const sameText = (a, b) => norm(a) === norm(b);
+const hasText = (list, item) => list.some((x) => sameText(x, item));
+
 const includesText = (text, needle) => text.toLowerCase().includes(needle.toLowerCase());
 
 /**
@@ -18,7 +23,11 @@ const includesText = (text, needle) => text.toLowerCase().includes(needle.toLowe
  * narrows each list, never its own), so the lists shrink and grow as the
  * operator picks (`metricas-ml-filtros-dinamicos`). This hook only
  *  - keeps a selected value visible even when the other filters rule it out
- *    (so it can be unticked), and
+ *    or the lists have not arrived / failed to load (so it can be unticked):
+ *    marca and categoría compare case-insensitively and the SERVER spelling
+ *    is the canonical one (a selection spelled differently shows once,
+ *    checked); a subcategoría or PM with no name on hand shows as
+ *    `Subcategoría #id` / `PM #id`, and
  *  - filters the lists by the typed search, client-side.
  *
  * @param {{value?: object, onChange?: Function, options?: object}} [args]
@@ -39,30 +48,38 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange, options } = {
 
   const marcasFiltradas = useMemo(() => {
     const listed = offered.marcas ?? NONE;
-    const all = [...listed, ...selectedMarcas.filter((m) => !listed.includes(m))];
+    const all = [...listed, ...selectedMarcas.filter((m) => !hasText(listed, m))];
     return all.filter((m) => includesText(m, busquedaMarca));
   }, [offered.marcas, selectedMarcas, busquedaMarca]);
 
   const categoriasFiltradas = useMemo(() => {
     const listed = offered.categorias ?? NONE;
-    const all = [...listed, ...selectedCategorias.filter((c) => !listed.includes(c))];
+    const all = [...listed, ...selectedCategorias.filter((c) => !hasText(listed, c))];
     return all.filter((c) => includesText(c, busquedaCategoria));
   }, [offered.categorias, selectedCategorias, busquedaCategoria]);
 
-  const subcategoriaGruposFiltrados = useMemo(
-    () =>
-      (offered.subcategorias ?? NONE)
-        .map((grupo) => ({
-          ...grupo,
-          subcategorias: (grupo.subcategorias || []).filter((sub) =>
-            includesText(sub.nombre, busquedaSubcategoria),
-          ),
-        }))
-        .filter((grupo) => grupo.subcategorias.length > 0),
-    [offered.subcategorias, busquedaSubcategoria],
-  );
+  const subcategoriaGruposFiltrados = useMemo(() => {
+    const groups = offered.subcategorias ?? NONE;
+    const listedIds = new Set(groups.flatMap((g) => (g.subcategorias || []).map((sub) => sub.id)));
+    const missing = selectedSubcategorias
+      .filter((id) => !listedIds.has(id))
+      .map((id) => ({ id, nombre: `Subcategoría #${id}` }));
+    const all = missing.length > 0 ? [...groups, { nombre: 'Seleccionadas', subcategorias: missing }] : groups;
+    return all
+      .map((grupo) => ({
+        ...grupo,
+        subcategorias: (grupo.subcategorias || []).filter((sub) => includesText(sub.nombre, busquedaSubcategoria)),
+      }))
+      .filter((grupo) => grupo.subcategorias.length > 0);
+  }, [offered.subcategorias, selectedSubcategorias, busquedaSubcategoria]);
 
-  const pmOptions = offered.pms ?? NONE;
+  const pmOptions = useMemo(() => {
+    const listed = offered.pms ?? NONE;
+    const missing = selectedPms
+      .filter((id) => !listed.some((pm) => pm.id === id))
+      .map((id) => ({ id, nombre: `PM #${id}` }));
+    return missing.length > 0 ? [...listed, ...missing] : listed;
+  }, [offered.pms, selectedPms]);
 
   const emit = useCallback(
     (next) => {
@@ -77,12 +94,18 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange, options } = {
   );
 
   const toggleIn = (list, item) => (list.includes(item) ? list.filter((x) => x !== item) : [...list, item]);
+  // Text lists compare case-insensitively: the checkbox shows the server spelling, the
+  // selection may hold another (URL, older state), and either one must untick it.
+  const toggleText = (list, item) =>
+    hasText(list, item) ? list.filter((x) => !sameText(x, item)) : [...list, item];
 
-  const toggleMarca = useCallback((marca) => emit({ marcas: toggleIn(selectedMarcas, marca) }), [selectedMarcas, emit]);
+  const toggleMarca = useCallback((marca) => emit({ marcas: toggleText(selectedMarcas, marca) }), [selectedMarcas, emit]);
   const toggleCategoria = useCallback(
-    (categoria) => emit({ categorias: toggleIn(selectedCategorias, categoria) }),
+    (categoria) => emit({ categorias: toggleText(selectedCategorias, categoria) }),
     [selectedCategorias, emit],
   );
+  const isMarcaSelected = useCallback((marca) => hasText(selectedMarcas, marca), [selectedMarcas]);
+  const isCategoriaSelected = useCallback((categoria) => hasText(selectedCategorias, categoria), [selectedCategorias]);
   const toggleSubcategoria = useCallback(
     (id) => emit({ subcategorias: toggleIn(selectedSubcategorias, id) }),
     [selectedSubcategorias, emit],
@@ -104,6 +127,8 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange, options } = {
     setBusquedaCategoria,
     busquedaSubcategoria,
     setBusquedaSubcategoria,
+    isMarcaSelected,
+    isCategoriaSelected,
     toggleMarca,
     toggleCategoria,
     toggleSubcategoria,

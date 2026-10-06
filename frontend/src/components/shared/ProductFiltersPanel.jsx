@@ -50,6 +50,8 @@ export default function ProductFiltersPanel({ value, onChange, options }) {
     setBusquedaCategoria,
     busquedaSubcategoria,
     setBusquedaSubcategoria,
+    isMarcaSelected,
+    isCategoriaSelected,
     toggleMarca,
     toggleCategoria,
     toggleSubcategoria,
@@ -174,11 +176,11 @@ export default function ProductFiltersPanel({ value, onChange, options }) {
                 {marcasFiltradas.map((marca) => (
                   <label
                     key={marca}
-                    className={`${styles.item} ${selectedMarcas.includes(marca) ? styles.itemSelected : ''}`}
+                    className={`${styles.item} ${isMarcaSelected(marca) ? styles.itemSelected : ''}`}
                   >
                     <input
                       type="checkbox"
-                      checked={selectedMarcas.includes(marca)}
+                      checked={isMarcaSelected(marca)}
                       onChange={() => toggleMarca(marca)}
                     />
                     <span>{marca}</span>
@@ -214,11 +216,11 @@ export default function ProductFiltersPanel({ value, onChange, options }) {
                 {categoriasFiltradas.map((categoria) => (
                   <label
                     key={categoria}
-                    className={`${styles.item} ${selectedCategorias.includes(categoria) ? styles.itemSelected : ''}`}
+                    className={`${styles.item} ${isCategoriaSelected(categoria) ? styles.itemSelected : ''}`}
                   >
                     <input
                       type="checkbox"
-                      checked={selectedCategorias.includes(categoria)}
+                      checked={isCategoriaSelected(categoria)}
                       onChange={() => toggleCategoria(categoria)}
                     />
                     <span>{categoria}</span>
