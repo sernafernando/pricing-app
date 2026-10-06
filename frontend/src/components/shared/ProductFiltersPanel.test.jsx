@@ -130,6 +130,14 @@ describe('ProductFiltersPanel options', () => {
     expect(screen.getAllByLabelText('Ana')).toHaveLength(1);
   });
 
+  it('labels each subcategoría group with its name, the fallback group included', async () => {
+    render(panel({ value: { ...EMPTY, subcategorias: [99] } }));
+    await userEvent.click(screen.getByRole('button', { name: /Subcategoría/ }));
+    expect(await screen.findByText('Audio')).toBeInTheDocument();
+    expect(screen.getByText('Video')).toBeInTheDocument();
+    expect(screen.getByText('Seleccionadas')).toBeInTheDocument();
+  });
+
   it('shows the selected count in each button badge', () => {
     render(
       panel({ value: { marcas: ['Sony', 'LG'], categorias: ['Audio'], subcategorias: [3], pms: [10] } }),

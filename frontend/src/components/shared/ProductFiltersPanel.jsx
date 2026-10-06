@@ -254,8 +254,8 @@ export default function ProductFiltersPanel({ value, onChange, options }) {
               </div>
               <div className={styles.content}>
                 {subcategoriaGruposFiltrados.map((grupo) => (
-                  <div key={grupo.categoria}>
-                    <div className={styles.groupLabel}>{grupo.categoria}</div>
+                  <div key={grupo.nombre}>
+                    <div className={styles.groupLabel}>{grupo.nombre}</div>
                     {grupo.subcategorias.map((sub) => (
                       <label
                         key={sub.id}
