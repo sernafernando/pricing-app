@@ -7,7 +7,7 @@ const BASE_FILTERS = {
   fechaDesde: '',
   fechaHasta: '',
   searchQuery: '',
-  productFilters: { marcas: [], subcategorias: [], pms: [] },
+  productFilters: { marcas: [], categorias: [], subcategorias: [], pms: [] },
   includeUnknown: true,
   includeInDispute: true,
   includeMixed: true,
@@ -25,6 +25,7 @@ describe('buildVentasMLFilterParams', () => {
     expect(params).not.toHaveProperty('date_to');
     expect(params).not.toHaveProperty('q');
     expect(params).not.toHaveProperty('marcas');
+    expect(params).not.toHaveProperty('categorias');
     expect(params).not.toHaveProperty('limit');
     expect(params).not.toHaveProperty('offset');
   });
@@ -37,7 +38,7 @@ describe('buildVentasMLFilterParams', () => {
       fechaDesde: '2026-09-01',
       fechaHasta: '2026-09-30',
       searchQuery: 'epson',
-      productFilters: { marcas: ['acme', 'globex'], subcategorias: [1, 2], pms: [7] },
+      productFilters: { marcas: ['acme', 'globex'], categorias: ['Cables'], subcategorias: [1, 2], pms: [7] },
     });
     expect(params).toMatchObject({
       operation_status: 'paid',
@@ -46,6 +47,7 @@ describe('buildVentasMLFilterParams', () => {
       date_to: '2026-09-30',
       q: 'epson',
       marcas: 'acme,globex',
+      categorias: 'Cables',
       subcategorias: '1,2',
       pms: '7',
     });

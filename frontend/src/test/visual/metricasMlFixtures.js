@@ -253,6 +253,15 @@ export const BOARD_RESPONSE = {
     alerts: { sin_ventas_30d: 64, ageing_60d: 23, margen_cayendo: 11 },
     stock: { con_stock: 402, sin_stock: 61, sin_dato: 8 },
     ageing: { up_to_30: 402, from_31_to_60: 46, over_60: 23 },
+    product: {
+      marcas: ['Epson', 'HP', 'Lenovo'],
+      categorias: ['Impresoras', 'Insumos', 'Notebooks'],
+      subcategorias: [
+        { nombre: 'Impresoras', subcategorias: [{ id: 10, nombre: 'Multifunción' }] },
+        { nombre: 'Insumos', subcategorias: [{ id: 20, nombre: 'Tintas' }] },
+      ],
+      pms: [{ id: 901, nombre: 'Ana' }],
+    },
   },
   rows: BOARD_ROWS,
 };

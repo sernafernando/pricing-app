@@ -53,7 +53,7 @@ const STALE_AGEING_BUCKETS = new Set(['from_31_to_60', 'over_60']);
 // The board's period cap (`MAX_PERIOD_DAYS` in `routers/ml_metricas.py`).
 const MAX_PERIOD_DAYS = 366;
 const PERIOD_LIMIT_MESSAGE = 'El período máximo es de 1 año';
-const EMPTY_PRODUCT_FILTERS = { marcas: [], subcategorias: [], pms: [] };
+const EMPTY_PRODUCT_FILTERS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
 const PERIOD_LABELS = {
   hoy: 'hoy',
   ayer: 'ayer',
@@ -293,6 +293,7 @@ export default function MetricasML() {
       searchQuery ||
       storeFilter ||
       productFilters.marcas.length ||
+      productFilters.categorias.length ||
       productFilters.subcategorias.length ||
       productFilters.pms.length ||
       pubStatus.length ||
@@ -475,7 +476,11 @@ export default function MetricasML() {
         <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Producto:</span>
-            <ProductFiltersPanel value={productFilters} onChange={withReset(setProductFilters)} />
+            <ProductFiltersPanel
+              value={productFilters}
+              onChange={withReset(setProductFilters)}
+              options={facets?.product}
+            />
           </div>
           <span className={styles.divider} aria-hidden="true" />
           <div className={styles.filterGroup}>

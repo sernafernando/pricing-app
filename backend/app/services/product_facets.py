@@ -92,15 +92,17 @@ def _upper(value: Optional[str]) -> str:
     return (value or "").strip().upper()
 
 
-def product_combo_rows(db: Session, source: Select) -> List[ComboRow]:
-    """The universe's distinct combinations, with names, in ONE statement.
-    `source` selects `marca`, `categoria` and `subcategoria_id` (in that order,
-    duplicates welcome)."""
+def product_combo_statement(source: Select) -> Select:
+    """The ONE statement behind `product_combo_rows`: `source` selects `marca`,
+    `categoria` and `subcategoria_id` (in that order, duplicates welcome); the
+    result is their distinct combinations with the subcategory name and group
+    and the PMs of the (marca, categoría) pair joined in. Exposed so a volume
+    test can `EXPLAIN ANALYZE` exactly what runs."""
     if len(source.selected_columns) != 3:
         raise ValueError("source must select exactly (marca, categoria, subcategoria_id)")
     combos = source.distinct().subquery("combos")
     marca, categoria, subcat = combos.c[0], combos.c[1], combos.c[2]
-    stmt = (
+    return (
         select(
             marca,
             categoria,
@@ -118,7 +120,12 @@ def product_combo_rows(db: Session, source: Select) -> List[ComboRow]:
         )
         .outerjoin(Usuario, Usuario.id == MarcaPM.usuario_id)
     )
-    return [ComboRow(*row) for row in db.execute(stmt)]
+
+
+def product_combo_rows(db: Session, source: Select) -> List[ComboRow]:
+    """The universe's distinct combinations, with names, in ONE statement
+    (`product_combo_statement`)."""
+    return [ComboRow(*row) for row in db.execute(product_combo_statement(source))]
 
 
 def _distinct_spellings(values: Iterable[Optional[str]], selected: Iterable[str] = ()) -> List[str]:

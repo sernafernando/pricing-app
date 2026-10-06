@@ -65,8 +65,8 @@ triviales por tarea.
 - [x] T1 Helper compartido `product_facets` (cascada simétrica, selección siempre visible, nombres de subcategoría/PM). Tests unitarios + resolución de nombres.
 - [x] T2 Tablero (backend): filtro `categorias`, `facets.product` simétrico incl. tienda/filas, tests Postgres + router.
 - [x] T3 Ventas ML (backend): `categorias` en `/sales`, `/sales/export`, `/sales/kpis`; `facets.product` simétrico incl. tienda, tests Postgres + router.
-- [ ] T4 Frontend compartido: `ProductFiltersPanel` con Categoría y opciones del servidor (sin carga propia), tests vitest.
-- [ ] T5 Frontend cableado: Métricas ML + Ventas ML (params `categorias`, `options` desde `facets.product`, limpiar filtros), tests vitest + visual.
+- [x] T4 Frontend compartido: `ProductFiltersPanel` con Categoría y opciones del servidor (sin carga propia), tests vitest.
+- [x] T5 Frontend cableado: Métricas ML + Ventas ML (params `categorias`, `options` desde `facets.product`, limpiar filtros), tests vitest + visual.
 - [ ] T6 Medición EXPLAIN ANALYZE + verificación completa.
 
 ## Criterios de aceptación
@@ -90,3 +90,5 @@ pytest (tests tocados + `pytest tests -q`), `ruff format --check app/ tests/`,
 - T2 (commit al cerrar T2): RED = 11 tests de router fallaban (sin `facets.product` ni `categorias`); GREEN = 11 router (SQLite) + 1 Postgres (`test_board_product_facets_postgres.py`). Techo de sentencias del tablero (volumen, <=19) se mantiene: +1 sentencia (19 con página llena, 17 vacía).
 
 - T3 (commit al cerrar T3): RED = 16 tests de router fallaban (`categorias` ignorado, sin `facets.product`); GREEN = 16 router (SQLite) + 1 Postgres (`test_ventas_product_facets_postgres.py`, incluye pack). Universo = grupos del listado con los filtros de producto limpios (estado, switches, tienda, búsqueda, período incluidos) + hermanos del pack; ítems vía costo congelado. Presupuesto de queries del listado (`ml_order_item_costos` <= 2) actualizado: la lectura de opciones suma UNA sentencia constante.
+- T4+T5 (un solo commit frontend: el panel sin carga propia deja las dos pantallas rotas hasta cablearlas, y un commit intermedio en rojo no es entregable): RED = panel (ImportError del mock que prohíbe cargar opciones propias), params (`categorias`), URL de Ventas, 5 tests de VentasML y 3 de MetricasML; GREEN = `pnpm test` 1997 passed, `pnpm lint` 0 errores, `pnpm lint:css` limpio, `pnpm build` ok, `pnpm test:visual` 80 passed (+2 expected fail preexistentes). Captura de la franja PRODUCTO con 4 botones revisada (cabe sin wrap en 1366).
+- T6 medición (volumen del test: 2.000 productos / 6.000 publicaciones / 81.000 grupos; Postgres local 18): opciones del tablero = 1 sentencia, `Execution Time` 21 ms (35 combinaciones); tablero entero 19 sentencias (techo <=19 intacto). Ventas (30 días, ~6,7k grupos): 1 sentencia ~256 ms, del orden de las chips de tienda existentes sobre el mismo scope (~330 ms). Sin volumen realista de `marcas_pm`/`subcategorias_grupos` local (pricing_dev: 3.828 productos, 355 pares): se sembraron 355 pares y 400 subcategorías en el test. EXPLAIN de producción: ver el reporte.

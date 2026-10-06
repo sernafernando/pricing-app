@@ -491,3 +491,95 @@ class TestPagingIsStableUnderTies:
 
         assert len(lines) == PRODUCTS
         assert len(set(lines)) == PRODUCTS
+
+
+def test_product_option_lists_cost_on_volume(volume_session) -> None:
+    """ODD `metricas-ml-filtros-dinamicos`: the marca / categoría / subcategoría /
+    PM option lists are ONE statement over the materialized pair table (distinct
+    combinations + the lookups joined in). Measured here on the seeded volume
+    (timings printed, never asserted): the statement alone and inside a whole
+    board request, with the PM pair / subcategory lookups at production size."""
+    from sqlalchemy import select
+
+    from app.services.product_facets import product_combo_statement
+
+    session = volume_session
+    session.execute(
+        text(
+            "INSERT INTO usuarios (id, nombre) SELECT 8000 + i, 'PM ' || i FROM generate_series(1, 12) AS i;"
+            "INSERT INTO marcas_pm (marca, categoria, usuario_id) "
+            "SELECT 'Marca ' || i, 'Cat ' || (i % 30), 8000 + 1 + i % 12 FROM generate_series(1, 355) AS i;"
+            "INSERT INTO subcategorias_grupos (subcat_id, grupo_id, nombre_subcategoria, nombre_categoria) "
+            "SELECT i, 1, 'Sub ' || i, 'Cat ' || (i % 30) FROM generate_series(1, 400) AS i"
+        )
+    )
+    for table in ("marcas_pm", "subcategorias_grupos", "usuarios"):
+        session.execute(text(f"ANALYZE {table}"))
+    f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, marcas=("Epson",))
+    with board.Board(session, f) as b:
+        joined, fp = b._members(board.PRODUCT_AXIS)
+        statement = product_combo_statement(
+            select(fp.c.marca, fp.c.categoria, fp.c.subcategoria_id).select_from(joined)
+        )
+        compiled = str(statement.compile(session.get_bind(), compile_kwargs={"literal_binds": True}))
+        plan = session.execute(text("EXPLAIN (ANALYZE, BUFFERS) " + compiled)).scalars().all()
+        print("\n".join(plan))
+        started = time.perf_counter()
+        rows = session.execute(statement).all()
+        print(f"product options statement: {len(rows)} rows, {(time.perf_counter() - started) * 1000:.0f} ms")
+    response, recorder, elapsed_ms = _request(session, limit=50, marcas=("Epson",))
+    print(f"whole board request (with options): {len(recorder.statements)} statements, {elapsed_ms:.0f} ms")
+    assert response.facets.product.marcas
+
+
+def test_ventas_product_option_lists_cost_on_volume(volume_session) -> None:
+    """Same measurement for Ventas ML: the options read the items of the groups the
+    listing shows (30 days, product facet cleared) -- one statement, plus the
+    whole `build_scope` it hangs from (timings printed, never asserted)."""
+    from sqlalchemy import select  # noqa: F401 -- kept next to the statement it builds
+
+    from app.services.ml_sales_query.filters import SalesFilter, build_scope, product_facet_source
+    from app.services.product_facets import product_combo_statement, product_combo_rows
+
+    session = volume_session
+    # Ventas ML days are the ACCREDITATION day: one approved payment per order, on its group's date.
+    session.execute(
+        text(
+            "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) "
+            "SELECT order_id * 10 + 1, order_id, 'approved', "
+            ":now - make_interval(days => CAST(CASE WHEN g <= :dense THEN g % 90 ELSE 90 + (g - :dense) % 450 END AS INTEGER), "
+            "secs => CAST((g * 37) % 86400 AS DOUBLE PRECISION)) "
+            f"FROM {_MEMBERS}"
+        ),
+        {"groups": GROUPS, "dense": DENSE_GROUPS, "now": NOW},
+    )
+    session.execute(text("ANALYZE ml_payments_ops"))
+    f = SalesFilter(
+        date_range=(
+            datetime.combine(TODAY - timedelta(days=29), datetime.min.time(), tzinfo=timezone.utc),
+            datetime.combine(TODAY + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+        ),
+        include_unknown=True,
+        include_in_dispute=True,
+        include_mixed=True,
+        include_provisional=True,
+    )
+    scope = build_scope(session, f)
+    source = product_facet_source(scope)
+    statement = product_combo_statement(source)
+    compiled = str(statement.compile(session.get_bind(), compile_kwargs={"literal_binds": True}))
+    plan = session.execute(text("EXPLAIN (ANALYZE, BUFFERS) " + compiled)).scalars().all()
+    print("\n".join(plan[-4:]))
+    started = time.perf_counter()
+    rows = product_combo_rows(session, source)
+    scope_count = session.execute(
+        text("SELECT 1")  # keeps the connection warm; the group count below is what the listing would page
+    ).scalar()
+    assert scope_count == 1
+    from app.services.ml_sales_query.filters import store_facet_counts
+
+    started = time.perf_counter()
+    store_facet_counts(scope)
+    print(f"(for scale) existing store chip counts on the same scope: {(time.perf_counter() - started) * 1000:.0f} ms")
+    print(f"ventas product options statement: {len(rows)} rows, {(time.perf_counter() - started) * 1000:.0f} ms")
+    assert rows

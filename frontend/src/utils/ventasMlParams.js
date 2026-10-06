@@ -37,6 +37,7 @@ export function buildVentasMLFilterParams({
   if (fechaHasta) params.date_to = fechaHasta;
   if (searchQuery) params.q = searchQuery;
   if (productFilters?.marcas?.length > 0) params.marcas = productFilters.marcas.join(',');
+  if (productFilters?.categorias?.length > 0) params.categorias = productFilters.categorias.join(',');
   if (productFilters?.subcategorias?.length > 0) params.subcategorias = productFilters.subcategorias.join(',');
   if (productFilters?.pms?.length > 0) params.pms = productFilters.pms.join(',');
   if (storeFilter) params.stores = storeFilter;

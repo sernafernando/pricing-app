@@ -410,6 +410,64 @@ describe('MetricasML page', () => {
   });
 });
 
+describe('MetricasML cross-filtered product filters', () => {
+  // The lists the server sends: each narrowed by every OTHER active filter.
+  const ALL = {
+    marcas: ['Epson', 'HP'],
+    categorias: ['Impresoras', 'Insumos'],
+    subcategorias: [
+      { nombre: 'Impresoras', subcategorias: [{ id: 10, nombre: 'Laser' }] },
+      { nombre: 'Insumos', subcategorias: [{ id: 20, nombre: 'Toner' }] },
+    ],
+    pms: [{ id: 901, nombre: 'Ana' }],
+  };
+  const EPSON = { ...ALL, categorias: ['Impresoras'], subcategorias: [ALL.subcategorias[0]] };
+
+  function answerWithProduct() {
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-metricas/board') {
+        const product = config.params.marcas === 'Epson' ? EPSON : ALL;
+        return Promise.resolve({ data: { ...BOARD_RESPONSE, facets: { ...BOARD_RESPONSE.facets, product } } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('offers the lists the board answer carries, loading none of its own', async () => {
+    answerWithProduct();
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Categoría' }));
+
+    expect(await screen.findByLabelText('Insumos')).toBeInTheDocument();
+    expect(productosAPI.marcas).not.toHaveBeenCalled();
+    expect(api.get).not.toHaveBeenCalledWith('/usuarios/pms', expect.anything());
+  });
+
+  it('picking a brand sends `marcas` and the next lists only hold what fits it', async () => {
+    answerWithProduct();
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Marca' }));
+    await userEvent.click(await screen.findByLabelText('Epson'));
+
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ marcas: 'Epson', offset: 0 }));
+    await userEvent.click(screen.getByRole('button', { name: /Categoría/ }));
+    expect(await screen.findByLabelText('Impresoras')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText('Insumos')).not.toBeInTheDocument());
+  });
+
+  it('picking a categoría sends `categorias`, and "Limpiar filtros" clears it', async () => {
+    answerWithProduct();
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Categoría' }));
+    await userEvent.click(await screen.findByLabelText('Insumos'));
+
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ categorias: 'Insumos' }));
+    await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros$/ }));
+
+    await waitFor(() => expect(lastBoardParams()).not.toHaveProperty('categorias'));
+  });
+});
+
 describe('MetricasML publications sub-rows', () => {
   const PUBS_URL = '/ml-metricas/board/products/4101/publications';
   const pubCalls = () => api.get.mock.calls.filter(([url]) => url === PUBS_URL);
