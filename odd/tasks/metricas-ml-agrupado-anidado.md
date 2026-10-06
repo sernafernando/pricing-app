@@ -99,7 +99,7 @@ Todas: un writer (este agente). Tareas con 2+ archivos no triviales.
 - [x] T3 Router: `levels`, `group-nodes`, CSV con ruta, permisos, techo.
 - [x] T4 Frontend: árbol de niveles (carga perezosa, paginado por nivel, indentación), vitest.
 - [x] T5 Visual (`test:visual`) de los estados anidados.
-- [ ] T6 Medición en el fixture de volumen + verificación completa + push.
+- [x] T6 Medición en el fixture de volumen + verificación completa + push.
 
 ## Criterios de aceptación
 
@@ -130,3 +130,4 @@ pytest (tests tocados + `pytest tests -q`), `ruff format --check app/ tests/`, `
   - Abrir un nivel (una página = savepoint + 2 CREATE + 2 ANALYZE + conteo + página + series): 9 sentencias a cualquier profundidad de Tienda (tienda, marca, categoría, subcategoría), ~560-660 ms (casi todo son las dos tablas temporales, ~190 ms cada una). Abrir hojas (productos): 10 sentencias, ~560-660 ms: 57 de 57 productos (tienda/marca/cat/sub), 100 de 285 (categoría > subcategoría), 57 de 57 (PM). Con filtros de fila (stock + ageing + solo con ventas) +30-50 ms.
   - HALLAZGO (RED medido): abrir una subcategoría de Tienda > Marca > Categoría con filtros de fila tardaba **7,3 s** (2 sentencias de 2,2 s). Causa: `rk IN (CTE de sobrevivientes)`; el CTE filtra por agregados y el planner lo estima en 1 fila, anida bucles y escanea la tabla de pares una vez por sobreviviente (1.068 x 6.000 filas). Arreglo: `product = ANY(array((SELECT product FROM scope_keys)))` (InitPlan una vez, sonda hash; SQLite conserva `IN`): **21,6 ms** el mismo statement, 631 ms el request. Test que fija la forma del SQL.
   - Conciliación en volumen: caminando una rama de cada dimensión (marca, tienda, PM) hasta los productos, los hijos suman al padre (unidades y facturado exactos; costo y Gauss <= 1 centavo por hijo: las órdenes multi-ítem reparten fracciones de centavo y cada nodo redondea su suma una vez).
+- Verificación (primera pasada): pytest `tests` por tandas (ENVIRONMENT=testing, `-p no:randomly`): 1165 + 3380 + 2081 + 1576 = 8202 passed, 16 skipped; `ruff format --check app/ tests/` y `ruff check app/` limpios; frontend `pnpm test -- --run` 158 archivos / 2081 tests, `pnpm lint` 0 errores (2 warnings preexistentes de AppLayout), `pnpm lint:css` limpio, `pnpm build` ok, `pnpm test:visual` 10 archivos / 84 passed (+2 expected fail preexistentes).
