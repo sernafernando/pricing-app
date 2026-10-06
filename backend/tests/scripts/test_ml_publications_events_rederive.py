@@ -65,4 +65,4 @@ class TestRederiveCli:
 
     def test_rejects_a_batch_size_above_the_cap(self, paused_item, capsys) -> None:
         assert ml_publications_events_rederive.main(["--batch-size", str(events_store.MAX_BATCH_SIZE + 1)]) == 2
-        assert "at most" in capsys.readouterr().err
+        assert "between 1 and" in capsys.readouterr().err

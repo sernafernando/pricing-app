@@ -88,6 +88,7 @@ def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFA
         db.execute(text(f"SET LOCAL statement_timeout = '{BATCH_STATEMENT_TIMEOUT}'"))
         entries = batch_query(db, item_id=item_id, last_id=last_id, batch_size=batch_size).all()
         if not entries:
+            db.commit()  # close the transaction opened by the batch's SET LOCAL
             return created
         created += _insert(db, [ChangeRow.from_model(entry) for entry in entries])
         last_id = entries[-1].id
