@@ -22,6 +22,7 @@ from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.services.ml_api_client import MercadoLibreAPIClient
+from app.services.ml_multiget import BULK_ITEMS_PATH, parse_multiget
 
 # El access token vive en la DB del ml-webhook (única fuente de OAuth para ML);
 # este cliente solo lo lee/cachea, nunca hace el intercambio de refresh_token.
@@ -92,10 +93,10 @@ async def traer_detalles_batch(ids: list, db: Session):
         ids_str = ",".join(chunk)
 
         try:
-            batch = await call_meli(f"/items?ids={ids_str}")
+            batch = await call_meli(f"{BULK_ITEMS_PATH}?ids={ids_str}")
 
-            for item_wrapper in batch:
-                item = item_wrapper.get("body")
+            for element in parse_multiget(batch):
+                item = element.body
                 if not item:
                     continue
 

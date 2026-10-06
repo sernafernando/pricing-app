@@ -26,13 +26,15 @@ This pricing PR FIRST (tolerant parser, both shapes), THEN the ml-webhook bridge
 TDD strict (RED first). Conventional commits, no AI attribution. ruff format app/ tests/.
 
 ## Tasks
-- [ ] T1 shared parser `app/services/ml_multiget.py` + tests (RED/GREEN)
-- [ ] T2 `ml_api_client.get_items_batch` -> `/items/bulk` + tests
-- [ ] T3 three sync scripts -> `/items/bulk` + parser + tests
+- [x] T1 shared parser `app/services/ml_multiget.py` + tests (RED/GREEN)
+- [x] T2 `ml_api_client.get_items_batch` -> `/items/bulk` + tests
+- [x] T3 three sync scripts -> `/items/bulk` + parser + tests
 - [ ] T4 full verification + push (GGA)
 
 ## Route
 Inline: small, understood, 4 callers (direct inline, delegation triggers not fired: <=3 files read per decision).
 
 ## Evidence
-(filled as tasks close)
+- T1+T2 commit 0214fd8f: RED = ModuleNotFoundError (parser) and `/items` != `/items/bulk` (client); GREEN 13 passed.
+- T3: RED = 6 failed with scripts reverted; GREEN 6 passed (tests/scripts/test_sync_ml_publications_bulk.py).
+- Targeted `-k "ml_api_client or ml_webhook_client or sync_ml_publications or productos_detail or multiget"`: 197 passed.
