@@ -66,7 +66,8 @@ def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFA
 
     Keyset-paged by row id so memory stays bounded, one transaction per batch (committed, with
     its own `statement_timeout`) so a long history never holds one long transaction and a late
-    failure keeps the earlier batches; existing events are left alone.
+    failure keeps the earlier batches; existing events are left alone. `item_id` narrows the scan
+    through `ix_ml_change_log_item (item_id, ...)`, so it stays cheap on a large history.
     """
     created = 0
     last_id = 0

@@ -25,19 +25,6 @@ STATUS_EVENT_BY_VALUE = {
     "under_review": "status_under_review",
 }
 STATUS_EVENT_OTHER = "status_changed_other"
-EVENT_TYPES = frozenset(
-    {
-        *STATUS_EVENT_BY_VALUE.values(),
-        STATUS_EVENT_OTHER,
-        "sub_status_changed",
-        "listing_type_changed",
-        "title_changed",
-        "stock_depleted",
-        "stock_replenished",
-        "item_gone",
-        "item_restored",
-    }
-)
 
 
 @dataclass(frozen=True)
