@@ -1,0 +1,80 @@
+"""Persistence of business events (design D15): write for one change-log row, or rebuild.
+
+`write_events` runs inside the transaction that inserted the change-log row, so an event
+never exists without its row (and the other way round when events are on). The unique
+`dedupe_key` plus `ON CONFLICT DO NOTHING` make writing the events of a row twice a
+no-op. `rederive_events` rebuilds events from stored change-log rows alone: it reads no
+current state, so a corrected rule can be replayed over the whole history. It never
+deletes anything.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.models.ml_publications import MlChangeLog, MlItemEvent
+from app.services.ml_publications.events import ChangeRow, Event, dedupe_key, derive_events
+
+DEFAULT_BATCH_SIZE = 500
+
+
+def _values(row: ChangeRow, event: Event) -> dict:
+    context = row.context
+    return {
+        "event_type": event.event_type,
+        "item_id": event.item_id,
+        "promotion_id": event.promotion_id,
+        "promotion_type": event.promotion_type,
+        "price_kind": event.price_kind,
+        "old_value": event.old_value,
+        "new_value": event.new_value,
+        "payload": event.payload,
+        "observed_at": row.observed_at,
+        "source_last_updated": row.source_last_updated,
+        "official_store_id": context.get("official_store_id"),
+        "brand": context.get("brand"),
+        "change_log_id": row.id,
+        "dedupe_key": dedupe_key(row.id, event.event_type, event.promotion_key, event.price_kind),
+    }
+
+
+def _write(db, row: ChangeRow) -> int:
+    events = derive_events(row)
+    if not events:
+        return 0
+    statement = (
+        pg_insert(MlItemEvent)
+        .values([_values(row, event) for event in events])
+        .on_conflict_do_nothing(index_elements=["dedupe_key"])
+        .returning(MlItemEvent.id)
+    )
+    return len(db.execute(statement).all())
+
+
+def write_events(db, entry: MlChangeLog) -> int:
+    """Insert the events of one change-log row; returns how many were new."""
+    return _write(db, ChangeRow.from_model(entry))
+
+
+def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFAULT_BATCH_SIZE) -> int:
+    """Rebuild the events of every stored change-log row (optionally one item's); returns new events.
+
+    Keyset-paged by row id so memory stays bounded; existing events are left alone. The caller
+    owns the transaction (commit after the call).
+    """
+    created = 0
+    last_id = 0
+    while True:
+        query = db.query(MlChangeLog).filter(MlChangeLog.id > last_id)
+        if item_id is not None:
+            query = query.filter(MlChangeLog.item_id == item_id)
+        entries = query.order_by(MlChangeLog.id).limit(batch_size).all()
+        if not entries:
+            return created
+        for entry in entries:
+            created += _write(db, ChangeRow.from_model(entry))
+        last_id = entries[-1].id
+        db.flush()
+        db.expire_all()  # bound the session identity map across batches
