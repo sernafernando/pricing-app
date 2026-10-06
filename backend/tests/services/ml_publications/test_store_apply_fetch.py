@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
 
 from app.services.ml_publications import diff as diff_module
+from app.services.ml_publications import store as store_module
 from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.ml_http import MlResponse
 from app.services.ml_publications.resources import RESOURCES
@@ -494,3 +497,114 @@ class TestTriggerTimestamp:
         apply(bulk_item(PAUSED), PAUSED, minutes=1, trigger_received_at=at(0.5))
         apply(bulk_item(PAUSED), PAUSED, minutes=3)
         assert item_row(mlpub_pg, PAUSED)["last_trigger_received_at"] == at(0.5)
+
+
+def run_concurrently(*calls):
+    """Run each callable on its own thread, released together; re-raise the first failure."""
+    barrier = threading.Barrier(len(calls))
+    errors: list[BaseException] = []
+
+    def runner(call):
+        try:
+            barrier.wait(timeout=10)
+            call()
+        except BaseException as exc:  # noqa: BLE001 - surfaced below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=runner, args=(call,)) for call in calls]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    if errors:
+        raise errors[0]
+
+
+@pytest.fixture
+def slow_diff(monkeypatch):
+    """Widen the read-compare-write window so an unserialized pair of writers would interleave."""
+    real = store_module.diff
+
+    def slow(*args, **kwargs):
+        time.sleep(0.3)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(store_module, "diff", slow)
+
+
+class TestConcurrencyAndIdempotency:
+    def test_two_concurrent_applies_of_the_same_transition_log_exactly_one_row(self, mlpub_pg, slow_diff) -> None:
+        """real payload, status paused->active and available_quantity 0->3 applied by two threads."""
+        body = bulk_item(PAUSED)
+        apply(body, PAUSED, minutes=1)
+        changed = copy.deepcopy(body)
+        changed["status"] = "active"
+        changed["available_quantity"] = 3
+        outcomes = []
+
+        run_concurrently(
+            lambda: outcomes.append(apply(copy.deepcopy(changed), PAUSED, minutes=5).kind),
+            lambda: outcomes.append(apply(copy.deepcopy(changed), PAUSED, minutes=6).kind),
+        )
+
+        assert sorted(outcomes) == ["changed", "unchanged"]
+        (entry,) = log_rows(mlpub_pg, PAUSED)
+        assert entry["changed_paths"] == ["available_quantity", "status"]
+
+    def test_two_concurrent_first_sightings_write_one_row_and_no_log(self, mlpub_pg) -> None:
+        body = bulk_item(PAUSED)
+        outcomes = []
+
+        run_concurrently(
+            lambda: outcomes.append(apply(copy.deepcopy(body), PAUSED, minutes=1).kind),
+            lambda: outcomes.append(apply(copy.deepcopy(body), PAUSED, minutes=2).kind),
+        )
+
+        assert sorted(outcomes) == ["first_seen", "unchanged"]
+        assert count(mlpub_pg, "ml_items") == 1 and count(mlpub_pg, "ml_change_log") == 0
+
+    def test_replay_after_commit_writes_no_second_row(self, mlpub_pg) -> None:
+        body = bulk_item(PAUSED)
+        apply(body, PAUSED, minutes=1)
+        changed = copy.deepcopy(body)
+        changed["available_quantity"] = 3
+
+        assert apply(copy.deepcopy(changed), PAUSED, minutes=2).kind == "changed"
+        assert apply(copy.deepcopy(changed), PAUSED, minutes=3).kind == "unchanged"
+        assert len(log_rows(mlpub_pg, PAUSED)) == 1
+
+    def test_a_stale_response_applied_late_after_a_newer_one_creates_no_row(self, mlpub_pg) -> None:
+        """real payload: the newer body is applied first, then a body with an older last_updated."""
+        base = sample_item("MLA874027718")
+        apply(base, "MLA874027718", minutes=1)
+        newer = copy.deepcopy(base)
+        newer["last_updated"] = "2026-10-05T00:00:00.000Z"
+        newer["title"] = "newer"
+        older = copy.deepcopy(base)
+        older["last_updated"] = "2026-10-03T00:00:00.000Z"
+        older["title"] = "older"
+
+        assert apply(newer, "MLA874027718", minutes=2).kind == "changed"
+        assert apply(older, "MLA874027718", minutes=3).kind == "stale"
+
+        (entry,) = log_rows(mlpub_pg, "MLA874027718")
+        assert entry["changed_paths"] == ["last_updated", "title"]
+        assert item_row(mlpub_pg, "MLA874027718")["title"] == "newer"
+
+    def test_concurrent_newer_and_older_responses_end_with_the_newer_state(self, mlpub_pg, slow_diff) -> None:
+        base = sample_item("MLA874027718")
+        apply(base, "MLA874027718", minutes=1)
+        newer = copy.deepcopy(base)
+        newer["last_updated"] = "2026-10-05T00:00:00.000Z"
+        newer["title"] = "newer"
+        older = copy.deepcopy(base)
+        older["last_updated"] = "2026-10-03T00:00:00.000Z"
+        older["title"] = "older"
+
+        run_concurrently(
+            lambda: apply(older, "MLA874027718", minutes=2),
+            lambda: apply(newer, "MLA874027718", minutes=3),
+        )
+
+        assert item_row(mlpub_pg, "MLA874027718")["title"] == "newer"
+        assert item_row(mlpub_pg, "MLA874027718")["ml_last_updated"] == datetime(2026, 10, 5, tzinfo=timezone.utc)
