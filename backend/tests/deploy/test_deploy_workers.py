@@ -39,6 +39,11 @@ case "$cmd" in
   restart)
     [ -e "$S/restart_fails/$unit" ] && exit 1
     touch "$S/restarted/$unit"
+    # the OLD process writes one last heartbeat while it shuts down
+    if [ -e "$S/late_old_beat/$unit" ]; then
+      case "$unit" in pricing-worker) n=worker ;; *) n=worker-ml ;; esac
+      echo 2000 > "$S/hb/$n"
+    fi
     if [ -e "$S/no_start/$unit" ]; then rm -f "$S/active/$unit"; else touch "$S/active/$unit"; fi
     ;;
   *) exit 0 ;;
@@ -50,7 +55,10 @@ S="$STUB_DIR/state"
 name=$1
 case "$name" in worker) unit=pricing-worker ;; worker-ml) unit=pricing-worker-ml ;; *) unit=$name ;; esac
 [ -e "$S/probe_fails" ] && exit 1
-if [ -e "$S/restarted/$unit" ] && [ ! -e "$S/hung/$unit" ]; then echo 9999999999; exit 0; fi
+if [ -e "$S/restarted/$unit" ] && [ ! -e "$S/hung/$unit" ]; then
+  n=$(cat "$S/ticks/$unit" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$S/ticks/$unit"
+  echo $((5000 + n)); exit 0   # a live worker's heartbeat advances on every read
+fi
 if [ -e "$S/hb/$name" ]; then cat "$S/hb/$name"; else echo none; fi
 """
 
@@ -69,7 +77,18 @@ class Env:
         self.root = root
         self.stub = root / "stub"
         self.project = root / "project"
-        for sub in ("installed", "enabled", "active", "restart_fails", "no_start", "hung", "restarted", "hb"):
+        for sub in (
+            "installed",
+            "enabled",
+            "active",
+            "restart_fails",
+            "no_start",
+            "hung",
+            "restarted",
+            "hb",
+            "ticks",
+            "late_old_beat",
+        ):
             (self.stub / "state" / sub).mkdir(parents=True)
         bin_dir = self.stub / "bin"
         bin_dir.mkdir()
@@ -78,7 +97,8 @@ class Env:
         self._write(self.stub / "probe", PROBE_STUB)
         (self.project / "scripts").mkdir(parents=True)
         (self.project / "backend").mkdir()
-        shutil.copy(VERIFY_SCRIPT, self.project / "scripts" / VERIFY_SCRIPT.name) if VERIFY_SCRIPT.exists() else None
+        if VERIFY_SCRIPT.exists():
+            shutil.copy(VERIFY_SCRIPT, self.project / "scripts" / VERIFY_SCRIPT.name)
         self._write(self.project / "scripts" / "notify-wabot.sh", NOTIFY_STUB)
 
     @staticmethod
@@ -246,6 +266,18 @@ class TestFailuresAreNamedAndNeverAbort:
 
         (line,) = problems(result)
         assert line.startswith("PROBLEM pricing-worker:") and "heartbeat" in line and "colgado" in line
+
+    def test_the_last_heartbeat_of_the_old_process_does_not_vouch_for_the_new_one(self, env) -> None:
+        """The old process writes one more heartbeat while shutting down, newer than anything read
+        before the restart. A new process that never starts working must still be reported."""
+        env.healthy("pricing-worker")
+        env.healthy("pricing-worker-ml")
+        env.mark("hung", "pricing-worker-ml")
+        env.mark("late_old_beat", "pricing-worker-ml")
+
+        (line,) = problems(env.verify())
+
+        assert line.startswith("PROBLEM pricing-worker-ml:") and "colgado" in line
 
     def test_both_workers_failing_are_both_named(self, env) -> None:
         env.healthy("pricing-worker")
