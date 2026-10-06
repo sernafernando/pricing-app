@@ -417,13 +417,13 @@
   border: 1px dashed rgba(16, 185, 129, 0.35);
 }
 :root[data-theme="light"] .badge-tienda-2645-ok,
-.badge-tienda-471846-ok {
+:root[data-theme="light"] .badge-tienda-471846-ok {
   background: rgba(16, 185, 129, 0.12);
   color: rgba(4, 120, 87, 1);
   border: 1px solid rgba(16, 185, 129, 0.35);
 }
 :root[data-theme="light"] .badge-tienda-2645-falta,
-.badge-tienda-471846-falta {
+:root[data-theme="light"] .badge-tienda-471846-falta {
   background: rgba(16, 185, 129, 0.05);
   color: rgba(16, 185, 129, 0.5);
   border: 1px dashed rgba(16, 185, 129, 0.3);

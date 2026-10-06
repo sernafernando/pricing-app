@@ -44,6 +44,19 @@ export function groupStores(tiendas = []) {
 }
 
 /**
+ * Names a CSV selection of store ids: every group whose ids are ALL selected
+ * by the group's name (so `2645,471846` reads "TP-Link"), the remaining ids
+ * by their own name. Empty selection -> null.
+ */
+export function labelForIds(tiendas, getLabel, csv) {
+  const ids = csv ? String(csv).split(',').map((id) => id.trim()).filter(Boolean) : [];
+  if (ids.length === 0) return null;
+  const grupos = groupStores(tiendas).filter((g) => g.ids.every((id) => ids.includes(id)));
+  const sueltos = ids.filter((id) => !grupos.some((g) => g.ids.includes(id)));
+  return [...grupos.map((g) => g.label), ...sueltos.map((id) => getLabel(id))].join(', ');
+}
+
+/**
  * The "Tienda:" chips (Ventas ML, Métricas ML). A chip's value is what the
  * backend's `stores` param takes: its ids as CSV (or `sin_tienda`).
  *

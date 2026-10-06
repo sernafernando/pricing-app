@@ -48,15 +48,9 @@ export default function DashboardMetricasML() {
   const fechaHasta = getFilter('fecha_hasta');
   const marcasQuery = getFilter('marcas');
   const categoriasQuery = getFilter('categorias');
-  const { grupos: tiendasGrupos, getLabel } = useTiendasOficiales();
+  const { grupos: tiendasGrupos, getLabelForIds } = useTiendasOficiales();
   const tiendasOficialesQuery = getFilter('tiendas_oficiales');
-  // One label per grouped store (all its ids selected); any other id by its own name.
-  const etiquetasTiendasSeleccionadas = (() => {
-    const seleccion = tiendasOficialesQuery ? tiendasOficialesQuery.split(',').filter(Boolean) : [];
-    const grupos = tiendasGrupos.filter((g) => g.ids.every((id) => seleccion.includes(id)));
-    const sueltos = seleccion.filter((id) => !grupos.some((g) => g.ids.includes(id)));
-    return [...grupos.map((g) => g.label), ...sueltos.map((id) => getLabel(id))];
-  })();
+  const etiquetasTiendasSeleccionadas = tiendasOficialesQuery ? getLabelForIds(tiendasOficialesQuery).split(', ') : [];
   const pmsQuery = getFilter('pms');
   
   // Convertir strings a arrays

@@ -38,7 +38,7 @@ const armarOpcionesTiendas = (grupos) => [
  * para evitar re-creación en cada render (rompe reconciliación React).
  */
 const FiltrosActivosDisplay = ({ filtrosActivos }) => {
-  const { getLabel } = useTiendasOficiales();
+  const { getLabelForIds } = useTiendasOficiales();
   return (
   <div className={styles.filtrosActivos}>
     {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
@@ -80,7 +80,7 @@ const FiltrosActivosDisplay = ({ filtrosActivos }) => {
     {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
     {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
     {filtrosActivos?.filtroTiendaOficial && filtrosActivos.filtroTiendaOficial !== 'todos' && (
-      <div>• Tienda Oficial: {getLabel(filtrosActivos.filtroTiendaOficial)}</div>
+      <div>• Tienda Oficial: {getLabelForIds(filtrosActivos.filtroTiendaOficial)}</div>
     )}
   </div>
   );

@@ -42,6 +42,19 @@ describe('ExportModal official stores', () => {
   });
 });
 
+describe('ExportModal active filters display', () => {
+  it('names a grouped store selection by its group, not by the CSV of ids', async () => {
+    render(
+      <ExportModal
+        onClose={() => {}}
+        showToast={() => {}}
+        filtrosActivos={{ filtroTiendaOficial: '2645,471846', con_stock: null, con_precio: null, filtroRebate: null }}
+      />,
+    );
+    expect(await screen.findByText(/Tienda Oficial: Segunda$/)).toBeInTheDocument();
+  });
+});
+
 describe('serializarTiendasOficiales', () => {
   const opciones = [
     { id: 'sin_tienda', label: 'Sin tienda' },

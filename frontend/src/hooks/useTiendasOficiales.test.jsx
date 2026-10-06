@@ -53,6 +53,18 @@ describe('useTiendasOficiales', () => {
     expect(result.current.grupos.map((g) => g.value)).toEqual(['57997', '2645,471846']);
   });
 
+  it('getLabelForIds names a CSV selection: a whole clave group by its name, the rest joined', async () => {
+    const { result } = renderHook(() => useTiendasOficiales());
+    await waitFor(() => expect(result.current.tiendas.length).toBe(3));
+    expect(result.current.getLabelForIds('2645,471846')).toBe('TP-Link');
+    expect(result.current.getLabelForIds('471846,2645')).toBe('TP-Link');
+    expect(result.current.getLabelForIds('57997')).toBe('Gauss');
+    expect(result.current.getLabelForIds('57997,2645,471846')).toBe('Gauss, TP-Link');
+    // A partial group falls back to each id's own name; unknown ids are "Tienda <id>".
+    expect(result.current.getLabelForIds('2645,999')).toBe('TP-Link, Tienda 999');
+    expect(result.current.getLabelForIds('')).toBeNull();
+  });
+
   it('fetches once for many consumers', async () => {
     const a = renderHook(() => useTiendasOficiales());
     const b = renderHook(() => useTiendasOficiales());

@@ -57,6 +57,15 @@ pytest (nuevos + suite completa), ruff format/check, pnpm test, lint, build, tes
 
 - T6 (correccion pedida): tiendas con la misma `clave` colapsan en UNA opcion en todos los pickers (`groupStores`/`buildStoreChips`): ids de la clave incluidos los inactivos como CSV, etiqueta = primera activa por orden, conteo = suma, activa si todos sus ids estan seleccionados. RED = 16 failed; GREEN = unit 2005 passed, lint 0 errors, build ok, test:visual 80 passed. Metricas ML no agrega chips por facet (solo grupos activos).
 
+- T7 (observaciones de review, todas corregidas):
+  - R3-003 productos `tienda_oficial`: el parser ya aceptaba CSV; test nuevo old+new id (2645,471846 trae ambos) y parser; basura = 400 (contrato existente, no se cambia). Caracterizacion, sin RED posible.
+  - R3-004 Ventas/Metricas `stores`: parsers ya aceptaban CSV; tests via router real (listado, facets, kpis, export; metricas board + export; basura 422). Caracterizacion, sin RED. Comentario de ventasMlParams.js actualizado.
+  - R3-005 `mlp_official_store_id`: RED = test "fila sin la columna debe fallar" (DID NOT RAISE); GREEN al quitar el getattr default; test del SELECT; helpers de tests de fold con la columna.
+  - R3-002 ExportModal: RED = hook getLabelForIds + display del filtro (2 failed); GREEN con `labelForIds`; Dashboard lo reutiliza.
+  - R3-001 ItemsSinMLA.css: RED = test de selectores (2 failed); GREEN con el prefijo light en ambas reglas.
+  - R3-006 crear tienda: RED = 500 en carrera; GREEN = IntegrityError -> rollback -> 409.
+  - Verificacion: backend completo con ENVIRONMENT=testing 7995 passed, 0 failed; frontend 2009 passed, lint 0 errores, lint:css ok, build ok, test:visual 80 passed.
+
 ## Siguiente paso
 
-Verificar suite backend completa y entregar
+Entregar (sin push)
