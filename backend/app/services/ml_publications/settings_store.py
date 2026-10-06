@@ -18,7 +18,7 @@ import copy
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Sequence
 
 from app.core import database
 from app.core.config import settings
@@ -119,27 +119,50 @@ def _is_enabled_flag(key: str) -> bool:
     return key.endswith(".enabled")
 
 
-def get_setting(key: str) -> Setting:
-    """Effective value of `key`: kill switch, then DB row, then env default."""
-    definition = _definition(key)
-    if _is_enabled_flag(key) and settings.ML_PUB_KILL_SWITCH:
-        return Setting(key, False, SOURCE_KILL_SWITCH)
-    try:
-        with database.get_background_db() as session:
-            row = session.get(MlPubSetting, key)
-            stored = copy.deepcopy(row.value) if row is not None else None
-            found = row is not None
-    except Exception:
-        logger.exception("ml_pub setting %s unreadable", key)
-        if _is_enabled_flag(key):
-            return Setting(key, False, SOURCE_UNREADABLE)
-        return Setting(key, _env_default(definition), SOURCE_ENV)
+def _resolve(key: str, definition: _Def, stored: Any, found: bool) -> Setting:
     if not found:
         return Setting(key, _env_default(definition), SOURCE_ENV)
     if not definition.valid(stored):
         logger.warning("ml_pub setting %s has an invalid stored value %r; using the env default", key, stored)
         return Setting(key, _env_default(definition), SOURCE_ENV)
     return Setting(key, stored, SOURCE_DB)
+
+
+def get_settings(keys: Sequence[str]) -> Dict[str, Setting]:
+    """Effective values for `keys` (kill switch, then DB row, then env default) in ONE
+    short session, so a handler can read everything it needs at a batch boundary."""
+    definitions = {key: _definition(key) for key in keys}
+    if not definitions:
+        return {}
+    result: Dict[str, Setting] = {}
+    to_read: List[str] = []
+    for key in definitions:
+        if _is_enabled_flag(key) and settings.ML_PUB_KILL_SWITCH:
+            result[key] = Setting(key, False, SOURCE_KILL_SWITCH)
+        else:
+            to_read.append(key)
+    if not to_read:
+        return result
+    try:
+        with database.get_background_db() as session:
+            rows = session.query(MlPubSetting).filter(MlPubSetting.key.in_(to_read)).all()
+            stored = {row.key: copy.deepcopy(row.value) for row in rows}
+    except Exception:
+        logger.exception("ml_pub settings %s unreadable", to_read)
+        for key in to_read:
+            if _is_enabled_flag(key):
+                result[key] = Setting(key, False, SOURCE_UNREADABLE)
+            else:
+                result[key] = Setting(key, _env_default(definitions[key]), SOURCE_ENV)
+        return result
+    for key in to_read:
+        result[key] = _resolve(key, definitions[key], stored.get(key), key in stored)
+    return result
+
+
+def get_setting(key: str) -> Setting:
+    """Effective value of one key; see `get_settings`."""
+    return get_settings([key])[key]
 
 
 def is_enabled(handler: str) -> bool:

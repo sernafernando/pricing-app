@@ -308,19 +308,18 @@ def release(
             f"ELSE resources END, {_CLEAR_CLAIM}"
         )
     )
+    params = [
+        _owned_params(
+            claim_,
+            not_before=not_before,
+            narrow=bool(pending.get(claim_.key)),
+            version=claim_.version,
+            resources=sorted(pending.get(claim_.key) or ()),
+        )
+        for claim_ in claims
+    ]
     with database.get_background_db() as session:
-        for claim_ in claims:
-            still = pending.get(claim_.key) or set()
-            session.execute(
-                statement,
-                _owned_params(
-                    claim_,
-                    not_before=not_before,
-                    narrow=bool(still),
-                    version=claim_.version,
-                    resources=sorted(still),
-                ),
-            )
+        session.execute(statement, params)  # one executemany round of fenced updates
 
 
 def park(claim_: QueueClaim, error: str) -> bool:

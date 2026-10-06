@@ -1,6 +1,8 @@
 """Synchronous HTTP client for the ML publications store (design D3).
 
-Why not `MercadoLibreAPIClient`: it is async, swallows errors into `None` (the
+Why synchronous, and why not `MercadoLibreAPIClient`: the worker runtime is
+single-threaded and sync (an async client would need its own event loop per call);
+`MercadoLibreAPIClient` is async, swallows errors into `None` (the
 store must record exact HTTP statuses and error bodies) and is the file other
 in-flight work touches. This module only imports its token loader, read-only.
 
@@ -130,6 +132,8 @@ class MlHttpClient:
         ):
             return self._token
         data = self._load_token()
+        # A loader answer without `expires_epoch` yields expiry 0.0 below: the token is then
+        # re-read on every call. Deliberate fail-safe (never use a token of unknown age).
         if not data or not data.get("access_token"):
             self._token = None
             return None

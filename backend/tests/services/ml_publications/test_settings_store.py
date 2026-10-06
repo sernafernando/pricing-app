@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.services.ml_publications import settings_store
-from app.services.ml_publications.settings_store import get_setting, is_enabled, set_setting
+from app.services.ml_publications.settings_store import get_setting, get_settings, is_enabled, set_setting
 
 
 @pytest.fixture()
@@ -73,6 +73,42 @@ class TestDbOverridesEnv:
             rows = conn.execute(text("SELECT value, updated_by FROM ml_pub_settings WHERE key = 'bulk_max_ids'")).all()
         assert [r[1] for r in rows] == ["ops"]
         assert get_setting("bulk_max_ids").value == 12
+
+
+class TestBatchRead:
+    def test_get_settings_reads_many_keys_in_one_session(self, settings_db, monkeypatch) -> None:
+        set_setting("rate_per_sec", 4.0, updated_by="tester")
+        set_setting("refresh.enabled", True, updated_by="tester")
+        opened = []
+
+        def counting_factory():
+            opened.append(1)
+            return settings_db()
+
+        monkeypatch.setattr("app.core.database.SessionLocal", counting_factory)
+        got = get_settings(["refresh.enabled", "rate_per_sec", "bundle_resources"])
+        assert len(opened) == 1
+        assert {k: (v.value, v.source) for k, v in got.items()} == {
+            "refresh.enabled": (True, "db"),
+            "rate_per_sec": (4.0, "db"),
+            "bundle_resources": (["core"], "env"),
+        }
+
+    def test_get_settings_applies_kill_switch_and_validation_per_key(self, settings_db, engine, monkeypatch) -> None:
+        set_setting("events.enabled", True, updated_by="tester")
+        _insert_raw(engine, "bulk_max_ids", "99")  # invalid: above the ML hard limit
+        monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", True)
+        got = get_settings(["events.enabled", "bulk_max_ids"])
+        assert (got["events.enabled"].value, got["events.enabled"].source) == (False, "kill_switch")
+        assert (got["bulk_max_ids"].value, got["bulk_max_ids"].source) == (20, "env")
+
+    def test_get_settings_rejects_an_unknown_key_before_reading(self, settings_db) -> None:
+        with pytest.raises(ValueError, match="unknown"):
+            get_settings(["rate_per_sec", "made.up"])
+
+    def test_get_settings_with_no_keys_returns_nothing_without_a_query(self, settings_db, monkeypatch) -> None:
+        monkeypatch.setattr("app.core.database.SessionLocal", lambda: pytest.fail("no session expected"))
+        assert get_settings([]) == {}
 
 
 class TestKillSwitch:

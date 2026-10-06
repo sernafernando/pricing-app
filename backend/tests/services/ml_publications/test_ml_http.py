@@ -227,6 +227,18 @@ class TestTokenHandling:
         client.get("items_bulk", "/items/bulk")
         assert tokens.reads == 2
 
+    def test_a_token_without_expiry_is_never_cached(self) -> None:
+        reads = []
+
+        def loader():
+            reads.append(1)
+            return {"access_token": SECRET}  # no expires_epoch: age unknown
+
+        client, _ = build(lambda r: httpx.Response(200, json=[]), tokens=loader)
+        for _ in range(2):
+            client.get("items_bulk", "/items/bulk")
+        assert len(reads) == 2
+
     def test_missing_token_makes_no_call(self) -> None:
         client, seen = build(ok_bulk, tokens=lambda: None)
         response = client.get("items_bulk", "/items/bulk")
