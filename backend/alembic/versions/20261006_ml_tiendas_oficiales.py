@@ -28,13 +28,15 @@ TABLE = "ml_tiendas_oficiales"
 
 # (store_id, nombre, orden): order of the old `TIENDAS_OFICIALES_ORDER`.
 # `clave` is the code-facing slug (see `MlTiendaOficial.clave`); only TP-Link
-# has one today (the TP-Link dashboard and its metrics job resolve their store
-# ids from it).
+# has one (the TP-Link dashboard and its metrics job resolve their store ids
+# from it). ML changed TP-Link's official store id from 2645 to 471846: both
+# rows share the clave so sales under the old id keep counting.
 SEED = [
     (57997, "Gauss", 0, None),
     (2645, "TP-Link", 1, "tplink"),
-    (144, "Forza/Verbatim", 2, None),
-    (191942, "Multi-marca", 3, None),
+    (471846, "TP-Link", 2, "tplink"),
+    (144, "Forza/Verbatim", 3, None),
+    (191942, "Multi-marca", 4, None),
 ]
 
 CODIGO = "admin.tiendas_oficiales"

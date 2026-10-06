@@ -19,7 +19,7 @@ from sqlalchemy import create_engine, text
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _MIGRATION = _BACKEND_ROOT / "alembic" / "versions" / "20261006_ml_tiendas_oficiales.py"
 
-_SEED = {57997: "Gauss", 2645: "TP-Link", 144: "Forza/Verbatim", 191942: "Multi-marca"}
+_SEED = {57997: "Gauss", 2645: "TP-Link", 471846: "TP-Link", 144: "Forza/Verbatim", 191942: "Multi-marca"}
 
 
 def _load_migration():
@@ -89,21 +89,21 @@ def _stores(engine) -> dict[int, str]:
 
 @pytest.mark.postgres
 class TestMlTiendasOficialesMigration:
-    def test_upgrade_creates_the_table_seeded_with_the_four_hardcoded_stores(self, engine) -> None:
+    def test_upgrade_creates_the_table_seeded_with_the_hardcoded_stores_plus_the_new_tplink_id(self, engine) -> None:
         _run(engine, "upgrade")
 
         assert _stores(engine) == _SEED
         with engine.connect() as conn:
             rows = conn.execute(text("SELECT store_id, orden, activa FROM ml_tiendas_oficiales ORDER BY orden")).all()
         # Display order of the old `TIENDAS_OFICIALES_ORDER`, all active.
-        assert [r[0] for r in rows] == [57997, 2645, 144, 191942]
+        assert [r[0] for r in rows] == [57997, 2645, 471846, 144, 191942]
         assert all(r[2] is True for r in rows)
 
-    def test_only_the_tplink_store_is_seeded_with_a_clave_and_clave_is_not_unique(self, engine) -> None:
+    def test_both_tplink_ids_share_the_clave_and_clave_is_not_unique(self, engine) -> None:
         _run(engine, "upgrade")
         with engine.begin() as conn:
             claves = {r[0]: r[1] for r in conn.execute(text("SELECT store_id, clave FROM ml_tiendas_oficiales")).all()}
-            assert claves == {57997: None, 2645: "tplink", 144: None, 191942: None}
+            assert claves == {57997: None, 2645: "tplink", 471846: "tplink", 144: None, 191942: None}
             # The old and the new id of one store share a clave.
             conn.execute(
                 text("INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave) VALUES (9, 'TP-Link', 'tplink')")
