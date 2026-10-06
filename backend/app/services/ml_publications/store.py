@@ -284,6 +284,7 @@ def _not_found(
 ) -> ApplyOutcome:
     """The resource answered 404 (D8 step 2): mark it gone once, never delete anything."""
     if row.gone_at is not None:
+        _record_error(row, response)
         row.fetched_request_started_at = _later(row.fetched_request_started_at, response.request_started_at)
         _touch(row, response, trigger_received_at)
         db.flush()

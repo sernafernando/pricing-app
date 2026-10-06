@@ -316,6 +316,19 @@ class TestGone:
         assert item_row(mlpub_pg, PAUSED)["last_checked_at"] == at(9)
         assert len(log_rows(mlpub_pg, PAUSED)) == 1
 
+    def test_a_404_after_a_transient_error_realigns_http_status_with_gone_at(self, mlpub_pg) -> None:
+        apply(bulk_item(PAUSED), PAUSED, minutes=1)
+        only_not_found(PAUSED, 2)
+        apply({"message": "boom"}, PAUSED, minutes=3, status=500)
+        assert item_row(mlpub_pg, PAUSED)["http_status"] == 500
+
+        outcome = only_not_found(PAUSED, 4)
+
+        row = item_row(mlpub_pg, PAUSED)
+        assert outcome.kind == "unchanged" and row["gone_at"] == at(2)
+        assert row["http_status"] == 404 and row["last_error"] == "HTTP 404"
+        assert len(log_rows(mlpub_pg, PAUSED)) == 1
+
     def test_never_seen_id_returning_404_is_recorded_as_never_existed(self, mlpub_pg) -> None:
         outcome = only_not_found("MLA1", 3)
 
