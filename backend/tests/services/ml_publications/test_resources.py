@@ -11,8 +11,9 @@ import pytest
 import app.services.ml_publications as package
 from app.services.ml_publications.mappers import map_item
 from app.services.ml_publications.parsers.items_bulk import parse_items_bulk
-from app.services.ml_publications.resources import RESOURCES, ResourceSpec, register
-from tests.services.ml_publications.conftest import FIXTURES_DIR
+from app.services.ml_publications.diff import array_keys_for
+from app.services.ml_publications.resources import REFRESH_RESOURCES, RESOURCES, ResourceSpec, register
+from tests.services.ml_publications.conftest import FIXTURES_DIR, SUBRESOURCE_FIXTURES, load_fixture
 
 # Modules allowed to read ERP data. Empty in this PR: PR5L1 adds exactly `links.py`,
 # PR5L2 adds exactly the links router.
@@ -32,9 +33,54 @@ def test_registry_exposes_item_with_keys_array_keys_mapper_and_parser():
 
 
 def test_every_registered_resource_is_backed_by_a_committed_fixture():
-    assert set(RESOURCES) == {"item"}
+    assert set(RESOURCES) == {"item", *SUBRESOURCE_FIXTURES}
     for spec in RESOURCES.values():
         assert spec.fixture and (FIXTURES_DIR / spec.fixture).exists(), spec.name
+
+
+SUBRESOURCE_KEYS = {
+    "description": ("item_id",),
+    "prices": ("item_id",),
+    "sale_price": ("item_id",),
+    "promotions": ("item_id",),
+    "user_product": ("user_product_id",),
+    "stock": ("user_product_id",),
+    "family": ("family_id",),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SUBRESOURCE_FIXTURES))
+def test_subresources_are_registered_under_their_refresh_names_with_their_keys_and_fixture(name):
+    spec = RESOURCES[name]
+    assert name in REFRESH_RESOURCES
+    assert spec.key_columns == SUBRESOURCE_KEYS[name]
+    assert spec.fixture == SUBRESOURCE_FIXTURES[name]
+    assert dict(spec.negative_states) == {}
+
+
+def test_promotions_diff_keys_come_from_the_shared_natural_key_table():
+    assert RESOURCES["promotions"].array_keys == array_keys_for("promotions") == {"": ("id", "type")}
+    assert all(dict(RESOURCES[n].array_keys) == {} for n in SUBRESOURCE_KEYS if n != "promotions")
+
+
+@pytest.mark.parametrize("name", sorted(SUBRESOURCE_FIXTURES))
+def test_every_subresource_round_trips_raw_through_its_parser_and_maps_without_error(name):
+    spec = RESOURCES[name]
+    ok_calls = [c for c in load_fixture(spec.fixture)["calls"] if c["status"] == 200]
+    assert ok_calls
+    for call in ok_calls:
+        parsed = spec.parser(call["status"], call["body"])
+        assert parsed.state == "ok" and parsed.body == call["body"], call["name"]
+        assert isinstance(spec.mapper(parsed.body), dict)
+
+
+@pytest.mark.parametrize("name", sorted(SUBRESOURCE_FIXTURES))
+def test_every_subresource_classifies_its_captured_404_when_it_has_one(name):
+    spec = RESOURCES[name]
+    for call in load_fixture(spec.fixture)["calls"]:
+        if call["status"] == 404:
+            parsed = spec.parser(404, call["body"])
+            assert (parsed.state, parsed.error_body) == ("not_found", call["body"])
 
 
 def test_registering_a_resource_without_a_parser_is_rejected():

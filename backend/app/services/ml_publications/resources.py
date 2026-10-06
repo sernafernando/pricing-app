@@ -11,8 +11,16 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, MutableMapping, Optional, Sequence
 
 from app.services.ml_publications.canonical import ArrayKeys
+from app.services.ml_publications.diff import array_keys_for
 from app.services.ml_publications.mappers import map_item
+from app.services.ml_publications.parsers.description import map_description, parse_description
+from app.services.ml_publications.parsers.family import map_family, parse_family
 from app.services.ml_publications.parsers.items_bulk import parse_items_bulk
+from app.services.ml_publications.parsers.prices import map_prices, parse_prices
+from app.services.ml_publications.parsers.sale_price import map_sale_price, parse_sale_price
+from app.services.ml_publications.parsers.seller_promotions import map_seller_promotions, parse_seller_promotions
+from app.services.ml_publications.parsers.user_product import map_user_product, parse_user_product
+from app.services.ml_publications.parsers.user_product_stock import map_user_product_stock, parse_user_product_stock
 
 
 @dataclass(frozen=True)
@@ -77,3 +85,38 @@ register(
         fixture="items_bulk_capture_20261006_015628.json",
     )
 )
+
+# Sub-resources, named as in REFRESH_RESOURCES. Their fetchers arrive in later PRs.
+for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
+    ("description", ("item_id",), map_description, parse_description, "description_20261006.json", {}),
+    ("prices", ("item_id",), map_prices, parse_prices, "prices_20261006.json", {}),
+    ("sale_price", ("item_id",), map_sale_price, parse_sale_price, "sale_price_20261006.json", {}),
+    (
+        "promotions",
+        ("item_id",),
+        map_seller_promotions,
+        parse_seller_promotions,
+        "seller_promotions_20261006.json",
+        array_keys_for("promotions"),
+    ),
+    ("user_product", ("user_product_id",), map_user_product, parse_user_product, "user_product_20261006.json", {}),
+    (
+        "stock",
+        ("user_product_id",),
+        map_user_product_stock,
+        parse_user_product_stock,
+        "user_product_stock_20261006.json",
+        {},
+    ),
+    ("family", ("family_id",), map_family, parse_family, "family_20261006.json", {}),
+):
+    register(
+        ResourceSpec(
+            name=_name,
+            key_columns=_keys,
+            mapper=_mapper,
+            parser=_parser,
+            fixture=_fixture,
+            array_keys=_array_keys,
+        )
+    )
