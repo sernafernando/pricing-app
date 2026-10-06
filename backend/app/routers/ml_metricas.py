@@ -34,6 +34,7 @@ from app.core.database import get_background_db, get_db
 from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board, groups
+from app.services import pm_scope
 from app.services.permisos_service import PermisosService
 from app.services.product_facets import ProductFacetOptions
 from app.utils.csv_cells import csv_text
@@ -467,15 +468,30 @@ def _can_see_margin(db: Session, user: Usuario) -> bool:
     return PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA)
 
 
+def _scope_pairs(db: Session, user: Usuario) -> Optional[List[Tuple[str, str]]]:
+    """The caller's PM scope: the upper-cased (marca, categoría) pairs they
+    may see (`marcas_pm` + `marca_sub_pm`), `[]` for none (or an inactive
+    user), `None` for a full-view caller. Resolved server-side from the
+    authenticated user, never from the query, and handed to EVERY `Board`:
+    the `pms` filter can only narrow it further."""
+    return pm_scope.get_pares_marca_categoria_usuario(db, user)
+
+
 def build_board_response(
-    db: Session, f: board.BoardFilter, *, limit: int, offset: int, can_see_margin: bool
+    db: Session,
+    f: board.BoardFilter,
+    *,
+    limit: int,
+    offset: int,
+    can_see_margin: bool,
+    scope_pairs: Optional[Sequence[Tuple[str, str]]] = None,
 ) -> BoardResponse:
     """Everything the board endpoint answers, in a FIXED number of SQL
     statements (see `board` module docstring): the page, the KPIs over the
     whole filtered set and every chip count. Split out of the endpoint so the
     Postgres volume test can drive exactly this."""
     grouped = f.group_by == "group"
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=scope_pairs) as b:
         kpis = b.kpis()
         facets = b.facets()
         if grouped:
@@ -521,7 +537,14 @@ def get_board(
     (`ml_daily_metrics.sales.sale_lines`), the same rules as Ventas ML."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    return build_board_response(db, f, limit=limit, offset=offset, can_see_margin=can_see_margin)
+    return build_board_response(
+        db,
+        f,
+        limit=limit,
+        offset=offset,
+        can_see_margin=can_see_margin,
+        scope_pairs=_scope_pairs(db, current_user),
+    )
 
 
 @router.get("/board/products/{product_item_id}/publications", response_model=PublicationsResponse)
@@ -551,7 +574,7 @@ def get_product_publications(
         ageing_exclude=(),
         solo_con_ventas=False,
     )
-    with board.Board(db, by_pub, product_item_id=product_item_id) as b:
+    with board.Board(db, by_pub, product_item_id=product_item_id, scope_pairs=_scope_pairs(db, current_user)) as b:
         rows = b.page(limit=None, apply_alerts=False)
     out = [_row_out(row, can_see_margin) for row in rows]
     earned = (lambda r: (r.tg, r.units)) if can_see_margin else (lambda r: (r.gross, r.units))
@@ -607,7 +630,12 @@ def get_group_nodes(
     scope = _parse_path(path, f.dimension)
     levels = groups.levels_of(f.dimension)
     leaf = len(scope) == len(levels) - 1
-    with board.Board(db, replace(f, group_by="product" if leaf else "group"), scope=scope) as b:
+    with board.Board(
+        db,
+        replace(f, group_by="product" if leaf else "group"),
+        scope=scope,
+        scope_pairs=_scope_pairs(db, current_user),
+    ) as b:
         if leaf:
             total = b.product_count()
             rows = b.page(limit, offset)
@@ -725,6 +753,9 @@ def export_board(
     explicit error line."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
+    # Resolved ONCE, here, on the request session: every page runs on its own
+    # background session and gets the plain list.
+    scope_pairs = _scope_pairs(db, current_user)
 
     # The FIRST short transaction fixes the ordered keys of every row (and
     # reads page 1): the pages after it fetch rows BY KEY, so a sale or a
@@ -738,7 +769,7 @@ def export_board(
     keys_of = board.Board.leaf_keys if grouped else board.Board.ordered_keys
     rows_of = board.Board.leaves_for_keys if grouped else board.Board.rows_for_keys
     with get_background_db() as first_db:
-        with board.Board(first_db, f, through_leaves=grouped) as b:
+        with board.Board(first_db, f, through_leaves=grouped, scope_pairs=scope_pairs) as b:
             keys = keys_of(b, EXPORT_MAX_ROWS + 1)
             if len(keys) > EXPORT_MAX_ROWS:
                 raise HTTPException(
@@ -752,7 +783,7 @@ def export_board(
 
     def fetch_page(page_keys: Sequence) -> List[board.Row]:
         with get_background_db() as page_db:
-            with board.Board(page_db, f, through_leaves=grouped) as b:
+            with board.Board(page_db, f, through_leaves=grouped, scope_pairs=scope_pairs) as b:
                 return rows_of(b, page_keys)
 
     def lines_of(rows: List[board.Row]) -> str:

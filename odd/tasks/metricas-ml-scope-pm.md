@@ -73,7 +73,7 @@ can be retired. `pm_scope` stays the single source of the rule.
   subcategoría, PM, tienda), every group level, product publications,
   through_leaves export keys; empty scope → nothing; ceiling unchanged.
   Route: delegated (writer trigger: 2+ non-trivial files).
-- [ ] **T2 — Router wiring.** Resolve scope from `current_user` with
+- [x] **T2 — Router wiring.** Resolve scope from `current_user` with
   `pm_scope`; pass to every `Board`. Integration tests per endpoint: PM sees
   only own, sub-PM union, admin all, no pairs → nothing, PM with `pms` of
   another PM → nothing, admin with `pms`=X → X's scope, CSV and every group
@@ -104,7 +104,14 @@ can be retired. `pm_scope` stays the single source of the rule.
   'scope_pairs'`. GREEN: 12 passed; `tests/services/ml_daily_metrics` 179 passed
   (statement ceiling test unchanged). Route: delegated writer (one writer for
   T1-T3). Commit: `feat(ml-metricas): scope the board base to the caller's PM pairs`.
+- T2 done. RED: `pytest tests/integration/test_ml_metricas_board_scope_router.py`
+  -> 13 failed / 8 passed, e.g. `assert {'11', '12', '13', '14'} == {'11'}` (a PM
+  saw every brand). GREEN: 21 passed; the 3 existing router files still pass
+  (`ML_USER_ID=999` needed locally for the sales fixtures). Test placement:
+  router tests run on the SQLite suite (scope SQL is dialect-neutral); the
+  Postgres side is covered by T1's test. Commit: `feat(ml-metricas): bound every
+  board endpoint by the caller's PM scope`.
 
 ## Next step
 
-T2.
+T3.
