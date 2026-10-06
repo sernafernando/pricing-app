@@ -9,6 +9,7 @@ import PanelEmpresas from '../components/PanelEmpresas';
 import PanelPermisos from '../components/PanelPermisos';
 import PanelRoles from '../components/PanelRoles';
 import PanelSubcategorias from '../components/PanelSubcategorias';
+import PanelTiendasOficiales from '../components/PanelTiendasOficiales';
 import { registrarPagina } from '../registry/tabRegistry';
 
 registrarPagina({
@@ -20,6 +21,7 @@ registrarPagina({
     { tabKey: 'comisiones', label: 'Comisiones' },
     { tabKey: 'subcategorias', label: 'Subcategorías' },
     { tabKey: 'constantes', label: 'Constantes Pricing' },
+    { tabKey: 'tiendas', label: 'Tiendas Oficiales' },
     { tabKey: 'permisos', label: 'Usuarios' },
     { tabKey: 'roles', label: 'Roles' },
   ],
@@ -215,6 +217,12 @@ export default function Admin() {
           Constantes Pricing
         </button>
         <button
+          className={`${styles.tab} ${tabActiva === 'tiendas' ? styles.tabActive : ''}`}
+          onClick={() => setTabActiva('tiendas')}
+        >
+          Tiendas Oficiales
+        </button>
+        <button
           className={`${styles.tab} ${tabActiva === 'permisos' ? styles.tabActive : ''}`}
           onClick={() => setTabActiva('permisos')}
         >
@@ -369,6 +377,10 @@ export default function Admin() {
 
       {tabActiva === 'constantes' && (
         <PanelConstantesPricing />
+      )}
+
+      {tabActiva === 'tiendas' && (
+        <PanelTiendasOficiales />
       )}
 
       {tabActiva === 'permisos' && (
