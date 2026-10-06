@@ -78,6 +78,7 @@ from sqlalchemy import (
     table,
     text,
     true,
+    tuple_,
     union,
 )
 from sqlalchemy.ext.compiler import compiles
@@ -413,10 +414,22 @@ class Board:
     """One request's worth of board SQL. Construct once per request (it
     fixes the clock and resolves the PM pairs up front, once)."""
 
-    def __init__(self, db: Session, f: BoardFilter, product_item_id: Optional[int] = None):
+    def __init__(
+        self,
+        db: Session,
+        f: BoardFilter,
+        product_item_id: Optional[int] = None,
+        group_key: Optional[str] = None,
+    ):
+        """`group_key` (a key of the "group" view under `f.dimension`) opens
+        that group into its PRODUCTS: the board's product rows, each summing
+        only the pairs of the group, for the products that pass every filter
+        as a whole (see `filtered_pairs`)."""
         self.db = db
         self.f = f
         self.product_item_id = product_item_id
+        self.group_key = group_key
+        self._unscoped_depth = 0
         self.sqlite = db.get_bind().dialect.name == "sqlite"
         # The rows' unit is the PRODUCT in the product and "group" views (the
         # latter sums them afterwards); only "publication" rows are MLAs.
@@ -620,6 +633,22 @@ class Board:
         # caller sees the ORIGINAL error, not a cleanup one.
         self._savepoint.rollback()
 
+    @property
+    def _in_group(self) -> bool:
+        """Reading the pairs of ONE group (see `__init__`), not the whole board."""
+        return self.group_key is not None and not self._unscoped_depth
+
+    def _group_pairs_of_key(self) -> Any:
+        """`(product, mla)` of the pairs of the group `group_key`, among the
+        pairs of the products that pass every filter -- built UNSCOPED, or it
+        would ask for itself."""
+        self._unscoped_depth += 1
+        try:
+            gp = self._group_source()
+        finally:
+            self._unscoped_depth -= 1
+        return select(gp.c.product, gp.c.mla).where(gp.c.gkey == self.group_key)
+
     def filtered_pairs(self, skip: str = ""):
         """One row per (product, MLA) pair that passes every filter but
         `skip` (one of `PAIR_AXES`, or "" for none), read from the request's
@@ -692,6 +721,8 @@ class Board:
             )
         if self.product_item_id is not None:
             conditions.append(t.c.product == self.product_item_id)
+        if self._in_group:
+            conditions.append(tuple_(t.c.product, t.c.mla).in_(self._group_pairs_of_key()))
         if conditions:
             q = q.where(*conditions)
         return q.subquery("fp")
@@ -792,6 +823,11 @@ class Board:
             stock_bucket.label("stock_bucket"),
             ageing_bucket.label("ageing_bucket"),
         ).select_from(g.outerjoin(erp, erp.c.item_id == g.c.product))
+        if self._in_group:
+            # The group's pairs are already those of the products that passed
+            # every row filter AS WHOLE products: filtering again on the
+            # group's own partial sums would drop products the group counted.
+            return q.subquery("board_rows")
         if "stock" not in skips:
             q = q.where(*self._row_axis(stock_bucket, self.f.stock, self.f.stock_exclude))
         if "ageing" not in skips:

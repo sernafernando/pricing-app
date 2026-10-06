@@ -340,3 +340,66 @@ def test_pages_cover_every_group_once(catalog) -> None:
         everything = [r.key for r in b.group_page(None)]
 
     assert first + second == everything and len(set(everything)) == len(everything) == 4
+
+
+# ── T2: a group opens into its products ───────────────────────────
+
+
+def products_of(db, dimension, key, **filters):
+    f = board.BoardFilter(
+        date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="product", dimension=dimension, **filters
+    )
+    with board.Board(db, f, group_key=key) as b:
+        return {row.product_item_id: row for row in b.page(None)}
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("dimension", DIMENSIONS)
+def test_the_products_of_every_group_add_up_to_the_group_row(catalog, dimension) -> None:
+    for key, group in groups(catalog, dimension).items():
+        products = products_of(catalog, dimension, key).values()
+
+        assert sum(p.units for p in products) == group.units, (dimension, key)
+        assert sum(p.gross for p in products) == group.gross, (dimension, key)
+        assert sum(p.mtg for p in products) == group.mtg and sum(p.costo for p in products) == group.costo
+        assert len(products) == group.products_count, (dimension, key)
+
+
+@pytest.mark.postgres
+def test_a_store_group_opens_into_the_products_with_only_that_stores_sales(catalog) -> None:
+    gauss = products_of(catalog, "tienda", "s:57997")
+    tplink = products_of(catalog, "tienda", "c:tplink")
+
+    assert {pid: p.units for pid, p in gauss.items()} == {21: 1, 23: 1}
+    assert {pid: p.units for pid, p in tplink.items()} == {21: 2, 22: 3, 24: 1}
+
+
+@pytest.mark.postgres
+def test_the_sin_group_opens_into_its_products(catalog) -> None:
+    assert set(products_of(catalog, "marca", NONE)) == {25}
+    assert set(products_of(catalog, "tienda", NONE)) == {25}
+    assert set(products_of(catalog, "pm", NONE)) == {24, 25}
+
+
+@pytest.mark.postgres
+def test_row_filters_still_decide_which_products_a_group_opens_into(catalog) -> None:
+    everything = products_of(catalog, "marca", "EPSON")
+    in_stock = products_of(catalog, "marca", "EPSON", stock=("con_stock",))
+
+    assert set(everything) == {21, 22}
+    assert set(in_stock) == {21}
+    assert in_stock[21].units == 3  # all of the product's sales: the filter is per product
+
+
+@pytest.mark.postgres
+def test_an_unknown_group_opens_into_nothing(catalog) -> None:
+    assert products_of(catalog, "marca", "NO-SUCH-BRAND") == {}
+
+
+@pytest.mark.postgres
+def test_a_group_row_series_match_the_series_of_its_products(catalog) -> None:
+    f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="product", dimension="tienda")
+    with board.Board(catalog, f, group_key="s:57997") as b:
+        products = b.page(None)
+
+    assert {p.product_item_id: sum(p.series_units) for p in products} == {21: 1, 23: 1}
