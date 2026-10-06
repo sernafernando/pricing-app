@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.core import database
 from app.core.config import settings
@@ -108,8 +109,11 @@ _ENQUEUE_SQL = text(
 )
 
 
-def enqueue(entries: Sequence[EnqueueEntry]) -> int:
-    """Idempotent upsert of `entries` in one transaction. Returns the number of entries submitted."""
+def enqueue(entries: Sequence[EnqueueEntry], session: Optional[Session] = None) -> int:
+    """Idempotent upsert of `entries` in one transaction. Returns the number of entries submitted.
+
+    With `session` the upsert joins the caller's transaction (intake moves its cursor in the same
+    commit); the caller commits. Without one it opens its own short transaction."""
     if not entries:
         return 0
     params = [
@@ -123,8 +127,11 @@ def enqueue(entries: Sequence[EnqueueEntry]) -> int:
         }
         for e in entries
     ]
-    with database.get_background_db() as session:
+    if session is not None:
         session.execute(_ENQUEUE_SQL, params)
+    else:
+        with database.get_background_db() as own:
+            own.execute(_ENQUEUE_SQL, params)
     return len(entries)
 
 
