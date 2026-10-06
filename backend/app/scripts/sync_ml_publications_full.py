@@ -33,6 +33,7 @@ from app.core.database import SessionLocal
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.services.ml_api_client import MercadoLibreAPIClient
+from app.services.ml_multiget import BULK_ITEMS_PATH, MAX_IDS_PER_CALL, parse_multiget
 
 # El access token vive en la DB del ml-webhook (única fuente de OAuth para ML);
 # este cliente solo lo lee/cachea, nunca hace el intercambio de refresh_token.
@@ -196,7 +197,7 @@ async def procesar_batch(
     Procesa un batch de MLA IDs.
     Estrategia: commit por chunk de 20 → si falla, fallback a individual.
     """
-    chunk_size = 20
+    chunk_size = MAX_IDS_PER_CALL
     saved = 0
     updated = 0
     errors = 0
@@ -208,7 +209,7 @@ async def procesar_batch(
 
         # Llamada a la API
         try:
-            batch = await call_meli(http_client, f"/items?ids={ids_str}")
+            batch = await call_meli(http_client, f"{BULK_ITEMS_PATH}?ids={ids_str}")
         except Exception as e:
             errors += len(chunk)
             errores_detalle.append(f"  ⚠️  API error chunk [{chunk[0]}...{chunk[-1]}]: {str(e)[:100]}")
@@ -216,10 +217,10 @@ async def procesar_batch(
 
         # Preparar las operaciones del chunk en memoria
         chunk_items = []  # [(mla_id, item_data, campaign, seller_sku, item_id), ...]
-        for item_wrapper in batch:
-            item = item_wrapper.get("body")
+        for element in parse_multiget(batch):
+            item = element.body
             if not item:
-                error_status = item_wrapper.get("code", "?")
+                error_status = element.status_code or "?"
                 errors += 1
                 errores_detalle.append(f"  ⚠️  ML respondió sin body (code={error_status})")
                 continue
