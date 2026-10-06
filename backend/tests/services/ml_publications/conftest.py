@@ -68,7 +68,7 @@ def keyed_sample(name: str) -> Any:
 
 @pytest.fixture()
 def mlpub_pg(monkeypatch):
-    """Throwaway Postgres schema holding the REAL core migration's tables, with
+    """Throwaway Postgres schema holding the REAL core and sub-resource migrations' tables, with
     `get_background_db()` (what the store's primitives use) pointed at it.
 
     Yields the engine; every connection it hands out has the schema first on
@@ -101,10 +101,13 @@ def mlpub_pg(monkeypatch):
     ]
     _restore_pristine_pg_types(store_tables)
 
-    migration_path = Path(__file__).resolve().parents[3] / "alembic" / "versions" / "20261006_ml_publications_core.py"
-    module_spec = importlib.util.spec_from_file_location("ml_publications_core_for_tests", migration_path)
-    migration = importlib.util.module_from_spec(module_spec)
-    module_spec.loader.exec_module(migration)
+    versions = Path(__file__).resolve().parents[3] / "alembic" / "versions"
+    migrations = []
+    for revision in ("20261006_ml_publications_core", "20261006_ml_publications_subresources"):
+        module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
+        migration = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(migration)
+        migrations.append(migration)
 
     schema = f"mlpub_t_{uuid.uuid4().hex[:8]}"
     admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
@@ -118,7 +121,8 @@ def mlpub_pg(monkeypatch):
     with eng.connect() as conn:
         ctx = MigrationContext.configure(conn)
         with ctx.begin_transaction(), Operations.context(ctx):
-            migration.upgrade()
+            for migration in migrations:
+                migration.upgrade()
     monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=eng, autocommit=False, autoflush=False))
     try:
         yield eng
