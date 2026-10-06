@@ -36,6 +36,9 @@ STOCK_FAMILY = "stock"
 MAX_STOCK_PER_MIN = 100  # documented ML limit for /user-products/{id}/stock
 
 BACKOFF_CAP_SECONDS = 60.0
+# A `Retry-After` beyond this is clamped: ML retries notifications for about an hour,
+# and an unbounded value would park the job (and its claims) indefinitely.
+MAX_COOLDOWN_SECONDS = 3600.0
 AIMD_PENALTY_SECONDS = 600.0
 AIMD_RECOVERY_STEP_SECONDS = 60.0
 AIMD_RECOVERY_STEP = 0.125
@@ -135,6 +138,7 @@ class Pacer:
         if delay is None:
             cap = min(2.0**self._consecutive_429, BACKOFF_CAP_SECONDS)
             delay = cap * self._rng.uniform(0.5, 1.0)
+        delay = min(delay, MAX_COOLDOWN_SECONDS)
         self._cooldown_until = max(self._cooldown_until, now + delay)
         self._penalized = max(self._factor(now) / 2, AIMD_FLOOR)
         self._penalty_until = now + AIMD_PENALTY_SECONDS

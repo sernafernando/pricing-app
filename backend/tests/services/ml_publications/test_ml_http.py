@@ -57,7 +57,7 @@ def configured(monkeypatch):
     monkeypatch.setattr(settings, "ML_CLIENT_ID", "1234567890")
 
 
-def build(handler, tokens=None, clock=None, **kwargs) -> tuple[MlHttpClient, list[httpx.Request]]:
+def build(handler, tokens=None, clock=None, now=None, **kwargs) -> tuple[MlHttpClient, list[httpx.Request]]:
     seen: list[httpx.Request] = []
 
     def recording(request: httpx.Request) -> httpx.Response:
@@ -69,7 +69,7 @@ def build(handler, tokens=None, clock=None, **kwargs) -> tuple[MlHttpClient, lis
         pacer=Pacer(clock=clock, rng=random.Random(1)),
         transport=httpx.MockTransport(recording),
         token_loader=tokens or Tokens(),
-        now=Ticking(),
+        now=now or Ticking(),
         **kwargs,
     )
     return client, seen
@@ -195,14 +195,24 @@ class TestTokenHandling:
             client.get("items_bulk", "/items/bulk")
         assert tokens.reads == 1
 
-    def test_token_about_to_expire_is_reread_every_call(self, monkeypatch) -> None:
-        import time
-
-        tokens = Tokens(expires_epoch=time.time() + 30)  # inside the 60 s safety margin
-        client, _ = build(lambda r: httpx.Response(200, json=[]), tokens=tokens)
+    def test_token_about_to_expire_is_reread_every_call(self) -> None:
+        wall = Ticking()
+        tokens = Tokens(expires_epoch=wall.t.timestamp() + 30)  # inside the 60 s safety margin
+        client, _ = build(lambda r: httpx.Response(200, json=[]), tokens=tokens, now=wall)
         for _ in range(3):
             client.get("items_bulk", "/items/bulk")
         assert tokens.reads == 3
+
+    def test_expiry_is_judged_on_the_injected_clock_not_the_system_clock(self) -> None:
+        wall = Ticking()
+        tokens = Tokens(expires_epoch=wall.t.timestamp() + 3600)
+        client, _ = build(lambda r: httpx.Response(200, json=[]), tokens=tokens, now=wall)
+        client.get("items_bulk", "/items/bulk")
+        client.get("items_bulk", "/items/bulk")
+        assert tokens.reads == 1
+        wall.t += timedelta(seconds=3600 - 59)  # now inside the safety margin
+        client.get("items_bulk", "/items/bulk")
+        assert tokens.reads == 2
 
     def test_missing_token_makes_no_call(self) -> None:
         client, seen = build(ok_bulk, tokens=lambda: None)

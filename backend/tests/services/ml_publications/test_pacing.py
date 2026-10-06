@@ -11,7 +11,7 @@ from email.utils import format_datetime
 
 import pytest
 
-from app.services.ml_publications.pacing import DEADLINE, GRANTED, Pacer
+from app.services.ml_publications.pacing import DEADLINE, GRANTED, MAX_COOLDOWN_SECONDS, Pacer
 
 T0 = datetime(2026, 10, 6, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -142,6 +142,20 @@ class TestRateLimited:
             pacer.on_rate_limited(None)
         pacer.on_success()
         assert pacer.on_rate_limited(None) <= 2.0
+
+    @pytest.mark.parametrize("header", ["999999", "86400"])
+    def test_an_absurd_retry_after_is_capped_so_the_job_is_never_parked_for_days(self, clock, header) -> None:
+        pacer = make(clock)
+        assert pacer.on_rate_limited(header) == MAX_COOLDOWN_SECONDS == 3600.0
+        assert pacer.cooldown_remaining() == pytest.approx(3600.0)
+        before = clock.monotonic()
+        assert pacer.acquire("items_bulk") == GRANTED
+        assert clock.monotonic() - before == pytest.approx(3600.0)
+
+    def test_an_http_date_far_in_the_future_is_capped_too(self, clock) -> None:
+        pacer = make(clock)
+        header = format_datetime(clock.now() + timedelta(days=3), usegmt=True)
+        assert pacer.on_rate_limited(header) == MAX_COOLDOWN_SECONDS
 
     def test_a_longer_existing_cooldown_is_never_shortened(self, clock) -> None:
         pacer = make(clock)

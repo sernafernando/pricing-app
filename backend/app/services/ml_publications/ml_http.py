@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -124,7 +123,11 @@ class MlHttpClient:
     # --- token ------------------------------------------------------------------------
 
     def _bearer(self, *, refresh: bool = False) -> Optional[str]:
-        if not refresh and self._token and time.time() < self._token_expires_epoch - TOKEN_SAFETY_MARGIN_SECONDS:
+        if (
+            not refresh
+            and self._token
+            and self._now().timestamp() < self._token_expires_epoch - TOKEN_SAFETY_MARGIN_SECONDS
+        ):
             return self._token
         data = self._load_token()
         if not data or not data.get("access_token"):
