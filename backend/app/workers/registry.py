@@ -49,3 +49,22 @@ class JobHandler(Protocol):
 # `order_metrics.drain`; PR6 appends `order_metrics.reconcile` and
 # `order_metrics.divergence`.
 REGISTRY: List[JobHandler] = [_order_metrics_drain, _order_metrics_reconcile, _order_metrics_divergence]
+
+# The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
+# `--registry ml_publications`, design D1): its handlers sleep for ML pacing and must
+# never delay `order_metrics.drain`. A separate explicit list, never merged into REGISTRY.
+#
+# Resolved lazily (PEP 562) so the sales worker, which imports this module, never imports the ML
+# handlers: an import failure there must not take `pricing-worker` down with it.
+_ml_publications_registry: Optional[List[JobHandler]] = None
+
+
+def __getattr__(name: str) -> List[JobHandler]:
+    global _ml_publications_registry
+    if name == "ML_PUBLICATIONS_REGISTRY":
+        if _ml_publications_registry is None:
+            from app.workers.handlers.ml_publications import refresh
+
+            _ml_publications_registry = [refresh]
+        return _ml_publications_registry
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

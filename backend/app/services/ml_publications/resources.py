@@ -27,6 +27,28 @@ class ResourceSpec:
     negative_states: Mapping[int, str] = field(default_factory=dict)
 
 
+# Names a queue entry may carry in `resources` (design D12): the single list read by the refresh
+# handler and the enqueue CLI. `core` is the item itself (`/items/bulk`), `bundle` means "the item
+# plus every sub-resource enabled in `bundle_resources`"; the rest are the sub-resources whose
+# fetchers ship in later PRs (naming one earlier is harmless: the handler drops it uncharged).
+CORE_RESOURCE = "core"
+BUNDLE_RESOURCE = "bundle"
+REFRESH_RESOURCES: tuple[str, ...] = (
+    BUNDLE_RESOURCE,
+    CORE_RESOURCE,
+    "description",
+    "prices",
+    "sale_price",
+    "promotions",
+    "user_product",
+    "stock",
+    "family",
+    "competition",
+    "moderation",
+    "performance",
+    "visits",
+)
+
 RESOURCES: dict[str, ResourceSpec] = {}
 
 

@@ -893,9 +893,37 @@ times and nothing will retry them until a real input write arrives.
 
 ### Restart
 
-`deploy.sh` warn-not-fails a `systemctl restart pricing-worker` after the
-backend restart step, same pattern as `pricing-api` — a missing unit (e.g.
-before PR3.T10 installs it) never fails the deploy.
+`deploy.sh` step 6b (`scripts/restart-verify-workers.sh`) restarts and then
+VERIFIES both workers, warn-not-fail: a problem never aborts the deploy, it
+turns the final announcement into "CON PROBLEMAS" and names the worker.
+
+| Worker (unit) | Heartbeat row (`worker_job_state.name`) | If the unit is missing |
+|---|---|---|
+| `pricing-worker` | `worker` | problem |
+| `pricing-worker-ml` | `worker-ml` | warning only |
+
+A worker passes when `systemctl is-active` says active AND its heartbeat
+advanced past the value read before the restart, within
+`WORKER_VERIFY_TIMEOUT` seconds (default 45; the heartbeat ticks every 5 s).
+A process that is alive with a frozen heartbeat is reported as "colgado".
+The deploy never enables `pricing-worker-ml`: an installed unit that is
+neither enabled nor active is left alone. Read a heartbeat by hand with
+`cd backend && venv/bin/python -m app.scripts.worker_heartbeat worker-ml`
+(prints the epoch seconds, or `none`).
+
+### ML publications worker (`pricing-worker-ml`)
+
+Same code as `pricing-worker`, its own registry
+(`python -m app.workers.run --registry ml_publications --worker-name worker-ml`)
+so ML pacing sleeps never delay the sales drain. Inert until an owner installs
+it AND turns a flag on: with every flag off, each handler returns the disabled
+outcome (no ML call, no write). Cost: about +90 MB RSS and one more DB
+connection. Install: `sudo cp deploy/systemd/pricing-worker-ml.service
+/etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable
+--now pricing-worker-ml`. Operate it with `python -m
+app.scripts.ml_publications_settings get|set`, `ml_publications_enqueue` and
+`ml_publications_request` (run from `backend/`). Roll back: set the flag off,
+then `sudo systemctl disable --now pricing-worker-ml`.
 
 ### Heartbeat death / unexpected restarts
 

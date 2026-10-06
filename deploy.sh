@@ -26,12 +26,14 @@
 # función no dispararía el aviso de deploy fallido.
 set -eE
 
-PROJECT_DIR="/var/www/html/pricing-app"
+# Overridable so the deploy can be exercised against a scratch tree in tests.
+PROJECT_DIR="${PROJECT_DIR:-/var/www/html/pricing-app}"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
 
 NOTIFY_SCRIPT="$PROJECT_DIR/scripts/notify-wabot.sh"
 ANNOUNCE_SCRIPT="$PROJECT_DIR/scripts/announce-deploy.sh"
+WORKERS_SCRIPT="$PROJECT_DIR/scripts/restart-verify-workers.sh"
 VETO_SCRIPT="$PROJECT_DIR/scripts/check-deploy-veto.sh"
 # Cada cuánto se le pregunta a wabot si alguien frenó el deploy.
 VETO_POLL_SECONDS="${VETO_POLL_SECONDS:-10}"
@@ -380,14 +382,26 @@ if [ "$SKIP_BACKEND" = false ]; then
   fi
 fi
 
-# 6b) Restart del worker genérico (ventas-ml-rediseno, design D4) -- warn,
-# no fail: el worker todavía no existe en todos los entornos (systemd unit
-# instalada manualmente por el owner, PR2.T9/PR3.T10 en tasks.md), y su
-# ausencia nunca debe tumbar un deploy que sólo toca el backend/frontend.
-CURRENT_STEP="restart del worker"
+# 6b) Restart y verificación de los workers (pricing-worker y pricing-worker-ml, design D1).
+# Warn, no fail: la unit de systemd la instala el owner a mano y puede no existir en todos los
+# entornos, y un worker caído nunca debe tumbar un deploy que ya dejó el backend arriba. Pero
+# tampoco se da por bueno un worker sólo porque `restart` volvió: el script espera a que cada
+# uno esté activo Y a que su heartbeat en worker_job_state avance. Un proceso vivo con el
+# heartbeat clavado (colgado) se reporta igual. Cada falla sale como una línea
+# `PROBLEM <unit>: <motivo>` y termina en el aviso final como "CON PROBLEMAS". El deploy no
+# habilita nunca pricing-worker-ml: sólo lo reinicia si el owner ya lo habilitó.
+WORKERS_PROBLEMS=""
+CURRENT_STEP="restart y verificación de los workers"
 if [ "$SKIP_BACKEND" = false ]; then
-  log "Reiniciando pricing-worker (si existe)..."
-  sudo systemctl restart pricing-worker 2>/dev/null || warn "No se pudo reiniciar pricing-worker (¿existe pricing-worker.service? ver deploy/systemd/pricing-worker.service)"
+  log "Reiniciando y verificando los workers (pricing-worker, pricing-worker-ml)..."
+  if [ -r "$WORKERS_SCRIPT" ]; then
+    # En contexto de condición a propósito: el script sale 1 cuando hay problemas y, bajo
+    # `set -eE`, eso dispararía el trap ERR y cortaría el deploy.
+    WORKERS_PROBLEMS=$(bash "$WORKERS_SCRIPT") || true
+  else
+    warn "No se pudo leer $WORKERS_SCRIPT — los workers no se reiniciaron ni se verificaron"
+    WORKERS_PROBLEMS="PROBLEM workers: no se encontró $WORKERS_SCRIPT (no se reiniciaron ni se verificaron)"
+  fi
 fi
 
 # 7) Aviso de cierre
@@ -401,6 +415,27 @@ if [ "$BACKEND_STATUS" = "sin responder" ]; then
 El deploy terminó (${DURATION}) pero el backend no contesta el health check.
 Todavía NO usen la app.
 Revisar: sudo systemctl status pricing-api"
+  if [ -n "$WORKERS_PROBLEMS" ]; then
+    FINAL_MSG="$FINAL_MSG
+
+Además falló la verificación de los workers:
+${WORKERS_PROBLEMS//PROBLEM /- }"
+  fi
+elif [ -n "$WORKERS_PROBLEMS" ]; then
+  # El backend responde, así que la app se puede usar; lo que falla es un worker.
+  FINAL_MSG="Pricing App - deploy terminado CON PROBLEMAS
+
+El deploy terminó (${DURATION}) y el backend está arriba, pero falló la verificación de los workers:
+${WORKERS_PROBLEMS//PROBLEM /- }
+
+La app se puede usar, pero lo que dependa de ese worker no se está procesando.
+Revisar: sudo systemctl status <worker> y journalctl -u <worker>"
+
+  if [ "$SKIP_BUILD" = false ]; then
+    FINAL_MSG="$FINAL_MSG
+
+Se actualizó el frontend: refrescá la app con Ctrl+Shift+R (Cmd+Shift+R en Mac) para tomar la versión nueva."
+  fi
 else
   FINAL_MSG="Pricing App - deploy terminado
 

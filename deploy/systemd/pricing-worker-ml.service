@@ -1,0 +1,28 @@
+[Unit]
+Description=Pricing App - ML publications worker (ml-publicaciones-store, design D1)
+Documentation=https://github.com/sernafernando/pricing-app
+After=postgresql.service pricing-api.service
+Wants=postgresql.service
+
+# Same code as pricing-worker.service, different registry: the ML handlers sleep for ML
+# pacing, so they run in their own process and never delay order_metrics.drain.
+# NOT enabled by the deploy. Install and start by hand when the first flag is turned on:
+#   sudo cp deploy/systemd/pricing-worker-ml.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now pricing-worker-ml
+# Until a flag is on, every handler returns the disabled outcome (no ML call, no write).
+# Paths, user and group are COPIED from pricing-worker.service, not guessed.
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/pricing-app/backend
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/var/www/html/pricing-app/backend/.env
+ExecStart=/var/www/html/pricing-app/backend/venv/bin/python -m app.workers.run --registry ml_publications --worker-name worker-ml
+Restart=always
+RestartSec=5
+# HeartbeatThread death detection exits(70) precisely so this Restart=always policy
+# picks the process back up -- never disable it.
+
+[Install]
+WantedBy=multi-user.target
