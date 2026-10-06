@@ -174,6 +174,17 @@ from app.models.tn_image_normalizer import (
     TnImageNormalizationItem,
     TnImageNormalizationRun,
 )
+from app.models.ml_publications import (
+    MlChangeLog,
+    MlItem,
+    MlItemEvent,
+    MlItemVariation,
+    MlPubIntakeCursor,
+    MlPubJobRun,
+    MlPubRefreshQueue,
+    MlPubScanState,
+    MlPubSetting,
+)
 
 # Compras v2 — NCs locales
 from app.models.nota_credito_local import NotaCreditoLocal
@@ -414,4 +425,13 @@ __all__ = [
     "TnImageNormalizationRun",
     "TnImageArtifact",
     "TnImageNormalizationItem",
+    "MlItem",
+    "MlItemVariation",
+    "MlChangeLog",
+    "MlItemEvent",
+    "MlPubSetting",
+    "MlPubRefreshQueue",
+    "MlPubIntakeCursor",
+    "MlPubScanState",
+    "MlPubJobRun",
 ]
