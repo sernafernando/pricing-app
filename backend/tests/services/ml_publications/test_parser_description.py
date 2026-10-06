@@ -31,6 +31,12 @@ def test_synthetic_transport_fault_403_with_empty_body_is_an_error_not_gone():
     assert (parsed.state, parsed.status, parsed.body, parsed.error_body) == ("error", 403, None, None)
 
 
+@pytest.mark.parametrize("body", [{}, []])
+def test_an_empty_error_body_is_recorded_as_received_synthetic_transport_fault(body):
+    """Synthetic transport fault: an empty JSON object/list is a body, not an absent one."""
+    assert parse_description(500, body).error_body == body
+
+
 @pytest.mark.parametrize("status", [429, 500, 503])
 def test_synthetic_transport_fault_other_non_2xx_are_errors(status):
     """Synthetic transport fault: throttling and server errors carry an arbitrary body."""

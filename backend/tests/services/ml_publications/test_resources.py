@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 
 import app.services.ml_publications as package
+from app.services.ml_publications.diff import array_keys_for
 from app.services.ml_publications.mappers import map_item
 from app.services.ml_publications.parsers.items_bulk import parse_items_bulk
-from app.services.ml_publications.diff import array_keys_for
 from app.services.ml_publications.resources import REFRESH_RESOURCES, RESOURCES, ResourceSpec, register
 from tests.services.ml_publications.conftest import FIXTURES_DIR, SUBRESOURCE_FIXTURES, load_fixture
 

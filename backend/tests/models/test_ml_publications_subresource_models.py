@@ -10,6 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.models.ml_publications import (
+    MlItem,
     MlItemDescription,
     MlItemPrices,
     MlItemSalePrice,
@@ -72,3 +73,21 @@ def test_user_product_sub_resources_round_trip_exact_family_id(db) -> None:
     assert db.get(MlUserProductStock, "MLAU1").total_quantity == 26
     family = db.get(MlUserProductFamily, FAMILY_ID)
     assert family.user_products_ids == ["MLAU1"] and family.raw["family_id"] == FAMILY_ID
+
+
+def test_never_existed_is_declared_like_on_the_item_table() -> None:
+    """One declaration of the flag across the store: a database default only, no Python-side default."""
+    models = (
+        MlItemDescription,
+        MlItemPrices,
+        MlItemSalePrice,
+        MlItemSellerPromotions,
+        MlUserProduct,
+        MlUserProductStock,
+        MlUserProductFamily,
+    )
+    expected = MlItem.__table__.c.never_existed
+    for model in models:
+        column = model.__table__.c.never_existed
+        assert column.default is None and expected.default is None, model.__name__
+        assert str(column.server_default.arg) == str(expected.server_default.arg), model.__name__

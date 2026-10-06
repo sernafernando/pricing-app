@@ -32,7 +32,7 @@ class ParsedSubResource:
     status: int
     state: Literal["ok", "not_found", "error"]
     body: Any = None  # the 2xx body, unchanged (stored as raw)
-    error_body: Optional[Any] = None  # non-2xx body, or None when the response had none
+    error_body: Optional[Any] = None  # non-2xx body exactly as received (None when there was none)
 
 
 def parse_subresource(status: int, body: Any, validate: Callable[[Any], None]) -> ParsedSubResource:
@@ -41,7 +41,7 @@ def parse_subresource(status: int, body: Any, validate: Callable[[Any], None]) -
         validate(body)
         return ParsedSubResource(status=status, state="ok", body=body)
     state: Literal["not_found", "error"] = "not_found" if status == NOT_FOUND_STATUS else "error"
-    return ParsedSubResource(status=status, state=state, error_body=body if body else None)
+    return ParsedSubResource(status=status, state=state, error_body=body)
 
 
 def require_object(body: Any, what: str) -> dict:

@@ -270,7 +270,7 @@ class _SubResourceState:
     first_seen_at = Column(_TS, nullable=False, server_default=func.now())
     fetched_at = Column(_TS)
     fetched_request_started_at = Column(_TS)
-    never_existed = Column(Boolean, nullable=False, server_default=text("false"), default=False)
+    never_existed = Column(Boolean, nullable=False, server_default=text("false"))
     last_checked_at = Column(_TS)
     gone_at = Column(_TS)
 
