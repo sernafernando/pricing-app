@@ -315,6 +315,14 @@ class TestOverlapPass:
         assert len(queued(pricing)) == 2
         assert cursor(pricing)["cursor_received_at"] == at(0)
 
+    def test_a_truncated_overlap_keeps_the_rows_nearest_the_cursor(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "items", 0, "/items/MLA9000000009")
+        for n in range(1, 6):  # received_at -9, -8, ... -5: the newest ones are the likeliest late arrivals
+            put_webhook(bridge, item_row(f"MLA950000000{n}", -10 + n))
+        run(bridge, overlap_batch=2)
+        assert sorted(queued(pricing)) == ["MLA9500000004", "MLA9500000005"]
+
     def test_the_overlap_skips_what_the_store_already_fetched(self, env) -> None:
         pricing, bridge = env
         set_cursor(pricing, "items", 0, "/items/MLA9000000009")
@@ -411,11 +419,14 @@ class TestConcurrentIntake:
             return rows
 
         monkeypatch.setattr(intake, "_read", read_then_lose_the_race)
-        run(bridge, overlap_seconds=0)
+        result = run(bridge, overlap_seconds=0)
         row = cursor(pricing)
         assert row["cursor_received_at"] == at(10) and row["cursor_resource"] == "/items/MLA1500000009"
         assert row["rows_read"] is None  # the losing pass does not add to the counters
-        assert list(queued(pricing)) == ["MLA1500000001"]  # its enqueue is idempotent and harmless
+        # The other process already covered everything up to its cursor: the loser neither re-enqueues
+        # (each repeat bumps the entry version) nor keeps looping from its stale position.
+        assert queued(pricing) == {}
+        assert result.stats.cursor_conflicts == 1 and result.stats.batches == 0
 
 
 class TestFailureAndSafety:

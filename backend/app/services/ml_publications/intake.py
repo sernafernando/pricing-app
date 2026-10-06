@@ -112,6 +112,7 @@ class IntakeStats:
     overlap_rows: int = 0
     overlap_enqueued: int = 0
     overlap_truncated: int = 0
+    cursor_conflicts: int = 0
 
     def as_dict(self) -> Dict[str, int]:
         return dict(vars(self))
@@ -174,11 +175,14 @@ def open_read_only(engine: Engine) -> Iterator[Connection]:
 
 _SELECT = (
     "SELECT resource, received_at, payload->>'user_id' AS user_id FROM webhook_latest "
-    "WHERE topic = :topic AND {where} ORDER BY received_at, resource LIMIT :limit"
+    "WHERE topic = :topic AND {where} ORDER BY received_at {direction}, resource {direction} LIMIT :limit"
 )
-_FORWARD = _SELECT.format(where="(received_at, resource) > (CAST(:at AS timestamptz), :res)")
+_FORWARD = _SELECT.format(where="(received_at, resource) > (CAST(:at AS timestamptz), :res)", direction="ASC")
+# Newest first: when the window holds more rows than the limit, the rows dropped are the OLDEST ones,
+# not the late arrivals nearest the cursor (the index is (topic, received_at DESC, resource DESC)).
 _OVERLAP = _SELECT.format(
-    where="received_at >= CAST(:lower AS timestamptz) AND (received_at, resource) <= (CAST(:at AS timestamptz), :res)"
+    where="received_at >= CAST(:lower AS timestamptz) AND (received_at, resource) <= (CAST(:at AS timestamptz), :res)",
+    direction="DESC",
 )
 
 
@@ -285,14 +289,12 @@ def _forward(
         rows = _read(bridge, _FORWARD, {"topic": mapping.topic, "at": at_, "res": resource, "limit": batch})
         if not rows:
             break
-        stats.batches += 1
         with database.get_background_db() as session:
             classified = _classify(session, mapping, rows, seller_id)
             last = rows[-1]
             # Cursor first, enqueue second, one transaction: any failure rolls both back. The advance only
-            # moves the cursor forward: a second intake process that got further is never pulled back
-            # (this batch's enqueue is idempotent, only its counters are not added).
-            session.execute(
+            # moves the cursor forward: a second intake process that got further is never pulled back.
+            moved = session.execute(
                 _ADVANCE_CURSOR,
                 {
                     "topic": mapping.topic,
@@ -305,8 +307,15 @@ def _forward(
                     "unparsed": classified.unparsed,
                 },
             )
+            if moved.rowcount == 0:
+                # Another intake process is already past these rows and enqueued them with its own
+                # cursor commit: re-enqueueing would only bump entry versions. Stop this topic.
+                session.rollback()
+                stats.cursor_conflicts += 1
+                break
             queue.enqueue(classified.entries, session=session)
         memory.add(mapping.topic, rows)
+        stats.batches += 1
         stats.rows_read += len(rows)
         stats.enqueued += len(classified.entries)
         stats.skipped_satisfied += classified.satisfied
