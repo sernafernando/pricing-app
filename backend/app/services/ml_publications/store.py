@@ -20,9 +20,10 @@ from sqlalchemy import null, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
-from app.models.ml_publications import MlChangeLog, MlItem
+from app.models.ml_publications import MlChangeLog, MlItem, MlItemVariation
 from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import Change, diff, split_excluded
+from app.services.ml_publications.mappers import map_variations
 from app.services.ml_publications.ml_http import MlResponse
 from app.services.ml_publications.resources import ResourceSpec
 
@@ -181,6 +182,7 @@ def apply_fetch(
             if typed["status"] == STATUS_ACTIVE:
                 row.first_active_at = observed_at
             _touch(row, response, trigger_received_at)
+            _project_variations(db, item_id, body, response)
             db.flush()
             return ApplyOutcome("first_seen")
 
@@ -199,6 +201,7 @@ def apply_fetch(
         first_active_before = row.first_active_at
         _write_state(row, typed, body, new_hash, response)
         _touch(row, response, trigger_received_at)
+        _project_variations(db, item_id, body, response)
         if not reportable and not restoring:
             db.flush()
             return ApplyOutcome("noise_only")
@@ -216,6 +219,38 @@ def apply_fetch(
             _context(old_snapshot, typed, first_active_before),
         )
         return ApplyOutcome("restored" if restoring else "changed", change_log_id=entry.id)
+
+
+def _project_variations(db, item_id: str, body: Mapping[str, Any], response: MlResponse) -> None:
+    """Keep `ml_item_variations` a typed projection of the item's `variations` (same transaction).
+
+    Only new, changed or returning variations are written; a variation that vanished
+    from the body is kept and marked gone. Their changes are logged in the item's
+    change-log row, never in a row of their own.
+    """
+    existing = {v.variation_id: v for v in db.query(MlItemVariation).filter(MlItemVariation.item_id == item_id)}
+    seen: set[int] = set()
+    for typed in map_variations(body):
+        variation_id = typed["variation_id"]
+        if variation_id is None or variation_id in seen:
+            continue
+        seen.add(variation_id)
+        raw_hash = canonical_hash(typed["raw"])
+        current = existing.get(variation_id)
+        if current is None:
+            current = MlItemVariation(item_id=item_id, variation_id=variation_id)
+            db.add(current)
+        elif bytes(current.raw_hash) == raw_hash and current.gone_at is None:
+            continue
+        for column, value in typed.items():
+            if column not in ("item_id", "variation_id"):
+                setattr(current, column, value)
+        current.raw_hash = raw_hash
+        current.fetched_at = response.received_at
+        current.gone_at = None
+    for variation_id, variation in existing.items():
+        if variation_id not in seen and variation.gone_at is None:
+            variation.gone_at = response.received_at
 
 
 def _error(db, row: MlItem, response: MlResponse, reason: Optional[str] = None) -> ApplyOutcome:

@@ -608,3 +608,102 @@ class TestConcurrencyAndIdempotency:
 
         assert item_row(mlpub_pg, "MLA874027718")["title"] == "newer"
         assert item_row(mlpub_pg, "MLA874027718")["ml_last_updated"] == datetime(2026, 10, 5, tzinfo=timezone.utc)
+
+
+MULTI = "MLA1207279308"
+VARIATION_IDS = [175550253195, 175550253196, 175550253197, 175550253198]
+
+
+def variation_rows(engine, item_id: str = MULTI):
+    with engine.connect() as conn:
+        return (
+            conn.execute(
+                text("SELECT * FROM ml_item_variations WHERE item_id = :i ORDER BY variation_id"), {"i": item_id}
+            )
+            .mappings()
+            .all()
+        )
+
+
+class TestVariations:
+    def test_captured_item_writes_one_row_per_variation(self, mlpub_pg) -> None:
+        body = item_with_variations()
+        apply(body, MULTI, minutes=1)
+
+        rows = variation_rows(mlpub_pg)
+        assert [r["variation_id"] for r in rows] == VARIATION_IDS
+        for row, variation in zip(rows, body["variations"]):
+            assert row["raw"] == variation
+            assert row["user_product_id"] == variation["user_product_id"]
+            assert row["seller_custom_field"] is None and row["seller_sku"] is None
+            assert row["available_quantity"] == variation["available_quantity"]
+            assert row["gone_at"] is None and row["fetched_at"] == at(1) and row["raw_hash"] is not None
+        assert count(mlpub_pg, "ml_change_log") == 0
+
+    def test_item_without_variations_writes_no_rows(self, mlpub_pg) -> None:
+        apply(bulk_item(PAUSED), PAUSED)  # MLA935110613: `variations: []`
+        assert variation_rows(mlpub_pg, PAUSED) == []
+
+    def test_a_vanished_variation_is_kept_marked_gone_and_logged_under_the_item(self, mlpub_pg) -> None:
+        """real payload, one of the 4 variations removed."""
+        body = item_with_variations()
+        apply(body, MULTI, minutes=1)
+        smaller = copy.deepcopy(body)
+        removed = smaller["variations"].pop(1)
+
+        outcome = apply(smaller, MULTI, minutes=5)
+
+        rows = {r["variation_id"]: r for r in variation_rows(mlpub_pg)}
+        assert len(rows) == 4
+        assert rows[removed["id"]]["gone_at"] == at(5) and rows[removed["id"]]["raw"] == removed
+        assert all(r["gone_at"] is None for vid, r in rows.items() if vid != removed["id"])
+        logs = log_rows(mlpub_pg, MULTI)
+        assert outcome.kind == "changed" and len(logs) == 1  # no separate variation log row
+        assert logs[0]["changed_paths"] == [f"variations[{removed['id']}]"]
+        assert logs[0]["changes"][0]["op"] == "remove"
+
+    def test_a_returning_variation_clears_gone_at(self, mlpub_pg) -> None:
+        body = item_with_variations()
+        apply(body, MULTI, minutes=1)
+        smaller = copy.deepcopy(body)
+        removed = smaller["variations"].pop(1)
+        apply(smaller, MULTI, minutes=2)
+
+        apply(body, MULTI, minutes=3)
+
+        rows = {r["variation_id"]: r for r in variation_rows(mlpub_pg)}
+        assert rows[removed["id"]]["gone_at"] is None and rows[removed["id"]]["fetched_at"] == at(3)
+
+    def test_changing_one_variation_logs_only_its_sub_path_and_rewrites_only_that_row(self, mlpub_pg) -> None:
+        """real payload, one variation's seller_custom_field set to "ABC-1"."""
+        body = item_with_variations()
+        apply(body, MULTI, minutes=1)
+        changed = copy.deepcopy(body)
+        target = changed["variations"][2]
+        target["seller_custom_field"] = "ABC-1"
+
+        apply(changed, MULTI, minutes=5)
+
+        (entry,) = log_rows(mlpub_pg, MULTI)
+        assert entry["changed_paths"] == [f"variations[{target['id']}].seller_custom_field"]
+        rows = {r["variation_id"]: r for r in variation_rows(mlpub_pg)}
+        assert rows[target["id"]]["seller_custom_field"] == "ABC-1" and rows[target["id"]]["fetched_at"] == at(5)
+        others = [r for vid, r in rows.items() if vid != target["id"]]
+        assert len(others) == 3 and all(r["fetched_at"] == at(1) for r in others)
+
+    def test_identical_fetch_leaves_every_variation_row_alone(self, mlpub_pg) -> None:
+        body = item_with_variations()
+        apply(body, MULTI, minutes=1)
+        before = [dict(r) for r in variation_rows(mlpub_pg)]
+
+        apply(copy.deepcopy(body), MULTI, minutes=9)
+
+        assert [dict(r) for r in variation_rows(mlpub_pg)] == before
+
+    def test_restoring_a_gone_item_projects_its_variations_again(self, mlpub_pg) -> None:
+        body = item_with_variations()
+        apply(body, MULTI, minutes=1)
+        only_not_found(MULTI, 2)
+
+        assert apply(copy.deepcopy(body), MULTI, minutes=3).kind == "restored"
+        assert len(variation_rows(mlpub_pg)) == 4
