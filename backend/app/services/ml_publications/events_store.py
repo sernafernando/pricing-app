@@ -19,6 +19,9 @@ from app.models.ml_publications import MlChangeLog, MlItemEvent
 from app.services.ml_publications.events import ChangeRow, Event, dedupe_key, derive_events
 
 DEFAULT_BATCH_SIZE = 500
+# One INSERT per batch: a row yields at most a handful of events of 14 columns each, so the cap keeps the
+# statement far below Postgres' 65535 bind-parameter limit.
+MAX_BATCH_SIZE = 500
 BATCH_STATEMENT_TIMEOUT = "30s"
 
 
@@ -66,9 +69,11 @@ def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFA
 
     Keyset-paged by row id so memory stays bounded, one transaction per batch (committed, with
     its own `statement_timeout`) so a long history never holds one long transaction and a late
-    failure keeps the earlier batches; existing events are left alone. `item_id` narrows the scan
-    through `ix_ml_change_log_item (item_id, ...)`, so it stays cheap on a large history.
+    failure keeps the earlier batches; existing events are left alone. `item_id` narrows the scan to
+    one item's rows (a handful), whichever index the planner picks.
     """
+    if not 1 <= batch_size <= MAX_BATCH_SIZE:
+        raise ValueError(f"batch_size must be between 1 and {MAX_BATCH_SIZE}")
     created = 0
     last_id = 0
     while True:

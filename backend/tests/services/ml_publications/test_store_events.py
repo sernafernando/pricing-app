@@ -259,6 +259,12 @@ class TestReDerivation:
             assert events_store.rederive_events(db, batch_size=1) == 1  # the other item only
         assert count(events_on, "ml_item_events") == 2
 
+    @pytest.mark.parametrize("size", [0, -1, events_store.MAX_BATCH_SIZE + 1])
+    def test_an_out_of_range_batch_size_is_refused(self, events_on, size) -> None:
+        with store_module.database.get_background_db() as db:
+            with pytest.raises(ValueError, match="batch_size"):
+                events_store.rederive_events(db, batch_size=size)
+
     def test_each_batch_is_committed_so_a_late_failure_keeps_the_earlier_batches(self, events_on, monkeypatch) -> None:
         for item_id in (ACTIVE, "MLA882393030"):
             body = sample_item(item_id)

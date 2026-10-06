@@ -28,8 +28,8 @@ def _parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parse_args(argv)
-    if args.batch_size < 1:
-        print("--batch-size must be at least 1", file=sys.stderr)
+    if not 1 <= args.batch_size <= events_store.MAX_BATCH_SIZE:
+        print(f"--batch-size must be between 1 and {events_store.MAX_BATCH_SIZE} (at most)", file=sys.stderr)
         return 2
     with database.get_background_db() as db:
         created = events_store.rederive_events(db, item_id=args.item, batch_size=args.batch_size)

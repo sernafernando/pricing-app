@@ -127,6 +127,8 @@ def search_statement(
 
 
 def _run(db, statement: Statement) -> EventPage:
+    # `SET LOCAL` lasts until the caller's transaction ends: callers should use a short read
+    # session (or end the transaction) rather than run unrelated work after a query here.
     db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
     rows = db.execute(text(statement.sql), statement.params).mappings().all()
     page_size = statement.params["row_limit"] - 1
