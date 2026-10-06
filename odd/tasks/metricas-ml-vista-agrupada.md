@@ -67,9 +67,9 @@ archivos no triviales.
 
 ## Tareas
 
-- [ ] T1 Servicio: filas agrupadas por dimensión (SQL set-based sobre los pares), 5 dimensiones, "Sin X", clave de tienda, markup como razón de sumas, conciliación con KPIs. Tests Postgres.
-- [ ] T2 Servicio: despliegue de un grupo a sus productos (scope por grupo) + conteo/KPIs de grupos + techo de sentencias.
-- [ ] T3 Router: `group_by=group&dimension=`, respuesta, endpoint de productos del grupo, export CSV agrupado, permisos. Tests de router.
+- [x] T1 Servicio: filas agrupadas por dimensión (SQL set-based sobre los pares), 5 dimensiones, "Sin X", clave de tienda, markup como razón de sumas, conciliación con KPIs. Tests Postgres.
+- [x] T2 Servicio: despliegue de un grupo a sus productos (scope por grupo) + conteo/KPIs de grupos + techo de sentencias.
+- [x] T3 Router: `group_by=group&dimension=`, respuesta, endpoint de productos del grupo, export CSV agrupado, permisos. Tests de router.
 - [ ] T4 Frontend: params, selector de dimensión, vista Agrupado (tabla, orden, KPIs), vitest.
 - [ ] T5 Frontend: despliegue a productos, export, estado visual (`test:visual`).
 - [ ] T6 Medición en el fixture de volumen + verificación completa.
@@ -92,4 +92,8 @@ pytest (tests tocados + volumen + `pytest tests -q` con ENVIRONMENT=testing),
 
 ## Progreso / evidencia
 
-(se completa por tarea)
+- T1 (`d9d732e4`): RED = ImportError (`board.NO_GROUP` inexistente al coleccionar); GREEN = 31 tests `test_board_groups_postgres.py` (5 dimensiones, "Sin X", clave de tienda, markup razón de sumas, conciliación con KPIs, filtros por producto antes de agrupar, stock una vez por producto, orden, paginado). Servicio: `ml_daily_metrics/groups.py` + `Board.group_page/group_rows/group_counts/group_keys/groups_for_keys`.
+- T2 (`597286bf`): RED = `TypeError: Board() got an unexpected keyword argument 'group_key'`; GREEN = 41 tests del archivo (suma de productos == fila del grupo en las 5 dimensiones; tienda abre sólo las ventas de esa tienda; filtros de fila deciden por producto entero).
+- T3 (`abad3124` + el commit de paginado/plan): RED = 14 de 20 tests de router (dimension ignorada, 404 en `/board/group-products`, sin `products_count`); GREEN = 22 tests `test_ml_metricas_board_groups_router.py` (agrupado, conciliación con KPIs, permisos, abrir grupo paginado con `total`, CSV agrupado con cabecera fija + guarda de fórmulas + tope + paginado por claves, techo de sentencias).
+- Hallazgo de plan (volumen): abrir un grupo con el filtro de pertenencia como `tuple IN (subconsulta)` estimaba 1 fila y anidaba loops (series de página: 3,8 s). Arreglo: la clave y la etiqueta del grupo son COLUMNAS de la tabla de pares (`gkey`/`glabel`, los joins chicos corren una vez al armarla) y abrir un grupo es `gkey = :key` (+ un CTE MATERIALIZED de claves sólo si hay filtros de fila): 565 ms con 100 de 800 productos. El despliegue se pagina (`limit`<=500, default 100) porque una marca puede tener miles de productos.
+- Decisiones: ageing/última venta del grupo = su venta más reciente (igual que la fila de producto); stock = suma de los productos distintos (producto sin stock conocido no suma; grupo sin ninguno -> null); alertas no aplican a un grupo. Con "solo con ventas" un grupo sin unidades en el período (p. ej. una tienda donde el producto no vendió) también se oculta. Total Gauss de órdenes con varios ítems se reparte en fracciones de centavo: cada grupo redondea su suma una vez, así que la suma de grupos difiere del KPI en <= 1 centavo por grupo (unidades y facturado cierran exactos).

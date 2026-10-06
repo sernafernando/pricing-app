@@ -170,6 +170,35 @@ class TestOpenAGroup:
 
         assert [(r["product_item_id"], r["units"]) for r in body["rows"]] == [(12, 0)]
 
+    def test_the_products_come_in_pages_with_their_total(self, client, admin_auth_headers, board_data):
+        first = _get(
+            client,
+            admin_auth_headers,
+            f"{URL}/group-products",
+            group_key="s:57997",
+            limit=1,
+            sort="title",
+            sort_dir="asc",
+            group_by="group",
+            dimension="tienda",
+        )
+        second = _get(
+            client,
+            admin_auth_headers,
+            f"{URL}/group-products",
+            group_key="s:57997",
+            limit=1,
+            offset=1,
+            sort="title",
+            sort_dir="asc",
+            group_by="group",
+            dimension="tienda",
+        )
+
+        assert (first["total"], first["limit"], first["offset"]) == (2, 1, 0)
+        assert [r["product_item_id"] for r in first["rows"]] == [11]  # "Impresora..." before "Taladro..."
+        assert [r["product_item_id"] for r in second["rows"]] == [13]
+
     def test_a_group_key_is_required_and_an_unknown_one_is_empty(self, client, admin_auth_headers, board_data):
         assert client.get(f"{URL}/group-products", params=GROUP, headers=admin_auth_headers).status_code == 422
         assert _get(client, admin_auth_headers, f"{URL}/group-products", group_key="NOPE", **GROUP)["rows"] == []

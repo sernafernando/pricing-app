@@ -59,6 +59,7 @@ doc): a publication that moved store takes its history with it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -78,7 +79,6 @@ from sqlalchemy import (
     table,
     text,
     true,
-    tuple_,
     union,
 )
 from sqlalchemy.ext.compiler import compiles
@@ -569,7 +569,19 @@ class Board:
         pairs = union(select(last.c.product, last.c.mla), published).subquery("pairs")
         pub = self._pub(select(pairs.c.mla) if self.product_item_id is not None else None)
         sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
-        return (
+        # The group view (and opening a group) reads each pair's group key and
+        # label as COLUMNS: the dimension's small lookup joins run once here.
+        dimension = None
+        if self.f.group_by == "group" or self.group_key is not None:
+            dimension = grouping.dimension_of(
+                self.f.dimension,
+                SimpleNamespace(
+                    c=SimpleNamespace(
+                        marca=P.marca, categoria=P.categoria, subcategoria_id=P.subcategoria_id, store_id=pub.c.store_id
+                    )
+                ),
+            )
+        source = (
             select(
                 pairs.c.product.label("product"),
                 pairs.c.mla.label("mla"),
@@ -590,6 +602,7 @@ class Board:
                 *(func.coalesce(agg.c[name], 0).label(name) for name in sums),
                 last.c.last_at,
                 business_date(last.c.last_at, self.sqlite).label("last_day"),
+                *((dimension.key.label("gkey"), dimension.label.label("glabel")) if dimension is not None else ()),
             )
             .select_from(pairs)
             .outerjoin(pub, pub.c.mla == pairs.c.mla)
@@ -597,6 +610,9 @@ class Board:
             .outerjoin(agg, and_(agg.c.product == pairs.c.product, agg.c.mla == pairs.c.mla))
             .outerjoin(last, and_(last.c.product == pairs.c.product, last.c.mla == pairs.c.mla))
         )
+        for target, onclause in dimension.joins if dimension is not None else ():
+            source = source.outerjoin(target, onclause)
+        return source
 
     # ── request lifecycle: the lines and the pair aggregate, computed ONCE ──
 
@@ -638,16 +654,20 @@ class Board:
         """Reading the pairs of ONE group (see `__init__`), not the whole board."""
         return self.group_key is not None and not self._unscoped_depth
 
-    def _group_pairs_of_key(self) -> Any:
-        """`(product, mla)` of the pairs of the group `group_key`, among the
-        pairs of the products that pass every filter -- built UNSCOPED, or it
-        would ask for itself."""
+    def _has_row_filters(self) -> bool:
+        f = self.f
+        return bool(f.stock or f.stock_exclude or f.ageing or f.ageing_exclude or f.alerts or f.solo_con_ventas)
+
+    def _survivors(self) -> Any:
+        """The keys of the product rows that pass EVERY filter as whole
+        products (a MATERIALIZED CTE: the planner reads its true size) -- built
+        UNSCOPED, or it would ask for itself."""
         self._unscoped_depth += 1
         try:
-            gp = self._group_source()
+            rows = self.rows()
         finally:
             self._unscoped_depth -= 1
-        return select(gp.c.product, gp.c.mla).where(gp.c.gkey == self.group_key)
+        return select(rows.c.rk).cte("scope_keys").prefix_with("MATERIALIZED", dialect="postgresql")
 
     def filtered_pairs(self, skip: str = ""):
         """One row per (product, MLA) pair that passes every filter but
@@ -722,7 +742,9 @@ class Board:
         if self.product_item_id is not None:
             conditions.append(t.c.product == self.product_item_id)
         if self._in_group:
-            conditions.append(tuple_(t.c.product, t.c.mla).in_(self._group_pairs_of_key()))
+            conditions.append(t.c.gkey == self.group_key)
+            if self._has_row_filters():
+                conditions.append(rk.in_(select(self._survivors().c.rk)))
         if conditions:
             q = q.where(*conditions)
         return q.subquery("fp")
@@ -879,6 +901,12 @@ class Board:
         if limit is not None:
             q = q.limit(limit).offset(offset)
         return self._rows_of(q, with_series=with_series)
+
+    def product_count(self) -> int:
+        """How many product rows the board holds (an opened group: how many
+        products it summed)."""
+        rows = self.rows()
+        return int(self.db.execute(select(func.count()).select_from(rows)).scalar() or 0)
 
     def ordered_keys(self, limit: int) -> List[str]:
         """The keys of every row of the filtered board, in board order, at
@@ -1038,7 +1066,7 @@ class Board:
         included, decided per product like the product view), each with its
         group key under `BoardFilter.dimension`."""
         joined, fp = self._members("")
-        return grouping.grouped_pairs(self.f.dimension, joined, fp, grouping.stock_table())
+        return grouping.grouped_pairs(joined, fp, grouping.stock_table())
 
     def group_rows(self) -> Any:
         """One row per group (a subquery named like the product rows' columns

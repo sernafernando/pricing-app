@@ -2,10 +2,11 @@
 the board's (product, MLA) pairs summed by a DIMENSION -- marca, categoría,
 subcategoría, tienda or PM.
 
-This module only builds SQL over the pairs the board already materialized (its
-`board_pair_agg` temp table, narrowed to the products that survive the row
-filters); `Board` runs it, sorts and pages it. No table of its own, no extra
-temp table: one more statement shape over the same small pair set.
+The key and label of every pair are COLUMNS of the board's own pair table
+(`board_pair_agg`, computed once per request with the few small lookup joins the
+dimension needs), so grouping is a plain GROUP BY over the products that
+survive the row filters, and opening a group is a plain `gkey = :key` filter
+the planner can estimate. No table of its own beyond that one.
 
 Dimension semantics (one group KEY per pair, `NO_GROUP` for "Sin ..."):
 
@@ -131,6 +132,7 @@ def _pm_dimension(fp: Any) -> Dimension:
 
 
 def dimension_of(name: str, fp: Any) -> Dimension:
+    """`fp.c` exposes `marca`, `categoria`, `subcategoria_id` and `store_id`."""
     if name == "marca":
         return _text_dimension(fp.c.marca)
     if name == "categoria":
@@ -159,19 +161,16 @@ def title_of(name: str, key: ColumnElement, label: ColumnElement) -> ColumnEleme
     return case((key == NO_GROUP, literal(NO_LABELS[name])), else_=shown)
 
 
-def grouped_pairs(name: str, joined: Any, fp: Any, stock: Any) -> Any:
+def grouped_pairs(joined: Any, fp: Any, stock: Any) -> Any:
     """One row per (product, MLA) pair of `joined` (the surviving products'
-    pairs, `fp` their columns) with its group `gkey` and `glabel`, its sums and
-    its product's `stock`, counted ONCE per (group, product): `first_in_group`
-    marks the single pair that carries it."""
-    dimension = dimension_of(name, fp)
+    pairs, `fp` their columns, group `gkey` and `glabel` among them) with its
+    sums and its product's `stock`, counted ONCE per (group, product):
+    `first_in_group` marks the single pair that carries it."""
     source = joined.outerjoin(stock, stock.c.item_id == fp.c.product)
-    for target, onclause in dimension.joins:
-        source = source.outerjoin(target, onclause)
     inner = (
         select(
-            dimension.key.label("gkey"),
-            dimension.label.label("glabel"),
+            fp.c.gkey,
+            fp.c.glabel,
             fp.c.product,
             fp.c.mla,
             *(fp.c[column] for column in SUM_COLUMNS),

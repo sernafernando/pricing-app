@@ -198,6 +198,15 @@ class PublicationsResponse(BaseModel):
     rows: List[BoardRow]
 
 
+class GroupProductsResponse(BaseModel):
+    """One page of a group's products and how many it has in all."""
+
+    rows: List[BoardRow]
+    total: int
+    limit: int
+    offset: int
+
+
 # ── Params ───────────────────────────────────────────────────────
 
 
@@ -537,24 +546,30 @@ def get_product_publications(
     return PublicationsResponse(rows=out)
 
 
-@router.get("/board/group-products", response_model=PublicationsResponse)
+@router.get("/board/group-products", response_model=GroupProductsResponse)
 def get_group_products(
     group_key: str = Query(..., min_length=1, description="`key` of a row of the group view"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     f: board.BoardFilter = Depends(board_filter),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
-) -> PublicationsResponse:
+) -> GroupProductsResponse:
     """A group row's PRODUCTS (what its row expands into), under the same
     filters as the board and the same `dimension`. They are the products the
     group summed -- those passing every filter as whole products -- each with
     only the sales of this group (under "tienda", the sales of that store's
     publications), so they add up to the group row. The key travels as a query
-    param: a brand or a store clave may hold any character."""
+    param: a brand or a store clave may hold any character. Paged (a brand
+    can hold thousands of products), in the board's sort order."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
     with board.Board(db, replace(f, group_by="product"), group_key=group_key) as b:
-        rows = b.page(limit=None)
-    return PublicationsResponse(rows=[_row_out(row, can_see_margin) for row in rows])
+        total = b.product_count()
+        rows = b.page(limit, offset)
+    return GroupProductsResponse(
+        rows=[_row_out(row, can_see_margin) for row in rows], total=total, limit=limit, offset=offset
+    )
 
 
 def _csv_money(value: Optional[float]) -> str:
