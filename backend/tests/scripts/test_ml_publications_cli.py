@@ -145,6 +145,18 @@ class TestEnqueue:
         assert "not-an-id" in capsys.readouterr().err
         assert rows(env, "SELECT 1 FROM ml_pub_refresh_queue") == []
 
+    def test_a_mistyped_resource_is_rejected_and_nothing_is_enqueued(self, env, capsys) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            ml_publications_enqueue.main(["MLA935110613", "--resources", "corre"])
+
+        assert exit_info.value.code != 0
+        assert "corre" in capsys.readouterr().err
+        assert rows(env, "SELECT 1 FROM ml_pub_refresh_queue") == []
+
+    def test_every_resource_the_design_names_is_accepted(self, env) -> None:
+        for resource in ("bundle", "core", "description", "prices", "sale_price", "promotions", "stock", "family"):
+            assert ml_publications_enqueue.main(["MLA935110613", "--resources", resource]) == 0
+
     def test_a_resource_can_be_named_explicitly(self, env) -> None:
         ml_publications_enqueue.main(["MLA935110613", "--resources", "core"])
 

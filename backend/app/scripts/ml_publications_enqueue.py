@@ -18,6 +18,23 @@ from app.services.ml_publications import queue, settings_store
 
 ITEM_ID = re.compile(r"^[A-Z]{3}\d+$")
 DEFAULT_RESOURCE = "bundle"
+# Every resource name the design gives a refresh (D12). Naming one whose fetcher has not shipped yet
+# is fine (the handler drops it uncharged); a name outside this list is a typo.
+KNOWN_RESOURCES = (
+    "bundle",
+    "core",
+    "description",
+    "prices",
+    "sale_price",
+    "promotions",
+    "user_product",
+    "stock",
+    "family",
+    "competition",
+    "moderation",
+    "performance",
+    "visits",
+)
 
 
 def _parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
@@ -26,8 +43,10 @@ def _parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     parser.add_argument(
         "--resources",
         nargs="+",
+        choices=KNOWN_RESOURCES,
+        metavar="RESOURCE",
         default=[DEFAULT_RESOURCE],
-        help=f"resources to refresh (default: {DEFAULT_RESOURCE})",
+        help=f"resources to refresh, any of: {', '.join(KNOWN_RESOURCES)} (default: {DEFAULT_RESOURCE})",
     )
     return parser.parse_args(argv)
 
