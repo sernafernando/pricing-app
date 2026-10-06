@@ -244,22 +244,29 @@ export default function MetricasML() {
       // belongs to the OLD filters and is dropped, never cached.
       const generation = latestRequestRef.current;
       const previous = more ? cached?.rows || [] : [];
+      // How many rows the SERVER has handed out (dropped repeats included).
+      const fetched = more ? cached?.fetched || 0 : 0;
       setSubRows((prev) => ({ ...prev, [key]: { ...(more ? prev[key] : {}), loading: true, rows: previous } }));
       try {
         const request = isGroup
           ? api.get(GROUP_PRODUCTS_URL, {
-              params: { ...filterParams, group_key: key, limit: GROUP_PRODUCTS_PAGE, offset: previous.length },
+              params: { ...filterParams, group_key: key, limit: GROUP_PRODUCTS_PAGE, offset: fetched },
             })
           : api.get(`/ml-metricas/board/products/${row.product_item_id}/publications`, { params: filterParams });
         const { data } = await request;
         if (generation !== latestRequestRef.current) return;
         setSubRows((prev) => ({
           ...prev,
-          [key]: { loading: false, rows: appendNew(previous, data.rows || []), total: data.total },
+          [key]: {
+            loading: false,
+            rows: appendNew(previous, data.rows || []),
+            total: data.total,
+            fetched: fetched + (data.rows || []).length,
+          },
         }));
       } catch {
         if (generation !== latestRequestRef.current) return;
-        setSubRows((prev) => ({ ...prev, [key]: { loading: false, rows: previous, error: true } }));
+        setSubRows((prev) => ({ ...prev, [key]: { loading: false, rows: previous, fetched, error: true } }));
       }
     },
     [expanded, subRows, filterParams, groupBy],

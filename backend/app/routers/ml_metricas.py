@@ -622,7 +622,8 @@ DIMENSION_HEADERS = {
     "pm": "PM",
 }
 # A dimension added to the board without its header would KeyError the export.
-assert set(DIMENSION_HEADERS) == set(board.DIMENSIONS), "DIMENSION_HEADERS must cover board.DIMENSIONS"
+if set(DIMENSION_HEADERS) != set(board.DIMENSIONS):
+    raise RuntimeError("DIMENSION_HEADERS must cover board.DIMENSIONS")
 
 
 @router.get("/board/export")

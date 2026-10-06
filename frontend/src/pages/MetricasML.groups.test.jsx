@@ -324,6 +324,26 @@ describe('opening a group', () => {
     errors.mockRestore();
   });
 
+  it('the next page starts where the SERVER left off, even when a repeated row was dropped', async () => {
+    const make = (from) => Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${from + i}`, title: `Producto ${from + i}` }));
+    const pages = { 0: make(0), 100: [make(0)[99], ...make(100).slice(1)], 200: make(200) };
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-metricas/board') {
+        return Promise.resolve({ data: config.params.group_by === 'group' ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE });
+      }
+      if (url === GROUP_PRODUCTS_URL) return Promise.resolve({ data: { rows: pages[config.params.offset] ?? [], total: 300, limit: 100 } });
+      return Promise.resolve({ data: {} });
+    });
+    await openGroupedView();
+    await userEvent.click(expandButton());
+    await screen.findByText('Producto 0');
+    await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
+    await screen.findByText('Producto 199');
+    await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
+
+    await waitFor(() => expect(productCalls().map(([, c]) => c.params.offset)).toEqual([0, 100, 200]));
+  });
+
   it('the same product under two open groups (a product sold in two stores) never repeats a React key', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     await openGroupedView();
