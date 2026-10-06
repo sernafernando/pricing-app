@@ -25,6 +25,7 @@ import {
   BOARD_RESPONSE,
   EPSON_GROUP_PRODUCTS,
   EPSON_PUBLICATIONS,
+  epsonNodesFor,
   GROUP_BOARD_RESPONSE,
 } from './metricasMlFixtures';
 
@@ -278,7 +279,7 @@ describe('Métricas ML "Agrupado" view (visual)', () => {
       if (url === '/ml-metricas/board' && config?.params?.group_by === 'group') {
         return Promise.resolve({ data: { ...GROUP_BOARD_RESPONSE, dimension: config.params.dimension } });
       }
-      if (url === '/ml-metricas/board/group-products') return Promise.resolve({ data: EPSON_GROUP_PRODUCTS });
+      if (url === '/ml-metricas/board/group-nodes') return Promise.resolve({ data: epsonNodesFor(config.params.path) });
       return Promise.resolve(routeGet(url));
     });
   });
@@ -289,7 +290,12 @@ describe('Métricas ML "Agrupado" view (visual)', () => {
         const screen = await renderPage({ width, height, theme });
         await screen.getByRole('button', { name: 'Agrupado' }).click();
         await expect.element(screen.getByText('Sin marca')).toBeVisible();
-        await screen.getByRole('button', { name: /Ver productos de Epson/ }).click();
+        // The whole branch open: marca > categoría > subcategoría > producto.
+        await screen.getByRole('button', { name: /Ver .* de Epson/ }).click();
+        await expect.element(screen.getByText('Impresoras')).toBeVisible();
+        await screen.getByRole('button', { name: /Ver .* de Impresoras/ }).click();
+        await expect.element(screen.getByText('Laser')).toBeVisible();
+        await screen.getByRole('button', { name: /Ver .* de Laser/ }).click();
         await expect.element(screen.getByText(EPSON_GROUP_PRODUCTS.rows[0].sku)).toBeVisible();
         await shot(`board-grouped-${width}-${theme}`, { width, height });
 
@@ -319,6 +325,26 @@ describe('Métricas ML "Agrupado" view (visual)', () => {
         );
         expect(counts.length).toBeGreaterThan(0);
         expect(wrapped(counts)).toEqual([]);
+
+        // The levels: each row one step deeper than its parent, the level tags on one line,
+        // and nothing of the pinned column spilling past its cell at ANY depth.
+        const depthOf = (text) => [...table.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(text));
+        const firstColumnLeft = (tr) =>
+          tr.querySelector('td[data-col-id="producto"] button, td[data-col-id="producto"] > div > div').getBoundingClientRect().left;
+        const lefts = ['Epson', 'Impresoras', 'Laser'].map((text) => firstColumnLeft(depthOf(text)));
+        expect(lefts[1]).toBeGreaterThan(lefts[0] + 10);
+        expect(lefts[2]).toBeGreaterThan(lefts[1] + 10);
+        expect([...table.querySelectorAll('tbody tr')].map((tr) => tr.dataset.depth)).toEqual(
+          expect.arrayContaining(['0', '1', '2', '3']),
+        );
+        const tags = [...table.querySelectorAll('tbody td[data-col-id="producto"] span')].filter((el) =>
+          ['Marca', 'Categoría', 'Subcategoría'].includes(el.textContent),
+        );
+        expect(tags.length).toBeGreaterThanOrEqual(3);
+        expect(wrapped(tags)).toEqual([]);
+        for (const cell of table.querySelectorAll('tbody td[data-col-id="producto"]')) {
+          expect(cell.scrollWidth, cell.textContent).toBeLessThanOrEqual(cell.clientWidth + 1);
+        }
 
         const firstCell = table.querySelector('tbody td[data-col-id="producto"]');
         const leftBefore = firstCell.getBoundingClientRect().left;
