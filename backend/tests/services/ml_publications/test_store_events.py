@@ -259,6 +259,29 @@ class TestReDerivation:
             assert events_store.rederive_events(db, batch_size=1) == 1  # the other item only
         assert count(events_on, "ml_item_events") == 2
 
+    def test_each_batch_is_committed_so_a_late_failure_keeps_the_earlier_batches(self, events_on, monkeypatch) -> None:
+        for item_id in (ACTIVE, "MLA882393030"):
+            body = sample_item(item_id)
+            apply(body, item_id, minutes=1)
+            apply(flipped(body, status="paused"), item_id, minutes=2)
+        with events_on.begin() as conn:
+            conn.execute(text("DELETE FROM ml_item_events"))
+        real = events_store._write
+        calls = []
+
+        def fail_on_the_second_row(db, row):
+            calls.append(row.id)
+            if len(calls) == 2:
+                raise RuntimeError("injected failure in batch 2")
+            return real(db, row)
+
+        monkeypatch.setattr(events_store, "_write", fail_on_the_second_row)
+        with pytest.raises(RuntimeError, match="batch 2"):
+            with store_module.database.get_background_db() as db:
+                events_store.rederive_events(db, batch_size=1)
+
+        assert count(events_on, "ml_item_events") == 1
+
     def test_the_live_events_equal_the_ones_derived_from_the_stored_row(self, events_on) -> None:
         body = sample_item(ACTIVE)
         apply(body, ACTIVE, minutes=1)

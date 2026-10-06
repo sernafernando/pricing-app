@@ -12,12 +12,14 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.ml_publications import MlChangeLog, MlItemEvent
 from app.services.ml_publications.events import ChangeRow, Event, dedupe_key, derive_events
 
 DEFAULT_BATCH_SIZE = 500
+BATCH_STATEMENT_TIMEOUT = "30s"
 
 
 def _values(row: ChangeRow, event: Event) -> dict:
@@ -61,12 +63,14 @@ def write_events(db, entry: MlChangeLog) -> int:
 def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFAULT_BATCH_SIZE) -> int:
     """Rebuild the events of every stored change-log row (optionally one item's); returns new events.
 
-    Keyset-paged by row id so memory stays bounded; existing events are left alone. The caller
-    owns the transaction (commit after the call).
+    Keyset-paged by row id so memory stays bounded, one transaction per batch (committed, with
+    its own `statement_timeout`) so a long history never holds one long transaction and a late
+    failure keeps the earlier batches; existing events are left alone.
     """
     created = 0
     last_id = 0
     while True:
+        db.execute(text(f"SET LOCAL statement_timeout = '{BATCH_STATEMENT_TIMEOUT}'"))
         query = db.query(MlChangeLog).filter(MlChangeLog.id > last_id)
         if item_id is not None:
             query = query.filter(MlChangeLog.item_id == item_id)
@@ -76,5 +80,4 @@ def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFA
         for entry in entries:
             created += _write(db, ChangeRow.from_model(entry))
         last_id = entries[-1].id
-        db.flush()
-        db.expire_all()  # bound the session identity map across batches
+        db.commit()  # ends the batch transaction; also expires the loaded rows (bounded identity map)

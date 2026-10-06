@@ -126,7 +126,7 @@ def search_statement(
     return _build(conditions, params, order, _checked_limit(limit))
 
 
-def _run(db, statement: Statement, limit: int) -> EventPage:
+def _run(db, statement: Statement) -> EventPage:
     db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
     rows = db.execute(text(statement.sql), statement.params).mappings().all()
     page_size = statement.params["row_limit"] - 1
@@ -146,7 +146,7 @@ def item_timeline(
 ) -> EventPage:
     """All events of one item, chronological by default, one page."""
     statement = item_timeline_statement(item_id, cursor=cursor, limit=limit, newest_first=newest_first)
-    return _run(db, statement, limit)
+    return _run(db, statement)
 
 
 def search_events(
@@ -172,4 +172,4 @@ def search_events(
         limit=limit,
         newest_first=newest_first,
     )
-    return _run(db, statement, limit)
+    return _run(db, statement)

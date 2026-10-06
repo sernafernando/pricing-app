@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -165,7 +166,7 @@ class TestFieldChanges:
         row = row_for(old, new)
         events = derive_events(row)
         assert {e.event_type for e in events} == {"status_paused", "title_changed"}
-        assert {dedupe_key(row.id, e.event_type, None, None) for e in events}.__len__() == 2
+        assert len({dedupe_key(row.id, e.event_type, None, None) for e in events}) == 2
 
 
 class TestStock:
@@ -290,6 +291,5 @@ class TestDedupeKey:
 
 def test_the_module_stays_pure() -> None:
     """no I/O: the rules must not import the database layer."""
-    source = events_module.__file__
-    text = open(source, encoding="utf-8").read()
+    text = Path(events_module.__file__).read_text(encoding="utf-8")
     assert "sqlalchemy" not in text and "database" not in text
