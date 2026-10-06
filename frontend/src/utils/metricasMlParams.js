@@ -9,6 +9,7 @@ export function buildMetricasMLParams({
   fechaHasta,
   compararCon,
   groupBy,
+  dimension = 'marca',
   searchQuery,
   productFilters,
   storeFilter,
@@ -32,6 +33,8 @@ export function buildMetricasMLParams({
     // rows the operator sees.
     solo_con_ventas: soloConVentas,
   };
+  // What the "Agrupado" view sums by; the other views have no dimension.
+  if (groupBy === 'group') params.dimension = dimension;
   if (searchQuery) params.q = searchQuery;
   if (productFilters?.marcas?.length > 0) params.marcas = productFilters.marcas.join(',');
   if (productFilters?.categorias?.length > 0) params.categorias = productFilters.categorias.join(',');

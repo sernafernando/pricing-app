@@ -78,3 +78,20 @@ describe('buildMetricasMLParams', () => {
     expect(params).not.toHaveProperty('pub_status');
   });
 });
+
+describe('buildMetricasMLParams: the grouped view', () => {
+  it('sends the dimension only under group_by=group', () => {
+    expect(buildMetricasMLParams({ ...BASE, groupBy: 'group', dimension: 'tienda' })).toMatchObject({
+      group_by: 'group',
+      dimension: 'tienda',
+    });
+    expect(buildMetricasMLParams({ ...BASE, groupBy: 'product', dimension: 'tienda' })).not.toHaveProperty('dimension');
+    expect(buildMetricasMLParams({ ...BASE, groupBy: 'publication', dimension: 'tienda' })).not.toHaveProperty(
+      'dimension',
+    );
+  });
+
+  it('never leaves the dimension to the backend default', () => {
+    expect(buildMetricasMLParams({ ...BASE, groupBy: 'group' }).dimension).toBe('marca');
+  });
+});

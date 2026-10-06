@@ -359,3 +359,106 @@ export const EPSON_PUBLICATIONS = {
     }),
   ],
 };
+
+// ── The "Agrupado" view: rows shaped like `GET /ml-metricas/board?group_by=group` ──
+
+function group(key, fields) {
+  return {
+    ...BASE_ROW,
+    key,
+    product_item_id: 0,
+    sku: null,
+    marca: null,
+    publications_count: 0,
+    ...fields,
+  };
+}
+
+export const GROUP_ROWS = [
+  group('EPSON', {
+    title: 'Epson',
+    products_count: 12,
+    publications_count: 31,
+    units: 842,
+    units_24h: 31,
+    units_3d: 96,
+    units_7d: 204,
+    units_15d: 418,
+    units_30d: 842,
+    gross: 512340000.5,
+    total_gauss: 104200000.25,
+    markup_pct: 20.3,
+    markup_prev_pct: 18.9,
+    markup_delta_pp: 1.4,
+    markup_min_90d: 16.8,
+    markup_max_90d: 22.1,
+    series_units_90d: unitSeries(24, 6),
+    series_markup_90d: series(18, 3, 1),
+    last_sale_at: '2026-09-30T14:40:00Z',
+    ageing_days: 0,
+    stock: 1340,
+  }),
+  group('LENOVO', {
+    title: 'Lenovo',
+    products_count: 8,
+    publications_count: 14,
+    units: 301,
+    units_24h: 9,
+    units_3d: 33,
+    units_7d: 71,
+    units_15d: 150,
+    units_30d: 301,
+    gross: 198700000,
+    total_gauss: 31000000,
+    markup_pct: 15.6,
+    markup_prev_pct: 16.4,
+    markup_delta_pp: -0.8,
+    markup_min_90d: 13,
+    markup_max_90d: 17.2,
+    series_units_90d: unitSeries(8, 1),
+    series_markup_90d: series(16, -1, 0.7),
+    last_sale_at: '2026-09-30T11:05:00Z',
+    ageing_days: 0,
+    stock: 210,
+  }),
+  group('__none__', {
+    title: 'Sin marca',
+    products_count: 3,
+    publications_count: 3,
+    units: 0,
+    units_3d: 0,
+    units_7d: 0,
+    units_15d: 0,
+    units_30d: 0,
+    gross: 0,
+    total_gauss: 0,
+    markup_pct: null,
+    markup_prev_pct: null,
+    markup_delta_pp: null,
+    markup_min_90d: null,
+    markup_max_90d: null,
+    series_units_90d: Array(DAYS).fill(0),
+    series_markup_90d: Array(DAYS).fill(null),
+    last_sale_at: null,
+    ageing_days: 121,
+    stock: null,
+  }),
+];
+
+export const GROUP_BOARD_RESPONSE = {
+  ...BOARD_RESPONSE,
+  group_by: 'group',
+  dimension: 'marca',
+  total: GROUP_ROWS.length,
+  with_sales_count: 2,
+  kpis: { ...BOARD_RESPONSE.kpis, rows_with_sales: { value: 2, of_total: 3 } },
+  rows: GROUP_ROWS,
+};
+
+// The products of the "Epson" group (`GET /ml-metricas/board/group-products`).
+export const EPSON_GROUP_PRODUCTS = {
+  rows: BOARD_ROWS.slice(0, 2).map((row) => ({ ...row, products_count: null })),
+  total: 12,
+  limit: 100,
+  offset: 0,
+};

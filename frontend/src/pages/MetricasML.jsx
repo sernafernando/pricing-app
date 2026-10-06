@@ -14,7 +14,7 @@ import ToggleChips from '../components/metricasMl/ToggleChips';
 import SwitchChip from '../components/metricasMl/SwitchChip';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
-import { buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
+import { DIMENSION_OPTIONS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { calcularRangoPreset } from '../utils/dateRangePresets';
@@ -68,7 +68,11 @@ const PERIOD_LABELS = {
 const GROUP_OPTIONS = [
   { value: 'product', label: 'Producto' },
   { value: 'publication', label: 'Publicación' },
+  { value: 'group', label: 'Agrupado' },
 ];
+// A group opens into its products this many at a time ("Ver más" loads the next).
+const GROUP_PRODUCTS_PAGE = 100;
+const GROUP_PRODUCTS_URL = '/ml-metricas/board/group-products';
 const COMPARE_OPTIONS = [
   { value: 'periodo_anterior', label: 'Período anterior' },
   { value: 'anio_anterior', label: 'Mismo período año pasado' },
@@ -92,6 +96,8 @@ export default function MetricasML() {
   const [range, setRange] = useState(() => ({ ...defaultRange(), filtro: DEFAULT_PRESET }));
   const [compararCon, setCompararCon] = useState('periodo_anterior');
   const [groupBy, setGroupBy] = useState('product');
+  // What the "Agrupado" view sums by (ignored by the other views).
+  const [dimension, setDimension] = useState('marca');
   const [searchQuery, setSearchQuery] = useState('');
   const [productFilters, setProductFilters] = useState(EMPTY_PRODUCT_FILTERS);
   const [storeFilter, setStoreFilter] = useState('');
@@ -131,6 +137,7 @@ export default function MetricasML() {
         fechaHasta: range.hasta,
         compararCon,
         groupBy,
+        dimension,
         searchQuery,
         productFilters,
         storeFilter,
@@ -149,6 +156,7 @@ export default function MetricasML() {
       range,
       compararCon,
       groupBy,
+      dimension,
       searchQuery,
       productFilters,
       storeFilter,
@@ -203,36 +211,48 @@ export default function MetricasML() {
     cargar();
   }, [cargar]);
 
+  // Opens or closes a row and loads what it opens into: a product's
+  // publications, or a group's products (`more` asks for the next page).
   const toggleExpand = useCallback(
-    async (row) => {
+    async (row, { more = false } = {}) => {
       const key = row.key;
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        return next;
-      });
+      const isGroup = groupBy === 'group';
+      if (!more) {
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+      }
       // A loaded (or loading) answer is reused; a FAILED one is not, so
       // collapsing and expanding again retries.
       const cached = publications[key];
-      if (expanded.has(key) || (cached && !cached.error)) return;
+      if (!more && (expanded.has(key) || (cached && !cached.error))) return;
       // The board's request generation: `cargar` bumps it on every filter
       // change and resets the sub-rows. An answer that arrives after that
       // belongs to the OLD filters and is dropped, never cached.
       const generation = latestRequestRef.current;
-      setPublications((prev) => ({ ...prev, [key]: { loading: true, rows: [] } }));
+      const previous = more ? cached?.rows || [] : [];
+      setPublications((prev) => ({ ...prev, [key]: { ...(more ? prev[key] : {}), loading: true, rows: previous } }));
       try {
-        const { data } = await api.get(`/ml-metricas/board/products/${row.product_item_id}/publications`, {
-          params: filterParams,
-        });
+        const request = isGroup
+          ? api.get(GROUP_PRODUCTS_URL, {
+              params: { ...filterParams, group_key: key, limit: GROUP_PRODUCTS_PAGE, offset: previous.length },
+            })
+          : api.get(`/ml-metricas/board/products/${row.product_item_id}/publications`, { params: filterParams });
+        const { data } = await request;
         if (generation !== latestRequestRef.current) return;
-        setPublications((prev) => ({ ...prev, [key]: { loading: false, rows: data.rows || [] } }));
+        setPublications((prev) => ({
+          ...prev,
+          [key]: { loading: false, rows: [...previous, ...(data.rows || [])], total: data.total },
+        }));
       } catch {
         if (generation !== latestRequestRef.current) return;
-        setPublications((prev) => ({ ...prev, [key]: { loading: false, rows: [], error: true } }));
+        setPublications((prev) => ({ ...prev, [key]: { loading: false, rows: previous, error: true } }));
       }
     },
-    [expanded, publications, filterParams],
+    [expanded, publications, filterParams, groupBy],
   );
 
   const handleSort = useCallback((key) => {
@@ -273,8 +293,8 @@ export default function MetricasML() {
   const canSeeMargin = Boolean(board?.can_see_margin);
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const columnDefs = useMemo(
-    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy }),
-    [canSeeMargin, periodLabel, groupBy],
+    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension }),
+    [canSeeMargin, periodLabel, groupBy, dimension],
   );
   const table = useReactTable({
     data: [],
@@ -309,7 +329,7 @@ export default function MetricasML() {
       ageingExclude.length ||
       !soloConVentas,
   );
-  const noun = groupBy === 'publication' ? 'publicaciones' : 'productos';
+  const noun = { publication: 'publicaciones', group: 'grupos' }[groupBy] ?? 'productos';
   // Asking FOR stale rows (an included 31-60 or > 60 d chip) while the
   // toggle hides rows with no sale in the period mostly comes back empty:
   // say so -- never flip the toggle behind the operator's back. Excluding
@@ -397,6 +417,17 @@ export default function MetricasML() {
               <span className={styles.filterLabel}>Agrupar por:</span>
               <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(setGroupBy)} />
             </div>
+            {groupBy === 'group' && (
+              <div className={styles.filterGroup}>
+                <span className={styles.filterLabel}>Dimensión:</span>
+                <SegmentedControl
+                  label="Dimensión"
+                  options={DIMENSION_OPTIONS}
+                  value={dimension}
+                  onChange={withReset(setDimension)}
+                />
+              </div>
+            )}
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Comparar con:</span>
               <SegmentedControl label="Comparar con" options={COMPARE_OPTIONS} value={compararCon} onChange={withReset(setCompararCon)} />

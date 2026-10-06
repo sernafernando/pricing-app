@@ -15,9 +15,25 @@ export const COLUMN_GROUPS = [
 
 const MARGIN_COLUMNS = new Set(['markup', 'markup_delta', 'markup_trend', 'markup_range', 'total_gauss']);
 
-export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy }) {
+/** The "Agrupado" view's dimensions: the backend `dimension` value and the
+ * name shown on its picker and on the first column. */
+export const DIMENSION_OPTIONS = [
+  { value: 'marca', label: 'Marca' },
+  { value: 'categoria', label: 'Categoría' },
+  { value: 'subcategoria', label: 'Subcategoría' },
+  { value: 'tienda', label: 'Tienda' },
+  { value: 'pm', label: 'PM' },
+];
+
+function productHeader(groupBy, dimension) {
+  if (groupBy === 'publication') return 'Publicación / Producto';
+  if (groupBy === 'group') return DIMENSION_OPTIONS.find((option) => option.value === dimension)?.label ?? 'Grupo';
+  return 'Detalle / SKU / Marca';
+}
+
+export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension }) {
   const columns = [
-    { id: 'producto', group: 'producto', header: groupBy === 'publication' ? 'Publicación / Producto' : 'Detalle / SKU / Marca', enableHiding: false },
+    { id: 'producto', group: 'producto', header: productHeader(groupBy, dimension), enableHiding: false },
     { id: 'units_24h', group: 'ventas', header: '24H' },
     { id: 'units_3d', group: 'ventas', header: '3D' },
     { id: 'units_7d', group: 'ventas', header: '7D' },

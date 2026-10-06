@@ -331,6 +331,27 @@ thead .colProducto {
   color: var(--cf-text-tertiary);
 }
 
+/* "Ver más productos" / "Reintentar" under an opened group. */
+.moreButton {
+  margin-left: 12px;
+  padding: 2px 10px;
+  font-size: var(--font-xs, 12px);
+  font-weight: var(--font-semibold, 600);
+  color: var(--cf-accent-blue);
+  background: none;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.moreButton:hover {
+  background: var(--cf-bg-hover, var(--cf-bg-card));
+}
+
+.moreButton:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+}
+
 /* ── Figures ────────────────────────────────────────────── */
 
 .units {
