@@ -45,3 +45,29 @@ def test_no_credentials_in_any_fixture_file():
         for needle in forbidden:
             assert needle not in text, f"{needle!r} found in {path.name}"
     assert (FIXTURES_DIR / BULK_CAPTURE).exists()
+
+
+def test_webhook_latest_samples_are_the_eighteen_captured_rows():
+    from tests.services.ml_publications.conftest import WEBHOOK_SAMPLES
+
+    rows = load_fixture(WEBHOOK_SAMPLES)["samples"]
+    assert len(rows) == 18
+    assert {r["topic"] for r in rows} == {
+        "items",
+        "items_prices",
+        "catalog_item_competition_status",
+        "public_offers",
+        "public_candidates",
+        "price_suggestion",
+    }
+    for row in rows:
+        assert row["resource"] and row["received_at"]
+        assert row["payload"]["user_id"] == 413658225
+        assert row["payload"]["topic"] == row["topic"]
+
+
+def test_bridge_ddl_fixture_declares_the_table_and_its_keyset_index():
+    ddl = (FIXTURES_DIR / "bridge_webhook_latest.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS webhook_latest" in ddl
+    assert "PRIMARY KEY (topic, resource)" in ddl
+    assert "(topic, received_at DESC, resource DESC)" in ddl

@@ -1,0 +1,413 @@
+{
+  "captured_at": "2026-10-06T13:23:47.447148+00:00",
+  "source": "ml_publications_capture_20261006_102440.json (read-only capture on server-lenovo)",
+  "samples": [
+    {
+      "topic": "catalog_item_competition_status",
+      "resource": "/items/MLA1549873393/price_to_win",
+      "webhook_id": "0170080a-3358-459f-9357-76decc76c974",
+      "received_at": "2026-10-06 13:23:04.016972+00:00",
+      "payload": {
+        "_id": "0170080a-3358-459f-9357-76decc76c974",
+        "sent": "2026-10-06T13:23:03.934Z",
+        "topic": "catalog_item_competition_status",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:23:03.81Z",
+        "resource": "/items/MLA1549873393/price_to_win",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "catalog_item_competition_status",
+      "resource": "/items/MLA2124009969/price_to_win",
+      "webhook_id": "50467d6e-e584-40d3-addb-a87bdbf9ddd1",
+      "received_at": "2026-10-06 13:20:43.865249+00:00",
+      "payload": {
+        "_id": "50467d6e-e584-40d3-addb-a87bdbf9ddd1",
+        "sent": "2026-10-06T13:20:43.778Z",
+        "topic": "catalog_item_competition_status",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:20:43.659Z",
+        "resource": "/items/MLA2124009969/price_to_win",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "catalog_item_competition_status",
+      "resource": "/items/MLA1506772169/price_to_win",
+      "webhook_id": "175bb45a-ca57-43e9-97db-28e7b4fe951f",
+      "received_at": "2026-10-06 13:15:39.158465+00:00",
+      "payload": {
+        "_id": "175bb45a-ca57-43e9-97db-28e7b4fe951f",
+        "sent": "2026-10-06T13:15:38.769Z",
+        "topic": "catalog_item_competition_status",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:15:38.187Z",
+        "resource": "/items/MLA1506772169/price_to_win",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "items",
+      "resource": "/items/MLA3510129282",
+      "webhook_id": "8e13a6ae-590e-4d35-9bbe-3c28c1750cd3",
+      "received_at": "2026-10-06 13:23:06.337821+00:00",
+      "payload": {
+        "_id": "8e13a6ae-590e-4d35-9bbe-3c28c1750cd3",
+        "sent": "2026-10-06T13:23:06.247Z",
+        "topic": "items",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:23:06.116Z",
+        "resource": "/items/MLA3510129282",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "items",
+      "resource": "/items/MLA3940126850",
+      "webhook_id": "c9253694-8ade-4544-8630-445f6443ffcc",
+      "received_at": "2026-10-06 13:22:32.314866+00:00",
+      "payload": {
+        "_id": "c9253694-8ade-4544-8630-445f6443ffcc",
+        "sent": "2026-10-06T13:22:32.106Z",
+        "topic": "items",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:22:32.008Z",
+        "resource": "/items/MLA3940126850",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "items",
+      "resource": "/items/MLA2082852599",
+      "webhook_id": "dd9bd651-b1a3-4eb9-9fe0-911ebaa3ad7d",
+      "received_at": "2026-10-06 13:22:32.065398+00:00",
+      "payload": {
+        "_id": "dd9bd651-b1a3-4eb9-9fe0-911ebaa3ad7d",
+        "sent": "2026-10-06T13:22:31.616Z",
+        "topic": "items",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:22:31.506Z",
+        "resource": "/items/MLA2082852599",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "items_prices",
+      "resource": "/items/MLA2146684809/prices",
+      "webhook_id": "fed021b2-2abe-4767-80af-d46507b47c25",
+      "received_at": "2026-10-06 13:20:13.819737+00:00",
+      "payload": {
+        "_id": "fed021b2-2abe-4767-80af-d46507b47c25",
+        "sent": "2026-10-06T13:20:13.688Z",
+        "topic": "items_prices",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:20:12.979Z",
+        "resource": "/items/MLA2146684809/prices",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "items_prices",
+      "resource": "/items/MLA2146576013/prices",
+      "webhook_id": "e25a68b4-ebaf-45f3-b2c5-71dacf62b35f",
+      "received_at": "2026-10-06 13:20:12.928792+00:00",
+      "payload": {
+        "_id": "e25a68b4-ebaf-45f3-b2c5-71dacf62b35f",
+        "sent": "2026-10-06T13:20:12.801Z",
+        "topic": "items_prices",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:20:12.555Z",
+        "resource": "/items/MLA2146576013/prices",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "items_prices",
+      "resource": "/items/MLA2146684687/prices",
+      "webhook_id": "d68f2864-f00e-450c-ac8b-5c6d895bc42c",
+      "received_at": "2026-10-06 13:19:46.657243+00:00",
+      "payload": {
+        "_id": "d68f2864-f00e-450c-ac8b-5c6d895bc42c",
+        "sent": "2026-10-06T13:19:46.261Z",
+        "topic": "items_prices",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:19:46.153Z",
+        "resource": "/items/MLA2146684687/prices",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "price_suggestion",
+      "resource": "/suggestions/items/MLA2194865272/details",
+      "webhook_id": "c2c77148-8c14-41f7-9fad-9e3bc29add3b",
+      "received_at": "2026-10-06 13:23:36.954900+00:00",
+      "payload": {
+        "_id": "c2c77148-8c14-41f7-9fad-9e3bc29add3b",
+        "sent": "2026-10-06T13:23:36.553Z",
+        "topic": "price_suggestion",
+        "actions": [
+          "price_suggestion"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:23:36.52Z",
+        "resource": "/suggestions/items/MLA2194865272/details",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "price_suggestion",
+      "resource": "/suggestions/items/MLA1541655199/details",
+      "webhook_id": "9e15eb91-873d-42a0-953d-5a23e3f24e09",
+      "received_at": "2026-10-06 13:23:36.213519+00:00",
+      "payload": {
+        "_id": "9e15eb91-873d-42a0-953d-5a23e3f24e09",
+        "sent": "2026-10-06T13:23:36.116Z",
+        "topic": "price_suggestion",
+        "actions": [
+          "price_suggestion"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:23:36.034Z",
+        "resource": "/suggestions/items/MLA1541655199/details",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "price_suggestion",
+      "resource": "/suggestions/items/MLA3970916462/details",
+      "webhook_id": "d206ba7d-22d3-427c-9fdc-5606bb04e460",
+      "received_at": "2026-10-06 13:23:08.473250+00:00",
+      "payload": {
+        "_id": "d206ba7d-22d3-427c-9fdc-5606bb04e460",
+        "sent": "2026-10-06T13:23:08.38Z",
+        "topic": "price_suggestion",
+        "actions": [
+          "price_suggestion"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:23:08.318Z",
+        "resource": "/suggestions/items/MLA3970916462/details",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "public_candidates",
+      "resource": "/seller-promotions/candidates/CANDIDATE-MLA1517412303-71656072178",
+      "webhook_id": "fe2e9e9e-091c-4846-9f60-607118f4a1ee",
+      "received_at": "2026-10-06 13:22:59.087062+00:00",
+      "payload": {
+        "_id": "fe2e9e9e-091c-4846-9f60-607118f4a1ee",
+        "sent": "2026-10-06T13:22:58.698Z",
+        "topic": "public_candidates",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:22:58.34Z",
+        "resource": "/seller-promotions/candidates/CANDIDATE-MLA1517412303-71656072178",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "public_candidates",
+      "resource": "/seller-promotions/candidates/CANDIDATE-MLA3959966758-71666956021",
+      "webhook_id": "043c67ea-7e76-40ad-92d2-c712a7e97c83",
+      "received_at": "2026-10-06 13:22:41.635637+00:00",
+      "payload": {
+        "_id": "043c67ea-7e76-40ad-92d2-c712a7e97c83",
+        "sent": "2026-10-06T13:22:41.241Z",
+        "topic": "public_candidates",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:22:41.13Z",
+        "resource": "/seller-promotions/candidates/CANDIDATE-MLA3959966758-71666956021",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "public_candidates",
+      "resource": "/seller-promotions/candidates/CANDIDATE-MLA3648444308-71666955416",
+      "webhook_id": "06fc160a-a6d0-4488-b9f6-cc6e7c2ebc70",
+      "received_at": "2026-10-06 13:22:26.602955+00:00",
+      "payload": {
+        "_id": "06fc160a-a6d0-4488-b9f6-cc6e7c2ebc70",
+        "sent": "2026-10-06T13:22:26.198Z",
+        "topic": "public_candidates",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:22:26.074Z",
+        "resource": "/seller-promotions/candidates/CANDIDATE-MLA3648444308-71666955416",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "public_offers",
+      "resource": "/seller-promotions/offers/OFFER-MLA2146684809-11568619217",
+      "webhook_id": "ef1c2746-7b2c-4101-b99f-9e2a7f8249a1",
+      "received_at": "2026-10-06 13:20:12.352670+00:00",
+      "payload": {
+        "_id": "ef1c2746-7b2c-4101-b99f-9e2a7f8249a1",
+        "sent": "2026-10-06T13:20:12.261Z",
+        "topic": "public_offers",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:20:11.421Z",
+        "resource": "/seller-promotions/offers/OFFER-MLA2146684809-11568619217",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "public_offers",
+      "resource": "/seller-promotions/offers/OFFER-MLA2146576013-11568619123",
+      "webhook_id": "c9f747f6-bcf1-492d-a2c3-19b1cd161748",
+      "received_at": "2026-10-06 13:20:10.898474+00:00",
+      "payload": {
+        "_id": "c9f747f6-bcf1-492d-a2c3-19b1cd161748",
+        "sent": "2026-10-06T13:20:10.811Z",
+        "topic": "public_offers",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:20:10.674Z",
+        "resource": "/seller-promotions/offers/OFFER-MLA2146576013-11568619123",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "public_offers",
+      "resource": "/seller-promotions/offers/OFFER-MLA2146684687-11568615349",
+      "webhook_id": "2deb1247-26fb-4c1e-acc4-fe0cb7aeb5d9",
+      "received_at": "2026-10-06 13:19:44.395966+00:00",
+      "payload": {
+        "_id": "2deb1247-26fb-4c1e-acc4-fe0cb7aeb5d9",
+        "sent": "2026-10-06T13:19:44.291Z",
+        "topic": "public_offers",
+        "actions": [],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-06T13:19:43.81Z",
+        "resource": "/seller-promotions/offers/OFFER-MLA2146684687-11568615349",
+        "application_id": 7211863044554429
+      }
+    }
+  ],
+  "volume_last_hour": [
+    {
+      "topic": "price_suggestion",
+      "resources_last_hour": 756
+    },
+    {
+      "topic": "items",
+      "resources_last_hour": 353
+    },
+    {
+      "topic": "public_candidates",
+      "resources_last_hour": 144
+    },
+    {
+      "topic": "payments",
+      "resources_last_hour": 116
+    },
+    {
+      "topic": "shipments",
+      "resources_last_hour": 112
+    },
+    {
+      "topic": "orders_v2",
+      "resources_last_hour": 107
+    },
+    {
+      "topic": "stock-locations",
+      "resources_last_hour": 58
+    },
+    {
+      "topic": "items_prices",
+      "resources_last_hour": 56
+    },
+    {
+      "topic": "post_purchase",
+      "resources_last_hour": 28
+    },
+    {
+      "topic": "public_offers",
+      "resources_last_hour": 24
+    },
+    {
+      "topic": "flex-handshakes",
+      "resources_last_hour": 20
+    },
+    {
+      "topic": "catalog_item_competition_status",
+      "resources_last_hour": 19
+    },
+    {
+      "topic": "orders_feedback",
+      "resources_last_hour": 13
+    },
+    {
+      "topic": "messages",
+      "resources_last_hour": 12
+    },
+    {
+      "topic": "questions",
+      "resources_last_hour": 9
+    },
+    {
+      "topic": "fbm_stock_operations",
+      "resources_last_hour": 9
+    },
+    {
+      "topic": "user-products-families",
+      "resources_last_hour": 6
+    }
+  ],
+  "topics": [
+    "catalog_item_competition_status",
+    "catalog_suggestions",
+    "fbm_stock_operations",
+    "flex-handshakes",
+    "items",
+    "items_prices",
+    "messages",
+    "orders_feedback",
+    "orders_v2",
+    "payments",
+    "post_purchase",
+    "price_suggestion",
+    "public_candidates",
+    "public_offers",
+    "questions",
+    "shipments",
+    "stock-locations",
+    "user-products-families"
+  ],
+  "intake_query_plan": [
+    "Limit  (cost=0.55..12.56 rows=2 width=61)",
+    "  ->  Index Only Scan Backward using idx_webhook_latest_topic_received_resource on webhook_latest  (cost=0.55..12.56 rows=2 width=61)",
+    "        Index Cond: ((topic = 'items'::text) AND (ROW(received_at, resource) > ROW((now() - '00:05:00'::interval), ''::text)))"
+  ]
+}
