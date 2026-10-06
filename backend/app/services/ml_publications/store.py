@@ -163,11 +163,18 @@ def apply_fetch(
     *,
     trigger_received_at: Optional[datetime] = None,
     counters: Optional[ApplyCounters] = None,
+    events_enabled: Optional[bool] = None,
 ) -> ApplyOutcome:
-    """Apply one fetched item response to the store inside one transaction."""
+    """Apply one fetched item response to the store inside one transaction.
+
+    `events_enabled` is the `events.enabled` flag as the caller already read it (the refresh
+    handler reads it once per batch with its other settings). `None` means the caller did not
+    read it, so it is read here, before the transaction opens.
+    """
     counters = counters if counters is not None else ApplyCounters()
     (item_id,) = key
-    events_enabled = _events_enabled()
+    if events_enabled is None:
+        events_enabled = _events_enabled()
     with database.get_background_db() as db:
         db.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
         db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))

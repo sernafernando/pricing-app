@@ -314,6 +314,53 @@ class TestRefreshCorePath:
         assert all(queued for queued, _ in seen.values())  # still queued while applying
         assert queue_row(env, "MLA935110613") is None and queue_row(env, "MLA934406852") is None
 
+    def test_the_events_flag_is_read_with_the_batch_settings_and_passed_to_the_store(self, env, monkeypatch) -> None:
+        enable_refresh(events__enabled=True)
+        enqueue_items("MLA935110613")
+        passed = []
+        original = store.apply_fetch
+
+        def spy(spec, key, response, **kwargs):
+            passed.append(kwargs.get("events_enabled"))
+            return original(spec, key, response, **kwargs)
+
+        monkeypatch.setattr(store, "apply_fetch", spy)
+
+        make_handler(ScriptedTransport(bulk_responder)).run(context())
+
+        assert passed == [True]
+
+    def test_the_store_runs_no_settings_query_when_the_handler_passes_the_flag(self, env, monkeypatch) -> None:
+        enable_refresh(events__enabled=True)
+        enqueue_items("MLA935110613")
+
+        def boom(_handler):
+            raise AssertionError("apply_fetch must not read the events flag itself")
+
+        monkeypatch.setattr(store.settings_store, "is_enabled", boom)
+
+        make_handler(ScriptedTransport(bulk_responder)).run(context())
+
+        assert queue_row(env, "MLA935110613") is None  # applied, nothing charged
+
+    def test_a_flag_change_takes_effect_at_the_next_batch_boundary(self, env, monkeypatch) -> None:
+        enable_refresh(bulk_max_ids=1)
+        enqueue_items("MLA935110613", "MLA934406852")
+        passed = []
+        original = store.apply_fetch
+
+        def spy(spec, key, response, **kwargs):
+            passed.append(kwargs.get("events_enabled"))
+            outcome = original(spec, key, response, **kwargs)
+            settings_store.set_setting("events.enabled", True, "test")  # flipped while the run is in flight
+            return outcome
+
+        monkeypatch.setattr(store, "apply_fetch", spy)
+
+        make_handler(ScriptedTransport(bulk_responder)).run(context())
+
+        assert passed == [False, True]
+
     def test_a_store_failure_for_one_item_is_charged_to_that_item_only(self, env, monkeypatch) -> None:
         enable_refresh()
         enqueue_items("MLA935110613", "MLA934406852")

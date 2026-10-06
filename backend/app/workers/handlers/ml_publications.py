@@ -52,6 +52,7 @@ def disabled_outcome() -> JobResult:
 # Settings the refresh handler reads at the start of a run and at every batch boundary.
 _SETTING_KEYS = (
     "refresh.enabled",
+    "events.enabled",
     "bundle_resources",
     "bulk_max_ids",
     "rate_per_sec",
@@ -120,6 +121,8 @@ class RefreshHandler:
         self._elements: Counter = Counter()
         self._skipped_no_fetcher: Counter = Counter()
         self._apply_counters = store.ApplyCounters()
+        # `events.enabled` as of the current batch boundary (read with the other settings).
+        self._events_enabled = False
 
     # --- run ---------------------------------------------------------------------------
 
@@ -127,6 +130,7 @@ class RefreshHandler:
         config = settings_store.get_settings(_SETTING_KEYS)
         if config["refresh.enabled"].value is not True:
             return disabled_outcome()
+        self._events_enabled = config["events.enabled"].value is True
         run = _Run()
         try:
             while _utcnow() < ctx.deadline:
@@ -148,6 +152,7 @@ class RefreshHandler:
                 if run.error or run.stopped:
                     break
                 config = settings_store.get_settings(_SETTING_KEYS)
+                self._events_enabled = config["events.enabled"].value is True
         finally:
             if run.claimed or run.called:
                 self._flush_counters(run)
@@ -268,6 +273,7 @@ class RefreshHandler:
                 item_response,
                 trigger_received_at=claim.source_received_at,
                 counters=self._apply_counters,
+                events_enabled=self._events_enabled,
             )
         except Exception as exc:  # noqa: BLE001 -- one item's failure must not lose the batch
             logger.exception("apply_fetch failed for %s", claim.entity_id)

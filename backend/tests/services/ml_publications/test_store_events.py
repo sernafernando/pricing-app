@@ -141,6 +141,24 @@ class TestFlag:
         assert len(log_rows(mlpub_pg, ACTIVE)) == 1 and event_rows(mlpub_pg) == []
 
 
+class TestFlagPassedByTheCaller:
+    def test_an_explicit_flag_is_used_without_reading_settings(self, mlpub_pg, monkeypatch) -> None:
+        def boom(_handler):
+            raise AssertionError("settings must not be read when the caller passes the flag")
+
+        monkeypatch.setattr(store_module.settings_store, "is_enabled", boom)
+        body = sample_item(ACTIVE)
+        apply(body, ACTIVE, minutes=1, events_enabled=True)
+        outcome = apply(flipped(body, status="paused"), ACTIVE, minutes=5, events_enabled=True)
+        assert outcome.events == 1 and types(mlpub_pg, ACTIVE) == ["status_paused"]
+
+    def test_an_explicit_false_wins_over_an_enabled_setting(self, events_on) -> None:
+        body = sample_item(ACTIVE)
+        apply(body, ACTIVE, minutes=1)
+        apply(flipped(body, status="paused"), ACTIVE, minutes=5, events_enabled=False)
+        assert len(log_rows(events_on, ACTIVE)) == 1 and event_rows(events_on) == []
+
+
 class TestAtomicity:
     def test_a_failure_on_the_event_insert_rolls_back_the_change_log_and_the_state(
         self, events_on, monkeypatch
