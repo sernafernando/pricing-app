@@ -62,6 +62,7 @@ def board_pg_engine():
     )
     from app.models.rma_claim_ml import RmaClaimML
     from app.models.ml_payments import MlPaymentOps
+    from app.models.ml_tienda_oficial import MlTiendaOficial
     from app.models.ml_venta_deduccion import MlVentaDeduccion
 
     tables = [
@@ -80,6 +81,8 @@ def board_pg_engine():
         MlShipmentOps.__table__,
         MlOperationLink.__table__,
         RmaClaimML.__table__,
+        # The grouped view names (and merges by `clave`) the official stores.
+        MlTiendaOficial.__table__,
     ]
     _restore_pristine_pg_types(tables)
     engine = create_engine(POSTGRES_TEST_URL)

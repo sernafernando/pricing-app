@@ -87,6 +87,8 @@ from sqlalchemy.sql.expression import ClauseElement, Executable
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_orders_ops import MlOpsSyncCursor
 from app.models.producto import ProductoERP
+from app.services.ml_daily_metrics import groups as grouping
+from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
 from app.services.ml_daily_metrics.sales import (
     BUSINESS_TZ,
     NO_PRODUCT,
@@ -104,7 +106,8 @@ from app.services.product_facets import (
     product_facet_options,
 )
 
-GROUP_BY = ("product", "publication")
+# "group" is the "Agrupado" view: the pairs summed by `BoardFilter.dimension`.
+GROUP_BY = ("product", "publication", "group")
 COMPARE = ("periodo_anterior", "anio_anterior")
 PUB_STATUSES = ("active", "paused", "closed", "under_review")
 PUB_TYPES = ("clasica", "premium", "catalogo", "full")
@@ -208,6 +211,8 @@ class BoardFilter:
     date_to: date
     compare: str = "periodo_anterior"
     group_by: str = "product"
+    # What the "group" view sums by (one of `DIMENSIONS`); ignored otherwise.
+    dimension: str = "marca"
     stores: Tuple[str, ...] = ()
     marcas: Tuple[str, ...] = ()
     categorias: Tuple[str, ...] = ()
@@ -307,6 +312,8 @@ class Row:
     sku: Optional[str] = None
     marca: Optional[str] = None
     publications_count: int = 0
+    # Distinct products of a group row (a "group" view row only).
+    products_count: int = 0
     units: int = 0
     gross: Decimal = Decimal("0")
     # `tg`: every known Total Gauss (what "Total Gauss" shows). `mtg`/`costo`:
@@ -411,6 +418,9 @@ class Board:
         self.f = f
         self.product_item_id = product_item_id
         self.sqlite = db.get_bind().dialect.name == "sqlite"
+        # The rows' unit is the PRODUCT in the product and "group" views (the
+        # latter sums them afterwards); only "publication" rows are MLAs.
+        self.by_pub = f.group_by == "publication"
         self.now = now_utc()
         self.today = self.now.astimezone(BUSINESS_TZ).date()
         self.prev_from, self.prev_to = previous_period(f)
@@ -617,7 +627,7 @@ class Board:
         if skip and skip not in PAIR_AXES:
             raise ValueError(f"Not a pair axis: {skip!r} (expected one of {PAIR_AXES})")
         f, t = self.f, self.t
-        rk = cast(t.c.product, String) if f.group_by == "product" else t.c.mla
+        rk = t.c.mla if self.by_pub else cast(t.c.product, String)
         q = select(
             rk.label("rk"),
             *(t.c[name] for name in t.c.keys()),
@@ -707,13 +717,13 @@ class Board:
             raise ValueError(f"Not row axes: {unknown} (expected any of {ROW_AXES})")
         skips = set(skip_row_axes)
         fp = self.filtered_pairs(skip_pair_axis)
-        product = fp.c.product if self.f.group_by == "product" else fp.c.pub_item_id
+        product = fp.c.product if not self.by_pub else fp.c.pub_item_id
         g = (
             select(
                 fp.c.rk,
                 (
                     func.max(fp.c.product)
-                    if self.f.group_by == "product"
+                    if not self.by_pub
                     else func.coalesce(func.max(product), func.max(fp.c.product))
                 ).label("product"),
                 func.max(fp.c.title).label("title"),
@@ -860,7 +870,7 @@ class Board:
             row = Row(
                 key=str(r["rk"]),
                 product_item_id=int(r["product"]) if r["product"] is not None else NO_PRODUCT,
-                mla=None if self.f.group_by == "product" else r["rk"],
+                mla=None if not self.by_pub else r["rk"],
                 title=r["title"] or "Sin producto",
                 publications_count=int(r["pubs"] or 0),
                 units=int(r["units"] or 0),
@@ -887,7 +897,7 @@ class Board:
         id or an MLA), never on the cast `rk`: the planner can estimate the
         former, and a sound estimate keeps it from nesting loops over the
         request's lines table."""
-        if self.f.group_by == "product":
+        if not self.by_pub:
             return fp.c.product.in_([int(key) for key in by_key])
         return fp.c.mla.in_(list(by_key))
 
@@ -924,7 +934,7 @@ class Board:
             main = main or next((d for d in details if d["codigo"]), None)
             if main is not None:
                 row.sku, row.marca = main["codigo"], main["marca"]
-                if self.f.group_by == "product" and main["descripcion"]:
+                if not self.by_pub and main["descripcion"]:
                     row.title = main["descripcion"]
             if row.mla is not None:
                 own = next((d for d in details if d["mla"] == row.mla), details[0])
@@ -964,6 +974,11 @@ class Board:
             )
             .group_by(fp.c.rk, L.c.day)
         )
+        self._read_series(by_key, series)
+
+    def _read_series(self, by_key: Dict[str, Row], series: Any) -> None:
+        """Fill every row's 90-day series from `series` (`rk`, `day`, `units`,
+        `tg`, `costo` per key and day)."""
         units = {key: [0] * SERIES_DAYS for key in by_key}
         tg = {key: [Decimal("0")] * SERIES_DAYS for key in by_key}
         costo = {key: [Decimal("0")] * SERIES_DAYS for key in by_key}
@@ -979,6 +994,133 @@ class Board:
             row.series_markup = [
                 _round1(markup_of(cents(tg[key][i]), cents(costo[key][i]))) for i in range(SERIES_DAYS)
             ]
+
+    # ── the "Agrupado" view: the surviving products' pairs, summed by dimension ──
+
+    def _group_source(self) -> Any:
+        """The pairs of the products that pass EVERY filter (row filters
+        included, decided per product like the product view), each with its
+        group key under `BoardFilter.dimension`."""
+        joined, fp = self._members("")
+        return grouping.grouped_pairs(self.f.dimension, joined, fp, grouping.stock_table())
+
+    def group_rows(self) -> Any:
+        """One row per group (a subquery named like the product rows' columns
+        so `_ordered` serves both): `rk` the group key, `title` its name, the
+        sums, the markups as the RATIO of the sums, the reference day of its
+        ageing (its most recent sale, else its oldest publication) and its
+        stock (each product once). Groups with no unit in the period drop out
+        under "solo con ventas"."""
+        gp = self._group_source()
+        g = (
+            select(
+                gp.c.gkey.label("rk"),
+                func.max(gp.c.glabel).label("label"),
+                func.sum(gp.c.first_in_group).label("products"),
+                func.count(func.distinct(gp.c.mla)).label("pubs"),
+                *(func.sum(gp.c[name]).label(name) for name in grouping.SUM_COLUMNS),
+                func.max(gp.c.last_day).label("last_day"),
+                func.max(gp.c.last_at).label("last_at"),
+                func.min(gp.c.start_day).label("start_day"),
+                func.sum(case((gp.c.first_in_group == 1, gp.c.stock), else_=None)).label("stock"),
+            )
+            .group_by(gp.c.gkey)
+            .subquery("g")
+        )
+        markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
+        markup_prev = case((g.c.prev_costo > 0, g.c.prev_mtg * 100 / g.c.prev_costo), else_=None)
+        q = select(
+            *(c for c in g.c if c.name != "label"),
+            grouping.title_of(self.f.dimension, g.c.rk, g.c.label).label("title"),
+            markup.label("markup"),
+            markup_prev.label("markup_prev"),
+            (markup - markup_prev).label("markup_delta"),
+            func.coalesce(g.c.last_day, g.c.start_day).label("ref_day"),
+        )
+        if self.f.solo_con_ventas:
+            q = q.where(g.c.units > 0)
+        return q.subquery("group_rows")
+
+    def group_counts(self) -> Tuple[int, int]:
+        """`(groups, groups with units in the period)` over the whole filtered
+        set -- the page's total and its "con rotación" count."""
+        rows = self.group_rows()
+        total, with_sales = self.db.execute(
+            select(func.count(), func.coalesce(func.sum(case((rows.c.units > 0, 1), else_=0)), 0)).select_from(rows)
+        ).one()
+        return int(total), int(with_sales)
+
+    def group_page(self, limit: Optional[int], offset: int = 0, with_series: bool = True) -> List[Row]:
+        rows = self.group_rows()
+        q = select(rows).order_by(*self._ordered(rows))
+        if limit is not None:
+            q = q.limit(limit).offset(offset)
+        return self._group_rows_of(q, with_series)
+
+    def group_keys(self, limit: int) -> List[str]:
+        """Every group's key in board order, at most `limit` (the CSV export
+        fixes them up front, like `ordered_keys`)."""
+        rows = self.group_rows()
+        q = select(rows.c.rk).order_by(*self._ordered(rows)).limit(limit)
+        return [str(rk) for (rk,) in self.db.execute(q)]
+
+    def groups_for_keys(self, keys: List[str], with_series: bool = False) -> List[Row]:
+        """The groups of `keys`, in THAT order; one no longer on the board is
+        skipped, never replaced."""
+        if not keys:
+            return []
+        rows = self.group_rows()
+        found = {row.key: row for row in self._group_rows_of(select(rows).where(rows.c.rk.in_(keys)), with_series)}
+        return [found[key] for key in keys if key in found]
+
+    def _group_rows_of(self, q: Any, with_series: bool) -> List[Row]:
+        out = []
+        for r in self.db.execute(q).mappings():
+            ref_day = _as_date(r["ref_day"])
+            out.append(
+                Row(
+                    key=str(r["rk"]),
+                    product_item_id=NO_PRODUCT,
+                    mla=None,
+                    title=r["title"],
+                    publications_count=int(r["pubs"] or 0),
+                    products_count=int(r["products"] or 0),
+                    units=int(r["units"] or 0),
+                    gross=cents(r["gross"]),
+                    tg=cents(r["tg"]),
+                    mtg=cents(r["mtg"]),
+                    costo=cents(r["costo"]),
+                    prev_tg=cents(r["prev_tg"]),
+                    prev_mtg=cents(r["prev_mtg"]),
+                    prev_costo=cents(r["prev_costo"]),
+                    last_sale_at=_as_aware(_as_datetime(r["last_at"])),
+                    windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
+                    units_24h=int(r["u24"] or 0),
+                    ageing_days=(self.today - ref_day).days if ref_day else None,
+                    stock=int(r["stock"]) if r["stock"] is not None else None,
+                )
+            )
+        if out and with_series:
+            by_key = {row.key: row for row in out}
+            gp, L = self._group_source(), self.lines
+            series = (
+                select(
+                    gp.c.gkey.label("rk"),
+                    L.c.day,
+                    func.sum(L.c.units).label("units"),
+                    func.sum(L.c.mtg).label("tg"),
+                    func.sum(L.c.mcosto).label("costo"),
+                )
+                .select_from(gp)
+                .join(L, and_(L.c.product == gp.c.product, L.c.mla == gp.c.mla))
+                .where(
+                    gp.c.gkey.in_(list(by_key)),
+                    L.c.day.between(self._day(self.series_from), self._day(self.f.date_to)),
+                )
+                .group_by(gp.c.gkey, L.c.day)
+            )
+            self._read_series(by_key, series)
+        return out
 
     def kpis(self) -> Kpis:
         rows = self.rows()
@@ -1192,9 +1334,11 @@ __all__ = [
     "Board",
     "BoardFilter",
     "COMPARE",
+    "DIMENSIONS",
     "GROUP_BY",
     "Kpis",
     "MARGIN_SORTS",
+    "NO_GROUP",
     "PUB_STATUSES",
     "PUB_TYPES",
     "Pub",
