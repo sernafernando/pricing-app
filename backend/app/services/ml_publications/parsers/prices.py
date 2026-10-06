@@ -8,6 +8,10 @@ An item can carry several standard prices, one per sales channel: MLA874027718 h
 and a `channel_mshops` price (39990.0). The typed columns follow the marketplace: an entry
 applies when its `context_restrictions` is empty or names `channel_marketplace`, and an explicit
 marketplace entry wins over an unrestricted one.
+
+Assumption (pinned by a test over the captures): `/prices` lists only promotions in force, so
+`active_promotion_amount` is mapped without reading `conditions.start_time`/`end_time`. If ML ever
+returns a scheduled promotion before it starts, the mapper must start checking that window.
 """
 
 from __future__ import annotations

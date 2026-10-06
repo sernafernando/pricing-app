@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import copy
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 
 import pytest
 
+from app.services.ml_publications.mappers import to_timestamp
 from app.services.ml_publications.parsers.prices import map_prices, parse_prices
 from app.services.ml_publications.parsers.subresource import MalformedSubResource
 from tests.services.ml_publications.conftest import subresource_body, subresource_call
@@ -87,3 +89,17 @@ def test_amounts_are_exact_decimals_not_binary_floats_real_payload_one_field_cha
 def test_200_with_an_unexpected_shape_is_malformed(bad):
     with pytest.raises(MalformedSubResource):
         parse_prices(200, bad)
+
+
+@pytest.mark.parametrize("name", ["prices_started_MLA2146576013", "prices_candidate_MLA2146646463"])
+def test_captured_promotion_entries_are_in_force_when_captured(name):
+    """Assumption behind `active_promotion_amount` (see the module docstring): `/prices` lists only
+    promotions in force. It is mapped without reading `start_time`/`end_time`; every captured one is
+    inside its window at the response time."""
+    call = subresource_call("prices", name)
+    now = parsedate_to_datetime(call["headers"]["date"])
+    promotions = [e for e in call["body"]["prices"] if e["type"] == "promotion"]
+    assert promotions
+    for entry in promotions:
+        conditions = entry["conditions"]
+        assert to_timestamp(conditions["start_time"]) <= now < to_timestamp(conditions["end_time"])
