@@ -15,7 +15,6 @@ from datetime import time, timedelta
 from typing import List, Optional, Protocol, Tuple
 
 from app.workers.context import JobResult, WorkerContext
-from app.workers.handlers.ml_publications import refresh as _ml_publications_refresh
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
 from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
@@ -54,4 +53,18 @@ REGISTRY: List[JobHandler] = [_order_metrics_drain, _order_metrics_reconcile, _o
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
 # `--registry ml_publications`, design D1): its handlers sleep for ML pacing and must
 # never delay `order_metrics.drain`. A separate explicit list, never merged into REGISTRY.
-ML_PUBLICATIONS_REGISTRY: List[JobHandler] = [_ml_publications_refresh]
+#
+# Resolved lazily (PEP 562) so the sales worker, which imports this module, never imports the ML
+# handlers: an import failure there must not take `pricing-worker` down with it.
+_ml_publications_registry: Optional[List[JobHandler]] = None
+
+
+def __getattr__(name: str) -> List[JobHandler]:
+    global _ml_publications_registry
+    if name == "ML_PUBLICATIONS_REGISTRY":
+        if _ml_publications_registry is None:
+            from app.workers.handlers.ml_publications import refresh
+
+            _ml_publications_registry = [refresh]
+        return _ml_publications_registry
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

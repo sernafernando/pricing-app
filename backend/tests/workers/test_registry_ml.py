@@ -33,3 +33,32 @@ class TestMlPublicationsRegistry:
         assert handler.interval == timedelta(seconds=5)
         assert handler.run_at_local is None
         assert handler.channels == ()
+
+
+class TestProcessIsolation:
+    """The sales worker must not load the ML module: an import failure there would take down
+    `pricing-worker` too, against the point of running ML in its own process (design D1)."""
+
+    @staticmethod
+    def _run(code: str) -> str:
+        import subprocess
+        import sys
+
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip()
+
+    def test_importing_the_runtime_does_not_import_the_ml_handlers(self) -> None:
+        code = (
+            "import sys, app.workers.runtime, app.workers.registry; "
+            "print('app.workers.handlers.ml_publications' in sys.modules, "
+            "any(m.startswith('app.services.ml_publications') for m in sys.modules))"
+        )
+        assert self._run(code) == "False False"
+
+    def test_the_ml_registry_loads_on_first_use_and_is_stable(self) -> None:
+        code = (
+            "import app.workers.registry as r; a = r.ML_PUBLICATIONS_REGISTRY; "
+            "print([h.name for h in a], a is r.ML_PUBLICATIONS_REGISTRY)"
+        )
+        assert self._run(code) == "['ml_publications.refresh'] True"
