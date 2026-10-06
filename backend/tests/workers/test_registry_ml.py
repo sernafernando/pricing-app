@@ -24,9 +24,19 @@ class TestExistingRegistryIsUntouched:
 
 
 class TestMlPublicationsRegistry:
-    def test_contains_only_the_refresh_handler(self) -> None:
-        assert [h.name for h in registry.ML_PUBLICATIONS_REGISTRY] == ["ml_publications.refresh"]
+    def test_contains_the_refresh_and_intake_handlers_in_that_order(self) -> None:
+        assert [h.name for h in registry.ML_PUBLICATIONS_REGISTRY] == [
+            "ml_publications.refresh",
+            "ml_publications.intake",
+        ]
         assert registry.ML_PUBLICATIONS_REGISTRY[0] is ml_publications.refresh
+        assert registry.ML_PUBLICATIONS_REGISTRY[1] is ml_publications.intake
+
+    def test_intake_runs_every_fifteen_seconds_and_is_not_notify_driven(self) -> None:
+        handler = registry.ML_PUBLICATIONS_REGISTRY[1]
+        assert handler.interval == timedelta(seconds=15)
+        assert handler.run_at_local is None
+        assert handler.channels == ()
 
     def test_refresh_runs_every_five_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[0]
@@ -61,4 +71,4 @@ class TestProcessIsolation:
             "import app.workers.registry as r; a = r.ML_PUBLICATIONS_REGISTRY; "
             "print([h.name for h in a], a is r.ML_PUBLICATIONS_REGISTRY)"
         )
-        assert self._run(code) == "['ml_publications.refresh'] True"
+        assert self._run(code) == "['ml_publications.refresh', 'ml_publications.intake'] True"
