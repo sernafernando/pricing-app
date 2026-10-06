@@ -53,7 +53,14 @@ def board_pg_engine():
     from app.models.ml_group_metrics import MlGroupMetrics
     from app.models.ml_order_item_costo import MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
-    from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
+    from app.models.ml_orders_ops import (
+        MlOperationLink,
+        MlOpsSyncCursor,
+        MlOrderItemOps,
+        MlOrdersOps,
+        MlShipmentOps,
+    )
+    from app.models.rma_claim_ml import RmaClaimML
     from app.models.ml_payments import MlPaymentOps
     from app.models.ml_venta_deduccion import MlVentaDeduccion
 
@@ -69,6 +76,10 @@ def board_pg_engine():
         # Ventas ML's KPI aggregate (the parity checks) reads these too.
         MlPaymentOps.__table__,
         MlVentaDeduccion.__table__,
+        # Ventas ML's scope (status, claims) reads these for the product option lists.
+        MlShipmentOps.__table__,
+        MlOperationLink.__table__,
+        RmaClaimML.__table__,
     ]
     _restore_pristine_pg_types(tables)
     engine = create_engine(POSTGRES_TEST_URL)

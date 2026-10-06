@@ -41,6 +41,12 @@ from app.services.ml_orders_ingestion.operation_status import (
 )
 from app.services.ml_sales_query.accreditation import group_accreditation_date_subquery
 from app.services.ml_sales_query.search import apply_search
+from app.services.product_facets import (
+    ProductFacetOptions,
+    ProductSelection,
+    product_combo_rows,
+    product_facet_options,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,9 @@ class SalesFilter:
     # D12a product-level facets (spec PFILT R35), applied by `build_scope`
     # through `_product_facet_exists`.
     marcas: Tuple[str, ...] = field(default_factory=tuple)
+    # ODD `metricas-ml-filtros-dinamicos`: `productos_erp.categoria`, compared
+    # case-insensitively like the brand.
+    categorias: Tuple[str, ...] = field(default_factory=tuple)
     subcategorias: Tuple[int, ...] = field(default_factory=tuple)
     pms: Tuple[int, ...] = field(default_factory=tuple)
     # PR11.T1 (design D12, spec KPI R9-R11): the four doubtful-case toggle
@@ -257,7 +266,7 @@ def _product_facet_exists(db: Session, f: SalesFilter, group_key: Any) -> Option
     Returns `None` when no product-level facet is active (caller must not
     apply a no-op filter).
     """
-    if not (f.marcas or f.subcategorias or f.pms):
+    if not (f.marcas or f.categorias or f.subcategorias or f.pms):
         return None
 
     order_alias = aliased(MlOrdersOps)
@@ -273,6 +282,9 @@ def _product_facet_exists(db: Session, f: SalesFilter, group_key: Any) -> Option
     if f.marcas:
         marcas_upper = [m.upper() for m in f.marcas]
         conditions.append(func.upper(ProductoERP.marca).in_(marcas_upper))
+
+    if f.categorias:
+        conditions.append(func.upper(ProductoERP.categoria).in_([c.upper() for c in f.categorias]))
 
     if f.subcategorias:
         conditions.append(ProductoERP.subcategoria_id.in_(f.subcategorias))
@@ -394,6 +406,48 @@ def store_facet_counts(scope: "SalesScope") -> "tuple[Dict[str, int], int]":
     )
     total = scope.store_facet_base.with_entities(func.count(func.distinct(scope.group_key))).scalar() or 0
     return {store: count for store, count in rows}, total
+
+
+def product_facet_source(scope: "SalesScope") -> Any:
+    """ODD `metricas-ml-filtros-dinamicos`: a select of `(marca, categoria,
+    subcategoria_id)` for every item of the groups `scope` shows -- the universe
+    the product option lists (`app.services.product_facets`) cascade over. Pass
+    a scope built WITHOUT the product facets (every other filter standing,
+    store included), so each list is narrowed by the others and never by its own.
+
+    The groups are the scope's orders plus their pack siblings (a pack matches
+    as a whole), seller-scoped on both branches like `store_facet_counts`;
+    only THOSE orders' items are read, through the frozen-cost product link
+    (an item with no cost row has no product and offers nothing, PFILT R39).
+    """
+    in_scope = scope.listing_query.with_entities(
+        MlOrdersOps.order_id.label("order_id"), MlOrdersOps.pack_id.label("pack_id")
+    ).subquery("product_in_scope")
+    seller = [MlOrdersOps.seller_id == int(settings.ML_USER_ID)] if settings.ML_USER_ID else []
+    member_ids = union(
+        select(MlOrdersOps.order_id).where(MlOrdersOps.order_id.in_(select(in_scope.c.order_id)), *seller),
+        select(MlOrdersOps.order_id).where(MlOrdersOps.pack_id.in_(select(in_scope.c.pack_id)), *seller),
+    ).subquery("product_member_ids")
+    return (
+        select(ProductoERP.marca, ProductoERP.categoria, ProductoERP.subcategoria_id)
+        .select_from(member_ids)
+        .join(MlOrderItemCosto, MlOrderItemCosto.order_id == member_ids.c.order_id)
+        .join(ProductoERP, ProductoERP.item_id == MlOrderItemCosto.producto_item_id)
+    )
+
+
+def sales_product_options(db: Session, f: SalesFilter, scope: SalesScope) -> ProductFacetOptions:
+    """ODD `metricas-ml-filtros-dinamicos`: the marca / categoría /
+    subcategoría / PM options, each narrowed by EVERY other active filter (the
+    store included) and never by its own. The universe is the groups the listing
+    would show with the product facets cleared; the cascade among the four lists
+    is `app.services.product_facets`."""
+    selection = ProductSelection(marcas=f.marcas, categorias=f.categorias, subcategorias=f.subcategorias, pms=f.pms)
+    open_scope = scope
+    if f.marcas or f.categorias or f.subcategorias or f.pms:
+        open_scope = build_scope(db, replace(f, marcas=(), categorias=(), subcategorias=(), pms=()))
+    rows = product_combo_rows(db, product_facet_source(open_scope))
+    return product_facet_options(db, rows, selection)
 
 
 def _group_switch_subquery(db: Session, op_status_expr: Any):

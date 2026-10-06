@@ -593,7 +593,9 @@ class TestPR10DoesNotIntroduceNPlusOne:
             resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
         assert resp.status_code == 200
 
-        assert counter.matching("ml_order_item_costos") <= 1
+        # The page's frozen costs + (ODD `metricas-ml-filtros-dinamicos`) the
+        # product option lists' ONE set-based read of the scope's items.
+        assert counter.matching("ml_order_item_costos") <= 2
         # read_stored_metrics + metrics_state_for_orders + (ODD
         # `ventas-ml-ui-pendiente` T5) the "Solo con alertas" counter, which
         # reads the stored metrics once per REQUEST through the group alert
