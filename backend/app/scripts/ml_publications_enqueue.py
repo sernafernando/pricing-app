@@ -15,26 +15,11 @@ import sys
 from typing import Optional, Sequence
 
 from app.services.ml_publications import queue, settings_store
+from app.services.ml_publications.resources import BUNDLE_RESOURCE, REFRESH_RESOURCES
 
 ITEM_ID = re.compile(r"^[A-Z]{3}\d+$")
-DEFAULT_RESOURCE = "bundle"
-# Every resource name the design gives a refresh (D12). Naming one whose fetcher has not shipped yet
-# is fine (the handler drops it uncharged); a name outside this list is a typo.
-KNOWN_RESOURCES = (
-    "bundle",
-    "core",
-    "description",
-    "prices",
-    "sale_price",
-    "promotions",
-    "user_product",
-    "stock",
-    "family",
-    "competition",
-    "moderation",
-    "performance",
-    "visits",
-)
+DEFAULT_RESOURCE = BUNDLE_RESOURCE
+KNOWN_RESOURCES = REFRESH_RESOURCES  # the one canonical list, shared with the refresh handler
 
 
 def _parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:

@@ -31,7 +31,7 @@ from app.services.ml_publications.ml_http import (
 )
 from app.services.ml_publications.pacing import DEADLINE, Pacer
 from app.services.ml_publications.parsers.items_bulk import BulkElement, MalformedBulkResponse, parse_items_bulk
-from app.services.ml_publications.resources import RESOURCES
+from app.services.ml_publications.resources import BUNDLE_RESOURCE, CORE_RESOURCE, RESOURCES
 from app.workers.context import JobResult, WorkerContext
 
 logger = logging.getLogger(__name__)
@@ -59,8 +59,8 @@ _SETTING_KEYS = (
     "low_lane_min_share",
 )
 ITEM_KIND = "item"
-CORE = "core"
-BUNDLE = "bundle"
+CORE = CORE_RESOURCE
+BUNDLE = BUNDLE_RESOURCE
 # After a failure that is not the entry's fault (bad token, missing credentials) the claims go back
 # uncharged but not immediately: a tight loop of 5 s passes would hammer the same failure.
 UNAUTHORIZED_DELAY = timedelta(seconds=60)
