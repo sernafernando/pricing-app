@@ -59,7 +59,6 @@ doc): a publication that moved store takes its history with it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -575,11 +574,10 @@ class Board:
         if self.f.group_by == "group" or self.group_key is not None:
             dimension = grouping.dimension_of(
                 self.f.dimension,
-                SimpleNamespace(
-                    c=SimpleNamespace(
-                        marca=P.marca, categoria=P.categoria, subcategoria_id=P.subcategoria_id, store_id=pub.c.store_id
-                    )
-                ),
+                marca=P.marca,
+                categoria=P.categoria,
+                subcategoria_id=P.subcategoria_id,
+                store_id=pub.c.store_id,
             )
         source = (
             select(
@@ -655,8 +653,12 @@ class Board:
         return self.group_key is not None and not self._unscoped_depth
 
     def _has_row_filters(self) -> bool:
+        """Whether any ROW filter is active: derived from `ROW_AXES` (each axis
+        and its `_exclude` twin) so a new row filter cannot be forgotten."""
         f = self.f
-        return bool(f.stock or f.stock_exclude or f.ageing or f.ageing_exclude or f.alerts or f.solo_con_ventas)
+        return bool(
+            f.solo_con_ventas or any(getattr(f, axis) or getattr(f, f"{axis}_exclude", ()) for axis in ROW_AXES)
+        )
 
     def _survivors(self) -> Any:
         """The keys of the product rows that pass EVERY filter as whole

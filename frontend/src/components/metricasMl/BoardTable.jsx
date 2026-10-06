@@ -95,7 +95,7 @@ function groupCounts(row) {
   return `${products === 1 ? '1 producto' : `${products} productos`} · ${pubs === 1 ? '1 publicación' : `${pubs} publicaciones`}`;
 }
 
-function GroupCell({ row, expanded, onToggle, canSeeMargin }) {
+function GroupCell({ row, expanded, onToggle }) {
   return (
     <div className={styles.product}>
       <button
@@ -115,7 +115,6 @@ function GroupCell({ row, expanded, onToggle, canSeeMargin }) {
           <span className={styles.title} title={row.title}>
             {row.title}
           </span>
-          <ProductBadges row={row} canSeeMargin={canSeeMargin} />
         </div>
         <div className={styles.meta}>
           <span>{groupCounts(row)}</span>
@@ -156,7 +155,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, expanded, onToggle }) 
     );
   }
   if (groupBy === 'group') {
-    return <GroupCell row={row} expanded={expanded} onToggle={onToggle} canSeeMargin={canSeeMargin} />;
+    return <GroupCell row={row} expanded={expanded} onToggle={onToggle} />;
   }
   if (isSub) {
     return (
@@ -344,7 +343,7 @@ export default function BoardTable({
   groupBy,
   canSeeMargin,
   expanded,
-  publications,
+  subRows,
   onToggleExpand,
   sort,
   sortDesc,
@@ -431,7 +430,7 @@ export default function BoardTable({
         {rows.flatMap((row) => {
           const out = [renderRow(row)];
           if (groupBy !== 'publication' && expanded.has(row.key)) {
-            const state = publications[row.key];
+            const state = subRows[row.key];
             const noun = groupBy === 'group' ? 'productos' : 'publicaciones';
             const note = (key, text, extra) => (
               <tr key={`${key}-${row.key}`} className={styles.subRow}>

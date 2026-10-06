@@ -363,7 +363,8 @@ def _delta_pct(now, before) -> Optional[float]:
 def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False) -> BoardRow:
     known = [m for m in row.series_markup if m is not None]
     pub = row.pub
-    alerts = sorted(row.alerts() - (set() if can_see_margin else {"margen_cayendo"}))
+    # Alerts are product filters: a group row has none.
+    alerts = [] if group_view else sorted(row.alerts() - (set() if can_see_margin else {"margen_cayendo"}))
     return BoardRow(
         key=row.key,
         product_item_id=row.product_item_id,
@@ -576,40 +577,19 @@ def _csv_money(value: Optional[float]) -> str:
     return "" if value is None else f"{value:.2f}".replace(".", ",")
 
 
-def _csv_line(row: board.Row, can_see_margin: bool) -> list:
-    line = [
-        csv_text(row.title),
-        csv_text(row.sku),
-        csv_text(row.marca),
-        csv_text(row.mla),
-        row.units,
-        row.units_24h,
-        row.windows["3d"],
-        row.windows["7d"],
-        row.windows["15d"],
-        row.windows["30d"],
-        _csv_money(_f(row.gross)),
-    ]
-    if can_see_margin:
-        line += [
-            _csv_money(_f(row.tg)),
-            _csv_money(_pp(row.markup)),
-            _csv_money(_pp(row.markup_prev)),
-            _csv_money(_pp(row.markup_delta)),
-        ]
-    line += [
-        row.last_sale_at.isoformat() if row.last_sale_at else "",
-        row.ageing_days if row.ageing_days is not None else "",
-        row.stock if row.stock is not None else "",
-    ]
-    return line
+def _csv_head(row: board.Row, grouped: bool) -> list:
+    """The columns that differ: a product/publication names itself, SKU, brand
+    and MLA; a group its name and how many products and publications it sums."""
+    if grouped:
+        return [csv_text(row.title), row.products_count, row.publications_count]
+    return [csv_text(row.title), csv_text(row.sku), csv_text(row.marca), csv_text(row.mla)]
 
 
-def _csv_group_line(row: board.Row, can_see_margin: bool) -> list:
-    line = [
-        csv_text(row.title),
-        row.products_count,
-        row.publications_count,
+def _csv_line(row: board.Row, can_see_margin: bool, grouped: bool = False) -> list:
+    """One CSV line: `_csv_head`, then the columns both layouts share, in the
+    same order (units and windows, money, margin when allowed, last sale,
+    ageing, stock)."""
+    line = _csv_head(row, grouped) + [
         row.units,
         row.units_24h,
         row.windows["3d"],
@@ -641,6 +621,8 @@ DIMENSION_HEADERS = {
     "tienda": "Tienda",
     "pm": "PM",
 }
+# A dimension added to the board without its header would KeyError the export.
+assert set(DIMENSION_HEADERS) == set(board.DIMENSIONS), "DIMENSION_HEADERS must cover board.DIMENSIONS"
 
 
 @router.get("/board/export")
@@ -673,9 +655,12 @@ def export_board(
     # row stopped matching the filters meanwhile is skipped; every other row
     # is written once, with its values as of its own page.
     grouped = f.group_by == "group"
+    # The layout is chosen ONCE: how the keys and the rows of a page are read.
+    keys_of = board.Board.group_keys if grouped else board.Board.ordered_keys
+    rows_of = board.Board.groups_for_keys if grouped else board.Board.rows_for_keys
     with get_background_db() as first_db:
         with board.Board(first_db, f) as b:
-            keys = b.group_keys(EXPORT_MAX_ROWS + 1) if grouped else b.ordered_keys(EXPORT_MAX_ROWS + 1)
+            keys = keys_of(b, EXPORT_MAX_ROWS + 1)
             if len(keys) > EXPORT_MAX_ROWS:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -684,18 +669,18 @@ def export_board(
                         "Acotá los filtros (tienda, marca, búsqueda...)."
                     ),
                 )
-            first = (b.groups_for_keys if grouped else b.rows_for_keys)(keys[:EXPORT_PAGE_SIZE])
+            first = rows_of(b, keys[:EXPORT_PAGE_SIZE])
 
     def fetch_page(page_keys: List[str]) -> List[board.Row]:
         with get_background_db() as page_db:
             with board.Board(page_db, f) as b:
-                return (b.groups_for_keys if grouped else b.rows_for_keys)(page_keys)
+                return rows_of(b, page_keys)
 
     def lines_of(rows: List[board.Row]) -> str:
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";")
         for row in rows:
-            writer.writerow((_csv_group_line if grouped else _csv_line)(row, can_see_margin))
+            writer.writerow(_csv_line(row, can_see_margin, grouped))
         return buffer.getvalue()
 
     # CLOSE the request session (the permission check left it holding a

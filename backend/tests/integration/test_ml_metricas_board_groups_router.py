@@ -14,6 +14,7 @@ from datetime import date
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.producto import ProductoERP
 from app.routers import ml_metricas
+from app.services.ml_daily_metrics import board
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
     SOLO_CON_VENTAS,
@@ -303,3 +304,61 @@ class TestGroupedStatementBudget:
             _get(client, admin_auth_headers, f"{URL}/group-products", group_key="EPSON", **GROUP)
 
         assert len(counter.statements) <= 14, len(counter.statements)
+
+
+class TestGroupedViewReview:
+    def test_every_sort_of_the_board_works_on_the_grouped_view(self, client, admin_auth_headers, board_data):
+        for sort in board.SORTS:
+            for direction in ("asc", "desc"):
+                resp = client.get(
+                    URL, params={"sort": sort, "sort_dir": direction, **GROUP}, headers=admin_auth_headers
+                )
+                assert resp.status_code == 200, (sort, direction, resp.text)
+                products = client.get(
+                    f"{URL}/group-products",
+                    params={"group_key": "EPSON", "sort": sort, "sort_dir": direction, **GROUP},
+                    headers=admin_auth_headers,
+                )
+                assert products.status_code == 200, (sort, direction, products.text)
+
+    def test_group_rows_carry_no_alerts(self, client, admin_auth_headers, board_data):
+        rows = _get(client, admin_auth_headers, **GROUP)["rows"]
+
+        assert rows and all(row["alerts"] == [] for row in rows)
+
+    def test_tied_products_page_in_a_stable_order(self, client, admin_auth_headers, board_data):
+        seen = []
+        for offset in range(0, 4):
+            body = _get(
+                client,
+                admin_auth_headers,
+                f"{URL}/group-products",
+                group_key="s:57997",
+                limit=1,
+                offset=offset,
+                sort="units_24h",
+                group_by="group",
+                dimension="tienda",
+            )
+            seen += [r["key"] for r in body["rows"]]
+
+        assert len(seen) == len(set(seen)) == 2
+
+    def test_the_csv_layouts_share_their_tail_columns(self, client, admin_auth_headers, board_data):
+        product = client.get(f"{URL}/export", headers=admin_auth_headers).content.decode("utf-8-sig")
+        grouped = client.get(f"{URL}/export", params=GROUP, headers=admin_auth_headers).content.decode("utf-8-sig")
+        tail = [
+            "Total Gauss",
+            "Markup %",
+            "Markup anterior %",
+            "Variación pp",
+            "Última venta",
+            "Ageing (días)",
+            "Stock",
+        ]
+
+        assert product.splitlines()[0].split(";")[-len(tail) :] == tail
+        assert grouped.splitlines()[0].split(";")[-len(tail) :] == tail
+
+    def test_every_dimension_has_a_csv_header(self):
+        assert set(ml_metricas.DIMENSION_HEADERS) == set(board.DIMENSIONS)

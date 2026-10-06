@@ -129,6 +129,17 @@ describe('the "Agrupado" view', () => {
     expect(none.querySelector('td[data-col-id="stock"]')).toHaveTextContent('—');
   });
 
+  it('group rows carry no alert or loss badges', async () => {
+    groupBoard = {
+      ...GROUP_BOARD_RESPONSE,
+      rows: GROUP_BOARD_RESPONSE.rows.map((r) => ({ ...r, alerts: ['sin_ventas_30d', 'ageing_60d'], markup_pct: -5 })),
+    };
+    await openGroupedView();
+
+    expect(screen.queryByText('INMOVILIZADO')).not.toBeInTheDocument();
+    expect(screen.queryByText('PÉRDIDA')).not.toBeInTheDocument();
+  });
+
   it('titles the first column after the dimension', async () => {
     await openGroupedView();
 
@@ -286,6 +297,31 @@ describe('opening a group', () => {
 
     expect(await screen.findByText('Producto 100')).toBeInTheDocument();
     expect(productCalls().at(-1)[1].params.offset).toBe(100);
+  });
+
+  it('a second page that overlaps the first (the order moved meanwhile) never repeats a row', async () => {
+    const rows = Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${i}`, title: `Producto ${i}` }));
+    const shifted = { rows: [rows[99], { ...rows[0], key: 'p100', title: 'Producto 100' }], total: 101, limit: 100, offset: 100 };
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-metricas/board') {
+        return Promise.resolve({ data: config.params.group_by === 'group' ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE });
+      }
+      if (url === GROUP_PRODUCTS_URL) {
+        return Promise.resolve({ data: config.params.offset === 100 ? shifted : { rows, total: 101, limit: 100, offset: 0 } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await openGroupedView();
+    await userEvent.click(expandButton());
+    await screen.findByText('Producto 0');
+
+    await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
+
+    expect(await screen.findByText('Producto 100')).toBeInTheDocument();
+    expect(screen.getAllByText('Producto 99')).toHaveLength(1);
+    expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
+    errors.mockRestore();
   });
 
   it('shows no "Ver más" once every product is on screen', async () => {

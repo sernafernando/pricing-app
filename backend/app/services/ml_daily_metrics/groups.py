@@ -39,6 +39,10 @@ from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 
 DIMENSIONS = ("marca", "categoria", "subcategoria", "tienda", "pm")
+# Prefixes of a store group's key: `c:<clave>` for the ids sharing a clave,
+# `s:<id>` for a store with none. The ONE place they are written and read.
+CLAVE_KEY_PREFIX = "c:"
+STORE_KEY_PREFIX = "s:"
 # The key of the "Sin ..." group. Reserved: a real value can never be this.
 NO_GROUP = "__none__"
 NO_LABELS = {
@@ -80,17 +84,20 @@ def _text_dimension(column: ColumnElement) -> Dimension:
     return Dimension(case((normalized == "", literal(NO_GROUP)), else_=normalized), column, [])
 
 
-def _subcategoria_dimension(fp: Any) -> Dimension:
+def _subcategoria_dimension(subcategoria_id: Any) -> Dimension:
     names = aliased(SubcategoriaGrupo)
-    key = case((fp.c.subcategoria_id.is_(None), literal(NO_GROUP)), else_=cast(fp.c.subcategoria_id, String))
-    return Dimension(key, names.nombre_subcategoria, [(names, names.subcat_id == fp.c.subcategoria_id)])
+    key = case((subcategoria_id.is_(None), literal(NO_GROUP)), else_=cast(subcategoria_id, String))
+    return Dimension(key, names.nombre_subcategoria, [(names, names.subcat_id == subcategoria_id)])
 
 
-def _tienda_dimension(fp: Any) -> Dimension:
+def _tienda_dimension(store_id: Any) -> Dimension:
     stores = aliased(MlTiendaOficial)
     own = case(
-        (stores.clave.isnot(None) & (func.trim(stores.clave) != ""), literal("c:") + func.trim(stores.clave)),
-        else_=literal("s:") + cast(stores.store_id, String),
+        (
+            stores.clave.isnot(None) & (func.trim(stores.clave) != ""),
+            literal(CLAVE_KEY_PREFIX) + func.trim(stores.clave),
+        ),
+        else_=literal(STORE_KEY_PREFIX) + cast(stores.store_id, String),
     )
     # Every store row carries the name of its clave's first active store.
     named = (
@@ -103,13 +110,13 @@ def _tienda_dimension(fp: Any) -> Dimension:
         )
     ).subquery("store_names")
     key = case(
-        (fp.c.store_id.is_(None), literal(NO_GROUP)),
-        else_=func.coalesce(named.c.gkey, literal("s:") + cast(fp.c.store_id, String)),
+        (store_id.is_(None), literal(NO_GROUP)),
+        else_=func.coalesce(named.c.gkey, literal(STORE_KEY_PREFIX) + cast(store_id, String)),
     )
-    return Dimension(key, named.c.nombre, [(named, named.c.store_id == fp.c.store_id)])
+    return Dimension(key, named.c.nombre, [(named, named.c.store_id == store_id)])
 
 
-def _pm_dimension(fp: Any) -> Dimension:
+def _pm_dimension(marca: Any, categoria: Any) -> Dimension:
     pairs = (
         select(
             func.upper(MarcaPM.marca).label("marca"),
@@ -125,24 +132,25 @@ def _pm_dimension(fp: Any) -> Dimension:
         key,
         pms.nombre,
         [
-            (pairs, (pairs.c.marca == func.upper(fp.c.marca)) & (pairs.c.categoria == func.upper(fp.c.categoria))),
+            (pairs, (pairs.c.marca == func.upper(marca)) & (pairs.c.categoria == func.upper(categoria))),
             (pms, pms.id == pairs.c.usuario_id),
         ],
     )
 
 
-def dimension_of(name: str, fp: Any) -> Dimension:
-    """`fp.c` exposes `marca`, `categoria`, `subcategoria_id` and `store_id`."""
+def dimension_of(name: str, *, marca: Any, categoria: Any, subcategoria_id: Any, store_id: Any) -> Dimension:
+    """The key/label/joins of dimension `name`, over the pair's own columns
+    (each a column expression of whatever the caller selects from)."""
     if name == "marca":
-        return _text_dimension(fp.c.marca)
+        return _text_dimension(marca)
     if name == "categoria":
-        return _text_dimension(fp.c.categoria)
+        return _text_dimension(categoria)
     if name == "subcategoria":
-        return _subcategoria_dimension(fp)
+        return _subcategoria_dimension(subcategoria_id)
     if name == "tienda":
-        return _tienda_dimension(fp)
+        return _tienda_dimension(store_id)
     if name == "pm":
-        return _pm_dimension(fp)
+        return _pm_dimension(marca, categoria)
     raise ValueError(f"Not a dimension: {name!r} (expected one of {DIMENSIONS})")
 
 
@@ -154,7 +162,7 @@ def title_of(name: str, key: ColumnElement, label: ColumnElement) -> ColumnEleme
     if name == "subcategoria":
         fallback = literal("Subcategoría #") + key
     elif name == "tienda":
-        fallback = literal("Tienda ") + func.substr(key, 3)
+        fallback = literal("Tienda ") + func.substr(key, len(STORE_KEY_PREFIX) + 1)
     elif name == "pm":
         fallback = literal("PM #") + key
     shown = func.coalesce(label, fallback) if fallback is not None else label

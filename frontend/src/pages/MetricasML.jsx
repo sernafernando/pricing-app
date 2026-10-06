@@ -83,6 +83,14 @@ const ALERTS = [
   { value: 'margen_cayendo', label: 'Markup cayendo', icon: TrendingDown, tone: 'danger', margin: true },
 ];
 
+/** `next` after `previous`, without any row `previous` already has: a metric
+ * that moved between two pages shifts the order, and a repeated row would
+ * duplicate its React key. */
+function appendNew(previous, next) {
+  const seen = new Set(previous.map((row) => row.key));
+  return [...previous, ...next.filter((row) => !seen.has(row.key))];
+}
+
 function defaultRange() {
   const { desde, hasta } = calcularRangoPreset(DEFAULT_PRESET);
   return { desde, hasta };
@@ -125,7 +133,9 @@ export default function MetricasML() {
   // its message is shown as is, never the generic "error al cargar".
   const [rejectedMessage, setRejectedMessage] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
-  const [publications, setPublications] = useState({});
+  // What each open row opened into, by row key: a product's publications or a
+  // group's products (`{ loading, rows, total, error }`).
+  const [subRows, setSubRows] = useState({});
   const [columnVisibility, setColumnVisibility] = useState({});
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
@@ -190,7 +200,7 @@ export default function MetricasML() {
       if (requestId !== latestRequestRef.current) return;
       setBoard(data);
       setExpanded(new Set());
-      setPublications({});
+      setSubRows({});
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
       const status = err?.response?.status;
@@ -227,14 +237,14 @@ export default function MetricasML() {
       }
       // A loaded (or loading) answer is reused; a FAILED one is not, so
       // collapsing and expanding again retries.
-      const cached = publications[key];
+      const cached = subRows[key];
       if (!more && (expanded.has(key) || (cached && !cached.error))) return;
       // The board's request generation: `cargar` bumps it on every filter
       // change and resets the sub-rows. An answer that arrives after that
       // belongs to the OLD filters and is dropped, never cached.
       const generation = latestRequestRef.current;
       const previous = more ? cached?.rows || [] : [];
-      setPublications((prev) => ({ ...prev, [key]: { ...(more ? prev[key] : {}), loading: true, rows: previous } }));
+      setSubRows((prev) => ({ ...prev, [key]: { ...(more ? prev[key] : {}), loading: true, rows: previous } }));
       try {
         const request = isGroup
           ? api.get(GROUP_PRODUCTS_URL, {
@@ -243,16 +253,16 @@ export default function MetricasML() {
           : api.get(`/ml-metricas/board/products/${row.product_item_id}/publications`, { params: filterParams });
         const { data } = await request;
         if (generation !== latestRequestRef.current) return;
-        setPublications((prev) => ({
+        setSubRows((prev) => ({
           ...prev,
-          [key]: { loading: false, rows: [...previous, ...(data.rows || [])], total: data.total },
+          [key]: { loading: false, rows: appendNew(previous, data.rows || []), total: data.total },
         }));
       } catch {
         if (generation !== latestRequestRef.current) return;
-        setPublications((prev) => ({ ...prev, [key]: { loading: false, rows: previous, error: true } }));
+        setSubRows((prev) => ({ ...prev, [key]: { loading: false, rows: previous, error: true } }));
       }
     },
-    [expanded, publications, filterParams, groupBy],
+    [expanded, subRows, filterParams, groupBy],
   );
 
   const handleSort = useCallback((key) => {
@@ -590,7 +600,7 @@ export default function MetricasML() {
             groupBy={groupBy}
             canSeeMargin={canSeeMargin}
             expanded={expanded}
-            publications={publications}
+            subRows={subRows}
             onToggleExpand={toggleExpand}
             sort={sort.key}
             sortDesc={sort.desc}
