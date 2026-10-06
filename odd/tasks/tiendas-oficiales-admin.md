@@ -38,7 +38,7 @@ Los nombres viven en `frontend/src/constants/tiendasOficiales.js` y duplicados e
 - [x] T2 Backend: schemas + router GET/CRUD (con `clave`) + permiso + `items-sin-mla` desde tabla
 - [x] T3 Backend: helper `store_ids_for_clave` + dashboard TP-Link + sync/ingesta TP-Link por clave (fail-closed) + sin `2645` literal
 - [x] T4 Frontend: hook `useTiendasOficiales` + panel Admin
-- [ ] T5 Frontend: consumidores (Ventas ML, Metricas ML, Productos, TreeNode, ExportModal, DashboardMetricasML) + limpieza de constantes
+- [x] T5 Frontend: consumidores (Ventas ML, Metricas ML, Productos, TreeNode, ExportModal, DashboardMetricasML) + limpieza de constantes
 
 ## Criterios de aceptacion
 
@@ -53,8 +53,8 @@ pytest (nuevos + suite completa), ruff format/check, pnpm test, lint, build, tes
 
 ## Progreso / evidencia
 
-- T1: RED = test_migration_ml_tiendas_oficiales_postgres + test_ml_tienda_oficial (ImportError/2 failed por falta de `clave`); GREEN = 9 passed. Seed ampliado: 471846 (nuevo id TP-Link, clave tplink) orden 2; 471846 no aparecia en el codigo. T2: RED = 10 failed router + 1 failed items-sin-mla; GREEN = 11 + 1 passed. Sin DELETE a proposito (se desactiva). T3: RED = ImportError (service) + 3 failed dashboard/sql tests; GREEN = tplink/tiendas/metricas/items_sin_mla subset 276 passed. Dashboard `operaciones` fail-closed 503; scripts de ingesta usan `IN :store_ids`; `mlp_official_store_id` guarda el id real de la orden. Backfill necesario tras deploy: ver reporte final. T4: RED = vitest 'no tests' por import inexistente (hook y panel); GREEN = 7 hook + 5 panel passed. Tab 'Tiendas Oficiales' en Admin (sin gating de permiso en la tab: el backend responde 403). Nota: `ruff format alembic/` reformatea ~120 migraciones historicas ajenas (drift previo): se formatean solo archivos propios.
+- T1: RED = test_migration_ml_tiendas_oficiales_postgres + test_ml_tienda_oficial (ImportError/2 failed por falta de `clave`); GREEN = 9 passed. Seed ampliado: 471846 (nuevo id TP-Link, clave tplink) orden 2; 471846 no aparecia en el codigo. T2: RED = 10 failed router + 1 failed items-sin-mla; GREEN = 11 + 1 passed. Sin DELETE a proposito (se desactiva). T3: RED = ImportError (service) + 3 failed dashboard/sql tests; GREEN = tplink/tiendas/metricas/items_sin_mla subset 276 passed. Dashboard `operaciones` fail-closed 503; scripts de ingesta usan `IN :store_ids`; `mlp_official_store_id` guarda el id real de la orden. Backfill necesario tras deploy: ver reporte final. T4: RED = vitest 'no tests' por import inexistente (hook y panel); GREEN = 7 hook + 5 panel passed. Tab 'Tiendas Oficiales' en Admin (sin gating de permiso en la tab: el backend responde 403). T5: RED = 9 failed (chips builder, Ventas/Metricas chips, TreeNode, Productos CS-11); GREEN = suite unit 1995 passed, lint 0 errors, build ok, test:visual 80 passed. ExportModal: test escrito despues del codigo (desvio de TDD, pasa y fallaria contra el codigo viejo). DashboardMetricasML tambien pasa a nombres/ids dinamicos. Emoji y tooltip del select de Productos se eliminan (la tabla no los guarda). Nota: `ruff format alembic/` reformatea ~120 migraciones historicas ajenas (drift previo): se formatean solo archivos propios.
 
 ## Siguiente paso
 
-T5
+Verificacion final (suite backend completa) y reporte

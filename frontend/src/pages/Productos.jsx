@@ -26,7 +26,7 @@ import './Productos.css';
 
 import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { PROMO_TYPES } from '../constants/promoTypes';
-import { TIENDAS_OFICIALES, TIENDAS_OFICIALES_ORDER } from '../constants/tiendasOficiales';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
@@ -98,6 +98,7 @@ export default function Productos() {
     handleOrdenar, limpiarTodosFiltros, limpiarFiltros, limpiarFiltrosAvanzados, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
+  const { activas: tiendasActivas } = useTiendasOficiales();
   // Color-layer teams (productos-color-teams). Feeds the layer selector.
   // No team selected (equipoActivoId null) === global layer. `recargarEquipos`
   // refreshes the selector after the management modal creates/renames/deletes.
@@ -1472,14 +1473,11 @@ export default function Productos() {
                     className="filter-select"
                   >
                     <option value="todos">Todas</option>
-                    {TIENDAS_OFICIALES_ORDER.map((id) => {
-                      const { label, emoji, title } = TIENDAS_OFICIALES[id];
-                      return (
-                        <option key={id} value={id} title={title}>
-                          {emoji} {label}
-                        </option>
-                      );
-                    })}
+                    {tiendasActivas.map(({ store_id: id, nombre }) => (
+                      <option key={id} value={id}>
+                        {nombre}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

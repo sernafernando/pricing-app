@@ -24,6 +24,7 @@ import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import Productos from './Productos';
+import { resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 
 // Reach into the mocked module
 import { productosAPI } from '../services/api';
@@ -1081,5 +1082,40 @@ describe('Acciones masivas open/cancel preserves Total/listar sync', () => {
     expect(productosAPI.statsDinamicos.mock.calls.length).toBe(statsAfterMount);
     expect(screen.getByText('Filtrado Uno')).toBeInTheDocument();
     expect(screen.getByText('18')).toBeInTheDocument();
+  });
+});
+
+describe('CS-11: official store filter options come from the admin-managed list', () => {
+  it('offers the active stores by name in `orden` and sends the raw id', async () => {
+    resetTiendasOficiales(); // earlier tests already loaded the shared list (empty)
+    setupApiMocks({ productos: [makeProducto()], total: 1 });
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, ...rest) => {
+      if (url === '/tiendas-oficiales') {
+        return Promise.resolve({
+          data: [
+            { store_id: 2645, nombre: 'Apagada', clave: null, orden: 0, activa: false },
+            { store_id: 144, nombre: 'Segunda', clave: null, orden: 2, activa: true },
+            { store_id: 57997, nombre: 'Primera', clave: null, orden: 1, activa: true },
+          ],
+        });
+      }
+      return base(url, ...rest);
+    });
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /avanzados/i }));
+    });
+
+    const select = screen.getByText('🏪 Tienda Oficial').closest('.filter-item').querySelector('select');
+    await waitFor(() =>
+      expect([...select.options].map((o) => o.textContent.trim())).toEqual(['Todas', 'Primera', 'Segunda']),
+    );
+    expect([...select.options].map((o) => o.value)).toEqual(['todos', '57997', '144']);
   });
 });

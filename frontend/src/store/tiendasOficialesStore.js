@@ -13,9 +13,12 @@ export const useTiendasOficialesStore = create((set, get) => ({
   load: (force = false) => {
     if (!force && (get().loaded || inflight)) return inflight || Promise.resolve();
     set({ loading: true });
-    inflight = api
-      .get('/tiendas-oficiales')
-      .then(({ data }) => set({ tiendas: Array.isArray(data) ? data : [], loaded: true, loading: false }))
+    inflight = Promise.resolve()
+      .then(() => api.get('/tiendas-oficiales'))
+      .then((response) => {
+        const data = response?.data;
+        set({ tiendas: Array.isArray(data) ? data : [], loaded: true, loading: false });
+      })
       // Display data only: on failure every id falls back to "Tienda <id>".
       .catch(() => set({ tiendas: [], loaded: true, loading: false }))
       .finally(() => {

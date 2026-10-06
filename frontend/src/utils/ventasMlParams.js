@@ -26,7 +26,7 @@ export function buildVentasMLFilterParams({
   // caller that predates the switch never hides cancelled sales by accident.
   includeCancelled = true,
   onlyAlerts = false,
-  // ODD `metricas-ml-tablero` T1: one store value (`STORE_FILTER_OPTIONS`)
+  // ODD `metricas-ml-tablero` T1: one store value (a store id or `STORE_NONE`)
   // or '' for every store.
   storeFilter = '',
 }) {

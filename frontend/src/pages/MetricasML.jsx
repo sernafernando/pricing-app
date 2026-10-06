@@ -15,7 +15,8 @@ import SwitchChip from '../components/metricasMl/SwitchChip';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
 import { buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
-import { STORE_FILTER_LABELS, STORE_FILTER_OPTIONS } from '../constants/tiendasOficiales';
+import { buildStoreChips } from '../constants/tiendasOficiales';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { calcularRangoPreset } from '../utils/dateRangePresets';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
@@ -94,6 +95,7 @@ export default function MetricasML() {
   const [searchQuery, setSearchQuery] = useState('');
   const [productFilters, setProductFilters] = useState(EMPTY_PRODUCT_FILTERS);
   const [storeFilter, setStoreFilter] = useState('');
+  const { activas, getLabel } = useTiendasOficiales();
   const [pubStatus, setPubStatus] = useState([]);
   const [pubType, setPubType] = useState([]);
   const [pubStatusExclude, setPubStatusExclude] = useState([]);
@@ -408,8 +410,7 @@ export default function MetricasML() {
             </span>
             <FacetChips
               label="Filtrar por tienda oficial"
-              options={STORE_FILTER_OPTIONS}
-              labels={STORE_FILTER_LABELS}
+              {...buildStoreChips({ activas, getLabel, selected: storeFilter })}
               counts={facets?.stores}
               total={facets?.stores_total}
               activeValue={storeFilter}

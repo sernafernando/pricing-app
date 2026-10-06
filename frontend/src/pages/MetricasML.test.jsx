@@ -3,13 +3,14 @@
  * the board endpoint for, and what it does with the answer. Layout is the
  * visual suite's job (`src/test/visual/metricasMl.visual.test.jsx`).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import MetricasML from './MetricasML';
 import api, { productosAPI } from '../services/api';
 import { BOARD_RESPONSE, EPSON_PUBLICATIONS } from '../test/visual/metricasMlFixtures';
+import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
@@ -19,6 +20,7 @@ vi.mock('../contexts/PermisosContext', () => ({
 let board = BOARD_RESPONSE;
 
 beforeEach(() => {
+  seedTiendasOficiales();
   board = BOARD_RESPONSE;
   api.get.mockReset();
   api.get.mockImplementation((url) => {
@@ -34,7 +36,28 @@ beforeEach(() => {
 const boardCalls = () => api.get.mock.calls.filter(([url]) => url === '/ml-metricas/board');
 const lastBoardParams = () => boardCalls().at(-1)[1].params;
 
+afterAll(resetTiendasOficiales);
+
 describe('MetricasML page', () => {
+  it('offers one store chip per ACTIVE store, ordered by `orden`, plus "Sin tienda"', async () => {
+    seedTiendasOficiales([
+      { store_id: 144, nombre: 'Segunda', clave: null, orden: 2, activa: true },
+      { store_id: 57997, nombre: 'Primera', clave: null, orden: 1, activa: true },
+      { store_id: 2645, nombre: 'Apagada', clave: null, orden: 0, activa: false },
+    ]);
+    await renderWithRouter(<MetricasML />);
+
+    const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
+    const names = within(group)
+      .getAllByRole('button')
+      .map((b) => b.textContent.replace(/\s*·.*$/, ''));
+    expect(names).toEqual(['Todas', 'Primera', 'Segunda', 'Sin tienda']);
+
+    // The filter param contract is unchanged: the raw store id.
+    await userEvent.click(within(group).getByRole('button', { name: /Primera/ }));
+    await waitFor(() => expect(lastBoardParams().stores).toBe('57997'));
+  });
+
   it('asks for the last 30 days by product, compared with the previous period, sorted by gross', async () => {
     await renderWithRouter(<MetricasML />);
 
@@ -92,7 +115,7 @@ describe('MetricasML page', () => {
     await renderWithRouter(<MetricasML />);
     await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
 
-    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por tienda oficial' })).getByRole('button', { name: /TP-Link Oficial/ }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por tienda oficial' })).getByRole('button', { name: /TP-Link/ }));
     await userEvent.click(screen.getByRole('button', { name: /Pausada/ }));
     await userEvent.click(screen.getByRole('button', { name: /^Full/ }));
     await userEvent.click(screen.getByRole('button', { name: /Sin ventas 30d/ }));

@@ -5,6 +5,7 @@ import { toLocalTimestamp } from '../utils/dateUtils';
 import styles from './ExportModal.module.css';
 import { buildFilterQueryString } from './exportFilterParams';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 
 /**
  * Tiendas oficiales (multi-select) para filtrar a nivel MLA.
@@ -14,25 +15,26 @@ import { usePermisos } from '../contexts/PermisosContext';
  * 'sin_tienda' es un sentinel literal → mlp_official_store_id IS NULL en backend.
  * El resto son IDs numéricos como string para preservar tipos al serializar.
  */
-const TIENDAS_OFICIALES_OPCIONES = [
-  { id: 'sin_tienda', label: 'Sin tienda' },
-  { id: '57997', label: 'Gauss' },
-  { id: '2645', label: 'TP-Link' },
-  { id: '144', label: 'Forza/Verbatim' },
-  { id: '191942', label: 'Multi-marca' },
+const TIENDA_SIN_TIENDA = { id: 'sin_tienda', label: 'Sin tienda' };
+
+/** "Sin tienda" + las tiendas activas (nombres definidos en Admin > Tiendas Oficiales). */
+const armarOpcionesTiendas = (activas) => [
+  TIENDA_SIN_TIENDA,
+  ...activas.map((tienda) => ({ id: String(tienda.store_id), label: tienda.nombre })),
 ];
 
-const TIENDAS_OFICIALES_IDS = TIENDAS_OFICIALES_OPCIONES.map(t => t.id);
-
 /**
- * Serializa el Set de IDs de tiendas oficiales a CSV para el backend.
+ * Serializa las tiendas oficiales tildadas a CSV para el backend.
+ * `destildadas` es el Set de IDs que el usuario sacó (vacío = todas tildadas,
+ * el default, sin importar cuántas tiendas haya).
  * Devuelve null cuando todas o ninguna están tildadas (= sin filtro efectivo).
  */
-const serializarTiendasOficiales = (set) => {
-  if (!set || set.size === 0 || set.size === TIENDAS_OFICIALES_IDS.length) {
+const serializarTiendasOficiales = (opciones, destildadas) => {
+  const tildadas = opciones.filter((opcion) => !destildadas.has(opcion.id)).map((opcion) => opcion.id);
+  if (tildadas.length === 0 || tildadas.length === opciones.length) {
     return null;
   }
-  return Array.from(set).join(',');
+  return tildadas.join(',');
 };
 
 /**
@@ -44,7 +46,9 @@ const serializarTiendasOficiales = (set) => {
  * Display de filtros activos — definido fuera del componente
  * para evitar re-creación en cada render (rompe reconciliación React).
  */
-const FiltrosActivosDisplay = ({ filtrosActivos }) => (
+const FiltrosActivosDisplay = ({ filtrosActivos }) => {
+  const { getLabel } = useTiendasOficiales();
+  return (
   <div className={styles.filtrosActivos}>
     {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
     {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
@@ -84,12 +88,12 @@ const FiltrosActivosDisplay = ({ filtrosActivos }) => (
     {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
     {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
     {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
-    {filtrosActivos?.filtroTiendaOficial === '57997' && <div>• Tienda Oficial: Gauss</div>}
-    {filtrosActivos?.filtroTiendaOficial === '2645' && <div>• Tienda Oficial: TP-Link</div>}
-    {filtrosActivos?.filtroTiendaOficial === '144' && <div>• Tienda Oficial: Forza/Verbatim</div>}
-    {filtrosActivos?.filtroTiendaOficial === '191942' && <div>• Tienda Oficial: Multi-marca</div>}
+    {filtrosActivos?.filtroTiendaOficial && filtrosActivos.filtroTiendaOficial !== 'todos' && (
+      <div>• Tienda Oficial: {getLabel(filtrosActivos.filtroTiendaOficial)}</div>
+    )}
   </div>
-);
+  );
+};
 
 export default function ExportModal({ onClose, filtrosActivos, showToast, esTienda = false }) {
   const { tienePermiso } = usePermisos();
@@ -141,22 +145,24 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
   // Tiendas oficiales (filtro a nivel MLA, solo aplica en tabs Rebate/Clásica/PVP).
   // Default: todas tildadas → no filtra (idéntico al comportamiento actual).
-  const [tiendasOficialesMLA, setTiendasOficialesMLA] = useState(
-    () => new Set(TIENDAS_OFICIALES_IDS)
-  );
+  // Se guardan las DESTILDADAS: vacío = todas tildadas, aunque las tiendas
+  // lleguen después (nombres e IDs vienen de la API).
+  const { activas: tiendasActivas } = useTiendasOficiales();
+  const opcionesTiendas = armarOpcionesTiendas(tiendasActivas);
+  const [tiendasDestildadas, setTiendasDestildadas] = useState(() => new Set());
 
   /**
    * Render del display informativo del subset activo (Spec R2 scenario 4).
    * Solo se muestra cuando `serializarTiendasOficiales` produce un CSV no-null,
    * es decir SOLO cuando el filtro está aplicando (subset estricto).
-   * Se mantiene SEPARADO de `FiltrosActivosDisplay` porque `tiendasOficialesMLA`
+   * Se mantiene SEPARADO de `FiltrosActivosDisplay` porque `tiendasDestildadas`
    * NO es un filtro de productos — viaja por su propia vía al backend.
    */
   const renderTiendasOficialesActivas = () => {
-    const csv = serializarTiendasOficiales(tiendasOficialesMLA);
+    const csv = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
     if (!csv) return null; // todas o ninguna tildada → sin filtro efectivo
-    const labels = TIENDAS_OFICIALES_OPCIONES
-      .filter(opcion => tiendasOficialesMLA.has(opcion.id))
+    const labels = opcionesTiendas
+      .filter(opcion => !tiendasDestildadas.has(opcion.id))
       .map(opcion => opcion.label)
       .join(', ');
     return (
@@ -183,16 +189,16 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     <div className={styles.formGroup}>
       <label className={styles.label}>Tiendas oficiales (MLAs):</label>
       <div className={styles.tiendasOficialesGroup}>
-        {TIENDAS_OFICIALES_OPCIONES.map(opcion => (
+        {opcionesTiendas.map(opcion => (
           <label key={opcion.id} className={styles.tiendaCheckboxLabel}>
             <input
               type="checkbox"
-              checked={tiendasOficialesMLA.has(opcion.id)}
+              checked={!tiendasDestildadas.has(opcion.id)}
               onChange={(e) => {
-                const next = new Set(tiendasOficialesMLA);
-                if (e.target.checked) next.add(opcion.id);
-                else next.delete(opcion.id);
-                setTiendasOficialesMLA(next);
+                const next = new Set(tiendasDestildadas);
+                if (e.target.checked) next.delete(opcion.id);
+                else next.add(opcion.id);
+                setTiendasDestildadas(next);
               }}
             />
             {opcion.label}
@@ -412,7 +418,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
       // Tiendas oficiales viajan en el TOP-LEVEL del body (no dentro de filtros)
       // porque en backend el campo está en ExportRebateRequest.tiendas_oficiales.
-      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      const tiendasOfMLA = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
       if (tiendasOfMLA) {
         body.tiendas_oficiales = tiendasOfMLA;
       }
@@ -449,7 +455,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       // Filtro de tiendas oficiales a nivel MLA (independiente de aplicarFiltros).
-      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      const tiendasOfMLA = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
       if (tiendasOfMLA) {
         params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }
@@ -622,7 +628,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       // Filtro de tiendas oficiales a nivel MLA (independiente de aplicarFiltros).
-      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      const tiendasOfMLA = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
       if (tiendasOfMLA) {
         params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }

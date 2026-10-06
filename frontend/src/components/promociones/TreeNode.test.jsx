@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
 import { promocionesAPI } from '../../services/api';
 import { useTreeViewStore } from '../../store/treeViewStore';
+import { seedTiendasOficiales } from '../../test/tiendasOficialesFixtures';
 
 // Mock the leaf promo panel so prop-threading assertions can inspect exactly
 // what reaches it, without depending on its own fetch/reload internals.
@@ -39,6 +40,7 @@ vi.mock('./PxqPanel', () => ({
 }));
 
 vi.mock('../../services/api', () => ({
+  default: { get: vi.fn(() => Promise.resolve({ data: [] })) },
   promocionesAPI: {
     refreshItemPromociones: vi.fn(),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
@@ -655,6 +657,7 @@ describe('TreeNode publication status badge (restores old flat panel publication
 describe('TreeNode official store badge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    seedTiendasOficiales([{ store_id: 57997, nombre: 'Gauss Renombrada', clave: null, orden: 0, activa: true }]);
     mockTienePermiso.mockReturnValue(true);
     useTreeViewStore.setState({ showFamilia: false });
   });
@@ -670,16 +673,16 @@ describe('TreeNode official store badge', () => {
     };
   }
 
-  it('renders the display label for a known store id', () => {
+  it('renders the admin-defined name for a known store id', () => {
     renderNode(buildStoreNode(57997));
 
-    expect(screen.getByText(/gauss/i)).toBeInTheDocument();
+    expect(screen.getByText('Gauss Renombrada')).toBeInTheDocument();
   });
 
-  it('renders the raw id for an unknown store id', () => {
+  it('renders "Tienda <id>" for an unknown store id', () => {
     renderNode(buildStoreNode(999999));
 
-    expect(screen.getByText('999999')).toBeInTheDocument();
+    expect(screen.getByText('Tienda 999999')).toBeInTheDocument();
   });
 
   it('renders "Sin tienda" when official_store_id is null', () => {

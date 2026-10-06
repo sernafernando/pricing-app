@@ -11,6 +11,7 @@ import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
 import DateRangeFilter from '../components/DateRangeFilter';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Tag, Package, Truck, Store, X, Star, RefreshCw, Download } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
@@ -47,6 +48,7 @@ export default function DashboardMetricasML() {
   const fechaHasta = getFilter('fecha_hasta');
   const marcasQuery = getFilter('marcas');
   const categoriasQuery = getFilter('categorias');
+  const { activas: tiendasActivas, getLabel } = useTiendasOficiales();
   const tiendasOficialesQuery = getFilter('tiendas_oficiales');
   const pmsQuery = getFilter('pms');
   
@@ -522,38 +524,16 @@ export default function DashboardMetricasML() {
                   </div>
                 )}
                 <div className={styles.multiSelectOptions}>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('57997')}
-                      onChange={() => toggleTiendaOficial('57997')}
-                    />
-                    <span>Gauss</span>
-                  </label>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('2645')}
-                      onChange={() => toggleTiendaOficial('2645')}
-                    />
-                    <span>TP-Link</span>
-                  </label>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('144')}
-                      onChange={() => toggleTiendaOficial('144')}
-                    />
-                    <span>Forza/Verbatim</span>
-                  </label>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('191942')}
-                      onChange={() => toggleTiendaOficial('191942')}
-                    />
-                    <span>Multi-marca</span>
-                  </label>
+                  {tiendasActivas.map(({ store_id: id, nombre }) => (
+                    <label key={id} className={styles.multiSelectOption}>
+                      <input
+                        type="checkbox"
+                        checked={tiendasOficialesSeleccionadas.includes(String(id))}
+                        onChange={() => toggleTiendaOficial(String(id))}
+                      />
+                      <span>{nombre}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
             </div>
@@ -732,13 +712,7 @@ export default function DashboardMetricasML() {
           {tiendasOficialesSeleccionadas.length > 0 && (
             <div className={styles.bannerTiendaOficial}>
               <Store size={14} /> Filtrando por: <strong>
-                {tiendasOficialesSeleccionadas.map(id => {
-                  if (id === '57997') return 'Gauss';
-                  if (id === '2645') return 'TP-Link';
-                  if (id === '144') return 'Forza/Verbatim';
-                  if (id === '191942') return 'Multi-marca';
-                  return id;
-                }).join(', ')}
+                {tiendasOficialesSeleccionadas.map(id => getLabel(id)).join(', ')}
               </strong>
             </div>
           )}

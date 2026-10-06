@@ -79,7 +79,8 @@ import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
-import { storeFilterChips } from '../constants/tiendasOficiales';
+import { buildStoreChips } from '../constants/tiendasOficiales';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { exportVentasCsv } from '../utils/ventasMlExport';
 import { buildMlSaleUrl, openInMlPanel } from '../utils/mlSidePanel';
 import {
@@ -161,6 +162,7 @@ export default function VentasML() {
   const [operationStatusFilter, setOperationStatusFilter] = useState('');
   const [goodsStatusFilter, setGoodsStatusFilter] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
+  const { activas, getLabel } = useTiendasOficiales();
   // No default range: unlike the métricas dashboard this list starts
   // unfiltered by date, so `dateRangeFiltro` stays `null` until the
   // operator picks a preset or a custom range.
@@ -776,7 +778,7 @@ export default function VentasML() {
             </span>
             <FacetChips
               label="Filtrar por tienda oficial"
-              {...storeFilterChips(facets.stores, storeFilter)}
+              {...buildStoreChips({ activas, getLabel, counts: facets.stores, selected: storeFilter })}
               counts={facets.stores}
               total={facets.stores_total}
               activeValue={storeFilter}
