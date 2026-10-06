@@ -19,7 +19,7 @@ from app.services.ml_publications import events as events_module
 from app.services.ml_publications.diff import diff, split_excluded
 from app.services.ml_publications.events import ChangeRow, Event, dedupe_key, derive_events
 from app.services.ml_publications.resources import RESOURCES
-from app.services.ml_publications.store import _context
+from app.services.ml_publications.store import item_context
 from tests.services.ml_publications.conftest import bulk_item, item_with_variations, sample_item
 
 SPEC = RESOURCES["item"]
@@ -48,7 +48,7 @@ def row_for(
         observed_at=T_OBSERVED,
         source_last_updated=new_typed["ml_last_updated"],
         changes=[c.as_dict() for c in reportable],
-        context=_context(old_typed, new_typed, first_active_before),
+        context=item_context(old_typed, new_typed, first_active_before),
     )
 
 

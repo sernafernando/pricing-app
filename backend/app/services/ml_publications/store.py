@@ -63,7 +63,7 @@ class ApplyCounters:
     noise_suppressed: Counter = field(default_factory=Counter)  # (resource, path) -> count
 
 
-def _context(old: Mapping[str, Any], new: Mapping[str, Any], first_active_before: Optional[datetime]) -> dict:
+def item_context(old: Mapping[str, Any], new: Mapping[str, Any], first_active_before: Optional[datetime]) -> dict:
     """Minimal inputs event rules need beyond the changed paths (design D8)."""
     return {
         "status_old": old.get("status"),
@@ -262,7 +262,7 @@ def _apply_state(
         new_hash,
         response,
         incoming_last_updated,
-        _context(old_snapshot, typed or old_snapshot, first_active_before),
+        item_context(old_snapshot, typed or old_snapshot, first_active_before),
     )
     return ApplyOutcome(
         "restored" if restoring else "changed",
@@ -344,7 +344,7 @@ def _not_found(
         bytes(row.raw_hash),
         response,
         None,
-        _context(snapshot, snapshot, row.first_active_at),
+        item_context(snapshot, snapshot, row.first_active_at),
     )
     return ApplyOutcome("gone", change_log_id=entry.id, events=_emit_events(db, entry, events_enabled))
 

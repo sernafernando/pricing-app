@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import text
 
 from app.scripts import ml_publications_events_rederive
-from app.services.ml_publications import ml_http
+from app.services.ml_publications import events_store, ml_http
 from app.services.ml_publications.settings_store import set_setting
 from tests.services.ml_publications.conftest import mlpub_pg, sample_item  # noqa: F401  (fixture re-export)
 from tests.services.ml_publications.test_store_apply_fetch import ACTIVE, apply
@@ -64,7 +64,5 @@ class TestRederiveCli:
         assert ml_publications_events_rederive.main(["--batch-size", "0"]) == 2
 
     def test_rejects_a_batch_size_above_the_cap(self, paused_item, capsys) -> None:
-        from app.services.ml_publications import events_store
-
         assert ml_publications_events_rederive.main(["--batch-size", str(events_store.MAX_BATCH_SIZE + 1)]) == 2
         assert "at most" in capsys.readouterr().err
