@@ -3,6 +3,9 @@ operational tables of the refresh pipeline.
 
 Mirrors `alembic/versions/20261006_ml_publications_core.py`. Data comes only
 from MercadoLibre: no column or foreign key points at a GBP/ERP table.
+
+`fillfactor = 85` on `ml_items` / `ml_item_variations` is set by the migration only
+(SQLAlchemy has no table-level `postgresql_with`); Alembic autogenerate does not compare it.
 """
 
 from sqlalchemy import (
@@ -11,6 +14,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
@@ -28,6 +32,17 @@ _TS = DateTime(timezone=True)
 
 class MlItem(Base):
     __tablename__ = "ml_items"
+    __table_args__ = (
+        Index("ix_ml_items_status", "status"),
+        Index("ix_ml_items_official_store_id", "official_store_id"),
+        Index("ix_ml_items_brand", "brand"),
+        Index("ix_ml_items_user_product_id", "user_product_id"),
+        Index("ix_ml_items_family_id", "family_id"),
+        Index("ix_ml_items_catalog_product_id", "catalog_product_id"),
+        Index("ix_ml_items_seller_custom_field", "seller_custom_field"),
+        Index("ix_ml_items_seller_sku", "seller_sku"),
+        Index("ix_ml_items_gone_at", "gone_at", postgresql_where=text("gone_at IS NOT NULL")),
+    )
 
     item_id = Column(Text, primary_key=True)
     site_id = Column(Text)
@@ -106,6 +121,12 @@ class MlItemVariation(Base):
 
 class MlChangeLog(Base):
     __tablename__ = "ml_change_log"
+    __table_args__ = (
+        Index("ix_ml_change_log_item", "item_id", text("observed_at DESC"), text("id DESC")),
+        Index("ix_ml_change_log_entity", "resource_type", "entity_id", text("observed_at DESC")),
+        Index("ix_ml_change_log_paths", "changed_paths", postgresql_using="gin"),
+        Index("ix_ml_change_log_observed_brin", "observed_at", postgresql_using="brin"),
+    )
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     resource_type = Column(Text, nullable=False)
@@ -123,6 +144,12 @@ class MlChangeLog(Base):
 
 class MlItemEvent(Base):
     __tablename__ = "ml_item_events"
+    __table_args__ = (
+        Index("ix_ml_item_events_item", "item_id", text("observed_at DESC"), text("id DESC")),
+        Index("ix_ml_item_events_type", "event_type", text("observed_at DESC"), text("id DESC")),
+        Index("ix_ml_item_events_store", "official_store_id", "event_type", text("observed_at DESC")),
+        Index("ix_ml_item_events_change_log", "change_log_id"),
+    )
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     event_type = Column(Text, nullable=False)
@@ -152,6 +179,17 @@ class MlPubSetting(Base):
 
 class MlPubRefreshQueue(Base):
     __tablename__ = "ml_pub_refresh_queue"
+    __table_args__ = (
+        Index(
+            "ix_ml_pub_refresh_queue_ready",
+            "lane",
+            "not_before",
+            "first_enqueued_at",
+            postgresql_where=text("claimed_at IS NULL AND parked_at IS NULL"),
+        ),
+        Index("ix_ml_pub_refresh_queue_claimed", "claimed_at", postgresql_where=text("claimed_at IS NOT NULL")),
+        Index("ix_ml_pub_refresh_queue_parked", "parked_at", postgresql_where=text("parked_at IS NOT NULL")),
+    )
 
     kind = Column(Text, primary_key=True)
     entity_id = Column(Text, primary_key=True)
@@ -204,6 +242,7 @@ class MlPubScanState(Base):
 
 class MlPubJobRun(Base):
     __tablename__ = "ml_pub_job_runs"
+    __table_args__ = (Index("ix_ml_pub_job_runs_job", "job", text("started_at DESC")),)
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     job = Column(Text, nullable=False)
