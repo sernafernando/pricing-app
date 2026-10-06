@@ -21,20 +21,35 @@ vi.mock('../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
+// What the server answers for the product option lists: each one narrowed by
+// the OTHER active filters (here: a brand, a category), never by its own.
+const PRODUCT_OPTIONS = {
+  marcas: ['Sony', 'LG'],
+  categorias: ['Audio', 'Video'],
+  subcategorias: [
+    { nombre: 'Audio', subcategorias: [{ id: 3, nombre: 'Parlantes' }] },
+    { nombre: 'Video', subcategorias: [{ id: 7, nombre: 'Televisores' }] },
+  ],
+  pms: [{ id: 10, nombre: 'Ana' }],
+};
+const SONY_OPTIONS = {
+  marcas: ['Sony', 'LG'],
+  categorias: ['Audio'],
+  subcategorias: [{ nombre: 'Audio', subcategorias: [{ id: 3, nombre: 'Parlantes' }] }],
+  pms: [{ id: 10, nombre: 'Ana' }],
+};
+
+function salesResponse(params = {}, total = 0) {
+  const product = params.marcas === 'Sony' ? SONY_OPTIONS : PRODUCT_OPTIONS;
+  return { data: { sales: [], total, limit: 50, offset: 0, facets: { product } } };
+}
+
 function mockAllEndpoints() {
-  api.get.mockImplementation((url) => {
-    if (url === '/ml-ventas-ops/sales') {
-      return Promise.resolve({
-        data: { sales: [], total: 0, limit: 50, offset: 0, facets: {} },
-      });
-    }
-    if (url === '/usuarios/pms') {
-      return Promise.resolve({ data: [] });
-    }
+  api.get.mockImplementation((url, config) => {
+    if (url === '/ml-ventas-ops/sales') return Promise.resolve(salesResponse(config?.params));
+    if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
     return Promise.resolve({ data: {} });
   });
-  productosAPI.marcas.mockResolvedValue({ data: { marcas: ['Sony', 'LG'] } });
-  productosAPI.subcategorias.mockResolvedValue({ data: { categorias: [] } });
 }
 
 beforeEach(() => {
@@ -44,12 +59,43 @@ beforeEach(() => {
   mockAllEndpoints();
 });
 
-describe('Product filters (marca / subcategoría / PM) on VentasML', () => {
+describe('Product filters (marca / categoría / subcategoría / PM) on VentasML', () => {
+  it('offers the lists the sales response carries, loading none of its own', async () => {
+    await renderWithRouter(<VentasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Categoría' }));
+
+    expect(await screen.findByText('Video')).toBeInTheDocument();
+    expect(productosAPI.marcas).not.toHaveBeenCalled();
+    expect(productosAPI.subcategorias).not.toHaveBeenCalled();
+    expect(api.get).not.toHaveBeenCalledWith('/usuarios/pms', expect.anything());
+  });
+
+  it('sends the selected categoría as `categorias` on GET /ml-ventas-ops/sales', async () => {
+    await renderWithRouter(<VentasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Categoría' }));
+    await userEvent.click(await screen.findByText('Audio'));
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/ml-ventas-ops/sales',
+        expect.objectContaining({ params: expect.objectContaining({ categorias: 'Audio' }) }),
+      );
+    });
+  });
+
+  it('picking a brand narrows the categories and subcategories offered next', async () => {
+    await renderWithRouter(<VentasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Marca' }));
+    await userEvent.click(await screen.findByText('Sony'));
+
+    await userEvent.click(await screen.findByRole('button', { name: /Categoría/ }));
+    expect(await screen.findByText('Audio')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Video')).not.toBeInTheDocument());
+  });
+
   it('sends the selected marca as `marcas` on GET /ml-ventas-ops/sales', async () => {
     await renderWithRouter(<VentasML />);
-    await waitFor(() => expect(screen.getByText('Marca')).toBeInTheDocument());
-
-    await userEvent.click(screen.getByText('Marca'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Marca' }));
     const sonyOption = await screen.findByText('Sony');
     await userEvent.click(sonyOption);
 
@@ -66,18 +112,14 @@ describe('Product filters (marca / subcategoría / PM) on VentasML', () => {
     // Without it, picking a brand while on page 3 renders "no hay ventas que
     // coincidan" for a brand that DOES have sales -- they are on page 1, and
     // nothing on screen says so.
-    api.get.mockImplementation((url) => {
-      if (url === '/ml-ventas-ops/sales') {
-        return Promise.resolve({
-          data: { sales: [], total: 300, limit: 50, offset: 0, facets: {} },
-        });
-      }
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-ventas-ops/sales') return Promise.resolve(salesResponse(config?.params, 300));
       if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
 
     await renderWithRouter(<VentasML />);
-    await waitFor(() => expect(screen.getByText('Marca')).toBeInTheDocument());
+    await screen.findByRole('button', { name: 'Marca' });
 
     // Actually navigate away from page 1. `?offset=` in the URL does NOT work
     // here: this screen never read pagination from the URL, so seeding it that
@@ -89,7 +131,7 @@ describe('Product filters (marca / subcategoría / PM) on VentasML', () => {
       expect(tras[1].params.offset).toBeGreaterThan(0);
     });
 
-    await userEvent.click(screen.getByText('Marca'));
+    await userEvent.click(screen.getByRole('button', { name: 'Marca' }));
     await userEvent.click(await screen.findByText('Sony'));
 
     await waitFor(() => {

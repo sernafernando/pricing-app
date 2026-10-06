@@ -7,7 +7,7 @@ const BASE = {
   compararCon: 'periodo_anterior',
   groupBy: 'product',
   searchQuery: '',
-  productFilters: { marcas: [], subcategorias: [], pms: [] },
+  productFilters: { marcas: [], categorias: [], subcategorias: [], pms: [] },
   storeFilter: '',
   pubStatus: [],
   pubType: [],
@@ -46,7 +46,7 @@ describe('buildMetricasMLParams', () => {
     const params = buildMetricasMLParams({
       ...BASE,
       searchQuery: 'epson',
-      productFilters: { marcas: ['Epson', 'Sony'], subcategorias: [3], pms: [7] },
+      productFilters: { marcas: ['Epson', 'Sony'], categorias: ['Impresoras', 'Insumos'], subcategorias: [3], pms: [7] },
       storeFilter: '57997',
       pubStatus: ['active', 'paused'],
       pubType: ['full'],
@@ -55,6 +55,7 @@ describe('buildMetricasMLParams', () => {
     expect(params).toMatchObject({
       q: 'epson',
       marcas: 'Epson,Sony',
+      categorias: 'Impresoras,Insumos',
       subcategorias: '3',
       pms: '7',
       stores: '57997',

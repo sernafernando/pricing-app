@@ -15,7 +15,8 @@ import { useCallback, useMemo } from 'react';
  * not local-only state, so a shared link or a page reload keeps the same
  * results the operator was looking at.
  *
- * `ventas-ml-filtros-producto` adds `marcas` / `subcategorias` / `pms`,
+ * `ventas-ml-filtros-producto` adds `marcas` / `subcategorias` / `pms`
+ * (and `metricas-ml-filtros-dinamicos` `categorias`),
  * same convention again: CSV params, set when non-empty, deleted (never
  * written as an empty string) when cleared — exactly the `q` pattern
  * above, not a new one.
@@ -35,12 +36,14 @@ export function useVentasMLFilters() {
   const searchQuery = qParam ?? '';
 
   const marcasParam = searchParams.get('marcas');
+  const categoriasParam = searchParams.get('categorias');
   const subcategoriasParam = searchParams.get('subcategorias');
   const pmsParam = searchParams.get('pms');
 
   const productFilters = useMemo(
     () => ({
       marcas: marcasParam ? marcasParam.split(',').filter(Boolean) : [],
+      categorias: categoriasParam ? categoriasParam.split(',').filter(Boolean) : [],
       subcategorias: subcategoriasParam
         ? subcategoriasParam
             .split(',')
@@ -54,7 +57,7 @@ export function useVentasMLFilters() {
             .filter((v) => !Number.isNaN(v))
         : [],
     }),
-    [marcasParam, subcategoriasParam, pmsParam],
+    [marcasParam, categoriasParam, subcategoriasParam, pmsParam],
   );
   // Order/pack ids are numeric on this screen (`order_id`/`pack_id` from
   // ML) — parsed once here so every consumer (the panel's fetch, the
@@ -139,10 +142,13 @@ export function useVentasMLFilters() {
         (prev) => {
           const nextParams = new URLSearchParams(prev);
           const marcas = next.marcas || [];
+          const categorias = next.categorias || [];
           const subcategorias = next.subcategorias || [];
           const pms = next.pms || [];
           if (marcas.length > 0) nextParams.set('marcas', marcas.join(','));
           else nextParams.delete('marcas');
+          if (categorias.length > 0) nextParams.set('categorias', categorias.join(','));
+          else nextParams.delete('categorias');
           if (subcategorias.length > 0) nextParams.set('subcategorias', subcategorias.join(','));
           else nextParams.delete('subcategorias');
           if (pms.length > 0) nextParams.set('pms', pms.join(','));
@@ -160,6 +166,7 @@ export function useVentasMLFilters() {
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete('marcas');
+        next.delete('categorias');
         next.delete('subcategorias');
         next.delete('pms');
         return next;

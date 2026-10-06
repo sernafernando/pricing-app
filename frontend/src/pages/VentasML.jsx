@@ -432,6 +432,7 @@ export default function VentasML() {
       fechaHasta ||
       searchQuery ||
       productFilters.marcas.length > 0 ||
+      productFilters.categorias.length > 0 ||
       productFilters.subcategorias.length > 0 ||
       productFilters.pms.length > 0 ||
       !includeUnknown ||
@@ -819,7 +820,11 @@ export default function VentasML() {
         <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Producto:</span>
-            <ProductFiltersPanel value={productFilters} onChange={handleProductFiltersChange} />
+            <ProductFiltersPanel
+              value={productFilters}
+              onChange={handleProductFiltersChange}
+              options={facets?.product}
+            />
           </div>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Incluir:</span>

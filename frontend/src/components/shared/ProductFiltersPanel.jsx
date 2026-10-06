@@ -3,14 +3,17 @@ import { useProductFilters } from '../../hooks/useProductFilters';
 import styles from './ProductFiltersPanel.module.css';
 
 /**
- * ProductFiltersPanel — the shared marca/subcategoría/PM filter trio.
+ * ProductFiltersPanel — the shared marca / categoría / subcategoría / PM
+ * filter set.
  *
- * Self-contained on purpose (see `odd/tasks/ventas-ml-filtros-producto.md`):
- * it owns its own option loading and PM-narrowing through
- * `useProductFilters`, and exposes a plain controlled-value contract
- * (`value` / `onChange`) with no knowledge of any specific screen. Ventas ML
- * is the first caller; the next screen (Productos, Rentabilidad,
- * TiendaNube) wires it the same way, without touching this file.
+ * A plain controlled-value contract (`value` / `onChange`) with no knowledge
+ * of any specific screen. The OPTIONS come from the screen's own response
+ * (`options` = its `facets.product`), already cross-filtered by the server:
+ * every other active filter (and the store) narrows each list, never its own,
+ * so picking a brand only offers its categories, subcategories and PMs, and
+ * picking a PM only offers its brands, and so on (ODD
+ * `metricas-ml-filtros-dinamicos`). Ventas ML and Métricas ML wire it the
+ * same way (see `odd/tasks/ventas-ml-filtros-producto.md` for the origin).
  *
  * Styled entirely through `ProductFiltersPanel.module.css`, not by reusing
  * any page's global CSS: `.filter-button`, `.advanced-filters-panel`,
@@ -23,28 +26,37 @@ import styles from './ProductFiltersPanel.module.css';
  * mode regardless of navigation history.
  *
  * @param {Object} props
- * @param {{marcas: string[], subcategorias: number[], pms: number[]}} props.value
- * @param {(next: {marcas: string[], subcategorias: number[], pms: number[]}) => void} props.onChange
+ * @param {{marcas: string[], categorias: string[], subcategorias: number[], pms: number[]}} props.value
+ * @param {(next: {marcas: string[], categorias: string[], subcategorias: number[], pms: number[]}) => void} props.onChange
+ * @param {{marcas: string[], categorias: string[], subcategorias: object[], pms: object[]}} [props.options]
+ *   The cross-filtered lists; empty until the screen's first response.
  */
-export default function ProductFiltersPanel({ value, onChange }) {
-  const [panelAbierto, setPanelAbierto] = useState(null); // 'marcas' | 'subcategorias' | 'pms' | null
+export default function ProductFiltersPanel({ value, onChange, options }) {
+  const [panelAbierto, setPanelAbierto] = useState(null); // 'marcas' | 'categorias' | 'subcategorias' | 'pms' | null
   const containerRef = useRef(null);
 
   const {
     selectedMarcas,
+    selectedCategorias,
     selectedSubcategorias,
     selectedPms,
     marcasFiltradas,
+    categoriasFiltradas,
     subcategoriaGruposFiltrados,
     pmOptions,
     busquedaMarca,
     setBusquedaMarca,
+    busquedaCategoria,
+    setBusquedaCategoria,
     busquedaSubcategoria,
     setBusquedaSubcategoria,
+    isMarcaSelected,
+    isCategoriaSelected,
     toggleMarca,
+    toggleCategoria,
     toggleSubcategoria,
     togglePm,
-  } = useProductFilters({ value, onChange });
+  } = useProductFilters({ value, onChange, options });
 
   const togglePanel = (panel) => setPanelAbierto((prev) => (prev === panel ? null : panel));
 
@@ -106,6 +118,17 @@ export default function ProductFiltersPanel({ value, onChange }) {
 
         <button
           type="button"
+          className={`${styles.filterButton} ${selectedCategorias.length > 0 ? styles.filterButtonActive : ''}`}
+          onClick={() => togglePanel('categorias')}
+        >
+          Categoría
+          {selectedCategorias.length > 0 && (
+            <span className={styles.filterBadge}>{selectedCategorias.length}</span>
+          )}
+        </button>
+
+        <button
+          type="button"
           className={`${styles.filterButton} ${selectedSubcategorias.length > 0 ? styles.filterButtonActive : ''}`}
           onClick={() => togglePanel('subcategorias')}
         >
@@ -153,14 +176,54 @@ export default function ProductFiltersPanel({ value, onChange }) {
                 {marcasFiltradas.map((marca) => (
                   <label
                     key={marca}
-                    className={`${styles.item} ${selectedMarcas.includes(marca) ? styles.itemSelected : ''}`}
+                    className={`${styles.item} ${isMarcaSelected(marca) ? styles.itemSelected : ''}`}
                   >
                     <input
                       type="checkbox"
-                      checked={selectedMarcas.includes(marca)}
+                      checked={isMarcaSelected(marca)}
                       onChange={() => toggleMarca(marca)}
                     />
                     <span>{marca}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {panelAbierto === 'categorias' && (
+            <>
+              <div className={styles.dropdownHeaderRow}>
+                <h3>Categorías</h3>
+                {selectedCategorias.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...value, categorias: [] })}
+                    className={styles.clearButton}
+                  >
+                    Limpiar filtros ({selectedCategorias.length})
+                  </button>
+                )}
+              </div>
+              <div className={styles.searchWrap}>
+                <input
+                  type="text"
+                  placeholder="Buscar categoría..."
+                  value={busquedaCategoria}
+                  onChange={(e) => setBusquedaCategoria(e.target.value)}
+                />
+              </div>
+              <div className={styles.content}>
+                {categoriasFiltradas.map((categoria) => (
+                  <label
+                    key={categoria}
+                    className={`${styles.item} ${isCategoriaSelected(categoria) ? styles.itemSelected : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isCategoriaSelected(categoria)}
+                      onChange={() => toggleCategoria(categoria)}
+                    />
+                    <span>{categoria}</span>
                   </label>
                 ))}
               </div>
@@ -191,8 +254,8 @@ export default function ProductFiltersPanel({ value, onChange }) {
               </div>
               <div className={styles.content}>
                 {subcategoriaGruposFiltrados.map((grupo) => (
-                  <div key={grupo.categoria}>
-                    <div className={styles.groupLabel}>{grupo.categoria}</div>
+                  <div key={grupo.nombre}>
+                    <div className={styles.groupLabel}>{grupo.nombre}</div>
                     {grupo.subcategorias.map((sub) => (
                       <label
                         key={sub.id}

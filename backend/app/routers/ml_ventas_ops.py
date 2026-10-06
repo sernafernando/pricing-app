@@ -94,8 +94,10 @@ from app.services.ml_sales_query.filters import (
     effective_switches,
     alert_groups_count,
     excluded_by_toggle_counts,
+    sales_product_options,
     store_facet_counts,
 )
+from app.services.product_facets import ProductFacetOptions
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
 from app.services.ml_ventas_desglose.iva import descomponer_neto
@@ -912,6 +914,9 @@ class SaleFacetCounts(BaseModel):
     # count, both scoped by every OTHER filter, never by `stores` itself.
     stores: Dict[str, int] = Field(default_factory=dict)
     stores_total: int = 0
+    # ODD `metricas-ml-filtros-dinamicos`: marca / categoría / subcategoría / PM
+    # options, each scoped by every OTHER filter (stores included), never its own.
+    product: ProductFacetOptions = Field(default_factory=ProductFacetOptions)
 
 
 class SaleListResponse(BaseModel):
@@ -1239,6 +1244,7 @@ def listar_ventas(
         default=None, description="Búsqueda libre: order id, pack id, MLA, SKU, título o comprador (SEARCH R25)"
     ),
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
+    categorias: Optional[str] = Query(default=None, description="CSV de categorías (productos_erp.categoria)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
     stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
@@ -1307,6 +1313,7 @@ def listar_ventas(
         sort=sort,
         q=q,
         marcas=marcas,
+        categorias=categorias,
         subcategorias=subcategorias,
         pms=pms,
         stores=stores,
@@ -1332,6 +1339,7 @@ def _sales_page(
     sort: str,
     q: Optional[str],
     marcas: Optional[str],
+    categorias: Optional[str],
     subcategorias: Optional[str],
     pms: Optional[str],
     stores: Optional[str],
@@ -1393,6 +1401,7 @@ def _sales_page(
     # `productos_listing.py` -- `marcas` are brand NAMES (case-insensitive
     # compare done in `build_scope`), `subcategorias`/`pms` are integer ids.
     marcas_list = parse_csv_strings(marcas, "marcas")
+    categorias_list = parse_csv_strings(categorias, "categorias")
     subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
     pms_list = parse_csv_ids(pms, "pms")
     stores_list = parse_csv_stores(stores)
@@ -1405,25 +1414,24 @@ def _sales_page(
     # what the facet counts must use. `scope.listing_query` is that plus the
     # status filters (SEARCH R26: search intersects with the active filters,
     # never replaces them).
-    scope = build_scope(
-        db,
-        SalesFilter(
-            date_range=sold_range,
-            operation_status=operation_status_filter,
-            goods_status=goods_status_filter,
-            q=q,
-            marcas=marcas_list,
-            subcategorias=subcategorias_list,
-            pms=pms_list,
-            stores=stores_list,
-            include_unknown=include_unknown,
-            include_in_dispute=include_in_dispute,
-            include_mixed=include_mixed,
-            include_provisional=include_provisional,
-            include_cancelled=include_cancelled,
-            only_alerts=only_alerts,
-        ),
+    sales_filter = SalesFilter(
+        date_range=sold_range,
+        operation_status=operation_status_filter,
+        goods_status=goods_status_filter,
+        q=q,
+        marcas=marcas_list,
+        categorias=categorias_list,
+        subcategorias=subcategorias_list,
+        pms=pms_list,
+        stores=stores_list,
+        include_unknown=include_unknown,
+        include_in_dispute=include_in_dispute,
+        include_mixed=include_mixed,
+        include_provisional=include_provisional,
+        include_cancelled=include_cancelled,
+        only_alerts=only_alerts,
     )
+    scope = build_scope(db, sales_filter)
     op_status_expr = scope.op_status_expr
     goods_status_expr = scope.goods_status_expr
     facet_base = scope.facet_base
@@ -1726,6 +1734,7 @@ def _sales_page(
 
     goods_facet_total = goods_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
     store_counts, stores_total = store_facet_counts(scope)
+    product_options = sales_product_options(db, sales_filter, scope)
 
     return SaleListResponse(
         total=total,
@@ -1740,6 +1749,7 @@ def _sales_page(
             alerts_total=alert_groups_count(scope),
             stores=store_counts,
             stores_total=stores_total,
+            product=product_options,
         ),
     )
 
@@ -1869,6 +1879,7 @@ def exportar_ventas(
     date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
     q: Optional[str] = Query(default=None),
     marcas: Optional[str] = Query(default=None),
+    categorias: Optional[str] = Query(default=None),
     subcategorias: Optional[str] = Query(default=None),
     pms: Optional[str] = Query(default=None),
     stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
@@ -1897,6 +1908,7 @@ def exportar_ventas(
         sort=SORT_BY_SALE_DATE,
         q=q,
         marcas=marcas,
+        categorias=categorias,
         subcategorias=subcategorias,
         pms=pms,
         stores=stores,
@@ -2068,6 +2080,7 @@ def sales_kpis(
     date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
     q: Optional[str] = Query(default=None, description="Búsqueda libre, idéntica a GET /sales (SEARCH R25)"),
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
+    categorias: Optional[str] = Query(default=None, description="CSV de categorías (productos_erp.categoria)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
     stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
@@ -2123,6 +2136,7 @@ def sales_kpis(
         sold_range = _parse_sold_month(sold_month)
 
     marcas_list = parse_csv_strings(marcas, "marcas")
+    categorias_list = parse_csv_strings(categorias, "categorias")
     subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
     pms_list = parse_csv_ids(pms, "pms")
     stores_list = parse_csv_stores(stores)
@@ -2133,6 +2147,7 @@ def sales_kpis(
         goods_status=goods_status_filter,
         q=q,
         marcas=marcas_list,
+        categorias=categorias_list,
         subcategorias=subcategorias_list,
         pms=pms_list,
         stores=stores_list,

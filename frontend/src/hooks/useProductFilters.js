@@ -1,188 +1,136 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import api, { productosAPI } from '../services/api';
+import { useState, useMemo, useCallback } from 'react';
 
-const EMPTY_VALUE = { marcas: [], subcategorias: [], pms: [] };
+// Stable references: a fresh `[]` per render would defeat the memoised lists below.
+const NONE = [];
+const EMPTY_VALUE = { marcas: [], categorias: [], subcategorias: [], pms: [] };
+const EMPTY_OPTIONS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
+
+// Same normalisation as the server (`product_facets._upper`): trimmed, case-insensitive.
+const norm = (text) => text.trim().toLowerCase();
+const sameText = (a, b) => norm(a) === norm(b);
+const hasText = (list, item) => list.some((x) => sameText(x, item));
+
+const includesText = (text, needle) => text.toLowerCase().includes(needle.toLowerCase());
 
 /**
- * useProductFilters — self-contained state + data loading for the shared
- * product-filter trio (marca / subcategoría / PM).
+ * useProductFilters — selection + search state for the shared product-filter
+ * set (marca / categoría / subcategoría / PM).
  *
- * This hook is intentionally generic: it knows nothing about any specific
- * screen. It is controlled like a form field — the caller owns the
- * selection (`value`) and receives change requests through `onChange`, the
- * same shape any screen's own filter state (local or URL-backed) can
- * satisfy. `VentasML.jsx` is the first caller; the next screen wires it the
- * same way without touching this file.
+ * Controlled like a form field: the caller owns the selection (`value`) and
+ * receives change requests through `onChange`. The OPTIONS are not loaded
+ * here any more: each screen's own response carries them, already
+ * cross-filtered by the server (`facets.product`: every other active filter
+ * narrows each list, never its own), so the lists shrink and grow as the
+ * operator picks (`metricas-ml-filtros-dinamicos`). This hook only
+ *  - keeps a selected value visible even when the other filters rule it out
+ *    or the lists have not arrived / failed to load (so it can be unticked):
+ *    marca and categoría compare case-insensitively and the SERVER spelling
+ *    is the canonical one (a selection spelled differently shows once,
+ *    checked); a subcategoría or PM with no name on hand shows as
+ *    `Subcategoría #id` / `PM #id`, and
+ *  - filters the lists by the typed search, client-side.
  *
- * Behaviour ported from `Productos.jsx` / `useProductosFilters.js` on
- * purpose, not reinvented:
- *  - Options load once from `/marcas`, `/subcategorias`, `/usuarios/pms`.
- *  - Selecting one or more PMs narrows (never auto-selects) the marca and
- *    subcategoría options to only those PMs' own marcas/subcategorías,
- *    via `/pms/marcas` and `/pms/subcategorias` (`obtenerMarcasPorPMs` /
- *    `obtenerSubcategoriasPorPMs`).
- *  - A free-text search filters the marca/subcategoría lists client-side,
- *    on top of (not instead of) the PM narrowing.
+ * @param {{value?: object, onChange?: Function, options?: object}} [args]
+ *   `options`: `{marcas: string[], categorias: string[],
+ *   subcategorias: [{nombre, subcategorias: [{id, nombre}]}],
+ *   pms: [{id, nombre}]}`
  */
-export function useProductFilters({ value = EMPTY_VALUE, onChange } = {}) {
-  const selectedMarcas = value.marcas || [];
-  const selectedSubcategorias = value.subcategorias || [];
-  const selectedPms = value.pms || [];
-
-  const [marcaOptions, setMarcaOptions] = useState([]);
-  const [subcategoriaGroups, setSubcategoriaGroups] = useState([]); // [{categoria, subcategorias:[{id,nombre}]}]
-  const [pmOptions, setPmOptions] = useState([]);
-
-  const [marcasPorPM, setMarcasPorPM] = useState([]);
-  const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]);
+export function useProductFilters({ value = EMPTY_VALUE, onChange, options } = {}) {
+  const selectedMarcas = value.marcas ?? NONE;
+  const selectedCategorias = value.categorias ?? NONE;
+  const selectedSubcategorias = value.subcategorias ?? NONE;
+  const selectedPms = value.pms ?? NONE;
+  const offered = options ?? EMPTY_OPTIONS;
 
   const [busquedaMarca, setBusquedaMarca] = useState('');
+  const [busquedaCategoria, setBusquedaCategoria] = useState('');
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
 
-  // Options load once on mount — same as the initial PM/marcas/subcategorías
-  // loaders in `useTiendaData.js` (no filter dependencies).
-  useEffect(() => {
-    let cancelled = false;
-    productosAPI
-      .marcas({})
-      .then((res) => {
-        if (!cancelled) setMarcaOptions(res.data?.marcas || []);
-      })
-      .catch(() => {
-        if (!cancelled) setMarcaOptions([]);
-      });
-    productosAPI
-      .subcategorias({})
-      .then((res) => {
-        if (!cancelled) setSubcategoriaGroups(res.data?.categorias || []);
-      })
-      .catch(() => {
-        if (!cancelled) setSubcategoriaGroups([]);
-      });
-    api
-      .get('/usuarios/pms', { params: { solo_con_marcas: true } })
-      .then((res) => {
-        if (!cancelled) setPmOptions(res.data || []);
-      })
-      .catch(() => {
-        if (!cancelled) setPmOptions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const pmKey = selectedPms.join(',');
-
-  // Narrowing: when one or more PMs are selected, fetch the marcas and
-  // subcategorías that belong to those PMs — same two endpoints
-  // (`useTiendaData.js` `cargarDatosPorPM`), same all-or-nothing reset on
-  // failure or on clearing the PM selection.
-  useEffect(() => {
-    let cancelled = false;
-    if (selectedPms.length === 0) {
-      setMarcasPorPM([]);
-      setSubcategoriasPorPM([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-    Promise.all([
-      productosAPI.obtenerMarcasPorPMs(pmKey),
-      productosAPI.obtenerSubcategoriasPorPMs(pmKey),
-    ])
-      .then(([marcasRes, subcatsRes]) => {
-        if (cancelled) return;
-        setMarcasPorPM(marcasRes.data?.marcas || []);
-        setSubcategoriasPorPM((subcatsRes.data?.subcategorias || []).map((s) => s.id));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setMarcasPorPM([]);
-        setSubcategoriasPorPM([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pmKey]);
-
   const marcasFiltradas = useMemo(() => {
-    return marcaOptions.filter((m) => {
-      const matchBusqueda = m.toLowerCase().includes(busquedaMarca.toLowerCase());
-      if (marcasPorPM.length > 0) return matchBusqueda && marcasPorPM.includes(m);
-      return matchBusqueda;
-    });
-  }, [marcaOptions, busquedaMarca, marcasPorPM]);
+    const listed = offered.marcas ?? NONE;
+    const all = [...listed, ...selectedMarcas.filter((m) => !hasText(listed, m))];
+    return all.filter((m) => includesText(m, busquedaMarca));
+  }, [offered.marcas, selectedMarcas, busquedaMarca]);
+
+  const categoriasFiltradas = useMemo(() => {
+    const listed = offered.categorias ?? NONE;
+    const all = [...listed, ...selectedCategorias.filter((c) => !hasText(listed, c))];
+    return all.filter((c) => includesText(c, busquedaCategoria));
+  }, [offered.categorias, selectedCategorias, busquedaCategoria]);
 
   const subcategoriaGruposFiltrados = useMemo(() => {
-    return (subcategoriaGroups || [])
-      .map((grupo) => {
-        const subs = (grupo.subcategorias || []).filter((sub) => {
-          const matchBusqueda = sub.nombre
-            .toLowerCase()
-            .includes(busquedaSubcategoria.toLowerCase());
-          if (subcategoriasPorPM.length > 0) return matchBusqueda && subcategoriasPorPM.includes(sub.id);
-          return matchBusqueda;
-        });
-        return { ...grupo, subcategorias: subs };
-      })
+    const groups = offered.subcategorias ?? NONE;
+    const listedIds = new Set(groups.flatMap((g) => (g.subcategorias || []).map((sub) => sub.id)));
+    const missing = selectedSubcategorias
+      .filter((id) => !listedIds.has(id))
+      .map((id) => ({ id, nombre: `Subcategoría #${id}` }));
+    const all = missing.length > 0 ? [...groups, { nombre: 'Seleccionadas', subcategorias: missing }] : groups;
+    return all
+      .map((grupo) => ({
+        ...grupo,
+        subcategorias: (grupo.subcategorias || []).filter((sub) => includesText(sub.nombre, busquedaSubcategoria)),
+      }))
       .filter((grupo) => grupo.subcategorias.length > 0);
-  }, [subcategoriaGroups, busquedaSubcategoria, subcategoriasPorPM]);
+  }, [offered.subcategorias, selectedSubcategorias, busquedaSubcategoria]);
+
+  const pmOptions = useMemo(() => {
+    const listed = offered.pms ?? NONE;
+    const missing = selectedPms
+      .filter((id) => !listed.some((pm) => pm.id === id))
+      .map((id) => ({ id, nombre: `PM #${id}` }));
+    return missing.length > 0 ? [...listed, ...missing] : listed;
+  }, [offered.pms, selectedPms]);
 
   const emit = useCallback(
     (next) => {
       onChange?.({
         marcas: next.marcas ?? selectedMarcas,
+        categorias: next.categorias ?? selectedCategorias,
         subcategorias: next.subcategorias ?? selectedSubcategorias,
         pms: next.pms ?? selectedPms,
       });
     },
-    [onChange, selectedMarcas, selectedSubcategorias, selectedPms],
+    [onChange, selectedMarcas, selectedCategorias, selectedSubcategorias, selectedPms],
   );
 
-  const toggleMarca = useCallback(
-    (marca) => {
-      const next = selectedMarcas.includes(marca)
-        ? selectedMarcas.filter((m) => m !== marca)
-        : [...selectedMarcas, marca];
-      emit({ marcas: next });
-    },
-    [selectedMarcas, emit],
-  );
+  const toggleIn = (list, item) => (list.includes(item) ? list.filter((x) => x !== item) : [...list, item]);
+  // Text lists compare case-insensitively: the checkbox shows the server spelling, the
+  // selection may hold another (URL, older state), and either one must untick it.
+  const toggleText = (list, item) =>
+    hasText(list, item) ? list.filter((x) => !sameText(x, item)) : [...list, item];
 
+  const toggleMarca = useCallback((marca) => emit({ marcas: toggleText(selectedMarcas, marca) }), [selectedMarcas, emit]);
+  const toggleCategoria = useCallback(
+    (categoria) => emit({ categorias: toggleText(selectedCategorias, categoria) }),
+    [selectedCategorias, emit],
+  );
+  const isMarcaSelected = useCallback((marca) => hasText(selectedMarcas, marca), [selectedMarcas]);
+  const isCategoriaSelected = useCallback((categoria) => hasText(selectedCategorias, categoria), [selectedCategorias]);
   const toggleSubcategoria = useCallback(
-    (id) => {
-      const next = selectedSubcategorias.includes(id)
-        ? selectedSubcategorias.filter((s) => s !== id)
-        : [...selectedSubcategorias, id];
-      emit({ subcategorias: next });
-    },
+    (id) => emit({ subcategorias: toggleIn(selectedSubcategorias, id) }),
     [selectedSubcategorias, emit],
   );
-
-  const togglePm = useCallback(
-    (id) => {
-      const next = selectedPms.includes(id)
-        ? selectedPms.filter((p) => p !== id)
-        : [...selectedPms, id];
-      emit({ pms: next });
-    },
-    [selectedPms, emit],
-  );
+  const togglePm = useCallback((id) => emit({ pms: toggleIn(selectedPms, id) }), [selectedPms, emit]);
 
   return {
     selectedMarcas,
+    selectedCategorias,
     selectedSubcategorias,
     selectedPms,
     marcasFiltradas,
+    categoriasFiltradas,
     subcategoriaGruposFiltrados,
     pmOptions,
     busquedaMarca,
     setBusquedaMarca,
+    busquedaCategoria,
+    setBusquedaCategoria,
     busquedaSubcategoria,
     setBusquedaSubcategoria,
+    isMarcaSelected,
+    isCategoriaSelected,
     toggleMarca,
+    toggleCategoria,
     toggleSubcategoria,
     togglePm,
   };
