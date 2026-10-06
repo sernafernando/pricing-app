@@ -108,6 +108,17 @@ def escape_key(key: Any) -> str:
     return text
 
 
+def member_label(value: Any) -> str:
+    """Path label of a scalar-set member: strings as is, other types JSON-encoded behind `~`.
+
+    Keeps `None`, `1` and the strings "None", "1" on distinct paths.
+    """
+    if isinstance(value, str):
+        label = escape_key(value)
+        return "\\" + label if label.startswith("~") else label
+    return "~" + escape_key(json.dumps(value, ensure_ascii=False))
+
+
 def _same_scalar(a: Any, b: Any) -> bool:
     # JSON text equality, so 1 vs 1.0 vs true are different (consistent with the hash).
     return json.dumps(a, sort_keys=True, ensure_ascii=False) == json.dumps(b, sort_keys=True, ensure_ascii=False)
@@ -164,7 +175,7 @@ def _diff_arrays(old: list, new: list, path: str, schema: str, array_keys: Array
             if member_key in old_members and member_key in new_members:
                 continue
             value = old_members.get(member_key, new_members.get(member_key))
-            member_path = f"{path}[={escape_key(value)}]"
+            member_path = f"{path}[={member_label(value)}]"
             if member_key in old_members:
                 out.append(Change(member_path, "remove", old=value))
             else:

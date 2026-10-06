@@ -154,3 +154,14 @@ def test_key_characters_in_paths_are_escaped():
 
 def test_type_change_is_a_replace_at_the_path():
     assert diff({"x": {"a": 1}}, {"x": [1]}, {}) == [Change("x", "replace", {"a": 1}, [1])]
+
+
+def test_scalar_set_members_of_different_types_get_distinct_paths():
+    changes = diff({"v": []}, {"v": [None, "None", 1, "1", "~x"]}, {})
+    assert sorted(c.path for c in changes) == ["v[=1]", "v[=None]", "v[=\\~x]", "v[=~1]", "v[=~null]"]
+
+
+def test_keyed_array_with_colliding_string_forms_stays_order_sensitive():
+    a = {"xs": [{"id": 1, "n": "a"}, {"id": "1", "n": "b"}]}
+    b = {"xs": [{"id": "1", "n": "b"}, {"id": 1, "n": "a"}]}
+    assert [c.path for c in diff(a, b, {})] == ["xs"]

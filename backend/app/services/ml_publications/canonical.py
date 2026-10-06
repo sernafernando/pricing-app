@@ -43,7 +43,12 @@ def key_fields_for(array_keys: ArrayKeys, path: str) -> Sequence[str]:
 
 
 def element_key(element: Any, fields: Sequence[str]) -> Optional[str]:
-    """Key of one array element, or None when no key field is present and non-null."""
+    """Key of one array element, or None when no key field is present and non-null.
+
+    The key is the string form of the value, so the ids `1` and `"1"` collide; the
+    caller then sees a duplicate key and keeps the array unsorted (order-sensitive),
+    which is the safe side: no normalization, never a false "no change".
+    """
     if not isinstance(element, dict):
         return None
     for field in fields:
