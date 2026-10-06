@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import get_mlwebhook_engine
+from app.services.ml_multiget import BULK_ITEMS_PATH, chunked, parse_multiget
 
 logger = logging.getLogger(__name__)
 
@@ -582,27 +583,22 @@ class MercadoLibreAPIClient:
         try:
             token = await self.get_access_token()
 
-            # ML permite hasta 20 items por request
-            batch_size = 20
-            for i in range(0, len(item_ids), batch_size):
-                batch = item_ids[i : i + batch_size]
+            # ML: /items/bulk (reemplaza /items?ids= deprecado el 25/10/2026), máx 20 ids
+            for batch in chunked(item_ids):
                 ids_param = ",".join(batch)
 
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     response = await client.get(
-                        f"{self.base_url}/items",
+                        f"{self.base_url}{BULK_ITEMS_PATH}",
                         params={"ids": ids_param},
                         headers={"Authorization": f"Bearer {token}"},
                     )
                     response.raise_for_status()
 
-                    # La respuesta es un array de objetos con code, body
-                    data = response.json()
-                    for item_response in data:
-                        if item_response.get("code") == 200:
-                            body = item_response.get("body")
-                            if body:
-                                results[body["id"]] = body
+                    # Acepta la forma bulk (status_code) y la legacy (code)
+                    for element in parse_multiget(response.json()):
+                        if element.ok and element.body.get("id"):
+                            results[element.body["id"]] = element.body
 
         except Exception as e:
             logger.error(f"Error obteniendo items en batch: {e}")
