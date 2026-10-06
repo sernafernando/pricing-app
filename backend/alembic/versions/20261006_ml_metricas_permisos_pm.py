@@ -1,0 +1,58 @@
+"""Grant the Métricas ML board to the PRICING and VENTAS roles
+
+Revision ID: 20261006_ml_metricas_permisos_pm
+Revises: 20261006_ml_publications_core
+Create Date: 2026-10-06
+
+ODD `metricas-ml-scope-pm` T3: the PMs work from the PRICING and VENTAS roles
+(the ones that open the old ML dashboard through `ventas_ml.ver_dashboard`) and
+could not open the new board, which was seeded only for ADMIN and GERENTE
+(`20261001_ml_metricas_permisos`). They get both permissions -- PMs see the
+margins, like the old dashboard -- and the board itself bounds what each one
+sees to their own (marca, categoría) pairs. The permissions already exist.
+"""
+
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+from alembic import op
+
+revision: str = "20261006_ml_metricas_permisos_pm"
+down_revision: Union[str, None] = "20261006_ml_publications_core"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+ROL_PERMISOS = {
+    "PRICING": ["ml_metricas.ver", "ml_metricas.ver_ganancia"],
+    "VENTAS": ["ml_metricas.ver", "ml_metricas.ver_ganancia"],
+}
+
+_INSERT_ROL_PERMISO = sa.text("""
+    INSERT INTO roles_permisos_base (rol_id, permiso_id)
+    SELECT r.id, p.id
+    FROM roles r
+    CROSS JOIN permisos p
+    WHERE r.codigo = :rol_codigo
+      AND p.codigo = :permiso_codigo
+    ON CONFLICT DO NOTHING
+""")
+
+_DELETE_ROL_PERMISO = sa.text("""
+    DELETE FROM roles_permisos_base
+    WHERE rol_id IN (SELECT id FROM roles WHERE codigo = :rol_codigo)
+      AND permiso_id IN (SELECT id FROM permisos WHERE codigo = :permiso_codigo)
+""")
+
+
+def upgrade() -> None:
+    conn = op.get_bind()
+    for rol, codigos in ROL_PERMISOS.items():
+        for codigo in codigos:
+            conn.execute(_INSERT_ROL_PERMISO, {"rol_codigo": rol, "permiso_codigo": codigo})
+
+
+def downgrade() -> None:
+    conn = op.get_bind()
+    for rol, codigos in ROL_PERMISOS.items():
+        for codigo in codigos:
+            conn.execute(_DELETE_ROL_PERMISO, {"rol_codigo": rol, "permiso_codigo": codigo})

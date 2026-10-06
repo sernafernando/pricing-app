@@ -78,7 +78,7 @@ can be retired. `pm_scope` stays the single source of the rule.
   only own, sub-PM union, admin all, no pairs → nothing, PM with `pms` of
   another PM → nothing, admin with `pms`=X → X's scope, CSV and every group
   level scoped. Route: delegated (same writer).
-- [ ] **T3 — Permissions migration.** Grant `ml_metricas.ver` and
+- [x] **T3 — Permissions migration.** Grant `ml_metricas.ver` and
   `ml_metricas.ver_ganancia` to PRICING and VENTAS following the
   `20261001_ml_metricas_permisos.py` pattern; unit test. Route: delegated.
 
@@ -111,7 +111,13 @@ can be retired. `pm_scope` stays the single source of the rule.
   router tests run on the SQLite suite (scope SQL is dialect-neutral); the
   Postgres side is covered by T1's test. Commit: `feat(ml-metricas): bound every
   board endpoint by the caller's PM scope`.
+- T3 done. RED: `pytest tests/unit/test_migration_ml_metricas_permisos_pm.py`
+  -> 4 failed (`Can't locate revision identified by
+  '20261006_ml_metricas_permisos_pm'`, head still `20261006_ml_publications_core`).
+  GREEN: 4 passed (single head, grants, idempotent upgrade, downgrade scoped to
+  the two role grants). Commit: `feat(ml-metricas): grant the board to the PRICING
+  and VENTAS roles`.
 
 ## Next step
 
-T3.
+All tasks done; ready for review, push and PR (user decision).
