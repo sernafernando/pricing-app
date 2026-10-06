@@ -40,6 +40,11 @@ def _timestamp(value: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+# Public names for the sub-resource mappers (parsers/), which share these conversions.
+to_decimal = _decimal
+to_timestamp = _timestamp
+
+
 def attribute_value_name(attributes: Any, attribute_id: str) -> Optional[str]:
     """`value_name` of the attribute `attribute_id`, or None.
 
