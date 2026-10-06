@@ -1,7 +1,7 @@
 """
 Model for pre-calculated TP-Link sales metrics.
 Clone of ml_venta_metrica.py with __tablename__ = "tplink_ventas_metricas".
-Written exclusively by agregar_metricas_tplink.py (store 2645, coslis_id=8).
+Written exclusively by agregar_metricas_tplink.py (clave `tplink`, coslis_id=8).
 ML model/jobs are byte-for-byte unmodified.
 """
 
@@ -12,7 +12,7 @@ from app.core.database import Base
 
 class TplinkVentaMetrica(Base):
     """
-    Table of pre-calculated metrics for TP-Link MercadoLibre sales (store 2645).
+    Table of pre-calculated metrics for TP-Link MercadoLibre sales (clave `tplink`).
 
     Calculation flow (mirrors MLVentaMetrica):
     1. Total sale amount (price * quantity)
@@ -79,7 +79,9 @@ class TplinkVentaMetrica(Base):
     # Additional information
     prli_id = Column(Integer)
     mla_id = Column(String(50))
-    mlp_official_store_id = Column(Integer, index=True)  # Always 2645 for TP-Link (kept for audit)
+    mlp_official_store_id = Column(
+        Integer, index=True
+    )  # Real store id of the order (old or new TP-Link id; kept for audit)
 
     # Cancellation state (reconciled against mlwebhook.ml_cancelled_orders)
     is_cancelled = Column(Boolean, nullable=False, server_default="false", index=True)

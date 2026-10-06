@@ -87,6 +87,7 @@ from app.routers import (
     prearmado,
     prearmado_stats,
     pxq,
+    tiendas_oficiales,
     rrhh_empleados,
     rrhh_fichaje_mobile,
     rrhh_presentismo,
@@ -377,6 +378,7 @@ app.include_router(ml_promotions.router, prefix="/api")
 app.include_router(ml_ventas_ops.router, prefix="/api")
 app.include_router(ml_metricas.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")
+app.include_router(tiendas_oficiales.router, prefix="/api")
 app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])
 app.include_router(rrhh_empleados.router, prefix="/api", tags=["rrhh"])
 app.include_router(rrhh_presentismo.router, prefix="/api", tags=["rrhh-presentismo"])

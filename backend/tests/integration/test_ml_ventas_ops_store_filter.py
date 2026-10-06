@@ -29,6 +29,7 @@ from tests.integration.test_ml_ventas_ops_sales_router import _grant_ml_ops_ver,
 SEP_1 = datetime(2026, 9, 1, tzinfo=timezone.utc)
 GAUSS = 57997
 TPLINK = 2645
+TPLINK_NEW = 471846  # ML changed TP-Link's store id; both share the `tplink` clave
 
 
 @pytest.fixture(autouse=True)
@@ -199,3 +200,63 @@ class TestStoreFacetOnlyWhenFacetsAreWanted:
         assert resp.status_code == 200
         assert len(resp.content.decode("utf-8-sig").strip().splitlines()) > 1
         assert counter.matching("tb_mercadolibre_items_publicados") == 0
+
+
+@pytest.fixture()
+def catalogo_tplink_nuevo(db, catalogo):
+    """A sale of the NEW TP-Link store id on top of `catalogo`."""
+    _seed_order(db, 97007, date_created=SEP_1)
+    _publicacion(db, 7, "MLA1007", TPLINK_NEW)
+    _item(db, 97007, "MLA1007")
+    db.commit()
+
+
+class TestOldAndNewStoreIdOfOneStore:
+    """The grouped TP-Link chip sends `stores=2645,471846`."""
+
+    BOTH = f"{TPLINK},{TPLINK_NEW}"
+
+    def test_listing_returns_the_sales_of_both_ids(self, db, client, admin_auth_headers, catalogo_tplink_nuevo):
+        body = client.get("/api/ml-ventas-ops/sales", params={"stores": self.BOTH}, headers=admin_auth_headers)
+
+        assert body.status_code == 200
+        assert sorted(_order_ids(body.json())) == [97002, 97005, 97006, 97007]
+        assert body.json()["total"] == 3
+
+    def test_a_single_id_still_works(self, db, client, admin_auth_headers, catalogo_tplink_nuevo):
+        new = client.get("/api/ml-ventas-ops/sales", params={"stores": str(TPLINK_NEW)}, headers=admin_auth_headers)
+        old = client.get("/api/ml-ventas-ops/sales", params={"stores": str(TPLINK)}, headers=admin_auth_headers)
+
+        assert _order_ids(new.json()) == [97007]
+        assert sorted(_order_ids(old.json())) == [97002, 97005, 97006]
+
+    def test_facets_count_each_id_and_ignore_the_store_filter(
+        self, db, client, admin_auth_headers, catalogo_tplink_nuevo
+    ):
+        facets = client.get(
+            "/api/ml-ventas-ops/sales", params={"stores": self.BOTH}, headers=admin_auth_headers
+        ).json()["facets"]
+
+        assert facets["stores"][str(TPLINK)] == 2
+        assert facets["stores"][str(TPLINK_NEW)] == 1
+        assert facets["stores_total"] == 6
+
+    def test_kpis_and_listing_agree(self, db, client, admin_auth_headers, catalogo_tplink_nuevo):
+        params = {"stores": self.BOTH, "include_unknown": "true", "include_in_dispute": "true"}
+        kpis = client.get("/api/ml-ventas-ops/sales/kpis", params=params, headers=admin_auth_headers).json()
+        listing = client.get("/api/ml-ventas-ops/sales", params=params, headers=admin_auth_headers).json()
+
+        assert kpis["groups_count"] == listing["total"] == 3
+
+    def test_export_holds_the_sales_of_both_ids(self, db, client, admin_auth_headers, catalogo_tplink_nuevo):
+        resp = client.get("/api/ml-ventas-ops/sales/export", params={"stores": self.BOTH}, headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        text = resp.content.decode("utf-8-sig")
+        assert "97007" in text and "97002" in text
+        assert "97001" not in text
+
+    @pytest.mark.parametrize("bad", [f"{TPLINK},abc", f"{TPLINK},,{TPLINK_NEW}"])
+    def test_garbage_is_422_never_all_stores(self, db, client, admin_auth_headers, catalogo_tplink_nuevo, bad):
+        for path in ("/api/ml-ventas-ops/sales", "/api/ml-ventas-ops/sales/export"):
+            assert client.get(path, params={"stores": bad}, headers=admin_auth_headers).status_code == 422

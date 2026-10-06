@@ -11,6 +11,7 @@ import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
 import DateRangeFilter from '../components/DateRangeFilter';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Tag, Package, Truck, Store, X, Star, RefreshCw, Download } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
@@ -47,7 +48,17 @@ export default function DashboardMetricasML() {
   const fechaHasta = getFilter('fecha_hasta');
   const marcasQuery = getFilter('marcas');
   const categoriasQuery = getFilter('categorias');
+  const { grupos: tiendasGrupos, getLabelsForIds, getGroupValue } = useTiendasOficiales();
   const tiendasOficialesQuery = getFilter('tiendas_oficiales');
+  // A legacy URL with ONE id of a grouped store is normalized to the whole group
+  // once the stores are known, so the checkbox matches what is applied.
+  const grupoDeLaSeleccion = getGroupValue(tiendasOficialesQuery);
+  useEffect(() => {
+    if (tiendasOficialesQuery && grupoDeLaSeleccion !== tiendasOficialesQuery) {
+      updateFilters({ tiendas_oficiales: grupoDeLaSeleccion });
+    }
+  }, [tiendasOficialesQuery, grupoDeLaSeleccion, updateFilters]);
+  const etiquetasTiendasSeleccionadas = getLabelsForIds(tiendasOficialesQuery);
   const pmsQuery = getFilter('pms');
   
   // Convertir strings a arrays
@@ -279,12 +290,11 @@ export default function DashboardMetricasML() {
   };
 
   // Handlers para selector múltiple de Tiendas Oficiales
-  const toggleTiendaOficial = (tiendaId) => {
-    const nuevasSeleccionadas = tiendasOficialesSeleccionadas.includes(tiendaId)
-      ? tiendasOficialesSeleccionadas.filter(t => t !== tiendaId)
-      : [...tiendasOficialesSeleccionadas, tiendaId];
-    
-    updateFilters({ tiendas_oficiales: nuevasSeleccionadas.join(',') || '' });
+  // A grouped store (same clave) is ONE checkbox that toggles all its ids.
+  const toggleTiendaGrupo = (ids) => {
+    const todas = ids.every((id) => tiendasOficialesSeleccionadas.includes(id));
+    const resto = tiendasOficialesSeleccionadas.filter((t) => !ids.includes(t));
+    updateFilters({ tiendas_oficiales: (todas ? resto : [...resto, ...ids]).join(',') });
   };
 
   const limpiarTiendasOficiales = () => {
@@ -504,9 +514,9 @@ export default function DashboardMetricasML() {
             <div className={styles.multiSelect}>
               <div className={styles.multiSelectHeader}>
                 <span className={styles.multiSelectLabel}>
-                  {tiendasOficialesSeleccionadas.length === 0 
-                    ? 'Todas las tiendas' 
-                    : `${tiendasOficialesSeleccionadas.length} tienda${tiendasOficialesSeleccionadas.length > 1 ? 's' : ''} seleccionada${tiendasOficialesSeleccionadas.length > 1 ? 's' : ''}`}
+                  {etiquetasTiendasSeleccionadas.length === 0
+                    ? 'Todas las tiendas'
+                    : `${etiquetasTiendasSeleccionadas.length} tienda${etiquetasTiendasSeleccionadas.length > 1 ? 's' : ''} seleccionada${etiquetasTiendasSeleccionadas.length > 1 ? 's' : ''}`}
                 </span>
               </div>
               <div className={styles.multiSelectDropdown}>
@@ -522,38 +532,16 @@ export default function DashboardMetricasML() {
                   </div>
                 )}
                 <div className={styles.multiSelectOptions}>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('57997')}
-                      onChange={() => toggleTiendaOficial('57997')}
-                    />
-                    <span>Gauss</span>
-                  </label>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('2645')}
-                      onChange={() => toggleTiendaOficial('2645')}
-                    />
-                    <span>TP-Link</span>
-                  </label>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('144')}
-                      onChange={() => toggleTiendaOficial('144')}
-                    />
-                    <span>Forza/Verbatim</span>
-                  </label>
-                  <label className={styles.multiSelectOption}>
-                    <input
-                      type="checkbox"
-                      checked={tiendasOficialesSeleccionadas.includes('191942')}
-                      onChange={() => toggleTiendaOficial('191942')}
-                    />
-                    <span>Multi-marca</span>
-                  </label>
+                  {tiendasGrupos.map(({ value, ids, label }) => (
+                    <label key={value} className={styles.multiSelectOption}>
+                      <input
+                        type="checkbox"
+                        checked={ids.every((id) => tiendasOficialesSeleccionadas.includes(id))}
+                        onChange={() => toggleTiendaGrupo(ids)}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
             </div>
@@ -732,13 +720,7 @@ export default function DashboardMetricasML() {
           {tiendasOficialesSeleccionadas.length > 0 && (
             <div className={styles.bannerTiendaOficial}>
               <Store size={14} /> Filtrando por: <strong>
-                {tiendasOficialesSeleccionadas.map(id => {
-                  if (id === '57997') return 'Gauss';
-                  if (id === '2645') return 'TP-Link';
-                  if (id === '144') return 'Forza/Verbatim';
-                  if (id === '191942') return 'Multi-marca';
-                  return id;
-                }).join(', ')}
+                {etiquetasTiendasSeleccionadas.join(', ')}
               </strong>
             </div>
           )}

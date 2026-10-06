@@ -88,6 +88,7 @@ def _detail_row(
         envio_producto=envio_producto,
         fecha_venta=datetime(2026, 7, 1, 10, 0, 0),
         mlod_id=mlod_id,
+        mlp_official_store_id=471846,
         moneda_costo=moneda_costo,
         cambio_momento=cambio_momento,
         tipo_lista=tipo_lista,

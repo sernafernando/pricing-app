@@ -1,5 +1,5 @@
 """
-Script for adding TP-Link sales metrics (store 2645, coslis_id=8) — INCREMENTAL.
+Script for adding TP-Link sales metrics (clave tplink, coslis_id=8) — INCREMENTAL.
 Incremental version that processes the last 10 minutes of data.
 Designed to run every 5 minutes via cron.
 
@@ -18,7 +18,7 @@ to one detail (design D1).
 Side effects deliberately NOT included vs ML incremental:
 The three ML global side-effect helpers (offset consumo grupo, offset
 consumo individual, and markup notification) are excluded because the ML
-incremental already runs them for store-2645 orders. Including them here
+incremental already runs them for TP-Link store orders. Including them here
 would double-count offset consumo and duplicate markup notifications.
 
 Cron (mirror ML's 5-min cadence):
@@ -44,9 +44,9 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.services.tiendas_oficiales import TPLINK_CLAVE, require_store_ids_for_clave
 from app.scripts._tplink_metricas_core import (
     TPLINK_COSLIS_ID,
-    TPLINK_STORE_ID,
     build_aggregation_sql,
     build_upsert_payload,
     fold_order_rows,
@@ -55,7 +55,6 @@ from app.scripts._tplink_metricas_core import (
 
 # Module-level constants — kept identical to the shared core for readability
 # at call sites in this file.
-_TPLINK_STORE_ID: int = TPLINK_STORE_ID
 _TPLINK_COSLIS_ID: int = TPLINK_COSLIS_ID
 
 # Mirrors ML incremental's window width — kept as a named constant.
@@ -78,6 +77,8 @@ def calcular_metricas_locales(db: Session, from_ts: datetime, to_ts: datetime):
     returns the raw per-detail rows (NOT yet folded — folding happens in
     `process_and_insert` via `fold_order_rows`).
     """
+    # Fail closed: no store with the `tplink` clave raises instead of widening the query.
+    store_ids = require_store_ids_for_clave(db, TPLINK_CLAVE)
     print("\nConsultando tablas locales PostgreSQL (TP-Link)...")
     print(f"   Rango: {from_ts} a {to_ts}")
 
@@ -87,11 +88,11 @@ def calcular_metricas_locales(db: Session, from_ts: datetime, to_ts: datetime):
             "from_ts": from_ts,
             "to_ts": to_ts,
             "coslis_id": _TPLINK_COSLIS_ID,
-            "store_id": _TPLINK_STORE_ID,
+            "store_ids": store_ids,
         },
     )
     rows = result.fetchall()
-    print(f"  Obtenidos {len(rows)} detalles (store {_TPLINK_STORE_ID}, coslis_id={_TPLINK_COSLIS_ID})")
+    print(f"  Obtenidos {len(rows)} detalles (stores {store_ids}, coslis_id={_TPLINK_COSLIS_ID})")
 
     return rows
 
@@ -149,7 +150,7 @@ def main() -> None:
     from_ts, to_ts = compute_date_window(now)
 
     print("=" * 60)
-    print(f"METRICAS TP-LINK INCREMENTAL (store {_TPLINK_STORE_ID}, coslis_id={_TPLINK_COSLIS_ID})")
+    print(f"METRICAS TP-LINK INCREMENTAL (coslis_id={_TPLINK_COSLIS_ID})")
     print("=" * 60)
     print(f"Ejecutado: {now.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Rango: {from_ts.strftime('%Y-%m-%d %H:%M:%S')} a {to_ts.strftime('%Y-%m-%d %H:%M:%S')}")

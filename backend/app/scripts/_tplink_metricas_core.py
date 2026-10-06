@@ -1,5 +1,5 @@
 """
-Shared per-order aggregation core for TP-Link sales metrics (store 2645, coslis_id=8).
+Shared per-order aggregation core for TP-Link sales metrics (clave `tplink`, coslis_id=8).
 
 Design v2 (design token: sdd/tplink-metricas-dual-key-dedup/design, decision D1):
 Both the backfill job and the incremental job import this module so that the
@@ -48,13 +48,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.sql.elements import TextClause
 
 from app.utils.ml_metrics_calculator import calcular_metricas_ml
 
-# Module-level constants — kept identical to the existing jobs.
-TPLINK_STORE_ID: int = 2645
+# Module-level constants — kept identical to the existing jobs. The store ids
+# are NOT constants: they come from `ml_tiendas_oficiales` (clave `tplink`).
 # Exported for slice-2 callers (job wiring) to bind as `:coslis_id` in
 # build_aggregation_sql()'s params — not dead code, just not consumed
 # within this module itself.
@@ -72,7 +72,7 @@ def build_aggregation_sql() -> TextClause:
     """
     Builds the shared per-detail aggregating CTE (SQLAlchemy `text()` clause).
 
-    Bind parameters: `:from_ts`, `:to_ts`, `:coslis_id`, `:store_id`.
+    Bind parameters: `:from_ts`, `:to_ts`, `:coslis_id`, `:store_ids` (list).
 
     Differences from the legacy per-job queries:
       - `DISTINCT ON (tmlod.mlo_id)` REMOVED: returns ALL details per order so
@@ -286,11 +286,11 @@ def build_aggregation_sql() -> TextClause:
           AND tmloh.mlo_cd >= :from_ts
           AND tmloh.mlo_cd < :to_ts
           AND tmloh.mlo_status <> 'cancelled'
-          AND tmlip.mlp_official_store_id = :store_id
+          AND tmlip.mlp_official_store_id IN :store_ids
     )
     SELECT * FROM sales_data
     ORDER BY id_operacion, mlod_id
-    """)
+    """).bindparams(bindparam("store_ids", expanding=True))
 
 
 def count_per_pack(rows: Iterable[Any]) -> dict[Any, int]:
@@ -517,7 +517,7 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
             "ganancia": ganancia,
             "markup_porcentaje": markup_porcentaje,
             "offset_flex": offset_flex_once,
-            "mlp_official_store_id": TPLINK_STORE_ID,
+            "mlp_official_store_id": first.mlp_official_store_id,
             # --- JD-001 fix: previously-dropped fields (see review ledger
             # sdd/tplink-metricas-dual-key-dedup/review-ledger-slice2) ---
             # Per-order REPRESENTATIVE values (same detail as descriptive

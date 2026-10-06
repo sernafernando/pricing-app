@@ -403,23 +403,27 @@
   border: 1px dashed rgba(59, 130, 246, 0.3);
 }
 
-/* --- TP-Link (2645) — Verde --- */
-.badge-tienda-2645-ok {
+/* --- TP-Link (2645, id actual 471846) — Verde --- */
+.badge-tienda-2645-ok,
+.badge-tienda-471846-ok {
   background: rgba(16, 185, 129, 0.15);
   color: rgba(52, 211, 153, 1);
   border: 1px solid rgba(16, 185, 129, 0.4);
 }
-.badge-tienda-2645-falta {
+.badge-tienda-2645-falta,
+.badge-tienda-471846-falta {
   background: rgba(16, 185, 129, 0.06);
   color: rgba(16, 185, 129, 0.55);
   border: 1px dashed rgba(16, 185, 129, 0.35);
 }
-:root[data-theme="light"] .badge-tienda-2645-ok {
+:root[data-theme="light"] .badge-tienda-2645-ok,
+:root[data-theme="light"] .badge-tienda-471846-ok {
   background: rgba(16, 185, 129, 0.12);
   color: rgba(4, 120, 87, 1);
   border: 1px solid rgba(16, 185, 129, 0.35);
 }
-:root[data-theme="light"] .badge-tienda-2645-falta {
+:root[data-theme="light"] .badge-tienda-2645-falta,
+:root[data-theme="light"] .badge-tienda-471846-falta {
   background: rgba(16, 185, 129, 0.05);
   color: rgba(16, 185, 129, 0.5);
   border: 1px dashed rgba(16, 185, 129, 0.3);
@@ -479,7 +483,8 @@
   flex-shrink: 0;
 }
 .badge-tienda-dot-57997 { background: #3B82F6; }
-.badge-tienda-dot-2645 { background: #10B981; }
+.badge-tienda-dot-2645,
+.badge-tienda-dot-471846 { background: #10B981; }
 .badge-tienda-dot-144 { background: #F59E0B; }
 .badge-tienda-dot-191942 { background: #8B5CF6; }
 
@@ -493,7 +498,8 @@
   flex-shrink: 0;
 }
 .tienda-color-dot-57997 { background: #3B82F6; }
-.tienda-color-dot-2645 { background: #10B981; }
+.tienda-color-dot-2645,
+.tienda-color-dot-471846 { background: #10B981; }
 .tienda-color-dot-144 { background: #F59E0B; }
 .tienda-color-dot-191942 { background: #8B5CF6; }
 

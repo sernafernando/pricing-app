@@ -84,6 +84,7 @@ class TestBackfillRollsBackOnPerOrderFailure:
 
         fake_db = _FakeDb()
         monkeypatch.setattr(backfill, "SessionLocal", lambda: fake_db)
+        monkeypatch.setattr(backfill, "require_store_ids_for_clave", lambda db, clave: [2645, 471846])
 
         folded = {100: _folded_row(100), 101: _folded_row(101), 102: _folded_row(102)}
         monkeypatch.setattr(backfill, "fold_order_rows", lambda rows, db_session=None: folded)

@@ -282,7 +282,7 @@ class ExportRebateRequest(BaseModel):
         description=(
             "CSV de IDs de tiendas oficiales con literal 'sin_tienda'. "
             "Filtra a nivel MLA (mlp_official_store_id). "
-            "Ej: 'sin_tienda,57997,2645'. "
+            "Ej: 'sin_tienda,57997,144'. "
             "Distinto de 'tienda_oficial' (filtro a nivel producto)."
         ),
     )

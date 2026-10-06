@@ -3,12 +3,13 @@
  * come from `facets.stores`; clicking a chip sends `stores` to the list AND
  * the KPI strip (one shared params builder).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
 import api, { productosAPI } from '../services/api';
+import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
@@ -21,11 +22,16 @@ const FACETS = {
   operation_status_total: 9,
   goods_status_total: 9,
   alerts_total: 0,
-  stores: { 57997: 5, 2645: 3, sin_tienda: 2 },
-  stores_total: 9,
+  stores: { 57997: 5, 2645: 3, 471846: 4, sin_tienda: 2 },
+  stores_total: 14,
 };
 
 beforeEach(() => {
+  seedTiendasOficiales([
+    { store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true },
+    { store_id: 2645, nombre: 'TP-Link vieja', clave: 'tplink', orden: 1, activa: false },
+    { store_id: 471846, nombre: 'TP-Link Renombrada', clave: 'tplink', orden: 2, activa: true },
+  ]);
   api.get.mockReset();
   api.get.mockImplementation((url) => {
     if (url === '/ml-ventas-ops/sales') {
@@ -42,28 +48,42 @@ function lastParams(url) {
   return api.get.mock.calls.filter(([u]) => u === url).at(-1)[1].params;
 }
 
+afterAll(resetTiendasOficiales);
+
 describe('Tienda filter on VentasML', () => {
   it('renders one chip per store with its facet count', async () => {
     await renderWithRouter(<VentasML />);
     const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
     await waitFor(() => expect(within(group).getByRole('button', { name: 'Gauss · 5' })).toBeInTheDocument());
-    expect(within(group).getByRole('button', { name: 'Todas · 9' })).toBeInTheDocument();
-    expect(within(group).getByRole('button', { name: 'TP-Link Oficial · 3' })).toBeInTheDocument();
-    expect(within(group).getByRole('button', { name: 'Forza/Verbatim · 0' })).toBeInTheDocument();
-    expect(within(group).getByRole('button', { name: 'Multimarca · 0' })).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'Todas · 14' })).toBeInTheDocument();
+    // Old + new id of TP-Link: ONE chip, count = 3 + 4.
+    expect(within(group).getAllByRole('button', { name: /TP-Link/ })).toHaveLength(1);
+    // Names come from the admin-managed list, not from a constant.
+    expect(within(group).getByRole('button', { name: 'TP-Link Renombrada · 7' })).toBeInTheDocument();
+    expect(within(group).queryByRole('button', { name: /Forza/ })).not.toBeInTheDocument();
     expect(within(group).getByRole('button', { name: 'Sin tienda · 2' })).toBeInTheDocument();
   });
 
   it('clicking a store sends `stores` to the list and the KPI strip', async () => {
     await renderWithRouter(<VentasML />);
     const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
-    await userEvent.click(await within(group).findByRole('button', { name: /TP-Link Oficial/ }));
+    await userEvent.click(await within(group).findByRole('button', { name: /TP-Link Renombrada/ }));
 
     await waitFor(() => {
-      expect(lastParams('/ml-ventas-ops/sales').stores).toBe('2645');
-      expect(lastParams('/ml-ventas-ops/sales/kpis').stores).toBe('2645');
+      // The chip selects every id of the clave, the inactive one included (history).
+      expect(lastParams('/ml-ventas-ops/sales').stores).toBe('2645,471846');
+      expect(lastParams('/ml-ventas-ops/sales/kpis').stores).toBe('2645,471846');
     });
     expect(lastParams('/ml-ventas-ops/sales').offset ?? 0).toBe(0);
+  });
+
+  it('the grouped chip shows as pressed once selected', async () => {
+    await renderWithRouter(<VentasML />);
+    const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
+    await userEvent.click(await within(group).findByRole('button', { name: /TP-Link Renombrada/ }));
+    await waitFor(() =>
+      expect(within(group).getByRole('button', { name: /TP-Link Renombrada/ })).toHaveAttribute('aria-pressed', 'true'),
+    );
   });
 
   it('"Limpiar filtros" clears the store', async () => {

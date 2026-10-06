@@ -26,7 +26,7 @@ import './Productos.css';
 
 import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { PROMO_TYPES } from '../constants/promoTypes';
-import { TIENDAS_OFICIALES, TIENDAS_OFICIALES_ORDER } from '../constants/tiendasOficiales';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
@@ -98,6 +98,16 @@ export default function Productos() {
     handleOrdenar, limpiarTodosFiltros, limpiarFiltros, limpiarFiltrosAvanzados, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
+  const { grupos: tiendasGrupos, getGroupValue } = useTiendasOficiales();
+  // A legacy URL with ONE id of a grouped store (`?tienda_oficial=2645`) is
+  // normalized to the whole group once the stores are known, so the select
+  // shows what is actually applied.
+  const grupoDeLaSeleccion = getGroupValue(filtroTiendaOficial);
+  useEffect(() => {
+    if (filtroTiendaOficial && grupoDeLaSeleccion !== filtroTiendaOficial) {
+      setFiltroTiendaOficial(grupoDeLaSeleccion);
+    }
+  }, [filtroTiendaOficial, grupoDeLaSeleccion, setFiltroTiendaOficial]);
   // Color-layer teams (productos-color-teams). Feeds the layer selector.
   // No team selected (equipoActivoId null) === global layer. `recargarEquipos`
   // refreshes the selector after the management modal creates/renames/deletes.
@@ -1467,19 +1477,16 @@ export default function Productos() {
                 <div className="filter-item">
                   <label>🏪 Tienda Oficial</label>
                   <select
-                    value={filtroTiendaOficial || 'todos'}
+                    value={grupoDeLaSeleccion || 'todos'}
                     onChange={(e) => { setFiltroTiendaOficial(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
                     className="filter-select"
                   >
                     <option value="todos">Todas</option>
-                    {TIENDAS_OFICIALES_ORDER.map((id) => {
-                      const { label, emoji, title } = TIENDAS_OFICIALES[id];
-                      return (
-                        <option key={id} value={id} title={title}>
-                          {emoji} {label}
-                        </option>
-                      );
-                    })}
+                    {tiendasGrupos.map(({ value, label }) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

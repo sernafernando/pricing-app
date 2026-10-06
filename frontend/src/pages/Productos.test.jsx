@@ -24,6 +24,7 @@ import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import Productos from './Productos';
+import { resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 
 // Reach into the mocked module
 import { productosAPI } from '../services/api';
@@ -1083,3 +1084,76 @@ describe('Acciones masivas open/cancel preserves Total/listar sync', () => {
     expect(screen.getByText('18')).toBeInTheDocument();
   });
 });
+
+describe('CS-11: official store filter options come from the admin-managed list', () => {
+  it('offers the active stores by name in `orden` and sends the raw id', async () => {
+    resetTiendasOficiales(); // earlier tests already loaded the shared list (empty)
+    setupApiMocks({ productos: [makeProducto()], total: 1 });
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, ...rest) => {
+      if (url === '/tiendas-oficiales') {
+        return Promise.resolve({
+          data: [
+            { store_id: 2645, nombre: 'Apagada', clave: 'tplink', orden: 0, activa: false },
+            { store_id: 471846, nombre: 'Apagada nueva', clave: 'tplink', orden: 3, activa: true },
+            { store_id: 144, nombre: 'Segunda', clave: null, orden: 2, activa: true },
+            { store_id: 57997, nombre: 'Primera', clave: null, orden: 1, activa: true },
+          ],
+        });
+      }
+      return base(url, ...rest);
+    });
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /avanzados/i }));
+    });
+
+    const select = screen.getByText('🏪 Tienda Oficial').closest('.filter-item').querySelector('select');
+    await waitFor(() =>
+      expect([...select.options].map((o) => o.textContent.trim())).toEqual(['Todas', 'Primera', 'Segunda', 'Apagada nueva']),
+    );
+    expect([...select.options].map((o) => o.value)).toEqual(['todos', '57997', '144', '2645,471846']);
+  });
+});
+
+describe('CS-12: legacy single-id URL of a grouped store', () => {
+  it('shows the group option selected and re-selecting sends the whole group', async () => {
+    resetTiendasOficiales();
+    setupApiMocks({ productos: [makeProducto()], total: 1 });
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, ...rest) =>
+      url === '/tiendas-oficiales'
+        ? Promise.resolve({
+            data: [
+              { store_id: 2645, nombre: 'TP-Link vieja', clave: 'tplink', orden: 1, activa: false },
+              { store_id: 471846, nombre: 'TP-Link', clave: 'tplink', orden: 2, activa: true },
+            ],
+          })
+        : base(url, ...rest),
+    );
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />, { initialEntries: ['/?tienda_oficial=2645'] });
+    });
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /avanzados/i }));
+    });
+
+    const select = screen.getByText('🏪 Tienda Oficial').closest('.filter-item').querySelector('select');
+    await waitFor(() => expect(select.value).toBe('2645,471846'));
+    // What the select shows is what is APPLIED: the state is normalized to the
+    // group, so the listing asks for both ids.
+    await waitFor(() => {
+      const last = productosAPI.listar.mock.calls.at(-1)[0];
+      expect(last.tienda_oficial).toBe('2645,471846');
+    });
+  });
+});
+

@@ -1,73 +1,135 @@
 /**
- * Display metadata for MercadoLibre official stores, keyed by
- * `mlp_official_store_id`.
- *
- * Single source of truth: extracted from the official-store filter
- * `<select>` in `Productos.jsx`, now also consumed by `TreeNode.jsx`'s
- * per-MLA store badge (promos-catalog-prices-and-official-store, slice A).
- * An id outside this map is unknown, not invalid — callers render the raw
- * id rather than hiding it.
+ * Official-store names live in the database (Admin > Tiendas Oficiales) and
+ * are read through `useTiendasOficiales`. What stays here is the filter
+ * sentinel and the chip builder shared by Ventas ML and Métricas ML.
  */
-export const TIENDAS_OFICIALES = {
-  57997: { label: 'Gauss', emoji: '🏢', title: undefined },
-  2645: { label: 'TP-Link', emoji: '📡', title: 'TP-Link' },
-  144: { label: 'Forza/Verbatim', emoji: '⚡', title: 'Forza, Verbatim' },
-  191942: { label: 'Multi-marca', emoji: '🎯', title: 'Epson, Forza, Logitech, MGN, Razer' },
-};
 
-/**
- * Display order for the filter `<select>`. Integer-like object keys are
- * NOT iterated in insertion order by JS (they sort numerically ascending),
- * so `Object.entries(TIENDAS_OFICIALES)` cannot be trusted for UI order —
- * this explicit list is the source of truth for that.
- */
-export const TIENDAS_OFICIALES_ORDER = [57997, 2645, 144, 191942];
-
-/**
- * Returns the display label for a given official store id, or the raw id
- * (stringified) when unknown. `null`/`undefined` -> `null` (caller decides
- * how to render "sin tienda").
- */
-export function getTiendaOficialLabel(officialStoreId) {
-  if (officialStoreId === null || officialStoreId === undefined) return null;
-  const entry = TIENDAS_OFICIALES[officialStoreId];
-  return entry ? entry.label : String(officialStoreId);
-}
-
-/**
- * ODD `metricas-ml-tablero` T1: the "Tienda:" filter chips on Ventas ML and
- * Métricas ML. Values are what the backend's `stores` param takes
- * (`mlp_official_store_id` as text, plus the `sin_tienda` sentinel for an
- * MLA published with no official store). Labels are the product's names for
- * the stores on these screens, deliberately not `TIENDAS_OFICIALES` labels.
- */
+/** What the backend's `stores` param takes for an MLA published with no official store. */
 export const STORE_NONE = 'sin_tienda';
-export const STORE_FILTER_OPTIONS = ['57997', '2645', '144', '191942', STORE_NONE];
-export const STORE_FILTER_LABELS = {
-  57997: 'Gauss',
-  2645: 'TP-Link Oficial',
-  144: 'Forza/Verbatim',
-  191942: 'Multimarca',
-  [STORE_NONE]: 'Sin tienda',
-};
+
+const byOrden = (a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre);
 
 /**
- * The "Tienda:" chips for the facet the backend returned. The known stores
- * keep their place and label (even at zero); ANY other store the facet
- * reports gets its own "Tienda <id>" chip (ids ascending, before
- * "Sin tienda"), so every sale counted in "Todas" sits under a chip that can
- * be clicked. The selected store stays a chip even if the facet drops it.
+ * The options every store picker offers. Stores sharing a non-null `clave`
+ * (e.g. the old and the new id of TP-Link) collapse into ONE option that
+ * selects ALL their ids, inactive ones included (their history must stay in
+ * the filter). Stores without a clave are one option per id. Only ACTIVE
+ * stores are offered; a clave whose rows are all inactive is not offered.
+ *
+ * Returns `[{ value, ids, label }]` in `orden`; `value` is the ids joined by
+ * `,` (what the backend's CSV params take), `label` the name of the group's
+ * first active row.
  */
-export function storeFilterChips(counts = {}, selected = '') {
-  const known = STORE_FILTER_OPTIONS.filter((value) => value !== STORE_NONE);
-  const others = new Set(
-    Object.keys(counts || {}).filter((value) => value !== STORE_NONE && !known.includes(value)),
-  );
-  if (selected && selected !== STORE_NONE && !known.includes(selected)) others.add(selected);
-  const extra = [...others].sort((a, b) => Number(a) - Number(b));
-  const labels = { ...STORE_FILTER_LABELS };
-  for (const value of extra) labels[value] = `Tienda ${value}`;
-  return { options: [...known, ...extra, STORE_NONE], labels };
+export function groupStores(tiendas = []) {
+  const sorted = [...tiendas].sort(byOrden);
+  const idsByClave = new Map();
+  for (const tienda of sorted) {
+    if (!tienda.clave) continue;
+    idsByClave.set(tienda.clave, [...(idsByClave.get(tienda.clave) || []), String(tienda.store_id)]);
+  }
+  const grupos = [];
+  const emitted = new Set();
+  for (const tienda of sorted.filter((t) => t.activa)) {
+    if (tienda.clave) {
+      if (emitted.has(tienda.clave)) continue;
+      emitted.add(tienda.clave);
+      const ids = idsByClave.get(tienda.clave).sort((a, b) => Number(a) - Number(b));
+      grupos.push({ value: ids.join(','), ids, label: tienda.nombre });
+    } else {
+      const id = String(tienda.store_id);
+      grupos.push({ value: id, ids: [id], label: tienda.nombre });
+    }
+  }
+  return grupos;
 }
 
-export default TIENDAS_OFICIALES;
+/**
+ * One label per entry of a CSV selection of store ids: every group whose ids
+ * are ALL selected by the group's name (so `2645,471846` reads "TP-Link"), the
+ * remaining ids by their own name. Empty selection -> [].
+ */
+export function labelsForIds(tiendas, getLabel, csv) {
+  const ids = csv ? String(csv).split(',').map((id) => id.trim()).filter(Boolean) : [];
+  if (ids.length === 0) return [];
+  const grupos = groupStores(tiendas).filter((g) => g.ids.every((id) => ids.includes(id)));
+  const sueltos = ids.filter((id) => !grupos.some((g) => g.ids.includes(id)));
+  return [...grupos.map((g) => g.label), ...sueltos.map((id) => getLabel(id))];
+}
+
+/** `labelsForIds` joined for display; empty selection -> null. */
+export function labelForIds(tiendas, getLabel, csv) {
+  const labels = labelsForIds(tiendas, getLabel, csv);
+  return labels.length === 0 ? null : labels.join(', ');
+}
+
+/**
+ * The picker option a selection stands for. A non-empty subset of ONE clave
+ * group's ids (e.g. a legacy `tienda_oficial=2645` URL, when the group is
+ * `2645,471846`) maps to that group's option; anything else comes back as is.
+ */
+export function groupValueForSelection(tiendas, csv) {
+  const ids = csv ? String(csv).split(',').map((id) => id.trim()).filter(Boolean) : [];
+  if (ids.length === 0) return csv || '';
+  const grupos = groupStores(tiendas);
+  const exact = grupos.find((g) => g.value === ids.join(','));
+  if (exact) return exact.value;
+  const container = grupos.filter((g) => g.ids.length > 1 && ids.every((id) => g.ids.includes(id)));
+  return container.length === 1 ? container[0].value : csv;
+}
+
+/**
+ * The "Tienda:" chips (Ventas ML, Métricas ML). A chip's value is what the
+ * backend's `stores` param takes: its ids as CSV (or `sin_tienda`).
+ *
+ * - `tiendas`: every store row (see `groupStores`).
+ * - `counts` (Ventas ML facet, per id): a group chip's count is the SUM of
+ *   its ids'. ANY other store the facet reports gets its own chip (ids
+ *   ascending, before "Sin tienda"), so every sale counted in "Todas" sits
+ *   under a chip that can be clicked (`facetExtras: false` offers the groups
+ *   only, e.g. Métricas ML, whose options are the active stores).
+ * - `selected`: CSV currently filtered. A group chip is active when ALL its
+ *   ids are selected; an unknown selection stays a chip of its own.
+ * - `getLabel(id)`: the name for an id outside the groups (`Tienda <id>`).
+ *
+ * Returns `{ options, labels, counts, activeValue }`.
+ */
+export function buildStoreChips({ tiendas = [], getLabel, counts = {}, selected = '', facetExtras = true }) {
+  const grupos = groupStores(tiendas);
+  const covered = new Set(grupos.flatMap((g) => g.ids));
+  const selectedIds = selected ? selected.split(',').filter(Boolean) : [];
+
+  const others = new Set(
+    [...(facetExtras ? Object.keys(counts || {}) : []), ...selectedIds].filter((id) => id !== STORE_NONE && !covered.has(id)),
+  );
+  const extra = [...others].sort((a, b) => Number(a) - Number(b));
+
+  const options = [...grupos.map((g) => g.value), ...extra, STORE_NONE];
+  const labels = { [STORE_NONE]: 'Sin tienda' };
+  const mergedCounts = { [STORE_NONE]: counts?.[STORE_NONE] ?? 0 };
+  for (const grupo of grupos) {
+    labels[grupo.value] = grupo.label;
+    mergedCounts[grupo.value] = grupo.ids.reduce((sum, id) => sum + (counts?.[id] ?? 0), 0);
+  }
+  for (const id of extra) {
+    labels[id] = getLabel(id);
+    mergedCounts[id] = counts?.[id] ?? 0;
+  }
+
+  let activeValue = '';
+  if (selectedIds.length > 0) {
+    // A chip is active when the selection IS its ids (any order), not merely
+    // contains them: a broader hand-edited selection must not light up one chip.
+    const selection = new Set(selectedIds);
+    const match = grupos.find((g) => g.ids.length === selection.size && g.ids.every((id) => selection.has(id)));
+    if (match) activeValue = match.value;
+    else if (selection.size === 1 && options.includes(selected)) activeValue = selected;
+    else {
+      // A selection no chip stands for (e.g. a hand-edited list): keep it visible.
+      activeValue = selected;
+      options.splice(options.length - 1, 0, selected);
+      labels[selected] = selectedIds.map((id) => getLabel(id)).join(', ');
+      mergedCounts[selected] = 0;
+    }
+  }
+  return { options, labels, counts: mergedCounts, activeValue };
+}

@@ -82,7 +82,7 @@ class AsignarMasivoRequest(BaseModel):
                         "tienda_oficial_id": 57997,
                         "listas_sin_mla": ["Clásica", "3 Cuotas"],
                     },
-                    {"item_id": 456, "listas": ["6 Cuotas"], "tienda_oficial_id": 2645, "listas_sin_mla": ["6 Cuotas"]},
+                    {"item_id": 456, "listas": ["6 Cuotas"], "tienda_oficial_id": 144, "listas_sin_mla": ["6 Cuotas"]},
                 ],
                 "notas": "Lote asignado masivamente",
             }

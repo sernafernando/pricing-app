@@ -73,6 +73,7 @@ def _detail_row(
         envio_producto=envio_producto,
         fecha_venta=datetime(2026, 7, 1, 10, 0, 0),
         mlod_id=mlod_id,
+        mlp_official_store_id=471846,
     )
 
 

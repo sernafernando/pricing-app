@@ -4,7 +4,9 @@ import api from '../services/api';
 import { toLocalTimestamp } from '../utils/dateUtils';
 import styles from './ExportModal.module.css';
 import { buildFilterQueryString } from './exportFilterParams';
+import { serializarTiendasOficiales } from './exportTiendas';
 import { usePermisos } from '../contexts/PermisosContext';
+import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 
 /**
  * Tiendas oficiales (multi-select) para filtrar a nivel MLA.
@@ -14,26 +16,17 @@ import { usePermisos } from '../contexts/PermisosContext';
  * 'sin_tienda' es un sentinel literal → mlp_official_store_id IS NULL en backend.
  * El resto son IDs numéricos como string para preservar tipos al serializar.
  */
-const TIENDAS_OFICIALES_OPCIONES = [
-  { id: 'sin_tienda', label: 'Sin tienda' },
-  { id: '57997', label: 'Gauss' },
-  { id: '2645', label: 'TP-Link' },
-  { id: '144', label: 'Forza/Verbatim' },
-  { id: '191942', label: 'Multi-marca' },
-];
-
-const TIENDAS_OFICIALES_IDS = TIENDAS_OFICIALES_OPCIONES.map(t => t.id);
+const TIENDA_SIN_TIENDA = { id: 'sin_tienda', label: 'Sin tienda' };
 
 /**
- * Serializa el Set de IDs de tiendas oficiales a CSV para el backend.
- * Devuelve null cuando todas o ninguna están tildadas (= sin filtro efectivo).
+ * "Sin tienda" + una opción por tienda (nombres definidos en Admin > Tiendas
+ * Oficiales). Las tiendas que comparten clave son UNA opción cuyo id es la
+ * lista de todos sus IDs (activos e inactivos), separada por coma.
  */
-const serializarTiendasOficiales = (set) => {
-  if (!set || set.size === 0 || set.size === TIENDAS_OFICIALES_IDS.length) {
-    return null;
-  }
-  return Array.from(set).join(',');
-};
+const armarOpcionesTiendas = (grupos) => [
+  TIENDA_SIN_TIENDA,
+  ...grupos.map((grupo) => ({ id: grupo.value, label: grupo.label })),
+];
 
 /**
  * Construye query string de filtros para exports GET.
@@ -44,52 +37,54 @@ const serializarTiendasOficiales = (set) => {
  * Display de filtros activos — definido fuera del componente
  * para evitar re-creación en cada render (rompe reconciliación React).
  */
-const FiltrosActivosDisplay = ({ filtrosActivos }) => (
-  <div className={styles.filtrosActivos}>
-    {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
-    {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
-    {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
-    {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
-    {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
-    {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
-    {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
-    {filtrosActivos?.filtroRebate === 'con_rebate' && <div>• Con Rebate</div>}
-    {filtrosActivos?.filtroRebate === 'sin_rebate' && <div>• Sin Rebate</div>}
-    {filtrosActivos?.filtroOferta === 'con_oferta' && <div>• Con Oferta</div>}
-    {filtrosActivos?.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
-    {filtrosActivos?.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
-    {filtrosActivos?.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
-    {filtrosActivos?.filtroTiendaNube === 'con_descuento' && <div>• Tienda Nube: Con Descuento</div>}
-    {filtrosActivos?.filtroTiendaNube === 'sin_descuento' && <div>• Tienda Nube: Sin Descuento</div>}
-    {filtrosActivos?.filtroTiendaNube === 'no_publicado' && <div>• Tienda Nube: No Publicado</div>}
-    {filtrosActivos?.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
-    {filtrosActivos?.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
-    {filtrosActivos?.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
-    {filtrosActivos?.filtroMarkupClasica === 'negativo' && <div>• Markup Clásica: Negativo</div>}
-    {filtrosActivos?.filtroMarkupRebate === 'positivo' && <div>• Markup Rebate: Positivo</div>}
-    {filtrosActivos?.filtroMarkupRebate === 'negativo' && <div>• Markup Rebate: Negativo</div>}
-    {filtrosActivos?.filtroMarkupOferta === 'positivo' && <div>• Markup Oferta: Positivo</div>}
-    {filtrosActivos?.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
-    {filtrosActivos?.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
-    {filtrosActivos?.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
-    {filtrosActivos?.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
-    {filtrosActivos?.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
-    {filtrosActivos?.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
-    {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
-    {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
-    {filtrosActivos?.coloresSeleccionados?.length > 0 && filtrosActivos?.equipoActivoNombre && <div>• Capa de colores: {filtrosActivos.equipoActivoNombre}</div>}
-    {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
-    {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
-    {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
-    {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
-    {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
-    {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
-    {filtrosActivos?.filtroTiendaOficial === '57997' && <div>• Tienda Oficial: Gauss</div>}
-    {filtrosActivos?.filtroTiendaOficial === '2645' && <div>• Tienda Oficial: TP-Link</div>}
-    {filtrosActivos?.filtroTiendaOficial === '144' && <div>• Tienda Oficial: Forza/Verbatim</div>}
-    {filtrosActivos?.filtroTiendaOficial === '191942' && <div>• Tienda Oficial: Multi-marca</div>}
-  </div>
-);
+const FiltrosActivosDisplay = ({ filtrosActivos }) => {
+  const { getLabelForIds } = useTiendasOficiales();
+  return (
+    <div className={styles.filtrosActivos}>
+      {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
+      {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
+      {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
+      {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
+      {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
+      {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
+      {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+      {filtrosActivos?.filtroRebate === 'con_rebate' && <div>• Con Rebate</div>}
+      {filtrosActivos?.filtroRebate === 'sin_rebate' && <div>• Sin Rebate</div>}
+      {filtrosActivos?.filtroOferta === 'con_oferta' && <div>• Con Oferta</div>}
+      {filtrosActivos?.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
+      {filtrosActivos?.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
+      {filtrosActivos?.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
+      {filtrosActivos?.filtroTiendaNube === 'con_descuento' && <div>• Tienda Nube: Con Descuento</div>}
+      {filtrosActivos?.filtroTiendaNube === 'sin_descuento' && <div>• Tienda Nube: Sin Descuento</div>}
+      {filtrosActivos?.filtroTiendaNube === 'no_publicado' && <div>• Tienda Nube: No Publicado</div>}
+      {filtrosActivos?.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
+      {filtrosActivos?.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
+      {filtrosActivos?.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
+      {filtrosActivos?.filtroMarkupClasica === 'negativo' && <div>• Markup Clásica: Negativo</div>}
+      {filtrosActivos?.filtroMarkupRebate === 'positivo' && <div>• Markup Rebate: Positivo</div>}
+      {filtrosActivos?.filtroMarkupRebate === 'negativo' && <div>• Markup Rebate: Negativo</div>}
+      {filtrosActivos?.filtroMarkupOferta === 'positivo' && <div>• Markup Oferta: Positivo</div>}
+      {filtrosActivos?.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
+      {filtrosActivos?.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
+      {filtrosActivos?.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
+      {filtrosActivos?.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
+      {filtrosActivos?.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
+      {filtrosActivos?.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
+      {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
+      {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
+      {filtrosActivos?.coloresSeleccionados?.length > 0 && filtrosActivos?.equipoActivoNombre && <div>• Capa de colores: {filtrosActivos.equipoActivoNombre}</div>}
+      {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
+      {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
+      {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
+      {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
+      {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
+      {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
+      {filtrosActivos?.filtroTiendaOficial && filtrosActivos.filtroTiendaOficial !== 'todos' && (
+        <div>• Tienda Oficial: {getLabelForIds(filtrosActivos.filtroTiendaOficial)}</div>
+      )}
+    </div>
+  );
+};
 
 export default function ExportModal({ onClose, filtrosActivos, showToast, esTienda = false }) {
   const { tienePermiso } = usePermisos();
@@ -141,22 +136,24 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
   // Tiendas oficiales (filtro a nivel MLA, solo aplica en tabs Rebate/Clásica/PVP).
   // Default: todas tildadas → no filtra (idéntico al comportamiento actual).
-  const [tiendasOficialesMLA, setTiendasOficialesMLA] = useState(
-    () => new Set(TIENDAS_OFICIALES_IDS)
-  );
+  // Se guardan las DESTILDADAS: vacío = todas tildadas, aunque las tiendas
+  // lleguen después (nombres e IDs vienen de la API).
+  const { grupos: tiendasGrupos } = useTiendasOficiales();
+  const opcionesTiendas = armarOpcionesTiendas(tiendasGrupos);
+  const [tiendasDestildadas, setTiendasDestildadas] = useState(() => new Set());
 
   /**
    * Render del display informativo del subset activo (Spec R2 scenario 4).
    * Solo se muestra cuando `serializarTiendasOficiales` produce un CSV no-null,
    * es decir SOLO cuando el filtro está aplicando (subset estricto).
-   * Se mantiene SEPARADO de `FiltrosActivosDisplay` porque `tiendasOficialesMLA`
+   * Se mantiene SEPARADO de `FiltrosActivosDisplay` porque `tiendasDestildadas`
    * NO es un filtro de productos — viaja por su propia vía al backend.
    */
   const renderTiendasOficialesActivas = () => {
-    const csv = serializarTiendasOficiales(tiendasOficialesMLA);
+    const csv = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
     if (!csv) return null; // todas o ninguna tildada → sin filtro efectivo
-    const labels = TIENDAS_OFICIALES_OPCIONES
-      .filter(opcion => tiendasOficialesMLA.has(opcion.id))
+    const labels = opcionesTiendas
+      .filter(opcion => !tiendasDestildadas.has(opcion.id))
       .map(opcion => opcion.label)
       .join(', ');
     return (
@@ -183,16 +180,16 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     <div className={styles.formGroup}>
       <label className={styles.label}>Tiendas oficiales (MLAs):</label>
       <div className={styles.tiendasOficialesGroup}>
-        {TIENDAS_OFICIALES_OPCIONES.map(opcion => (
+        {opcionesTiendas.map(opcion => (
           <label key={opcion.id} className={styles.tiendaCheckboxLabel}>
             <input
               type="checkbox"
-              checked={tiendasOficialesMLA.has(opcion.id)}
+              checked={!tiendasDestildadas.has(opcion.id)}
               onChange={(e) => {
-                const next = new Set(tiendasOficialesMLA);
-                if (e.target.checked) next.add(opcion.id);
-                else next.delete(opcion.id);
-                setTiendasOficialesMLA(next);
+                const next = new Set(tiendasDestildadas);
+                if (e.target.checked) next.delete(opcion.id);
+                else next.add(opcion.id);
+                setTiendasDestildadas(next);
               }}
             />
             {opcion.label}
@@ -412,7 +409,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
       // Tiendas oficiales viajan en el TOP-LEVEL del body (no dentro de filtros)
       // porque en backend el campo está en ExportRebateRequest.tiendas_oficiales.
-      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      const tiendasOfMLA = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
       if (tiendasOfMLA) {
         body.tiendas_oficiales = tiendasOfMLA;
       }
@@ -449,7 +446,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       // Filtro de tiendas oficiales a nivel MLA (independiente de aplicarFiltros).
-      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      const tiendasOfMLA = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
       if (tiendasOfMLA) {
         params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }
@@ -622,7 +619,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       }
 
       // Filtro de tiendas oficiales a nivel MLA (independiente de aplicarFiltros).
-      const tiendasOfMLA = serializarTiendasOficiales(tiendasOficialesMLA);
+      const tiendasOfMLA = serializarTiendasOficiales(opcionesTiendas, tiendasDestildadas);
       if (tiendasOfMLA) {
         params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }

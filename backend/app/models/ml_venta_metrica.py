@@ -80,7 +80,7 @@ class MLVentaMetrica(Base):
     # Información adicional
     prli_id = Column(Integer)  # ID de lista de precios del ERP
     mla_id = Column(String(50))  # MLA ID de la publicación
-    mlp_official_store_id = Column(Integer, index=True)  # ID de tienda oficial ML (57997=Gauss, 2645=TP-Link, etc.)
+    mlp_official_store_id = Column(Integer, index=True)  # ID de tienda oficial ML (see ml_tiendas_oficiales)
 
     # Estado de cancelación (reconciliado contra mlwebhook.ml_cancelled_orders)
     is_cancelled = Column(Boolean, nullable=False, server_default="false", index=True)  # True = orden ML cancelada
