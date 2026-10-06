@@ -102,3 +102,32 @@ def map_item(raw: Mapping[str, Any]) -> dict[str, Any]:
         "date_created": _timestamp(raw.get("date_created")),
         "ml_last_updated": _timestamp(raw.get("last_updated")),
     }
+
+
+def map_variations(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Typed rows of `ml_item_variations` from an item body (empty when it has none).
+
+    `seller_sku` is read from the variation's own `attributes[].value_name`, which
+    the default `/items` shape does not include, so it is NULL there.
+    """
+    variations = raw.get("variations")
+    if not isinstance(variations, list):
+        return []
+    item_id = raw.get("id")
+    rows = []
+    for variation in variations:
+        if not isinstance(variation, Mapping):
+            continue
+        rows.append(
+            {
+                "item_id": item_id,
+                "variation_id": variation.get("id"),
+                "seller_custom_field": variation.get("seller_custom_field"),
+                "seller_sku": attribute_value_name(variation.get("attributes"), "SELLER_SKU"),
+                "user_product_id": variation.get("user_product_id"),
+                "available_quantity": variation.get("available_quantity"),
+                "sold_quantity": variation.get("sold_quantity"),
+                "raw": dict(variation),
+            }
+        )
+    return rows

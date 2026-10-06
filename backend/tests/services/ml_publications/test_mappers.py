@@ -107,3 +107,67 @@ def test_module_imports_no_gbp_or_erp_code():
             imported.append(node.module or "")
     forbidden = ("gbp", "producto", "erp", "publicacion", "models")
     assert not [m for m in imported if any(token in m.lower() for token in forbidden)]
+
+
+# --- variations (capture 12: MLA1207279308, closed, 4 variations, no per-variation attributes) ---
+
+
+def _item_with_variations() -> dict:
+    from tests.services.ml_publications.conftest import ITEM_WITH_VARIATIONS, load_fixture
+
+    return load_fixture(ITEM_WITH_VARIATIONS)
+
+
+def test_captured_item_yields_four_variation_rows():
+    from app.services.ml_publications.mappers import map_variations
+
+    raw = _item_with_variations()
+    rows = map_variations(raw)
+    assert len(rows) == 4
+    assert [r["variation_id"] for r in rows] == [v["id"] for v in raw["variations"]]
+    for row, variation in zip(rows, raw["variations"]):
+        assert row["item_id"] == "MLA1207279308"
+        assert row["raw"] == variation
+        assert row["user_product_id"] == variation["user_product_id"]
+        assert row["seller_custom_field"] is None
+        assert row["seller_sku"] is None  # captured variations carry no `attributes`
+        assert row["available_quantity"] == variation["available_quantity"]
+        assert row["sold_quantity"] == variation["sold_quantity"]
+
+
+def test_variation_custom_field_is_typed_real_payload_one_field_changed():
+    from app.services.ml_publications.mappers import map_variations
+
+    raw = _item_with_variations()
+    raw["variations"][1]["seller_custom_field"] = "ABC-1"
+    rows = map_variations(raw)
+    assert [r["seller_custom_field"] for r in rows] == [None, "ABC-1", None, None]
+
+
+def test_item_with_empty_variations_yields_no_rows():
+    from app.services.ml_publications.mappers import map_variations
+
+    raw = bulk_item("MLA935110613")
+    assert raw["variations"] == []
+    assert map_variations(raw) == []
+
+
+def test_variation_without_attributes_never_raises_and_variations_key_may_be_missing():
+    from app.services.ml_publications.mappers import map_variations
+
+    raw = _item_with_variations()
+    assert all("attributes" not in v for v in raw["variations"])
+    assert len(map_variations(raw)) == 4
+    del raw["variations"]
+    assert map_variations(raw) == []
+    raw["variations"] = None
+    assert map_variations(raw) == []
+
+
+def test_variation_seller_sku_is_read_from_attributes_value_name_when_present_real_payload_one_field_added():
+    from app.services.ml_publications.mappers import map_variations
+
+    raw = _item_with_variations()
+    raw["variations"][0]["attributes"] = [{"id": "SELLER_SKU", "value_id": None, "value_name": "SKU-9"}]
+    rows = map_variations(raw)
+    assert rows[0]["seller_sku"] == "SKU-9" and rows[1]["seller_sku"] is None
