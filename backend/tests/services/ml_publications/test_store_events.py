@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from app.services.ml_publications import events_store
 from app.services.ml_publications import store as store_module
-from app.services.ml_publications.events import ChangeRow, derive_events, dedupe_key
+from app.services.ml_publications.events import ChangeRow, dedupe_key, derive_events
 from app.services.ml_publications.settings_store import set_setting
 from tests.services.ml_publications.conftest import bulk_item, sample_item
 from tests.services.ml_publications.test_store_apply_fetch import (
