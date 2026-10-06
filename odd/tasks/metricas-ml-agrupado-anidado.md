@@ -94,8 +94,8 @@ Todas: un writer (este agente). Tareas con 2+ archivos no triviales.
 
 ## Tareas
 
-- [ ] T1 Servicio: jerarquía de niveles (`groups.py`) y nodos de cualquier profundidad (`Board(scope=)`): Sin X, ruta, tienda, búsqueda, orden, paginado, conciliación por nivel.
-- [ ] T2 Servicio: hojas para el CSV (una fila por producto con la ruta) y techo de sentencias por nivel.
+- [x] T1 Servicio: jerarquía de niveles (`groups.py`) y nodos de cualquier profundidad (`Board(scope=)`): Sin X, ruta, tienda, búsqueda, orden, paginado, conciliación por nivel.
+- [x] T2 Servicio: hojas para el CSV (una fila por producto con la ruta) y techo de sentencias por nivel.
 - [ ] T3 Router: `levels`, `group-nodes`, CSV con ruta, permisos, techo.
 - [ ] T4 Frontend: árbol de niveles (carga perezosa, paginado por nivel, indentación), vitest.
 - [ ] T5 Visual (`test:visual`) de los estados anidados.
@@ -120,3 +120,5 @@ pytest (tests tocados + `pytest tests -q`), `ruff format --check app/ tests/`, `
 ## Progreso / evidencia
 
 - T0 medición: ver arriba (0 conflictos en `pricing_dev` ni en producción).
+- T1 (`7b1303eb`): RED = `AttributeError: module 'groups' has no attribute 'levels_of'` (todo el archivo `test_board_nested_groups_postgres.py` nuevo falla); GREEN = 38 tests: tabla de niveles por dimensión, nodos a cualquier profundidad (categoría>sub, marca>cat>sub, PM, tienda por clave con la venta partida hasta el producto, Subcategoría rotulada con su categoría y partida por categoría), "Sin X" profundos, conciliación recursiva (hijos = padre por nivel en las 5 dimensiones; unidades/facturado/costo exactos, Gauss <= 1 centavo por nodo), búsqueda y filtros por producto antes de agregar, orden por nivel, paginado estable con empates, ruta desconocida. Hallazgo: `scope_keys` (CTE de sobrevivientes) se instanciaba dos veces en una sentencia -> `CompileError: Multiple, unrelated CTEs`; arreglo: un único CTE por Board. Los tests del tope plano de `test_board_groups_postgres.py` se actualizaron (clave `<id>|<categoría>`); su sección "abrir grupo -> productos" la reemplaza la conciliación recursiva.
+- T2: RED = `AttributeError: 'Board' object has no attribute 'leaf_keys'` (12 tests); GREEN = 62 tests del archivo: hojas = una fila por (ruta, producto) con los nombres de la ruta, suman a los KPIs en las 5 dimensiones, un producto en dos tiendas = una hoja por tienda con sus ventas, orden = ruta y luego el orden del tablero, fetch por clave en el orden pedido (salta la desaparecida), tope, filtros / "solo con ventas" / stock. Techo de sentencias de una página de nivel (profundidades 0..4, con y sin filtros de fila): <= 12 (test que fija el número; no hizo falta tocar el código para cumplirlo, porque todos los niveles comparten el camino de la tabla de pares).

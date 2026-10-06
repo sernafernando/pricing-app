@@ -413,3 +413,161 @@ def test_a_product_leaf_pages_and_counts_like_the_other_levels(tree_catalog) -> 
 def test_an_unknown_path_opens_into_nothing(tree_catalog) -> None:
     assert children(tree_catalog, "marca", ("NO-SUCH", "X")) == {}
     assert children(tree_catalog, "marca", ("EPSON", "NO-SUCH", "X")) == {}
+
+
+# ── T2: one row per leaf product, with its full path (the CSV export) ──
+
+
+def leaves(db, dimension, **filters):
+    with board.Board(db, _filter(dimension, **filters), through_leaves=True) as b:
+        keys = b.leaf_keys(1000)
+        return keys, b.leaves_for_keys(keys)
+
+
+@pytest.mark.postgres
+def test_the_leaves_are_the_products_of_every_path_with_the_names_of_its_levels(tree_catalog) -> None:
+    keys, rows = leaves(tree_catalog, "categoria")
+
+    by_path = {tuple(row.path): row for row in rows}
+    assert ("Impresoras", "Laser") in {path[:2] for path in by_path}
+    laser = [row for row in rows if row.path == ["Impresoras", "Laser"]]
+    assert {row.product_item_id for row in laser} == {21, 23}
+    assert {row.sku for row in laser} == {"S21", "S23"}
+    assert all(row.level == "product" for row in rows)
+    assert len(keys) == len(rows) == 9  # every product sits under exactly one (categoría, subcategoría)
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("dimension", DIMENSIONS)
+def test_the_leaves_add_up_to_the_ungrouped_totals(tree_catalog, dimension) -> None:
+    _, rows = leaves(tree_catalog, dimension)
+    k = kpis(tree_catalog)
+
+    assert sum(r.units for r in rows) == k.units == 14
+    assert sum(r.gross for r in rows) == k.gross
+    assert sum(r.costo for r in rows) == k.costo
+    assert all(len(r.path) == len(groups.levels_of(dimension)) - 1 for r in rows)
+
+
+@pytest.mark.postgres
+def test_a_product_in_two_stores_is_one_leaf_per_store_with_its_own_sales(tree_catalog) -> None:
+    _, rows = leaves(tree_catalog, "tienda")
+
+    own = {tuple(r.path[:1]): r.units for r in rows if r.product_item_id == 21}
+    assert own == {("Gauss",): 1, ("TP-Link",): 2}
+
+
+@pytest.mark.postgres
+def test_the_leaves_come_in_path_order_then_the_board_sort(tree_catalog) -> None:
+    _, rows = leaves(tree_catalog, "categoria", sort="units", sort_desc=True)
+
+    paths = [tuple(r.path) for r in rows]
+    assert paths == sorted(paths, key=lambda p: tuple(x.lower() for x in p))
+    laser = [r.product_item_id for r in rows if r.path == ["Impresoras", "Laser"]]
+    assert laser == [21, 23]  # 3 units before 1
+
+
+@pytest.mark.postgres
+def test_leaves_are_fetched_by_key_in_the_order_given_skipping_the_vanished(tree_catalog) -> None:
+    with board.Board(tree_catalog, _filter("marca"), through_leaves=True) as b:
+        keys = b.leaf_keys(1000)
+        reversed_rows = b.leaves_for_keys(list(reversed(keys)))
+        with_a_ghost = b.leaves_for_keys([("NO", "SUCH", "ONE", "1"), keys[0]])
+
+    assert [(r.path, r.product_item_id) for r in reversed_rows] == [
+        (r.path, r.product_item_id) for r in reversed(b_rows(tree_catalog, "marca", keys))
+    ]
+    assert len(with_a_ghost) == 1
+
+
+def b_rows(db, dimension, keys):
+    with board.Board(db, _filter(dimension), through_leaves=True) as b:
+        return b.leaves_for_keys(keys)
+
+
+@pytest.mark.postgres
+def test_leaf_keys_are_capped(tree_catalog) -> None:
+    with board.Board(tree_catalog, _filter("marca"), through_leaves=True) as b:
+        assert len(b.leaf_keys(4)) == 4
+
+
+@pytest.mark.postgres
+def test_the_leaves_follow_the_filters_and_solo_con_ventas(tree_catalog) -> None:
+    db = tree_catalog
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (30, 'S30', 'Zeta', 'Zeta', 'Impresoras', 10, 1)"
+        )
+    )
+    _publish(db, 30, "MLA9000000030", 57997, 9100)
+    _publish(db, 30, "MLA9000000130", 471846, 9101)
+    _sell(db, 11, 30, "MLA9000000130", qty=1, tg="2", costo="20")
+
+    _, everything = leaves(db, "tienda")
+    _, sold = leaves(db, "tienda", solo_con_ventas=True)
+    _, mouse = leaves(db, "tienda", q="mouse")
+
+    assert (("Gauss", "Zeta") in {tuple(r.path[:2]) for r in everything}) is True
+    assert ("Gauss", "Zeta") not in {tuple(r.path[:2]) for r in sold}  # zero units in that store
+    assert {r.product_item_id for r in mouse} == {24, 29}
+
+
+@pytest.mark.postgres
+def test_row_filters_decide_which_products_have_leaves(tree_catalog) -> None:
+    _, rows = leaves(tree_catalog, "marca", stock=("con_stock",))
+
+    assert 22 not in {r.product_item_id for r in rows}
+
+
+# ── statements per request ───────────────────────────────────────
+
+
+class _Count:
+    def __init__(self, db) -> None:
+        self.n = 0
+        self.connection = db.connection()
+
+    def __enter__(self):
+        from sqlalchemy import event
+
+        self._event = event
+        event.listen(self.connection, "before_cursor_execute", self._tick)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._event.remove(self.connection, "before_cursor_execute", self._tick)
+
+    def _tick(self, *args) -> None:
+        self.n += 1
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    "dimension, scope",
+    [
+        ("tienda", ()),
+        ("tienda", ("c:tplink",)),
+        ("tienda", ("c:tplink", "EPSON")),
+        ("tienda", ("c:tplink", "EPSON", "IMPRESORAS")),
+        ("tienda", ("c:tplink", "EPSON", "IMPRESORAS", "10")),
+        ("categoria", ("IMPRESORAS",)),
+    ],
+)
+@pytest.mark.parametrize("filters", [{}, {"stock": ("con_stock",), "solo_con_ventas": True}], ids=["plain", "rows"])
+def test_a_level_page_costs_a_fixed_number_of_statements_at_every_depth(
+    tree_catalog, dimension, scope, filters
+) -> None:
+    leaf = len(scope) == len(groups.levels_of(dimension)) - 1
+    f = _filter(dimension, group_by="product" if leaf else "group", **filters)
+    with _Count(tree_catalog) as count:
+        with board.Board(tree_catalog, f, scope=scope) as b:
+            if leaf:
+                b.product_count()
+                b.page(100, 0)
+            else:
+                b.group_counts()
+                b.group_page(100, 0)
+
+    # savepoint + 2 CREATE + 2 ANALYZE + count + page (+ series | details + series) + rollback.
+    assert count.n <= 12, count.n

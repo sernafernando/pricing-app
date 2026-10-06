@@ -78,6 +78,7 @@ from sqlalchemy import (
     table,
     text,
     true,
+    tuple_,
     union,
 )
 from sqlalchemy.ext.compiler import compiles
@@ -1243,6 +1244,101 @@ class Board:
             ageing_days=(self.today - ref_day).days if ref_day else None,
             stock=int(r["stock"]) if r["stock"] is not None else None,
         )
+
+    # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
+
+    def leaf_rows(self) -> Any:
+        """One row per (path of group levels, product): the product with only
+        the sales of that path (a product selling in two stores is one leaf
+        under each), its sums like a node's and the display names of the path's
+        levels as `t0..tN`. Ordered by `_leaf_order`. Needs `through_leaves`."""
+        if self.scope or self.key_levels != self.group_levels:
+            raise ValueError("The leaves are read over the whole tree (no scope, `through_leaves=True`)")
+        level = self.group_levels - 1
+        gp = self._group_source(level)
+        path = [gp.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        g = (
+            select(
+                *(key.label(grouping.key_column(i)) for i, key in enumerate(path)),
+                *(
+                    func.max(gp.c[grouping.label_column(i)]).label(grouping.label_column(i))
+                    for i in range(self.group_levels)
+                ),
+                gp.c.product.label("product"),
+                cast(gp.c.product, String).label("rk"),
+                func.max(gp.c.title).label("title"),
+                func.max(gp.c.codigo).label("sku"),
+                func.max(gp.c.marca).label("marca"),
+                func.count(func.distinct(gp.c.mla)).label("pubs"),
+                *(func.sum(gp.c[name]).label(name) for name in grouping.SUM_COLUMNS),
+                func.max(gp.c.last_day).label("last_day"),
+                func.max(gp.c.last_at).label("last_at"),
+                func.min(gp.c.start_day).label("start_day"),
+                func.sum(case((gp.c.first_in_group == 1, gp.c.stock), else_=None)).label("stock"),
+            )
+            .group_by(*path, gp.c.product)
+            .subquery("g")
+        )
+        markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
+        markup_prev = case((g.c.prev_costo > 0, g.c.prev_mtg * 100 / g.c.prev_costo), else_=None)
+        q = select(
+            *g.c,
+            *(
+                grouping.title_of(self.levels[i], g.c[grouping.key_column(i)], g.c[grouping.label_column(i)]).label(
+                    f"t{i}"
+                )
+                for i in range(self.group_levels)
+            ),
+            markup.label("markup"),
+            markup_prev.label("markup_prev"),
+            (markup - markup_prev).label("markup_delta"),
+            func.coalesce(g.c.last_day, g.c.start_day).label("ref_day"),
+        )
+        if self.f.solo_con_ventas:
+            q = q.where(g.c.units > 0)
+        return q.subquery("leaf_rows")
+
+    def _leaf_order(self, rows: Any) -> Any:
+        """Path by path (names, then the keys that settle equal names), and the
+        board's sort among the products of one path; the product closes it."""
+        names = [func.lower(rows.c[f"t{i}"]) for i in range(self.group_levels)]
+        keys = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        return (*names, *keys, *self._ordered(rows))
+
+    def leaf_keys(self, limit: int) -> List[Tuple[str, ...]]:
+        """The key of every leaf -- the keys of its path, then its product --
+        in export order, at most `limit`: what the CSV export fixes up front so
+        a change between its pages can never repeat or drop a row."""
+        rows = self.leaf_rows()
+        path = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        q = select(*path, rows.c.rk).order_by(*self._leaf_order(rows)).limit(limit)
+        return [tuple(str(part) for part in row) for row in self.db.execute(q)]
+
+    def leaves_for_keys(self, keys: List[Tuple[str, ...]]) -> List[Row]:
+        """The leaves of `keys`, in THAT order; one no longer on the board is
+        skipped, never replaced."""
+        if not keys:
+            return []
+        rows = self.leaf_rows()
+        path = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        wanted = [(*key[:-1], int(key[-1])) for key in keys]
+        found = {}
+        for r in self.db.execute(select(rows).where(tuple_(*path, rows.c.product).in_(wanted))).mappings():
+            ref_day = _as_date(r["ref_day"])
+            names = [r[f"t{i}"] for i in range(self.group_levels)]
+            row = Row(
+                key=str(r["rk"]),
+                product_item_id=int(r["product"]),
+                mla=None,
+                title=r["title"] or "Sin producto",
+                sku=r["sku"],
+                marca=r["marca"],
+                level=grouping.PRODUCT_LEVEL,
+                path=names,
+                **self._sums_of(r, ref_day),
+            )
+            found[(*(str(r[grouping.key_column(i)]) for i in range(self.group_levels)), str(r["product"]))] = row
+        return [found[key] for key in keys if key in found]
 
     def kpis(self) -> Kpis:
         rows = self.rows()
