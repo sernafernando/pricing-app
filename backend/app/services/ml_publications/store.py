@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Mapping, Optional
 
-from sqlalchemy import text
+from sqlalchemy import null, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
@@ -79,18 +79,61 @@ def _typed_snapshot(row: MlItem) -> dict:
 
 
 def _stale(row: MlItem, incoming_last_updated: Optional[datetime], response: MlResponse) -> bool:
-    """True when the response is older than the committed state (D8 step 1)."""
+    """True when the response is older than the committed state (D8 step 1).
+
+    Items order by ML `last_updated`. A response without one (404, error, declared
+    negative state) and any answer about a row last seen as gone are ordered by the
+    request start time instead: the state ML reported was read at or after that instant.
+    """
     if incoming_last_updated is not None and row.ml_last_updated is not None:
-        return incoming_last_updated < row.ml_last_updated
-    if row.fetched_request_started_at is not None:
-        return response.request_started_at <= row.fetched_request_started_at
-    return False
+        if incoming_last_updated < row.ml_last_updated:
+            return True
+        if row.gone_at is None:
+            return False
+    if row.fetched_request_started_at is None:
+        return False
+    return response.request_started_at <= row.fetched_request_started_at
 
 
 def _set_typed(row: MlItem, typed: Mapping[str, Any]) -> None:
     for column, value in typed.items():
         if column != "item_id":
             setattr(row, column, value)
+
+
+def _later(current: Optional[datetime], candidate: datetime) -> datetime:
+    return candidate if current is None or candidate > current else current
+
+
+def _touch(row: MlItem, response: MlResponse, trigger_received_at: Optional[datetime]) -> None:
+    """The narrow freshness update: `last_checked_at` (and the notification time when given)."""
+    row.last_checked_at = _later(row.last_checked_at, response.received_at)
+    if trigger_received_at is not None:
+        row.last_trigger_received_at = _later(row.last_trigger_received_at, trigger_received_at)
+
+
+def _mark_ok(row: MlItem, response: MlResponse) -> None:
+    row.http_status = response.status
+    row.error_body = null()
+    row.last_error = None
+
+
+def _record_error(row: MlItem, response: MlResponse, reason: Optional[str] = None) -> None:
+    row.http_status = response.status or None
+    body = response.body
+    row.error_body = body if isinstance(body, (dict, list)) else null()
+    row.last_error = reason or (f"HTTP {response.status}" if response.status else response.error or "no response")
+
+
+def _write_state(row: MlItem, typed: Mapping[str, Any], body: dict, new_hash: bytes, response: MlResponse) -> None:
+    _set_typed(row, typed)
+    row.raw = body
+    row.raw_hash = new_hash
+    row.fetched_at = response.received_at
+    row.fetched_request_started_at = response.request_started_at
+    row.never_existed = False
+    row.gone_at = None
+    _mark_ok(row, response)
 
 
 def apply_fetch(
@@ -110,32 +153,41 @@ def apply_fetch(
         db.execute(pg_insert(MlItem).values(item_id=item_id).on_conflict_do_nothing(index_elements=["item_id"]))
         row = db.query(MlItem).filter(MlItem.item_id == item_id).with_for_update().one()
 
-        body = response.body
-        typed = spec.mapper(body)
-        incoming_last_updated = typed["ml_last_updated"]
-        if row.raw is not None and _stale(row, incoming_last_updated, response):
+        is_state = 200 <= response.status < 300 or response.status in spec.negative_states
+        typed: Optional[dict] = None
+        if is_state:
+            body = response.body
+            if not isinstance(body, dict):
+                return _error(db, row, response, "invalid body")
+            if response.status in spec.negative_states or body.get("id") == item_id:
+                typed = spec.mapper(body)
+            else:
+                return _error(db, row, response, "body id mismatch")
+
+        incoming_last_updated = typed["ml_last_updated"] if typed else None
+        if _stale(row, incoming_last_updated, response):
             counters.stale_discarded += 1
             return ApplyOutcome("stale")
+
+        if typed is None:
+            if response.status == 404:
+                return _not_found(db, spec, row, response, trigger_received_at)
+            return _error(db, row, response)
 
         new_hash = canonical_hash(body, spec)
         observed_at = response.received_at
         if row.raw is None:
-            _set_typed(row, typed)
-            row.raw = body
-            row.raw_hash = new_hash
-            row.http_status = response.status
-            row.fetched_at = observed_at
-            row.fetched_request_started_at = response.request_started_at
-            row.last_checked_at = observed_at
-            row.never_existed = False
-            row.gone_at = None
+            _write_state(row, typed, body, new_hash, response)
             if typed["status"] == STATUS_ACTIVE:
                 row.first_active_at = observed_at
+            _touch(row, response, trigger_received_at)
             db.flush()
             return ApplyOutcome("first_seen")
 
-        if bytes(row.raw_hash) == new_hash:
-            row.last_checked_at = observed_at
+        restoring = row.gone_at is not None
+        if not restoring and bytes(row.raw_hash) == new_hash:
+            _touch(row, response, trigger_received_at)
+            _mark_ok(row, response)
             db.flush()
             return ApplyOutcome("unchanged")
 
@@ -145,21 +197,17 @@ def apply_fetch(
         old_snapshot = _typed_snapshot(row)
         previous_hash = bytes(row.raw_hash)
         first_active_before = row.first_active_at
-        _set_typed(row, typed)
-        row.raw = body
-        row.raw_hash = new_hash
-        row.http_status = response.status
-        row.fetched_at = observed_at
-        row.fetched_request_started_at = response.request_started_at
-        row.last_checked_at = observed_at
-        if not reportable:
+        _write_state(row, typed, body, new_hash, response)
+        _touch(row, response, trigger_received_at)
+        if not reportable and not restoring:
             db.flush()
             return ApplyOutcome("noise_only")
+        kind = "restored" if restoring else "change"
         entry = _log_change(
             db,
             spec,
             item_id,
-            "change",
+            kind,
             reportable,
             previous_hash,
             new_hash,
@@ -167,8 +215,47 @@ def apply_fetch(
             incoming_last_updated,
             _context(old_snapshot, typed, first_active_before),
         )
+        return ApplyOutcome("restored" if restoring else "changed", change_log_id=entry.id)
+
+
+def _error(db, row: MlItem, response: MlResponse, reason: Optional[str] = None) -> ApplyOutcome:
+    """Record a failed fetch (D8 step 3): the last known raw and typed values stay as they were."""
+    _record_error(row, response, reason)
+    db.flush()
+    return ApplyOutcome("error_recorded")
+
+
+def _not_found(
+    db, spec: ResourceSpec, row: MlItem, response: MlResponse, trigger_received_at: Optional[datetime]
+) -> ApplyOutcome:
+    """The resource answered 404 (D8 step 2): mark it gone once, never delete anything."""
+    if row.gone_at is not None:
+        row.fetched_request_started_at = _later(row.fetched_request_started_at, response.request_started_at)
+        _touch(row, response, trigger_received_at)
         db.flush()
-        return ApplyOutcome("changed", change_log_id=entry.id)
+        return ApplyOutcome("unchanged")
+    _record_error(row, response)
+    row.gone_at = response.received_at
+    row.fetched_request_started_at = response.request_started_at
+    _touch(row, response, trigger_received_at)
+    if row.raw is None:
+        row.never_existed = True
+        db.flush()
+        return ApplyOutcome("never_existed")
+    snapshot = _typed_snapshot(row)
+    entry = _log_change(
+        db,
+        spec,
+        row.item_id,
+        "gone",
+        [],
+        bytes(row.raw_hash),
+        bytes(row.raw_hash),
+        response,
+        None,
+        _context(snapshot, snapshot, row.first_active_at),
+    )
+    return ApplyOutcome("gone", change_log_id=entry.id)
 
 
 def _log_change(
