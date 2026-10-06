@@ -85,6 +85,8 @@ class BoardRow(BaseModel):
     sku: Optional[str] = None
     marca: Optional[str] = None
     publications_count: int
+    # Distinct products of a group row (the "Agrupado" view); null elsewhere.
+    products_count: Optional[int] = None
     units: int
     units_24h: int
     units_3d: int
@@ -179,6 +181,8 @@ class BoardFacets(BaseModel):
 class BoardResponse(BaseModel):
     period: BoardPeriod
     group_by: str
+    # What the "group" view sums by; null in the product/publication views.
+    dimension: Optional[str] = None
     total: int
     with_sales_count: int
     limit: int
@@ -225,6 +229,7 @@ def board_filter(
     date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive (default: hoy)"),
     comparar_con: str = Query(default="periodo_anterior", description=" | ".join(board.COMPARE)),
     group_by: str = Query(default="product", description=" | ".join(board.GROUP_BY)),
+    dimension: str = Query(default="marca", description="Con group_by=group: " + " | ".join(board.DIMENSIONS)),
     stores: Optional[str] = Query(default=None, description="CSV de mlp_official_store_id y/o 'sin_tienda'"),
     marcas: Optional[str] = Query(default=None),
     categorias: Optional[str] = Query(default=None, description="CSV de categorías (productos_erp.categoria)"),
@@ -257,6 +262,8 @@ def board_filter(
     """Every board filter, validated (422 on anything unknown)."""
     if group_by not in board.GROUP_BY:
         raise HTTPException(status_code=422, detail=f"group_by inválido: {group_by!r}")
+    if dimension not in board.DIMENSIONS:
+        raise HTTPException(status_code=422, detail=f"dimension inválida: {dimension!r}")
     if comparar_con not in board.COMPARE:
         raise HTTPException(status_code=422, detail=f"comparar_con inválido: {comparar_con!r}")
     if sort not in board.SORTS:
@@ -296,6 +303,7 @@ def board_filter(
         date_to=hasta,
         compare=comparar_con,
         group_by=group_by,
+        dimension=dimension,
         stores=parse_csv_stores(stores),
         marcas=parse_csv_strings(marcas, "marcas"),
         categorias=parse_csv_strings(categorias, "categorias"),
@@ -343,7 +351,7 @@ def _delta_pct(now, before) -> Optional[float]:
     return round((float(now) - float(before)) / float(before) * 100, 1)
 
 
-def _row_out(row: board.Row, can_see_margin: bool) -> BoardRow:
+def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False) -> BoardRow:
     known = [m for m in row.series_markup if m is not None]
     pub = row.pub
     alerts = sorted(row.alerts() - (set() if can_see_margin else {"margen_cayendo"}))
@@ -355,6 +363,7 @@ def _row_out(row: board.Row, can_see_margin: bool) -> BoardRow:
         sku=row.sku,
         marca=row.marca,
         publications_count=row.publications_count,
+        products_count=row.products_count if group_view else None,
         units=row.units,
         units_24h=row.units_24h,
         units_3d=row.windows["3d"],
@@ -442,14 +451,22 @@ def build_board_response(
     statements (see `board` module docstring): the page, the KPIs over the
     whole filtered set and every chip count. Split out of the endpoint so the
     Postgres volume test can drive exactly this."""
+    grouped = f.group_by == "group"
     with board.Board(db, f) as b:
         kpis = b.kpis()
         facets = b.facets()
-        rows = b.page(limit, offset)
+        if grouped:
+            # The money and the units are the products' (the groups add up to
+            # them); what is counted -- and paged -- is the GROUPS.
+            kpis.rows, kpis.with_sales = b.group_counts()
+            rows = b.group_page(limit, offset)
+        else:
+            rows = b.page(limit, offset)
     prev_from, prev_to = board.previous_period(f)
     return BoardResponse(
         period=BoardPeriod(date_from=f.date_from, date_to=f.date_to, prev_from=prev_from, prev_to=prev_to),
         group_by=f.group_by,
+        dimension=f.dimension if grouped else None,
         total=kpis.rows,
         with_sales_count=kpis.with_sales,
         limit=limit,
@@ -458,7 +475,7 @@ def build_board_response(
         refreshed_at=board.refreshed_at(db),
         kpis=_kpis(kpis, can_see_margin),
         facets=_facets(facets, can_see_margin),
-        rows=[_row_out(row, can_see_margin) for row in rows],
+        rows=[_row_out(row, can_see_margin, group_view=grouped) for row in rows],
     )
 
 
@@ -520,6 +537,26 @@ def get_product_publications(
     return PublicationsResponse(rows=out)
 
 
+@router.get("/board/group-products", response_model=PublicationsResponse)
+def get_group_products(
+    group_key: str = Query(..., min_length=1, description="`key` of a row of the group view"),
+    f: board.BoardFilter = Depends(board_filter),
+    current_user: Usuario = Depends(require_ver),
+    db: Session = Depends(get_db),
+) -> PublicationsResponse:
+    """A group row's PRODUCTS (what its row expands into), under the same
+    filters as the board and the same `dimension`. They are the products the
+    group summed -- those passing every filter as whole products -- each with
+    only the sales of this group (under "tienda", the sales of that store's
+    publications), so they add up to the group row. The key travels as a query
+    param: a brand or a store clave may hold any character."""
+    can_see_margin = _can_see_margin(db, current_user)
+    _margin_gate(f, can_see_margin)
+    with board.Board(db, replace(f, group_by="product"), group_key=group_key) as b:
+        rows = b.page(limit=None)
+    return PublicationsResponse(rows=[_row_out(row, can_see_margin) for row in rows])
+
+
 def _csv_money(value: Optional[float]) -> str:
     return "" if value is None else f"{value:.2f}".replace(".", ",")
 
@@ -553,6 +590,44 @@ def _csv_line(row: board.Row, can_see_margin: bool) -> list:
     return line
 
 
+def _csv_group_line(row: board.Row, can_see_margin: bool) -> list:
+    line = [
+        csv_text(row.title),
+        row.products_count,
+        row.publications_count,
+        row.units,
+        row.units_24h,
+        row.windows["3d"],
+        row.windows["7d"],
+        row.windows["15d"],
+        row.windows["30d"],
+        _csv_money(_f(row.gross)),
+    ]
+    if can_see_margin:
+        line += [
+            _csv_money(_f(row.tg)),
+            _csv_money(_pp(row.markup)),
+            _csv_money(_pp(row.markup_prev)),
+            _csv_money(_pp(row.markup_delta)),
+        ]
+    line += [
+        row.last_sale_at.isoformat() if row.last_sale_at else "",
+        row.ageing_days if row.ageing_days is not None else "",
+        row.stock if row.stock is not None else "",
+    ]
+    return line
+
+
+# The first CSV column of the group view: what the rows are grouped by.
+DIMENSION_HEADERS = {
+    "marca": "Marca",
+    "categoria": "Categoría",
+    "subcategoria": "Subcategoría",
+    "tienda": "Tienda",
+    "pm": "PM",
+}
+
+
 @router.get("/board/export")
 def export_board(
     f: board.BoardFilter = Depends(board_filter),
@@ -582,9 +657,10 @@ def export_board(
     # metrics recompute between pages can never repeat or drop a row. A key whose
     # row stopped matching the filters meanwhile is skipped; every other row
     # is written once, with its values as of its own page.
+    grouped = f.group_by == "group"
     with get_background_db() as first_db:
         with board.Board(first_db, f) as b:
-            keys = b.ordered_keys(EXPORT_MAX_ROWS + 1)
+            keys = b.group_keys(EXPORT_MAX_ROWS + 1) if grouped else b.ordered_keys(EXPORT_MAX_ROWS + 1)
             if len(keys) > EXPORT_MAX_ROWS:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -593,25 +669,29 @@ def export_board(
                         "Acotá los filtros (tienda, marca, búsqueda...)."
                     ),
                 )
-            first = b.rows_for_keys(keys[:EXPORT_PAGE_SIZE])
+            first = (b.groups_for_keys if grouped else b.rows_for_keys)(keys[:EXPORT_PAGE_SIZE])
 
     def fetch_page(page_keys: List[str]) -> List[board.Row]:
         with get_background_db() as page_db:
             with board.Board(page_db, f) as b:
-                return b.rows_for_keys(page_keys)
+                return (b.groups_for_keys if grouped else b.rows_for_keys)(page_keys)
 
     def lines_of(rows: List[board.Row]) -> str:
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";")
         for row in rows:
-            writer.writerow(_csv_line(row, can_see_margin))
+            writer.writerow((_csv_group_line if grouped else _csv_line)(row, can_see_margin))
         return buffer.getvalue()
 
     # CLOSE the request session (the permission check left it holding a
     # pooled connection): nothing may stay tied to the response's lifetime.
     db.close()
 
-    header = ["Producto", "SKU", "Marca", "MLA", "Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
+    if grouped:
+        header = [DIMENSION_HEADERS[f.dimension], "Productos", "Publicaciones", "Unidades"]
+        header += ["24h", "3d", "7d", "15d", "30d", "Facturado"]
+    else:
+        header = ["Producto", "SKU", "Marca", "MLA", "Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
     if can_see_margin:
         header += ["Total Gauss", "Markup %", "Markup anterior %", "Variación pp"]
     header += ["Última venta", "Ageing (días)", "Stock"]
@@ -638,7 +718,8 @@ def export_board(
             yield lines_of(rows)
             exported += len(rows)
 
-    filename = f"metricas-ml-{f.date_from.isoformat()}-{f.date_to.isoformat()}.csv"
+    by = f"por-{f.dimension}-" if grouped else ""
+    filename = f"metricas-ml-{by}{f.date_from.isoformat()}-{f.date_to.isoformat()}.csv"
     return StreamingResponse(
         stream(),
         media_type="text/csv; charset=utf-8",
