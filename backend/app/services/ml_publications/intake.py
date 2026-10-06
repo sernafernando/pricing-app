@@ -278,13 +278,13 @@ def _forward(
     keep_going: Callable[[], bool],
     stats: IntakeStats,
     memory: OverlapMemory,
-    overlap_seconds: int,
-) -> None:
+) -> Tuple[datetime, str]:
+    """Returns the cursor the topic ended at."""
     at_, resource = cursor
     while keep_going():
         rows = _read(bridge, _FORWARD, {"topic": mapping.topic, "at": at_, "res": resource, "limit": batch})
         if not rows:
-            return
+            break
         stats.batches += 1
         with database.get_background_db() as session:
             classified = _classify(session, mapping, rows, seller_id)
@@ -307,7 +307,6 @@ def _forward(
             )
             queue.enqueue(classified.entries, session=session)
         memory.add(mapping.topic, rows)
-        memory.prune(mapping.topic, last.received_at - timedelta(seconds=overlap_seconds))
         stats.rows_read += len(rows)
         stats.enqueued += len(classified.entries)
         stats.skipped_satisfied += classified.satisfied
@@ -315,7 +314,8 @@ def _forward(
         stats.unparsed += classified.unparsed
         at_, resource = last.received_at, last.resource
         if len(rows) < batch:
-            return
+            break
+    return at_, resource
 
 
 def _overlap(
@@ -383,7 +383,7 @@ def run_pass(
             if not keep_going():
                 break
             at_, resource, existed = _load_or_init_cursor(mapping, start)
-            _forward(
+            end_at, _end_resource = _forward(
                 mapping,
                 (at_, resource),
                 bridge=bridge_engine,
@@ -392,7 +392,6 @@ def run_pass(
                 keep_going=keep_going,
                 stats=result.stats,
                 memory=memory,
-                overlap_seconds=overlap_seconds,
             )
             if existed and keep_going():
                 _overlap(
@@ -405,6 +404,8 @@ def run_pass(
                     stats=result.stats,
                     memory=memory,
                 )
+            # Rows behind the NEXT pass's overlap window can never be re-read: forget them.
+            memory.prune(mapping.topic, end_at - timedelta(seconds=overlap_seconds))
     except _BridgeUnavailable:
         result.error = ERROR_BRIDGE_UNAVAILABLE
     except Exception as exc:  # noqa: BLE001 -- a failed batch rolled back; retry on the next interval
