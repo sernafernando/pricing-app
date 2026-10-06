@@ -84,14 +84,16 @@ def _typed_snapshot(row: MlItem) -> dict:
 def _stale(row: MlItem, incoming_last_updated: Optional[datetime], response: MlResponse) -> bool:
     """True when the response is older than the committed state (D8 step 1).
 
-    Items order by ML `last_updated`. A response without one (404, error, declared
-    negative state) and any answer about a row last seen as gone are ordered by the
-    request start time instead: the state ML reported was read at or after that instant.
+    Items order by ML `last_updated`: strictly older is stale, strictly newer is not. A response
+    without one (404, error, declared negative state), an EQUAL one (ML can change a sub-field
+    without bumping it, so another observation may sit in between) and any answer about a row
+    last seen as gone are ordered by the request start time instead: the state ML reported was
+    read at or after that instant.
     """
     if incoming_last_updated is not None and row.ml_last_updated is not None:
         if incoming_last_updated < row.ml_last_updated:
             return True
-        if row.gone_at is None:
+        if incoming_last_updated > row.ml_last_updated and row.gone_at is None:
             return False
     if row.fetched_request_started_at is None:
         return False
@@ -158,21 +160,24 @@ def apply_fetch(
 
         is_state = 200 <= response.status < 300 or response.status in spec.negative_states
         typed: Optional[dict] = None
+        malformed: Optional[str] = None
         if is_state:
             body = response.body
             if not isinstance(body, dict):
-                return _error(db, row, response, "invalid body")
-            if response.status in spec.negative_states:
+                malformed = "invalid body"
+            elif response.status in spec.negative_states:
                 typed = {}  # a declared negative state is recorded as-is: its body is not an item
             elif body.get("id") == item_id:
                 typed = spec.mapper(body)
             else:
-                return _error(db, row, response, "body id mismatch")
+                malformed = "body id mismatch"
 
         incoming_last_updated = typed.get("ml_last_updated") if typed else None
         if _stale(row, incoming_last_updated, response):
             counters.stale_discarded += 1
             return ApplyOutcome("stale")
+        if malformed:
+            return _error(db, row, response, malformed)
 
         if typed is None:
             if response.status == 404:

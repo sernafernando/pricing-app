@@ -555,6 +555,28 @@ class TestGoneOrdering:
         assert outcome.kind == "stale" and counters.stale_discarded == 1
         assert item_row(mlpub_pg, PAUSED)["gone_at"] is None and count(mlpub_pg, "ml_change_log") == 0
 
+    def test_an_older_malformed_2xx_does_not_overwrite_the_error_metadata_of_a_newer_fetch(self, mlpub_pg) -> None:
+        apply(bulk_item(PAUSED), PAUSED, minutes=10)
+        before = dict(item_row(mlpub_pg, PAUSED))
+        counters = ApplyCounters()
+
+        outcome = apply(bulk_item("MLA934406852"), PAUSED, minutes=2, counters=counters)  # body id mismatch, older
+
+        assert outcome.kind == "stale" and counters.stale_discarded == 1
+        assert dict(item_row(mlpub_pg, PAUSED)) == before
+
+    def test_a_late_200_with_an_equal_last_updated_does_not_overwrite_a_newer_negative_state(self, mlpub_pg) -> None:
+        """real payload: a declared negative state (test-only spec) stored after the 200, then a late equal-last_updated 200."""
+        body = bulk_item(PAUSED)
+        apply(body, PAUSED, minutes=1)
+        negative = NEGATIVE_BODIES["moderation_404"]
+        apply_fetch(TestNegativeStates.SPEC_WITH_STATE, (PAUSED,), ok(negative["body"], 5, status=404))
+
+        outcome = apply(copy.deepcopy(body), PAUSED, minutes=3)  # request started before the negative state
+
+        assert outcome.kind == "stale"
+        assert item_row(mlpub_pg, PAUSED)["raw"] == negative["body"]
+
 
 class TestTriggerTimestamp:
     def test_trigger_time_is_kept_as_the_latest_received(self, mlpub_pg) -> None:
@@ -621,7 +643,8 @@ class TestConcurrencyAndIdempotency:
             lambda: outcomes.append(apply(copy.deepcopy(changed), PAUSED, minutes=6).kind),
         )
 
-        assert sorted(outcomes) == ["changed", "unchanged"]
+        # the loser either finds identical state or, when its request started earlier, is discarded as stale
+        assert outcomes.count("changed") == 1 and set(outcomes) <= {"changed", "unchanged", "stale"}
         (entry,) = log_rows(mlpub_pg, PAUSED)
         assert entry["changed_paths"] == ["available_quantity", "status"]
 
@@ -634,7 +657,7 @@ class TestConcurrencyAndIdempotency:
             lambda: outcomes.append(apply(copy.deepcopy(body), PAUSED, minutes=2).kind),
         )
 
-        assert sorted(outcomes) == ["first_seen", "unchanged"]
+        assert outcomes.count("first_seen") == 1 and set(outcomes) <= {"first_seen", "unchanged", "stale"}
         assert count(mlpub_pg, "ml_items") == 1 and count(mlpub_pg, "ml_change_log") == 0
 
     def test_replay_after_commit_writes_no_second_row(self, mlpub_pg) -> None:
