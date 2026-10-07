@@ -47,6 +47,13 @@ class TestMigrationShape:
         assert "((reason IN ('divergence', 'reconcile')), enqueued_at)" in source
         assert queue._TIER_SQL == "(reason IN ('divergence', 'reconcile'))"
 
+    def test_model_index_expression_matches_the_claim_order_by(self) -> None:
+        from app.models.ml_order_metrics import MlOrderMetricsDirty
+        from app.services.order_metrics import queue
+
+        index = next(i for i in MlOrderMetricsDirty.__table__.indexes if i.name == "ix_ml_order_metrics_dirty_priority")
+        assert str(index.expressions[0]) == queue._TIER_SQL
+
 
 @pytest.mark.postgres
 class TestMigrationDdl:
@@ -66,6 +73,14 @@ class TestMigrationDdl:
                 conn.exec_driver_sql("SELECT 1 FROM pg_indexes WHERE indexname = %s", (module._INDEX,)).fetchone()
             )
 
+        def _valid(conn) -> bool:
+            return bool(
+                conn.exec_driver_sql(
+                    "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = %s",
+                    (module._INDEX,),
+                ).scalar()
+            )
+
         with pg_order_metrics_engine.connect() as conn:
             ctx = MigrationContext.configure(conn)
             with Operations.context(ctx), ctx.begin_transaction():
@@ -75,3 +90,14 @@ class TestMigrationDdl:
                 assert _exists(conn)
                 module.upgrade()  # idempotent
                 assert _exists(conn)
+
+                # A build that died midway leaves the index INVALID: upgrade must rebuild it.
+                conn.exec_driver_sql(
+                    "UPDATE pg_index SET indisvalid = false "
+                    "WHERE indexrelid = (SELECT oid FROM pg_class WHERE relname = %s)",
+                    (module._INDEX,),
+                )
+                assert not _valid(conn)
+                module.upgrade()
+                assert _exists(conn)
+                assert _valid(conn)

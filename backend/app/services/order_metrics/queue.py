@@ -31,7 +31,7 @@ BULK_REASONS = frozenset({"reconcile", "divergence"})
 
 # ORDER BY key of the claim: false (live) sorts before true (bulk). Spelled
 # with literals, sorted, so it matches `ix_ml_order_metrics_dirty_priority`
-# (migration 20261008_om_dirty_priority_index) and the claim is an index
+# (migration 20261009_om_dirty_priority_index) and the claim is an index
 # scan instead of a sort of the whole queue; a test pins that match. The
 # values come from the constant above, never from input.
 _TIER_SQL = "(reason IN (" + ", ".join(f"'{reason}'" for reason in sorted(BULK_REASONS)) + "))"

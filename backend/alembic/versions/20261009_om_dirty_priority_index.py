@@ -20,6 +20,7 @@ Revises: 20261008_ml_shipments_raw_costs_trigger
 
 from typing import Sequence, Union
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261009_om_dirty_priority_index"
@@ -34,6 +35,23 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         op.execute("SET lock_timeout = '5s'")
         try:
+            # A CONCURRENTLY build that failed midway (lock_timeout, deadlock,
+            # cancel) leaves the index behind marked INVALID; `IF NOT EXISTS`
+            # would then skip it and the claim would silently go back to
+            # sorting the whole queue. Drop it so the build below starts clean.
+            invalid = (
+                op.get_bind()
+                .execute(
+                    sa.text(
+                        "SELECT NOT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+                        "WHERE c.relname = :name"
+                    ),
+                    {"name": _INDEX},
+                )
+                .scalar()
+            )
+            if invalid:
+                op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {_INDEX}")
             op.execute(
                 f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX} "
                 "ON ml_order_metrics_dirty ((reason IN ('divergence', 'reconcile')), enqueued_at)"
