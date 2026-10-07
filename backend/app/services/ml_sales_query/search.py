@@ -6,7 +6,8 @@ them (R26) -- the caller (`filters.build_scope`) applies it last, after
 the status filters.
 
 R25a is the load-bearing rule: free text matches the sale's OWN item
-fields (`ml_order_items_ops.title`, `ml_order_items_ops.seller_sku`),
+fields (`ml_order_items_ops.title`, `ml_order_items_ops.seller_sku`,
+`ml_order_items_ops.seller_sku_vendido`),
 never through `producto_item_id` (the frozen-cost join used by the
 product-level facets). An order-item with no `ml_order_item_costos` row
 still has its own `title`/`seller_sku` from ingestion, so it must still be
@@ -45,7 +46,7 @@ def _escape_like(text: str) -> str:
 
 
 # PERFORMANCE NOTE: the item subquery is an unanchored ILIKE over
-# `ml_order_items_ops.title`/`seller_sku`, not bounded by seller or date, and
+# `ml_order_items_ops.title`/`seller_sku`/`seller_sku_vendido`, not bounded by seller or date, and
 # a listing request runs it several times (rows, total and the facet
 # counts). It is fine at today's volume; if it stops being fine, the fixes
 # are a `pg_trgm` index (already an open question in the design) or bounding
@@ -55,10 +56,11 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
 
     - No `q` (`None` or blank) -> query unchanged.
     - All digits -> `order_id` OR `pack_id` (matches a pack too, R25
-      scenario 1).
+      scenario 1) OR an EXACT SKU (current or the one it was sold
+      with) of one of the sale's items.
     - `^MLA\\d+$` (case-insensitive) -> `item_id`, via `ml_order_items_ops`.
     - Otherwise, 3+ chars -> ILIKE on `buyer_nickname` and the sale's OWN
-      item fields (`title`, `seller_sku`), via `ml_order_items_ops`.
+      item fields (`title`, `seller_sku`, `seller_sku_vendido`), via `ml_order_items_ops`.
     - Anything else (fewer than 3 chars, not digits, not an MLA id) ->
       matches nothing explicitly (R27: an empty/no-match search state is
       explicit, never a silent "no filter" or an error).
@@ -70,17 +72,28 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
         return query
 
     if text.isdigit():
+        # A numeric text is an order id, a pack id OR an exact SKU (this
+        # business uses numeric SKUs and EANs). The SKU match is exact, so
+        # "121" does not bring up every SKU containing 121.
+        #
         # `str.isdigit()` is True for unicode digits too ("²³"), which `int()`
         # rejects, and a long run of ASCII digits overflows the BIGINT
-        # order_id/pack_id columns. Both must read as "matches nothing"
-        # (R27), never as a 500.
+        # order_id/pack_id columns. In both cases the id comparison is
+        # skipped (comparing would raise in the driver), but the exact SKU
+        # match still applies: a 13-digit EAN fits, a 25-digit one does not.
+        sku_order_ids = (
+            db.query(MlOrderItemOps.order_id)
+            .filter(or_(MlOrderItemOps.seller_sku == text, MlOrderItemOps.seller_sku_vendido == text))
+            .scalar_subquery()
+        )
+        conditions = [MlOrdersOps.order_id.in_(sku_order_ids)]
         try:
             value = int(text)
         except ValueError:
-            return query.filter(false())
-        if not (_BIGINT_MIN <= value <= _BIGINT_MAX):
-            return query.filter(false())
-        return query.filter(or_(MlOrdersOps.order_id == value, MlOrdersOps.pack_id == value))
+            value = None
+        if value is not None and _BIGINT_MIN <= value <= _BIGINT_MAX:
+            conditions += [MlOrdersOps.order_id == value, MlOrdersOps.pack_id == value]
+        return query.filter(or_(*conditions))
 
     if _MLA_ITEM_ID_RE.match(text):
         item_order_ids = db.query(MlOrderItemOps.order_id).filter(MlOrderItemOps.item_id.ilike(text)).scalar_subquery()
@@ -96,6 +109,7 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
             or_(
                 MlOrderItemOps.title.ilike(like, escape=_LIKE_ESCAPE),
                 MlOrderItemOps.seller_sku.ilike(like, escape=_LIKE_ESCAPE),
+                MlOrderItemOps.seller_sku_vendido.ilike(like, escape=_LIKE_ESCAPE),
             )
         )
         .scalar_subquery()

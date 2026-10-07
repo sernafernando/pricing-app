@@ -223,6 +223,9 @@ class MlOrderItemOps(Base):
     variation_id = Column(BigInteger, nullable=True)
 
     seller_sku = Column(String(60), nullable=True, index=True)
+    # First SKU ingestion saw for this item; never overwritten on re-ingestion
+    # (`seller_sku` always carries the CURRENT one). NULL = unknown.
+    seller_sku_vendido = Column(String(60), nullable=True, index=True)
     title = Column(String(255), nullable=True)
     quantity = Column(Integer, nullable=True)
     unit_price = Column(Numeric(14, 2), nullable=True)

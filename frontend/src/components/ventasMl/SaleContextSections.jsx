@@ -37,9 +37,12 @@ export function ProductSection({ items }) {
           <div className={styles.productInfo}>
             <p className={styles.productTitle}>{item.title || item.item_id}</p>
             <dl className={styles.contextList}>
-              {item.seller_sku && (
+              {(item.seller_sku || item.seller_sku_anterior) && (
                 <Row label="SKU">
-                  <span className={styles.skuChip}>{item.seller_sku}</span>
+                  {item.seller_sku && <span className={styles.skuChip}>{item.seller_sku}</span>}
+                  {item.seller_sku_anterior && (
+                    <span className={styles.skuAnterior}>ex {item.seller_sku_anterior}</span>
+                  )}
                 </Row>
               )}
               {item.item_id && (

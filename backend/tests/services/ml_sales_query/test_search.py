@@ -37,8 +37,17 @@ def _seed_order(db, order_id: int, *, pack_id=None, buyer_nickname=None, date_cr
     db.flush()
 
 
-def _seed_item(db, order_id: int, item_id: str, *, title=None, seller_sku=None) -> None:
-    db.add(MlOrderItemOps(order_id=order_id, item_id=item_id, title=title, seller_sku=seller_sku, quantity=1))
+def _seed_item(db, order_id: int, item_id: str, *, title=None, seller_sku=None, seller_sku_vendido=None) -> None:
+    db.add(
+        MlOrderItemOps(
+            order_id=order_id,
+            item_id=item_id,
+            title=title,
+            seller_sku=seller_sku,
+            seller_sku_vendido=seller_sku_vendido,
+            quantity=1,
+        )
+    )
     db.flush()
 
 
@@ -61,6 +70,64 @@ class TestDigitsMatchOrderOrPackId:
         _seed_order(db, 301, pack_id=555)
         _seed_order(db, 400)
         assert _matched_ids(db, "555") == {300, 301}
+
+
+class TestDigitsAlsoMatchTheExactSku:
+    """A numeric SKU (or an EAN, which is how this business uses SKUs) must
+    be found by SKU, not only by order/pack id. Exact match only."""
+
+    def test_a_numeric_sku_finds_the_sale(self, db):
+        _seed_order(db, 1500)
+        _seed_order(db, 1501)
+        _seed_item(db, 1500, "MLA9", seller_sku="1215")
+        assert _matched_ids(db, "1215") == {1500}
+
+    def test_the_sku_match_is_exact_not_partial(self, db):
+        _seed_order(db, 1510)
+        _seed_item(db, 1510, "MLA9", seller_sku="12150")
+        _seed_order(db, 1511)
+        _seed_item(db, 1511, "MLA8", seller_sku="01215")
+        assert _matched_ids(db, "1215") == set()
+
+    def test_order_id_and_sku_matches_are_unioned(self, db):
+        _seed_order(db, 1215)
+        _seed_order(db, 1520)
+        _seed_item(db, 1520, "MLA9", seller_sku="1215")
+        assert _matched_ids(db, "1215") == {1215, 1520}
+
+    def test_a_long_ean_beyond_bigint_still_finds_the_sku(self, db):
+        ean = "7" * 25
+        _seed_order(db, 1530)
+        _seed_item(db, 1530, "MLA9", seller_sku=ean)
+        _seed_order(db, 1531)
+        assert _matched_ids(db, ean) == {1530}
+
+
+class TestOldSkuIsFoundToo:
+    """The SKU can change in MercadoLibre after the sale: the sale is found by
+    the current SKU and by the one it was sold with."""
+
+    def test_a_numeric_old_sku_finds_the_sale(self, db):
+        _seed_order(db, 1600)
+        _seed_item(db, 1600, "MLA9", seller_sku="1215", seller_sku_vendido="1214")
+        assert _matched_ids(db, "1214") == {1600}
+        assert _matched_ids(db, "1215") == {1600}
+
+    def test_the_old_sku_match_is_exact_for_digits(self, db):
+        _seed_order(db, 1601)
+        _seed_item(db, 1601, "MLA9", seller_sku="1215", seller_sku_vendido="12140")
+        assert _matched_ids(db, "1214") == set()
+
+    def test_a_long_old_ean_beyond_bigint_still_finds_the_sale(self, db):
+        ean = "8" * 25
+        _seed_order(db, 1602)
+        _seed_item(db, 1602, "MLA9", seller_sku="1215", seller_sku_vendido=ean)
+        assert _matched_ids(db, ean) == {1602}
+
+    def test_free_text_matches_the_old_sku(self, db):
+        _seed_order(db, 1603)
+        _seed_item(db, 1603, "MLA9", seller_sku="NEW-77", seller_sku_vendido="OLD-ABC-77")
+        assert _matched_ids(db, "old-abc") == {1603}
 
 
 class TestMlaMatchesItemId:

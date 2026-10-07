@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 from sqlalchemy import func
 from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
@@ -71,6 +71,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     RELEVANT_PAYMENT_STATUSES,
     compute_breakdown,
     compute_neto_desglose_by_order_ids,
+    sku_anterior,
 )
 from app.services.ml_orders_ingestion.resync_service import (
     OrderNotFound,
@@ -248,11 +249,19 @@ class OrderItemOpsSummary(BaseModel):
     item_id: str
     variation_id: Optional[int] = None
     seller_sku: Optional[str] = None
+    # Internal source for `seller_sku_anterior`; never serialized.
+    seller_sku_vendido: Optional[str] = Field(default=None, exclude=True)
     title: Optional[str] = None
     quantity: Optional[int] = None
     unit_price: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def seller_sku_anterior(self) -> Optional[str]:
+        """SKU the item was sold with; null when equal to the current one or unknown."""
+        return sku_anterior(self.seller_sku, self.seller_sku_vendido)
 
 
 class ShipmentOpsSummary(BaseModel):
@@ -348,6 +357,7 @@ class ItemDesgloseLineSummary(BaseModel):
     item_id: str
     variation_id: Optional[int] = None
     seller_sku: Optional[str] = None
+    seller_sku_anterior: Optional[str] = None
     title: Optional[str] = None
     quantity: Optional[int] = None
     monto: Optional[float] = None
@@ -417,6 +427,7 @@ class OperationBreakdownSummary(BaseModel):
                     item_id=item.item_id,
                     variation_id=item.variation_id,
                     seller_sku=item.seller_sku,
+                    seller_sku_anterior=item.seller_sku_anterior,
                     title=item.title,
                     quantity=item.quantity,
                     monto=float(item.monto) if item.monto is not None else None,
@@ -2409,6 +2420,7 @@ def obtener_pack(
                 item_id=item.item_id,
                 variation_id=item.variation_id,
                 seller_sku=item.seller_sku,
+                seller_sku_anterior=item.seller_sku_anterior,
                 title=item.title,
                 quantity=item.quantity,
                 monto=float(item.monto) if item.monto is not None else None,
