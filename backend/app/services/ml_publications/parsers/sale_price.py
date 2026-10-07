@@ -4,8 +4,9 @@ Body: `{price_id, amount, regular_amount, currency_id, reference_date, metadata}
 is `{}` without a promotion and `{campaign_id, promotion_id, promotion_type}` with one.
 
 `reference_date` is the response time (it equals the `Date` header of every capture), so it moves
-on every fetch without any state change. It is NOT typed; it stays in raw. Whether the diff engine
-should ignore it is the call of the fetcher PR (PR8a): the excluded-noise constant is not touched here.
+on every fetch without any state change. It is NOT typed; it stays in raw. The diff engine ignores it
+(`EXCLUDED_NOISE[("sale_price", "reference_date")]`, justified there), so a fetch that only moves it
+refreshes raw but writes no change-log row.
 """
 
 from __future__ import annotations
