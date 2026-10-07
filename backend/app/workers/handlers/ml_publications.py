@@ -690,7 +690,7 @@ class ScanHandler:
         rejected token (setup), or a sustained ML outage (`upstream_error`). Report a
         finished run (`complete` true, `blocked` names the reason) so the 30 s catch-up does not spin
         and the handler falls back to its daily slot; the open lap, if any, resumes from its stored
-        progress when the setup exists.
+        progress on the next run.
 
         A pending operator request is consumed by this run (the runtime clears it on success); a
         `--mode full` request is not lost, since `scan.next_mode` stays, but running it now is: it
