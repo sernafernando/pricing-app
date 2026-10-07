@@ -355,7 +355,8 @@ def run_missed_feeds(
     now: Callable[[], datetime] = _utcnow,
 ) -> MissedFeedsResult:
     """One run over every mapped topic. Never raises: a failure is in `result.error` and in the run record."""
-    result = MissedFeedsResult()
+    # an unexpected error before the first page must not erase the position the run was given
+    result = MissedFeedsResult(resume=dict(resume) if resume else None)
     started = now()
     before = _request_counts(client)
     run_id: Optional[int] = None

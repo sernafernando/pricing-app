@@ -74,7 +74,7 @@ _NOT_APPLICABLE = (
 _NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind = 'item' AND q.entity_id = i.item_id)"
 
 # Lanes are ordered by priority number (`queue`: manual 0, notification 1, ...): `lane <= LANE_NOTIFICATION` is the
-# live work the sweep yields to.
+# live work the sweep yields to. `not_before` is NOT NULL (default now()), so every entry is compared.
 _LIVE_WORK = text(
     "SELECT 1 FROM ml_pub_refresh_queue WHERE lane <= :lane AND claimed_at IS NULL AND parked_at IS NULL "
     "AND not_before <= now() LIMIT 1"

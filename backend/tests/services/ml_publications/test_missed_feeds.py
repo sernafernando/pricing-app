@@ -347,6 +347,12 @@ class TestRunRecord:
         run(Ml())
         assert not scan_requested(env)
 
+    def test_an_error_before_the_first_page_keeps_the_position_the_run_was_given(self, env, monkeypatch):
+        monkeypatch.setattr(missed_feeds, "_detect_gap", lambda now: (_ for _ in ()).throw(RuntimeError("db is gone")))
+        given = {"topic": "items", "offset": 40}
+        result = run(Ml(), resume=given)
+        assert result.error.startswith("internal_error") and result.resume == given
+
     def test_a_completed_run_has_no_position_left(self, env):
         assert run(Ml()).resume is None
 
