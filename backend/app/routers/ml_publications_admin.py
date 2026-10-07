@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permission
+from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.services.ml_publications import admin
@@ -139,7 +139,7 @@ class RequestOut(BaseModel):
 
 @router.get("/status", response_model=StatusOut)
 def get_status(
-    _user: Usuario = Depends(require_permission(PERMISO_VER)),
+    _user: Usuario = Depends(require_permiso(PERMISO_VER)),
     db: Session = Depends(get_admin_db),
 ) -> dict[str, Any]:
     """Read-only report: jobs, queue, intake, backfill, freshness, completeness, events, links, counters."""
@@ -150,7 +150,7 @@ def get_status(
 
 
 @router.get("/settings", response_model=SettingsOut)
-def get_settings(_user: Usuario = Depends(require_permission(PERMISO_VER))) -> dict[str, Any]:
+def get_settings(_user: Usuario = Depends(require_permiso(PERMISO_VER))) -> dict[str, Any]:
     """Every runtime setting with its effective value and source (`db`, `env`, `kill_switch`, `unreadable`)."""
     return admin.list_settings()
 
@@ -162,7 +162,7 @@ def get_settings(_user: Usuario = Depends(require_permission(PERMISO_VER))) -> d
 def put_setting(
     key: str,
     body: SettingIn,
-    user: Usuario = Depends(require_permission(PERMISO_GESTIONAR)),
+    user: Usuario = Depends(require_permiso(PERMISO_GESTIONAR)),
     db: Session = Depends(get_admin_db),
 ) -> dict[str, Any]:
     """Write one allow-listed setting. Turning a flag on marks its handler `requested`."""
@@ -177,7 +177,7 @@ def put_setting(
 @router.post("/enqueue", response_model=EnqueueOut)
 def enqueue(
     body: EnqueueIn,
-    _user: Usuario = Depends(require_permission(PERMISO_GESTIONAR)),
+    _user: Usuario = Depends(require_permiso(PERMISO_GESTIONAR)),
     db: Session = Depends(get_admin_db),
 ) -> dict[str, Any]:
     """Enqueue up to 100 items at lane 0 (served first, still paced). Accepted while `refresh.enabled` is off."""
@@ -188,7 +188,7 @@ def enqueue(
 def request_job(
     job: str,
     body: RequestIn = RequestIn(),
-    user: Usuario = Depends(require_permission(PERMISO_GESTIONAR)),
+    user: Usuario = Depends(require_permiso(PERMISO_GESTIONAR)),
     db: Session = Depends(get_admin_db),
 ) -> dict[str, Any]:
     """Run a handler on the worker's next pass; `scan` also takes the mode of its next lap."""

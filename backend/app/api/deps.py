@@ -4,11 +4,10 @@ from sqlalchemy.orm import Session, joinedload, raiseload
 from typing import Optional
 
 from app.core.config import settings
-from app.core.database import get_async_db, get_background_db, get_db
+from app.core.database import get_async_db, get_background_db
 from app.core.exceptions import api_error, ErrorCode
 from app.core.security import decode_token
 from app.models.usuario import Usuario, RolUsuario
-from app.services.permisos_service import PermisosService
 
 security = HTTPBearer()
 security_optional = HTTPBearer(auto_error=False)
@@ -341,14 +340,3 @@ async def get_admin_or_localhost(
         raise api_error(403, ErrorCode.INSUFFICIENT_PERMISSIONS, "Solo administradores pueden realizar esta acción")
 
     return usuario
-
-
-def require_permission(permission: str):
-    """Dependency that answers 403 unless the authenticated user holds `permission` (code in `permisos`)."""
-
-    def _check_permission(current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)) -> Usuario:
-        if not PermisosService(db).tiene_permiso(current_user, permission):
-            raise HTTPException(status_code=403, detail=f"No tienes permiso: {permission}")
-        return current_user
-
-    return _check_permission
