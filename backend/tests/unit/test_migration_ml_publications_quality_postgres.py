@@ -190,4 +190,8 @@ def test_chains_from_the_previous_head_and_alembic_has_a_single_head() -> None:
     cfg = Config(str(_BACKEND_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(_BACKEND_ROOT / "alembic"))
     directory = ScriptDirectory.from_config(cfg)
-    assert directory.get_heads() == [migration.revision]
+    # One head (alembic did not fork) that descends from this revision; not "this revision IS the head",
+    # so a later migration on top keeps it green.
+    heads = directory.get_heads()
+    assert len(heads) == 1, f"alembic forked: {heads}"
+    assert any(rev.revision == migration.revision for rev in directory.walk_revisions("base", heads[0]))
