@@ -15,18 +15,21 @@ still says so). Every fixture is a REAL capture (`_envio_comprador_capture.py`).
 from __future__ import annotations
 
 import logging
+from datetime import date
 from decimal import Decimal
 
 import pytest
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
+from app.models.varios_venta_pct import VariosVentaPct
 from app.services.ml_ventas_desglose import envio_comprador
 from app.services.ml_ventas_desglose.envio_comprador import (
     envio_comprador_bruto,
     resolve_envio_comprador_by_order_ids,
 )
 from app.services.ml_ventas_desglose.iva import CONCEPTO_ENVIO_COMPRADOR, IVA_ML_DIVISOR, descomponer_neto
+from app.services.order_metrics.compute import compute_order_metrics
 
 from ._envio_comprador_capture import (
     CROSS_DOCKING,
@@ -35,6 +38,7 @@ from ._envio_comprador_capture import (
     SELF_SERVICE_4990,
     SELF_SERVICE_PACK,
     THREE_PAYMENTS,
+    capture,
     seed_case,
 )
 
@@ -179,13 +183,6 @@ class TestPerOrderNotPerShipment:
 # ---------------------------------------------------------------------------
 # The "% de varios" over the new base
 # ---------------------------------------------------------------------------
-
-from datetime import date  # noqa: E402
-
-from app.models.varios_venta_pct import VariosVentaPct  # noqa: E402
-from app.services.order_metrics.compute import compute_order_metrics  # noqa: E402
-
-from ._envio_comprador_capture import capture  # noqa: E402
 
 
 def _varios(db, pct: str) -> None:
