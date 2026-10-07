@@ -134,18 +134,17 @@ class TestVariosOverTheNewBase:
         assert desc.base_venta_sin_iva == Decimal("12066.12")  # 14600 / 1.21
         assert desc.base_varios == Decimal("12066.12") + Decimal("4123.97") + Decimal("495.04")
 
-    def test_the_shipping_never_reduces_the_total_gauss_on_its_own(self, db) -> None:
-        """The shipping IVA is informational: with 0% the Total Gauss is the
-        same with and without the buyer's shipping line."""
+    def test_the_shipping_adds_no_deduction_of_its_own_to_the_chain(self, db) -> None:
+        """The shipping IVA is informational: with 0% varios the Total Gauss is
+        exactly `neto_sin_iva` minus the chain's own lines (the shipping is
+        already inside the net, and nothing subtracts it again)."""
         seed_case(db, FULFILLMENT_990)
-        with_shipping = compute_order_metrics(db, [FULFILLMENT_990])[FULFILLMENT_990]
-        order = db.query(MlOrdersOps).filter_by(order_id=FULFILLMENT_990).one()
-        order.paid_amount = order.total_amount
-        db.commit()
-        without_shipping = compute_order_metrics(db, [FULFILLMENT_990])[FULFILLMENT_990]
 
-        assert with_shipping.total_gauss == without_shipping.total_gauss
-        assert with_shipping.neto_sin_iva == without_shipping.neto_sin_iva
+        metrics = compute_order_metrics(db, [FULFILLMENT_990])[FULFILLMENT_990]
+
+        assert metrics.neto_sin_iva is not None
+        assert metrics.total_gauss == metrics.neto_sin_iva - sum(m for _c, m, _x in metrics.lineas)
+        assert [code for code, _m, _x in metrics.lineas] == ["costo_mercaderia", "varios"]
 
     def test_the_visible_line_is_the_existing_one_and_no_second_line_is_added(self, db) -> None:
         """`iva.py` already shows the buyer's shipping as a visible line

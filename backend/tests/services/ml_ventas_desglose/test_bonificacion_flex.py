@@ -30,7 +30,6 @@ from app.services.ml_ventas_desglose.deducciones import (
 from app.services.ml_ventas_desglose.iva import IVA_ML_DIVISOR, descomponer_neto
 from app.services.order_metrics.compute import compute_order_metrics
 
-from ._envio_comprador_capture import SELF_SERVICE_PACK, seed_case
 from ._bonificacion_capture import (
     GROSS,
     NET_OF_IVA,
@@ -39,6 +38,7 @@ from ._bonificacion_capture import (
     capture,
     seed_capture,
 )
+from ._envio_comprador_capture import SELF_SERVICE_PACK, seed_case
 
 CAPTURED_RAW_COSTS = capture()["db"]["shipments"][0]["raw_costs"]
 

@@ -74,7 +74,6 @@ from app.services.ml_ventas_desglose.bonificacion_flex import (
     CONCEPTO_BONIFICACION_ENVIO,
     resolve_bonificacion_flex_by_order_ids,
 )
-from app.services.ml_ventas_desglose.envio_comprador import EnvioCompradorOrden, envio_comprador_de_pago
 from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
     RELEVANT_PAYMENT_STATUSES,
@@ -86,6 +85,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     shipping_label,
     tax_label,
 )
+from app.services.ml_ventas_desglose.envio_comprador import EnvioCompradorOrden, envio_comprador_de_pago
 
 # ML's own IVA rate on its fees and freight -- authoritative per the
 # maintainer, not a measurement. One edit here if it ever moves.

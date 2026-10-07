@@ -888,7 +888,7 @@ class TestCostoMercaderiaDetalle:
         assert known["MLA2"].conocido is False
 
 
-class TestCalcularTotalGaussRequiresVentaSinIvaKwarg:
+class TestCalcularTotalGaussRequiresBaseVariosKwarg:
     """ml-ventas-neto-iibb-varios PR2.T4 (design D4): `base_varios_by_order`
     is a REQUIRED keyword-only argument -- a caller that forgets it fails
     loudly at call time, never silently defaults to an empty/None base."""

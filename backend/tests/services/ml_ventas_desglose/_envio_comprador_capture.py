@@ -4,8 +4,9 @@ production, personal buyer data stripped, structure untouched).
 
 Never hand-write a `/shipments/{id}/costs` payload: a fixture written by hand
 is an assumption about somebody else's API. The case keys are the captured
-order ids; `pick` carries the logistic type and the `receiver_cost` the
-capture's author verified against `total_paid_amount - transaction_amount`.
+order ids; `pick` carries the logistic type and the `receiver_cost` as
+captured (NOT trusted as the buyer's shipping: see `envio_comprador.py`, which
+reads `payment.shipping_amount`).
 """
 
 from __future__ import annotations

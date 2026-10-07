@@ -72,5 +72,5 @@ class TestTheBaseInTheDetail:
 
         body = _detail(db, client, admin_auth_headers, rol_admin, FULFILLMENT_990)
 
-        varios = next(l for l in body["cadena_total_gauss"]["lineas"] if l["code"] == "varios")
+        varios = next(linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "varios")
         assert varios["monto"] == pytest.approx(319.67)
