@@ -153,6 +153,24 @@ class TestSetManual:
             manual(41, item_id="MLA1")
         assert link_rows(audited) == [] and audit_rows(audited) == []
 
+    def test_the_chosen_product_cannot_be_deleted_until_the_link_commits(self, audited) -> None:
+        """The existence check holds a share lock: a catalog sync deleting the product waits for the link
+        transaction instead of leaving a dangling link behind."""
+        from sqlalchemy.exc import OperationalError
+
+        add_product(audited, 42, "OTHER")
+        store(audited, sample_item(ITEM))
+
+        with database.get_background_db() as db:
+            links.set_manual(db, ITEM, 0, 42, None, USER, now=at(10), events_enabled=False)
+            db.flush()  # the link transaction is open, not committed
+            with audited.connect() as other:
+                other.execute(text("SET lock_timeout = '300ms'"))
+                with pytest.raises(OperationalError, match="lock timeout|LockNotAvailable"):
+                    other.execute(text("DELETE FROM productos_erp WHERE item_id = 42"))
+        with audited.begin() as conn:  # committed: the delete goes through (the link is then dangling, reported)
+            conn.execute(text("DELETE FROM productos_erp WHERE item_id = 42"))
+
     def test_a_variation_that_is_not_part_of_the_item_is_refused(self, audited) -> None:
         add_product(audited, 41, SKU_A)
         store(audited, sample_item(ITEM))

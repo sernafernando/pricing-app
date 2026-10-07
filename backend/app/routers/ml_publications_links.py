@@ -199,16 +199,20 @@ def _write(
         db.commit()
     except links.UnknownItem as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No se encontró la publicación {exc}")
-    except links.UnknownUnit:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No se encontró la publicación {exc}"
+        ) from exc
+    except links.UnknownUnit as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"La variación {variation_id} no pertenece a la publicación {item_id}",
-        )
+        ) from exc
     except links.ProductNotFound as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"El producto {exc} no existe")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"El producto {exc} no existe"
+        ) from exc
     except Exception:
         db.rollback()
         raise
@@ -227,8 +231,10 @@ def get_item_links(
     """The units of a publication (one, or one per variation) with their link and the SKU suggestion."""
     try:
         return links.describe_item(db, item_id)
-    except links.UnknownItem:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No se encontró la publicación {item_id}")
+    except links.UnknownItem as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No se encontró la publicación {item_id}"
+        ) from exc
 
 
 @router.get("/product-links", response_model=ListOut)
@@ -242,8 +248,8 @@ def list_links(
     """Units of one class, keyset-paginated on `(item_id, variation_id)`."""
     try:
         return links.list_units(db, cls, cursor=cursor, limit=limit)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Cursor inválido")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Cursor inválido") from exc
 
 
 @router.get("/product-links/coverage", response_model=CoverageOut)

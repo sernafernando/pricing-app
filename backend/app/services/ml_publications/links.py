@@ -738,7 +738,15 @@ def evaluate_for_item(
 
 
 def _product_exists(db, producto_item_id: int) -> bool:
-    return db.query(ProductoERP.item_id).filter(ProductoERP.item_id == producto_item_id).first() is not None
+    """Whether the product is in the catalog, holding a share lock on its row until the transaction ends.
+
+    The lock keeps a catalog sync from deleting the product between this check and the commit of the link
+    (a one-row lock held for the milliseconds of one request).
+    """
+    row = (
+        db.query(ProductoERP.item_id).filter(ProductoERP.item_id == producto_item_id).with_for_update(read=True).first()
+    )
+    return row is not None
 
 
 def _row_exists(db, item_id: str, variation_id: int) -> bool:

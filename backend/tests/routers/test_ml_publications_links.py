@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.main import app
 from app.models.permiso import Permiso, RolPermisoBase
 from app.routers import ml_publications_links
+from app.services.ml_publications import links
 from app.services.ml_publications.settings_store import set_setting
 from tests.services.ml_publications.conftest import item_with_variations, mlpub_pg, sample_item  # noqa: F401
 from tests.services.ml_publications.test_links_manual import AUDIT_DDL
@@ -128,6 +129,32 @@ class TestContract:
     def test_there_is_no_delete_verb_on_any_link_route(self) -> None:
         verbs = {method for route in ml_publications_links.router.routes for method in getattr(route, "methods", set())}
         assert verbs == {"GET", "PUT", "POST"}
+
+
+class TestRefusalsKeepTheirCause:
+    @pytest.mark.parametrize(
+        "error, expected",
+        [
+            (links.UnknownItem("MLA1"), 404),
+            (links.UnknownUnit("MLA1:3"), 422),
+            (links.ProductNotFound("9"), 422),
+        ],
+    )
+    def test_the_http_error_is_chained_to_the_refusal_that_caused_it(self, links_on, error, expected) -> None:
+        from fastapi import HTTPException
+
+        class Session:
+            def commit(self) -> None: ...
+            def rollback(self) -> None: ...
+
+        def refuse(db, **kwargs):
+            raise error
+
+        with pytest.raises(HTTPException) as caught:
+            ml_publications_links._write(Session(), "MLA1", 3, refuse)
+
+        assert caught.value.status_code == expected
+        assert caught.value.__cause__ is error
 
 
 class TestReadItem:
