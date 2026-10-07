@@ -458,7 +458,8 @@ class RefreshHandler:
     @staticmethod
     def _requeue_core(work: _Work) -> None:
         """Queue the item's core on the claim's own lane. The bumped version makes the claim's completion keep
-        the entry, so the next batch of the run fetches the core and then the named resource."""
+        the entry, so the next batch of the run fetches the core and then the named resource. That queue rule is
+        pinned by `test_a_version_bump_while_claimed_keeps_the_entry_for_a_refetch` (test_queue.py)."""
         claim = work.claim
         entry = queue.EnqueueEntry(kind=claim.kind, entity_id=claim.entity_id, lane=claim.lane, resources=(CORE,))
         queue.enqueue([entry])
