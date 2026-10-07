@@ -213,7 +213,8 @@ def test_an_accented_sub_pm_pair_matches_through_the_callers_scope(tree_catalog,
             'ALTER TABLE marca_sub_pm ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
             'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
             "UPDATE productos_erp SET marca = 'Periféricos', categoria = 'Teclados ñ' WHERE item_id = 24;"
-            "INSERT INTO usuarios (id, nombre) VALUES (904, 'Sub PM');"
+            "DELETE FROM marca_sub_pm;"
+            "INSERT INTO usuarios (id, nombre) VALUES (904, 'Sub PM') ON CONFLICT (id) DO NOTHING;"
             "INSERT INTO marca_sub_pm (marca, categoria, usuario_id) VALUES ('Periféricos', 'Teclados ñ', 904);"
         )
     )
