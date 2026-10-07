@@ -72,6 +72,10 @@ class TestScanNextMode:
         with engine.connect() as conn:
             assert conn.execute(text("SELECT count(*) FROM ml_pub_settings")).scalar() == 0
 
+    def test_an_invalid_env_value_fails_at_startup_instead_of_being_served(self) -> None:
+        with pytest.raises(ValueError):
+            type(settings)(ML_PUB_SCAN_NEXT_MODE="everything")
+
     def test_an_invalid_stored_value_falls_back_to_the_env_default(self, settings_db, engine) -> None:
         _insert_raw(engine, "scan.next_mode", '"everything"')
         got = get_setting("scan.next_mode")

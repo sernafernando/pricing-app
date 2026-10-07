@@ -139,7 +139,9 @@ def parse_page(body: Any) -> ScanPage:
 
 @dataclass
 class ScanResult:
-    """What one run did. `complete` is True only when the lap ended (missing-from-scan step included)."""
+    """Where the lap stands after one run. `complete` is True only when the lap ended (missing-from-scan
+    step included). `pages`, `enumerated` and `enqueued` are the lap totals so far (the sum of the status
+    progress rows), so a restarted scroll is not counted twice and a resumed lap shows its whole progress."""
 
     mode: Optional[str] = None
     complete: bool = False
@@ -264,6 +266,9 @@ def _states(statuses: Sequence[str]) -> Dict[str, MlPubScanState]:
 def _summarize(result: ScanResult, statuses: Sequence[str]) -> None:
     rows = _states(statuses)
     result.statuses = {s: _snapshot(r) for s, r in rows.items() if r is not None}
+    result.pages = sum(s["pages"] for s in result.statuses.values())
+    result.enumerated = sum(s["enumerated"] for s in result.statuses.values())
+    result.enqueued = sum(s["enqueued"] for s in result.statuses.values())
     result.failed_statuses = [s for s, r in rows.items() if r is not None and _is_failed(r)]
     result.unsupported_statuses = [s for s, r in rows.items() if r is not None and r.unsupported]
 
@@ -334,9 +339,7 @@ def _stored_items(session: Session, ids: Sequence[str]) -> Dict[str, StoredItem]
     return {r[0]: StoredItem(status=r[1], last_checked_at=r[2], gone_at=r[3]) for r in rows}
 
 
-def _apply_page(
-    status: str, page: ScanPage, lap: _Lap, *, now: datetime, stale_days: int, finished: bool, result: ScanResult
-) -> None:
+def _apply_page(status: str, page: ScanPage, lap: _Lap, *, now: datetime, stale_days: int, finished: bool) -> None:
     """One transaction: enqueue what the mode asks for, mark the stored items seen, move the progress."""
     with database.get_background_db() as session:
         row = session.get(MlPubScanState, status)
@@ -363,9 +366,6 @@ def _apply_page(
             row.completed_at = now
         else:
             row.scroll_id = page.scroll_id
-        result.pages += 1
-        result.enumerated += len(page.ids)
-        result.enqueued += len(entries)
 
 
 def _expected_pages(total: int) -> int:
@@ -429,7 +429,7 @@ def _scan_status(
             return True
         overrun = (state.pages or 0) + 1 > _expected_pages(page.total) + OVERRUN_SLACK_PAGES
         finished = not page.ids or not page.scroll_id
-        _apply_page(status, page, lap, now=now(), stale_days=stale_days, finished=finished or overrun, result=result)
+        _apply_page(status, page, lap, now=now(), stale_days=stale_days, finished=finished or overrun)
         if overrun and not finished:
             _store_state(status, last_error=f"scan_overrun: more than {_expected_pages(page.total)} pages announced")
         if finished or overrun:

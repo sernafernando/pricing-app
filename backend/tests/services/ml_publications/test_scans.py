@@ -258,6 +258,7 @@ class TestBackfill:
 
         second = run(ml)  # "restart": a fresh run reads the stored progress
         assert second.complete
+        assert (first.enumerated, second.enumerated) == (5, 5)  # lap totals so far, not what this run did
         assert ml.calls()[1] == ("active", stored_scroll)  # no new first-page request
         assert ("active", None) not in ml.calls()[1:]
         assert {k: v["version"] for k, v in queue_rows(env).items()} == versions  # nothing re-enqueued
@@ -291,6 +292,7 @@ class TestBackfill:
         assert state["restarts"] == 1 and state["completed_at"] is not None and state["last_error"] is None
         # counts describe the scroll that completed: the items read before the restart are not added twice
         assert (state["enumerated"], state["enqueued"]) == (5, 5)
+        assert (result.enumerated, result.enqueued) == (5, 5)  # the run detail does not double count either
         assert set(queue_rows(env)) == set(ACTIVE)  # already-enqueued items are deduped, not doubled
 
     def test_scroll_expiry_is_bounded_then_the_status_is_failed_and_the_next_one_runs(self, env):
