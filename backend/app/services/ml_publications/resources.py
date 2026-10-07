@@ -53,6 +53,10 @@ PROMOTIONS_RESOURCE = "promotions"
 ITEM_KIND = "item"
 USER_PRODUCT_KIND = "user_product"
 FAMILY_KIND = "family"
+COMPETITION_RESOURCE = "competition"
+MODERATION_RESOURCE = "moderation"
+PERFORMANCE_RESOURCE = "performance"
+VISITS_RESOURCE = "visits"
 REFRESH_RESOURCES: tuple[str, ...] = (
     BUNDLE_RESOURCE,
     CORE_RESOURCE,
@@ -63,10 +67,10 @@ REFRESH_RESOURCES: tuple[str, ...] = (
     "user_product",
     "stock",
     "family",
-    "competition",
-    "moderation",
-    "performance",
-    "visits",
+    COMPETITION_RESOURCE,
+    MODERATION_RESOURCE,
+    PERFORMANCE_RESOURCE,
+    VISITS_RESOURCE,
 )
 
 RESOURCES: dict[str, ResourceSpec] = {}
@@ -131,9 +135,17 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys, _negative_states in (
         {},
     ),
     ("family", ("family_id",), map_family, parse_family, "family_20261006.json", {}, {}),
-    ("competition", ("item_id",), map_price_to_win, parse_price_to_win, "price_to_win_20261006.json", {}, {}),
     (
-        "performance",
+        COMPETITION_RESOURCE,
+        ("item_id",),
+        map_price_to_win,
+        parse_price_to_win,
+        "price_to_win_20261006.json",
+        {},
+        {},
+    ),
+    (
+        PERFORMANCE_RESOURCE,
         ("item_id",),
         map_performance,
         parse_performance,
@@ -142,7 +154,7 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys, _negative_states in (
         PERFORMANCE_NEGATIVE_STATES,
     ),
     (
-        "moderation",
+        MODERATION_RESOURCE,
         ("item_id",),
         map_moderation,
         parse_moderation,
@@ -150,7 +162,7 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys, _negative_states in (
         {},
         MODERATION_NEGATIVE_STATES,
     ),
-    ("visits", ("item_id",), map_visits, parse_visits, "visits_20261006.json", array_keys_for("visits"), {}),
+    (VISITS_RESOURCE, ("item_id",), map_visits, parse_visits, "visits_20261006.json", array_keys_for("visits"), {}),
 ):
     register(
         ResourceSpec(
