@@ -86,6 +86,11 @@ can be retired. `pm_scope` stays the single source of the rule.
   "single head"; (3) downgrade limitation documented and pinned; (4) statement
   ceiling proved on the scoped and empty-scope paths; (5) inactive-user branch
   proved. Route: delegated writer.
+- [x] **T5 — Second review follow-ups.** (1) `scope_pairs` is a required
+  keyword-only argument on `Board.__init__` and `build_board_response`
+  (fail closed on a forgotten call site; `None` stays the explicit full view);
+  (2) `pm_scope._pair_query` documents the cross-table collation assumption.
+  Route: direct inline (one writer).
 
 ## Acceptance criteria
 
@@ -132,6 +137,13 @@ can be retired. `pm_scope` stays the single source of the rule.
   hardening: passed on first run, no RED). (4)(5) new tests passed on first run
   (characterization of existing behavior); (5) mutation-checked: disabling the
   `activo` guard makes it fail with `assert [('EPSON', 'CAT')] == []`.
+- T5 done. RED: `pytest tests/services/ml_daily_metrics/test_board_scope_required.py`
+  -> 2 failed (`AttributeError: 'NoneType' object has no attribute 'get_bind'`,
+  i.e. no TypeError: the constructor accepted a missing scope). GREEN after the
+  change plus 67 explicit `scope_pairs=None` in non-scope tests: services 204
+  passed, integration 214 passed. Docs-only collation note (`rg collation`
+  over alembic/models: no hits, so the claim is true). Commits:
+  `refactor(ml-metricas): require an explicit scope...` (072fc0cf) and the docs one.
 
 ## Next step
 

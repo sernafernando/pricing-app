@@ -66,6 +66,13 @@ def _pair_query(db: Session, model, usuario_filter):
     Consumers compare these pairs against SQL `func.upper(col)`, so both sides
     must use the same function: Python's `str.upper()` also upper-cases accents
     that a byte collation (`C`) leaves alone, and the pair would never match.
+
+    The pairs are upper-cased with the collation of `marcas_pm` / `marca_sub_pm`;
+    consumers compare them against `upper()` of their own columns (e.g.
+    `productos_erp.marca` / `categoria` in the board, `ml_ventas_metricas` in
+    the old dashboard). Accent matching therefore assumes those columns share a
+    collation: the database default (no migration or model sets a per-column
+    collation).
     """
     return db.query(func.upper(model.marca), func.upper(model.categoria)).filter(usuario_filter)
 
