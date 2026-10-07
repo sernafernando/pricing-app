@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
 from app.models.ml_publications import MlChangeLog, MlItem, MlItemVariation
-from app.services.ml_publications import events_store, settings_store
+from app.services.ml_publications import events_store, links, settings_store
 from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import Change, diff, split_excluded
 from app.services.ml_publications.mappers import map_variations
@@ -88,6 +88,16 @@ def _events_enabled() -> bool:
         return settings_store.is_enabled("events") is True
     except Exception:  # noqa: BLE001 -- a settings failure must never block the change log
         logger.exception("ml_pub events flag unreadable; no events for this fetch")
+        return False
+
+
+def _links_enabled() -> bool:
+    """The `links.enabled` DB flag (design D20). Fails closed like the events flag: an unreadable
+    flag means no link evaluation, never a failed fetch."""
+    try:
+        return settings_store.is_enabled("links") is True
+    except Exception:  # noqa: BLE001 -- a settings failure must never block the item
+        logger.exception("ml_pub links flag unreadable; no link evaluation for this fetch")
         return False
 
 
@@ -164,17 +174,21 @@ def apply_fetch(
     trigger_received_at: Optional[datetime] = None,
     counters: Optional[ApplyCounters] = None,
     events_enabled: Optional[bool] = None,
+    links_enabled: Optional[bool] = None,
 ) -> ApplyOutcome:
     """Apply one fetched item response to the store inside one transaction.
 
     `events_enabled` is the `events.enabled` flag as the caller already read it (the refresh
     handler reads it once per batch with its other settings). `None` means the caller did not
-    read it, so it is read here, before the transaction opens.
+    read it, so it is read here, before the transaction opens. `links_enabled` (`links.enabled`,
+    design D20) works the same way: with it off, the product catalog is never touched.
     """
     counters = counters if counters is not None else ApplyCounters()
     (item_id,) = key
     if events_enabled is None:
         events_enabled = _events_enabled()
+    if links_enabled is None:
+        links_enabled = _links_enabled()
     with database.get_background_db() as db:
         db.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
         db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
@@ -207,7 +221,9 @@ def apply_fetch(
                 return _not_found(db, spec, row, response, trigger_received_at, events_enabled)
             return _error(db, row, response)
 
-        return _apply_state(db, spec, row, body, typed, response, trigger_received_at, counters, events_enabled)
+        return _apply_state(
+            db, spec, row, body, typed, response, trigger_received_at, counters, events_enabled, links_enabled
+        )
 
 
 def _apply_state(
@@ -220,6 +236,7 @@ def _apply_state(
     trigger_received_at: Optional[datetime],
     counters: ApplyCounters,
     events_enabled: bool,
+    links_enabled: bool,
 ) -> ApplyOutcome:
     """A 2xx (or declared negative-state) body: first sighting, unchanged, noise-only, change or restore."""
     item_id = row.item_id
@@ -232,6 +249,7 @@ def _apply_state(
         _touch(row, response, trigger_received_at)
         if typed:  # a negative-state body carries no variations
             _project_variations(db, item_id, body, response)
+            _evaluate_links(db, links_enabled, typed, body, response, events_enabled)
         db.flush()
         return ApplyOutcome("first_seen")
 
@@ -255,6 +273,7 @@ def _apply_state(
     _touch(row, response, trigger_received_at)
     if typed:  # a negative-state body carries no variations
         _project_variations(db, item_id, body, response)
+        _evaluate_links(db, links_enabled, typed, body, response, events_enabled)
     if not reportable and not restoring:
         db.flush()
         return ApplyOutcome("noise_only")
@@ -308,6 +327,35 @@ def _project_variations(db, item_id: str, body: Mapping[str, Any], response: MlR
     for variation_id, variation in existing.items():
         if variation_id not in seen and variation.gone_at is None:
             variation.gone_at = response.received_at
+
+
+def _evaluate_links(
+    db,
+    links_enabled: bool,
+    typed: Mapping[str, Any],
+    body: Mapping[str, Any],
+    response: MlResponse,
+    events_enabled: bool,
+) -> None:
+    """Link the item's units to our products inside the fetch's transaction (design D20, step 7).
+
+    A savepoint keeps a links failure (an unreadable catalog, an event insert) from costing the item
+    its state: the unit then stays unevaluated and the re-link sweep picks it up.
+    """
+    if not links_enabled:
+        return
+    try:
+        with db.begin_nested():
+            links.evaluate_item(
+                db,
+                typed["item_id"],
+                typed,
+                map_variations(body),
+                now=response.received_at,
+                events_enabled=events_enabled,
+            )
+    except Exception:  # noqa: BLE001 -- the item's state must commit regardless
+        logger.exception("product links evaluation failed for %s; the re-link sweep will retry it", typed["item_id"])
 
 
 def _error(db, row: MlItem, response: MlResponse, reason: Optional[str] = None) -> ApplyOutcome:

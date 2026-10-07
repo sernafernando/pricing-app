@@ -9,15 +9,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app.core import database
 from app.models.ml_publications import MlItemProductLink
 from app.models.producto import ProductoERP
 from app.services.ml_publications import events_store, links
+from app.services.ml_publications import store as store_module
 from app.services.ml_publications.mappers import map_item, map_variations
 from app.services.ml_publications.settings_store import set_setting
 from tests.services.ml_publications.conftest import item_with_variations, sample_item
+from tests.services.ml_publications.test_store_apply_fetch import apply, item_row, only_not_found
 
 pytestmark = pytest.mark.postgres
 
@@ -364,3 +366,100 @@ def _with_sku(sku: str) -> dict:
     body = sample_item(ITEM)
     body["attributes"] = [{**a, "value_name": sku} if a["id"] == "SELLER_SKU" else a for a in body["attributes"]]
     return body
+
+
+# --- the apply_fetch hook (design D20, step 7) ---------------------------------------------------
+
+
+@pytest.fixture()
+def links_on(events_on):
+    set_setting("links.enabled", True, "test")
+    return events_on
+
+
+class TestApplyFetchHook:
+    def test_the_first_sighting_creates_the_link_in_the_same_transaction(self, links_on) -> None:
+        add_product(links_on, 41, SKU_A)
+
+        outcome = apply(sample_item(ITEM), ITEM, minutes=1)
+
+        assert outcome.kind == "first_seen"
+        row = link(links_on)
+        assert (row["source"], row["producto_item_id"], row["evaluated_at"]) == ("sku_auto", 41, at(1))
+        assert log_rows(links_on) == []
+
+    def test_a_refresh_that_changes_the_seller_sku_relinks_in_the_same_transaction(self, links_on) -> None:
+        add_product(links_on, 41, SKU_A)
+        add_product(links_on, 42, SKU_B)
+        apply(sample_item(ITEM), ITEM, minutes=1)
+
+        outcome = apply(_with_sku(SKU_B), ITEM, minutes=5)
+
+        assert outcome.kind == "changed"
+        assert link(links_on)["producto_item_id"] == 42
+        (entry,) = log_rows(links_on)
+        assert entry["entity_id"] == f"{ITEM}:0"
+        (event_row,) = event_rows(links_on)
+        assert event_row["event_type"] == "product_link_changed"
+
+    def test_a_refresh_without_a_sku_change_does_not_touch_the_links(self, links_on) -> None:
+        add_product(links_on, 41, SKU_A)
+        body = sample_item(ITEM)
+        apply(body, ITEM, minutes=1)
+        before = link(links_on)
+        body["title"] = body["title"] + "!"  # real payload, one field changed
+
+        apply(body, ITEM, minutes=5)
+
+        assert link(links_on) == before
+
+    def test_with_links_off_no_link_is_written_and_the_catalog_is_never_read(self, events_on) -> None:
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, *rest):
+            statements.append(statement)
+
+        event.listen(events_on, "before_cursor_execute", record)
+        try:
+            apply(sample_item(ITEM), ITEM, minutes=1)
+        finally:
+            event.remove(events_on, "before_cursor_execute", record)
+
+        assert statements  # the listener really saw the fetch
+        assert not [sql for sql in statements if "productos_erp" in sql or "ml_item_product_links" in sql]
+        assert link_rows(events_on) == []
+
+    def test_a_links_failure_never_blocks_the_item_and_leaves_the_unit_for_the_sweep(
+        self, links_on, monkeypatch
+    ) -> None:
+        def boom(*args, **kwargs):
+            raise RuntimeError("catalog unreadable")
+
+        monkeypatch.setattr(links, "evaluate_item", boom)
+
+        outcome = apply(sample_item(ITEM), ITEM, minutes=1)
+
+        assert outcome.kind == "first_seen"
+        assert item_row(links_on, ITEM)["raw"] is not None
+        assert link_rows(links_on) == []
+
+    def test_the_flag_can_be_passed_by_the_caller_without_reading_settings(self, links_on, monkeypatch) -> None:
+        monkeypatch.setattr(store_module, "_links_enabled", lambda: pytest.fail("flag read although passed"))
+        add_product(links_on, 41, SKU_A)
+        apply(sample_item(ITEM), ITEM, minutes=1, links_enabled=True, events_enabled=True)
+        assert link(links_on)["producto_item_id"] == 41
+
+    def test_an_unreadable_flag_means_no_links(self, links_on, monkeypatch) -> None:
+        from app.services.ml_publications import settings_store
+
+        def broken(handler):
+            raise RuntimeError("settings down")
+
+        monkeypatch.setattr(settings_store, "is_enabled", broken)
+        apply(sample_item(ITEM), ITEM, minutes=1, events_enabled=False)
+        assert link_rows(links_on) == []
+
+    def test_a_negative_state_body_evaluates_nothing(self, links_on) -> None:
+        apply(sample_item(ITEM), ITEM, minutes=1)
+        only_not_found(ITEM, 5)
+        assert [r["item_id"] for r in link_rows(links_on)] == [ITEM]
