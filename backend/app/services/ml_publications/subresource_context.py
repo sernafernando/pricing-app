@@ -11,14 +11,13 @@ the business reads, before and after the change, with amounts as decimal strings
 marketplace channel exactly as the typed columns are. `sale_price` entries: `{amount,
 regular_amount, currency_id, campaign_id, promotion_id, promotion_type}`. `promotions` entries: the
 list keyed by promotion key (`id`, else `type`), each `{id, type, status, price, original_price,
-min/max/suggested_discounted_price}` with amounts as decimal strings. No I/O.
+min/max/suggested_discounted_price}` with amounts as decimal strings; a key ML repeats is
+`{ambiguous: true, id, type}` and raises no event. No I/O.
 """
 
 from __future__ import annotations
 
-import json
 from decimal import Decimal
-from itertools import count
 from typing import Any, Callable, Mapping, Optional
 
 from app.services.ml_publications.mappers import to_decimal
@@ -96,35 +95,25 @@ def _amount_of(entry: Mapping[str, Any], name: str) -> Optional[str]:
 def promotions_entries(raw: Any) -> Optional[dict]:
     """The promotions the event rules read, by promotion key (`id`, else `type`).
 
-    ML sends one entry per key. If a key ever repeats, the twins are ordered by content (never by
-    their place in the list) and kept as `<key>`, `<key>#2`, ... so no entry is lost and a reordered
-    list does not swap their identities."""
+    ML sends one entry per key. If a key ever repeats, its entries cannot be told apart across two
+    fetches (nothing says which twin is which), so the key is kept as `{"ambiguous": True, id, type}`
+    and the event rules skip it: no event is better than an event that may be false."""
     if not isinstance(raw, list):
         return None
-    records = sorted(
-        (
-            (
-                promotion_key(entry),
-                {
-                    "id": None if entry.get("id") is None else str(entry["id"]),
-                    "type": entry.get("type"),
-                    "status": entry.get("status"),
-                    **{name: _amount_of(entry, name) for name in _PROMOTION_AMOUNTS},
-                },
-            )
-            for entry in raw
-            if isinstance(entry, Mapping)
-        ),
-        key=lambda pair: (pair[0], json.dumps(pair[1], sort_keys=True)),
-    )
     entries: dict = {}
-    for base, record in records:
-        key = base
-        for ordinal in count(2):
-            if key not in entries:
-                break
-            key = f"{base}#{ordinal}"
-        entries[key] = record
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        key = promotion_key(entry)
+        identity = {"id": None if entry.get("id") is None else str(entry["id"]), "type": entry.get("type")}
+        if key in entries:  # a repeat (third and later ones too): the key stays ambiguous
+            entries[key] = {"ambiguous": True, **identity}
+        else:
+            entries[key] = {
+                **identity,
+                "status": entry.get("status"),
+                **{name: _amount_of(entry, name) for name in _PROMOTION_AMOUNTS},
+            }
     return entries
 
 

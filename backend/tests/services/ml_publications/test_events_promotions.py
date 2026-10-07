@@ -12,6 +12,8 @@ import copy
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from app.services.ml_publications.diff import diff, split_excluded
 from app.services.ml_publications.events import ChangeRow, dedupe_key, derive_events
 from app.services.ml_publications.resources import RESOURCES
@@ -172,6 +174,27 @@ class TestActivated:
         assert derive_events(promotions_row(old, new)) == []
 
 
+class TestSilentTransitions:
+    @pytest.mark.parametrize(
+        ("old_status", "new_status"),
+        [("started", "pending"), ("started", "candidate"), ("pending", "candidate")],
+    )
+    def test_a_status_that_goes_back_raises_no_event(self, old_status: str, new_status: str) -> None:
+        """Pinned rule (design D16): only offered, activated, finished and price changes are events."""
+        base = subresource_body("promotions", ONLY_CANDIDATES)
+        old = with_fields(base, CANDIDATE_ID, status=old_status, price=1900000)
+        new = with_fields(old, CANDIDATE_ID, status=new_status)
+
+        assert derive_events(promotions_row(old, new)) == []
+
+    def test_a_forward_transition_still_raises_its_event_with_the_same_setup(self) -> None:
+        base = subresource_body("promotions", ONLY_CANDIDATES)
+        old = with_fields(base, CANDIDATE_ID, status="pending", price=1900000)
+        new = with_fields(old, CANDIDATE_ID, status="started")
+
+        assert [e.event_type for e in derive_events(promotions_row(old, new))] == ["promotion_activated"]
+
+
 class TestFinished:
     def test_a_started_promotion_that_becomes_finished_ended(self) -> None:
         """Real started list with the started campaign marked finished (status changed)."""
@@ -294,33 +317,45 @@ class TestPriceChanged:
 
 
 class TestEntriesContext:
-    def test_two_entries_without_an_id_and_with_the_same_type_are_both_kept(self) -> None:
-        """Real candidates-only list with PRICE_DISCOUNT repeated (ML sends one; the context must not lose a twin)."""
-        body = subresource_body("promotions", ONLY_CANDIDATES)
-        twin = copy.deepcopy(entry(body, "PRICE_DISCOUNT"))
-        twin["status"] = "started"
-        twin["price"] = 50000
-        body.append(twin)
+    @staticmethod
+    def with_twin(body: list, **fields) -> list:
+        """Real candidates-only list with PRICE_DISCOUNT repeated (ML sends one per item): the twin differs by `fields`."""
+        out = copy.deepcopy(body)
+        twin = copy.deepcopy(entry(out, "PRICE_DISCOUNT"))
+        twin.update(fields)
+        out.append(twin)
+        return out
+
+    def test_a_repeated_key_is_marked_ambiguous_instead_of_overwritten(self) -> None:
+        body = self.with_twin(subresource_body("promotions", ONLY_CANDIDATES), status="started", price=50000)
 
         entries = entries_context("promotions", body, body)["entries"]["new"]
 
-        assert len(entries) == len(body) == 9
-        statuses = sorted(e["status"] for k, e in entries.items() if e["type"] == "PRICE_DISCOUNT")
-        assert statuses == ["candidate", "started"]
+        assert len(entries) == 8  # one per distinct key
+        assert entries["PRICE_DISCOUNT"] == {"ambiguous": True, "id": None, "type": "PRICE_DISCOUNT"}
+        assert entries[CANDIDATE_ID]["status"] == "candidate"  # the rest is untouched
 
-    def test_twins_keep_their_keys_when_ml_reorders_the_list(self) -> None:
-        """Same real list with a PRICE_DISCOUNT twin, read in two orders: no key swap, so no false event."""
-        body = subresource_body("promotions", ONLY_CANDIDATES)
-        twin = copy.deepcopy(entry(body, "PRICE_DISCOUNT"))
-        twin.update(status="started", price=50000)
-        body.append(twin)
-        reordered = list(reversed(body))
+    def test_an_ambiguous_key_raises_no_event_however_the_twins_move_or_are_ordered(self) -> None:
+        old = self.with_twin(subresource_body("promotions", ONLY_CANDIDATES), status="started", price=50000)
+        changed = self.with_twin(subresource_body("promotions", ONLY_CANDIDATES), status="finished", price=1)
 
-        assert (
-            entries_context("promotions", body, body)["entries"]["new"]
-            == (entries_context("promotions", reordered, reordered)["entries"]["new"])
-        )
-        assert derive_events(promotions_row(body, reordered)) == []
+        assert derive_events(promotions_row(old, list(reversed(old)))) == []
+        assert derive_events(promotions_row(old, changed)) == []
+
+    def test_the_unambiguous_entries_still_raise_their_events_beside_an_ambiguous_key(self) -> None:
+        old = self.with_twin(subresource_body("promotions", ONLY_CANDIDATES), status="started", price=50000)
+        new = with_fields(old, CANDIDATE_ID, status="started", price=1900000)
+
+        events = derive_events(promotions_row(old, new))
+
+        assert [(e.event_type, e.promotion_id) for e in events] == [("promotion_activated", CANDIDATE_ID)]
+
+    def test_a_key_that_becomes_unique_again_is_compared_against_nothing(self) -> None:
+        """An ambiguous side proves nothing: the entry that stays after the twin goes raises no event."""
+        old = self.with_twin(subresource_body("promotions", ONLY_CANDIDATES), status="started", price=50000)
+        new = subresource_body("promotions", ONLY_CANDIDATES)
+
+        assert derive_events(promotions_row(old, new)) == []
 
     def test_an_entry_that_appears_already_pending_is_not_an_event_until_it_starts(self) -> None:
         """Pinned rule (design D16): `promotion_offered` is for candidates only; pending is silent."""

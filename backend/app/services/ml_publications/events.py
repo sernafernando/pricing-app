@@ -362,6 +362,9 @@ def _promotions_events(row: ChangeRow) -> list[Event]:
     events: list[Event] = []
     for key in sorted(set(old) | set(new)):
         old_entry, new_entry = old.get(key), new.get(key)
+        # A key ML repeated cannot be followed between two fetches: it raises nothing, on either side.
+        if any(isinstance(e, Mapping) and e.get("ambiguous") for e in (old_entry, new_entry)):
+            continue
         events += _promotion_transition(
             row,
             old_entry if isinstance(old_entry, Mapping) else None,
