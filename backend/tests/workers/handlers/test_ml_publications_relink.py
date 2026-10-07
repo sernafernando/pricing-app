@@ -164,7 +164,6 @@ class TestFirstPass:
             "cursor": None,
             "force": False,
             "target": None,
-            "started_at": None,
             "retry": False,
         }
 
@@ -301,6 +300,23 @@ class TestDailyFullPass:
 
         assert calls == []
 
+    def test_a_forced_lap_that_finishes_after_the_slot_counts_as_todays_full_pass(self, env, monkeypatch) -> None:
+        seed_items(*ITEMS)
+        add_product(env, 41, SKU_A)
+        enable("links")
+        before_slot = datetime(2026, 10, 6, 7, 20, 0, tzinfo=timezone.utc)  # 04:20 in Argentina
+        after_slot = datetime(2026, 10, 6, 7, 50, 0, tzinfo=timezone.utc)  # 04:50 in Argentina
+        clock = iter([before_slot, before_slot, after_slot, after_slot])
+        links.run_sweep(
+            deadline=after_slot + timedelta(hours=1), gate=lambda: False, now=lambda: next(clock, after_slot)
+        )
+        calls = self._calls_forced(monkeypatch)
+
+        later = after_slot + timedelta(minutes=20)
+        links.run_sweep(deadline=later + timedelta(minutes=5), gate=lambda: False, now=lambda: later)
+
+        assert calls == []
+
     def test_the_daily_slot_is_04_30_argentina_time(self) -> None:
         assert links.DAILY_PASS_AT == time(4, 30)
 
@@ -336,6 +352,20 @@ class TestDeadlineAndResume:
         assert second.complete is True
         assert seen == ["MLA882393030", THIRD]
         assert len(link_rows(env)) == 3
+
+    def test_the_deadline_is_also_checked_inside_a_batch(self, env) -> None:
+        seed_items(*ITEMS, THIRD)
+        add_product(env, 41, SKU_A)
+        enable("links")
+        ticks = iter([NOW, NOW, NOW + timedelta(hours=1)])  # start, batch top, after the first item
+
+        result = links.run_sweep(
+            deadline=NOW + timedelta(minutes=5), gate=lambda: False, now=lambda: next(ticks, NOW + timedelta(hours=1))
+        )
+
+        assert result.stopped == "deadline" and result.complete is False
+        assert [r["item_id"] for r in link_rows(env)] == ["MLA874027718"]
+        assert state(env, "links.sweep_state")["cursor"] == "MLA874027718"
 
     def test_the_flag_turned_off_between_batches_stops_the_run(self, env, monkeypatch) -> None:
         monkeypatch.setattr(links, "SWEEP_BATCH", 1)

@@ -430,7 +430,6 @@ class _SweepState:
     cursor: Optional[str] = None  # last item_id of the lap in progress (keyset)
     force: bool = False  # the lap in progress re-evaluates every unit (catalog change / daily pass)
     target: Optional[str] = None  # catalog fingerprint the forced lap converges to
-    started_at: Optional[str] = None  # when the forced lap began (ISO, UTC)
     retry: bool = False  # an item failed or was busy during a forced lap: do not record it as converged
 
     def as_value(self) -> dict[str, Any]:
@@ -470,7 +469,7 @@ def _plan_lap(db, state: _SweepState, now: datetime) -> _SweepState:
         return state
     fingerprint = catalog_fingerprint(db)
     if fingerprint != _read_setting(db, FINGERPRINT_KEY) or _daily_pass_due(now, _read_setting(db, LAST_FULL_PASS_KEY)):
-        return _SweepState(force=True, target=fingerprint, started_at=now.isoformat())
+        return _SweepState(force=True, target=fingerprint)
     return state
 
 
@@ -478,7 +477,7 @@ def _load_state(db) -> _SweepState:
     stored = _read_setting(db, SWEEP_STATE_KEY)
     if not isinstance(stored, dict):
         return _SweepState()
-    return _SweepState(**{k: stored.get(k) for k in ("cursor", "force", "target", "started_at", "retry")})
+    return _SweepState(**{k: stored.get(k) for k in ("cursor", "force", "target", "retry")})
 
 
 def _variations_by_item(db, ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
@@ -542,8 +541,10 @@ def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _
 
     An ordinary lap evaluates only units never evaluated or whose SKU key changed; a forced lap
     (the product catalog fingerprint changed, or the daily 04:30 safety net) re-evaluates every
-    unit, which also refreshes the suggestion of manual units. Progress lives in `ml_pub_settings`
-    (the cursor commits with each batch's work), so a stopped run resumes where it ended.
+    unit, which also refreshes the suggestion of manual units. Each item is evaluated in its own short
+    transaction on its current state (`_evaluate_one`); the keyset cursor is committed after every batch
+    (and when the deadline stops a batch), so a stopped run resumes where it ended. Re-evaluating an
+    item twice is idempotent.
     """
     result = SweepResult()
     started = now()
@@ -566,13 +567,20 @@ def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _
             batch = _typed_batch(db, state.cursor, SWEEP_BATCH)
             evaluated = _evaluated_keys(db, [typed["item_id"] for typed, _ in batch])
         result.batches += 1 if batch else 0
+        out_of_time = False
         for typed, variations in batch:
             _sweep_item(typed, variations, evaluated, state, batch_now, events_enabled, result)
+            state.cursor = typed["item_id"]
+            if now() >= deadline:  # a batch of 500 items must not run past the worker's deadline
+                out_of_time = True
+                break
         with database.get_background_db() as db:  # progress, committed after the batch's per-item work
-            if batch:
-                state.cursor = batch[-1][0]["item_id"]
+            if out_of_time:
+                result.stopped = STOPPED_DEADLINE
+                _write_setting(db, SWEEP_STATE_KEY, state.as_value(), batch_now)
+                return result
             if len(batch) < SWEEP_BATCH:
-                _finish_lap(db, state, batch_now)
+                _finish_lap(db, state, now())
                 result.complete = True
             else:
                 _write_setting(db, SWEEP_STATE_KEY, state.as_value(), batch_now)
@@ -644,7 +652,7 @@ def _finish_lap(db, state: _SweepState, now: datetime) -> None:
     """
     if state.force and not state.retry:
         _write_setting(db, FINGERPRINT_KEY, state.target, now)
-        _write_setting(db, LAST_FULL_PASS_KEY, state.started_at, now)
+        _write_setting(db, LAST_FULL_PASS_KEY, now.isoformat(), now)
     _write_setting(db, SWEEP_STATE_KEY, _SweepState().as_value(), now)
 
 
@@ -724,8 +732,9 @@ def coverage(db, *, sample_size: int = DEFAULT_SAMPLE_SIZE) -> dict[str, Any]:
 
     `classes` sums to `total_units` (each unit is in exactly one primary class). `manual_differs` is
     reported beside them: manual and manual_none units whose decision differs from the SKU suggestion
-    are also counted in their own class. Read-only; one pass over the link table, the items and the
-    products' primary key.
+    are also counted in their own class. Rows are never deleted (spec), so the links of gone
+    variations and the item-level unit of an item that later gained variations stay counted as units.
+    Read-only; one pass over the link table, the items and the products' primary key.
     """
     db.execute(text(f"SET LOCAL statement_timeout = '{COVERAGE_STATEMENT_TIMEOUT}'"))
     classes = {name: 0 for name in CLASSES}
