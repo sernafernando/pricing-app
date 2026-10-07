@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -21,7 +22,7 @@ from sqlalchemy import text
 from app.core import database
 from app.core.config import settings
 from app.services.ml_publications import intake as intake_core
-from app.services.ml_publications import links, queue, settings_store, store
+from app.services.ml_publications import bundle, links, queue, settings_store, store, subresource_store
 from app.services.ml_publications.ml_http import (
     ERROR_INVALID_JSON,
     ERROR_NETWORK,
@@ -57,6 +58,7 @@ _SETTING_KEYS = (
     "events.enabled",
     "links.enabled",
     "bundle_resources",
+    "min_age_seconds",
     "bulk_max_ids",
     "rate_per_sec",
     "stock_rate_per_min",
@@ -96,12 +98,42 @@ class _Run:
         return detail
 
 
-class RefreshHandler:
-    """`ml_publications.refresh`: claims queued items and refreshes them from `/items/bulk`.
+@dataclass
+class _Work:
+    """One claimed entry while its batch is processed: what it needs and how far it got."""
 
-    Only the item core has a fetcher so far. Any other requested resource is dropped from
-    its entry without charging an attempt (design D12): intake and manual enqueues can name
-    resources whose code ships in a later PR without poisoning the queue.
+    claim: queue.QueueClaim
+    plan: bundle.Plan
+    core_status: Optional[int] = None  # HTTP status of the item core once it was applied
+    core_error: Optional[str] = None  # the core failed: the entry is charged and retried whole
+    done: Set[str] = field(default_factory=set)  # sub-resources fetched or skipped by minimum age
+    failed: Dict[str, str] = field(default_factory=dict)  # sub-resource -> failure to charge
+    settled: bool = False  # completed or released: nothing more to do with the claim
+
+    @property
+    def pending(self) -> Set[str]:
+        """Sub-resources still to fetch (only meaningful once the core is applied)."""
+        return {name for name in self.plan.wanted if name not in self.done}
+
+
+@dataclass(frozen=True)
+class _Interruption:
+    """A response that ends the run: why, and when the released claims may be retried."""
+
+    kind: str  # "stopped" or "error"
+    reason: str
+    not_before: datetime
+
+
+class RefreshHandler:
+    """`ml_publications.refresh`: claims queued items and refreshes them from `/items/bulk`, then
+    fetches the sub-resources each entry asks for (`bundle.FETCHERS`: description, prices, sale_price).
+
+    A sub-resource runs only when it is enabled in `bundle_resources` (default: the core only). Any
+    other requested resource is dropped from its entry without charging an attempt (design D12):
+    intake and manual enqueues can name resources that are disabled or whose code ships in a later
+    PR without poisoning the queue. A failing sub-resource is charged to that resource alone: the
+    entry keeps only it, so the retry fetches nothing else.
     """
 
     name = REFRESH_HANDLER
@@ -123,6 +155,10 @@ class RefreshHandler:
         # Cumulative since process start, flushed into `worker_job_state.detail.counters`.
         self._elements: Counter = Counter()
         self._skipped_no_fetcher: Counter = Counter()
+        self._skipped_disabled: Counter = Counter()
+        self._skipped_min_age: Counter = Counter()
+        self._skipped_item_gone = 0
+        self._sub_outcomes: Dict[str, Counter] = defaultdict(Counter)
         self._apply_counters = store.ApplyCounters()
         # `events.enabled` / `links.enabled` as of the current batch boundary (read with the other settings).
         self._events_enabled = False
@@ -153,7 +189,7 @@ class RefreshHandler:
                     break
                 run.claimed += len(claims)
                 run.batches += 1
-                self._process_batch(ctx, claims, config["bundle_resources"].value, run)
+                self._process_batch(ctx, claims, config, run)
                 if run.error or run.stopped:
                     break
                 config = settings_store.get_settings(_SETTING_KEYS)
@@ -183,76 +219,83 @@ class RefreshHandler:
     # --- one batch ---------------------------------------------------------------------
 
     def _process_batch(
-        self, ctx: WorkerContext, claims: Sequence[queue.QueueClaim], bundle_resources: Sequence[str], run: _Run
+        self,
+        ctx: WorkerContext,
+        claims: Sequence[queue.QueueClaim],
+        config: Dict[str, settings_store.Setting],
+        run: _Run,
     ) -> None:
-        dropped: Dict[Tuple[str, str], Set[str]] = {}
-        core_claims: List[queue.QueueClaim] = []
+        bundle_resources = config["bundle_resources"].value
+        works: List[_Work] = []
         for claim in claims:
-            needs_core, skipped = _plan(claim, bundle_resources)
-            dropped[claim.key] = skipped
-            if needs_core:
-                core_claims.append(claim)
-            else:  # nothing this PR can fetch: settle the entry, no ML call, nothing charged
-                self._finish(claim, succeeded=set(claim.resources), failed={}, dropped=skipped)
-        if not core_claims:
-            return
-        if _utcnow() >= ctx.deadline:
-            self._release(core_claims, _utcnow())
-            run.stopped = "deadline"
-            return
-        run.called = True
-        ids = [c.entity_id for c in core_claims]
-        response = self._http().get("items_bulk", f"/items/bulk?ids={','.join(ids)}", deadline=ctx.deadline)
-        self._handle_response(ctx, core_claims, dropped, response, run)
+            work = _Work(claim, bundle.plan(claim.resources, bundle_resources))
+            if work.plan.needs_core or work.plan.wanted:
+                works.append(work)
+            else:  # nothing this deployment can fetch: settle the entry, no ML call, nothing charged
+                self._finish(work)
+        core_works = [w for w in works if w.plan.needs_core]
+        if core_works:
+            if _utcnow() >= ctx.deadline:
+                self._release(works, _utcnow())
+                run.stopped = "deadline"
+                return
+            run.called = True
+            ids = [w.claim.entity_id for w in core_works]
+            response = self._http().get("items_bulk", f"/items/bulk?ids={','.join(ids)}", deadline=ctx.deadline)
+            interruption = self._interruption(response)
+            if interruption:
+                self._end_run(run, interruption)
+                self._release(works, interruption.not_before)
+                return
+            self._handle_core_response(ctx, core_works, response, run)
+        self._fetch_subresources(ctx, [w for w in works if not w.settled], config, run)
 
-    def _handle_response(
-        self,
-        ctx: WorkerContext,
-        claims: List[queue.QueueClaim],
-        dropped: Dict[Tuple[str, str], Set[str]],
-        response: MlResponse,
-        run: _Run,
-    ) -> None:
+    def _interruption(self, response: MlResponse) -> Optional[_Interruption]:
         if response.error == DEADLINE:
-            self._release(claims, _utcnow())
-            run.stopped = "deadline"
-        elif response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) or response.status == 401:
-            self._release(claims, _utcnow() + UNAUTHORIZED_DELAY)
-            run.error = "unauthorized" if response.status == 401 else str(response.error)
-        elif response.status == 429:
-            self._release(claims, _utcnow() + timedelta(seconds=max(1.0, self.pacer.cooldown_remaining())))
-            run.stopped = "rate_limited"
-        elif response.error in (ERROR_TIMEOUT, ERROR_NETWORK, ERROR_INVALID_JSON) or not 200 <= response.status < 300:
-            self._fail_all(claims, dropped, response.error or f"HTTP {response.status}", run)
-        else:
-            self._apply_elements(ctx, claims, dropped, response, run)
+            return _Interruption("stopped", "deadline", _utcnow())
+        if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) or response.status == 401:
+            reason = "unauthorized" if response.status == 401 else str(response.error)
+            return _Interruption("error", reason, _utcnow() + UNAUTHORIZED_DELAY)
+        if response.status == 429:
+            wait = timedelta(seconds=max(1.0, self.pacer.cooldown_remaining()))
+            return _Interruption("stopped", "rate_limited", _utcnow() + wait)
+        return None
 
-    def _apply_elements(
-        self,
-        ctx: WorkerContext,
-        claims: List[queue.QueueClaim],
-        dropped: Dict[Tuple[str, str], Set[str]],
-        response: MlResponse,
-        run: _Run,
-    ) -> None:
+    @staticmethod
+    def _end_run(run: _Run, interruption: _Interruption) -> None:
+        if interruption.kind == "error":
+            run.error = interruption.reason
+        else:
+            run.stopped = interruption.reason
+
+    def _handle_core_response(self, ctx: WorkerContext, works: List[_Work], response: MlResponse, run: _Run) -> None:
+        if response.error in (ERROR_TIMEOUT, ERROR_NETWORK, ERROR_INVALID_JSON) or not 200 <= response.status < 300:
+            self._fail_core(works, response.error or f"HTTP {response.status}", run)
+        else:
+            self._apply_elements(ctx, works, response, run)
+
+    def _apply_elements(self, ctx: WorkerContext, works: List[_Work], response: MlResponse, run: _Run) -> None:
         try:
-            elements = parse_items_bulk([c.entity_id for c in claims], response.body, filtered=False)
+            elements = parse_items_bulk([w.claim.entity_id for w in works], response.body, filtered=False)
         except MalformedBulkResponse as exc:
-            self._fail_all(claims, dropped, f"malformed_bulk_response: {exc}"[:300], run)
+            self._fail_core(works, f"malformed_bulk_response: {exc}"[:300], run)
             return
         spec = RESOURCES["item"]
-        unprocessed: List[queue.QueueClaim] = []
-        for claim, element in zip(claims, elements):
+        unprocessed: List[_Work] = []
+        for work, element in zip(works, elements):
             if _utcnow() >= ctx.deadline:
-                unprocessed.append(claim)
+                unprocessed.append(work)
                 continue
-            error = self._apply_one(spec, claim, element, response)
+            error = self._apply_one(spec, work.claim, element, response)
             if error is None:
                 run.applied += 1
-                self._finish(claim, succeeded=set(claim.resources), failed={}, dropped=dropped[claim.key])
+                work.core_status = element.status
+                if not work.plan.wanted:  # nothing else to fetch for this entry
+                    self._finish(work)
             else:
                 run.failed += 1
-                self._finish(claim, succeeded=dropped[claim.key], failed={CORE: error}, dropped=dropped[claim.key])
+                work.core_error = error
+                self._finish(work)
         if unprocessed:
             self._release(unprocessed, _utcnow())
             run.stopped = "deadline"
@@ -294,30 +337,139 @@ class RefreshHandler:
             self._elements[str(element.status)] += 1
         return error
 
-    # --- queue bookkeeping --------------------------------------------------------------
+    # --- sub-resources -----------------------------------------------------------------------
 
-    def _finish(
-        self, claim: queue.QueueClaim, *, succeeded: Set[str], failed: Dict[str, str], dropped: Set[str]
-    ) -> None:
-        outcome = queue.complete(claim, succeeded=succeeded, failed=failed)
-        if outcome != queue.OUTCOME_NOT_OWNER:
-            for resource in dropped:
-                self._skipped_no_fetcher[resource] += 1
-
-    def _fail_all(
+    def _fetch_subresources(
         self,
-        claims: Sequence[queue.QueueClaim],
-        dropped: Dict[Tuple[str, str], Set[str]],
-        error: str,
+        ctx: WorkerContext,
+        works: List[_Work],
+        config: Dict[str, settings_store.Setting],
         run: _Run,
     ) -> None:
-        for claim in claims:
+        """Walk each remaining entry's sub-resources; an entry settles once all of them were tried."""
+        walking: List[_Work] = []
+        for work in works:
+            if work.core_status == 404:  # the item is gone: its sub-resources would only answer 404
+                self._skipped_item_gone += 1
+                self._finish(work)
+            else:
+                walking.append(work)
+        due = self._due_resources(walking, config["min_age_seconds"].value, _utcnow())
+        for position, work in enumerate(walking):
+            for resource in sorted(work.plan.wanted):
+                if resource not in due[work.claim.key]:
+                    self._skipped_min_age[resource] += 1
+                    work.done.add(resource)
+                    continue
+                if _utcnow() >= ctx.deadline:
+                    interruption: Optional[_Interruption] = _Interruption("stopped", "deadline", _utcnow())
+                else:
+                    interruption = self._fetch_one(ctx, work, bundle.FETCHERS[resource], run)
+                if interruption:
+                    self._end_run(run, interruption)
+                    self._stop_walking(walking[position:], interruption)
+                    return
+            self._finish(work)
+
+    def _due_resources(
+        self, works: Sequence[_Work], min_ages: Dict[str, Any], now: datetime
+    ) -> Dict[Tuple[str, str], Set[str]]:
+        """Per entry, the wanted resources whose minimum age allows a fetch now."""
+        checked: Dict[str, Dict[str, datetime]] = {}
+        for resource in {name for w in works for name, explicit in w.plan.wanted.items() if not explicit}:
+            if bundle.min_age_seconds(resource, min_ages) > 0:
+                ids = [w.claim.entity_id for w in works if w.plan.wanted.get(resource) is False]
+                checked[resource] = bundle.last_checked(resource, ids)
+        return {
+            work.claim.key: {
+                resource
+                for resource, explicit in work.plan.wanted.items()
+                if bundle.is_due(
+                    explicit=explicit,
+                    min_age=bundle.min_age_seconds(resource, min_ages),
+                    last_checked_at=checked.get(resource, {}).get(work.claim.entity_id),
+                    now=now,
+                )
+            }
+            for work in works
+        }
+
+    def _fetch_one(
+        self, ctx: WorkerContext, work: _Work, fetcher: bundle.SubFetcher, run: _Run
+    ) -> Optional[_Interruption]:
+        """Fetch and store one sub-resource of one entry; returns an interruption that ends the run."""
+        resource = fetcher.resource
+        path, params = fetcher.request(work.claim.entity_id)
+        run.called = True
+        response = self._http().get(resource, path, params, deadline=ctx.deadline)
+        interruption = self._interruption(response)
+        if interruption:
+            return interruption
+        if response.error in (ERROR_TIMEOUT, ERROR_NETWORK, ERROR_INVALID_JSON):
+            work.failed[resource] = response.error
+            return None
+        try:
+            outcome = subresource_store.apply_subresource(
+                RESOURCES[resource],
+                (work.claim.entity_id,),
+                response,
+                counters=self._apply_counters,
+                events_enabled=self._events_enabled,
+            )
+        except Exception as exc:  # noqa: BLE001 -- one resource's failure must not lose the others
+            logger.exception("apply_subresource failed for %s %s", resource, work.claim.entity_id)
+            work.failed[resource] = f"apply failed: {type(exc).__name__}: {exc}"[:300]
+            return None
+        self._sub_outcomes[resource][outcome.kind] += 1
+        if outcome.kind == "error_recorded":
+            ok = 200 <= response.status < 300
+            work.failed[resource] = "malformed body" if ok else f"HTTP {response.status}"
+        else:
+            work.done.add(resource)
+        return None
+
+    def _stop_walking(self, works: Sequence[_Work], interruption: _Interruption) -> None:
+        """The run ended inside the sub-resource phase; `works[0]` is the entry being walked."""
+        current = works[0]
+        if current.failed:
+            # Failures already observed on this entry are real: charge them, keep the rest queued.
+            self._finish(current, interrupted=True)
+            works = works[1:]
+        self._release(works, interruption.not_before)
+
+    # --- queue bookkeeping --------------------------------------------------------------
+
+    def _finish(self, work: _Work, *, interrupted: bool = False) -> None:
+        """Settle an entry: complete what succeeded, charge what failed, drop what cannot run."""
+        claim, dropped = work.claim, set(work.plan.dropped)
+        if work.core_error:
+            succeeded, failed = dropped, {CORE: work.core_error}
+        elif interrupted:  # resources not reached stay queued, uncharged
+            succeeded, failed = dropped | (work.done & set(claim.resources)), dict(work.failed)
+        else:
+            succeeded, failed = set(claim.resources), dict(work.failed)
+        outcome = queue.complete(claim, succeeded=succeeded, failed=failed)
+        work.settled = True
+        if outcome != queue.OUTCOME_NOT_OWNER:
+            for resource in dropped:
+                (self._skipped_disabled if bundle.has_fetcher(resource) else self._skipped_no_fetcher)[resource] += 1
+
+    def _fail_core(self, works: Sequence[_Work], error: str, run: _Run) -> None:
+        for work in works:
             run.failed += 1
-            self._finish(claim, succeeded=dropped[claim.key], failed={CORE: error}, dropped=dropped[claim.key])
+            work.core_error = error
+            self._finish(work)
 
     @staticmethod
-    def _release(claims: Sequence[queue.QueueClaim], not_before: datetime) -> None:
-        queue.release(claims, pending={}, not_before=not_before)
+    def _release(works: Sequence[_Work], not_before: datetime) -> None:
+        """Give unsettled claims back uncharged; an entry whose core is done keeps only what is left."""
+        unsettled = [w for w in works if not w.settled]
+        pending = {
+            w.claim.key: w.pending if w.core_status is not None or not w.plan.needs_core else set() for w in unsettled
+        }
+        queue.release([w.claim for w in unsettled], pending=pending, not_before=not_before)
+        for work in unsettled:
+            work.settled = True
 
     # --- counters -------------------------------------------------------------------------
 
@@ -329,7 +481,10 @@ class RefreshHandler:
             "stale_discarded": self._apply_counters.stale_discarded,
             "noise_suppressed": sum(self._apply_counters.noise_suppressed.values()),
             "skipped_no_fetcher": dict(self._skipped_no_fetcher),
-            "skipped_disabled": {},
+            "skipped_disabled": dict(self._skipped_disabled),
+            "skipped_min_age": dict(self._skipped_min_age),
+            "skipped_item_gone": self._skipped_item_gone,
+            "subresources": {resource: dict(kinds) for resource, kinds in self._sub_outcomes.items()},
         }
         detail = {"counters": counters, "last_run": {**run.as_detail(), "at": _utcnow().isoformat()}}
         _persist_detail(self.name, detail)
@@ -351,17 +506,9 @@ def _persist_detail(name: str, detail: Dict[str, Any]) -> None:
 
 
 def _plan(claim: queue.QueueClaim, bundle_resources: Sequence[str]) -> Tuple[bool, Set[str]]:
-    """What an entry needs: (is the item core wanted, resources that have no fetcher and are dropped)."""
-    needs_core = False
-    dropped: Set[str] = set()
-    for resource in claim.resources:
-        if resource in (CORE, BUNDLE):
-            needs_core = True
-        if resource == BUNDLE:
-            dropped.update(name for name in bundle_resources if name not in (CORE, BUNDLE))
-        elif resource != CORE:
-            dropped.add(resource)
-    return needs_core, dropped
+    """What an entry needs: (is the item core wanted, resources that cannot run now and are dropped)."""
+    plan = bundle.plan(claim.resources, bundle_resources)
+    return plan.needs_core, set(plan.dropped)
 
 
 INTAKE_HANDLER = "ml_publications.intake"
