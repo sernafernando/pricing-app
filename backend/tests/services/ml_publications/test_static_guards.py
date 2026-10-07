@@ -30,6 +30,10 @@ PRODUCT_CATALOG_READERS = {"links.py"}
 LINKS_ROUTERS = {"ml_publications_links.py"}
 LINKS_IMPORT = re.compile(r"app\.services\.ml_publications(?:\s+import\s+[^\n]*\blinks\b|\.links\b)")
 GBP_NAME_PATTERN = re.compile(r"GBPClient|gbp_client|wsBasicQuery")
+# The bridge keeps its own promotion mirror (`ml_item_promotions`); the store gets promotions only from the
+# ML API into its own `ml_item_seller_promotions` and never reads or writes the mirror (spec "Bridge mirror untouched").
+BRIDGE_PROMOTION_MIRROR = re.compile(r"\bml_item_promotions\b")
+HANDLERS = Path(__file__).resolve().parents[3] / "app" / "workers" / "handlers" / "ml_publications.py"
 SCHEDULING_PATTERN = re.compile(r"crontab|OnCalendar|\.timer\b|pg_notify|\bLISTEN\b|\bNOTIFY\b")
 
 
@@ -84,6 +88,10 @@ def uses_links_module(source: str) -> bool:
     return LINKS_IMPORT.search(source) is not None
 
 
+def bridge_mirror_references(source: str) -> list[str]:
+    return BRIDGE_PROMOTION_MIRROR.findall(source)
+
+
 def scheduling_references(source: str) -> list[str]:
     return SCHEDULING_PATTERN.findall(source)
 
@@ -119,6 +127,12 @@ class TestScannersCatchOffenders:
         assert uses_links_module("from app.services.ml_publications import events, links")
         assert uses_links_module("from app.services.ml_publications.links import coverage")
         assert not uses_links_module("from app.services.ml_publications import settings_store")
+
+    def test_bridge_mirror_scanner_flags_the_mirror_table_but_not_the_store_table(self) -> None:
+        assert bridge_mirror_references("SELECT * FROM ml_item_promotions WHERE mla = :m") == ["ml_item_promotions"]
+        assert bridge_mirror_references("INSERT INTO ml_item_promotions (mla) VALUES (1)") == ["ml_item_promotions"]
+        assert bridge_mirror_references("ml_item_seller_promotions") == []
+        assert bridge_mirror_references("ml_item_promotions_extra") == []
 
     def test_scheduling_scanner_flags_cron_timers_and_listen_notify(self) -> None:
         for snippet in ("crontab -e", "OnCalendar=daily", "SELECT pg_notify('a','b')", "LISTEN worker_jobs"):
@@ -158,6 +172,12 @@ class TestPackageIsClean:
         sources = dict(router_sources())
         for name in LINKS_ROUTERS:
             assert erp_references(sources[name]) == [], name
+
+    def test_nothing_reads_or_writes_the_bridge_promotion_mirror(self) -> None:
+        sources = [*package_sources(), (HANDLERS.name, HANDLERS.read_text(encoding="utf-8"))]
+        assert {"subresource_store.py", "ml_publications.py"} <= {name for name, _ in sources}
+        offenders = {name: found for name, source in sources if (found := bridge_mirror_references(source))}
+        assert offenders == {}
 
     def test_no_cron_timer_or_listen_notify_machinery(self) -> None:
         offenders = {name: found for name, source in package_sources() if (found := scheduling_references(source))}

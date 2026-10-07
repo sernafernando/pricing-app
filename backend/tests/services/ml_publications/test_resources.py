@@ -132,3 +132,13 @@ def test_package_never_imports_gbp_or_names_erp_mirror_tables():
 
 def test_allow_list_is_exactly_the_linking_module_in_this_pr():
     assert ERP_ALLOW_LIST == frozenset({"links.py"})
+
+
+def test_the_promotions_resource_name_is_defined_once_and_shared():
+    from app.services.ml_publications import events, intake, subresource_context
+    from app.services.ml_publications.resources import PROMOTIONS_RESOURCE
+
+    assert PROMOTIONS_RESOURCE == "promotions" and PROMOTIONS_RESOURCE in RESOURCES
+    assert events.PROMOTIONS_RESOURCE is PROMOTIONS_RESOURCE
+    assert intake.PROMOTIONS_RESOURCE is PROMOTIONS_RESOURCE
+    assert subresource_context.PROMOTIONS is PROMOTIONS_RESOURCE

@@ -87,3 +87,45 @@ The refresh handler ships these three fetchers dark: they run only for resources
    an item whose core answers 404 gets no sub-resource calls.
 
 Rollback: remove the names from `bundle_resources`; nothing already stored is deleted.
+
+## Enabling the promotions fetcher
+
+The refresh handler ships the promotions fetcher dark. It calls ML
+(`GET /seller-promotions/items/{id}?app_version=v2`, the same ML application the bridge uses) only when
+BOTH gates are open:
+
+1. `promotions.enabled` is on (it is off by default; `ML_PUB_KILL_SWITCH` overrides it), and
+2. `promotions` is listed in `bundle_resources` (default `["core"]`).
+
+With only one of them, an entry that asks for promotions is dropped uncharged and counted in
+`skipped_disabled`; no call is made. The store keeps the answer in `ml_item_seller_promotions` (raw list,
+one change-log row per real change keyed by promotion `id`, else `type`) and, with `events.enabled`,
+derives `promotion_offered`, `promotion_activated`, `promotion_finished` (payload `reason`: `ended`,
+`withdrawn` or `absent`) and `promotion_price_changed`. The bridge promotion mirror
+(`ml_item_promotions`) is never read or written.
+
+A `bundle` refresh fetches promotions at most every 300 s per item (`min_age_seconds`, default 300 s);
+an entry that names `promotions` bypasses that age. To make promotions react to ML notifications, map
+the two topics (promotions-only entries are claimable 60 s after the notification, so a burst for one
+item becomes one fetch). Not part of the default map:
+
+```json
+{"items": {"kind": "item", "resources": ["bundle"]},
+ "public_offers": {"kind": "item", "resources": ["promotions"]},
+ "public_candidates": {"kind": "item", "resources": ["promotions"]}}
+```
+
+Cost (capture of 2026-10-06, distinct resources in the last hour): `public_candidates` 144 and
+`public_offers` 24, so at most about 170 items per hour (about 4k per day). The queue key collapses
+repeats of one item, the 60 s debounce (env `ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS`) groups a burst, and the 300 s minimum age bounds the bundle
+path: the promotions fetch stays at about 0.05 req/s of the 2 req/s global budget (lane 1 shares it with
+everything else). Keep the defaults; they are justified by those numbers.
+
+Order to turn it on, one step at a time, watching `promotions` in the per-endpoint counters of
+`worker_job_state.detail`:
+
+1. `bundle_resources = ["core", "promotions"]` and `promotions.enabled = true`, then enqueue one item.
+2. Add `public_offers` and `public_candidates` to `intake.topics`.
+
+Rollback: set `promotions.enabled = false` (or remove `promotions` from `bundle_resources`) and remove
+the two topics from `intake.topics`; nothing already stored is deleted.

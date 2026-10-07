@@ -503,3 +503,136 @@ class TestFailureAndSafety:
         entries = queued(pricing)
         assert sorted(entries) == ["MLA1400000001", "MLA1400000002"]
         assert entries["MLA1400000001"]["source_received_at"] == at(-20)
+
+
+PROMOTION_TOPICS = {
+    "public_offers": {"kind": "item", "resources": ["promotions"]},
+    "public_candidates": {"kind": "item", "resources": ["promotions"]},
+}
+OFFER_ITEM, CANDIDATE_ITEM = "MLA2146684809", "MLA1517412303"  # the first captured row of each topic
+
+
+class TestPromotionTopics:
+    """`public_offers` / `public_candidates` mapped to a promotions-only refresh, debounced 60 s (design D14)."""
+
+    def put_both(self, bridge, pricing, *, offer_at: float = -50, candidate_at: float = -40) -> None:
+        for topic in PROMOTION_TOPICS:
+            set_cursor(pricing, topic, -100)
+        put_webhook(bridge, webhook_row("public_offers", 0, received_at=str(at(offer_at))))
+        put_webhook(bridge, webhook_row("public_candidates", 0, received_at=str(at(candidate_at))))
+
+    def test_a_captured_row_of_each_topic_enqueues_its_item_with_promotions_only_and_a_60_second_debounce(
+        self, env
+    ) -> None:
+        pricing, bridge = env
+        self.put_both(bridge, pricing)
+
+        result = run(bridge, topics=PROMOTION_TOPICS)
+
+        entries = queued(pricing)
+        assert sorted(entries) == [CANDIDATE_ITEM, OFFER_ITEM]
+        assert result.stats.enqueued == 2
+        offer, candidate = entries[OFFER_ITEM], entries[CANDIDATE_ITEM]
+        assert (offer["resources"], offer["lane"]) == (["promotions"], queue.LANE_NOTIFICATION)
+        assert (candidate["resources"], candidate["lane"]) == (["promotions"], queue.LANE_NOTIFICATION)
+        assert offer["not_before"] == at(-50) + timedelta(seconds=60)
+        assert candidate["not_before"] == at(-40) + timedelta(seconds=60)
+        assert (offer["source_received_at"], candidate["source_received_at"]) == (at(-50), at(-40))
+
+    def test_the_debounce_keeps_the_entry_unclaimable_until_it_elapses(self, env) -> None:
+        pricing, bridge = env
+        self.put_both(bridge, pricing, offer_at=-10, candidate_at=-10)  # NOW - 10 s: not due until NOW + 50 s
+        run(bridge, topics=PROMOTION_TOPICS)
+
+        with pricing.connect() as conn:
+            due = conn.execute(text("SELECT count(*) FROM ml_pub_refresh_queue WHERE not_before <= :t"), {"t": NOW})
+            assert due.scalar() == 0
+            due = conn.execute(
+                text("SELECT count(*) FROM ml_pub_refresh_queue WHERE not_before <= :t"),
+                {"t": NOW + timedelta(seconds=51)},
+            )
+            assert due.scalar() == 2
+
+    def test_a_flood_of_offers_and_candidates_of_one_item_collapses_into_one_entry(self, env) -> None:
+        """Real captured rows; the flood changes only the `resource` offer/candidate ids (payload mirrored)."""
+        pricing, bridge = env
+        for topic in PROMOTION_TOPICS:
+            set_cursor(pricing, topic, -100)
+        for index, offer_id in enumerate(("11568619217", "11568619218", "11568619219")):
+            resource = f"/seller-promotions/offers/OFFER-{OFFER_ITEM}-{offer_id}"
+            put_webhook(bridge, webhook_row("public_offers", 0, resource=resource, received_at=str(at(-50 + index))))
+        resource = f"/seller-promotions/candidates/CANDIDATE-{OFFER_ITEM}-71656072178"
+        put_webhook(bridge, webhook_row("public_candidates", 0, resource=resource, received_at=str(at(-40))))
+
+        result = run(bridge, topics=PROMOTION_TOPICS)
+
+        (entry,) = queued(pricing).values()
+        assert entry["entity_id"] == OFFER_ITEM and entry["resources"] == ["promotions"]
+        assert entry["version"] == 4  # four notifications merged by the queue key
+        assert entry["not_before"] == at(-50) + timedelta(seconds=60)  # the first one sets the debounce
+        assert result.stats.enqueued == 4
+
+    def test_the_debounce_is_an_env_setting_with_a_60_second_default(self, env, monkeypatch) -> None:
+        pricing, bridge = env
+        assert settings.ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS == 60
+        monkeypatch.setattr(settings, "ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS", 120)
+        self.put_both(bridge, pricing)
+
+        run(bridge, topics=PROMOTION_TOPICS)
+
+        assert queued(pricing)[OFFER_ITEM]["not_before"] == at(-50) + timedelta(seconds=120)
+
+    def test_a_zero_debounce_makes_the_entry_claimable_at_once(self, env, monkeypatch) -> None:
+        pricing, bridge = env
+        monkeypatch.setattr(settings, "ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS", 0)
+        self.put_both(bridge, pricing)
+
+        run(bridge, topics=PROMOTION_TOPICS)
+
+        assert queued(pricing)[OFFER_ITEM]["not_before"] <= datetime.now(timezone.utc)
+
+    def test_a_promotions_row_is_not_judged_by_the_item_core_fetch(self, env) -> None:
+        pricing, bridge = env
+        self.put_both(bridge, pricing)
+        with pricing.begin() as conn:
+            conn.execute(
+                text("INSERT INTO ml_items (item_id, fetched_request_started_at) VALUES (:i, :f)"),
+                {"i": OFFER_ITEM, "f": at(-10)},
+            )
+
+        result = run(bridge, topics=PROMOTION_TOPICS)
+
+        assert OFFER_ITEM in queued(pricing)  # the core was fetched after it, the promotions were not
+        assert result.stats.skipped_satisfied == 0
+
+    def test_a_mapping_that_asks_for_more_than_promotions_is_not_debounced(self, env) -> None:
+        pricing, bridge = env
+        self.put_both(bridge, pricing)
+        topics = {"public_offers": {"kind": "item", "resources": ["bundle", "promotions"]}}
+
+        run(bridge, topics=topics)
+
+        entry = queued(pricing)[OFFER_ITEM]
+        assert entry["resources"] == ["bundle", "promotions"]
+        assert entry["not_before"] <= datetime.now(timezone.utc)  # `now()` at enqueue time: claimable at once
+
+    def test_a_price_topic_is_not_debounced(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "items_prices", -100)
+        put_webhook(bridge, webhook_row("items_prices", 0, received_at=str(at(-50))))
+
+        run(bridge, topics={"items_prices": {"kind": "item", "resources": ["prices"]}})
+
+        (entry,) = queued(pricing).values()
+        assert entry["not_before"] <= datetime.now(timezone.utc)
+
+    def test_the_default_map_reads_neither_promotion_topic(self, env) -> None:
+        pricing, bridge = env
+        self.put_both(bridge, pricing)
+        set_cursor(pricing, "items", -100)
+
+        result = run(bridge)  # default topics: items only
+
+        assert queued(pricing) == {}
+        assert result.stats.rows_read == 0
+        assert [m.topic for m in intake.topic_mappings(settings.ML_PUB_INTAKE_TOPICS)] == ["items"]
