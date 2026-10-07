@@ -158,7 +158,7 @@ def test_board_money_equals_ventas_ml_to_the_cent(board_pg) -> None:
     order_ids = _seed(db)
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
 
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         kpis = b.kpis()
         line_types = set(
             db.execute(
@@ -184,7 +184,7 @@ def test_an_unresolved_row_carrying_total_gauss_never_reaches_the_money(board_pg
     _group(db, "o:2000060000000006", [2000060000000006])
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
 
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         row = {r.key: r for r in b.page(None)}["39"]
 
     with pytest.raises(ValueError, match="unresolved requires total_gauss=None"):
@@ -202,7 +202,7 @@ def test_series_points_are_exact_cents(board_pg) -> None:
     order_ids = _seed(db)
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
 
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         kpis = b.kpis()
     ventas = _ventas_ml(db, order_ids)
     day = (SOLD.date() - f.date_from).days

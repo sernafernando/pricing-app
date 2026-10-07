@@ -293,7 +293,7 @@ class TestBoardOnVolume:
 
     def test_windows_are_nested_and_the_period_matches_the_orders(self, volume_session) -> None:
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="publication")
-        with board.Board(volume_session, f) as b:
+        with board.Board(volume_session, f, scope_pairs=None) as b:
             rows = b.page(None, with_series=False)
 
         for row in rows:
@@ -318,7 +318,7 @@ class TestBoardOnVolume:
 
     def test_the_lines_are_reached_through_the_group_date_index(self, volume_session) -> None:
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
-        b = board.Board(volume_session, f)
+        b = board.Board(volume_session, f, scope_pairs=None)
         source = b._lines_source()
         compiled = source.compile(
             dialect=volume_session.get_bind().dialect, compile_kwargs={"render_postcompile": True}
@@ -334,7 +334,7 @@ class TestBoardOnVolume:
         """The sub-rows endpoint's work: one product among 2.000, its
         publications only (ST2) -- printed for the ODD doc."""
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="publication")
-        with board.Board(volume_session, f, product_item_id=800001 + 7) as warm_up:
+        with board.Board(volume_session, f, product_item_id=800001 + 7, scope_pairs=None) as warm_up:
             # The first call of a statement shape pays SQLAlchemy's compile;
             # a running server has it cached.
             warm_up.page(limit=None, apply_alerts=False)
@@ -344,7 +344,7 @@ class TestBoardOnVolume:
         event.listen(connection, "after_cursor_execute", recorder.after)
         started = time.perf_counter()
         try:
-            with board.Board(volume_session, f, product_item_id=800001 + 42) as b:
+            with board.Board(volume_session, f, product_item_id=800001 + 42, scope_pairs=None) as b:
                 rows = b.page(limit=None, apply_alerts=False)
         finally:
             event.remove(connection, "before_cursor_execute", recorder.before)
@@ -367,7 +367,7 @@ class TestBoardOnVolume:
         event.listen(connection, "after_cursor_execute", recorder.after)
         started = time.perf_counter()
         try:
-            with board.Board(volume_session, f) as b:
+            with board.Board(volume_session, f, scope_pairs=None) as b:
                 keys = b.ordered_keys(EXPORT_MAX_ROWS + 1)
                 first = b.rows_for_keys(keys[:EXPORT_PAGE_SIZE])
         finally:
@@ -424,7 +424,7 @@ def _filter():
 @pytest.mark.postgres
 class TestPairsTableLifecycle:
     def test_gone_after_a_request(self, plain_session) -> None:
-        build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
+        build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True, scope_pairs=None)
 
         assert not _pairs_table_exists(plain_session)
 
@@ -443,7 +443,7 @@ class TestPairsTableLifecycle:
         from sqlalchemy.exc import DataError
 
         with pytest.raises(DataError, match="division by zero"):
-            build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
+            build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True, scope_pairs=None)
 
         assert not _pairs_table_exists(plain_session)
 
@@ -452,13 +452,17 @@ class TestPairsTableLifecycle:
         refuses loudly -- and even then the table must not outlive the commit
         (ON COMMIT DROP), or PgBouncer would hand it to another client."""
         with pytest.raises(RuntimeError, match="transaction"):
-            with board.Board(plain_session, _filter()):
+            with board.Board(plain_session, _filter(), scope_pairs=None):
                 plain_session.commit()
                 assert not _pairs_table_exists(plain_session)
 
     def test_two_computations_back_to_back_on_one_connection(self, plain_session) -> None:
-        first = build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
-        second = build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
+        first = build_board_response(
+            plain_session, _filter(), limit=10, offset=0, can_see_margin=True, scope_pairs=None
+        )
+        second = build_board_response(
+            plain_session, _filter(), limit=10, offset=0, can_see_margin=True, scope_pairs=None
+        )
 
         assert first.total == second.total
         assert not _pairs_table_exists(plain_session)
@@ -475,7 +479,7 @@ class TestPagingIsStableUnderTies:
     def test_pages_cover_every_row_exactly_once(self, volume_session, group_by, total) -> None:
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by=group_by, sort="units_24h")
         keys: list[str] = []
-        with board.Board(volume_session, f) as b:
+        with board.Board(volume_session, f, scope_pairs=None) as b:
             for offset in range(0, total, 500):
                 keys += [row.key for row in b.page(500, offset, with_series=False)]
 
@@ -538,7 +542,7 @@ def test_product_option_lists_cost_on_volume(volume_session) -> None:
     for table in ("marcas_pm", "subcategorias_grupos", "usuarios"):
         session.execute(text(f"ANALYZE {table}"))
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, marcas=("Epson",))
-    with board.Board(session, f) as b:
+    with board.Board(session, f, scope_pairs=None) as b:
         joined, fp = b._members(board.PRODUCT_AXIS)
         statement = product_combo_statement(
             select(fp.c.marca, fp.c.categoria, fp.c.subcategoria_id).select_from(joined)
@@ -754,7 +758,7 @@ class TestGroupedBoardOnVolume:
         event.listen(connection, "after_cursor_execute", recorder.after)
         started = time.perf_counter()
         try:
-            with board.Board(volume_session, f, scope=scope) as b:
+            with board.Board(volume_session, f, scope=scope, scope_pairs=None) as b:
                 if leaf:
                     total = b.product_count()
                     rows = b.page(100, 0)
@@ -787,6 +791,7 @@ class TestGroupedBoardOnVolume:
             board.BoardFilter(
                 date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="group", dimension=dimension
             ),
+            scope_pairs=None,
         ) as b:
             node = max(b.group_page(None), key=lambda r: r.units)
         while True:
@@ -798,7 +803,7 @@ class TestGroupedBoardOnVolume:
                 group_by="product" if leaf else "group",
                 dimension=dimension,
             )
-            with board.Board(volume_session, f, scope=scope) as b:
+            with board.Board(volume_session, f, scope=scope, scope_pairs=None) as b:
                 children = b.page(None, with_series=False) if leaf else b.group_page(None, with_series=False)
             assert sum(c.units for c in children) == node.units, scope
             assert sum(c.gross for c in children) == node.gross, scope

@@ -1193,7 +1193,7 @@ class TestAgeingWithoutReference:
         assert board.AGEING_NO_REFERENCE not in board.AGEING_BUCKETS
         assert board.AGEING_NO_REFERENCE not in board.STOCK_BUCKETS
         f = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30))
-        with board.Board(db, f) as b:
+        with board.Board(db, f, scope_pairs=None) as b:
             rows = b.rows()
             buckets = dict(db.execute(select(rows.c.rk, rows.c.ageing_bucket)).all())
 
@@ -1214,14 +1214,16 @@ class TestRowsSkipAxes:
     mixed them used to drop the pair axis silently."""
 
     def _board(self, db):
-        return board.Board(db, board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30)))
+        return board.Board(
+            db, board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30)), scope_pairs=None
+        )
 
     def test_skipping_the_pair_axis_really_clears_that_filter(self, db, board_data):
         """A store no row belongs to empties the board; skipping the stores
         axis brings every row back -- while the row axes passed alongside are
         skipped too, so the pair axis is no longer dropped silently."""
         nowhere = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30), stores=("999999",))
-        with board.Board(db, nowhere) as b:
+        with board.Board(db, nowhere, scope_pairs=None) as b:
             filtered = db.execute(select(func.count()).select_from(b.rows())).scalar()
             skipped = db.execute(
                 select(func.count()).select_from(b.rows(skip_pair_axis="stores", skip_row_axes=("stock", "ageing")))

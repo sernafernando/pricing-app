@@ -429,10 +429,14 @@ class Board:
         product_item_id: Optional[int] = None,
         scope: Sequence[str] = (),
         through_leaves: bool = False,
-        scope_pairs: Optional[Sequence[Tuple[str, str]]] = None,
+        *,
+        scope_pairs: Optional[Sequence[Tuple[str, str]]],
     ):
-        """`scope_pairs` is the CALLER's visibility, resolved server-side (never
-        from the query): `None` sees everything, `[]` sees nothing, otherwise
+        """`scope_pairs` is REQUIRED (keyword-only, no default): every caller must
+        choose the visibility explicitly, so a call site that forgets it fails
+        closed with a TypeError instead of silently seeing everything. It is the
+        CALLER's visibility, resolved server-side (never
+        from the query): `None` = full view (an explicit choice), `[]` sees nothing, otherwise
         only the products whose upper-cased (marca, categoría) is one of the
         pairs. The pairs MUST come from `pm_scope` (upper-cased by the database,
         as the board compares them with SQL `upper()`): never upper-case them

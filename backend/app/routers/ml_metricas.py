@@ -484,12 +484,15 @@ def build_board_response(
     limit: int,
     offset: int,
     can_see_margin: bool,
-    scope_pairs: Optional[Sequence[Tuple[str, str]]] = None,
+    scope_pairs: Optional[Sequence[Tuple[str, str]]],
 ) -> BoardResponse:
     """Everything the board endpoint answers, in a FIXED number of SQL
     statements (see `board` module docstring): the page, the KPIs over the
     whole filtered set and every chip count. Split out of the endpoint so the
-    Postgres volume test can drive exactly this."""
+    Postgres volume test can drive exactly this.
+
+    `scope_pairs` is required: callers must choose the visibility explicitly
+    (`None` = full view, `[]` = nothing, a list = only those pairs)."""
     grouped = f.group_by == "group"
     with board.Board(db, f, scope_pairs=scope_pairs) as b:
         kpis = b.kpis()

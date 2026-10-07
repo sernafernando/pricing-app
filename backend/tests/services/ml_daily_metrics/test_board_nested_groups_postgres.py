@@ -121,13 +121,13 @@ def children(db, dimension, scope=(), **filters):
     """The rows one level below `scope`: nodes, or products at the last level."""
     leaf = len(scope) == len(groups.levels_of(dimension)) - 1
     f = _filter(dimension, group_by="product" if leaf else "group", **filters)
-    with board.Board(db, f, scope=scope) as b:
+    with board.Board(db, f, scope=scope, scope_pairs=None) as b:
         return {row.key: row for row in (b.page(None) if leaf else b.group_page(None))}
 
 
 def kpis(db, **filters):
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, **filters)
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         return b.kpis()
 
 
@@ -268,7 +268,7 @@ def test_nodes_know_their_level_and_what_they_open_into(tree_catalog) -> None:
 @pytest.mark.postgres
 def test_a_wrong_depth_is_refused(tree_catalog) -> None:
     with pytest.raises(ValueError):
-        board.Board(tree_catalog, _filter("categoria"), scope=("A", "B", "C"))
+        board.Board(tree_catalog, _filter("categoria"), scope=("A", "B", "C"), scope_pairs=None)
 
 
 # ── the tree adds up ─────────────────────────────────────────────
@@ -376,7 +376,9 @@ def test_solo_con_ventas_hides_a_node_with_no_units_in_the_period(tree_catalog) 
 @pytest.mark.postgres
 @pytest.mark.parametrize("desc, expected", [(True, ["10", "11", NONE]), (False, [NONE, "11", "10"])])
 def test_the_sort_applies_inside_every_level(tree_catalog, desc, expected) -> None:
-    with board.Board(tree_catalog, _filter("marca", sort="units", sort_desc=desc), scope=("EPSON", "IMPRESORAS")) as b:
+    with board.Board(
+        tree_catalog, _filter("marca", sort="units", sort_desc=desc), scope=("EPSON", "IMPRESORAS"), scope_pairs=None
+    ) as b:
         keys = [row.key for row in b.group_page(None)]
 
     assert keys == expected  # 10: 3 units, 11: 2, none: 1
@@ -385,7 +387,7 @@ def test_the_sort_applies_inside_every_level(tree_catalog, desc, expected) -> No
 @pytest.mark.postgres
 def test_pages_of_a_nested_level_cover_every_node_once_even_with_ties(tree_catalog) -> None:
     f = _filter("subcategoria", sort="units", sort_desc=True)
-    with board.Board(tree_catalog, f) as b:
+    with board.Board(tree_catalog, f, scope_pairs=None) as b:
         everything = [r.key for r in b.group_page(None)]
         pages = [[r.key for r in b.group_page(1, offset)] for offset in range(len(everything))]
         total, with_sales = b.group_counts()
@@ -397,14 +399,14 @@ def test_pages_of_a_nested_level_cover_every_node_once_even_with_ties(tree_catal
 
 @pytest.mark.postgres
 def test_the_count_of_a_nested_level_is_that_levels(tree_catalog) -> None:
-    with board.Board(tree_catalog, _filter("marca"), scope=("EPSON",)) as b:
+    with board.Board(tree_catalog, _filter("marca"), scope=("EPSON",), scope_pairs=None) as b:
         assert b.group_counts()[0] == 3
 
 
 @pytest.mark.postgres
 def test_a_product_leaf_pages_and_counts_like_the_other_levels(tree_catalog) -> None:
     f = _filter("categoria", group_by="product")
-    with board.Board(tree_catalog, f, scope=("IMPRESORAS", NONE)) as b:
+    with board.Board(tree_catalog, f, scope=("IMPRESORAS", NONE), scope_pairs=None) as b:
         assert b.product_count() == 1
         assert [r.key for r in b.page(10)] == ["27"]
 
@@ -419,7 +421,7 @@ def test_an_unknown_path_opens_into_nothing(tree_catalog) -> None:
 
 
 def leaves(db, dimension, **filters):
-    with board.Board(db, _filter(dimension, **filters), through_leaves=True) as b:
+    with board.Board(db, _filter(dimension, **filters), through_leaves=True, scope_pairs=None) as b:
         keys = b.leaf_keys(1000)
         return keys, b.leaves_for_keys(keys)
 
@@ -469,7 +471,7 @@ def test_the_leaves_come_in_path_order_then_the_board_sort(tree_catalog) -> None
 
 @pytest.mark.postgres
 def test_leaves_are_fetched_by_key_in_the_order_given_skipping_the_vanished(tree_catalog) -> None:
-    with board.Board(tree_catalog, _filter("marca"), through_leaves=True) as b:
+    with board.Board(tree_catalog, _filter("marca"), through_leaves=True, scope_pairs=None) as b:
         keys = b.leaf_keys(1000)
         reversed_rows = b.leaves_for_keys(list(reversed(keys)))
         with_a_ghost = b.leaves_for_keys([("NO", "SUCH", "ONE", "1"), keys[0]])
@@ -481,13 +483,13 @@ def test_leaves_are_fetched_by_key_in_the_order_given_skipping_the_vanished(tree
 
 
 def b_rows(db, dimension, keys):
-    with board.Board(db, _filter(dimension), through_leaves=True) as b:
+    with board.Board(db, _filter(dimension), through_leaves=True, scope_pairs=None) as b:
         return b.leaves_for_keys(keys)
 
 
 @pytest.mark.postgres
 def test_leaf_keys_are_capped(tree_catalog) -> None:
-    with board.Board(tree_catalog, _filter("marca"), through_leaves=True) as b:
+    with board.Board(tree_catalog, _filter("marca"), through_leaves=True, scope_pairs=None) as b:
         assert len(b.leaf_keys(4)) == 4
 
 
@@ -561,7 +563,7 @@ def test_a_level_page_costs_a_fixed_number_of_statements_at_every_depth(
     leaf = len(scope) == len(groups.levels_of(dimension)) - 1
     f = _filter(dimension, group_by="product" if leaf else "group", **filters)
     with _Count(tree_catalog) as count:
-        with board.Board(tree_catalog, f, scope=scope) as b:
+        with board.Board(tree_catalog, f, scope=scope, scope_pairs=None) as b:
             if leaf:
                 b.product_count()
                 b.page(100, 0)
@@ -579,7 +581,7 @@ def test_row_filters_reach_a_node_through_an_array_probe_not_a_join_on_the_survi
     planner sizes it at ONE row) nested loops over the pair table: 2.2 s per
     statement for 1.000 survivors. `product = ANY(array)` is probed as a hash."""
     f = _filter("tienda", stock=("con_stock",), solo_con_ventas=True)
-    with board.Board(tree_catalog, f, scope=("c:tplink", "EPSON")) as b:
+    with board.Board(tree_catalog, f, scope=("c:tplink", "EPSON"), scope_pairs=None) as b:
         sql = str(b.group_rows().compile(tree_catalog.get_bind()))
 
     assert "= ANY (array((SELECT scope_keys.product" in sql

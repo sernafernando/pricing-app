@@ -101,13 +101,13 @@ def _filter(dimension, **filters):
 
 
 def groups(db, dimension, **filters):
-    with board.Board(db, _filter(dimension, **filters)) as b:
+    with board.Board(db, _filter(dimension, **filters), scope_pairs=None) as b:
         return {row.key: row for row in b.group_page(None)}
 
 
 def kpis(db, **filters):
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, **filters)
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         return b.kpis()
 
 
@@ -257,7 +257,7 @@ def test_the_groups_add_up_to_the_ungrouped_totals(catalog, dimension) -> None:
 
 
 def _products(db):
-    with board.Board(db, board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)) as b:
+    with board.Board(db, board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY), scope_pairs=None) as b:
         return b.page(None)
 
 
@@ -328,7 +328,7 @@ def test_series_of_a_group_add_up_to_its_units(catalog) -> None:
     [("units", True, "EPSON"), ("units", False, "HP"), ("title", False, "EPSON"), ("markup", True, "EPSON")],
 )
 def test_groups_sort_by_the_board_columns(catalog, sort, desc, first) -> None:
-    with board.Board(catalog, _filter("marca", sort=sort, sort_desc=desc)) as b:
+    with board.Board(catalog, _filter("marca", sort=sort, sort_desc=desc), scope_pairs=None) as b:
         keys = [row.key for row in b.group_page(None)]
 
     assert keys[0] == first
@@ -336,7 +336,7 @@ def test_groups_sort_by_the_board_columns(catalog, sort, desc, first) -> None:
 
 @pytest.mark.postgres
 def test_pages_cover_every_group_once(catalog) -> None:
-    with board.Board(catalog, _filter("marca")) as b:
+    with board.Board(catalog, _filter("marca"), scope_pairs=None) as b:
         first = [r.key for r in b.group_page(2, 0)]
         second = [r.key for r in b.group_page(2, 2)]
         everything = [r.key for r in b.group_page(None)]

@@ -57,7 +57,7 @@ def catalog(board_pg):
 
 def _facets(db, **filters):
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, **filters)
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         facets = b.facets()
         rows = {row.key for row in b.page(None)}
     p = facets.product

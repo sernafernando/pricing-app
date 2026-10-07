@@ -39,7 +39,7 @@ def _env(monkeypatch):
 
 def _rows(db, group_by: str = "product", **kwargs):
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by=group_by, **kwargs)
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         return {row.key: row for row in b.page(None)}
 
 
