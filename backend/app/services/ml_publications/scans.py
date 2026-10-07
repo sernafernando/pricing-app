@@ -54,7 +54,8 @@ JOB = "scan"
 SCAN_LIMIT = 100
 # A scroll_id lives about five minutes; an expired one restarts the status, at most this many times.
 MAX_RESTARTS = 3
-# Pages beyond the ceil(total / limit) that the total announced before a scroll counts as runaway.
+# Pages allowed beyond ceil(total / limit), where `total` is the one the CURRENT page announces (so it
+# follows ML if the total moves during a scroll), before the scroll counts as runaway.
 OVERRUN_SLACK_PAGES = 5
 UNSEEN_BATCH = 500
 

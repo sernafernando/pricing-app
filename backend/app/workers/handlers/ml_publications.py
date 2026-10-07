@@ -604,6 +604,8 @@ class RelinkHandler:
 SCAN_HANDLER = "ml_publications.scan"
 _SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
+# Engine errors that only a setup change can fix (`MlResponse.error` values of a call that was refused).
+_BLOCKED_BY_SETUP = frozenset({OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN})
 
 
 class ScanHandler:
@@ -636,9 +638,7 @@ class ScanHandler:
         if config["scan.enabled"].value is not True:
             return disabled_outcome()
         if not settings.ML_USER_ID:
-            return JobResult(
-                success=False, detail={"error": ERROR_SELLER_NOT_CONFIGURED}, error=ERROR_SELLER_NOT_CONFIGURED
-            )
+            return self._blocked(ERROR_SELLER_NOT_CONFIGURED)
         self.pacer.configure(
             rate_per_sec=config["rate_per_sec"].value, stock_rate_per_min=config["stock_rate_per_min"].value
         )
@@ -659,7 +659,17 @@ class ScanHandler:
             error = f"{type(exc).__name__}: {exc}"[:300]
             self._record_failure(error)
             return JobResult(success=False, detail=self._flush({"complete": False, "error": error}), error=error)
+        if result.error in _BLOCKED_BY_SETUP:
+            return self._blocked(result.error)
         return JobResult(success=result.error is None, detail=self._flush(result.as_detail()), error=result.error)
+
+    def _blocked(self, reason: str) -> JobResult:
+        """Credentials or seller missing: nothing can run until an operator fixes the setup. Report a
+        finished run (`complete` true, `blocked` names the reason) so the 30 s catch-up does not spin
+        and the handler falls back to its daily slot; the open lap, if any, resumes from its stored
+        progress when the setup exists."""
+        logger.error("scan blocked by setup: %s", reason)
+        return JobResult(success=True, detail=self._flush({"complete": True, "blocked": reason}))
 
     @staticmethod
     def _record_failure(error: str) -> None:

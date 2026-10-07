@@ -27,6 +27,14 @@ from app.workers.registry import ML_PUBLICATIONS_REGISTRY
 SCAN_HANDLER = "ml_publications.scan"
 
 
+def _actor() -> str:
+    """Who ran the CLI, for `updated_by`; `getuser` raises when the uid has no passwd entry (containers)."""
+    try:
+        return f"cli:{getpass.getuser()}"
+    except Exception:  # noqa: BLE001 -- a missing OS user must not block an operator request
+        return "cli:unknown"
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     known = sorted(handler.name for handler in ML_PUBLICATIONS_REGISTRY)
     parser = argparse.ArgumentParser(prog="ml_publications_request")
@@ -41,7 +49,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
     with database.get_background_db() as db:
         if args.mode:  # same transaction as the request: the worker never sees one without the other
-            settings_store.set_setting("scan.next_mode", args.mode, f"cli:{getpass.getuser()}", session=db)
+            settings_store.set_setting("scan.next_mode", args.mode, _actor(), session=db)
         db.execute(
             text(
                 "INSERT INTO worker_job_state (name, state) VALUES (:name, 'requested') "

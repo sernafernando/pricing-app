@@ -236,3 +236,16 @@ class TestRequestScanMode:
             ml_publications_request.main(["ml_publications.scan", "--mode", "full"])
 
         assert rows(env, "SELECT 1 FROM ml_pub_settings WHERE key = 'scan.next_mode'") == []
+
+    def test_an_unresolvable_os_user_falls_back_to_cli_unknown(self, env, monkeypatch) -> None:
+        import getpass
+
+        def no_user():
+            raise KeyError("getpwuid(): uid not found")
+
+        monkeypatch.setattr(getpass, "getuser", no_user)
+
+        assert ml_publications_request.main(["ml_publications.scan", "--mode", "full"]) == 0
+
+        (mode,) = rows(env, "SELECT updated_by FROM ml_pub_settings WHERE key = 'scan.next_mode'")
+        assert mode["updated_by"] == "cli:unknown"

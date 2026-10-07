@@ -205,8 +205,73 @@ class TestDisabledOutcome:
         monkeypatch.setattr(settings, "ML_USER_ID", None)
         transport = NoCallTransport()
         result = make_handler(transport).run(context())
-        assert (result.success, result.error) == (False, "seller_not_configured")
+        assert result.success is True  # the slot is consumed: no retry storm while the setup is missing
+        assert result.detail["blocked"] == "seller_not_configured" and result.detail["complete"] is True
         assert transport.requests == []
+
+
+class TestBlockedBySetup:
+    """Missing credentials must not leave the lap `complete=False`: that would spin the 30 s catch-up."""
+
+    def blocked_run(self, env, monkeypatch, *, break_seller: bool):
+        enable_scan()
+        if break_seller:
+            monkeypatch.setattr(settings, "ML_USER_ID", None)
+        else:
+            monkeypatch.setattr(settings, "ML_CLIENT_ID", None)
+        handler = make_handler(NoCallTransport())
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+        now = datetime.now(timezone.utc)
+        assert runtime._run_handler(handler, now) is True
+        return handler, runtime, now
+
+    @pytest.mark.parametrize("break_seller", [True, False])
+    def test_two_consecutive_due_checks_do_not_trigger_the_catch_up(self, env, monkeypatch, break_seller) -> None:
+        handler, runtime, now = self.blocked_run(env, monkeypatch, break_seller=break_seller)
+
+        assert detail_of(env)["complete"] is True and detail_of(env)["blocked"]
+        assert runtime._due_handlers(now + timedelta(seconds=31)) == []
+        assert runtime._due_handlers(now + timedelta(seconds=62)) == []
+
+    def test_a_lap_left_open_by_an_earlier_run_is_also_blocked_not_retried(self, env, monkeypatch) -> None:
+        enable_scan()
+
+        def flag_off(call: int) -> None:
+            settings_store.set_setting("scan.enabled", False, "test")
+
+        make_handler(ScanTransport(after_call=flag_off)).run(context())  # lap open, complete=False persisted
+        assert detail_of(env)["complete"] is False
+        settings_store.set_setting("scan.enabled", True, "test")
+        monkeypatch.setattr(settings, "ML_CLIENT_ID", None)
+        handler = make_handler(NoCallTransport())
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+        now = datetime.now(timezone.utc)
+
+        assert runtime._run_handler(handler, now) is True
+
+        assert runtime._due_handlers(now + timedelta(seconds=31)) == []
+
+    def test_once_the_credentials_exist_the_scan_runs_and_resumes_the_open_lap(self, env, monkeypatch) -> None:
+        handler, runtime, now = self.blocked_run(env, monkeypatch, break_seller=True)
+        monkeypatch.setattr(settings, "ML_USER_ID", "413658225")
+        from app.workers.scheduling import ARGENTINA_TZ
+
+        tomorrow = now.astimezone(ARGENTINA_TZ).date() + timedelta(days=1)
+        next_slot = datetime.combine(tomorrow, time(12, 0), tzinfo=ARGENTINA_TZ)  # after tomorrow's 03:30
+
+        assert runtime._due_handlers(next_slot) == [handler]  # back on the daily schedule
+        transport = ScanTransport()
+        handler._client = None
+        handler._client_factory = make_handler(transport)._client_factory
+
+        assert handler.run(context()).detail["complete"] is True
+        assert transport.statuses()[0] == "active"
+
+    def test_a_request_while_blocked_is_honored_once_the_setup_exists(self, env, monkeypatch) -> None:
+        handler, runtime, now = self.blocked_run(env, monkeypatch, break_seller=True)
+        with env.begin() as conn:
+            conn.execute(text("UPDATE worker_job_state SET state = 'requested' WHERE name = :n"), {"n": HANDLER_NAME})
+        assert runtime._requested_handlers() == [handler]
 
 
 class TestRun:
