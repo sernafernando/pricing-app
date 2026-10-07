@@ -1,6 +1,6 @@
 # Ventas ML: la bonificación por envío entra en el neto de ML, no en la cadena del Total Gauss
 
-**Creado:** 2026-10-07 · **Estado:** en curso
+**Creado:** 2026-10-07 · **Estado:** implementado, push hecho; PR a cargo del usuario
 **TDD:** estricto (config de sesión) · **Runners:** `cd backend && .venv/bin/python -m pytest` / `cd frontend && pnpm test`
 **Estrategia de entrega:** `ask-on-risk` · **Rama base:** `origin/main` (`0d1ad051`, incluye #1415 y #1417) · **Rama:** `fix/ventas-ml-bonificacion-en-neto`
 **Ruta por tarea:** un único writer en el worktree `bonif-en-neto`, todo inline (sin SDD).
@@ -56,7 +56,7 @@ Fuera de alcance: cambiar la regla de qué es bonificación (sigue siendo la de 
 - [x] T4 API: línea con importe en el breakdown, `bonificacion_envio` en breakdown y listado; la cadena ya no la trae.
 - [x] T5 frontend: la línea en "De dónde sale el neto"; fuera de la tarjeta Total Gauss; tooltip del neto.
 - [x] T6 novedad.
-- [ ] T7 bump `CURRENT_FORMULA_VERSION` 3 -> 4 + test de reconcile (último commit).
+- [x] T7 bump `CURRENT_FORMULA_VERSION` 3 -> 4 + test de reconcile (último commit).
 - [ ] T8 lint (ruff, pnpm lint, lint:css), tests acotados, push, observaciones del GGA.
 
 ## Verificación
@@ -83,3 +83,4 @@ Fuera de alcance: cambiar la regla de qué es bonificación (sigue siendo la de 
 - T1-T4 (backend + API): RED observado (11 de 28 tests del archivo nuevo fallaban: neto/neto_sin_iva sin +bonificación, la deducción seguía en la cadena, `bonificacion_envio` inexistente en el breakdown); GREEN 28/28; mutación de la base de varios (bonificación x2) la rompe. Suites acotadas: 1340 passed. Commit: ver `git log`.
 
 - T5-T6 (frontend + novedad): RED observado (5 tests: línea dentro de 'De dónde sale el neto', composición del neto, tooltip del listado); GREEN: 423 tests de ventasMl/VentasML/utils, 8 de novedades/metricasMl. `pnpm run lint` y `lint:css` sin errores (2 warnings preexistentes de react-hooks fuera de este cambio).
+- T7 (bump 3 -> 4, último commit): RED observado con Postgres real (`assert 3 == 4`); GREEN con la fila guardada bajo la fórmula 3 seleccionada por `order_metrics.reconcile` y la de la fórmula 4 sin tocar. Mismo backfill que #1417 (`docs/RUNBOOKS.md`, 'Recomputing every stored Total Gauss').
