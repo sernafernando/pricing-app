@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 from sqlalchemy.orm import Session
 
 from app.core import database
-from app.core.config import settings
+from app.core.config import SCAN_STATUS_NAMES, settings
 from app.models.ml_publications import MlPubSetting
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,8 @@ def _str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) and v for v in value)
 
 
-# Statuses `GET /users/{seller}/items/search?search_type=scan` can be asked for.
-SCAN_STATUSES = ("active", "paused", "closed", "under_review", "inactive", "pending")
+# Statuses the scan can be asked for: one vocabulary, defined next to the env default it validates.
+SCAN_STATUSES = SCAN_STATUS_NAMES
 
 
 def _scan_status_list(value: Any) -> bool:

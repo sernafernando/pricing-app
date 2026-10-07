@@ -250,6 +250,18 @@ class TestSustainedUpstreamErrors:
                 handler.run(context())
         assert "upstream_error" in caplog.text and "setup" not in caplog.text
 
+    def test_failures_of_different_kinds_do_not_add_up_to_a_misleading_reason(self, env, monkeypatch) -> None:
+        enable_scan()
+        handler = make_handler(ScriptedServerError())
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert handler.run(context()).success is False  # ML errors
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("our bug")
+
+        monkeypatch.setattr(scans, "run_scan", explode)
+        assert handler.run(context()).success is False  # one internal error: its own streak starts at 1
+
     def test_a_disabled_or_blocked_run_clears_the_streak(self, env, monkeypatch) -> None:
         enable_scan()
         handler = make_handler(ScriptedServerError())

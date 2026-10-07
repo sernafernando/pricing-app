@@ -200,7 +200,6 @@ class Settings(BaseSettings):
     )
     # Mode of the next scan lap: an operator sets `full` to ask for a backfill; the lap consumes it.
     ML_PUB_SCAN_NEXT_MODE: Literal["full", "rescan"] = "rescan"
-
     ML_PUB_STALE_DAYS: int = Field(default=7, ge=1)
     ML_PUB_NOT_APPLICABLE_RECHECK_DAYS: int = Field(default=30, ge=1)
 

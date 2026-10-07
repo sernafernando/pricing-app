@@ -110,7 +110,7 @@ class TestScanStatusesEnv:
     def test_the_env_validation_and_the_store_share_one_status_vocabulary(self) -> None:
         from app.core.config import SCAN_STATUS_NAMES
 
-        assert tuple(SCAN_STATUS_NAMES) == settings_store.SCAN_STATUSES
+        assert settings_store.SCAN_STATUSES is SCAN_STATUS_NAMES
 
 
 class TestDbOverridesEnv:

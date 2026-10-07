@@ -637,12 +637,12 @@ class ScanHandler:
         self.pacer = pacer or Pacer()
         self._client_factory = client_factory or (lambda pacer: MlHttpClient(pacer=pacer))
         self._client: Optional[MlHttpClient] = None
-        self._error_streak = 0  # consecutive failed runs of this process
+        self._error_streaks: Counter = Counter()  # consecutive failed runs of this process, per kind
 
     def run(self, ctx: WorkerContext) -> JobResult:
         config = settings_store.get_settings(_SCAN_KEYS)
         if config["scan.enabled"].value is not True:
-            self._error_streak = 0
+            self._error_streaks.clear()
             return disabled_outcome()
         if not settings.ML_USER_ID:
             return self._blocked(ERROR_SELLER_NOT_CONFIGURED)
@@ -670,16 +670,16 @@ class ScanHandler:
             return self._blocked(result.error)
         if result.error:
             return self._failed(result.error, result.as_detail())
-        self._error_streak = 0
+        self._error_streaks.clear()
         return JobResult(success=True, detail=self._flush(result.as_detail()))
 
     def _failed(
         self, error: str, detail: Optional[Dict[str, Any]] = None, *, reason: str = "upstream_error"
     ) -> JobResult:
         """A failed run is retried on the next pass; a streak of them means ML is down, so stop spinning."""
-        self._error_streak += 1
-        if self._error_streak >= UPSTREAM_ERROR_STREAK:
-            self._error_streak = 0
+        self._error_streaks[reason] += 1
+        if self._error_streaks[reason] >= UPSTREAM_ERROR_STREAK:
+            self._error_streaks.clear()
             return self._blocked(reason)
         body = {**(detail or {"complete": False}), "error": error}
         return JobResult(success=False, detail=self._flush(body), error=error)
@@ -694,7 +694,7 @@ class ScanHandler:
         A pending operator request is consumed by this run (the runtime clears it on success); a
         `--mode full` request is not lost, since `scan.next_mode` stays, but running it now is: it
         starts at the next daily slot or on a new request once the setup is fixed."""
-        self._error_streak = 0
+        self._error_streaks.clear()
         logger.error("scan blocked: %s", reason)
         return JobResult(success=True, detail=self._flush({"complete": True, "blocked": reason}))
 
