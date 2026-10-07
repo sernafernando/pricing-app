@@ -155,6 +155,12 @@ can be retired. `pm_scope` stays the single source of the rule.
 - Reviews: four native passes, each approved with only advisory findings, all
   addressed in this branch. Tests run on the private `pricing_test_vmp` DB.
 
+- Rebased on main (3 new migrations); permisos_pm re-chained after
+  `20261007_ml_publicaciones_vincular_perm` (RED/GREEN on the migration test).
+  Six native review passes, all approved; the last two passes' test-isolation
+  findings were checked against the fixture (per-test rollback) and closed.
+- PR #1409 against main.
+
 ## Next step
 
-All tasks done; ready for review, push and PR (user decision).
+CI on PR #1409; merge is the user's decision.
