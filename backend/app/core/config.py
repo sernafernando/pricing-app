@@ -180,6 +180,9 @@ class Settings(BaseSettings):
     # Intake topic map; only `items` is read by default (design D13).
     ML_PUB_INTAKE_TOPICS: dict = Field(default_factory=lambda: {"items": {"kind": "item", "resources": ["bundle"]}})
     ML_PUB_INTAKE_OVERLAP_SECONDS: int = Field(default=120, ge=0)
+    # A promotions-only intake entry is claimable this long after the notification, so the burst of
+    # `public_offers`/`public_candidates` of one item becomes one fetch (about 170 items/hour measured).
+    ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS: int = Field(default=60, ge=0)
     ML_PUB_INTAKE_BATCH: int = Field(default=1000, ge=1)
     # Minimum seconds between fetches of a sub-resource on a bundle refresh.
     ML_PUB_MIN_AGE_SECONDS: dict = Field(

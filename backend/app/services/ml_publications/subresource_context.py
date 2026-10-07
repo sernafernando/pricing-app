@@ -25,10 +25,11 @@ from app.services.ml_publications.mappers import to_decimal
 from app.services.ml_publications.parsers.prices import marketplace_entries
 from app.services.ml_publications.parsers.sale_price import map_sale_price
 from app.services.ml_publications.parsers.seller_promotions import promotion_key
+from app.services.ml_publications.resources import PROMOTIONS_RESOURCE
 
 PRICES = "prices"
 SALE_PRICE = "sale_price"
-PROMOTIONS = "promotions"
+PROMOTIONS = PROMOTIONS_RESOURCE
 
 
 def _money(value: Optional[Decimal]) -> Optional[str]:
@@ -88,6 +89,10 @@ _PROMOTION_AMOUNTS = (
 )
 
 
+def _amount_of(entry: Mapping[str, Any], name: str) -> Optional[str]:
+    return _money(to_decimal(entry.get(name)))
+
+
 def promotions_entries(raw: Any) -> Optional[dict]:
     """The promotions the event rules read, by promotion key (`id`, else `type`).
 
@@ -121,10 +126,6 @@ def promotions_entries(raw: Any) -> Optional[dict]:
             key = f"{base}#{ordinal}"
         entries[key] = record
     return entries
-
-
-def _amount_of(entry: Mapping[str, Any], name: str) -> Optional[str]:
-    return _money(to_decimal(entry.get(name)))
 
 
 _BUILDERS: dict[str, Callable[[Any], Optional[dict]]] = {

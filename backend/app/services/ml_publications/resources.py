@@ -41,13 +41,14 @@ class ResourceSpec:
 # fetchers ship in later PRs (naming one earlier is harmless: the handler drops it uncharged).
 CORE_RESOURCE = "core"
 BUNDLE_RESOURCE = "bundle"
+PROMOTIONS_RESOURCE = "promotions"
 REFRESH_RESOURCES: tuple[str, ...] = (
     BUNDLE_RESOURCE,
     CORE_RESOURCE,
     "description",
     "prices",
     "sale_price",
-    "promotions",
+    PROMOTIONS_RESOURCE,
     "user_product",
     "stock",
     "family",
@@ -92,7 +93,7 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
     ("prices", ("item_id",), map_prices, parse_prices, "prices_20261006.json", {}),
     ("sale_price", ("item_id",), map_sale_price, parse_sale_price, "sale_price_20261006.json", {}),
     (
-        "promotions",
+        PROMOTIONS_RESOURCE,
         ("item_id",),
         map_seller_promotions,
         parse_seller_promotions,

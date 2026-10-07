@@ -18,11 +18,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Optional, Sequence
 
+from app.services.ml_publications.resources import PROMOTIONS_RESOURCE
+
 ITEM_RESOURCE = "item"
 PRODUCT_LINK_RESOURCE = "product_link"
 PRICES_RESOURCE = "prices"
 SALE_PRICE_RESOURCE = "sale_price"
-PROMOTIONS_RESOURCE = "promotions"
 PRICE_CHANGED = "price_changed"
 # Row kinds that carry a state change; `gone` rows say the resource vanished, not that a price moved.
 _CHANGE_KINDS = ("change", "restored")

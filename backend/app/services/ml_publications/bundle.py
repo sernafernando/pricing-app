@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Mapping, Optional, Sequence
 
 from app.core import database
-from app.services.ml_publications.resources import BUNDLE_RESOURCE, CORE_RESOURCE
+from app.services.ml_publications.resources import BUNDLE_RESOURCE, CORE_RESOURCE, PROMOTIONS_RESOURCE
 from app.services.ml_publications.subresource_store import MODELS
 
 
@@ -39,13 +39,13 @@ FETCHERS: Dict[str, SubFetcher] = {
         # The marketplace price is the one the buyer pays and the one the typed columns follow.
         SubFetcher("sale_price", "/items/{item_id}/sale_price", {"context": "channel_marketplace"}),
         # The seller's promotions of the item, fetched from ML (never read from the bridge mirror).
-        SubFetcher("promotions", "/seller-promotions/items/{item_id}", {"app_version": "v2"}),
+        SubFetcher(PROMOTIONS_RESOURCE, "/seller-promotions/items/{item_id}", {"app_version": "v2"}),
     )
 }
 
 # Resources that need their own flag on top of being listed in `bundle_resources` (design D14: the
 # promotions endpoint is shared with the bridge's ML application, so it has a separate kill point).
-FLAG_GATES: Dict[str, str] = {"promotions": "promotions.enabled"}
+FLAG_GATES: Dict[str, str] = {PROMOTIONS_RESOURCE: "promotions.enabled"}
 
 
 def has_fetcher(resource: str) -> bool:

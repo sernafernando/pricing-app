@@ -572,6 +572,25 @@ class TestPromotionTopics:
         assert entry["not_before"] == at(-50) + timedelta(seconds=60)  # the first one sets the debounce
         assert result.stats.enqueued == 4
 
+    def test_the_debounce_is_an_env_setting_with_a_60_second_default(self, env, monkeypatch) -> None:
+        pricing, bridge = env
+        assert settings.ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS == 60
+        monkeypatch.setattr(settings, "ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS", 120)
+        self.put_both(bridge, pricing)
+
+        run(bridge, topics=PROMOTION_TOPICS)
+
+        assert queued(pricing)[OFFER_ITEM]["not_before"] == at(-50) + timedelta(seconds=120)
+
+    def test_a_zero_debounce_makes_the_entry_claimable_at_once(self, env, monkeypatch) -> None:
+        pricing, bridge = env
+        monkeypatch.setattr(settings, "ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS", 0)
+        self.put_both(bridge, pricing)
+
+        run(bridge, topics=PROMOTION_TOPICS)
+
+        assert queued(pricing)[OFFER_ITEM]["not_before"] <= datetime.now(timezone.utc)
+
     def test_a_promotions_row_is_not_judged_by_the_item_core_fetch(self, env) -> None:
         pricing, bridge = env
         self.put_both(bridge, pricing)

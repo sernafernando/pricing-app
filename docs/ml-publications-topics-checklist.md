@@ -117,7 +117,7 @@ item becomes one fetch). Not part of the default map:
 
 Cost (capture of 2026-10-06, distinct resources in the last hour): `public_candidates` 144 and
 `public_offers` 24, so at most about 170 items per hour (about 4k per day). The queue key collapses
-repeats of one item, the 60 s debounce groups a burst, and the 300 s minimum age bounds the bundle
+repeats of one item, the 60 s debounce (env `ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS`) groups a burst, and the 300 s minimum age bounds the bundle
 path: the promotions fetch stays at about 0.05 req/s of the 2 req/s global budget (lane 1 shares it with
 everything else). Keep the defaults; they are justified by those numbers.
 

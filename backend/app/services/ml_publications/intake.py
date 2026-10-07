@@ -31,8 +31,14 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
 from app.core import database
+from app.core.config import settings
 from app.services.ml_publications import queue
-from app.services.ml_publications.resources import BUNDLE_RESOURCE, CORE_RESOURCE, REFRESH_RESOURCES
+from app.services.ml_publications.resources import (
+    BUNDLE_RESOURCE,
+    CORE_RESOURCE,
+    PROMOTIONS_RESOURCE,
+    REFRESH_RESOURCES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +46,6 @@ ITEM_KIND = "item"
 BRIDGE_STATEMENT_TIMEOUT = "10s"
 ERROR_BRIDGE_UNAVAILABLE = "bridge_unavailable"
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
-# `public_offers` / `public_candidates` arrive in bursts per item (about 170 distinct items per hour on
-# 2026-10-06); a promotions-only entry waits this long after the notification so the burst collapses
-# on the queue key into one fetch (design D14: with the 300 s minimum age, about 0.05 req/s).
-PROMOTIONS_RESOURCE = "promotions"
-PROMOTIONS_DEBOUNCE = timedelta(seconds=60)
 
 # Exact production topic names and the resource strings captured for them (2026-10-06). `stock-locations`
 # and `user-products-families` are deliberately absent: the capture has no sample of either, so their
@@ -74,8 +75,12 @@ class TopicMapping:
 
     @property
     def debounce(self) -> Optional[timedelta]:
-        """Delay before an entry of this mapping may be claimed (promotions-only mappings)."""
-        return PROMOTIONS_DEBOUNCE if self.resources == (PROMOTIONS_RESOURCE,) else None
+        """Delay before an entry of this mapping may be claimed. `public_offers` / `public_candidates` arrive in
+        bursts per item (about 170 distinct items per hour on 2026-10-06): a promotions-only entry waits
+        `ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS` (default 60 s) after the notification, so the burst collapses on the
+        queue key into one fetch (design D14; with the 300 s minimum age, about 0.05 req/s)."""
+        seconds = settings.ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS
+        return timedelta(seconds=seconds) if seconds > 0 and self.resources == (PROMOTIONS_RESOURCE,) else None
 
 
 def topic_mappings(setting_value: Any) -> List[TopicMapping]:
