@@ -194,6 +194,9 @@ __all__ = [
     # chain reuses this EXACT resolution, per order rather than as one
     # group-aggregate line.
     "resolve_flex_cost_by_order_ids",
+    # ventas-ml-bonificacion-envio-flex: the Flex bonificación resolver needs
+    # the SAME per-order mode this module decides money by.
+    "resolve_modes",
 ]
 
 CHARGE_LABELS: Dict[str, str] = {
@@ -483,6 +486,11 @@ def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[Dict[int
         )
 
     return modes_by_order, shipments_by_id
+
+
+# Public name for the shared surface (`bonificacion_flex.py` imports it): a
+# `_` that another module imports is a lie.
+resolve_modes = _resolve_modes
 
 
 def _postal_code_for_cordon(

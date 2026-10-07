@@ -70,6 +70,10 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
+from app.services.ml_ventas_desglose.bonificacion_flex import (
+    CONCEPTO_BONIFICACION_ENVIO,
+    resolve_bonificacion_flex_by_order_ids,
+)
 from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
     RELEVANT_PAYMENT_STATUSES,
@@ -240,6 +244,8 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
     items_by_order: Dict[int, int] = {}
     for it in items:
         items_by_order[it.order_id] = items_by_order.get(it.order_id, 0) + 1
+
+    bonificacion_by_order = resolve_bonificacion_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
 
     for order_id in order_ids:
         order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -432,6 +438,29 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                     base=bruto,
                     iva=Decimal("0"),
                     informativo=False,
+                )
+            )
+
+        # ventas-ml-bonificacion-envio-flex: what ML pays the seller for the
+        # Flex shipping it delivers. At ML's 21% like every ML-side figure
+        # (`IVA_ML_PCT`) -- the maintainer's own rule, 8990 -> 7429,75 --
+        # and displayed as `informativo` for the same reason SIRTAC is: it
+        # is NOT inside `net_received_amount`, so counting it in the exact
+        # reconciliation below would break it (D12). The IVA-free amount
+        # reaches the Total Gauss through the deduction chain
+        # (`BonificacionEnvioDeduccion`), never through `neto_sin_iva`.
+        # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
+        # so a pack's components add up to ONE bonificación.
+        bonificacion = bonificacion_by_order.get(order_id)
+        if bonificacion is not None:
+            componentes.append(
+                ComponenteIVA(
+                    concepto=CONCEPTO_BONIFICACION_ENVIO,
+                    alicuota=IVA_ML_PCT,
+                    bruto=bonificacion.bruto,
+                    base=bonificacion.neto,
+                    iva=bonificacion.bruto - bonificacion.neto,
+                    informativo=True,
                 )
             )
 

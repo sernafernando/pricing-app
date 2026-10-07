@@ -45,7 +45,12 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.varios_venta_pct import VariosVentaPct
+from app.services.ml_ventas_desglose.bonificacion_flex import (
+    CONCEPTO_BONIFICACION_ENVIO,
+    resolve_bonificacion_flex_by_order_ids,
+)
 from app.services.ml_ventas_desglose.breakdown_service import resolve_flex_cost_by_order_ids
+from app.services.ml_ventas_desglose.iva import IVA_ML_DIVISOR
 
 _CENT = Decimal("0.01")
 
@@ -374,6 +379,34 @@ class VariosDeduccion:
         return result
 
 
+class BonificacionEnvioDeduccion:
+    """The Flex "Bonificación por envío" ML pays the seller
+    (ventas-ml-bonificacion-envio-flex) -- see `bonificacion_flex.py` for
+    what counts, the fail-closed rules and why it is per-shipment.
+
+    It is INCOME, so its `monto` is NEGATIVE: the orchestrator does
+    `total = total - monto`, and subtracting a negative adds. The UI already
+    renders a negative deduction as `(+)` (`formatDeduction`), so the chain
+    needs no second kind of line. The amount is NET of IVA (8990 -> 7429,75),
+    consistent with the rest of the chain, which is entirely IVA-free.
+
+    Applicability follows the same rule as `EnvioFlexDeduccion`: a key is
+    ABSENT when it does not apply (not Flex, no readable bonificación yet).
+    It never returns `None`: not knowing the bonificación is not a reason to
+    block a Total Gauss -- it is simply not added, and the shipment's
+    `raw_costs` trigger recomputes the sale when the costs land."""
+
+    code = "bonificacion_envio"
+    concepto = CONCEPTO_BONIFICACION_ENVIO
+    orden = 4
+    base = "neto"
+    es_porcentaje = False
+
+    def resolve_bulk(self, db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
+        resuelto = resolve_bonificacion_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
+        return {order_id: -share.neto for order_id, share in resuelto.items()}
+
+
 # The chain, in resolution order (design D1). Extensible: `orden`/`len()`
 # are never hardcoded anywhere else in this module -- adding a fourth
 # deduction here is the ONLY change needed to grow the chain.
@@ -381,6 +414,7 @@ DEDUCCIONES: Tuple[DeduccionResolver, ...] = (
     CostoMercaderiaDeduccion(),
     EnvioFlexDeduccion(),
     VariosDeduccion(),
+    BonificacionEnvioDeduccion(),
 )
 
 
