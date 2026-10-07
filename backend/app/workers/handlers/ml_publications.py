@@ -444,8 +444,11 @@ class RefreshHandler:
         claim, dropped = work.claim, set(work.plan.dropped)
         if work.core_error:
             succeeded, failed = dropped, {CORE: work.core_error}
-        elif interrupted:  # resources not reached stay queued, uncharged
-            succeeded, failed = dropped | (work.done & set(claim.resources)), dict(work.failed)
+        elif interrupted:
+            # The core is applied; what was not reached stays queued by name beside the failures (the
+            # entry is charged once, whatever the number of resources), never the bundle or the core.
+            not_reached = {name: "not reached: run interrupted" for name in work.pending}
+            succeeded, failed = set(claim.resources), {**not_reached, **work.failed}
         else:
             succeeded, failed = set(claim.resources), dict(work.failed)
         outcome = queue.complete(claim, succeeded=succeeded, failed=failed)
@@ -503,12 +506,6 @@ def _persist_detail(name: str, detail: Dict[str, Any]) -> None:
             )
     except Exception:  # noqa: BLE001
         logger.exception("could not flush %s counters", name)
-
-
-def _plan(claim: queue.QueueClaim, bundle_resources: Sequence[str]) -> Tuple[bool, Set[str]]:
-    """What an entry needs: (is the item core wanted, resources that cannot run now and are dropped)."""
-    plan = bundle.plan(claim.resources, bundle_resources)
-    return plan.needs_core, set(plan.dropped)
 
 
 INTAKE_HANDLER = "ml_publications.intake"

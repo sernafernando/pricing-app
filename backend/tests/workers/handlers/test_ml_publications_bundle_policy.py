@@ -354,6 +354,32 @@ class TestInterruptions:
         assert (queued["attempts"], queued["claimed_at"], queued["resources"]) == (0, None, ["prices"])
 
 
+class TestFailuresBeforeAnInterruption:
+    def test_a_failure_then_a_429_charges_it_and_keeps_only_the_sub_resources_left_never_the_core(self, env) -> None:
+        """Synthetic faults: description 500, then prices 429 (the core was already applied)."""
+        enable_refresh(bundle_resources=["core", "description", "prices", "sale_price"])
+        enqueue_items(ITEM)
+        error_body = {"message": "internal", "error": "internal_error", "status": 500, "cause": []}
+        limited = json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
+        transport = ScriptedTransport(
+            responder_with({"description": json_response(error_body, status=500), "prices": limited})
+        )
+
+        result = make_handler(transport).run(context())
+
+        assert result.detail["stopped"] == "rate_limited"
+        queued = queue_row(env, ITEM)
+        assert queued["resources"] == ["description", "prices", "sale_price"]  # no `bundle`, no `core`
+        assert queued["attempts"] == 1 and "description: HTTP 500" in queued["last_error"]
+
+        release_backoff(env)
+        retry = ScriptedTransport(responder_with())
+        make_handler(retry).run(context())
+
+        assert "/items/bulk" not in paths(retry)  # the applied core is not fetched again
+        assert queue_row(env, ITEM) is None
+
+
 class TestCounters:
     def test_outcomes_per_sub_resource_are_flushed(self, env) -> None:
         enable_refresh(bundle_resources=["core", "description", "prices"])
