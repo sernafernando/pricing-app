@@ -55,7 +55,7 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
 
     - No `q` (`None` or blank) -> query unchanged.
     - All digits -> `order_id` OR `pack_id` (matches a pack too, R25
-      scenario 1).
+      scenario 1) OR an EXACT SKU of one of the sale's items.
     - `^MLA\\d+$` (case-insensitive) -> `item_id`, via `ml_order_items_ops`.
     - Otherwise, 3+ chars -> ILIKE on `buyer_nickname` and the sale's OWN
       item fields (`title`, `seller_sku`), via `ml_order_items_ops`.
@@ -70,17 +70,24 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
         return query
 
     if text.isdigit():
+        # A numeric text is an order id, a pack id OR an exact SKU (this
+        # business uses numeric SKUs and EANs). The SKU match is exact, so
+        # "121" does not bring up every SKU containing 121.
+        #
         # `str.isdigit()` is True for unicode digits too ("²³"), which `int()`
         # rejects, and a long run of ASCII digits overflows the BIGINT
-        # order_id/pack_id columns. Both must read as "matches nothing"
-        # (R27), never as a 500.
+        # order_id/pack_id columns. In both cases the id comparison is
+        # skipped (comparing would raise in the driver), but the exact SKU
+        # match still applies: a 13-digit EAN fits, a 25-digit one does not.
+        sku_order_ids = db.query(MlOrderItemOps.order_id).filter(MlOrderItemOps.seller_sku == text).scalar_subquery()
+        conditions = [MlOrdersOps.order_id.in_(sku_order_ids)]
         try:
             value = int(text)
         except ValueError:
-            return query.filter(false())
-        if not (_BIGINT_MIN <= value <= _BIGINT_MAX):
-            return query.filter(false())
-        return query.filter(or_(MlOrdersOps.order_id == value, MlOrdersOps.pack_id == value))
+            value = None
+        if value is not None and _BIGINT_MIN <= value <= _BIGINT_MAX:
+            conditions += [MlOrdersOps.order_id == value, MlOrdersOps.pack_id == value]
+        return query.filter(or_(*conditions))
 
     if _MLA_ITEM_ID_RE.match(text):
         item_order_ids = db.query(MlOrderItemOps.order_id).filter(MlOrderItemOps.item_id.ilike(text)).scalar_subquery()

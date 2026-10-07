@@ -63,6 +63,37 @@ class TestDigitsMatchOrderOrPackId:
         assert _matched_ids(db, "555") == {300, 301}
 
 
+class TestDigitsAlsoMatchTheExactSku:
+    """A numeric SKU (or an EAN, which is how this business uses SKUs) must
+    be found by SKU, not only by order/pack id. Exact match only."""
+
+    def test_a_numeric_sku_finds_the_sale(self, db):
+        _seed_order(db, 1500)
+        _seed_order(db, 1501)
+        _seed_item(db, 1500, "MLA9", seller_sku="1215")
+        assert _matched_ids(db, "1215") == {1500}
+
+    def test_the_sku_match_is_exact_not_partial(self, db):
+        _seed_order(db, 1510)
+        _seed_item(db, 1510, "MLA9", seller_sku="12150")
+        _seed_order(db, 1511)
+        _seed_item(db, 1511, "MLA8", seller_sku="01215")
+        assert _matched_ids(db, "1215") == set()
+
+    def test_order_id_and_sku_matches_are_unioned(self, db):
+        _seed_order(db, 1215)
+        _seed_order(db, 1520)
+        _seed_item(db, 1520, "MLA9", seller_sku="1215")
+        assert _matched_ids(db, "1215") == {1215, 1520}
+
+    def test_a_long_ean_beyond_bigint_still_finds_the_sku(self, db):
+        ean = "7" * 25
+        _seed_order(db, 1530)
+        _seed_item(db, 1530, "MLA9", seller_sku=ean)
+        _seed_order(db, 1531)
+        assert _matched_ids(db, ean) == {1530}
+
+
 class TestMlaMatchesItemId:
     def test_matches_orders_carrying_that_item_id(self, db):
         _seed_order(db, 500)
