@@ -1,7 +1,7 @@
 """ml_publications_quality: competition, performance, moderation and visits state tables
 
 Revision ID: 20261007_ml_publications_quality
-Revises: 20261007_ml_publicaciones_vincular_perm
+Revises: 20261006_ml_metricas_permisos_pm
 Create Date: 2026-10-07
 
 New tables only: the catalog competition (`price_to_win`), item performance, last moderation and
@@ -17,7 +17,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "20261007_ml_publications_quality"
-down_revision: Union[str, None] = "20261007_ml_publicaciones_vincular_perm"
+down_revision: Union[str, None] = "20261006_ml_metricas_permisos_pm"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

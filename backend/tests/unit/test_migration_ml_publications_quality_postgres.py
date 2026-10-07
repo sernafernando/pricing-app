@@ -55,7 +55,7 @@ TABLES = {
         "date_to": "timestamp with time zone",
     },
 }
-PARENT = "20261007_ml_publicaciones_vincular_perm"
+PARENT = "20261006_ml_metricas_permisos_pm"
 
 
 def _load_migration():
