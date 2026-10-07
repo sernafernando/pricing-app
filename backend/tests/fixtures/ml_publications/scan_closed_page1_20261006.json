@@ -1,0 +1,104 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "name": "search_scan_closed",
+ "path": "/users/413658225/items/search?search_type=scan&status=closed&limit=5",
+ "status": 200,
+ "headers": {
+  "date": "Tue, 06 Oct 2026 13:23:51 GMT"
+ },
+ "body": {
+  "scroll_id": "eyJpZCI6Ik1MQTExMjM0ODMzNzgiLCJudW1lcmljX2lkIjoxMTIzNDgzMzc4LCJzdG9wX3RpbWUiOiIyMDI2LTA1LTA4VDA0OjUxOjAxLjAyMVoifQ==",
+  "seller_id": "413658225",
+  "results": [
+   "MLA1207279308",
+   "MLA1103699861",
+   "MLA875055831",
+   "MLA1127906226",
+   "MLA1123483378"
+  ],
+  "paging": {
+   "limit": 5,
+   "total": 39
+  },
+  "query": null,
+  "orders": [
+   {
+    "id": "stop_time_asc",
+    "name": "Order by stop time ascending"
+   }
+  ],
+  "available_orders": [
+   {
+    "id": "stop_time_asc",
+    "name": "Order by stop time ascending"
+   },
+   {
+    "id": "stop_time_desc",
+    "name": "Order by stop time descending"
+   },
+   {
+    "id": "start_time_asc",
+    "name": "Order by start time ascending"
+   },
+   {
+    "id": "start_time_desc",
+    "name": "Order by start time descending"
+   },
+   {
+    "id": "available_quantity_asc",
+    "name": "Order by available quantity ascending"
+   },
+   {
+    "id": "available_quantity_desc",
+    "name": "Order by available quantity descending"
+   },
+   {
+    "id": "sold_quantity_asc",
+    "name": "Order by sold quantity ascending"
+   },
+   {
+    "id": "sold_quantity_desc",
+    "name": "Order by sold quantity descending"
+   },
+   {
+    "id": "price_asc",
+    "name": "Order by price ascending"
+   },
+   {
+    "id": "price_desc",
+    "name": "Order by price descending"
+   },
+   {
+    "id": "last_updated_desc",
+    "name": "Order by lastUpdated descending"
+   },
+   {
+    "id": "last_updated_asc",
+    "name": "Order by last updated ascending"
+   },
+   {
+    "id": "total_sold_quantity_asc",
+    "name": "Order by total sold quantity ascending"
+   },
+   {
+    "id": {
+     "id": "total_sold_quantity_desc",
+     "field": "sold_quantity",
+     "missing": "_last",
+     "order": "desc"
+    },
+    "name": "Order by total sold quantity descending"
+   },
+   {
+    "id": {
+     "id": "inventory_id_asc",
+     "field": "inventory_id",
+     "missing": "_last",
+     "order": "asc"
+    },
+    "name": "Order by inventory id ascending"
+   }
+  ]
+ }
+}
