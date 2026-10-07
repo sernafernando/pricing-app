@@ -104,9 +104,14 @@ deja un warning con el shipment id.
 - **D6. La base se arma en `descomponer_neto`** (`DescomposicionNeto.base_varios`) de las MISMAS
   fuentes que muestran las líneas, no de `componentes`. `calcular_total_gauss` recibe
   `base_varios_by_order` (renombrado desde `venta_sin_iva_by_order`: el nombre ya mentía).
-- **D7. Backfill = subir `CURRENT_FORMULA_VERSION` 2 -> 3**, como ULTIMO commit separado y RETENIDO hasta que
-  el usuario confirme la regla de bonificación con más muestras (el bump hace recalcular toda la
-  historia con la regla vigente). Ver sección Backfill.
+- **D7. Backfill = subir `CURRENT_FORMULA_VERSION` 2 -> 3**, como ULTIMO commit separado. It ships in
+  this PR (user decision, 2026-10-07). Holding it does not hold the recompute: `order_metrics.divergence`
+  walks every stored order and re-enqueues the ones that differ under the new formula, so without the
+  bump history would be recomputed anyway, slowly, while opening thousands of `stored_metrics_mismatch`
+  rows that are a rule change rather than errors. The bonificación rule was confirmed against ML's
+  explicit billing line (`flex/details` CREDIT_NOTE `BONUS`/`BFLX`: 8990 and 599, both matching the
+  panel). Switching the desglose to that explicit source belongs to the `ml-billing-balance` SDD and will
+  need a second bump. Ver sección Backfill.
 
 ## Backfill (verificado)
 
@@ -151,7 +156,7 @@ ORDER BY formula_version;
 - [x] T4 RED/GREEN: `VariosDeduccion` usa `base_varios` (rename del kwarg, `compute.py` y tests)
 - [x] T5 RED/GREEN: API `iva_decomposicion.envio_comprador` / `base_varios`
 - [x] T6 RED/GREEN: casos capturados + pack Flex (599, comprador 0) + 3 pagos + sin doble conteo
-- [x] T7 (ULTIMO commit, retenido hasta confirmación) RED/GREEN: `CURRENT_FORMULA_VERSION` = 3 + reconcile selecciona fila vieja + divergencia no inunda
+- [x] T7 (ULTIMO commit, ships in this PR per user decision) RED/GREEN: `CURRENT_FORMULA_VERSION` = 3 + reconcile selecciona fila vieja + divergencia no inunda
 - [x] T8 Frontend: novedad (no hay JSX nuevo: la línea visible de envío ya existía en la tabla de IVA); vitest `ventasMl` + novedades verde
 - [x] T9 Runbook (backfill), lint, push, observaciones del GGA
 
