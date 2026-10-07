@@ -49,3 +49,8 @@ def test_the_runbook_covers_pause_rollback_and_the_core_only_bundle(doc) -> None
 
 def test_the_runbook_says_a_full_request_during_a_full_lap_is_satisfied_by_that_lap(doc) -> None:
     assert "already full" in doc and "satisfied by that lap" in doc
+
+
+def test_the_runbook_says_what_happens_to_a_request_while_the_setup_is_missing(doc) -> None:
+    assert "blocked" in doc and "03:30" in doc and "request" in doc.lower()
+    assert "seller_not_configured" in doc and "unauthorized" in doc

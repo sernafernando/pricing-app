@@ -64,3 +64,7 @@ has not started.
 * Rollback: the same command. Nothing is deleted by the scan, and the queued entries are still served by the
   refresh handler (turn `refresh.enabled` off to stop the fetches as well).
 * A request made while the flag is off stays pending and is honored once the flag is on.
+* Missing setup: with no `ML_USER_ID`, no ML credentials or a rejected token (`seller_not_configured`,
+  `not_configured`, `no_token`, `unauthorized`) the run reports `blocked` in `worker_job_state.detail`, ends as
+  finished and falls back to the daily 03:30 slot instead of retrying every 30 s. That run also consumes a
+  pending request; `scan.next_mode = full` is kept, so fix the setup and request the scan again to run it now.

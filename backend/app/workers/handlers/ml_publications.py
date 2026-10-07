@@ -605,7 +605,7 @@ SCAN_HANDLER = "ml_publications.scan"
 _SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
 # Engine errors that only a setup change can fix (`MlResponse.error` values of a call that was refused).
-_BLOCKED_BY_SETUP = frozenset({OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN})
+_BLOCKED_BY_SETUP = frozenset({OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN, "unauthorized"})
 
 
 class ScanHandler:
@@ -664,10 +664,14 @@ class ScanHandler:
         return JobResult(success=result.error is None, detail=self._flush(result.as_detail()), error=result.error)
 
     def _blocked(self, reason: str) -> JobResult:
-        """Credentials or seller missing: nothing can run until an operator fixes the setup. Report a
+        """Credentials or seller missing, or the token rejected: nothing can run until an operator fixes the setup. Report a
         finished run (`complete` true, `blocked` names the reason) so the 30 s catch-up does not spin
         and the handler falls back to its daily slot; the open lap, if any, resumes from its stored
-        progress when the setup exists."""
+        progress when the setup exists.
+
+        A pending operator request is consumed by this run (the runtime clears it on success); a
+        `--mode full` request is not lost, since `scan.next_mode` stays, but running it now is: it
+        starts at the next daily slot or on a new request once the setup is fixed."""
         logger.error("scan blocked by setup: %s", reason)
         return JobResult(success=True, detail=self._flush({"complete": True, "blocked": reason}))
 

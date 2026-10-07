@@ -210,6 +210,11 @@ class TestDisabledOutcome:
         assert transport.requests == []
 
 
+class ScriptedUnauthorized(httpx.BaseTransport):
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"message": "invalid access token", "status": 401})
+
+
 class TestBlockedBySetup:
     """Missing credentials must not leave the lap `complete=False`: that would spin the 30 s catch-up."""
 
@@ -230,6 +235,19 @@ class TestBlockedBySetup:
         handler, runtime, now = self.blocked_run(env, monkeypatch, break_seller=break_seller)
 
         assert detail_of(env)["complete"] is True and detail_of(env)["blocked"]
+        assert runtime._due_handlers(now + timedelta(seconds=31)) == []
+        assert runtime._due_handlers(now + timedelta(seconds=62)) == []
+
+    def test_a_rejected_token_is_blocked_too_not_retried_every_30_seconds(self, env) -> None:
+        enable_scan()
+        transport = ScriptedUnauthorized()
+        handler = make_handler(transport)
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+        now = datetime.now(timezone.utc)
+
+        assert runtime._run_handler(handler, now) is True
+
+        assert detail_of(env)["blocked"] == "unauthorized" and detail_of(env)["complete"] is True
         assert runtime._due_handlers(now + timedelta(seconds=31)) == []
         assert runtime._due_handlers(now + timedelta(seconds=62)) == []
 
