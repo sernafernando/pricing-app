@@ -533,7 +533,7 @@ class TestRefreshCorePath:
 class TestResourcesThatCannotRun:
     def test_unfetchable_resources_are_dropped_uncharged_and_counted(self, env) -> None:
         enable_refresh()
-        enqueue_items("MLA935110613", resources=("core", "description", "user_product"))
+        enqueue_items("MLA935110613", resources=("core", "description", "visits"))
         transport = ScriptedTransport(bulk_responder)
 
         make_handler(transport).run(context())
@@ -541,7 +541,7 @@ class TestResourcesThatCannotRun:
         assert len(transport.requests) == 1
         assert queue_row(env, "MLA935110613") is None  # completed: nothing left, nothing charged
         counters = counters_of(env)
-        assert counters["skipped_no_fetcher"] == {"user_product": 1}  # no fetcher yet
+        assert counters["skipped_no_fetcher"] == {"visits": 1}  # no fetcher yet
         assert counters["skipped_disabled"] == {"description": 1}  # has one, not in `bundle_resources`
 
     def test_an_entry_naming_only_unfetchable_resources_makes_no_ml_call(self, env) -> None:
@@ -555,14 +555,14 @@ class TestResourcesThatCannotRun:
         assert counters_of(env)["skipped_disabled"] == {"description": 1}
 
     def test_the_bundle_fetches_the_core_and_counts_each_enabled_resource_it_cannot_fetch(self, env) -> None:
-        enable_refresh(bundle_resources=["core", "user_product"])
+        enable_refresh(bundle_resources=["core", "visits"])
         enqueue_items("MLA935110613", resources=("bundle",))
 
         make_handler(ScriptedTransport(bulk_responder)).run(context())
 
         assert queue_row(env, "MLA935110613") is None
         assert sql_scalar(env, "SELECT raw->>'id' FROM ml_items WHERE item_id = 'MLA935110613'") == "MLA935110613"
-        assert counters_of(env)["skipped_no_fetcher"] == {"user_product": 1}
+        assert counters_of(env)["skipped_no_fetcher"] == {"visits": 1}
 
 
 class TestCounters:

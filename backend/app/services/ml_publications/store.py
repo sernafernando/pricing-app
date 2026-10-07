@@ -412,7 +412,7 @@ def _emit_events(db, entry: MlChangeLog, events_enabled: bool) -> int:
 def _log_change(
     db,
     spec: ResourceSpec,
-    item_id: str,
+    entity_id: str,
     kind: str,
     changes: list[Change],
     previous_hash: Optional[bytes],
@@ -420,11 +420,15 @@ def _log_change(
     response: MlResponse,
     source_last_updated: Optional[datetime],
     context: dict,
+    *,
+    item_scoped: bool = True,
 ) -> MlChangeLog:
+    """Append one change-log row for `entity_id`: the item's id, or with `item_scoped` off the user product's
+    or family's, which are not items and leave the row's `item_id` empty."""
     entry = MlChangeLog(
         resource_type=spec.name,
-        entity_id=item_id,
-        item_id=item_id,
+        entity_id=entity_id,
+        item_id=entity_id if item_scoped else None,
         kind=kind,
         observed_at=response.received_at,
         source_last_updated=source_last_updated,

@@ -1,9 +1,10 @@
-"""Transactional upsert of one fetched item sub-resource (design D8 for sub-resources).
+"""Transactional upsert of one fetched sub-resource (design D8 for sub-resources).
 
 The same contract as `store.apply_fetch`, for the sub-resource tables keyed by item id
-(`description`, `prices`, `sale_price`, `promotions`): one call is one transaction on one entity, the row is
-locked, the response is compared against the COMMITTED state and the state, its change-log row
-and its events commit together or not at all. Nothing here deletes a store row.
+(`description`, `prices`, `sale_price`, `promotions`), by user product id (`user_product`, `stock`) or
+by family id (`family`): one call is one transaction on one entity, the row is locked, the response is
+compared against the COMMITTED state and the state, its change-log row and its events commit together or
+not at all. Nothing here deletes a store row.
 
 Differences from the item core: classification is by HTTP status through the resource parser
 (`ok`, `not_found`, `error`), a response is ordered by the time its request started (these
@@ -27,12 +28,15 @@ from app.models.ml_publications import (
     MlItemPrices,
     MlItemSalePrice,
     MlItemSellerPromotions,
+    MlUserProduct,
+    MlUserProductFamily,
+    MlUserProductStock,
 )
 from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import diff, split_excluded
 from app.services.ml_publications.ml_http import MlResponse
 from app.services.ml_publications.parsers.subresource import MalformedSubResource, ParsedSubResource
-from app.services.ml_publications.resources import ResourceSpec
+from app.services.ml_publications.resources import RESOURCES, ResourceSpec
 
 # Writes and bookkeeping shared with the item core, so both stores keep one definition of "write
 # the state", "record an error" and "log a change".
@@ -56,7 +60,12 @@ MODELS: dict[str, Any] = {
     "prices": MlItemPrices,
     "sale_price": MlItemSalePrice,
     "promotions": MlItemSellerPromotions,
+    "user_product": MlUserProduct,
+    "stock": MlUserProductStock,
+    "family": MlUserProductFamily,
 }
+
+ITEM_KEY = "item_id"
 
 MAX_REASON_CHARS = 300
 
@@ -77,12 +86,45 @@ def _stale(row: Any, response: MlResponse) -> bool:
     return row.fetched_request_started_at is not None and response.request_started_at <= row.fetched_request_started_at
 
 
+def _key_column(spec: ResourceSpec) -> str:
+    return spec.key_columns[0]
+
+
+def _is_item_scoped(spec: ResourceSpec) -> bool:
+    """Rows keyed by item id belong to an item (its store and brand are attributed to their events);
+    user product and family rows belong to no single item."""
+    return _key_column(spec) == ITEM_KEY
+
+
+class InvalidKey(ValueError):
+    """An entity id the key column cannot hold (a family id that is not a BIGINT)."""
+
+
+MAX_BIGINT = 2**63 - 1
+
+
+def typed_key(resource: str, key: str) -> Any:
+    """The queue's text id as the key column of `resource` holds it (a family id is a BIGINT); raises
+    `InvalidKey` for an id that column cannot hold. Queue ids are not validated on enqueue, so every
+    reader of a key goes through here before it reaches the database."""
+    model = MODELS[resource]
+    if getattr(model, RESOURCES[resource].key_columns[0]).type.python_type is not int:
+        return key
+    canonical = isinstance(key, str) and key.isascii() and key.isdigit() and key == str(int(key))
+    if not (canonical and int(key) <= MAX_BIGINT):  # "007" would be stored as 7 yet fetched as /007
+        raise InvalidKey(f"{key!r} is not a valid {resource} id")
+    return int(key)
+
+
 def _checked(row: Any, response: MlResponse) -> None:
     row.last_checked_at = _later(row.last_checked_at, response.received_at)
 
 
-def _attribution(db, item_id: str) -> dict:
-    """Store and brand of the item, read (not locked) for the events' denormalized columns."""
+def _attribution(db, spec: ResourceSpec, item_id: str) -> dict:
+    """Store and brand of the item, read (not locked) for the events' denormalized columns; empty for a
+    resource that belongs to no single item."""
+    if not _is_item_scoped(spec):
+        return {}
     item = db.query(MlItem.official_store_id, MlItem.brand).filter(MlItem.item_id == item_id).first()
     return {"official_store_id": item.official_store_id if item else None, "brand": item.brand if item else None}
 
@@ -102,15 +144,17 @@ def apply_subresource(
     """
     model = MODELS[spec.name]
     counters = counters if counters is not None else ApplyCounters()
-    (item_id,) = key
+    column = _key_column(spec)
+    (entity_key,) = key
+    entity_key = typed_key(spec.name, entity_key)
     if events_enabled is None:
         events_enabled = _events_enabled()
     parsed, malformed = _parse(spec, response)
     with database.get_background_db() as db:
         db.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
         db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-        db.execute(pg_insert(model).values(item_id=item_id).on_conflict_do_nothing(index_elements=["item_id"]))
-        row = db.query(model).filter(model.item_id == item_id).with_for_update().one()
+        db.execute(pg_insert(model).values({column: entity_key}).on_conflict_do_nothing(index_elements=[column]))
+        row = db.query(model).filter(getattr(model, column) == entity_key).with_for_update().one()
 
         if _stale(row, response):
             counters.stale_discarded += 1
@@ -134,7 +178,7 @@ def _apply_state(
     events_enabled: bool,
 ) -> ApplyOutcome:
     """A 2xx body: first sighting, unchanged, noise-only, change or restore."""
-    item_id = row.item_id
+    entity_id = str(getattr(row, _key_column(spec)))
     typed = spec.mapper(body)
     new_hash = canonical_hash(body, spec)
     if row.raw is None:
@@ -163,14 +207,15 @@ def _apply_state(
     entry = _log_change(
         db,
         spec,
-        item_id,
+        entity_id,
         "restored" if restoring else "change",
         reportable,
         previous_hash,
         new_hash,
         response,
         None,
-        {**entries_context(spec.name, old_raw, body), **_attribution(db, item_id)},
+        {**entries_context(spec.name, old_raw, body), **_attribution(db, spec, entity_id)},
+        item_scoped=_is_item_scoped(spec),
     )
     return ApplyOutcome(
         "restored" if restoring else "changed",
@@ -195,16 +240,18 @@ def _not_found(db, spec: ResourceSpec, row: Any, response: MlResponse, events_en
         row.never_existed = True
         db.flush()
         return ApplyOutcome("never_existed")
+    entity_id = str(getattr(row, _key_column(spec)))
     entry = _log_change(
         db,
         spec,
-        row.item_id,
+        entity_id,
         "gone",
         [],
         bytes(row.raw_hash),
         bytes(row.raw_hash),
         response,
         None,
-        _attribution(db, row.item_id),
+        _attribution(db, spec, entity_id),
+        item_scoped=_is_item_scoped(spec),
     )
     return ApplyOutcome("gone", change_log_id=entry.id, events=_emit_events(db, entry, events_enabled))

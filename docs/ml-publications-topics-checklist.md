@@ -129,3 +129,43 @@ Order to turn it on, one step at a time, watching `promotions` in the per-endpoi
 
 Rollback: set `promotions.enabled = false` (or remove `promotions` from `bundle_resources`) and remove
 the two topics from `intake.topics`; nothing already stored is deleted.
+
+## Enabling the user product, stock and family fetchers
+
+The refresh handler ships these three fetchers dark: they run only for resources listed in
+`bundle_resources` (default `["core"]`). Add `user_product`, `stock` and `family` one at a time, watching the
+per-endpoint 429 counters in `worker_job_state.detail`.
+
+- `user_product` (`GET /user-products/{id}`), `stock` (`GET /user-products/{id}/stock`, `locations[]` with
+  `type` and `quantity`) and `family` (`GET /sites/MLA/user-products-families/{family_id}`).
+- An item `bundle` reaches them through the stored item row (`user_product_id`, `family_id`). An item with
+  none skips them (`skipped_not_applicable`, not a failure); two items of one user product in a batch fetch
+  it once (`skipped_shared`).
+- Minimum ages on a `bundle` request (`min_age_seconds`): `user_product` and `stock` 15 min, `family` 24 h.
+  A request that names the resource bypasses them.
+- Queue entries of kind `user_product` (ids `MLAU...`) and `family` (the numeric family id) carry no item and
+  fetch only their own resources (`bundle` means `user_product` + `stock` for a user product). They can be
+  enqueued through `ml_pub_refresh_queue`; nothing produces them yet (the enqueue CLI takes items only and no
+  topic is mapped, see below), so today the item `bundle` is the way these resources are filled.
+- `stock` has its own pacing sub-budget on top of the global one: `ML_PUB_STOCK_RATE_PER_MIN` (default 60,
+  at most the 100 requests per minute ML documents). A backfill of every item pays it: about 24.7k items,
+  fewer distinct user products, so expect the stock sub-budget, not the global 2 req/s, to set the pace.
+- A stock answer of 403 is stored with its status and error body, surfaced in the queue entry's
+  `last_error` (`stock: HTTP 403`) and retried alone; the user product and family still apply.
+- Stock zero-crossing events (`stock_depleted`, `stock_replenished`) stay on the item core
+  (`available_quantity`); these three resources raise no events.
+
+Topics: `stock-locations` (resource `/user-products/$ID/stock` in the ML application) and
+`user-products-families` are NOT mapped in code: `webhook_latest` held no row of either when the capture was
+taken, and a resource pattern is never invented. Until one is fixed, an entry for them in `intake.topics`
+is skipped with a warning. To fix a pattern, take real rows read-only on the bridge, commit them as fixtures
+(`webhook_latest_samples.json`), then write the regex and its test:
+
+```sql
+SELECT topic, resource FROM webhook_latest WHERE topic IN ('stock-locations','user-products-families') LIMIT 3;
+```
+
+Until then the stock and family stay as fresh as the `items` notification and the rescans make them (every
+sale fires an `items` notification, and the item bundle re-checks them past their minimum age).
+
+Rollback: remove the names from `bundle_resources`; nothing already stored is deleted.

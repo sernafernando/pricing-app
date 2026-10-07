@@ -42,6 +42,11 @@ class ResourceSpec:
 CORE_RESOURCE = "core"
 BUNDLE_RESOURCE = "bundle"
 PROMOTIONS_RESOURCE = "promotions"
+# Queue entry kinds (design D10): an item, a user product (stock/UP notifications) or a family. The kind
+# is also the entity a fetcher's path takes the id of.
+ITEM_KIND = "item"
+USER_PRODUCT_KIND = "user_product"
+FAMILY_KIND = "family"
 REFRESH_RESOURCES: tuple[str, ...] = (
     BUNDLE_RESOURCE,
     CORE_RESOURCE,
@@ -107,7 +112,7 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
         map_user_product_stock,
         parse_user_product_stock,
         "user_product_stock_20261006.json",
-        {},
+        array_keys_for("stock"),
     ),
     ("family", ("family_id",), map_family, parse_family, "family_20261006.json", {}),
 ):

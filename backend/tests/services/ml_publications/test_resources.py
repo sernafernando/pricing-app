@@ -63,7 +63,11 @@ def test_subresources_are_registered_under_their_refresh_names_with_their_keys_a
 
 def test_promotions_diff_keys_come_from_the_shared_natural_key_table():
     assert RESOURCES["promotions"].array_keys == array_keys_for("promotions") == {"": ("id", "type")}
-    assert all(dict(RESOURCES[n].array_keys) == {} for n in SUBRESOURCE_KEYS if n != "promotions")
+    assert all(dict(RESOURCES[n].array_keys) == {} for n in SUBRESOURCE_KEYS if n not in ("promotions", "stock"))
+
+
+def test_stock_locations_are_keyed_by_their_type_from_the_shared_natural_key_table():
+    assert RESOURCES["stock"].array_keys == array_keys_for("stock") == {"locations": ("type",)}
 
 
 @pytest.mark.parametrize("name", sorted(SUBRESOURCE_FIXTURES))
