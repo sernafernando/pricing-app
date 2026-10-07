@@ -147,7 +147,8 @@ def is_valid_key(resource: str, key: str) -> bool:
 
 def last_checked(resource: str, keys: Sequence[str]) -> Dict[str, datetime]:
     """`last_checked_at` of the stored `resource` rows of `keys` (never checked: absent). The key is
-    the id the resource's row is keyed by: item, user product or family id."""
+    the id the resource's row is keyed by: item, user product or family id. The keys must already be valid
+    (`is_valid_key`): the refresh handler settles an entry with an invalid id before it asks for ages."""
     if not keys:
         return {}
     model = MODELS[resource]
@@ -175,5 +176,5 @@ def linked_ids(item_ids: Sequence[str]) -> Dict[str, Dict[str, str]]:
     linked: Dict[str, Dict[str, str]] = {}
     for item_id, user_product_id, family_id in rows:
         candidates = ((USER_PRODUCT_KIND, user_product_id), (FAMILY_KIND, family_id))
-        linked[item_id] = {entity: str(value) for entity, value in candidates if value not in (None, "")}
+        linked[item_id] = {entity: str(value) for entity, value in candidates if value}
     return linked

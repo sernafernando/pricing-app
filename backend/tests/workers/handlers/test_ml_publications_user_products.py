@@ -182,6 +182,23 @@ class TestItemBundle:
         assert queue_entry(env, "item", ITEM) is None  # nothing to fetch is not a failure
         assert counters_of(env)["skipped_not_applicable"] == {"user_product": 1, "stock": 1, "family": 1}
 
+    def test_a_zero_family_id_is_no_family(self, env) -> None:
+        """Real element with `family_id` changed to 0 (ML sends none; 0 is not an id)."""
+        enable_refresh(bundle_resources=["core", "family"])
+        enqueue_items(ITEM)
+
+        def zero_family(request, call):
+            answer = bulk_answer(request.url.params["ids"].split(","))
+            answer[0]["body"]["family_id"] = 0
+            return json_response(answer)
+
+        transport = ScriptedTransport(responder_with(bulk=zero_family))
+
+        make_handler(transport).run(context())
+
+        assert paths(transport) == ["/items/bulk"]
+        assert counters_of(env)["skipped_not_applicable"] == {"family": 1}
+
     def test_two_items_of_one_user_product_in_a_batch_fetch_it_once(self, env) -> None:
         enable_refresh(bundle_resources=["core", "user_product", "stock"])
         enqueue_items(ITEM, OTHER_ITEM)
