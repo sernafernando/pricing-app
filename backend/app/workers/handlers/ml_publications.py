@@ -605,6 +605,9 @@ SCAN_HANDLER = "ml_publications.scan"
 _SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
 # Engine errors that only a setup change can fix (`MlResponse.error` values of a call that was refused).
+# Consecutive failing runs (ML errors, unexpected exceptions) after which the scan stops retrying every
+# pass and waits for its daily slot; each failed run is retried on the next pass until then.
+UPSTREAM_ERROR_STREAK = 5
 _BLOCKED_BY_SETUP = frozenset({OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN, "unauthorized"})
 
 
@@ -632,6 +635,7 @@ class ScanHandler:
         self.pacer = pacer or Pacer()
         self._client_factory = client_factory or (lambda pacer: MlHttpClient(pacer=pacer))
         self._client: Optional[MlHttpClient] = None
+        self._error_streak = 0  # consecutive failed runs of this process
 
     def run(self, ctx: WorkerContext) -> JobResult:
         config = settings_store.get_settings(_SCAN_KEYS)
@@ -658,10 +662,22 @@ class ScanHandler:
             logger.exception("scan run failed")
             error = f"{type(exc).__name__}: {exc}"[:300]
             self._record_failure(error)
-            return JobResult(success=False, detail=self._flush({"complete": False, "error": error}), error=error)
+            return self._failed(error)
         if result.error in _BLOCKED_BY_SETUP:
             return self._blocked(result.error)
+        if result.error:
+            return self._failed(result.error, result.as_detail())
+        self._error_streak = 0
         return JobResult(success=result.error is None, detail=self._flush(result.as_detail()), error=result.error)
+
+    def _failed(self, error: str, detail: Optional[Dict[str, Any]] = None) -> JobResult:
+        """A failed run is retried on the next pass; a streak of them means ML is down, so stop spinning."""
+        self._error_streak += 1
+        if self._error_streak >= UPSTREAM_ERROR_STREAK:
+            self._error_streak = 0
+            return self._blocked("upstream_error")
+        body = {**(detail or {"complete": False}), "error": error}
+        return JobResult(success=False, detail=self._flush(body), error=error)
 
     def _blocked(self, reason: str) -> JobResult:
         """Credentials or seller missing, or the token rejected: nothing can run until an operator fixes the setup. Report a

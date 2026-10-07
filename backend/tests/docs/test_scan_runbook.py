@@ -54,3 +54,7 @@ def test_the_runbook_says_a_full_request_during_a_full_lap_is_satisfied_by_that_
 def test_the_runbook_says_what_happens_to_a_request_while_the_setup_is_missing(doc) -> None:
     assert "blocked" in doc and "03:30" in doc and "request" in doc.lower()
     assert "seller_not_configured" in doc and "unauthorized" in doc
+
+
+def test_the_runbook_says_a_full_request_is_consumed_even_when_a_status_failed(doc) -> None:
+    assert "failed" in doc and "even if a status failed" in doc

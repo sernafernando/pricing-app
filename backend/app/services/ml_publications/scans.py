@@ -67,7 +67,7 @@ STOP_RATE_LIMITED = "rate_limited"
 
 # Every status a scan can be asked for, and the body statuses each one returns. Only `pending` differs
 # (captured 2026-10-06: the `pending` scan returns items whose body `status` is `inactive`).
-ALL_SCAN_STATUSES = ("active", "paused", "closed", "under_review", "inactive", "pending")
+ALL_SCAN_STATUSES = settings_store.SCAN_STATUSES
 SCAN_TO_BODY_STATUS: Mapping[str, FrozenSet[str]] = {"pending": frozenset({"inactive"})}
 
 

@@ -52,7 +52,8 @@ enabled too, or the entries only wait in the queue.
    drains (`SELECT lane, count(*) FROM ml_pub_refresh_queue GROUP BY lane;`), and `pending` items stored with
    body status `inactive` are not re-enqueued by the next rescan.
 
-`--mode full` is consumed (back to `rescan`) when that lap completes. A full request made while a lap that is
+`--mode full` is consumed (back to `rescan`) when that lap completes, even if a status failed: check the lap record
+(`outcome = failed`, `last_error`) and request it again after fixing the cause. A full request made while a lap that is
 already full is running (for example the first lap of an empty store) is satisfied by that lap: it is consumed
 when that lap ends, it does not start another one. `--mode rescan` cancels a full request that
 has not started.
@@ -67,4 +68,5 @@ has not started.
 * Missing setup: with no `ML_USER_ID`, no ML credentials or a rejected token (`seller_not_configured`,
   `not_configured`, `no_token`, `unauthorized`) the run reports `blocked` in `worker_job_state.detail`, ends as
   finished and falls back to the daily 03:30 slot instead of retrying every 30 s. That run also consumes a
-  pending request; `scan.next_mode = full` is kept, so fix the setup and request the scan again to run it now.
+  pending request; `scan.next_mode = full` is kept, so fix the setup and request the scan again to run it now. Five consecutive failing runs (a sustained ML
+  outage) end the same way with `blocked = upstream_error`.

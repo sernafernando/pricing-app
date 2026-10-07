@@ -215,6 +215,46 @@ class ScriptedUnauthorized(httpx.BaseTransport):
         return httpx.Response(401, json={"message": "invalid access token", "status": 401})
 
 
+class ScriptedServerError(httpx.BaseTransport):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.healthy = False
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        if self.healthy:
+            return httpx.Response(200, json=scan_body("under_review_empty"))
+        return httpx.Response(503, json={"message": "unavailable", "status": 503})
+
+
+class TestSustainedUpstreamErrors:
+    def test_a_persistent_server_error_stops_spinning_after_a_streak_and_falls_back_to_the_slot(self, env) -> None:
+        enable_scan()
+        transport = ScriptedServerError()
+        handler = make_handler(transport)
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+        now = datetime.now(timezone.utc)
+
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert runtime._run_handler(handler, now) is False  # a failed run: retried on the next pass
+        assert runtime._run_handler(handler, now) is True  # the streak is over: blocked, not retried
+
+        assert detail_of(env)["blocked"] == "upstream_error" and detail_of(env)["complete"] is True
+        assert runtime._due_handlers(now + timedelta(seconds=31)) == []
+
+    def test_a_good_run_resets_the_streak(self, env) -> None:
+        enable_scan()
+        transport = ScriptedServerError()
+        handler = make_handler(transport)
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert handler.run(context()).success is False
+        transport.healthy = True
+        assert handler.run(context()).success is True  # finished lap, streak cleared
+        transport.healthy = False
+        settings_store.set_setting("scan.next_mode", "full", "test")  # a new lap will start
+        assert handler.run(context()).success is False  # first error of a new streak, not blocked
+
+
 class TestBlockedBySetup:
     """Missing credentials must not leave the lap `complete=False`: that would spin the 30 s catch-up."""
 
