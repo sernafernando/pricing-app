@@ -149,10 +149,10 @@ class OverlapMemory:
     def __init__(self) -> None:
         self._seen: Dict[str, set] = {}
 
-    def add(self, topic: str, rows: Sequence["_Row"]) -> None:
+    def add(self, topic: str, rows: Sequence[NotificationRow]) -> None:
         self._seen.setdefault(topic, set()).update((r.resource, r.received_at) for r in rows)
 
-    def unseen(self, topic: str, rows: Sequence["_Row"]) -> List["_Row"]:
+    def unseen(self, topic: str, rows: Sequence[NotificationRow]) -> List[NotificationRow]:
         seen = self._seen.get(topic, ())
         return [r for r in rows if (r.resource, r.received_at) not in seen]
 
@@ -165,13 +165,10 @@ class OverlapMemory:
 
 
 @dataclass(frozen=True)
-class _Row:
+class NotificationRow:
     resource: str
     received_at: datetime
     user_id: Optional[str]
-
-
-NotificationRow = _Row
 
 
 class _BridgeUnavailable(Exception):
@@ -204,14 +201,14 @@ _OVERLAP = _SELECT.format(
 )
 
 
-def _read(bridge: Callable[[], Engine], statement: str, params: Mapping[str, Any]) -> List[_Row]:
+def _read(bridge: Callable[[], Engine], statement: str, params: Mapping[str, Any]) -> List[NotificationRow]:
     try:
         with open_read_only(bridge()) as conn:
             rows = conn.execute(text(statement), params).all()
     except Exception as exc:  # noqa: BLE001 -- the bridge being down must never crash the worker
         logger.error("intake could not read the bridge webhook_latest: %s", exc)
         raise _BridgeUnavailable from exc
-    return [_Row(r.resource, r.received_at, None if r.user_id is None else str(r.user_id)) for r in rows]
+    return [NotificationRow(r.resource, r.received_at, None if r.user_id is None else str(r.user_id)) for r in rows]
 
 
 # --- pricing side ---------------------------------------------------------------------------------
@@ -239,7 +236,7 @@ _FETCHED = text("SELECT item_id, fetched_request_started_at FROM ml_items WHERE 
 
 
 @dataclass
-class _Classified:
+class Classified:
     entries: List[queue.EnqueueEntry] = field(default_factory=list)
     satisfied: int = 0
     foreign: int = 0
@@ -249,15 +246,15 @@ class _Classified:
 def classify(
     session: Session,
     mapping: TopicMapping,
-    rows: Sequence["_Row"],
+    rows: Sequence[NotificationRow],
     seller_id: str,
     lane: int = queue.LANE_NOTIFICATION,
-) -> _Classified:
+) -> Classified:
     """Turn notification rows of one topic into queue entries of `lane`. Shared with `/missed_feeds`
     recovery, which enqueues in the reconcile lane through this very rule (foreign seller, topic parser,
     "already fetched after the notification")."""
-    out = _Classified()
-    candidates: List[Tuple[str, _Row]] = []
+    out = Classified()
+    candidates: List[Tuple[str, NotificationRow]] = []
     for row in rows:
         if row.user_id != seller_id:
             out.foreign += 1

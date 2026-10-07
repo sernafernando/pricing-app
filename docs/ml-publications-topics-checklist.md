@@ -269,6 +269,8 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   non-closed status: `active`, `paused`, `under_review`, `inactive`, `pending`; `closed` is never swept and is
   rejected by the setting), not gone. A performance state stored as `not_applicable` (a catalog product item) is
   rechecked only after `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS` (30 days). Visits are one item per call.
+* With `refresh.enabled` off the entries only wait in the queue (nothing fetches them), and while live entries wait
+  (intake keeps enqueuing) the tick records `yielded`: expected, not a fault.
 * Only the resources listed in `bundle_resources` are swept: add `performance` and/or `visits` first, or the tick
   records `no_resources` and does nothing.
 * The tick enqueues nothing while manual or notification-lane work is ready to be claimed (it yields), skips

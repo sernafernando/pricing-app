@@ -83,6 +83,10 @@ def test_the_resume_age_limit_is_the_real_constant(section) -> None:
     assert f"older than {hours} hours is dropped" in section
 
 
+def test_the_yielded_outcome_is_explained(section) -> None:
+    assert "`yielded`" in section and "expected, not a fault" in section
+
+
 def test_the_parked_items_note_is_present(section) -> None:
     assert "parked" in section and "enqueued by hand" in section
 
