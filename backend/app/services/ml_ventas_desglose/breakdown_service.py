@@ -170,6 +170,7 @@ __all__ = [
     # this list is what says so.
     "CHARGE_LABELS",
     "RELEVANT_PAYMENT_STATUSES",
+    "CONCEPTO_BONIFICACION_ENVIO",
     "BreakdownLine",
     "OperationBreakdown",
     "compute_breakdown",
@@ -852,6 +853,13 @@ def net_amount(charge: MlPaymentCharge) -> Decimal:
     return amount - refunded
 
 
+# The Flex "Bonificación por envío" (ventas-ml-bonificacion-envio-flex). Named
+# HERE, not in `bonificacion_flex`, because the breakdown's line and `iva.py`'s
+# component must carry the same label and `bonificacion_flex` imports this
+# module (a cycle the other way round).
+CONCEPTO_BONIFICACION_ENVIO = "Bonificación por envío"
+
+
 @dataclass(frozen=True)
 class BreakdownLine:
     concepto: str
@@ -939,6 +947,28 @@ class OperationBreakdown:
     # itself is `None` (no relevant payments at all).
     retenciones_recuperables: Decimal = Decimal("0")
     neto_depositado: Optional[Decimal] = None
+    # ventas-ml-bonificacion-en-neto: the Flex "Bonificación por envío" (gross,
+    # IVA included) that is INSIDE `neto` but NOT inside the payment: ML pays it
+    # for the operation, outside `net_received_amount`. 0 (never None) when the
+    # sale has none. `neto_depositado + retenciones_recuperables +
+    # bonificacion_envio == neto`.
+    bonificacion_envio: Decimal = Decimal("0")
+
+
+def bonificacion_bruta_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int, Decimal]:
+    """Per-order GROSS Flex bonificación (its share of the shipment's), for the
+    orders that have one. The single place `neto` reads it from, so the listing,
+    the panel and the metrics cannot disagree.
+
+    Imported locally: `bonificacion_flex` imports this module (`resolve_modes`).
+    The divisor only shapes the NET figure, which `neto` never uses."""
+    from app.services.ml_ventas_desglose.bonificacion_flex import resolve_bonificacion_flex_by_order_ids
+    from app.services.ml_ventas_desglose.iva import IVA_ML_DIVISOR
+
+    return {
+        order_id: share.bruto
+        for order_id, share in resolve_bonificacion_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR).items()
+    }
 
 
 def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
@@ -1006,6 +1036,10 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
     for charge in charges:
         charges_by_payment.setdefault(charge.payment_id, []).append(charge)
 
+    # ventas-ml-bonificacion-en-neto: ML pays the Flex bonificación for the
+    # operation, outside the payment, so it is part of the neto.
+    bonificacion_by_order = bonificacion_bruta_by_order_ids(db, list(payments_by_order))
+
     for order_id, order_payments in payments_by_order.items():
         order_relevant = [p for p in order_payments if p.status in RELEVANT_PAYMENT_STATUSES]
         if not order_relevant:
@@ -1022,7 +1056,7 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
             neto += payment_effective_net(payment, seller_charges)
-        result[order_id] = neto
+        result[order_id] = neto + bonificacion_by_order.get(order_id, Decimal("0"))
 
     return result
 
@@ -1128,6 +1162,12 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
         neto += payment_effective_net(payment, seller_charges)
         retenciones_recuperables_total += recoverable_withholding_total(seller_charges)
+
+    # ventas-ml-bonificacion-en-neto: only the orders whose payments count,
+    # exactly like `compute_neto_by_order_ids` (the two paths must agree).
+    orders_with_money = {p.order_id for p in relevant_payments}
+    bonificacion_total = sum(bonificacion_bruta_by_order_ids(db, sorted(orders_with_money)).values(), Decimal("0"))
+    neto += bonificacion_total
 
     seller_charges_all = [c for c in charges if is_seller_charge(c.type, c.name)]
 
@@ -1340,6 +1380,12 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         for concepto, monto in line_amounts.items()
         if monto != 0
     ] + lines_extra
+    if bonificacion_total != 0:
+        # A NEGATIVE charge adds to the neto (the panel draws it `(+)`): the
+        # money ML pays for the operation, next to the charges it takes.
+        lines.append(
+            BreakdownLine(concepto=CONCEPTO_BONIFICACION_ENVIO, monto=-bonificacion_total, origen="bonificacion")
+        )
 
     neto_final = neto if relevant_payments else None
 
@@ -1359,5 +1405,10 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         item_lines_reconcilia=item_lines_reconcilia,
         item_lines_razon=item_lines_razon,
         retenciones_recuperables=retenciones_recuperables_total,
-        neto_depositado=(neto_final - retenciones_recuperables_total) if neto_final is not None else None,
+        # What ML deposited: the payment alone, without the SIRTAC add-back
+        # and without the bonificación (which is not in the payment).
+        neto_depositado=(
+            (neto_final - retenciones_recuperables_total - bonificacion_total) if neto_final is not None else None
+        ),
+        bonificacion_envio=bonificacion_total,
     )

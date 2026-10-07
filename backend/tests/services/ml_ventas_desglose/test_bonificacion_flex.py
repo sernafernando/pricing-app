@@ -22,11 +22,6 @@ from app.services.ml_ventas_desglose.bonificacion_flex import (
     repartir_en_centavos,
     resolve_bonificacion_flex_by_order_ids,
 )
-from app.services.ml_ventas_desglose.deducciones import (
-    DEDUCCIONES,
-    BonificacionEnvioDeduccion,
-    calcular_total_gauss,
-)
 from app.services.ml_ventas_desglose.iva import IVA_ML_DIVISOR, descomponer_neto
 from app.services.order_metrics.compute import compute_order_metrics
 
@@ -174,12 +169,13 @@ class TestTheCapturedFlexPackIsTheSellersOwnDiscount:
 
         assert (share.bruto, share.neto) == (Decimal("599"), Decimal("495.04"))
 
-    def test_the_chain_line_is_the_599_net_of_iva(self, db) -> None:
+    def test_it_enters_the_neto_as_599_gross_and_495_04_net_of_iva(self, db) -> None:
         seed_case(db, SELF_SERVICE_PACK)
 
-        assert BonificacionEnvioDeduccion().resolve_bulk(db, [SELF_SERVICE_PACK]) == {
-            SELF_SERVICE_PACK: Decimal("-495.04")
-        }
+        desc = descomponer_neto(db, [SELF_SERVICE_PACK])[SELF_SERVICE_PACK]
+
+        componente = next(c for c in desc.componentes if c.concepto == "Bonificación por envío")
+        assert (componente.bruto, componente.base) == (Decimal("599"), Decimal("495.04"))
 
 
 class TestExactCentSplit:
@@ -210,7 +206,6 @@ class TestResolverOverTheCapture:
         seed_capture(db, logistic_type="cross_docking")
 
         assert resolve_bonificacion_flex_by_order_ids(db, [ORDER_ID], IVA_ML_DIVISOR) == {}
-        assert BonificacionEnvioDeduccion().resolve_bulk(db, [ORDER_ID]) == {}
 
     def test_an_order_without_a_synced_shipment_cost_adds_nothing_and_does_not_block(self, db) -> None:
         seed_capture(db, raw_costs=None)
@@ -254,16 +249,13 @@ class TestResolverOverTheCapture:
         assert resolve_bonificacion_flex_by_order_ids(db, [ORDER_ID], IVA_ML_DIVISOR)[ORDER_ID].neto == base
 
 
-class TestInTheChain:
-    def test_the_deduction_is_registered_and_negative_so_it_adds(self, db) -> None:
-        seed_capture(db)
-        assert BonificacionEnvioDeduccion.code in [d.code for d in DEDUCCIONES]
-
-        assert BonificacionEnvioDeduccion().resolve_bulk(db, [ORDER_ID]) == {ORDER_ID: -NET_OF_IVA}
+class TestInTheTotalGauss:
+    """It reaches the Total Gauss through the neto (`neto_sin_iva`), never as a
+    deduction of the chain (ventas-ml-bonificacion-en-neto)."""
 
     def test_total_gauss_rises_by_exactly_the_net_bonificacion(self, db) -> None:
         """The reported bug: same sale, with and without the captured
-        discount. MUTATION: leaving the deduction out of DEDUCCIONES fails
+        discount. MUTATION: leaving the bonificación out of the neto fails
         this."""
         seed_capture(db)
         with_bonus = compute_order_metrics(db, [ORDER_ID])[ORDER_ID]
@@ -275,13 +267,11 @@ class TestInTheChain:
 
         assert without_bonus.total_gauss is not None
         assert with_bonus.total_gauss - without_bonus.total_gauss == NET_OF_IVA
-        codes = [code for code, _m, _c in with_bonus.lineas]
-        assert "bonificacion_envio" in codes
-        assert "bonificacion_envio" not in [code for code, _m, _c in without_bonus.lineas]
-        line = next(l for l in with_bonus.lineas if l[0] == "bonificacion_envio")
-        assert line[1] == -NET_OF_IVA
+        assert with_bonus.neto - without_bonus.neto == GROSS
+        assert with_bonus.neto_sin_iva - without_bonus.neto_sin_iva == NET_OF_IVA
+        assert "bonificacion_envio" not in [code for code, _m, _c in with_bonus.lineas]
 
-    def test_it_is_stored_and_read_back_with_its_label(self, db) -> None:
+    def test_the_neto_is_stored_and_read_back_with_it(self, db) -> None:
         from app.services.order_metrics.read import read_stored_metrics
         from app.services.order_metrics.store import recompute_order_metrics
 
@@ -291,9 +281,26 @@ class TestInTheChain:
 
         stored = read_stored_metrics(db, [ORDER_ID])[ORDER_ID]
 
-        line = next(l for l in stored.lineas if l[0] == "bonificacion_envio")
-        assert line[1] == -NET_OF_IVA
-        assert line[2] == "Bonificación por envío"
+        assert stored.neto == Decimal("13081.02") + GROSS
+        assert stored.neto_sin_iva == Decimal("10677.99") + NET_OF_IVA
+        assert "bonificacion_envio" not in [code for code, _m, _c in stored.lineas]
+
+    def test_a_stale_chain_row_of_the_old_formula_is_deleted_on_recompute(self, db) -> None:
+        """Before this change the bonificación was a `ml_venta_deducciones`
+        row. A recompute must not leave it behind, or the panel would show the
+        old (+) line next to the new neto."""
+        from app.models.ml_venta_deduccion import MlVentaDeduccion
+        from app.services.order_metrics.store import recompute_order_metrics
+
+        seed_capture(db)
+        db.add(MlVentaDeduccion(order_id=ORDER_ID, code="bonificacion_envio", orden=4, monto=-NET_OF_IVA))
+        db.commit()
+
+        recompute_order_metrics(db, [ORDER_ID])
+        db.commit()
+
+        codes = {row.code for row in db.query(MlVentaDeduccion).filter_by(order_id=ORDER_ID)}
+        assert "bonificacion_envio" not in codes
 
     def test_a_pack_does_not_duplicate_it_in_the_orders_total_gauss(self, db) -> None:
         sibling = ORDER_ID + 1
@@ -309,29 +316,22 @@ class TestInTheChain:
         gained = sum(both[o].total_gauss - none[o].total_gauss for o in (ORDER_ID, sibling))
         assert gained == NET_OF_IVA
 
-    def test_the_chain_unit_adds_the_negative_monto(self, db) -> None:
-        seed_capture(db)
-        result = calcular_total_gauss(
-            db, [ORDER_ID], {ORDER_ID: Decimal("1000.00")}, base_varios_by_order={ORDER_ID: Decimal("500")}
-        )[ORDER_ID]
-        monto = next(m for code, m, _c in result.lineas if code == "bonificacion_envio")
-        assert monto == -NET_OF_IVA
-
 
 class TestIvaDecomposition:
-    def test_it_shows_as_an_informative_21_percent_component(self, db) -> None:
+    def test_it_is_a_real_21_percent_component(self, db) -> None:
         seed_capture(db)
 
         desc = descomponer_neto(db, [ORDER_ID])[ORDER_ID]
 
         componente = next(c for c in desc.componentes if c.concepto == "Bonificación por envío")
-        assert componente.informativo is True
+        assert componente.informativo is False
+        assert componente.fuera_del_pago is True
         assert componente.alicuota == Decimal("21")
         assert (componente.bruto, componente.base, componente.iva) == (GROSS, NET_OF_IVA, Decimal("1560.25"))
 
-    def test_it_does_not_break_the_exact_reconciliation_nor_move_neto_sin_iva(self, db) -> None:
-        """It is NOT inside `net_received_amount`, so counting it in the
-        reconciliation would break D12's exact equality."""
+    def test_it_moves_neto_sin_iva_by_its_base_and_keeps_the_payment_reconciliation_exact(self, db) -> None:
+        """The payment is reconciled against `net_received_amount` alone; the
+        bonificación is NOT in it, so counting it there would break D12."""
         seed_capture(db)
         with_bonus = descomponer_neto(db, [ORDER_ID])[ORDER_ID]
 
@@ -342,5 +342,5 @@ class TestIvaDecomposition:
 
         assert with_bonus.reconcilia is True
         assert with_bonus.neto_sin_iva is not None
-        assert with_bonus.neto_sin_iva == without_bonus.neto_sin_iva
+        assert with_bonus.neto_sin_iva - without_bonus.neto_sin_iva == NET_OF_IVA
         assert with_bonus.diferencia == without_bonus.diferencia == Decimal("0")
