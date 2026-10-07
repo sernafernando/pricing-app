@@ -122,3 +122,39 @@ def test_the_documented_promotions_topic_map_is_accepted_by_intake(doc) -> None:
         ("public_candidates", ("promotions",), True),
         ("public_offers", ("promotions",), True),
     ]
+
+
+def user_products_section(doc: str) -> str:
+    start = doc.index("## Enabling the user product, stock and family fetchers")
+    nxt = doc.find("\n## ", start + 1)
+    return doc[start : nxt if nxt != -1 else len(doc)]
+
+
+def test_enabling_the_user_product_fetchers_is_documented_with_gate_ages_budget_and_rollback(doc) -> None:
+    section = user_products_section(doc)
+    for needle in (
+        "bundle_resources",
+        "`user_product`",
+        "`stock`",
+        "`family`",
+        "15 min",
+        "24 h",
+        "ML_PUB_STOCK_RATE_PER_MIN",
+        "100 requests per minute",
+        "skipped_not_applicable",
+        "skipped_shared",
+        "Rollback",
+    ):
+        assert needle in section, needle
+
+
+def test_the_stock_and_family_topics_stay_unmapped_until_a_real_row_fixes_their_pattern(doc) -> None:
+    section = user_products_section(doc)
+    for topic in ("stock-locations", "user-products-families"):
+        assert f"`{topic}`" in section
+        for kind in ("user_product", "family"):  # even a well-formed entry cannot be read without a pattern
+            assert topic_mappings({topic: {"kind": kind, "resources": ["stock"]}}) == []
+    assert "SELECT topic, resource FROM webhook_latest WHERE topic IN ('stock-locations','user-products-families')" in (
+        section
+    )
+    assert "NOT mapped" in section
