@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permiso
@@ -109,7 +109,15 @@ class EnqueueIn(BaseModel):
     item_ids: list[Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]] = Field(
         min_length=1, max_length=ENQUEUE_MAX, description="e.g. MLA935110613"
     )
-    resources: list[Literal[REFRESH_RESOURCES]] = Field(default=[BUNDLE_RESOURCE], min_length=1)
+    resources: list[str] = Field(default=[BUNDLE_RESOURCE], min_length=1)
+
+    @field_validator("resources")
+    @classmethod
+    def _known_resources(cls, resources: list[str]) -> list[str]:
+        unknown = [r for r in resources if r not in REFRESH_RESOURCES]
+        if unknown:
+            raise ValueError(f"unknown resource(s) {unknown}; known: {', '.join(REFRESH_RESOURCES)}")
+        return resources
 
 
 class EnqueueOut(BaseModel):

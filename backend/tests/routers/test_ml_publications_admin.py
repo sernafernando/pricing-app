@@ -432,6 +432,16 @@ class TestJobRequest:
 
         assert self.post(client, operator, "scan", {"mode": "full"}).status_code == 422
 
+    def test_under_the_kill_switch_the_request_is_kept_and_the_note_says_it_waits(
+        self, client, pg, operator, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", True)
+
+        body = self.post(client, operator, "refresh").json()
+
+        assert body["enabled"] is False and "ML_PUB_KILL_SWITCH" in body["note"]
+        assert worker_state(pg, "ml_publications.refresh") == "requested"
+
     def test_without_a_mode_the_scan_setting_is_left_alone(self, client, pg, operator) -> None:
         self.post(client, operator, "scan")
 

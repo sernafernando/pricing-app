@@ -137,6 +137,11 @@ def resolve_job(name: str) -> Tuple[str, str]:
     raise UnknownJob(name)
 
 
+def _waiting_note(flag: str) -> str:
+    why = "ML_PUB_KILL_SWITCH está activo" if settings.ML_PUB_KILL_SWITCH else f"{flag} está apagado"
+    return f"{why}: el pedido queda registrado y corre cuando el trabajo vuelva a estar habilitado"
+
+
 def request_job(db: Session, name: str, *, mode: Optional[str], actor: str) -> Dict[str, Any]:
     """Mark a handler requested; for `scan`, `mode` is written to `scan.next_mode` in the same transaction."""
     job, handler = resolve_job(name)
@@ -161,5 +166,5 @@ def request_job(db: Session, name: str, *, mode: Optional[str], actor: str) -> D
         "requested": True,
         "mode": mode,
         "enabled": enabled,
-        "note": None if enabled else f"{flag} está apagado: el pedido queda registrado y corre cuando se encienda",
+        "note": None if enabled else _waiting_note(flag),
     }
