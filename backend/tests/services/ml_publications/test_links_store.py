@@ -13,7 +13,6 @@ from sqlalchemy import event, text
 
 from app.core import database
 from app.models.ml_publications import MlItemProductLink
-from app.models.producto import ProductoERP
 from app.services.ml_publications import events_store, links
 from app.services.ml_publications import store as store_module
 from app.services.ml_publications.mappers import map_item, map_variations
@@ -31,19 +30,6 @@ ITEM = "MLA882393030"
 
 def at(minutes: float) -> datetime:
     return T0 + timedelta(minutes=minutes)
-
-
-@pytest.fixture()
-def env(mlpub_pg):
-    """The real link table plus a `productos_erp` table built from the real model."""
-    ProductoERP.__table__.create(bind=mlpub_pg)
-    return mlpub_pg
-
-
-@pytest.fixture()
-def events_on(env):
-    set_setting("events.enabled", True, "test")
-    return env
 
 
 def add_product(engine, item_id: int, codigo: str | None) -> None:

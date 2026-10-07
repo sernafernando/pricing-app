@@ -138,6 +138,23 @@ def mlpub_pg(monkeypatch):
         admin.dispose()
 
 
+@pytest.fixture()
+def env(mlpub_pg):
+    """The real link table plus a `productos_erp` table built from the real model."""
+    from app.models.producto import ProductoERP
+
+    ProductoERP.__table__.create(bind=mlpub_pg)
+    return mlpub_pg
+
+
+@pytest.fixture()
+def events_on(env):
+    from app.services.ml_publications.settings_store import set_setting
+
+    set_setting("events.enabled", True, "test")
+    return env
+
+
 ITEM_404_SINGLE = "item_single_404_MLA1_20261006.json"
 
 

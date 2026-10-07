@@ -23,6 +23,12 @@ class TipoAccion(str, enum.Enum):
     # (no native enum type backs it), so this is a pure Python-enum addition
     # -- no migration, no DDL.
     PXQ_PRECIO_PUBLICADO = "pxq_precio_publicado"
+    # ml-publicaciones-store, manual product links: one row per operator decision on a publication
+    # unit (link by hand / explicitly no product / back to the automatic SKU rule). Same VARCHAR(50)
+    # column as above: a pure Python-enum addition, no DDL.
+    ML_VINCULO_MANUAL = "ml_vinculo_manual"
+    ML_VINCULO_SIN_PRODUCTO = "ml_vinculo_sin_producto"
+    ML_VINCULO_AUTOMATICO = "ml_vinculo_automatico"
 
 
 class Auditoria(Base):
