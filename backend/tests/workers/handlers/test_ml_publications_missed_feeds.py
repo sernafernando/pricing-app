@@ -326,6 +326,61 @@ class TestResume:
         assert second.offsets() == [missed_feeds.PAGE_LIMIT]
         assert detail_of(env)["resume"] is None
 
+    def test_a_position_older_than_the_limit_is_dropped_because_the_list_moved_meanwhile(self, env) -> None:
+        enable()
+        with env.begin() as conn:
+            conn.execute(
+                text("INSERT INTO worker_job_state (name, detail) VALUES (:n, CAST(:d AS jsonb))"),
+                {
+                    "n": HANDLER_NAME,
+                    "d": '{"resume": {"topic": "items", "offset": 40}, "resume_at": "%s"}'
+                    % (
+                        datetime.now(timezone.utc) - handlers.MISSED_FEEDS_RESUME_MAX_AGE - timedelta(minutes=1)
+                    ).isoformat(),
+                },
+            )
+        transport = MissedTransport()
+        make_handler(transport).run(context())
+        assert transport.offsets()[0] == 0
+
+    def test_a_recent_position_is_kept(self, env) -> None:
+        enable()
+        with env.begin() as conn:
+            conn.execute(
+                text("INSERT INTO worker_job_state (name, detail) VALUES (:n, CAST(:d AS jsonb))"),
+                {
+                    "n": HANDLER_NAME,
+                    "d": '{"resume": {"topic": "items", "offset": 40}, "resume_at": "%s"}'
+                    % (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+                },
+            )
+        transport = MissedTransport()
+        make_handler(transport).run(context())
+        assert transport.offsets()[0] == 40
+
+    def test_a_chain_of_failing_runs_does_not_keep_a_position_alive_past_the_limit(self, env) -> None:
+        enable()
+        started = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        with env.begin() as conn:
+            conn.execute(
+                text("INSERT INTO worker_job_state (name, detail) VALUES (:n, CAST(:d AS jsonb))"),
+                {"n": HANDLER_NAME, "d": '{"resume": {"topic": "items", "offset": 40}, "resume_at": "%s"}' % started},
+            )
+        make_handler(MissedTransport(status=503)).run(context())  # fails at offset 40: the chain keeps its start
+        assert detail_of(env)["resume_at"] == started
+
+    def test_a_corrupt_failure_count_in_the_stored_state_does_not_stop_the_run(self, env) -> None:
+        enable()
+        with env.begin() as conn:
+            conn.execute(
+                text("INSERT INTO worker_job_state (name, detail) VALUES (:n, CAST(:d AS jsonb))"),
+                {"n": HANDLER_NAME, "d": '{"failures": "many", "resume": "nope", "resume_at": 5}'},
+            )
+        transport = MissedTransport(status=503)
+        result = make_handler(transport).run(context())
+        assert result.error == "http_503" and detail_of(env)["failures"] == 1
+        assert transport.offsets() == [0]
+
     def test_an_exhausted_deadline_is_continued_on_the_next_pass_without_waiting(self, env) -> None:
         enable()
         transport = MissedTransport()

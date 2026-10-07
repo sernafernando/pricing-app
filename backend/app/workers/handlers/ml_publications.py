@@ -867,6 +867,9 @@ ERROR_CLIENT_NOT_CONFIGURED = "client_not_configured"
 # otherwise be due again on every pass (a handler that fails is never marked as having succeeded).
 MISSED_FEEDS_RETRY_BASE = timedelta(seconds=60)
 MISSED_FEEDS_RETRY_CAP = timedelta(hours=1)
+# A saved page position is an offset into a list ML trims from the front (it keeps messages 2 days): after
+# this long it no longer points at the same messages, so the run starts again from the first page.
+MISSED_FEEDS_RESUME_MAX_AGE = timedelta(hours=3)
 
 
 def missed_feeds_retry_delay(failures: int) -> timedelta:
@@ -917,6 +920,7 @@ class MissedFeedsHandler:
             return self._blocked(ERROR_SELLER_NOT_CONFIGURED, state)
         if not settings.ML_CLIENT_ID:
             return self._blocked(ERROR_CLIENT_NOT_CONFIGURED, state)
+        resume = _valid_resume(state.get("resume"), _parse_moment(state.get("resume_at")))
         retry_at = _parse_moment(state.get("retry_at"))
         if retry_at is not None and _utcnow() < retry_at:
             return JobResult(success=False, detail={"backoff_until": retry_at.isoformat()})
@@ -933,12 +937,12 @@ class MissedFeedsHandler:
             mappings=mappings,
             keep_going=lambda: settings_store.get_setting("missed_feeds.enabled").value is True,
             deadline=ctx.deadline,
-            resume=state.get("resume"),
+            resume=resume,
         )
         error = result.error
         if error in _BLOCKED_BY_SETUP or error == "http_401":
             return self._blocked("unauthorized" if error == "http_401" else str(error), state)
-        failures = int(state.get("failures") or 0)
+        failures = state["failures"] if isinstance(state.get("failures"), int) else 0
         retry: Optional[datetime] = None
         if error:
             failures += 1
@@ -947,7 +951,15 @@ class MissedFeedsHandler:
             failures = 0
         elif result.stopped == missed_feeds_core.STOP_RATE_LIMITED:
             retry = _utcnow() + MISSED_FEEDS_RETRY_BASE  # waiting out a 429 is not a failure
-        detail = self._flush(result.as_detail(), failures=failures, retry_at=retry, resume=result.resume)
+        detail = self._flush(
+            result.as_detail(),
+            failures=failures,
+            retry_at=retry,
+            resume=result.resume,
+            # the age of the chain of runs that walk this list, not of the last one: a run that keeps failing
+            # must not keep a position alive for days
+            resume_at=(state["resume_at"] if resume else _utcnow().isoformat()) if result.resume else None,
+        )
         return JobResult(success=result.complete, detail=detail, error=error)
 
     def _blocked(self, reason: str, state: Dict[str, Any]) -> JobResult:
@@ -955,23 +967,43 @@ class MissedFeedsHandler:
         interval instead of spinning; a stored resume position is kept for when it is fixed."""
         logger.error("missed feeds blocked: %s", reason)
         detail = self._flush(
-            {"complete": True, "blocked": reason}, failures=0, retry_at=None, resume=state.get("resume")
+            {"complete": True, "blocked": reason},
+            failures=0,
+            retry_at=None,
+            resume=state.get("resume"),
+            resume_at=state.get("resume_at"),  # keeps its age: waiting for the setup does not refresh a position
         )
         return JobResult(success=True, detail=detail)
 
     def _flush(
-        self, detail: Dict[str, Any], *, failures: int, retry_at: Optional[datetime], resume: Optional[Dict[str, Any]]
+        self,
+        detail: Dict[str, Any],
+        *,
+        failures: int,
+        retry_at: Optional[datetime],
+        resume: Optional[Dict[str, Any]],
+        resume_at: Optional[str],
     ) -> Dict[str, Any]:
         detail = {
             **detail,
             "failures": failures,
             "retry_at": retry_at.isoformat() if retry_at else None,
             "resume": resume,
+            "resume_at": resume_at,
             "counters": self._client.counters.snapshot() if self._client is not None else {},
             "at": _utcnow().isoformat(),
         }
         _persist_detail(self.name, detail)
         return detail
+
+
+def _valid_resume(value: Any, saved_at: Optional[datetime]) -> Optional[Dict[str, Any]]:
+    """The stored page position when it is well formed and recent enough to still mean the same messages."""
+    if not (isinstance(value, dict) and isinstance(value.get("topic"), str) and isinstance(value.get("offset"), int)):
+        return None
+    if saved_at is None or _utcnow() - saved_at > MISSED_FEEDS_RESUME_MAX_AGE:
+        return None
+    return value
 
 
 def _parse_moment(value: Any) -> Optional[datetime]:

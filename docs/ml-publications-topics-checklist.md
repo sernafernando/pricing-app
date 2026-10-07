@@ -255,7 +255,8 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   (`counts.coverage_gap`) and requests a scan rescan (`worker_job_state.state = 'requested'` for
   `ml_publications.scan`, honored once `scan.enabled` is on), once per gap.
 * A run that does not finish (worker deadline, flag turned off, 429) continues from its page on the next pass
-  (`worker_job_state.detail.resume`). A failed run waits 1, 2, 4, ... minutes (at most 1 hour) before the next try
+  (`worker_job_state.detail.resume`; a position older than 3 hours is dropped and the list is read again from the first
+  page, because ML trims it from the front). A failed run waits 1, 2, 4, ... minutes (at most 1 hour) before the next try
   (`detail.failures`, `detail.retry_at`); a missing `ML_USER_ID` / `ML_CLIENT_ID` or a rejected token ends the run as
   `blocked` until the setup is fixed.
 * Known gaps: the capture's calls for `stock-location` and `user_products` used wrong topic names (there is no such

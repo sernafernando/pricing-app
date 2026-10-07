@@ -211,7 +211,23 @@ class TestRecovery:
             }
         )
         result = run(ml)
-        assert len(ml.requests) == 2 and result.complete and result.repeated_pages == 1
+        assert len(ml.requests) == 1 + missed_feeds.REPEATED_PAGES_LIMIT
+        assert result.complete and result.repeated_pages == missed_feeds.REPEATED_PAGES_LIMIT
+
+    def test_one_page_made_only_of_seen_messages_does_not_end_the_topic_when_the_list_moved(self, env):
+        """The list grew at the front between two requests, so page 2 shows page 1 again; page 3 has a new item
+        (a deep copy of the first real message with a new `_id` and the second real message's resource)."""
+        fresh = {"messages": [with_message(_id="00000000-0000-4000-8000-0000000000aa", resource="/items/MLA1")]}
+        ml = Ml(
+            {
+                ("items", 0): missed_body("items"),
+                ("items", missed_feeds.PAGE_LIMIT): missed_body("items"),
+                ("items", 2 * missed_feeds.PAGE_LIMIT): fresh,
+            }
+        )
+        result = run(ml)
+        assert set(queue_rows(env)) == {*IDS, "MLA1"}
+        assert result.complete and result.repeated_pages == 1
 
     def test_messages_without_an_id_are_still_recognised_as_a_repeated_page(self, env):
         """The captured messages with `_id` removed (the only change): ML answering the same page forever."""
@@ -223,7 +239,8 @@ class TestRecovery:
             }
         )
         result = run(ml)
-        assert len(ml.requests) == 2 and result.complete and result.repeated_pages == 1
+        assert len(ml.requests) == 1 + missed_feeds.REPEATED_PAGES_LIMIT
+        assert result.complete and result.repeated_pages == missed_feeds.REPEATED_PAGES_LIMIT
         assert set(queue_rows(env)) == set(IDS)
 
     def test_each_mapped_topic_is_walked_in_order(self, env):
@@ -311,6 +328,16 @@ class TestRunRecord:
         assert result.error.startswith("internal_error") and not result.complete
         assert result.resume == {"topic": "items", "offset": missed_feeds.PAGE_LIMIT}
         assert run_records(env)[0]["counts"]["resume"] == result.resume
+
+    def test_a_gap_marker_survives_a_failed_record_so_the_rescan_is_not_requested_again(self, env, monkeypatch):
+        previous_success(env, ago_hours=72)
+        monkeypatch.setattr(missed_feeds, "_record", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no write")))
+        run(Ml())
+        assert scan_requested(env)
+        with env.begin() as conn:
+            conn.execute(text("UPDATE worker_job_state SET state = NULL"))
+        run(Ml())
+        assert not scan_requested(env)
 
     def test_a_completed_run_has_no_position_left(self, env):
         assert run(Ml()).resume is None

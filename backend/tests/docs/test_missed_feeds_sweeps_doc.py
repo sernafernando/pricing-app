@@ -76,6 +76,13 @@ def test_the_checks_use_the_run_records_and_the_rollback_is_the_flags(section) -
     assert "Rollback" in section
 
 
+def test_the_resume_age_limit_is_the_real_constant(section) -> None:
+    from app.workers.handlers import ml_publications as handlers
+
+    hours = int(handlers.MISSED_FEEDS_RESUME_MAX_AGE.total_seconds() // 3600)
+    assert f"older than {hours} hours is dropped" in section
+
+
 def test_the_parked_items_note_is_present(section) -> None:
     assert "parked" in section and "enqueued by hand" in section
 

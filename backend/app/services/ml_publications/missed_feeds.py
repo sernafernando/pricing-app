@@ -35,6 +35,9 @@ SITE_ID = "MLA"
 # The capture used `limit=5`; ML's own ceiling is not in it, so the page stays small, and a short page never
 # ends the list (the capture's `limit=5` page held 3 messages): only `{messages: null}` does.
 PAGE_LIMIT = 20
+# A page made only of messages already read is skipped (the list can grow at the front between two requests and
+# show the previous page again); this many in a row mean ML is not advancing and the topic ends.
+REPEATED_PAGES_LIMIT = 2
 # ML keeps missed feeds for 2 days: a longer silence than this can have lost events (design D17: 48 h).
 GAP_HOURS = 48
 
@@ -145,6 +148,22 @@ def _detect_gap(now: datetime) -> Optional[Dict[str, Any]]:
 # --- one run ----------------------------------------------------------------------------------
 
 
+def _open_gap_run(gap: Dict[str, Any], mappings: Sequence[intake.TopicMapping], started: datetime) -> int:
+    """The run record of a run with a coverage gap, written in the SAME transaction as the rescan request: the
+    marker the "once per gap" rule reads cannot be lost on its own, whatever happens to the end-of-run record
+    (a crash leaves it open, `outcome` NULL, which never counts as a success)."""
+    with database.get_background_db() as session:
+        run = MlPubJobRun(job=JOB, scope=_scope(mappings), started_at=started, counts={"coverage_gap": gap})
+        session.add(run)
+        session.flush()
+        scans.request_rescan(session=session)
+        return run.id
+
+
+def _scope(mappings: Sequence[intake.TopicMapping]) -> str:
+    return ",".join(m.topic for m in mappings)
+
+
 def _request_counts(client: Any) -> Dict[str, int]:
     counters = getattr(client, "counters", None)
     return dict(counters.snapshot().get(ENDPOINT_FAMILY, {})) if counters is not None else {}
@@ -220,6 +239,7 @@ def _walk_topic(
     """Pages one topic to its end. Returns True when the RUN must stop (reason and position in `result`)."""
     seen: Set[str] = set()
     seen_ids: Set[str] = set()
+    repeats_in_a_row = 0
 
     def stop(reason: Optional[str] = None, error: Optional[str] = None) -> bool:
         result.stopped, result.error = reason, error
@@ -252,14 +272,18 @@ def _walk_topic(
         if not isinstance(messages, list):
             return stop(error=ERROR_MALFORMED)
         ids = _page_keys(messages)
-        if ids and ids <= seen_ids:  # ML answered a page this run already read: the list is not advancing
+        if ids and ids <= seen_ids:  # a page this run already read: skip it, and stop if ML is not advancing
             result.repeated_pages += 1
-            logger.warning("missed feeds topic %s repeats a page at offset %s; ending the topic", mapping.topic, offset)
-            return False
-        seen_ids |= ids
-        _apply_page(mapping, messages, seller_id=seller_id, seen=seen, now=now(), result=result)
-        result.pages += 1
-        result.messages += len(messages)
+            repeats_in_a_row += 1
+            if repeats_in_a_row >= REPEATED_PAGES_LIMIT:
+                logger.warning("missed feeds topic %s repeats pages at offset %s; ending it", mapping.topic, offset)
+                return False
+        else:
+            repeats_in_a_row = 0
+            seen_ids |= ids
+            _apply_page(mapping, messages, seller_id=seller_id, seen=seen, now=now(), result=result)
+            result.pages += 1
+            result.messages += len(messages)
         offset += PAGE_LIMIT
 
 
@@ -300,20 +324,21 @@ def _walk(
 
 
 def _record(
-    result: MissedFeedsResult, mappings: Sequence[intake.TopicMapping], started: datetime, finished: datetime
+    result: MissedFeedsResult,
+    mappings: Sequence[intake.TopicMapping],
+    started: datetime,
+    finished: datetime,
+    run_id: Optional[int] = None,
 ) -> None:
     with database.get_background_db() as session:
-        session.add(
-            MlPubJobRun(
-                job=JOB,
-                scope=",".join(m.topic for m in mappings),
-                started_at=started,
-                finished_at=finished,
-                outcome=result.outcome,
-                counts=result.counts(),
-                last_error=result.error[:1000] if result.error else None,
-            )
-        )
+        run = session.get(MlPubJobRun, run_id) if run_id is not None else None
+        if run is None:
+            run = MlPubJobRun(job=JOB, scope=_scope(mappings), started_at=started)
+            session.add(run)
+        run.finished_at = finished
+        run.outcome = result.outcome
+        run.counts = result.counts()
+        run.last_error = result.error[:1000] if result.error else None
 
 
 def run_missed_feeds(
@@ -331,11 +356,12 @@ def run_missed_feeds(
     result = MissedFeedsResult()
     started = now()
     before = _request_counts(client)
+    run_id: Optional[int] = None
     try:
         result.gap = _detect_gap(started)
         if result.gap:
             logger.error("missed feeds coverage gap: %s; requesting a rescan", result.gap)
-            scans.request_rescan()
+            run_id = _open_gap_run(result.gap, mappings, started)
         _walk(
             client,
             mappings,
@@ -352,7 +378,7 @@ def run_missed_feeds(
         result.error = f"internal_error: {type(exc).__name__}: {exc}"[:300]
     result.requests = _delta(_request_counts(client), before)
     try:
-        _record(result, mappings, started, now())
+        _record(result, mappings, started, now(), run_id)
     except Exception:  # noqa: BLE001 -- observability must never fail a run
         logger.exception("could not record the missed feeds run")
     return result

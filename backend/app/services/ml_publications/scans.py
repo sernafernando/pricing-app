@@ -313,20 +313,23 @@ def _close_lap(
             run.last_error = "; ".join(part for part in (run.last_error, failed) if part) or None
 
 
-def request_rescan() -> None:
+def request_rescan(session: Optional[Session] = None) -> None:
     """Ask the worker to run the scan handler on its next pass (the mechanism of
     `python -m app.scripts.ml_publications_request ml_publications.scan`: `worker_job_state.state =
     'requested'`, cleared by the runtime after a successful run). The lap that runs is a rescan unless
     an operator left `scan.next_mode = full`, and a request made while `scan.enabled` is off is
-    honored once it is on. The runtime polls the flag every pass, so no wake-up channel is needed."""
-    with database.get_background_db() as session:
-        session.execute(
-            text(
-                "INSERT INTO worker_job_state (name, state) VALUES (:name, 'requested') "
-                "ON CONFLICT (name) DO UPDATE SET state = 'requested'"
-            ),
-            {"name": HANDLER_NAME},
-        )
+    honored once it is on. The runtime polls the flag every pass, so no wake-up channel is needed.
+
+    With `session` the request joins the caller's transaction (the caller commits)."""
+    statement = text(
+        "INSERT INTO worker_job_state (name, state) VALUES (:name, 'requested') "
+        "ON CONFLICT (name) DO UPDATE SET state = 'requested'"
+    )
+    if session is not None:
+        session.execute(statement, {"name": HANDLER_NAME})
+        return
+    with database.get_background_db() as own:
+        own.execute(statement, {"name": HANDLER_NAME})
 
 
 def record_failure(error: str, now: Optional[datetime] = None) -> None:
