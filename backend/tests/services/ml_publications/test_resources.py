@@ -49,7 +49,14 @@ SUBRESOURCE_KEYS = {
     "user_product": ("user_product_id",),
     "stock": ("user_product_id",),
     "family": ("family_id",),
+    "competition": ("item_id",),
+    "performance": ("item_id",),
+    "moderation": ("item_id",),
+    "visits": ("item_id",),
 }
+
+# Resources whose captured non-2xx answer is a state (spec "negative answers"), by registry name.
+NEGATIVE_STATES = {"performance": {400: "not_applicable"}, "moderation": {404: "no_moderation"}}
 
 
 @pytest.mark.parametrize("name", sorted(SUBRESOURCE_FIXTURES))
@@ -58,12 +65,15 @@ def test_subresources_are_registered_under_their_refresh_names_with_their_keys_a
     assert name in REFRESH_RESOURCES
     assert spec.key_columns == SUBRESOURCE_KEYS[name]
     assert spec.fixture == SUBRESOURCE_FIXTURES[name]
-    assert dict(spec.negative_states) == {}
+    assert dict(spec.negative_states) == NEGATIVE_STATES.get(name, {})
 
 
 def test_promotions_diff_keys_come_from_the_shared_natural_key_table():
     assert RESOURCES["promotions"].array_keys == array_keys_for("promotions") == {"": ("id", "type")}
-    assert all(dict(RESOURCES[n].array_keys) == {} for n in SUBRESOURCE_KEYS if n not in ("promotions", "stock"))
+    assert RESOURCES["visits"].array_keys == array_keys_for("visits") == {"results": ("date",)}
+    assert all(
+        dict(RESOURCES[n].array_keys) == {} for n in SUBRESOURCE_KEYS if n not in ("promotions", "stock", "visits")
+    )
 
 
 def test_stock_locations_are_keyed_by_their_type_from_the_shared_natural_key_table():
@@ -73,7 +83,9 @@ def test_stock_locations_are_keyed_by_their_type_from_the_shared_natural_key_tab
 @pytest.mark.parametrize("name", sorted(SUBRESOURCE_FIXTURES))
 def test_every_subresource_round_trips_raw_through_its_parser_and_maps_without_error(name):
     spec = RESOURCES[name]
-    ok_calls = [c for c in load_fixture(spec.fixture)["calls"] if c["status"] == 200]
+    ok_calls = [
+        c for c in load_fixture(spec.fixture)["calls"] if c["status"] == 200 or c["status"] in spec.negative_states
+    ]
     assert ok_calls
     for call in ok_calls:
         parsed = spec.parser(call["status"], call["body"])
@@ -85,7 +97,7 @@ def test_every_subresource_round_trips_raw_through_its_parser_and_maps_without_e
 def test_every_subresource_classifies_its_captured_404_when_it_has_one(name):
     spec = RESOURCES[name]
     for call in load_fixture(spec.fixture)["calls"]:
-        if call["status"] == 404:
+        if call["status"] == 404 and 404 not in spec.negative_states:
             parsed = spec.parser(404, call["body"])
             assert (parsed.state, parsed.error_body) == ("not_found", call["body"])
 

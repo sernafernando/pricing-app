@@ -25,12 +25,21 @@ def test_one_fixture_file_per_endpoint():
         "user_product",
         "stock",
         "family",
+        "competition",
+        "performance",
+        "moderation",
+        "visits",
     }
     for name in SUBRESOURCE_FIXTURES.values():
         assert (FIXTURES_DIR / name).exists(), name
 
 
-@pytest.mark.parametrize("resource", sorted(SUBRESOURCE_FIXTURES))
+# Moderation has no 200 yet: not one of the sampled items had a moderation record on 2026-10-06, so its
+# fixture holds only the captured no-moderation 404 (the first real record is still to be captured).
+NO_200_CAPTURED = {"moderation"}
+
+
+@pytest.mark.parametrize("resource", sorted(set(SUBRESOURCE_FIXTURES) - NO_200_CAPTURED))
 def test_every_endpoint_has_a_real_200_response(resource):
     calls = load_fixture(SUBRESOURCE_FIXTURES[resource])["calls"]
     assert any(call["status"] == 200 for call in calls)
@@ -63,3 +72,42 @@ def test_promotions_cover_started_candidate_and_price_discount_without_id():
 def test_family_ids_survive_as_exact_integers():
     raw = (FIXTURES_DIR / SUBRESOURCE_FIXTURES["family"]).read_text(encoding="utf-8")
     assert "5385385211222674" in raw and json.loads(raw)["calls"][0]["body"]["family_id"] == 5385385211222674
+
+
+def test_competition_captures_cover_not_listed_and_winning_with_boosts():
+    not_listed = subresource_call("competition", "price_to_win_MLA874027718")["body"]
+    winning = subresource_call("competition", "price_to_win_MLA882393030")["body"]
+    assert (not_listed["status"], not_listed["price_to_win"], not_listed["reason"]) == (
+        "not_listed",
+        None,
+        ["item_not_opted_in"],
+    )
+    assert (winning["status"], winning["price_to_win"], winning["catalog_product_id"]) == (
+        "winning",
+        55882,
+        "MLA15810042",
+    )
+    assert winning["boosts"] and winning["winner"]["item_id"] == winning["item_id"]
+    assert "?version=v2" in subresource_call("competition", "price_to_win_MLA882393030")["path"]
+
+
+def test_performance_captures_a_200_for_a_user_product_and_the_product_items_400():
+    ok = subresource_call("performance", "performance_MLA874027718")
+    refused = subresource_call("performance", "performance_MLA882393030")
+    assert (ok["status"], ok["body"]["entity_type"], ok["body"]["entity_id"]) == (200, "USER_PRODUCT", "MLAU245334053")
+    assert (ok["body"]["score"], ok["body"]["level"]) == (66, "good")
+    assert refused["status"] == 400
+    assert refused["body"]["message"] == "Entity not calculated: Product items are not supported"
+
+
+def test_moderation_captures_are_only_the_no_moderation_404_body():
+    calls = load_fixture(SUBRESOURCE_FIXTURES["moderation"])["calls"]
+    assert calls and {(c["status"], json.dumps(c["body"])) for c in calls} == {(404, '{"Status": 404}')}
+
+
+def test_visits_captures_have_daily_results_and_an_empty_window():
+    busy = subresource_call("visits", "visits_MLA882393030")["body"]
+    empty = subresource_call("visits", "visits_MLA903301838")["body"]
+    assert busy["results"] and all({"date", "total", "visits_detail"} <= set(r) for r in busy["results"])
+    assert len({r["date"] for r in busy["results"]}) == len(busy["results"])
+    assert (empty["results"], empty["total_visits"], empty["last"], empty["unit"]) == ([], 0, 30, "day")

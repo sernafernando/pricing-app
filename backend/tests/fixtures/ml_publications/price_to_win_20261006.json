@@ -1,0 +1,131 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "calls": [
+  {
+   "name": "price_to_win_MLA874027718",
+   "path": "/items/MLA874027718/price_to_win?version=v2",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:13 GMT"
+   },
+   "body": {
+    "item_id": "MLA874027718",
+    "current_price": null,
+    "currency_id": null,
+    "price_to_win": null,
+    "boosts": null,
+    "status": "not_listed",
+    "consistent": false,
+    "visit_share": null,
+    "competitors_sharing_first_place": null,
+    "reason": [
+     "item_not_opted_in"
+    ],
+    "catalog_product_id": null
+   }
+  },
+  {
+   "name": "price_to_win_MLA882393030",
+   "path": "/items/MLA882393030/price_to_win?version=v2",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:22 GMT"
+   },
+   "body": {
+    "item_id": "MLA882393030",
+    "current_price": 55882,
+    "currency_id": "ARS",
+    "price_to_win": 55882,
+    "boosts": [
+     {
+      "id": "fulfillment",
+      "status": "opportunity",
+      "description": "Envíos Full"
+     },
+     {
+      "id": "free_installments",
+      "status": "opportunity",
+      "description": "Cuotas al mismo precio que publicaste"
+     },
+     {
+      "id": "free_shipping",
+      "status": "boosted",
+      "description": "Envío gratis"
+     },
+     {
+      "id": "shipping_collect",
+      "status": "boosted",
+      "description": "Envíos con colecta"
+     },
+     {
+      "id": "same_day_shipping",
+      "status": "boosted",
+      "description": "Envíos en el día"
+     }
+    ],
+    "status": "winning",
+    "consistent": true,
+    "visit_share": "maximum",
+    "competitors_sharing_first_place": 0,
+    "reason": [],
+    "catalog_product_id": "MLA15810042",
+    "winner": {
+     "item_id": "MLA882393030",
+     "price": 55882,
+     "currency_id": "ARS",
+     "boosts": [
+      {
+       "id": "fulfillment",
+       "status": "opportunity",
+       "description": "Envíos Full"
+      },
+      {
+       "id": "free_installments",
+       "status": "opportunity",
+       "description": "Cuotas al mismo precio que publicaste"
+      },
+      {
+       "id": "free_shipping",
+       "status": "boosted",
+       "description": "Envío gratis"
+      },
+      {
+       "id": "shipping_collect",
+       "status": "boosted",
+       "description": "Envíos con colecta"
+      },
+      {
+       "id": "same_day_shipping",
+       "status": "boosted",
+       "description": "Envíos en el día"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "price_to_win_MLA903301838",
+   "path": "/items/MLA903301838/price_to_win?version=v2",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:31 GMT"
+   },
+   "body": {
+    "item_id": "MLA903301838",
+    "current_price": null,
+    "currency_id": null,
+    "price_to_win": null,
+    "boosts": null,
+    "status": "not_listed",
+    "consistent": false,
+    "visit_share": null,
+    "competitors_sharing_first_place": null,
+    "reason": [
+     "item_not_opted_in"
+    ],
+    "catalog_product_id": null
+   }
+  }
+ ]
+}
