@@ -34,7 +34,14 @@ from app.services.ml_publications.ml_http import (
 )
 from app.services.ml_publications.pacing import DEADLINE, Pacer
 from app.services.ml_publications.parsers.items_bulk import BulkElement, MalformedBulkResponse, parse_items_bulk
-from app.services.ml_publications.resources import BUNDLE_RESOURCE, CORE_RESOURCE, RESOURCES
+from app.services.ml_publications.resources import (
+    BUNDLE_RESOURCE,
+    CORE_RESOURCE,
+    FAMILY_KIND,
+    ITEM_KIND,
+    RESOURCES,
+    USER_PRODUCT_KIND,
+)
 from app.workers.context import JobResult, WorkerContext
 
 logger = logging.getLogger(__name__)
@@ -65,7 +72,9 @@ _SETTING_KEYS = (
     "stock_rate_per_min",
     "low_lane_min_share",
 )
-ITEM_KIND = "item"
+# Every kind of entry the refresh handler claims: an item (core, sub-resources, and through its row the user
+# product and family), a user product (stock/user product notifications) or a family.
+CLAIMED_KINDS = (ITEM_KIND, USER_PRODUCT_KIND, FAMILY_KIND)
 CORE = CORE_RESOURCE
 BUNDLE = BUNDLE_RESOURCE
 # After a failure that is not the entry's fault (bad token, missing credentials) the claims go back
@@ -129,7 +138,12 @@ class _Interruption:
 class RefreshHandler:
     """`ml_publications.refresh`: claims queued items and refreshes them from `/items/bulk`, then
     fetches the sub-resources each entry asks for (`bundle.FETCHERS`: description, prices, sale_price,
-    promotions).
+    promotions, and the user product, stock and family of the item).
+
+    Entries of kind `user_product` and `family` (stock / family notifications, manual) carry no item: they
+    fetch only their own resources. An item entry reaches the user product and family through the stored
+    item row; an item that has none skips them (`skipped_not_applicable`, not a failure), and two items of
+    one user product in a batch fetch it once (`skipped_shared`).
 
     A sub-resource runs only when it is enabled in `bundle_resources` (default: the core only); promotions
     also need `promotions.enabled`. Any
@@ -160,6 +174,8 @@ class RefreshHandler:
         self._skipped_no_fetcher: Counter = Counter()
         self._skipped_disabled: Counter = Counter()
         self._skipped_min_age: Counter = Counter()
+        self._skipped_not_applicable: Counter = Counter()
+        self._skipped_shared: Counter = Counter()
         self._skipped_item_gone = 0
         self._sub_outcomes: Dict[str, Counter] = defaultdict(Counter)
         self._apply_counters = store.ApplyCounters()
@@ -185,7 +201,7 @@ class RefreshHandler:
                 claims = queue.claim(
                     limit=config["bulk_max_ids"].value,
                     worker_id=ctx.worker_name,
-                    kinds=[ITEM_KIND],
+                    kinds=list(CLAIMED_KINDS),
                     lanes_desc=self._lane_fairness(config["low_lane_min_share"].value).next_lanes_desc(),
                 )
                 if not claims:
@@ -232,7 +248,7 @@ class RefreshHandler:
         gated_off = frozenset(name for name, flag in bundle.FLAG_GATES.items() if config[flag].value is not True)
         works: List[_Work] = []
         for claim in claims:
-            work = _Work(claim, bundle.plan(claim.resources, bundle_resources, gated_off))
+            work = _Work(claim, bundle.plan(claim.resources, bundle_resources, gated_off, claim.kind))
             if work.plan.needs_core or work.plan.wanted:
                 works.append(work)
             else:  # nothing this deployment can fetch: settle the entry, no ML call, nothing charged
@@ -358,41 +374,78 @@ class RefreshHandler:
                 self._finish(work)
             else:
                 walking.append(work)
-        due = self._due_resources(walking, config["min_age_seconds"].value, _utcnow())
+        targets = self._targets(walking)
+        due = self._due_resources(walking, targets, config["min_age_seconds"].value, _utcnow())
         for work in walking:  # settled up front, so an interruption never keeps a resource that is too recent
-            for resource in sorted(work.plan.wanted):
+            for resource in sorted(work.pending):
                 if resource not in due[work.claim.key]:
                     self._skipped_min_age[resource] += 1
                     work.done.add(resource)
+        fetched: Dict[Tuple[str, str], Optional[str]] = {}  # (resource, id) -> failure, for this batch
         for position, work in enumerate(walking):
             for resource in sorted(work.pending):
                 if _utcnow() >= ctx.deadline:
                     interruption: Optional[_Interruption] = _Interruption("stopped", "deadline", _utcnow())
                 else:
-                    interruption = self._fetch_one(ctx, work, bundle.FETCHERS[resource], run)
+                    key = targets[work.claim.key][resource]
+                    interruption = self._fetch_one(ctx, work, bundle.FETCHERS[resource], key, fetched, run)
                 if interruption:
                     self._end_run(run, interruption)
                     self._stop_walking(walking[position:], interruption)
                     return
             self._finish(work)
 
+    def _targets(self, works: Sequence[_Work]) -> Dict[Tuple[str, str], Dict[str, str]]:
+        """Per entry, the id each wanted resource is fetched by: the entry's own id, or for an item entry
+        the user product / family of its stored row. A resource with no such id (the item has no user
+        product, or was never stored) is settled here: nothing to fetch is not a failure."""
+        linked = bundle.linked_ids(
+            [
+                w.claim.entity_id
+                for w in works
+                if w.claim.kind == ITEM_KIND and any(bundle.FETCHERS[r].entity != ITEM_KIND for r in w.plan.wanted)
+            ]
+        )
+        targets: Dict[Tuple[str, str], Dict[str, str]] = {}
+        for work in works:
+            ids: Dict[str, str] = {}
+            for resource in sorted(work.plan.wanted):
+                entity = bundle.FETCHERS[resource].entity
+                key = (
+                    work.claim.entity_id
+                    if entity == work.claim.kind
+                    else linked.get(work.claim.entity_id, {}).get(entity)
+                )
+                if key is None:
+                    self._skipped_not_applicable[resource] += 1
+                    work.done.add(resource)
+                else:
+                    ids[resource] = key
+            targets[work.claim.key] = ids
+        return targets
+
     def _due_resources(
-        self, works: Sequence[_Work], min_ages: Dict[str, Any], now: datetime
+        self,
+        works: Sequence[_Work],
+        targets: Dict[Tuple[str, str], Dict[str, str]],
+        min_ages: Dict[str, Any],
+        now: datetime,
     ) -> Dict[Tuple[str, str], Set[str]]:
         """Per entry, the wanted resources whose minimum age allows a fetch now."""
         checked: Dict[str, Dict[str, datetime]] = {}
         for resource in {name for w in works for name, explicit in w.plan.wanted.items() if not explicit}:
             if bundle.min_age_seconds(resource, min_ages) > 0:
-                ids = [w.claim.entity_id for w in works if w.plan.wanted.get(resource) is False]
-                checked[resource] = bundle.last_checked(resource, ids)
+                keys = [targets[w.claim.key][resource] for w in works if resource in targets[w.claim.key]]
+                checked[resource] = bundle.last_checked(resource, keys)
         return {
             work.claim.key: {
                 resource
                 for resource, explicit in work.plan.wanted.items()
-                if bundle.is_due(
+                if resource in targets[work.claim.key]
+                and bundle.is_due(
                     explicit=explicit,
                     min_age=bundle.min_age_seconds(resource, min_ages),
-                    last_checked_at=checked.get(resource, {}).get(work.claim.entity_id),
+                    last_checked_at=checked.get(resource, {}).get(targets[work.claim.key][resource]),
                     now=now,
                 )
             }
@@ -400,38 +453,61 @@ class RefreshHandler:
         }
 
     def _fetch_one(
-        self, ctx: WorkerContext, work: _Work, fetcher: bundle.SubFetcher, run: _Run
+        self,
+        ctx: WorkerContext,
+        work: _Work,
+        fetcher: bundle.SubFetcher,
+        key: str,
+        fetched: Dict[Tuple[str, str], Optional[str]],
+        run: _Run,
     ) -> Optional[_Interruption]:
-        """Fetch and store one sub-resource of one entry; returns an interruption that ends the run."""
+        """Fetch and store one sub-resource of one entry; returns an interruption that ends the run.
+
+        `key` is the id the resource is fetched and stored by; `fetched` holds what this batch already
+        fetched (resource, id) -> failure to charge, so entries sharing a user product or family fetch it
+        once and share the outcome."""
         resource = fetcher.resource
-        path, params = fetcher.request(work.claim.entity_id)
+        if (resource, key) in fetched:
+            self._skipped_shared[resource] += 1
+            self._settle(work, resource, fetched[(resource, key)])
+            return None
+        path, params = fetcher.request(key)
         run.called = True
         response = self._http().get(resource, path, params, deadline=ctx.deadline)
         interruption = self._interruption(response)
         if interruption:
             return interruption
+        failure = self._store_one(resource, key, response)
+        fetched[(resource, key)] = failure
+        self._settle(work, resource, failure)
+        return None
+
+    def _store_one(self, resource: str, key: str, response: MlResponse) -> Optional[str]:
+        """Apply one fetched response; returns the failure to charge to the resource, or None."""
         if response.error in (ERROR_TIMEOUT, ERROR_NETWORK, ERROR_INVALID_JSON):
-            work.failed[resource] = response.error
-            return None
+            return response.error
         try:
             outcome = subresource_store.apply_subresource(
                 RESOURCES[resource],
-                (work.claim.entity_id,),
+                (key,),
                 response,
                 counters=self._apply_counters,
                 events_enabled=self._events_enabled,
             )
         except Exception as exc:  # noqa: BLE001 -- one resource's failure must not lose the others
-            logger.exception("apply_subresource failed for %s %s", resource, work.claim.entity_id)
-            work.failed[resource] = f"apply failed: {type(exc).__name__}: {exc}"[:300]
-            return None
+            logger.exception("apply_subresource failed for %s %s", resource, key)
+            return f"apply failed: {type(exc).__name__}: {exc}"[:300]
         self._sub_outcomes[resource][outcome.kind] += 1
         if outcome.kind == "error_recorded":
-            ok = 200 <= response.status < 300
-            work.failed[resource] = "malformed body" if ok else f"HTTP {response.status}"
+            return "malformed body" if 200 <= response.status < 300 else f"HTTP {response.status}"
+        return None
+
+    @staticmethod
+    def _settle(work: _Work, resource: str, failure: Optional[str]) -> None:
+        if failure:
+            work.failed[resource] = failure
         else:
             work.done.add(resource)
-        return None
 
     def _stop_walking(self, works: Sequence[_Work], interruption: _Interruption) -> None:
         """The run ended inside the sub-resource phase; `works[0]` is the entry being walked."""
@@ -494,6 +570,8 @@ class RefreshHandler:
             "skipped_no_fetcher": dict(self._skipped_no_fetcher),
             "skipped_disabled": dict(self._skipped_disabled),
             "skipped_min_age": dict(self._skipped_min_age),
+            "skipped_not_applicable": dict(self._skipped_not_applicable),
+            "skipped_shared": dict(self._skipped_shared),
             "skipped_item_gone": self._skipped_item_gone,
             "subresources": {resource: dict(kinds) for resource, kinds in self._sub_outcomes.items()},
         }
