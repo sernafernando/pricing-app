@@ -34,26 +34,34 @@ pagamos IIBB". El envío que el comprador paga también se factura, entonces ent
 `ml-captures/buyer_shipping_capture_20261007_142537.json` (fixture recortado, sin datos personales, en
 `backend/tests/fixtures/ml_ventas_envio_comprador/`) y los paneles de ML que pegó el usuario.
 
-### Fuente del envío que pagó el comprador: `order.paid_amount - order.total_amount`
+### Fuente del envío que pagó el comprador: `payment.shipping_amount` (UNA sola fuente)
 
-`raw_costs.receiver.cost` NO es confiable (corrección del coordinador): en el pack Flex
-`2000018846584294` (pack `2000015400388457`) `receiver.cost` dice 2216,30, pero el panel de ML muestra
-"Anulaciones -$2.216,30, Anulación del cargo por Envíos de ML (a cargo del comprador)": el comprador NO
-lo pagó al final, y nuestros datos lo confirman (`paid_amount` 105998 = `total_amount` 105998; pago
-`total_paid_amount` = `transaction_amount`). Se usa la plata que efectivamente entró:
+Decisión del usuario/coordinador: el desglose debe asumir lo mínimo, y `shipping_amount` es el campo que
+ML rotula como envío. Es el mismo que ya lee la línea visible "Envío cobrado al comprador" de `iva.py`, y
+la base lo lee con el mismo helper (`envio_comprador_de_pago`) y la misma agregación: cada pago
+RELEVANTE de la orden aporta una vez (un pago rechazado nunca), así que 3 pagos no triplican el envío.
 
-| Orden | paid_amount - total_amount | Envío |
+Descartadas (en este orden de la discusión):
+
+- `order.paid_amount - order.total_amount`: coincide con `shipping_amount` en las 7 capturas, pero es una
+  inferencia que también capturaría un recargo financiero (cuotas con interés) u otra diferencia.
+  Hay un test con un recargo en `paid_amount` que lo fija.
+- `raw_costs.receiver.cost`: NO es confiable. En el pack Flex `2000018846584294` dice 2216,30 pero el panel
+  de ML muestra "Anulación del cargo por Envíos de ML (a cargo del comprador)"; su `shipping_amount` es 0.
+- `total_paid_amount - transaction_amount` del pago: en 2000018846969514 da 5107,54 porque incluye el
+  `tax_withholding_payer` de 117,54.
+
+| Orden | `shipping_amount` (pagos relevantes) | Envío |
 |---|---|---|
-| fulfillment 2000018844749424 | 19340 - 18350 | 990 |
-| cross_docking 2000018847750422 | 61598,09 - 56899 | 4699,09 |
-| fulfillment 2000018847574430 | 48156 - 44166 | 3990 |
-| self_service 2000018846969514 | 19590 - 14600 | 4990 |
-| cross_docking 2000018846999192 | 42443,7 - 37070 | 5373,70 (3 pagos, con financiación) |
-| pack Flex 2000018846584294 | 105998 - 105998 | 0 (anulado) |
-| caso 1 2000018808335864 | 18857 - 18857 | 0 |
+| fulfillment 2000018844749424 | 990 | 990 |
+| cross_docking 2000018847750422 | 4699,09 | 4699,09 |
+| fulfillment 2000018847574430 | 3990 | 3990 |
+| self_service 2000018846969514 | 4990 | 4990 |
+| cross_docking 2000018846999192 | 0 + 5373,70 (el rechazado no cuenta) | 5373,70 |
+| pack Flex 2000018846584294 | 0 | 0 (anulado) |
+| 2000018814119064 | 0 | 0 |
 
-NO se usa `total_paid_amount - transaction_amount` del pago: en 2000018846969514 da 5107,54 porque
-incluye el `tax_withholding_payer` de 117,54.
+Las 7 bases quedan IGUAL que con la diferencia `paid - total`.
 
 ### Bonificación (corrección de la regla de #1415)
 
@@ -71,41 +79,34 @@ deja un warning con el shipment id.
 
 ## Decisiones
 
-- **D1. Dos fuentes, dos conceptos, sin doble conteo.** El envío del comprador sale de columnas de la
-  ORDEN (`paid_amount - total_amount`), por ORDEN, sin reparto: cada orden del pack trae lo suyo. La
-  bonificación sale de `raw_costs` del SHIPMENT, repartida por `shipping_id` (#1415). Ninguna lee a la
-  otra, así que no se pisan. Pack Flex 2000018846584294: comprador 0 + bonificación 599. La bonificación
-  se calcula en UN solo lugar (`resolve_bonificacion_flex_by_order_ids`) que consumen la línea de la
-  cadena, el componente de IVA y la base de varios.
-- **D2. Sin shipment, sin lookup por pack.** Como la fuente es la orden, un shipment guardado bajo otra
-  orden del pack (caso 2000018814119064) no importa para el envío del comprador; sí para la
-  bonificación, que ya lo busca por `shipping_id` (`resolve_modes`).
-- **D3. Varios 3 pagos / N pagos:** no multiplica, se lee de la orden, no del pago.
-- **D4. Fail-closed = opción (a): suma 0 y deja log.** `paid_amount` o `total_amount` nulo, no
-  numérico/no finito, o una diferencia NEGATIVA no inventan base: contribuyen 0 y avisan con el
-  `order_id`. Si `receiver.cost` difiere de la diferencia se usa la diferencia y se loguea en debug
-  (las anulaciones lo vuelven legítimo). Justificación: es la política de #1415 ("ante la duda, nada y
-  un log"); bloquear (b) dejaría `total_gauss` y el markup del pack en NULL (el pack es todo-o-nada) por un
-  efecto de `% varios x envío / 1,21` (centenas de pesos). El `varios` sigue bloqueando solo cuando falta la
-  base de BIENES, como hoy. Costo asumido: ante un dato corrupto la base queda corta (margen
-  levemente alto), con log. Cambiar a (b) es local a `descomponer_neto`.
-- **D5. Dónde se ve:** `iva.py` YA tenía la línea visible `Envío cobrado al comprador`
-  (desde `payment.shipping_amount` de los pagos relevantes, dentro de `net_received_amount`, con
-  bruto/base/IVA). Coincide con `paid_amount - total_amount` en las 7 capturas (hay un test que lo
-  fija), así que NO se agrega una segunda línea informativa (duplicaría la misma plata en la tabla de
-  IVA). Lo nuevo en la API: `iva_decomposicion.envio_comprador` `{bruto, neto, iva}` (forma
-  `ImporteDesglosadoSummary`, para el libro IVA) y `iva_decomposicion.base_varios`.
-  `base_venta_sin_iva` (bienes) queda intacta. **Ambigüedad a confirmar:** hay dos lecturas de la
-  misma plata (orden para la base; pagos para la línea); se eligió la orden por instrucción del
-  coordinador y la otra queda como chequeo cruzado.
+- **D1. Dos fuentes, dos conceptos, sin doble conteo.** El envío del comprador sale de los PAGOS de la
+  orden (`shipping_amount`); la bonificación sale de `raw_costs` del SHIPMENT, repartida por `shipping_id`
+  (#1415). Ninguna lee a la otra. Pack Flex 2000018846584294: comprador 0 + bonificación 599. La
+  bonificación se calcula en UN solo lugar (`resolve_bonificacion_flex_by_order_ids`) que consumen la
+  línea de la cadena, el componente de IVA y la base de varios.
+- **D2. Sin lookup de shipment para el comprador:** un shipment guardado bajo otra orden del pack (caso
+  2000018814119064) no importa para el envío del comprador; sí para la bonificación, que ya lo busca por
+  `shipping_id` (`resolve_modes`).
+- **D3. N pagos:** misma agregación que la línea: un componente por pago relevante con envío, la base suma
+  sus bases; no hay multiplicación por cantidad de pagos.
+- **D4. Fail-closed = opción (a): suma 0 y deja log.** Un `shipping_amount` no numérico (string, bool,
+  NaN/inf) o NEGATIVO no inventa base: aporta 0 y avisa con el `payment_id`; nulo aporta 0 y se loguea en
+  debug (es lo normal en un pago sin envío). Justificación: es la política de #1415 ("ante la duda, nada y
+  un log"); bloquear (b) dejaría `total_gauss` y el markup del pack en NULL (todo-o-nada) por un efecto de
+  `% varios x envío / 1,21` (centenas de pesos). El `varios` sigue bloqueando solo cuando falta la base de
+  BIENES, como hoy. Costo asumido: ante un dato corrupto la base queda corta, con log. Consecuencia en la
+  línea visible: un `shipping_amount` negativo ya no entra al desglose (antes sí), por lo que la
+  reconciliación del neto lo muestra como no reconciliado en vez de absorberlo.
+- **D5. Dónde se ve:** la línea visible `Envío cobrado al comprador` ya existía en `iva.py` (bruto/base/IVA);
+  no se agrega una segunda. Lo nuevo en la API: `iva_decomposicion.envio_comprador` `{bruto, neto, iva}`
+  (forma `ImporteDesglosadoSummary`, para el libro IVA) y `iva_decomposicion.base_varios`.
+  `base_venta_sin_iva` (bienes) queda intacta.
 - **D6. La base se arma en `descomponer_neto`** (`DescomposicionNeto.base_varios`) de las MISMAS
   fuentes que muestran las líneas, no de `componentes`. `calcular_total_gauss` recibe
   `base_varios_by_order` (renombrado desde `venta_sin_iva_by_order`: el nombre ya mentía).
 - **D7. Backfill = subir `CURRENT_FORMULA_VERSION` 2 -> 3**, como ULTIMO commit separado y RETENIDO hasta que
   el usuario confirme la regla de bonificación con más muestras (el bump hace recalcular toda la
   historia con la regla vigente). Ver sección Backfill.
-- **Riesgo anotado:** `paid_amount` también incluye cualquier recargo financiero del comprador (cuotas con
-  interés) si existiera; no aparece en ninguna captura. Si apareciera se contaría como envío.
 
 ## Backfill (verificado)
 
@@ -144,8 +145,8 @@ ORDER BY formula_version;
 
 - [x] T0 Documento + espejo en Engram (`odd/ventas-ml-varios-base-envio/tasks`)
 - [x] T0b RED/GREEN: corrección de la regla de bonificación (senders + receiver `loyal`; unknown type no suma)
-- [x] T1 RED/GREEN: `envio_comprador_bruto` (fail-closed sobre `paid_amount - total_amount`)
-- [x] T2 RED/GREEN: `resolve_envio_comprador_by_order_ids` (por orden, sin reparto)
+- [x] T1 RED/GREEN: `envio_comprador_de_pago` (fail-closed sobre `payment.shipping_amount`; RED: un recargo en `paid_amount` movía la base)
+- [x] T2 RED/GREEN: línea y base comparten helper y agregación (varios pagos)
 - [x] T3 RED/GREEN: `descomponer_neto` — `base_varios` (primer test: fixture 990/990, RED observado: AttributeError base_varios; luego 303,31 vs 319,67)
 - [x] T4 RED/GREEN: `VariosDeduccion` usa `base_varios` (rename del kwarg, `compute.py` y tests)
 - [x] T5 RED/GREEN: API `iva_decomposicion.envio_comprador` / `base_varios`

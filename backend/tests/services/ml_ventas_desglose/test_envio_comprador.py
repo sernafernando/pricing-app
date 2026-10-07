@@ -6,10 +6,11 @@ the buyer + the Flex bonificación) / 1.21. The shipping counts GROSS -- even
 when ML charges it back (+990 / -990) -- and its IVA is never subtracted as an
 expense.
 
-The shipping the buyer paid is the money that CAME IN:
-`order.paid_amount - order.total_amount`, per order. `raw_costs.receiver.cost`
-is not reliable (ML annulled the 2216.30 of the Flex pack and `receiver.cost`
-still says so). Every fixture is a REAL capture (`_envio_comprador_capture.py`).
+ONE source for the shipping: `payment.shipping_amount`, the explicit ML field
+and the one the visible IVA line already reads. Not `paid_amount -
+total_amount` (it would also catch a financing surcharge) and not
+`raw_costs.receiver.cost` (ML annulled the Flex pack's 2216.30 and it still
+says so). Every fixture is a REAL capture (`_envio_comprador_capture.py`).
 """
 
 from __future__ import annotations
@@ -24,11 +25,8 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
 from app.models.varios_venta_pct import VariosVentaPct
 from app.services.ml_ventas_desglose import envio_comprador
-from app.services.ml_ventas_desglose.envio_comprador import (
-    envio_comprador_bruto,
-    resolve_envio_comprador_by_order_ids,
-)
-from app.services.ml_ventas_desglose.iva import CONCEPTO_ENVIO_COMPRADOR, IVA_ML_DIVISOR, descomponer_neto
+from app.services.ml_ventas_desglose.envio_comprador import envio_comprador_de_pago
+from app.services.ml_ventas_desglose.iva import CONCEPTO_ENVIO_COMPRADOR, descomponer_neto
 from app.services.order_metrics.compute import compute_order_metrics
 
 from ._envio_comprador_capture import (
@@ -59,125 +57,27 @@ class TestTheFulfillmentCaseThatNetsToZero:
         assert desc.base_varios == GOODS_990 + SHIPPING_NET_990
 
 
-class TestReadingWhatTheBuyerPaid:
-    @pytest.mark.parametrize(
-        "paid,total,expected",
-        [
-            ("19340", "18350", "990"),
-            ("61598.09", "56899", "4699.09"),
-            ("48156", "44166", "3990"),
-            ("19590", "14600", "4990"),
-            ("42443.7", "37070", "5373.70"),
-        ],
-    )
-    def test_the_captured_orders_give_what_came_in(self, paid, total, expected) -> None:
-        assert envio_comprador_bruto(Decimal(paid), Decimal(total), 1) == Decimal(expected)
+class TestReadingOnePaymentsShipping:
+    @pytest.mark.parametrize("amount,expected", [(Decimal("990.00"), "990.00"), (4699.09, "4699.09"), (5373, "5373")])
+    def test_a_positive_number_is_the_shipping(self, amount, expected) -> None:
+        assert envio_comprador_de_pago(amount, 1) == Decimal(expected)
 
-    @pytest.mark.parametrize("paid,total", [("105998", "105998"), ("0", "0")])
-    def test_nothing_paid_is_nothing_and_silent(self, paid, total, caplog) -> None:
-        """The annulled Flex pack: 105998 - 105998."""
+    @pytest.mark.parametrize("amount", [None, 0, Decimal("0.00"), 0.0])
+    def test_nothing_paid_is_nothing_and_not_a_warning(self, amount, caplog) -> None:
         with caplog.at_level(logging.WARNING, logger=envio_comprador.__name__):
-            assert envio_comprador_bruto(Decimal(paid), Decimal(total), 1) is None
+            assert envio_comprador_de_pago(amount, 1) is None
         assert caplog.text == ""
 
     @pytest.mark.parametrize(
-        "paid,total",
-        [
-            (None, Decimal("100")),
-            (Decimal("100"), None),
-            (None, None),
-            (Decimal("90"), Decimal("100")),  # negative difference
-            (Decimal("NaN"), Decimal("100")),
-            (Decimal("100"), Decimal("Infinity")),
-            (float("nan"), 100.0),
-            ("190", "100"),  # not a number type
-            (True, Decimal("0")),
-        ],
+        "bad",
+        ["990", "abc", -1, Decimal("-990.5"), True, False, float("nan"), float("inf"), Decimal("NaN"), [990]],
         ids=repr,
     )
-    def test_unreadable_amounts_never_invent_base(self, paid, total, caplog) -> None:
-        """Fail-closed (decision D4): add nothing and name the order."""
+    def test_an_unreadable_amount_never_invents_base(self, bad, caplog) -> None:
+        """Fail-closed: add nothing and name the payment."""
         with caplog.at_level(logging.WARNING, logger=envio_comprador.__name__):
-            assert envio_comprador_bruto(paid, total, 777) is None
+            assert envio_comprador_de_pago(bad, 777) is None
         assert "777" in caplog.text
-
-
-class TestResolverOverTheCaptures:
-    @pytest.mark.parametrize(
-        "case,bruto,neto",
-        [
-            (FULFILLMENT_990, "990.00", "818.18"),
-            (CROSS_DOCKING, "4699.09", "3883.55"),
-            (FULFILLMENT_3990, "3990.00", "3297.52"),
-            (SELF_SERVICE_4990, "4990.00", "4123.97"),
-            (THREE_PAYMENTS, "5373.70", "4441.07"),
-        ],
-    )
-    def test_every_logistic_type_counts(self, db, case, bruto, neto) -> None:
-        """The buyer's shipping is income in EVERY mode (unlike the Flex
-        bonificación, which is self_service only). The three payments of
-        `THREE_PAYMENTS` do not triple it: it is read from the order."""
-        seed_case(db, case)
-
-        share = resolve_envio_comprador_by_order_ids(db, [case], IVA_ML_DIVISOR)[case]
-
-        assert (share.bruto, share.neto) == (Decimal(bruto), Decimal(neto))
-
-    def test_the_annulled_flex_pack_has_no_buyer_shipping(self, db) -> None:
-        """`raw_costs.receiver.cost` says 2216.30, ML annulled it: the buyer
-        paid nothing. MUTATION: reading `receiver.cost` adds 2216.30/1.21."""
-        seed_case(db, SELF_SERVICE_PACK)
-        assert db.query(MlOrdersOps.shipping_id).filter_by(order_id=SELF_SERVICE_PACK).scalar() is not None
-
-        assert resolve_envio_comprador_by_order_ids(db, [SELF_SERVICE_PACK], IVA_ML_DIVISOR) == {}
-
-    def test_it_does_not_need_a_shipment_row(self, db) -> None:
-        """The money came in whether or not the cost payload has synced."""
-        seed_case(db, FULFILLMENT_990, with_shipment=False)
-
-        assert resolve_envio_comprador_by_order_ids(db, [FULFILLMENT_990], IVA_ML_DIVISOR)[FULFILLMENT_990].bruto == (
-            Decimal("990.00")
-        )
-
-    def test_a_disagreeing_receiver_cost_is_logged_at_debug_and_the_difference_wins(self, db, caplog) -> None:
-        seed_case(db, SELF_SERVICE_PACK)
-
-        with caplog.at_level(logging.DEBUG, logger=envio_comprador.__name__):
-            assert resolve_envio_comprador_by_order_ids(db, [SELF_SERVICE_PACK], IVA_ML_DIVISOR) == {}
-
-        assert str(SELF_SERVICE_PACK) in caplog.text
-        assert "receiver_cost" in caplog.text
-
-    def test_a_null_amount_on_the_order_adds_nothing(self, db, caplog) -> None:
-        seed_case(db, FULFILLMENT_990)
-        order = db.query(MlOrdersOps).filter_by(order_id=FULFILLMENT_990).one()
-        order.paid_amount = None
-        db.commit()
-
-        with caplog.at_level(logging.WARNING, logger=envio_comprador.__name__):
-            assert resolve_envio_comprador_by_order_ids(db, [FULFILLMENT_990], IVA_ML_DIVISOR) == {}
-        assert str(FULFILLMENT_990) in caplog.text
-
-    def test_an_unknown_order_and_no_orders_are_absent(self, db) -> None:
-        assert resolve_envio_comprador_by_order_ids(db, [], IVA_ML_DIVISOR) == {}
-        assert resolve_envio_comprador_by_order_ids(db, [123], IVA_ML_DIVISOR) == {}
-
-
-class TestPerOrderNotPerShipment:
-    def test_two_orders_of_one_shipment_each_carry_their_own_money(self, db) -> None:
-        """The bonificación is split per SHIPMENT; the buyer's shipping is per
-        ORDER (each order carries its own `paid_amount - total_amount`), so
-        nothing is split and nothing is counted twice. MUTATION: dividing by
-        the orders sharing the `shipping_id` halves each."""
-        sibling = CROSS_DOCKING + 1
-        seed_case(db, CROSS_DOCKING)
-        seed_case(db, CROSS_DOCKING, order_id=sibling, with_shipment=False)
-
-        result = resolve_envio_comprador_by_order_ids(db, [CROSS_DOCKING, sibling], IVA_ML_DIVISOR)
-        alone = resolve_envio_comprador_by_order_ids(db, [sibling], IVA_ML_DIVISOR)
-
-        assert result[CROSS_DOCKING].bruto == result[sibling].bruto == Decimal("4699.09")
-        assert alone[sibling] == result[sibling]
 
 
 # ---------------------------------------------------------------------------
@@ -273,18 +173,29 @@ class TestVariosOverTheNewBase:
         assert CONCEPTO_ENVIO_COMPRADOR not in [c.concepto for c in desc.componentes]
 
     @pytest.mark.parametrize(
-        "case", [FULFILLMENT_990, CROSS_DOCKING, FULFILLMENT_3990, SELF_SERVICE_4990, SELF_SERVICE_PACK, THREE_PAYMENTS]
+        "case,bruto",
+        [
+            (FULFILLMENT_990, "990"),
+            (CROSS_DOCKING, "4699.09"),
+            (FULFILLMENT_3990, "3990"),
+            (SELF_SERVICE_4990, "4990"),
+            (SELF_SERVICE_PACK, None),
+            (THREE_PAYMENTS, "5373.7"),
+        ],
     )
-    def test_the_base_and_the_visible_line_agree_on_every_capture(self, db, case) -> None:
-        """Two readings of the same money (the order's `paid - total` for the
-        base, the payments' `shipping_amount` for the line) must not drift."""
+    def test_the_captured_cases_and_the_line_and_the_base_agree(self, db, case, bruto) -> None:
+        """The three payments of `THREE_PAYMENTS` (one rejected, one without
+        shipping) count the shipping ONCE; the annulled Flex pack has none."""
         seed_case(db, case)
 
         desc = descomponer_neto(db, [case])[case]
-        resolved = resolve_envio_comprador_by_order_ids(db, [case], IVA_ML_DIVISOR)
-        line_bruto = sum((c.bruto for c in desc.componentes if c.concepto == CONCEPTO_ENVIO_COMPRADOR), Decimal("0"))
 
-        assert (resolved[case].bruto if case in resolved else Decimal("0")) == line_bruto
+        line = sum((c.bruto for c in desc.componentes if c.concepto == CONCEPTO_ENVIO_COMPRADOR), Decimal("0"))
+        if bruto is None:
+            assert desc.envio_comprador is None
+            assert line == 0
+        else:
+            assert desc.envio_comprador.bruto == line == Decimal(bruto)
 
     def test_an_unresolved_goods_base_stays_unresolved_whatever_the_shipping(self, db) -> None:
         """The shipping can only add to a goods side we trust."""
@@ -296,3 +207,74 @@ class TestVariosOverTheNewBase:
 
         assert desc.base_venta_sin_iva is None
         assert desc.base_varios is None
+
+
+class TestTheBaseFollowsShippingAmountNotTheDifference:
+    """ONE source for the buyer's shipping: the explicit ML field
+    `payment.shipping_amount`, the same one the visible line reads.
+    `paid_amount - total_amount` is an inference that also catches a financing
+    surcharge."""
+
+    def test_a_surcharge_in_paid_amount_is_not_shipping(self, db) -> None:
+        seed_case(db, FULFILLMENT_990)
+        order = db.query(MlOrdersOps).filter_by(order_id=FULFILLMENT_990).one()
+        order.paid_amount = order.paid_amount + Decimal("500")  # e.g. financing interest
+        db.commit()
+
+        desc = descomponer_neto(db, [FULFILLMENT_990])[FULFILLMENT_990]
+
+        assert desc.base_varios == GOODS_990 + SHIPPING_NET_990
+        assert desc.envio_comprador.bruto == Decimal("990.00")
+
+    def test_the_base_follows_the_payment_field_when_the_difference_disagrees(self, db) -> None:
+        from app.models.ml_payments import MlPaymentOps
+
+        seed_case(db, FULFILLMENT_990)
+        db.query(MlPaymentOps).filter_by(order_id=FULFILLMENT_990).update({"shipping_amount": Decimal("1200")})
+        db.commit()
+
+        desc = descomponer_neto(db, [FULFILLMENT_990])[FULFILLMENT_990]
+
+        assert desc.base_varios == GOODS_990 + Decimal("991.74")  # 1200 / 1.21
+
+    def test_the_base_and_the_line_count_several_payments_the_same_way(self, db) -> None:
+        """Two relevant payments each carrying shipping: the line has one
+        component per payment and the base is the sum of THEIR bases."""
+        from app.models.ml_payments import MlPaymentOps
+
+        seed_case(db, FULFILLMENT_990)
+        payment = db.query(MlPaymentOps).filter_by(order_id=FULFILLMENT_990).one()
+        payment.shipping_amount = Decimal("500")
+        db.add(
+            MlPaymentOps(
+                payment_id=payment.payment_id + 1,
+                order_id=FULFILLMENT_990,
+                status="approved",
+                net_received_amount=Decimal("0"),
+                transaction_amount=Decimal("0"),
+                shipping_amount=Decimal("490"),
+            )
+        )
+        db.commit()
+
+        desc = descomponer_neto(db, [FULFILLMENT_990])[FULFILLMENT_990]
+
+        line_bases = [c.base for c in desc.componentes if c.concepto == CONCEPTO_ENVIO_COMPRADOR]
+        assert len(line_bases) == 2
+        assert desc.base_varios == GOODS_990 + sum(line_bases)
+        assert desc.envio_comprador.neto == sum(line_bases)
+
+    def test_a_negative_shipping_adds_nothing_and_logs(self, db, caplog) -> None:
+        from app.models.ml_payments import MlPaymentOps
+
+        seed_case(db, FULFILLMENT_990)
+        payment = db.query(MlPaymentOps).filter_by(order_id=FULFILLMENT_990).one()
+        payment.shipping_amount = Decimal("-100")
+        db.commit()
+
+        with caplog.at_level(logging.WARNING, logger=envio_comprador.__name__):
+            desc = descomponer_neto(db, [FULFILLMENT_990])[FULFILLMENT_990]
+
+        assert desc.base_varios == GOODS_990
+        assert desc.envio_comprador is None
+        assert str(payment.payment_id) in caplog.text

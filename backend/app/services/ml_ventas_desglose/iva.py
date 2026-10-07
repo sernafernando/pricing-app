@@ -74,7 +74,7 @@ from app.services.ml_ventas_desglose.bonificacion_flex import (
     CONCEPTO_BONIFICACION_ENVIO,
     resolve_bonificacion_flex_by_order_ids,
 )
-from app.services.ml_ventas_desglose.envio_comprador import EnvioCompradorOrden, resolve_envio_comprador_by_order_ids
+from app.services.ml_ventas_desglose.envio_comprador import EnvioCompradorOrden, envio_comprador_de_pago
 from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
     RELEVANT_PAYMENT_STATUSES,
@@ -258,7 +258,6 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         items_by_order[it.order_id] = items_by_order.get(it.order_id, 0) + 1
 
     bonificacion_by_order = resolve_bonificacion_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
-    envio_comprador_by_order = resolve_envio_comprador_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
 
     for order_id in order_ids:
         order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -355,16 +354,23 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # `order_relevant`, NOT every payment: `neto` was built from the
         # relevant ones only, so adding a rejected payment's shipping here
         # would inflate the positive side against a net that never saw it.
+        #
+        # ventas-ml-varios-base-envio: the "% de varios" base reads these SAME
+        # components (one per payment, through `envio_comprador_de_pago`), so
+        # the line and the base cannot disagree.
+        envio_bruto = Decimal("0")
+        envio_neto = Decimal("0")
         for payment in order_relevant:
-            if payment.shipping_amount is not None:
-                bruto = Decimal(str(payment.shipping_amount))
-                if bruto != 0:
-                    base, iva = _split(bruto, IVA_ML_DIVISOR)
-                    componentes.append(
-                        ComponenteIVA(
-                            concepto=CONCEPTO_ENVIO_COMPRADOR, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva
-                        )
+            bruto = envio_comprador_de_pago(payment.shipping_amount, payment.payment_id)
+            if bruto is not None:
+                base, iva = _split(bruto, IVA_ML_DIVISOR)
+                componentes.append(
+                    ComponenteIVA(
+                        concepto=CONCEPTO_ENVIO_COMPRADOR, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva
                     )
+                )
+                envio_bruto += bruto
+                envio_neto += base
             if payment.transaction_amount_refunded:
                 # A refund scales `neto` down, but nothing tells us WHICH
                 # items came back -- so the per-rate split of the goods is
@@ -464,12 +470,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # (`BonificacionEnvioDeduccion`), never through `neto_sin_iva`.
         # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
         # so a pack's components add up to ONE bonificación.
-        # ventas-ml-varios-base-envio: the shipping the BUYER paid already has
-        # its visible, non-informational line above (`CONCEPTO_ENVIO_COMPRADOR`,
-        # from `payment.shipping_amount`, inside `net_received_amount`), so no
-        # second line is added here. The "% de varios" base reads the money
-        # that came in from the ORDER (`envio_comprador.py`: paid - total).
-        envio_comprador = envio_comprador_by_order.get(order_id)
+        envio_comprador = EnvioCompradorOrden(bruto=envio_bruto, neto=envio_neto) if envio_bruto > 0 else None
 
         bonificacion = bonificacion_by_order.get(order_id)
         if bonificacion is not None:
