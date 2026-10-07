@@ -429,8 +429,20 @@ class Board:
         product_item_id: Optional[int] = None,
         scope: Sequence[str] = (),
         through_leaves: bool = False,
+        *,
+        scope_pairs: Optional[Sequence[Tuple[str, str]]],
     ):
-        """`scope` is the PATH of a node of the "group" view under
+        """`scope_pairs` is REQUIRED (keyword-only, no default): every caller must
+        choose the visibility explicitly, so a call site that forgets it fails
+        closed with a TypeError instead of silently seeing everything. It is the
+        CALLER's visibility, resolved server-side (never
+        from the query): `None` = full view (an explicit choice), `[]` sees nothing, otherwise
+        only the products whose upper-cased (marca, categoría) is one of the
+        pairs. The pairs MUST come from `pm_scope` (upper-cased by the database,
+        as the board compares them with SQL `upper()`): never upper-case them
+        in Python, which differs from SQL `upper()` on accents. It bounds the per-item base, so every read below is bounded.
+
+        `scope` is the PATH of a node of the "group" view under
         `f.dimension`: the keys of levels 0..n-1. The "group" view then reads
         the nodes one level below it (`group_page`); with a path as deep as the
         tree has group levels, the board's product rows are the node's
@@ -441,6 +453,7 @@ class Board:
         self.f = f
         self.product_item_id = product_item_id
         self.scope = tuple(scope)
+        self.scope_pairs = None if scope_pairs is None else [tuple(pair) for pair in scope_pairs]
         self.levels = grouping.levels_of(f.dimension)
         # The levels above the products: how many keys a path can hold.
         self.group_levels = len(self.levels) - 1
@@ -640,6 +653,14 @@ class Board:
             .outerjoin(agg, and_(agg.c.product == pairs.c.product, agg.c.mla == pairs.c.mla))
             .outerjoin(last, and_(last.c.product == pairs.c.product, last.c.mla == pairs.c.mla))
         )
+        if self.scope_pairs is not None:
+            # Fail closed: an empty scope matches nothing, and a pair with no
+            # product (NULL marca/categoría) never matches a scoped caller.
+            source = source.where(
+                tuple_(func.upper(P.marca), func.upper(P.categoria)).in_(self.scope_pairs)
+                if self.scope_pairs
+                else false()
+            )
         for dimension in dimensions:
             for target, onclause in dimension.joins:
                 source = source.outerjoin(target, onclause)

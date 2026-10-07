@@ -88,7 +88,7 @@ def _group(db, key: str, members, group_date: datetime) -> None:
 
 def _rows(db, group_by="product"):
     f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by=group_by)
-    with board.Board(db, f) as b:
+    with board.Board(db, f, scope_pairs=None) as b:
         return {row.key: row for row in b.page(None)}
 
 
@@ -144,13 +144,13 @@ def test_stock_is_joined_filtered_and_counted_on_postgres(board_pg) -> None:
     _group(db, "o:2000012345678923", [2000012345678923], NOW - timedelta(hours=3))
 
     period = {"date_from": TODAY - timedelta(days=29), "date_to": TODAY}
-    with board.Board(db, board.BoardFilter(**period)) as b:
+    with board.Board(db, board.BoardFilter(**period), scope_pairs=None) as b:
         stocks = {row.key: row.stock for row in b.page(None)}
         facets = b.facets()
-    with board.Board(db, board.BoardFilter(**period, stock=("sin_stock",))) as b:
+    with board.Board(db, board.BoardFilter(**period, stock=("sin_stock",)), scope_pairs=None) as b:
         sin_stock = [row.key for row in b.page(None)]
         kpis = b.kpis()
-    with board.Board(db, board.BoardFilter(**period, stock_exclude=("con_stock",))) as b:
+    with board.Board(db, board.BoardFilter(**period, stock_exclude=("con_stock",)), scope_pairs=None) as b:
         not_in_stock = sorted(row.key for row in b.page(None))
 
     assert stocks == {"777": 4, "778": 0, "779": None}
@@ -160,5 +160,5 @@ def test_stock_is_joined_filtered_and_counted_on_postgres(board_pg) -> None:
     assert not_in_stock == ["778", "779"]
     # Sorting by stock (PS4): unknown last either way.
     for desc, expected in ((True, ["777", "778", "779"]), (False, ["778", "777", "779"])):
-        with board.Board(db, board.BoardFilter(**period, sort="stock", sort_desc=desc)) as b:
+        with board.Board(db, board.BoardFilter(**period, sort="stock", sort_desc=desc), scope_pairs=None) as b:
             assert [row.key for row in b.page(None)] == expected

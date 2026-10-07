@@ -140,7 +140,7 @@ def _subrows(db, product: int = PRODUCT):
     event.listen(connection, "after_cursor_execute", after)
     started = time.perf_counter()
     try:
-        with board.Board(db, by_pub, product_item_id=product) as b:
+        with board.Board(db, by_pub, product_item_id=product, scope_pairs=None) as b:
             rows = b.page(limit=None, apply_alerts=False)
             elapsed_ms = (time.perf_counter() - started) * 1000
             event.remove(connection, "after_cursor_execute", after)

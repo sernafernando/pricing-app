@@ -25,9 +25,14 @@ def _script() -> ScriptDirectory:
     return ScriptDirectory.from_config(config)
 
 
-def test_single_head_and_it_is_this_revision() -> None:
+def test_the_revision_is_on_the_single_line() -> None:
+    # One head (alembic did not fork) that descends from this revision; not
+    # "this revision IS the head", so a later migration on top keeps it green.
     script = _script()
-    assert script.get_heads() == [_REVISION]
+    assert script.get_revision(_REVISION).down_revision == "20261006_ml_publications_product_links"
+    heads = script.get_heads()
+    assert len(heads) == 1, f"alembic forked: {heads}"
+    assert any(rev.revision == _REVISION for rev in script.walk_revisions("base", heads[0]))
 
 
 def test_declares_the_catalog_row_like_the_other_ml_ops_permissions() -> None:
