@@ -509,6 +509,8 @@ def _enqueue_unseen(
                         MlItem.status.in_(covered),
                         (MlItem.last_scan_seen_at.is_(None)) | (MlItem.last_scan_seen_at < lap.started_at),
                         MlItem.item_id > after,
+                        # ML answered for it after the lap started (stored mid-lap by the refresh handler)
+                        (MlItem.last_checked_at.is_(None)) | (MlItem.last_checked_at < lap.started_at),
                         (MlItem.status != "closed")
                         | (MlItem.last_checked_at.is_(None))
                         | (MlItem.last_checked_at < stale_before),

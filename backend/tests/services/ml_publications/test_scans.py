@@ -478,6 +478,16 @@ class TestMissingFromScan:
         assert result.failed_statuses == ["active"] and result.missing_enqueued == 0
         assert "MLA333" not in queue_rows(env)
 
+    def test_an_item_ml_answered_during_the_lap_is_not_requeued_as_unseen(self, env):
+        """The scan enqueues a new item, the refresh handler stores it mid-lap (no `last_scan_seen_at`):
+        ML already answered for it after the lap started, so asking again would double the backfill."""
+        put_item(env, "MLA888", checked_ago_days=-0.01)  # checked 14 minutes AFTER the lap start (NOW)
+        put_item(env, "MLA889", checked_ago_days=1)  # checked before the lap, unseen -> still refreshed
+        ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else None)
+        self.lap(ml)
+        rows = queue_rows(env)
+        assert "MLA888" not in rows and rows["MLA889"]["lane"] == queue.LANE_RECONCILE
+
     def test_the_unseen_step_honors_the_pause_flag_and_resumes(self, env, monkeypatch):
         monkeypatch.setattr(scans, "UNSEEN_BATCH", 2)
         for n in range(5):
