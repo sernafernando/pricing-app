@@ -271,7 +271,8 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
 * Only the resources listed in `bundle_resources` are swept: add `performance` and/or `visits` first, or the tick
   records `no_resources` and does nothing.
 * The tick enqueues nothing while manual or notification-lane work is ready to be claimed (it yields), skips
-  items that already have a queue entry, and stops adding work while 3 ticks' worth of sweep entries wait unfetched
+  items that already have a queue entry (an item whose entry is parked, that is, failed past its attempts, is not
+  eligible at all until it is enqueued by hand in the manual lane), and stops adding work while 3 ticks' worth of sweep entries wait unfetched
   (a stopped `refresh.enabled` cannot make the queue grow).
 * Sizing (2026-10-06): about 24.6k eligible items (16.2k of them paused) x 2 resources = about 49k calls a day =
   0.57 req/s, close to 30% of the 2 req/s budget. With `sweep.statuses = ["active"]` (about 7.8k items) it is about

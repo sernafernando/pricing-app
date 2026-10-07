@@ -213,6 +213,19 @@ class TestRecovery:
         result = run(ml)
         assert len(ml.requests) == 2 and result.complete and result.repeated_pages == 1
 
+    def test_messages_without_an_id_are_still_recognised_as_a_repeated_page(self, env):
+        """The captured messages with `_id` removed (the only change): ML answering the same page forever."""
+        anonymous = {"messages": [{k: v for k, v in m.items() if k != "_id"} for m in missed_body("items")["messages"]]}
+        ml = Ml(
+            {
+                ("items", offset): anonymous
+                for offset in range(0, 100 * missed_feeds.PAGE_LIMIT, missed_feeds.PAGE_LIMIT)
+            }
+        )
+        result = run(ml)
+        assert len(ml.requests) == 2 and result.complete and result.repeated_pages == 1
+        assert set(queue_rows(env)) == set(IDS)
+
     def test_each_mapped_topic_is_walked_in_order(self, env):
         ml = Ml()
         run(ml, mappings=ITEMS_AND_PRICES)
@@ -281,6 +294,26 @@ class TestRunRecord:
         assert result.resume == {"topic": "items", "offset": missed_feeds.PAGE_LIMIT}
         assert set(queue_rows(env)) == set(IDS)  # the first page was applied
         assert run_records(env)[0]["outcome"] == "partial"
+
+    def test_an_unexpected_error_while_applying_a_page_keeps_the_position_of_that_page(self, env, monkeypatch):
+        real = queue.enqueue
+        calls = {"n": 0}
+
+        def second_page_fails(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("db is gone")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(queue, "enqueue", second_page_fails)
+        page2 = {"messages": [with_message(_id="00000000-0000-4000-8000-000000000009", resource="/items/MLA1")]}
+        result = run(Ml({("items", 0): missed_body("items"), ("items", missed_feeds.PAGE_LIMIT): page2}))
+        assert result.error.startswith("internal_error") and not result.complete
+        assert result.resume == {"topic": "items", "offset": missed_feeds.PAGE_LIMIT}
+        assert run_records(env)[0]["counts"]["resume"] == result.resume
+
+    def test_a_completed_run_has_no_position_left(self, env):
+        assert run(Ml()).resume is None
 
     def test_a_run_resumes_at_the_stored_topic_and_offset(self, env):
         ml = Ml()

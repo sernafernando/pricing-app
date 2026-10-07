@@ -76,6 +76,10 @@ def test_the_checks_use_the_run_records_and_the_rollback_is_the_flags(section) -
     assert "Rollback" in section
 
 
+def test_the_parked_items_note_is_present(section) -> None:
+    assert "parked" in section and "enqueued by hand" in section
+
+
 def test_the_flags_are_independent_and_the_sweep_needs_its_resources_listed(section) -> None:
     assert "independent" in section.lower()
     assert "performance" in section and "visits" in section and "bundle_resources" in section

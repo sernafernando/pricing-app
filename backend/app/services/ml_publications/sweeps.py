@@ -7,7 +7,7 @@ them). K = ceil(eligible / 144): 144 ticks a day cover every eligible item once 
 call and spends no budget of its own: the refresh handler fetches what it enqueued, under the shared pacer
 and the lane order.
 
-Eligible: status in `sweep.statuses` (never `closed`), not gone, never-existed excluded; a performance state
+Eligible: status in `sweep.statuses` (never `closed`), not gone, never-existed excluded, no parked queue entry; a performance state
 stored as `applicable = false` (a catalog product item answers "not supported") only after
 `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS`. Only resources named in `bundle_resources` are swept: a name that is not
 listed would be dropped by the refresh handler and the item selected again on every tick.
@@ -58,8 +58,15 @@ _ELIGIBLE = """
     LEFT JOIN {table} s ON s.item_id = i.item_id
     WHERE i.status = ANY(CAST(:statuses AS text[])) AND i.status <> 'closed'
       AND i.gone_at IS NULL AND i.never_existed IS NOT TRUE
+      {parked}
       {not_applicable}
 """
+# A parked entry (failed past its attempts) leaves the queue only through a manual enqueue, so the sweep cannot
+# reach that item: it is not eligible, which also keeps the batch size from counting it.
+_NOT_PARKED = (
+    "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue p "
+    "WHERE p.kind = 'item' AND p.entity_id = i.item_id AND p.parked_at IS NOT NULL)"
+)
 # Performance only: a stored "not applicable" answer is rechecked at the long interval.
 _NOT_APPLICABLE = (
     "AND (s.applicable IS DISTINCT FROM FALSE OR s.last_checked_at IS NULL OR s.last_checked_at < :recheck_before)"
@@ -133,7 +140,9 @@ def _utcnow() -> datetime:
 
 def _eligible_sql(resource: str) -> str:
     return _ELIGIBLE.format(
-        table=_TABLES[resource], not_applicable=_NOT_APPLICABLE if resource == PERFORMANCE_RESOURCE else ""
+        table=_TABLES[resource],
+        parked=_NOT_PARKED,
+        not_applicable=_NOT_APPLICABLE if resource == PERFORMANCE_RESOURCE else "",
     )
 
 

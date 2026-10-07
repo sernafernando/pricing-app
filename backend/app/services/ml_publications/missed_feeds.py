@@ -154,6 +154,17 @@ def _delta(after: Mapping[str, int], before: Mapping[str, int]) -> Dict[str, int
     return {k: v - before.get(k, 0) for k, v in after.items() if v - before.get(k, 0)}
 
 
+def _page_keys(messages: Sequence[Any]) -> Set[str]:
+    """What identifies the messages of a page: their `_id`, or their resource when a message has none."""
+    keys: Set[str] = set()
+    for message in messages:
+        if isinstance(message, Mapping):
+            key = message.get("_id") if isinstance(message.get("_id"), str) else message.get("resource")
+            if isinstance(key, str) and key:
+                keys.add(key)
+    return keys
+
+
 def _apply_page(
     mapping: intake.TopicMapping,
     messages: Sequence[Any],
@@ -220,6 +231,8 @@ def _walk_topic(
             return stop(STOP_DISABLED)
         if _utcnow() >= deadline:
             return stop(STOP_DEADLINE)
+        # the position of the page in flight: an unexpected error while applying it leaves the run here
+        result.resume = {"topic": mapping.topic, "offset": offset}
         params = {"app_id": app_id, "topic": mapping.topic, "site_id": SITE_ID, "limit": PAGE_LIMIT, "offset": offset}
         response: MlResponse = client.get(ENDPOINT_FAMILY, "/missed_feeds", params, deadline=deadline)
         if response.error == DEADLINE:
@@ -238,7 +251,7 @@ def _walk_topic(
             return False  # the captured end of the list
         if not isinstance(messages, list):
             return stop(error=ERROR_MALFORMED)
-        ids = {m["_id"] for m in messages if isinstance(m, Mapping) and isinstance(m.get("_id"), str)}
+        ids = _page_keys(messages)
         if ids and ids <= seen_ids:  # ML answered a page this run already read: the list is not advancing
             result.repeated_pages += 1
             logger.warning("missed feeds topic %s repeats a page at offset %s; ending the topic", mapping.topic, offset)
@@ -283,6 +296,7 @@ def _walk(
         ):
             return
     result.complete = True
+    result.resume = None
 
 
 def _record(

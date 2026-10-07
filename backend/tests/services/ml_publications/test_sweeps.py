@@ -204,6 +204,30 @@ class TestSelection:
         assert rows[ids[1]]["resources"] == ["visits"]
 
 
+class TestParkedEntries:
+    def test_an_item_whose_entry_is_parked_is_not_eligible_so_it_neither_counts_nor_is_re_enqueued(self, env) -> None:
+        parked, other = put_items(env, 2)
+        queue_put(env, parked, queue.LANE_SWEEP, resources="{visits}")
+        with env.begin() as conn:
+            conn.execute(text("UPDATE ml_pub_refresh_queue SET parked_at = now()"))
+        result = run(bundle=["core", "visits"])
+        assert result.resources["visits"].eligible == 1  # the batch size is not inflated by an item it cannot reach
+        assert set(queue_rows(env)) == {parked, other}
+        assert queue_rows(env)[parked] == {"lane": queue.LANE_SWEEP, "resources": ["visits"]}  # untouched
+        with env.connect() as conn:
+            assert (
+                conn.execute(
+                    text("SELECT version FROM ml_pub_refresh_queue WHERE entity_id = :i"), {"i": parked}
+                ).scalar()
+                == 1
+            )
+
+    def test_an_item_with_a_live_entry_still_counts_as_eligible(self, env) -> None:
+        queued_item, _ = put_items(env, 2)
+        queue_put(env, queued_item, queue.LANE_BACKFILL)
+        assert run(bundle=["core", "visits"]).resources["visits"].eligible == 2
+
+
 class TestNotApplicablePerformance:
     def test_it_is_skipped_until_the_recheck_interval_has_passed(self, env) -> None:
         recent, old = put_items(env, 2)
