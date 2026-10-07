@@ -15,9 +15,12 @@ from app.services.ml_publications.parsers.items_bulk import parse_items_bulk
 from app.services.ml_publications.resources import REFRESH_RESOURCES, RESOURCES, ResourceSpec, register
 from tests.services.ml_publications.conftest import FIXTURES_DIR, SUBRESOURCE_FIXTURES, load_fixture
 
-# Modules allowed to read ERP data. Empty in this PR: PR5L1 adds exactly `links.py`,
-# PR5L2 adds exactly the links router.
-ERP_ALLOW_LIST: frozenset[str] = frozenset()
+# Modules allowed to read our product catalog (`ProductoERP`). PR5L1 adds exactly `links.py`,
+# PR5L2 adds exactly the links router. The allowance covers the catalog only: GBP clients and the
+# other ERP-mirror tables stay forbidden everywhere.
+ERP_ALLOW_LIST: frozenset[str] = frozenset({"links.py"})
+CATALOG_NAMES = ("productos_erp", "ProductoERP")
+CATALOG_IMPORT_TOKEN = "producto"
 
 FORBIDDEN_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "productos_erp", "ProductoERP")
 FORBIDDEN_IMPORT_TOKENS = ("gbp", "producto", "publicacion")
@@ -108,18 +111,24 @@ def _package_sources():
 def test_package_never_imports_gbp_or_names_erp_mirror_tables():
     offenders = []
     for name, source in _package_sources():
-        if name in ERP_ALLOW_LIST:
-            continue
+        allowed = name in ERP_ALLOW_LIST
         for node in ast.walk(ast.parse(source)):
             modules = []
             if isinstance(node, ast.Import):
                 modules = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
                 modules = [node.module or ""] + [alias.name for alias in node.names]
-            offenders += [(name, m) for m in modules if any(token in m.lower() for token in FORBIDDEN_IMPORT_TOKENS)]
-        offenders += [(name, n) for n in FORBIDDEN_NAMES if re.search(rf"\b{n}\b", source)]
+            for module in modules:
+                for token in FORBIDDEN_IMPORT_TOKENS:
+                    if token in module.lower() and not (allowed and token == CATALOG_IMPORT_TOKEN):
+                        offenders.append((name, module))
+        offenders += [
+            (name, n)
+            for n in FORBIDDEN_NAMES
+            if re.search(rf"\b{n}\b", source) and not (allowed and n in CATALOG_NAMES)
+        ]
     assert offenders == []
 
 
-def test_allow_list_is_empty_in_this_pr():
-    assert ERP_ALLOW_LIST == frozenset()
+def test_allow_list_is_exactly_the_linking_module_in_this_pr():
+    assert ERP_ALLOW_LIST == frozenset({"links.py"})
