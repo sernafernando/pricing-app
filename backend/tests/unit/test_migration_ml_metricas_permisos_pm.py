@@ -17,7 +17,7 @@ from app.routers import ml_metricas
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _REVISION = "20261006_ml_metricas_permisos_pm"
-_BASE = "20261001_ml_metricas_permisos"
+_BASE = "20261006_ml_publications_core"
 CODES = {ml_metricas.PERMISO_VER, ml_metricas.PERMISO_GANANCIA}
 
 
@@ -31,9 +31,14 @@ def _module():
     return _script().get_revision(_REVISION).module
 
 
-def test_the_revision_is_the_single_head() -> None:
+def test_the_revision_sits_on_the_publications_core_and_is_reachable_from_every_head() -> None:
     script = _script()
-    assert script.get_heads() == [_REVISION]
+    revision = script.get_revision(_REVISION)
+    assert revision is not None
+    assert revision.down_revision == _BASE
+    for head in script.get_heads():
+        ancestors = {r.revision for r in script.walk_revisions(base="base", head=head)}
+        assert _REVISION in ancestors
 
 
 def test_it_grants_exactly_the_board_permissions_to_pricing_and_ventas() -> None:
@@ -103,3 +108,17 @@ def test_downgrade_removes_only_those_grants_and_keeps_the_permissions(catalog) 
     assert _grants(catalog) == before  # ADMIN's grants and VENTAS's other permission survive
     with catalog.connect() as conn:
         assert conn.execute(sa.text("SELECT count(*) FROM permisos")).scalar() == 3
+
+
+def test_downgrade_also_removes_a_grant_an_admin_added_before_the_upgrade(catalog) -> None:
+    """Known, accepted limitation (same as 20261001): the migration cannot tell
+    the grants it created from ones that already existed, so the downgrade
+    removes both. Pinned so it stays intentional."""
+    with catalog.begin() as conn:
+        conn.execute(sa.text("INSERT INTO roles_permisos_base VALUES (2, 1)"))  # PRICING, ml_metricas.ver
+    assert ("PRICING", "ml_metricas.ver") in _grants(catalog)
+
+    _run(catalog, "upgrade")
+    _run(catalog, "downgrade")
+
+    assert ("PRICING", "ml_metricas.ver") not in _grants(catalog)
