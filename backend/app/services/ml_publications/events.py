@@ -1,0 +1,158 @@
+"""Pure business-event rules over a stored change-log row (design D15, D16).
+
+`derive_events` sees only the row (`changes` + `context`, both written by the store at the
+moment of the change), never the current state, so the same function serves the live
+write and the re-derivation of events from the change log alone (spec Domain 5). It is
+called only for rows that were actually written: a first sighting or a noise-only diff has
+no row and therefore no event. No I/O here; persistence lives in `events_store`.
+
+This PR covers the item core catalog; other resources add their rules with their PRs.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Mapping, Optional, Sequence
+
+ITEM_RESOURCE = "item"
+
+STATUS_EVENT_BY_VALUE = {
+    "paused": "status_paused",
+    "active": "status_activated",
+    "closed": "status_closed",
+    "under_review": "status_under_review",
+}
+STATUS_EVENT_OTHER = "status_changed_other"
+
+
+@dataclass(frozen=True)
+class ChangeRow:
+    """The columns of a change-log row the rules and the event writer read."""
+
+    id: int
+    resource_type: str
+    item_id: Optional[str]
+    kind: str
+    observed_at: datetime
+    source_last_updated: Optional[datetime]
+    changes: Sequence[Mapping[str, Any]]
+    context: Mapping[str, Any]
+
+    @classmethod
+    def from_model(cls, entry: Any) -> "ChangeRow":
+        return cls(
+            id=entry.id,
+            resource_type=entry.resource_type,
+            item_id=entry.item_id,
+            kind=entry.kind,
+            observed_at=entry.observed_at,
+            source_last_updated=entry.source_last_updated,
+            changes=entry.changes or [],
+            context=entry.context or {},
+        )
+
+
+@dataclass(frozen=True)
+class Event:
+    event_type: str
+    item_id: str
+    old_value: Any = None
+    new_value: Any = None
+    payload: dict = field(default_factory=dict)
+    promotion_id: Optional[str] = None
+    promotion_type: Optional[str] = None
+    price_kind: Optional[str] = None
+
+    @property
+    def promotion_key(self) -> Optional[str]:
+        """Part of the event identity when it applies (later resources)."""
+        if self.promotion_id is None and self.promotion_type is None:
+            return None
+        return f"{self.promotion_id or ''}:{self.promotion_type or ''}"
+
+
+def dedupe_key(change_log_id: int, event_type: str, promotion_key: Optional[str], price_kind: Optional[str]) -> bytes:
+    """Identity of an event: originating row, type, promotion key and price kind (D8).
+
+    ML `last_updated` is deliberately not part of it. Each part is length-prefixed so a
+    value containing the separator cannot collide with a different split of the same text.
+    """
+    parts = (str(change_log_id), event_type, promotion_key or "", price_kind or "")
+    return hashlib.sha256("|".join(f"{len(p)}:{p}" for p in parts).encode("utf-8")).digest()
+
+
+def _change(changes: Sequence[Mapping[str, Any]], path: str) -> Optional[Mapping[str, Any]]:
+    for change in changes:
+        if change.get("p") == path:
+            return change
+    return None
+
+
+def _touches(changes: Sequence[Mapping[str, Any]], path: str) -> bool:
+    """True when a change is at `path` or at a member of the set/array under it (`path[...]`)."""
+    return any(c.get("p") == path or str(c.get("p", "")).startswith(f"{path}[") for c in changes)
+
+
+def _status_events(row: ChangeRow) -> list[Event]:
+    ctx = row.context
+    old, new = ctx.get("status_old"), ctx.get("status_new")
+    item_id = row.item_id or ""
+    if new is None or old == new:
+        if _touches(row.changes, "sub_status") and new is not None:
+            return [
+                Event(
+                    "sub_status_changed",
+                    item_id,
+                    old_value=ctx.get("sub_status_old"),
+                    new_value=ctx.get("sub_status_new"),
+                    payload={"status": new},
+                )
+            ]
+        return []
+    event_type = STATUS_EVENT_BY_VALUE.get(new, STATUS_EVENT_OTHER)
+    if event_type == "status_activated":
+        payload: dict = {"is_reactivation": ctx.get("first_active_at_before") is not None}
+    else:
+        payload = {"old_sub_status": ctx.get("sub_status_old"), "new_sub_status": ctx.get("sub_status_new")}
+    return [Event(event_type, item_id, old_value=old, new_value=new, payload=payload)]
+
+
+def _field_event(row: ChangeRow, event_type: str, path: str) -> list[Event]:
+    change = _change(row.changes, path)
+    if change is None or change.get("op") != "replace":
+        return []
+    return [Event(event_type, row.item_id or "", old_value=change.get("old"), new_value=change.get("new"))]
+
+
+def _stock_events(row: ChangeRow) -> list[Event]:
+    old, new = row.context.get("available_quantity_old"), row.context.get("available_quantity_new")
+    if not isinstance(old, int) or not isinstance(new, int) or isinstance(old, bool) or isinstance(new, bool):
+        return []
+    if old > 0 and new == 0:
+        event_type = "stock_depleted"
+    elif old == 0 and new > 0:
+        event_type = "stock_replenished"
+    else:
+        return []
+    sold = _change(row.changes, "sold_quantity")
+    payload = {"sold_quantity": sold.get("new") if sold else None}
+    return [Event(event_type, row.item_id or "", old_value=old, new_value=new, payload=payload)]
+
+
+def derive_events(row: ChangeRow) -> list[Event]:
+    """Typed events of one change-log row; empty when the change maps to none."""
+    if row.resource_type != ITEM_RESOURCE:
+        return []
+    item_id = row.item_id or ""
+    events: list[Event] = []
+    if row.kind == "gone":
+        events.append(Event("item_gone", item_id, payload={"last_status": row.context.get("status_old")}))
+    elif row.kind == "restored":
+        events.append(Event("item_restored", item_id, payload={"status": row.context.get("status_new")}))
+    events += _status_events(row)
+    events += _field_event(row, "listing_type_changed", "listing_type_id")
+    events += _field_event(row, "title_changed", "title")
+    events += _stock_events(row)
+    return events

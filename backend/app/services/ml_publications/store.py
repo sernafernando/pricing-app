@@ -11,6 +11,7 @@ Postgres only (`SET LOCAL`, row locks, `ON CONFLICT`).
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,11 +22,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
 from app.models.ml_publications import MlChangeLog, MlItem, MlItemVariation
+from app.services.ml_publications import events_store, settings_store
 from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import Change, diff, split_excluded
 from app.services.ml_publications.mappers import map_variations
 from app.services.ml_publications.ml_http import MlResponse
 from app.services.ml_publications.resources import ResourceSpec
+
+logger = logging.getLogger(__name__)
 
 LOCK_TIMEOUT = "5s"
 STATEMENT_TIMEOUT = "15s"
@@ -48,7 +52,7 @@ ApplyKind = Literal[
 class ApplyOutcome:
     kind: ApplyKind
     change_log_id: Optional[int] = None
-    events: int = 0  # event derivation arrives with PR5
+    events: int = 0  # business events written with the change-log row (0 when the flag is off)
 
 
 @dataclass
@@ -59,7 +63,7 @@ class ApplyCounters:
     noise_suppressed: Counter = field(default_factory=Counter)  # (resource, path) -> count
 
 
-def _context(old: Mapping[str, Any], new: Mapping[str, Any], first_active_before: Optional[datetime]) -> dict:
+def item_context(old: Mapping[str, Any], new: Mapping[str, Any], first_active_before: Optional[datetime]) -> dict:
     """Minimal inputs event rules need beyond the changed paths (design D8)."""
     return {
         "status_old": old.get("status"),
@@ -74,6 +78,17 @@ def _context(old: Mapping[str, Any], new: Mapping[str, Any], first_active_before
         "official_store_id": new.get("official_store_id"),
         "brand": new.get("brand"),
     }
+
+
+def _events_enabled() -> bool:
+    """The `events.enabled` DB flag, read before the transaction opens. Fails closed: an
+    unreadable flag means no events (the change log is always written; events can be rebuilt
+    from it later with `events_store.rederive_events`)."""
+    try:
+        return settings_store.is_enabled("events") is True
+    except Exception:  # noqa: BLE001 -- a settings failure must never block the change log
+        logger.exception("ml_pub events flag unreadable; no events for this fetch")
+        return False
 
 
 def _typed_snapshot(row: MlItem) -> dict:
@@ -148,10 +163,18 @@ def apply_fetch(
     *,
     trigger_received_at: Optional[datetime] = None,
     counters: Optional[ApplyCounters] = None,
+    events_enabled: Optional[bool] = None,
 ) -> ApplyOutcome:
-    """Apply one fetched item response to the store inside one transaction."""
+    """Apply one fetched item response to the store inside one transaction.
+
+    `events_enabled` is the `events.enabled` flag as the caller already read it (the refresh
+    handler reads it once per batch with its other settings). `None` means the caller did not
+    read it, so it is read here, before the transaction opens.
+    """
     counters = counters if counters is not None else ApplyCounters()
     (item_id,) = key
+    if events_enabled is None:
+        events_enabled = _events_enabled()
     with database.get_background_db() as db:
         db.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
         db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
@@ -181,10 +204,10 @@ def apply_fetch(
 
         if typed is None:
             if response.status == 404:
-                return _not_found(db, spec, row, response, trigger_received_at)
+                return _not_found(db, spec, row, response, trigger_received_at, events_enabled)
             return _error(db, row, response)
 
-        return _apply_state(db, spec, row, body, typed, response, trigger_received_at, counters)
+        return _apply_state(db, spec, row, body, typed, response, trigger_received_at, counters, events_enabled)
 
 
 def _apply_state(
@@ -196,6 +219,7 @@ def _apply_state(
     response: MlResponse,
     trigger_received_at: Optional[datetime],
     counters: ApplyCounters,
+    events_enabled: bool,
 ) -> ApplyOutcome:
     """A 2xx (or declared negative-state) body: first sighting, unchanged, noise-only, change or restore."""
     item_id = row.item_id
@@ -245,9 +269,13 @@ def _apply_state(
         new_hash,
         response,
         incoming_last_updated,
-        _context(old_snapshot, typed or old_snapshot, first_active_before),
+        item_context(old_snapshot, typed or old_snapshot, first_active_before),
     )
-    return ApplyOutcome("restored" if restoring else "changed", change_log_id=entry.id)
+    return ApplyOutcome(
+        "restored" if restoring else "changed",
+        change_log_id=entry.id,
+        events=_emit_events(db, entry, events_enabled),
+    )
 
 
 def _project_variations(db, item_id: str, body: Mapping[str, Any], response: MlResponse) -> None:
@@ -290,7 +318,12 @@ def _error(db, row: MlItem, response: MlResponse, reason: Optional[str] = None) 
 
 
 def _not_found(
-    db, spec: ResourceSpec, row: MlItem, response: MlResponse, trigger_received_at: Optional[datetime]
+    db,
+    spec: ResourceSpec,
+    row: MlItem,
+    response: MlResponse,
+    trigger_received_at: Optional[datetime],
+    events_enabled: bool,
 ) -> ApplyOutcome:
     """The resource answered 404 (D8 step 2): mark it gone once, never delete anything."""
     if row.gone_at is not None:
@@ -318,9 +351,14 @@ def _not_found(
         bytes(row.raw_hash),
         response,
         None,
-        _context(snapshot, snapshot, row.first_active_at),
+        item_context(snapshot, snapshot, row.first_active_at),
     )
-    return ApplyOutcome("gone", change_log_id=entry.id)
+    return ApplyOutcome("gone", change_log_id=entry.id, events=_emit_events(db, entry, events_enabled))
+
+
+def _emit_events(db, entry: MlChangeLog, events_enabled: bool) -> int:
+    """Events of the row just logged, in the same transaction (D8 step 6)."""
+    return events_store.write_events(db, entry) if events_enabled else 0
 
 
 def _log_change(
