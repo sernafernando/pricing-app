@@ -1,6 +1,6 @@
 # Ventas ML: la base del "% de varios" suma el envío que entra (y backfill único)
 
-**Creado:** 2026-10-07 · **Estado:** en curso
+**Creado:** 2026-10-07 · **Estado:** implementado, pendiente de confirmación de la regla de bonificación (2 muestras)
 **TDD:** estricto (config de sesión) · **Runners:** `cd backend && .venv/bin/python -m pytest` / `cd frontend && pnpm test`
 **Estrategia de entrega:** `ask-on-risk` · **Rama base:** `origin/main` (`12e82949`, incluye #1415) · **Rama:** `feat/ventas-ml-varios-base-envio`
 **Ruta por tarea:** todo inline en una sola sesión de escritor delegado (un único writer, sin SDD).
@@ -151,9 +151,9 @@ ORDER BY formula_version;
 - [x] T4 RED/GREEN: `VariosDeduccion` usa `base_varios` (rename del kwarg, `compute.py` y tests)
 - [x] T5 RED/GREEN: API `iva_decomposicion.envio_comprador` / `base_varios`
 - [x] T6 RED/GREEN: casos capturados + pack Flex (599, comprador 0) + 3 pagos + sin doble conteo
-- [ ] T7 (ULTIMO commit, retenido hasta confirmación) RED/GREEN: `CURRENT_FORMULA_VERSION` = 3 + reconcile selecciona fila vieja + divergencia no inunda
-- [ ] T8 Frontend: test de vitest del componente informativo + novedad
-- [ ] T9 Runbook (backfill), lint, push, observaciones del GGA
+- [x] T7 (ULTIMO commit, retenido hasta confirmación) RED/GREEN: `CURRENT_FORMULA_VERSION` = 3 + reconcile selecciona fila vieja + divergencia no inunda
+- [x] T8 Frontend: novedad (no hay JSX nuevo: la línea visible de envío ya existía en la tabla de IVA); vitest `ventasMl` + novedades verde
+- [x] T9 Runbook (backfill), lint, push, observaciones del GGA
 
 ## Chequeos
 
@@ -166,8 +166,14 @@ No se corre la suite entera (la corre el CI).
 
 - T0b..T6: `pytest tests/services/ml_ventas_desglose tests/services/order_metrics tests/services/ml_group_metrics
   tests/workers tests/integration/test_ml_ventas_ops*.py` -> 1154 passed (antes del bump de versión).
-- Commits: 10cffba8 (regla de bonificación). Ver `git log`.
+- Commits: ver `git log origin/main..HEAD`. El bump (T7) es el ULTIMO commit y puede descartarse sin tocar el resto
+  (la novedad dice que el historial se recalcula: si se descarta, ajustar ese bullet).
+- T7: reconcile selecciona una fila v2 con el bump (RED observado: `assert 2 == 3`); lotes de 40 sobre 100 filas = 3 lotes;
+  divergencia: con el backlog ya encolado compara 0 y abre 0; sin encolar, abre como máximo 100 por corrida
+  (`TestBumpDoesNotFloodDivergence`). `ml_group_metrics` se recalcula como efecto de guardar la orden.
+- Verificación final: pytest (desglose, order_metrics, ml_group_metrics, workers, integración ml_ventas_ops) verde;
+  `ruff check/format` limpios; `pnpm run lint` 0 errores (2 warnings preexistentes), `lint:css` limpio.
 
 ## Próximo paso
 
-T0.
+Que el usuario confirme la regla de bonificación con más muestras de panel; recién ahí mergear con el commit de bump.

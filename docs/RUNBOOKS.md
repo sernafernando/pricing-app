@@ -932,6 +932,10 @@ FROM ml_order_metrics_dirty;
 Done when no row has `formula_version < CURRENT_FORMULA_VERSION`, the queue is
 empty and `missing_metrics_count` in `GET /api/ml-ops/order-metrics/health` is 0.
 
+`ml_group_metrics` follows by itself: storing an order's metrics recomputes
+its group (`store_recompute_order_metrics` side effect), so no separate group
+backfill is needed for a formula bump.
+
 **Divergence while it runs.** `order_metrics.divergence` skips every order that
 has a dirty row, and `reconcile` enqueues the whole backlog first, so the
 bulk of the old rows is never compared. An old row that is NOT dirty yet (the

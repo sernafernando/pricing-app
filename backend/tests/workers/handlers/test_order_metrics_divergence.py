@@ -423,3 +423,60 @@ class TestDivergenceComparesAllPromisedFields:
                 text("SELECT id FROM ml_ops_divergence WHERE order_id = :order_id"), {"order_id": order_id}
             ).fetchone()
         assert div_row is not None
+
+
+@pytest.mark.postgres
+class TestBumpDoesNotFloodDivergence:
+    """ventas-ml-varios-base-envio: bumping `CURRENT_FORMULA_VERSION` makes
+    EVERY stored row look stale to a fresh compute (`formula_version`
+    differs). The recompute must not bury the divergence panel."""
+
+    def _seed_stale(self, engine, first_id: int, count: int) -> list:
+        from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
+
+        ids = list(range(first_id, first_id + count))
+        with engine.connect() as conn:
+            for order_id in ids:
+                _insert_order(conn, order_id)
+                _insert_metrics(conn, order_id, formula_version=CURRENT_FORMULA_VERSION - 1)
+            conn.commit()
+        return ids
+
+    def test_once_reconcile_has_enqueued_the_backlog_divergence_compares_none_of_it(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        from app.workers.handlers.order_metrics import reconcile
+
+        self._seed_stale(pg_order_metrics_divergence_engine, 700000, 150)
+        reconcile.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        assert result.detail["divergent_count"] == 0
+        assert result.detail["checked_count"] == 0
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            opened = conn.execute(
+                text("SELECT count(*) FROM ml_ops_divergence WHERE kind = 'stored_metrics_mismatch'")
+            ).scalar()
+        assert opened == 0
+
+    def test_stale_rows_nobody_enqueued_yet_open_at_most_the_per_run_cap(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        """The window between two reconcile runs: stale rows that are not
+        dirty yet ARE compared and flagged -- but never more than the cap per
+        run, and each is re-enqueued (it heals itself)."""
+        ids = self._seed_stale(pg_order_metrics_divergence_engine, 710000, 150)
+
+        result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        assert result.detail["divergent_count"] == 150
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            opened = conn.execute(
+                text("SELECT count(*) FROM ml_ops_divergence WHERE kind = 'stored_metrics_mismatch'")
+            ).scalar()
+            requeued = conn.execute(
+                text("SELECT count(*) FROM ml_order_metrics_dirty WHERE order_id = ANY(:ids)"), {"ids": ids}
+            ).scalar()
+        assert opened == order_metrics_handlers.DIVERGENCE_MAX_RECORDED_PER_RUN == 100
+        assert requeued == 150
