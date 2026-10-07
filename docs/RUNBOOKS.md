@@ -908,6 +908,21 @@ corrected Flex bonificación).
 | `order_metrics.reconcile` | `RECONCILE_BATCH_SIZE = 5000` ids per set-based `INSERT...SELECT` (`order_metrics_enqueue_system`, `ON CONFLICT DO NOTHING`), one short `get_background_db` block per batch, stops at the handler deadline (30 s). Enqueueing is cheap; the next run (10 min) continues where this one stopped. |
 | `order_metrics.drain` | `WORKER_BATCH_SIZE = 200` orders per claim, lease `WORKER_LEASE_SECONDS = 120`, `WORKER_BATCH_TIMEOUT_SECONDS = 60`, `statement_timeout = 30s` per compute, one short `get_background_db` block per compute and a separate short transaction per stored order. A run lasts up to 30 s and wakes on NOTIFY and on the 5 s safety poll. |
 
+**Live work is not delayed by the recompute.** `claim_dirty` serves the queue
+in two tiers: LIVE rows first (any `reason` other than `reconcile` or
+`divergence`: new orders, payments, shipments, costs, config changes, manual
+resync), then BULK rows (`reconcile`, `divergence`), each tier FIFO by
+`enqueued_at`. A sale ingested while the history is being recomputed is
+claimed on the next pass, not after it. A bulk row that a real change
+re-enqueues is promoted to live (`order_metrics_enqueue` overwrites its
+`reason`); `reconcile`/`divergence` never demote a live row
+(`order_metrics_enqueue_system` is `ON CONFLICT DO NOTHING`). The ordering is
+served by `ix_ml_order_metrics_dirty_priority` (migration
+`20261009_om_dirty_priority_index`); its expression must stay identical to
+`queue._TIER_SQL`. Config-table triggers (`configuracion_*`,
+`logistica_costo_cordon_*`, ...) count as live: a config change that fans out
+to many orders is served before a `reconcile` backlog.
+
 The real pace depends on the host and was not measured here: read it from the
 progress query below (rows per minute) instead of assuming it. Orders that
 fail five times are parked (`attempts >= 5`) and listed under

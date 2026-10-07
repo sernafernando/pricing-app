@@ -23,6 +23,19 @@ from app.services.order_metrics.types import OrderMetrics
 # counted by `poisoned_count` (design D5 "Attempts rule").
 POISON_THRESHOLD = 5
 
+# Reasons written by the system sweeps (`order_metrics_enqueue_system`), not
+# by a real change: they form the BULK tier. Every other reason -- a trigger
+# on ingestion, a payment, a shipment, a cost, a config table, a manual
+# resync -- is LIVE and is claimed first.
+BULK_REASONS = frozenset({"reconcile", "divergence"})
+
+# ORDER BY key of the claim: false (live) sorts before true (bulk). Spelled
+# with literals, sorted, so it matches `ix_ml_order_metrics_dirty_priority`
+# (migration 20261009_om_dirty_priority_index) and the claim is an index
+# scan instead of a sort of the whole queue; a test pins that match. The
+# values come from the constant above, never from input.
+_TIER_SQL = "(reason IN (" + ", ".join(f"'{reason}'" for reason in sorted(BULK_REASONS)) + "))"
+
 
 @dataclass(frozen=True)
 class Claim:
@@ -62,7 +75,18 @@ def claim_dirty(*, limit: int, lease: timedelta, worker_id: str) -> List[Claim]:
     A row with `attempts > 0` OR `suspect` is claimed ALONE, in its own
     singleton pass, before the normal batch -- so a process-killing order
     isolates itself instead of poisoning its batch-mates (design D5
-    "Attempts rule")."""
+    "Attempts rule").
+
+    Priority: LIVE work (any `reason` outside `BULK_REASONS`: ingestion,
+    payments, shipments, costs, config, manual resync) is claimed before
+    BULK work (`reconcile`, `divergence` -- the sweeps), and each tier stays
+    FIFO by `enqueued_at`. Without this a formula-version bump, which makes
+    `reconcile` enqueue the whole history, delayed every live sale behind
+    it. The tier is read from the row's CURRENT `reason`: a queued bulk row
+    that a real change re-enqueues (`order_metrics_enqueue` overwrites the
+    reason) is promoted, and `order_metrics_enqueue_system` (`ON CONFLICT DO
+    NOTHING`) never demotes a live row. Everything else -- `FOR UPDATE SKIP
+    LOCKED`, leases, attempts, the suspect singleton pass -- is unchanged."""
     claims: List[Claim] = []
     with get_background_db() as session:
         session.execute(
@@ -90,13 +114,13 @@ def claim_dirty(*, limit: int, lease: timedelta, worker_id: str) -> List[Claim]:
         # claimed one at a time, isolated from a fresh batch.
         singleton_row = session.execute(
             text(
-                """
+                f"""
                 UPDATE ml_order_metrics_dirty d
                 SET claimed_at = now(), claimed_by = :worker_id, claim_token = gen_random_uuid()
                 FROM (
                     SELECT order_id FROM ml_order_metrics_dirty
                     WHERE claimed_at IS NULL AND attempts < :poison_threshold AND (attempts > 0 OR suspect)
-                    ORDER BY enqueued_at
+                    ORDER BY {_TIER_SQL}, enqueued_at
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
                 ) c
@@ -120,13 +144,13 @@ def claim_dirty(*, limit: int, lease: timedelta, worker_id: str) -> List[Claim]:
             if remaining > 0:
                 batch_rows = session.execute(
                     text(
-                        """
+                        f"""
                         UPDATE ml_order_metrics_dirty d
                         SET claimed_at = now(), claimed_by = :worker_id, claim_token = gen_random_uuid()
                         FROM (
                             SELECT order_id FROM ml_order_metrics_dirty
                             WHERE claimed_at IS NULL AND attempts = 0 AND NOT suspect
-                            ORDER BY enqueued_at
+                            ORDER BY {_TIER_SQL}, enqueued_at
                             LIMIT :limit
                             FOR UPDATE SKIP LOCKED
                         ) c
