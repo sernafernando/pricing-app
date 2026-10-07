@@ -432,6 +432,19 @@ class TestMissingFromScan:
         with env.connect() as conn:
             assert conn.execute(text("SELECT count(*) FROM ml_items")).scalar() == 6
 
+    def test_an_unseen_closed_item_is_refreshed_only_once_it_is_stale(self, env):
+        """Closed items vanish from the scans while ML still answers 200 for them: re-enqueueing them on
+        every daily lap would never end, so a closed item is refreshed only after the staleness window."""
+        put_item(env, "MLA555", status="closed", checked_ago_days=1)  # unseen, fresh -> left alone
+        put_item(env, "MLA666", status="closed", checked_ago_days=10)  # unseen, stale -> refreshed
+        put_item(env, "MLA777", status="active", checked_ago_days=1)  # unseen, fresh, not closed -> refreshed
+        ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else None)
+        result = self.lap(ml, statuses=["active", "closed"])
+        rows = queue_rows(env)
+        assert "MLA555" not in rows
+        assert rows["MLA666"]["lane"] == queue.LANE_RECONCILE and rows["MLA777"]["lane"] == queue.LANE_RECONCILE
+        assert result.missing_enqueued == 2
+
     def test_gone_items_and_statuses_the_lap_did_not_cover_are_left_alone(self, env):
         put_item(env, "MLA111", checked_ago_days=1, gone=True)
         put_item(env, "MLA222", status="paused", checked_ago_days=1)  # `paused` was not scanned

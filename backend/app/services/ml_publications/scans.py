@@ -471,8 +471,12 @@ def _handle_rejection(status: str, state: MlPubScanState, response: MlResponse, 
 # --- missing from scan ------------------------------------------------------------------------
 
 
-def _enqueue_unseen(statuses: Sequence[str], lap: _Lap) -> int:
-    """Stored, non-gone items of fully covered statuses that no scan returned during the lap."""
+def _enqueue_unseen(statuses: Sequence[str], lap: _Lap, *, now: datetime, stale_days: int) -> int:
+    """Stored, non-gone items of fully covered statuses that no scan returned during the lap.
+
+    A `closed` item is refreshed only once stale: closed items drop out of the scans while ML keeps
+    answering 200 for them, so refreshing them on every lap would never end."""
+    stale_before = now - timedelta(days=stale_days)
     rows = _states(statuses)
     completed = [s for s, r in rows.items() if r is not None and r.completed_at is not None and not r.last_error]
     covered = sorted(covered_body_statuses(completed))
@@ -489,6 +493,9 @@ def _enqueue_unseen(statuses: Sequence[str], lap: _Lap) -> int:
                         MlItem.status.in_(covered),
                         (MlItem.last_scan_seen_at.is_(None)) | (MlItem.last_scan_seen_at < lap.started_at),
                         MlItem.item_id > after,
+                        (MlItem.status != "closed")
+                        | (MlItem.last_checked_at.is_(None))
+                        | (MlItem.last_checked_at < stale_before),
                     )
                     .order_by(MlItem.item_id)
                     .limit(UNSEEN_BATCH)
@@ -542,7 +549,7 @@ def run_scan(
         if stop:
             _summarize(result, ordered)
             return result
-    result.missing_enqueued = _enqueue_unseen(ordered, lap)
+    result.missing_enqueued = _enqueue_unseen(ordered, lap, now=now(), stale_days=stale_days)
     _close_lap(ordered, lap, result, now())
     result.complete = True
     return result

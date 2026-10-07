@@ -227,3 +227,12 @@ class TestRequestScanMode:
         with pytest.raises(SystemExit):
             ml_publications_request.main(["ml_publications.scan", "--mode", "everything"])
         assert rows(env, "SELECT 1 FROM worker_job_state") == []
+
+    def test_the_mode_and_the_request_are_written_together_or_not_at_all(self, env) -> None:
+        with env.begin() as conn:
+            conn.execute(text("DROP TABLE worker_job_state"))  # the request insert fails
+
+        with pytest.raises(Exception):
+            ml_publications_request.main(["ml_publications.scan", "--mode", "full"])
+
+        assert rows(env, "SELECT 1 FROM ml_pub_settings WHERE key = 'scan.next_mode'") == []

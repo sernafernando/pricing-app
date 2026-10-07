@@ -24,7 +24,9 @@ Run every command from `backend/` (so the `.env` is found).
 * An empty status (`scroll_id: ""`, `total: 0`) completes at once. A `400` on the first request marks the
   status `unsupported` and the lap goes on. A scroll that expired (about 5 minutes) restarts that status, at
   most 3 times, then the status is recorded as failed for the lap.
-* After a lap, stored items that no scan returned get a direct refresh (never a delete).
+* After a lap, stored items that no scan returned get a direct refresh (never a delete). Closed items drop out
+  of the scans while ML still answers 200 for them, so an unseen `closed` item is refreshed only once it is
+  older than `ML_PUB_STALE_DAYS`, not on every lap.
 * Progress lives in `ml_pub_scan_state` (one row per status plus the `_lap` row) and one `ml_pub_job_runs` row
   per lap. A restart resumes from the stored scroll.
 
@@ -50,7 +52,9 @@ enabled too, or the entries only wait in the queue.
    drains (`SELECT lane, count(*) FROM ml_pub_refresh_queue GROUP BY lane;`), and `pending` items stored with
    body status `inactive` are not re-enqueued by the next rescan.
 
-`--mode full` is consumed (back to `rescan`) when that lap completes. `--mode rescan` cancels a full request that
+`--mode full` is consumed (back to `rescan`) when that lap completes. A full request made while a lap that is
+already full is running (for example the first lap of an empty store) is satisfied by that lap: it is consumed
+when that lap ends, it does not start another one. `--mode rescan` cancels a full request that
 has not started.
 
 ## Pause and rollback

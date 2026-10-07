@@ -45,3 +45,7 @@ def test_the_runbook_covers_pause_rollback_and_the_core_only_bundle(doc) -> None
     assert "scan.enabled false" in doc
     assert '["core"]' in doc
     assert "ml_pub_scan_state" in doc
+
+
+def test_the_runbook_says_a_full_request_during_a_full_lap_is_satisfied_by_that_lap(doc) -> None:
+    assert "already full" in doc and "satisfied by that lap" in doc

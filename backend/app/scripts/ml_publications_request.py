@@ -39,9 +39,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.mode and args.handler != SCAN_HANDLER:
         print(f"--mode only applies to {SCAN_HANDLER}", file=sys.stderr)
         return 2
-    if args.mode:
-        settings_store.set_setting("scan.next_mode", args.mode, f"cli:{getpass.getuser()}")
     with database.get_background_db() as db:
+        if args.mode:  # same transaction as the request: the worker never sees one without the other
+            settings_store.set_setting("scan.next_mode", args.mode, f"cli:{getpass.getuser()}", session=db)
         db.execute(
             text(
                 "INSERT INTO worker_job_state (name, state) VALUES (:name, 'requested') "
