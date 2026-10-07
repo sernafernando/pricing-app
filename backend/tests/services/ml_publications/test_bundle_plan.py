@@ -13,8 +13,16 @@ NOW = datetime(2026, 10, 6, 14, 0, tzinfo=timezone.utc)
 
 
 class TestFetchers:
-    def test_the_fetchers_are_description_prices_sale_price_and_promotions(self) -> None:
-        assert set(bundle.FETCHERS) == {"description", "prices", "sale_price", "promotions"}
+    def test_the_fetchers_are_the_item_sub_resources_and_the_user_product_family(self) -> None:
+        assert set(bundle.FETCHERS) == {
+            "description",
+            "prices",
+            "sale_price",
+            "promotions",
+            "user_product",
+            "stock",
+            "family",
+        }
 
     def test_every_fetcher_has_a_registered_resource_and_a_canonical_name(self) -> None:
         for name in bundle.FETCHERS:
@@ -27,6 +35,21 @@ class TestFetchers:
             "prices": ("/items/MLA1/prices", None),
             "sale_price": ("/items/MLA1/sale_price", {"context": "channel_marketplace"}),
             "promotions": ("/seller-promotions/items/MLA1", {"app_version": "v2"}),
+            "user_product": ("/user-products/MLA1", None),
+            "stock": ("/user-products/MLA1/stock", None),
+            "family": ("/sites/MLA/user-products-families/MLA1", None),
+        }
+
+    def test_each_fetcher_names_the_entity_whose_id_its_path_takes(self) -> None:
+        entities = {name: f.entity for name, f in bundle.FETCHERS.items()}
+        assert entities == {
+            "description": "item",
+            "prices": "item",
+            "sale_price": "item",
+            "promotions": "item",
+            "user_product": "user_product",
+            "stock": "user_product",
+            "family": "family",
         }
 
     def test_only_promotions_needs_a_flag_of_its_own(self) -> None:
@@ -44,8 +67,8 @@ class TestPlan:
         assert dict(plan.wanted) == {"description": False, "prices": False}  # False = not explicit
 
     def test_an_enabled_resource_without_a_fetcher_is_dropped_not_wanted(self) -> None:
-        plan = bundle.plan(("bundle",), ["core", "prices", "user_product"])
-        assert dict(plan.wanted) == {"prices": False} and plan.dropped == {"user_product"}
+        plan = bundle.plan(("bundle",), ["core", "prices", "visits"])
+        assert dict(plan.wanted) == {"prices": False} and plan.dropped == {"visits"}
 
     def test_an_explicit_named_resource_is_wanted_explicitly_and_needs_no_core(self) -> None:
         plan = bundle.plan(("prices", "sale_price"), ["core", "prices", "sale_price"])
@@ -84,6 +107,41 @@ class TestPlan:
     def test_every_other_canonical_name_is_dropped_when_nothing_is_enabled(self, name) -> None:
         plan = bundle.plan((name,), [])
         assert plan.needs_core is False and dict(plan.wanted) == {} and plan.dropped == {name}
+
+
+class TestPlanByQueueKind:
+    """Entries of kind `user_product` / `family` carry no item: they ask only for the resources of their own entity."""
+
+    ENABLED = ["core", "prices", "user_product", "stock", "family"]
+
+    def test_an_item_bundle_asks_for_the_user_product_resources_beside_the_item_ones(self) -> None:
+        plan = bundle.plan(("bundle",), self.ENABLED)
+        assert plan.needs_core is True
+        assert dict(plan.wanted) == {"prices": False, "user_product": False, "stock": False, "family": False}
+
+    def test_a_user_product_bundle_asks_for_its_own_resources_and_never_for_the_core(self) -> None:
+        plan = bundle.plan(("bundle",), self.ENABLED, kind="user_product")
+        assert plan.needs_core is False
+        assert dict(plan.wanted) == {"user_product": False, "stock": False}
+        assert plan.dropped == frozenset()  # an item or family resource is not applicable here, not "dropped"
+
+    def test_a_named_stock_entry_of_a_user_product_is_explicit(self) -> None:
+        plan = bundle.plan(("stock",), self.ENABLED, kind="user_product")
+        assert dict(plan.wanted) == {"stock": True} and plan.dropped == frozenset()
+
+    def test_a_family_entry_asks_for_the_family_only(self) -> None:
+        plan = bundle.plan(("family",), self.ENABLED, kind="family")
+        assert plan.needs_core is False and dict(plan.wanted) == {"family": True}
+        assert dict(bundle.plan(("bundle",), self.ENABLED, kind="family").wanted) == {"family": False}
+
+    @pytest.mark.parametrize("kind, name", [("user_product", "core"), ("user_product", "prices"), ("family", "stock")])
+    def test_a_resource_of_another_entity_named_on_the_entry_is_dropped_uncharged(self, kind, name) -> None:
+        plan = bundle.plan((name,), self.ENABLED, kind=kind)
+        assert plan.needs_core is False and dict(plan.wanted) == {} and plan.dropped == {name}
+
+    def test_a_disabled_user_product_resource_is_dropped_on_its_own_entry(self) -> None:
+        plan = bundle.plan(("stock",), ["core"], kind="user_product")
+        assert dict(plan.wanted) == {} and plan.dropped == {"stock"}
 
 
 class TestMinAge:
