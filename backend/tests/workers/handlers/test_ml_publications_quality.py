@@ -131,6 +131,47 @@ class TestCompetition:
         assert sql_scalar(env, "SELECT count(*) FROM ml_item_competition") == 0
         assert queue_row(env, PLAIN) is None
 
+    def test_a_named_competition_for_an_item_not_in_the_store_is_requeued_with_its_core_not_lost(self, env) -> None:
+        """The catalog notification can arrive before the item is stored: its core goes first, then competition."""
+        enable_refresh(bundle_resources=["core", "competition"])
+        enqueue_items(CATALOG, resources=("competition",))
+        transport = ScriptedTransport(responder_for())
+
+        make_handler(transport).run(context())
+
+        # Whether the item is a catalog listing was unknown, so nothing was asked for it first: the entry was
+        # refetched in the same run, core before competition.
+        assert paths(transport) == ["/items/bulk", f"/items/{CATALOG}/price_to_win"]
+        assert counters_of(env)["requeued_for_core"] == {"competition": 1}
+        assert one(env, "ml_item_competition", CATALOG)["status"] == "winning"
+        assert queue_row(env, CATALOG) is None
+
+    def test_the_requeued_core_of_a_non_catalog_item_ends_the_entry_without_a_competition_row(self, env) -> None:
+        enable_refresh(bundle_resources=["core", "competition"])
+        enqueue_items(PLAIN, resources=("competition",))
+        transport = ScriptedTransport(responder_for())
+
+        make_handler(transport).run(context())
+
+        assert paths(transport) == ["/items/bulk"]
+        assert sql_scalar(env, "SELECT count(*) FROM ml_item_competition") == 0
+        assert queue_row(env, PLAIN) is None  # no loop: the item is stored now and does not qualify
+        counters = counters_of(env)
+        assert (counters["requeued_for_core"], counters["skipped_not_applicable"]) == (
+            {"competition": 1},
+            {"competition": 1},
+        )
+
+    def test_a_named_competition_whose_core_is_gone_ends_without_a_loop(self, env) -> None:
+        enable_refresh(bundle_resources=["core", "competition"])
+        enqueue_items("MLA1", resources=("competition",))  # the captured item that does not exist
+        transport = ScriptedTransport(responder_for())
+
+        make_handler(transport).run(context())
+
+        assert paths(transport) == ["/items/bulk"]
+        assert queue_row(env, "MLA1") is None and sql_scalar(env, "SELECT count(*) FROM ml_item_competition") == 0
+
     def test_the_bundle_waits_15_minutes_between_fetches_and_a_named_entry_does_not(self, env) -> None:
         enable_refresh(bundle_resources=["core", "competition"])
         enqueue_items(CATALOG)

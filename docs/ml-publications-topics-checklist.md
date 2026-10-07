@@ -188,6 +188,11 @@ Notes, all from the 2026-10-06 captures:
 
 - An item that is not a catalog listing gets no `price_to_win` request and no row, even when `competition` is named
   (`skipped_not_applicable` counts it). The core of the same run is stored first, so the decision reads fresh data.
+  An entry that names `competition` for an item that is not stored yet (its notification can come first) cannot be
+  decided: its core is queued first (counter `requeued_for_core`) and the entry is refetched in the same run.
+- A competition row is never deleted. If an item later stops being a catalog listing, its row keeps the last status
+  and no event is raised (no `catalog_competition_lost`); read `ml_item_competition` together with
+  `ml_items.catalog_listing`.
 - A moderation `404 {"Status": 404}` means "no moderation": it is stored as `has_moderation = false`, not as gone, not
   as a failure, and raises no `item_gone`. Any other 404 body is a missing resource and marks the row gone.
 - Performance of a catalog product item answers `400 "Entity not calculated: Product items are not supported"`: stored

@@ -180,6 +180,7 @@ class RefreshHandler:
         self._skipped_min_age: Counter = Counter()
         self._skipped_not_applicable: Counter = Counter()
         self._skipped_shared: Counter = Counter()
+        self._requeued_for_core: Counter = Counter()
         self._skipped_item_gone = 0
         self._sub_outcomes: Dict[str, Counter] = defaultdict(Counter)
         self._apply_counters = store.ApplyCounters()
@@ -441,12 +442,26 @@ class RefreshHandler:
             return
         signals = bundle.item_signals([w.claim.entity_id for w in checked])
         for work in checked:
+            known = signals.get(work.claim.entity_id)
             for resource in sorted(work.pending & bundle.SIGNAL_RESOURCES):
-                if not bundle.is_applicable(
-                    resource, signals.get(work.claim.entity_id), explicit=work.plan.wanted[resource]
-                ):
+                if bundle.is_applicable(resource, known, explicit=work.plan.wanted[resource]):
+                    continue
+                work.done.add(resource)
+                if known is None and not work.plan.needs_core:
+                    # Named without its core and the item is not stored yet (its notification came first): whether
+                    # it applies is unknown, so its core goes first and the entry is refetched, never dropped.
+                    self._requeue_core(work)
+                    self._requeued_for_core[resource] += 1
+                else:
                     self._skipped_not_applicable[resource] += 1
-                    work.done.add(resource)
+
+    @staticmethod
+    def _requeue_core(work: _Work) -> None:
+        """Queue the item's core on the claim's own lane. The bumped version makes the claim's completion keep
+        the entry, so the next batch of the run fetches the core and then the named resource."""
+        claim = work.claim
+        entry = queue.EnqueueEntry(kind=claim.kind, entity_id=claim.entity_id, lane=claim.lane, resources=(CORE,))
+        queue.enqueue([entry])
 
     def _due_resources(
         self,
@@ -602,6 +617,7 @@ class RefreshHandler:
             "skipped_min_age": dict(self._skipped_min_age),
             "skipped_not_applicable": dict(self._skipped_not_applicable),
             "skipped_shared": dict(self._skipped_shared),
+            "requeued_for_core": dict(self._requeued_for_core),
             "skipped_item_gone": self._skipped_item_gone,
             "subresources": {resource: dict(kinds) for resource, kinds in self._sub_outcomes.items()},
         }

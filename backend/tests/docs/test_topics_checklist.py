@@ -167,6 +167,7 @@ def test_enabling_the_quality_resources_is_documented_with_gates_applicability_a
         "visits",
         "sweep",
         "skipped_not_applicable",
+        "requeued_for_core",
         "ML_PUB_MIN_AGE_SECONDS",
         "Rollback",
     ):
@@ -183,6 +184,11 @@ def test_the_stock_and_family_topics_stay_unmapped_until_a_real_row_fixes_their_
         section
     )
     assert "NOT mapped" in section
+
+
+def test_a_stale_competition_row_is_explained_with_how_to_read_it(doc) -> None:
+    section = " ".join(quality_section(doc).split())
+    assert "ml_items.catalog_listing" in section and "no event" in section.lower()
 
 
 def test_the_moderation_gap_and_the_unverified_signal_set_are_stated(doc) -> None:
