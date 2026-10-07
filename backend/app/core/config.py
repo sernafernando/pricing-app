@@ -184,6 +184,9 @@ class Settings(BaseSettings):
     # `public_offers`/`public_candidates` of one item becomes one fetch (about 170 items/hour measured).
     ML_PUB_PROMOTIONS_DEBOUNCE_SECONDS: int = Field(default=60, ge=0)
     ML_PUB_INTAKE_BATCH: int = Field(default=1000, ge=1)
+    # The intake cursor of an enabled intake that has not advanced for this long is reported as stalled by the
+    # admin status endpoint (spec: "Stale intake alarm").
+    ML_PUB_INTAKE_STALL_SECONDS: int = Field(default=600, ge=1)
     # Minimum seconds between fetches of a sub-resource on a bundle refresh.
     ML_PUB_MIN_AGE_SECONDS: dict = Field(
         default_factory=lambda: {

@@ -84,6 +84,7 @@ from app.routers import (
     ml_promotions,
     ml_ventas_ops,
     ml_metricas,
+    ml_publications_admin,
     ml_publications_links,
     prearmado,
     prearmado_stats,
@@ -378,6 +379,7 @@ app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipp
 app.include_router(ml_promotions.router, prefix="/api")
 app.include_router(ml_ventas_ops.router, prefix="/api")
 app.include_router(ml_metricas.router, prefix="/api")
+app.include_router(ml_publications_admin.router, prefix="/api")
 app.include_router(ml_publications_links.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")
 app.include_router(tiendas_oficiales.router, prefix="/api")

@@ -21,7 +21,7 @@ from typing import Optional, Sequence
 from sqlalchemy import text
 
 from app.core import database
-from app.services.ml_publications import settings_store
+from app.services.ml_publications import admin, settings_store
 from app.workers.registry import ML_PUBLICATIONS_REGISTRY
 
 SCAN_HANDLER = "ml_publications.scan"
@@ -50,13 +50,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     with database.get_background_db() as db:
         if args.mode:  # same transaction as the request: the worker never sees one without the other
             settings_store.set_setting("scan.next_mode", args.mode, _actor(), session=db)
-        db.execute(
-            text(
-                "INSERT INTO worker_job_state (name, state) VALUES (:name, 'requested') "
-                "ON CONFLICT (name) DO UPDATE SET state = 'requested'"
-            ),
-            {"name": args.handler},
-        )
+        admin.mark_requested(db, args.handler)  # the same mark `POST /ml-publications/jobs/{job}/request` sets
         db.execute(text("SELECT pg_notify('worker_jobs', :name)"), {"name": args.handler})
     suffix = f" (next lap: {args.mode})" if args.mode else ""
     print(f"{args.handler} requested: it runs on the next worker pass{suffix}")
