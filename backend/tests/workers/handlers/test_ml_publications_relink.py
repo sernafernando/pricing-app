@@ -12,6 +12,7 @@ from datetime import datetime, time, timedelta, timezone
 import pytest
 from sqlalchemy import event, text
 
+from app.core import database
 from app.core.config import settings
 from app.models.producto import ProductoERP
 from app.services.ml_publications import links, settings_store
@@ -393,6 +394,7 @@ class TestDeadlineAndResume:
         result = run()
 
         assert result.detail["errors"] == 1 and result.detail["complete"] is True
+        assert result.detail["retry"] is True  # visible in the job detail: the forced lap will be redone
         assert [r["item_id"] for r in link_rows(env)] == ["MLA882393030"]
 
 
@@ -481,6 +483,17 @@ class TestConcurrencyWithApplyFetch:
         assert again.detail["contended"] == 0
         assert [r["item_id"] for r in link_rows(env)] == ["MLA874027718", "MLA882393030"]
         assert isinstance(state(env, "links.catalog_fingerprint"), str)
+
+
+class TestStoredState:
+    def test_a_stored_state_missing_its_flags_reads_them_as_false(self, env) -> None:
+        with env.begin() as conn:
+            conn.execute(
+                text("INSERT INTO ml_pub_settings (key, value) VALUES ('links.sweep_state', '{\"cursor\": \"MLA1\"}')")
+            )
+        with database.get_background_db() as db:
+            loaded = links._load_state(db)
+        assert (loaded.cursor, loaded.force, loaded.retry) == ("MLA1", False, False)
 
 
 class TestRegistry:

@@ -411,6 +411,7 @@ class SweepResult:
     items: int = 0
     errors: int = 0
     contended: int = 0  # items skipped because a fetch held their row; the next lap picks them up
+    retry: bool = False  # a forced lap had a failed or busy item: the next run forces another lap
     complete: bool = False
     forced: bool = False
     stopped: Optional[str] = None
@@ -423,6 +424,7 @@ class SweepResult:
             items=self.items,
             errors=self.errors,
             contended=self.contended,
+            retry=self.retry,
             complete=self.complete,
             forced=self.forced,
         )
@@ -487,7 +489,12 @@ def _load_state(db) -> _SweepState:
     stored = _read_setting(db, SWEEP_STATE_KEY)
     if not isinstance(stored, dict):
         return _SweepState()
-    return _SweepState(**{k: stored.get(k) for k in ("cursor", "force", "target", "retry")})
+    return _SweepState(
+        cursor=stored.get("cursor"),
+        force=bool(stored.get("force")),
+        target=stored.get("target"),
+        retry=bool(stored.get("retry")),
+    )
 
 
 def _variations_by_item(db, ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
@@ -584,6 +591,7 @@ def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _
             if now() >= deadline:  # a batch of 500 items must not run past the worker's deadline
                 out_of_time = True
                 break
+        result.retry = state.retry
         with database.get_background_db() as db:  # progress, committed after the batch's per-item work
             if out_of_time:
                 result.stopped = STOPPED_DEADLINE

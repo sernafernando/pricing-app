@@ -466,6 +466,28 @@ class TestApplyFetchHook:
         assert item_row(links_on, ITEM)["raw"] is not None
         assert link_rows(links_on) == []
 
+    def test_a_failure_after_the_link_moved_rolls_the_link_back_but_the_item_still_commits(
+        self, links_on, monkeypatch
+    ) -> None:
+        add_product(links_on, 41, SKU_A)
+        add_product(links_on, 42, SKU_B)
+        apply(sample_item(ITEM), ITEM, minutes=1)
+
+        original = events_store.write_events
+
+        def boom_for_links(db, entry):
+            if entry.resource_type == "product_link":
+                raise RuntimeError("event insert failed")
+            return original(db, entry)
+
+        monkeypatch.setattr(events_store, "write_events", boom_for_links)
+        outcome = apply(_with_sku(SKU_B), ITEM, minutes=5, events_enabled=True)
+
+        assert outcome.kind == "changed"
+        assert item_row(links_on, ITEM)["raw"] == _with_sku(SKU_B)  # the item state committed
+        assert link(links_on)["producto_item_id"] == 41  # the link move was rolled back to the savepoint
+        assert log_rows(links_on) == []
+
     def test_the_flag_can_be_passed_by_the_caller_without_reading_settings(self, links_on, monkeypatch) -> None:
         monkeypatch.setattr(store_module, "_links_enabled", lambda: pytest.fail("flag read although passed"))
         add_product(links_on, 41, SKU_A)
