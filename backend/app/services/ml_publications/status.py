@@ -388,13 +388,13 @@ def build_status(db: Session) -> Dict[str, Any]:
     config = settings_store.get_settings([f"{flag}.enabled" for flag in FLAGS] + ["bundle_resources"])
     flags = {flag: config[f"{flag}.enabled"].value is True for flag in FLAGS}
     bundle_resources = config["bundle_resources"].value
-    states = _guarded(db, "jobs", _worker_states, failed) or {}
+    states = _guarded(db, "worker_state", _worker_states, failed) or {}
     lag = _guarded(db, "lag", _lag, failed) or {"lag_p95_seconds_24h": None, "lag_samples_24h": 0}
     report = {
         "generated_at": datetime.now(timezone.utc),
         "kill_switch": bool(settings.ML_PUB_KILL_SWITCH),
         "flags": flags,
-        "jobs": _jobs(flags, states),
+        "jobs": _guarded(db, "jobs", lambda _s: _jobs(flags, states), failed) or [],
         "queue": _guarded(db, "queue", _queue, failed),
         "intake": _guarded(db, "intake", lambda s: _intake(s, flags["intake"]), failed),
         "backfill": _guarded(db, "backfill", _backfill, failed),
@@ -404,7 +404,7 @@ def build_status(db: Session) -> Dict[str, Any]:
         "freshness": _guarded(db, "freshness", _freshness, failed),
         **lag,
         "completeness": _guarded(db, "completeness", lambda s: _completeness(s, bundle_resources), failed),
-        "counters": _counters(states),
+        "counters": _guarded(db, "counters", lambda _s: _counters(states), failed) or {},
         "events": _guarded(db, "events", lambda s: _events(s, flags["events"]), failed),
         "top_changed_paths": _guarded(db, "top_changed_paths", _top_changed_paths, failed),
     }

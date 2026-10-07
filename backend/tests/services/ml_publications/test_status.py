@@ -562,6 +562,17 @@ class TestReadOnlyAndBounded:
         assert result["events"] is None
         assert result["items"]["total"] == 1
 
+    def test_a_worker_state_of_an_unexpected_shape_fails_only_its_own_sections(self, store) -> None:
+        put_state(store, "ml_publications.refresh", detail={"counters": ["not", "a", "dict"]})
+        put_state(store, "ml_publications.scan", detail="a bare string")
+        put_item(store, "MLA1")
+
+        result = report(store)
+
+        assert set(result["sections_failed"]) == {"counters", "jobs"}
+        assert result["counters"] == {} and result["jobs"] == []
+        assert result["items"]["total"] == 1
+
     def test_a_statement_timeout_in_one_section_does_not_abort_the_others(self, store, monkeypatch) -> None:
         original = status._top_changed_paths
 

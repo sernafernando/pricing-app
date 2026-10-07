@@ -68,7 +68,7 @@ def list_settings() -> Dict[str, Any]:
     """Every allow-listed key with its effective value and where it comes from."""
     effective = settings_store.get_settings(sorted(settings_store.SETTING_DEFS))
     return {
-        "kill_switch": settings.ML_PUB_KILL_SWITCH is True,
+        "kill_switch": bool(settings.ML_PUB_KILL_SWITCH),
         "settings": [{"key": s.key, "value": s.value, "source": s.source} for s in effective.values()],
     }
 
@@ -119,7 +119,9 @@ def enqueue_items(db: Session, item_ids: Sequence[str], resources: Sequence[str]
         "lane": queue.LANE_MANUAL,
         "resources": list(resources),
         "refresh_enabled": refresh_enabled,
-        "note": None if refresh_enabled else "refresh.enabled is off: the entries wait until it is turned on",
+        "note": None
+        if refresh_enabled
+        else "refresh.enabled está apagado: las entradas quedan en cola hasta que se encienda",
         # The refresh handler drops a named resource that `bundle_resources` does not list.
         "missing_from_bundle_resources": sorted(
             {r for r in resources if r not in (BUNDLE_RESOURCE, CORE_RESOURCE) and r not in in_bundle}
@@ -159,5 +161,5 @@ def request_job(db: Session, name: str, *, mode: Optional[str], actor: str) -> D
         "requested": True,
         "mode": mode,
         "enabled": enabled,
-        "note": None if enabled else f"{flag} is off: the request is kept and runs once it is turned on",
+        "note": None if enabled else f"{flag} está apagado: el pedido queda registrado y corre cuando se encienda",
     }
