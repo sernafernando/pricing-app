@@ -81,6 +81,11 @@ can be retired. `pm_scope` stays the single source of the rule.
 - [x] **T3 — Permissions migration.** Grant `ml_metricas.ver` and
   `ml_metricas.ver_ganancia` to PRICING and VENTAS following the
   `20261001_ml_metricas_permisos.py` pattern; unit test. Route: delegated.
+- [x] **T4 — Review follow-ups.** (1) pairs upper-cased by the database, not
+  Python (accents under a `C` collation); (2) migration test no longer asserts
+  "single head"; (3) downgrade limitation documented and pinned; (4) statement
+  ceiling proved on the scoped and empty-scope paths; (5) inactive-user branch
+  proved. Route: delegated writer.
 
 ## Acceptance criteria
 
@@ -117,6 +122,16 @@ can be retired. `pm_scope` stays the single source of the rule.
   GREEN: 4 passed (single head, grants, idempotent upgrade, downgrade scoped to
   the two role grants). Commit: `feat(ml-metricas): grant the board to the PRICING
   and VENTAS roles`.
+- T4 done. (1) RED: `test_accented_pairs_match_under_a_byte_collation` ->
+  `assert set() == {'24'}`; fix selects `func.upper(marca), func.upper(categoria)`
+  in SQL in both `pm_scope` getters and `Board.__init__` stops upper-casing;
+  GREEN with `tests/services/test_pm_scope.py` (34 passed with the board scope
+  tests). Commit `fix(pm-scope): upper-case scope pairs in SQL so accents match
+  under any collation`. (2)(3) migration tests robust to later heads, downgrade
+  docstrings + test pinning that a pre-existing grant is removed too (tests-only
+  hardening: passed on first run, no RED). (4)(5) new tests passed on first run
+  (characterization of existing behavior); (5) mutation-checked: disabling the
+  `activo` guard makes it fail with `assert [('EPSON', 'CAT')] == []`.
 
 ## Next step
 

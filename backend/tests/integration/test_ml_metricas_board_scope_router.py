@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from datetime import date
 
 import pytest
 
@@ -26,6 +27,8 @@ from app.models.marca_pm import MarcaPM
 from app.models.marca_sub_pm import MarcaSubPM
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.rol import Rol
+from app.routers import ml_metricas
+from app.services.ml_daily_metrics import board
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from tests.conftest import TEST_PASSWORD, make_access_token
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
@@ -133,6 +136,19 @@ class TestBoard:
         db.commit()
 
         assert client.get(URL, headers=_headers(gone)).status_code == 401
+
+    def test_an_inactive_owner_of_pairs_resolves_to_an_empty_scope_and_sees_nothing(self, db, people, rol_ventas):
+        gone = _user(db, rol_ventas, "gone2", activo=False)
+        db.add(MarcaSubPM(marca="Epson", categoria="Cat", usuario_id=gone.id))
+        db.commit()
+
+        pairs = ml_metricas._scope_pairs(db, gone)
+        f = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30))
+        response = ml_metricas.build_board_response(db, f, limit=50, offset=0, can_see_margin=True, scope_pairs=pairs)
+
+        assert pairs == []
+        assert response.rows == [] and response.total == 0
+        assert response.kpis.units.value == 0
 
     def test_the_facets_offer_only_the_scoped_options(self, client, people):
         facets = _get(client, people["ana"])["facets"]

@@ -191,7 +191,7 @@ class _Recorder:
             self.rows_returned += cursor.rowcount
 
 
-def _request(session, **filters):
+def _request(session, scope_pairs=None, **filters):
     f = board.BoardFilter(
         date_from=TODAY - timedelta(days=29),
         date_to=TODAY,
@@ -203,7 +203,14 @@ def _request(session, **filters):
     event.listen(connection, "after_cursor_execute", recorder.after)
     started = time.perf_counter()
     try:
-        response = build_board_response(session, f, limit=filters.get("limit", 50), offset=0, can_see_margin=True)
+        response = build_board_response(
+            session,
+            f,
+            limit=filters.get("limit", 50),
+            offset=0,
+            can_see_margin=True,
+            scope_pairs=scope_pairs,
+        )
     finally:
         event.remove(connection, "before_cursor_execute", recorder.before)
         event.remove(connection, "after_cursor_execute", recorder.after)
@@ -261,6 +268,19 @@ class TestBoardOnVolume:
         # An empty page skips the two per-page statements (details, series).
         assert not empty.rows and len(emptied.statements) == counts[50] - 2
         assert counts[50] <= 19
+
+    def test_the_scope_filter_adds_no_statement(self, volume_session) -> None:
+        """The PM scope rides the per-item base: a scoped (or empty-scoped) request
+        costs exactly the statements of the unscoped one for the same page."""
+        _plain, unscoped, _ms = _request(volume_session, limit=50)
+        scoped_response, scoped, _ms = _request(volume_session, scope_pairs=[("EPSON", "CAT0")], limit=50)
+        empty_response, emptied, _ms = _request(volume_session, scope_pairs=[], limit=50)
+
+        assert scoped_response.rows and scoped_response.total < PRODUCTS
+        assert len(scoped.statements) == len(unscoped.statements)
+        # An empty page skips the two per-page statements (details, series).
+        assert not empty_response.rows and empty_response.total == 0
+        assert len(emptied.statements) == len(unscoped.statements) - 2
 
     def test_rows_fetched_follow_the_page_not_the_catalogue(self, volume_session) -> None:
         _response, recorder, _ms = _request(volume_session, limit=10)
