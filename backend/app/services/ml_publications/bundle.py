@@ -80,10 +80,10 @@ class Plan:
     dropped: frozenset = frozenset()
 
 
-def _applies_to(name: str, kind: str) -> bool:
-    """Whether a fetcher can run for an entry of `kind`: an item entry reaches every fetcher (the
-    user product and family through the item's row); a user product or family entry only its own."""
-    return kind == ITEM_KIND or FETCHERS[name].entity == kind
+def applies_to_kind(name: str, kind: str) -> bool:
+    """Whether resource `name` is meant for entries of `kind`: an item entry has the core and every fetcher;
+    a user product or family entry only the fetchers of its own entity."""
+    return kind == ITEM_KIND or (has_fetcher(name) and FETCHERS[name].entity == kind)
 
 
 def plan(
@@ -105,7 +105,7 @@ def plan(
         for name in bundle_resources:
             if name in (CORE_RESOURCE, BUNDLE_RESOURCE):
                 continue
-            if kind != ITEM_KIND and not (has_fetcher(name) and _applies_to(name, kind)):
+            if not applies_to_kind(name, kind):
                 continue  # not meant for this entity (item resources, other entities): not applicable, not dropped
             if not has_fetcher(name) or name in gated_off:
                 dropped.add(name)
@@ -117,7 +117,7 @@ def plan(
                 needs_core = True
             elif name == CORE_RESOURCE:
                 dropped.add(name)
-        elif has_fetcher(name) and _applies_to(name, kind) and name in bundle_resources and name not in gated_off:
+        elif has_fetcher(name) and applies_to_kind(name, kind) and name in bundle_resources and name not in gated_off:
             wanted[name] = True
         else:
             dropped.add(name)

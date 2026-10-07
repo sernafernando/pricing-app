@@ -542,7 +542,14 @@ class RefreshHandler:
         work.settled = True
         if outcome != queue.OUTCOME_NOT_OWNER:
             for resource in dropped:
-                (self._skipped_disabled if bundle.has_fetcher(resource) else self._skipped_no_fetcher)[resource] += 1
+                self._dropped_counter(claim.kind, resource)[resource] += 1
+
+    def _dropped_counter(self, kind: str, resource: str) -> Counter:
+        """Why a dropped resource was dropped: not meant for this entry's entity, it has no fetcher yet, or it
+        has one that is not enabled."""
+        if not bundle.applies_to_kind(resource, kind):
+            return self._skipped_not_applicable
+        return self._skipped_disabled if bundle.has_fetcher(resource) else self._skipped_no_fetcher
 
     def _fail_core(self, works: Sequence[_Work], error: str, run: _Run) -> None:
         for work in works:

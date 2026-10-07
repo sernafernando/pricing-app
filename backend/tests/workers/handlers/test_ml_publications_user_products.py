@@ -364,8 +364,10 @@ class TestUserProductEntries:
 
         make_handler(NoCallTransport()).run(context())
 
-        entry = queue_entry(env, "user_product", UP)
-        assert entry is None  # settled with nothing charged
+        assert queue_entry(env, "user_product", UP) is None  # settled with nothing charged
+        counters = counters_of(env)
+        assert counters["skipped_not_applicable"] == {"core": 1, "prices": 1}
+        assert counters["skipped_no_fetcher"] == {} and counters["skipped_disabled"] == {}
 
     def test_a_disabled_stock_on_a_user_product_entry_is_dropped_uncharged_and_counted(self, env) -> None:
         enable_refresh(bundle_resources=["core", "user_product"])
