@@ -14,7 +14,8 @@ slots. It runs in the LOWEST lane (`LANE`): while any entry of a higher lane (ma
 backfill) waits to be claimed it yields, and it never writes to the Store or the queue.
 
 A difference is not divergence when the Store moved since the sample was taken: the item was fetched again
-(`fetched_at` changed) or has a refresh queued. Those are listed apart (`changed_after_sampling`) and left out
+(`fetched_at` changed) or has a refresh of its core pending (a parked entry, or one naming only performance or
+visits, does not count). Those are listed apart (`changed_after_sampling`) and left out
 of the rate. An item ML no longer answers (404, error element) cannot be compared: it is `unverified`.
 
 An interrupted run (deadline, 429, flag turned off, yielding) leaves no record: it is retried by the handler.
@@ -38,6 +39,7 @@ from app.services.ml_publications.mappers import map_item
 from app.services.ml_publications.ml_http import MlHttpClient
 from app.services.ml_publications.pacing import DEADLINE
 from app.services.ml_publications.parsers.items_bulk import MalformedBulkResponse, parse_items_bulk
+from app.services.ml_publications.resources import BUNDLE_RESOURCE, CORE_RESOURCE
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +76,13 @@ _SAMPLE = text(
     "AND gone_at IS NULL AND never_existed IS NOT TRUE AND raw IS NOT NULL AND http_status = 200 "
     "ORDER BY random() LIMIT :n"
 )
+# A pending refresh of the item's core (alone or in the bundle) explains a difference in its typed columns. A
+# parked entry does not (it keeps failing: the item is the one most likely to be wrong) and neither does an entry
+# that only names performance or visits (the sweep's), which never touches them.
 _MOVED = text(
     "SELECT i.item_id, i.fetched_at, EXISTS (SELECT 1 FROM ml_pub_refresh_queue q "
-    "WHERE q.kind = 'item' AND q.entity_id = i.item_id) AS queued FROM ml_items i WHERE i.item_id = ANY(:ids)"
+    "WHERE q.kind = 'item' AND q.entity_id = i.item_id AND q.parked_at IS NULL "
+    "AND q.resources && CAST(:core AS text[])) AS queued FROM ml_items i WHERE i.item_id = ANY(:ids)"
 )
 
 
@@ -120,6 +126,7 @@ class DivergenceResult:
             "divergences": self.divergences[:MAX_LISTED],
             "divergence_pairs": len(self.divergences),
             "changed_after_sampling": self.changed_after_sampling[:MAX_LISTED],
+            "changed_after_sampling_items": len({pair["item_id"] for pair in self.changed_after_sampling}),
             "unverified": self.unverified[:MAX_LISTED],
         }
 
@@ -186,10 +193,11 @@ def _live_work_waits() -> bool:
 
 
 def _moved_since(sampled: Sequence[Dict[str, Any]]) -> set:
-    """Items the Store fetched again, or has queued for a refresh, since they were sampled."""
+    """Items the Store fetched again since they were sampled, or has a refresh pending for (spec: "an event already
+    queued or fetched after sampling time")."""
     by_id = {row["item_id"]: row["fetched_at"] for row in sampled}
     with database.get_background_db() as db:
-        rows = db.execute(_MOVED, {"ids": list(by_id)}).mappings().all()
+        rows = db.execute(_MOVED, {"ids": list(by_id), "core": [CORE_RESOURCE, BUNDLE_RESOURCE]}).mappings().all()
     return {row["item_id"] for row in rows if row["queued"] or row["fetched_at"] != by_id[row["item_id"]]}
 
 

@@ -140,8 +140,8 @@ def resolve_job(name: str) -> Tuple[str, str]:
     raise UnknownJob(name)
 
 
-def _waiting_note(flag: str) -> str:
-    why = "ML_PUB_KILL_SWITCH está activo" if settings.ML_PUB_KILL_SWITCH else f"{flag} está apagado"
+def _waiting_note(flags: Sequence[str]) -> str:
+    why = "ML_PUB_KILL_SWITCH está activo" if settings.ML_PUB_KILL_SWITCH else f"{' y '.join(flags)} está apagado"
     return f"{why}: el pedido queda registrado y corre cuando el trabajo vuelva a estar habilitado"
 
 
@@ -161,13 +161,14 @@ def request_job(db: Session, name: str, *, mode: Optional[str], actor: str) -> D
     except Exception:
         db.rollback()
         raise
-    flag = JOBS[job][1]
-    enabled = settings_store.get_setting(flag).value is True
+    # a handler can serve several jobs (verify and divergence): it runs when ANY of its flags is on
+    flags = [flag for name, flag in JOBS.values() if name == handler]
+    enabled = any(settings_store.get_setting(flag).value is True for flag in flags)
     return {
         "job": job,
         "handler": handler,
         "requested": True,
         "mode": mode,
         "enabled": enabled,
-        "note": None if enabled else _waiting_note(flag),
+        "note": None if enabled else _waiting_note(flags),
     }

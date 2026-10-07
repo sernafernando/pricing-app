@@ -359,7 +359,7 @@ class TestVerification:
             ' \'{"rate": 100.0, "sampled": 50, "below_target": false, "divergences": []}\'), '
             "('divergence', now() - interval '1 day', now() - interval '1 day', 'below_target', "
             ' \'{"rate": 97.0, "sampled": 100, "below_target": true, "target": 99.0, '
-            '   "divergence_pairs": 3, "changed_after_sampling": [{"item_id": "MLA9", "path": "status"}], '
+            '   "divergence_pairs": 3, "changed_after_sampling_items": 4, '
             '   "divergences": [{"item_id": "MLA1", "path": "status", "stored": "active", '
             '"fresh": "paused"}]}\')',
         )
@@ -372,7 +372,7 @@ class TestVerification:
             True,
             100,
         )
-        assert last["target"] == 99.0 and last["divergence_pairs"] == 3 and last["changed_after_sampling"] == 1
+        assert last["target"] == 99.0 and last["divergence_pairs"] == 3 and last["changed_after_sampling_items"] == 4
         assert last["divergences"] == [{"item_id": "MLA1", "path": "status", "stored": "active", "fresh": "paused"}]
 
     def test_the_latest_snapshot_is_reported_by_outcome_and_size(self, store) -> None:

@@ -238,6 +238,51 @@ class TestChangedAfterSampling:
 
         assert result.divergences == [] and [p["item_id"] for p in result.changed_after_sampling] == [queued]
 
+    def test_a_parked_refresh_does_not_excuse_the_difference(self, env) -> None:
+        # an entry that failed past its attempts is the item most likely to be wrong: it stays in the rate
+        fresh = seed(env, {"active": 10})
+        parked = sorted(fresh)[3]
+        fresh[parked]["status"] = "paused"
+        queue.enqueue([queue.EnqueueEntry("item", parked, queue.LANE_SWEEP)])
+        with env.begin() as conn:
+            conn.execute(text("UPDATE ml_pub_refresh_queue SET parked_at = now() WHERE entity_id = :i"), {"i": parked})
+
+        result = check(make_client(MlTransport(fresh)), sample_size=10)
+
+        assert [d["item_id"] for d in result.divergences] == [parked] and result.changed_after_sampling == []
+
+    def test_a_queued_sweep_of_performance_does_not_excuse_a_core_difference(self, env) -> None:
+        fresh = seed(env, {"active": 10})
+        swept = sorted(fresh)[4]
+        fresh[swept]["status"] = "paused"
+        queue.enqueue([queue.EnqueueEntry("item", swept, queue.LANE_SWEEP, resources=("performance",))])
+
+        result = check(make_client(MlTransport(fresh)), sample_size=10)
+
+        assert [d["item_id"] for d in result.divergences] == [swept] and result.changed_after_sampling == []
+
+    def test_a_queued_core_refresh_excuses_it_whatever_the_lane(self, env) -> None:
+        fresh = seed(env, {"active": 10})
+        pending = sorted(fresh)[5]
+        fresh[pending]["status"] = "paused"
+        queue.enqueue([queue.EnqueueEntry("item", pending, queue.LANE_SWEEP, resources=("core",))])
+
+        assert [
+            p["item_id"] for p in check(make_client(MlTransport(fresh)), sample_size=10).changed_after_sampling
+        ] == [pending]
+
+    def test_the_record_counts_items_not_pairs_that_changed_after_sampling(self, env) -> None:
+        fresh = seed(env, {"active": 10})
+        pending = sorted(fresh)[6]
+        fresh[pending]["status"] = "paused"
+        fresh[pending]["title"] = "Another title"  # two columns of the same item
+        queue.enqueue([queue.EnqueueEntry("item", pending, queue.LANE_SWEEP)])
+
+        result = check(make_client(MlTransport(fresh)), sample_size=10)
+
+        assert len(result.changed_after_sampling) == 2
+        assert result.counts()["changed_after_sampling_items"] == 1
+
     def test_a_difference_with_nothing_queued_and_no_new_fetch_is_true_divergence(self, env) -> None:
         fresh = seed(env, {"active": 10})
         lost = sorted(fresh)[2]

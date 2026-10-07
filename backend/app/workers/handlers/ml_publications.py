@@ -1105,6 +1105,7 @@ class VerifyHandler:
             detail["divergence"] = check.as_detail()
             error = check.error
             if check.outcome in (verification.OUTCOME_INTERRUPTED, verification.OUTCOME_YIELDED):
+                # yielding to a busy higher lane (a long backfill) can last hours: each retry is one cheap query
                 detail["complete"] = False
                 return JobResult(success=True, detail=self._flush(detail))
         if snapshot_on:

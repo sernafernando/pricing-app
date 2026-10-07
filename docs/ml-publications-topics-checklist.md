@@ -336,7 +336,10 @@ Reading a result:
 - The rate is per item: an item agrees when none of its typed columns differs, so 3 of 100 items with another `status`
   is 97%. The target is 99%; a lower rate is `outcome = 'below_target'` and `below_target: true`.
 - A difference is **not** divergence when the Store moved since the sample was taken (the item was fetched again, or a
-  refresh is queued for it). Those are listed in `changed_after_sampling` and left out of the rate.
+  refresh of its core is pending; a parked entry, or one that only names performance or visits, does not count).
+  Those are listed in `changed_after_sampling` and left out of the rate.
+- While a long backfill (lane 3) or live work keeps a higher lane busy, the check yields and the 2 minute catch-up
+  tries again: one cheap query each time, not a loop gone wrong. It runs as soon as those lanes are empty.
 - An item ML no longer answers is `unverified` (not compared, not counted as a difference).
 - `GET /status` reports the latest run under `verification.divergence` and `verification.snapshot`.
 

@@ -411,6 +411,16 @@ class TestJobRequest:
         body = self.post(client, operator, "scan").json()
         assert body["enabled"] is True and body["note"] is None
 
+    def test_the_shared_verify_handler_is_enabled_when_either_of_its_flags_is_on(self, client, pg, operator) -> None:
+        # asked by its handler name (what the docs use), `verify` and `divergence` are the same request
+        body = self.post(client, operator, "ml_publications.verify").json()
+        assert body["enabled"] is False
+        assert "verify.enabled" in body["note"] and "divergence.enabled" in body["note"]
+
+        settings_store.set_setting("divergence.enabled", True, "test")
+        body = self.post(client, operator, "ml_publications.verify").json()
+        assert body["enabled"] is True and body["note"] is None
+
     def test_an_unknown_job_is_404_and_writes_nothing(self, client, pg, operator) -> None:
         assert self.post(client, operator, "nonexistent").status_code == 404
         assert rows(pg, "SELECT 1 FROM worker_job_state") == []

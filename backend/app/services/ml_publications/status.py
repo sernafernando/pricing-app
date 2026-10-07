@@ -264,7 +264,7 @@ def _verification(db: Session) -> Dict[str, Any]:
             "below_target": counts.get("below_target") is True,
             "sampled": counts.get("sampled") or 0,
             "divergence_pairs": counts.get("divergence_pairs") or 0,
-            "changed_after_sampling": len(counts.get("changed_after_sampling") or []),
+            "changed_after_sampling_items": counts.get("changed_after_sampling_items") or 0,
             "divergences": (counts.get("divergences") or [])[:DIVERGENCE_LISTED],
         }
     if snapshot is not None:
