@@ -82,7 +82,7 @@ panel: junto a la línea). El IVA es informativo/fiscal: nunca resta del Total G
 - [x] T5 (descartada por el usuario) no se sube `CURRENT_FORMULA_VERSION`; el backfill va en otra PR
 - [x] T6 Frontend: etiqueta "Bonificación por envío", IVA informativo con base/IVA, test vitest
 - [x] T7 Novedad en `frontend/src/novedades`
-- [ ] T8 Lint (ruff, pnpm lint, lint:css), tests relacionados, GGA, push
+- [x] T8 Lint (ruff, pnpm lint, lint:css), tests relacionados, GGA, push
 
 ## Checks
 
@@ -97,3 +97,4 @@ panel: junto a la línea). El IVA es informativo/fiscal: nunca resta del Total G
 - Mutaciones verificadas: sin gate self_service -> falla; bruto sin repartir en pack -> falla.
 - Rutas: todo delegado directo no aplicó; implementado inline por el agente de esta tarea (un solo escritor).
 - Backfill histórico: fuera de esta PR por decisión del usuario.
+- Verificación final: 965 tests relacionados verdes (pytest -n 4), vitest ventasMl 144 verdes, ruff 0.15.1 (versión del CI) y pnpm lint/lint:css sin errores. GGA: PASSED con 1 observación (T8 sin tildar), corregida.
