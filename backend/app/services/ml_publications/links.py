@@ -967,6 +967,169 @@ def revert_to_auto(
     return ManualOutcome(changed=True)
 
 
+# --- read side: one item's units, and the lists by class (read-only) ---------------------------------
+
+LIST_MAX = 200  # largest page the lists serve
+LIST_DEFAULT = 50
+LIST_STATEMENT_TIMEOUT = "5s"
+
+# The class of a link, by its stored state; same classification the coverage report counts.
+_LIST_PREDICATES = {
+    "unmatched": "l.source = 'sku_auto' AND l.match_status = 'unmatched' AND l.evaluated_at IS NOT NULL",
+    "conflict": "l.source = 'sku_auto' AND l.match_status = 'conflict' AND l.evaluated_at IS NOT NULL",
+    "manual_differs": (
+        "l.source <> 'sku_auto' AND l.suggestion_status = 'linked' "
+        "AND l.suggested_producto_item_id IS DISTINCT FROM l.producto_item_id"
+    ),
+    "dangling": (
+        "l.producto_item_id IS NOT NULL AND l.evaluated_at IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM productos_erp p WHERE p.item_id = l.producto_item_id)"
+    ),
+}
+LIST_CLASSES = tuple(_LIST_PREDICATES)
+
+_LIST_SQL = """
+SELECT l.item_id, l.variation_id, i.title, i.status AS item_status, l.source, l.match_status,
+       l.producto_item_id, l.matched_sku, l.sku_field, l.suggestion_status, l.suggested_producto_item_id,
+       l.suggestion_candidates, l.linked_by, l.linked_at, l.note, l.evaluated_at
+FROM ml_item_product_links l
+LEFT JOIN ml_items i ON i.item_id = l.item_id
+WHERE {predicate}{keyset}
+ORDER BY l.item_id, l.variation_id
+LIMIT :fetch
+"""
+_KEYSET = " AND (l.item_id, l.variation_id) > (:after_item, :after_variation)"
+
+
+def encode_cursor(item_id: str, variation_id: int) -> str:
+    return f"{item_id}:{variation_id}"
+
+
+def decode_cursor(cursor: str) -> tuple[str, int]:
+    """`(item_id, variation_id)` of an opaque list cursor; ValueError when it is not one."""
+    item_id, separator, variation = cursor.rpartition(":")
+    if not separator or not item_id or not variation.isdigit():
+        raise ValueError(f"invalid cursor {cursor!r}")
+    return item_id, int(variation)
+
+
+def list_units(db, cls: str, *, cursor: Optional[str] = None, limit: int = LIST_DEFAULT) -> dict[str, Any]:
+    """Units of one class (`LIST_CLASSES`), keyset-paginated on `(item_id, variation_id)`.
+
+    The cursor is the last row served, so rows that appear or leave the class between requests never
+    repeat or shift a page. `next_cursor` is None on the last page. The page size is bounded by `LIST_MAX`.
+    """
+    if cls not in _LIST_PREDICATES:
+        raise ValueError(f"unknown link class {cls!r}")
+    limit = max(1, min(limit, LIST_MAX))
+    params: dict[str, Any] = {"fetch": limit + 1}
+    keyset = ""
+    if cursor is not None:
+        params["after_item"], params["after_variation"] = decode_cursor(cursor)
+        keyset = _KEYSET
+    db.execute(text(f"SET LOCAL statement_timeout = '{LIST_STATEMENT_TIMEOUT}'"))
+    rows = [
+        dict(row)
+        for row in db.execute(text(_LIST_SQL.format(predicate=_LIST_PREDICATES[cls], keyset=keyset)), params)
+        .mappings()
+        .all()
+    ]
+    more = len(rows) > limit
+    items = rows[:limit]
+    next_cursor = encode_cursor(items[-1]["item_id"], items[-1]["variation_id"]) if more else None
+    return {"class": cls, "items": items, "next_cursor": next_cursor}
+
+
+def _products(db, ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+    """`{item_id, codigo, descripcion}` of the given products that still exist."""
+    wanted = sorted({i for i in ids if i is not None})
+    if not wanted:
+        return {}
+    rows = db.query(ProductoERP.item_id, ProductoERP.codigo, ProductoERP.descripcion).filter(
+        ProductoERP.item_id.in_(wanted)
+    )
+    return {r.item_id: {"item_id": r.item_id, "codigo": r.codigo, "descripcion": r.descripcion} for r in rows}
+
+
+def describe_item(db, item_id: str) -> dict[str, Any]:
+    """Every unit of an item with its stored link and the automatic suggestion as the rule says NOW.
+
+    Units are the item's live units plus any stored link of a variation that has since gone. A live unit
+    that was never evaluated has `link: None`. `suggestion.differs` is True when a manual decision is in
+    force and the suggestion points at another product. Read-only; fails closed on an unknown item.
+    """
+    typed, variations = _load_typed(db, item_id)
+    head = db.query(MlItem.title, MlItem.status).filter(MlItem.item_id == item_id).one()
+    live = {u.variation_id: u for u in units_for_item(typed, variations)}
+    rows = {r.variation_id: r for r in db.query(MlItemProductLink).filter(MlItemProductLink.item_id == item_id)}
+    units = {
+        vid: live.get(vid) or LinkUnit(item_id, vid, rows[vid].evaluated_sku_key, rows[vid].sku_field)
+        for vid in sorted(set(live) | set(rows))
+    }
+    keys = keys_of(list(units.values()))
+    index = load_codigo_index(db, keys) if keys else {}
+    suggestions = {vid: resolve(unit, index) for vid, unit in units.items()}
+    product_ids: list[int] = []
+    for vid, suggestion in suggestions.items():
+        product_ids += list(suggestion.candidates)
+        if rows.get(vid) is not None and rows[vid].producto_item_id is not None:
+            product_ids.append(rows[vid].producto_item_id)
+    products = _products(db, product_ids)
+    return {
+        "item_id": item_id,
+        "title": head.title,
+        "status": head.status,
+        "units": [_describe_unit(unit, live, rows.get(vid), suggestions[vid], products) for vid, unit in units.items()],
+    }
+
+
+def _describe_unit(
+    unit: LinkUnit,
+    live: Mapping[int, LinkUnit],
+    row: Optional[MlItemProductLink],
+    suggestion: Suggestion,
+    products: Mapping[int, dict[str, Any]],
+) -> dict[str, Any]:
+    link = None
+    if row is not None:
+        link = {
+            "source": row.source,
+            "match_status": row.match_status,
+            "producto_item_id": row.producto_item_id,
+            "producto": products.get(row.producto_item_id),
+            "dangling": row.producto_item_id is not None and row.producto_item_id not in products,
+            "matched_sku": row.matched_sku,
+            "sku_field": row.sku_field,
+            "linked_by": row.linked_by,
+            "linked_at": row.linked_at,
+            "note": row.note,
+            "evaluated_at": row.evaluated_at,
+        }
+    differs = (
+        row is not None
+        and row.source != SOURCE_AUTO
+        and suggestion.status == STATUS_LINKED
+        and suggestion.producto_item_id != row.producto_item_id
+    )
+    return {
+        "variation_id": unit.variation_id,
+        "live": unit.variation_id in live,
+        "sku": unit.key,
+        "sku_field": unit.sku_field,
+        "link": link,
+        "suggestion": {
+            "status": suggestion.status,
+            "producto_item_id": suggestion.producto_item_id,
+            "producto": products.get(suggestion.producto_item_id),
+            "candidates": [products[c] for c in suggestion.candidates if c in products]
+            if suggestion.status == STATUS_CONFLICT
+            else [],
+            "candidate_count": len(suggestion.candidates),
+            "differs": differs,
+        },
+    }
+
+
 # --- coverage report (read-only) ---------------------------------------------------------------------
 
 CLASSES = (
