@@ -487,6 +487,83 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
   });
 });
 
+describe('Bonificación por envío Flex (ventas-ml-bonificacion-envio-flex)', () => {
+  // Real capture: sale 2000018808335864 -- $8.990 with IVA, $7.429,75 without.
+  const IVA = {
+    componentes: [
+      { concepto: 'Venta', alicuota: 21, bruto: 18857, base: 15584.3, iva: 3272.7, informativo: false },
+      { concepto: 'Bonificación por envío', alicuota: 21, bruto: 8990, base: 7429.75, iva: 1560.25, informativo: true },
+    ],
+    neto_sin_iva: 15584.3,
+    reconcilia: true,
+    diferencia: 0,
+    razones: [],
+  };
+  const CADENA = {
+    total_gauss: 5270.51,
+    lineas: [
+      { code: 'costo_mercaderia', monto: 6000 },
+      {
+        code: 'bonificacion_envio',
+        monto: -7429.75,
+        concepto: 'Bonificación por envío',
+        importe: { bruto: 8990, neto: 7429.75, iva: 1560.25 },
+      },
+    ],
+  };
+
+  function mockDetail(orderId, data) {
+    api.get.mockImplementation((url) =>
+      Promise.resolve({ data: url === `/ml-ventas-ops/orders/${orderId}` ? data : {} }),
+    );
+  }
+
+  it('shows the line as income with its gross, net and IVA as separate figures', async () => {
+    mockDetail(1001, {
+      breakdown: { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] },
+      iva_decomposicion: IVA,
+      cadena_total_gauss: CADENA,
+    });
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
+
+    const total = await screen.findByLabelText('Total Gauss');
+    const row = within(total).getByText('Bonificación por envío').closest('li');
+    expect(within(row).getByText('(+)')).toBeInTheDocument();
+    expect(within(row).getByText('$ 7.429,75')).toBeInTheDocument();
+    expect(within(row).getByText(/Bruto \$ 8\.990,00/)).toBeInTheDocument();
+    expect(within(row).getByText(/Neto \$ 7\.429,75/)).toBeInTheDocument();
+    expect(within(row).getByText(/IVA \$ 1\.560,25/)).toBeInTheDocument();
+    expect(within(row).getByText(/no suma al Total Gauss/i)).toBeInTheDocument();
+  });
+
+  it('shows the IVA section split for the informativo component that carries a rate', async () => {
+    mockDetail(1001, {
+      breakdown: { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] },
+      iva_decomposicion: IVA,
+      cadena_total_gauss: CADENA,
+    });
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
+
+    const section = await screen.findByLabelText('IVA por alícuota');
+    const row = within(section).getByText(/Bonificación por envío/).closest('li');
+    expect(within(row).getByText(/informativo/i)).toBeInTheDocument();
+    expect(within(row).getByText(/21,00%/)).toBeInTheDocument();
+    expect(within(row).getByText(/base 7\.429,75 · IVA 1\.560,25/)).toBeInTheDocument();
+  });
+
+  it('shows no breakdown note on a line without `importe`', async () => {
+    mockDetail(1001, {
+      breakdown: { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] },
+      iva_decomposicion: IVA,
+      cadena_total_gauss: { total_gauss: 1, lineas: [{ code: 'costo_mercaderia', monto: 6000, importe: null }] },
+    });
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
+
+    const total = await screen.findByLabelText('Total Gauss');
+    expect(within(total).queryByText(/Bruto/)).not.toBeInTheDocument();
+  });
+});
+
 describe('Flex own-cost line vs the Total Gauss chain', () => {
   it('does not render a propio line above Neto, but keeps api lines', async () => {
     mockBreakdown(1001, {
