@@ -174,7 +174,12 @@ VariationId = Path(ge=0, description="`0` is the item-level unit of an item with
 
 def _unit_of(db: Session, item_id: str, variation_id: int) -> dict[str, Any]:
     described = links.describe_item(db, item_id)
-    return next(unit for unit in described["units"] if unit["variation_id"] == variation_id)
+    unit = next((unit for unit in described["units"] if unit["variation_id"] == variation_id), None)
+    if unit is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No se encontró la variación {variation_id} de {item_id}"
+        )
+    return unit
 
 
 def _write(

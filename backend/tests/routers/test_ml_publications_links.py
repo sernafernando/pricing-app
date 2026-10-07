@@ -157,6 +157,24 @@ class TestRefusalsKeepTheirCause:
         assert caught.value.__cause__ is error
 
 
+class TestUnitAfterAWrite:
+    def test_a_unit_that_is_not_described_answers_404_instead_of_crashing(self, monkeypatch) -> None:
+        from fastapi import HTTPException
+
+        monkeypatch.setattr(links, "describe_item", lambda db, item_id: {"units": [{"variation_id": 1}]})
+
+        with pytest.raises(HTTPException) as caught:
+            ml_publications_links._unit_of(object(), "MLA1", 3)
+
+        assert caught.value.status_code == 404
+
+    def test_the_described_unit_is_returned_by_variation_id(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            links, "describe_item", lambda db, item_id: {"units": [{"variation_id": 1}, {"variation_id": 3, "x": 1}]}
+        )
+        assert ml_publications_links._unit_of(object(), "MLA1", 3) == {"variation_id": 3, "x": 1}
+
+
 class TestReadItem:
     def test_without_ml_ops_ver_is_403(self, client, pg, auth_headers) -> None:
         assert client.get(f"{BASE}/items/{ITEM}/product-links", headers=auth_headers).status_code == 403
