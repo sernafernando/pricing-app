@@ -1,0 +1,735 @@
+{
+ "captured_at": "20261007_135404",
+ "id": 2000015364544817,
+ "db": {
+  "orders": [
+   {
+    "order_id": 2000018808335864,
+    "pack_id": 2000015364544817,
+    "status": "paid",
+    "status_detail": null,
+    "date_created": "2026-10-05T18:53:38+00:00",
+    "date_closed": "2026-10-05T18:53:41+00:00",
+    "ml_last_updated": "2026-10-06T23:15:53+00:00",
+    "buyer_id": 1076087235,
+    "buyer_nickname": "REDACTED",
+    "seller_id": 413658225,
+    "total_amount": 18857.0,
+    "paid_amount": 18857.0,
+    "currency_id": "ARS",
+    "shipping_id": 48178052704,
+    "tags": [
+     "paid",
+     "delivered",
+     "d2c",
+     "one_shot",
+     "pack_order"
+    ],
+    "raw_order": {
+     "id": 2000018808335864,
+     "tags": [
+      "paid",
+      "delivered",
+      "d2c",
+      "one_shot",
+      "pack_order"
+     ],
+     "buyer": {
+      "id": 1076087235,
+      "nickname": "REDACTED"
+     },
+     "taxes": {
+      "id": null,
+      "amount": null,
+      "currency_id": null
+     },
+     "coupon": {
+      "id": null,
+      "amount": 0
+     },
+     "seller": {
+      "id": 413658225,
+      "nickname": "REDACTED"
+     },
+     "status": "paid",
+     "comment": null,
+     "context": {
+      "site": "MLA",
+      "flows": [],
+      "channel": "marketplace",
+      "product_id": null,
+      "application": null
+     },
+     "pack_id": 2000015364544817,
+     "feedback": {
+      "sale": {
+       "id": 9042136057208,
+       "rating": "positive",
+       "status": "hidden",
+       "fulfilled": true,
+       "date_created": "2026-10-06T19:15:42.000-04:00"
+      },
+      "buyer": null,
+      "seller": {
+       "id": 9042136057208
+      }
+     },
+     "payments": [
+      {
+       "id": 181528413163,
+       "reason": "Adaptador Bluetooth Usb Tplink Ub500 Plus Largo Alcance",
+       "status": "approved",
+       "card_id": null,
+       "site_id": "MLA",
+       "order_id": 2000018808335864,
+       "payer_id": 1076087235,
+       "collector": {
+        "id": 413658225
+       },
+       "coupon_id": null,
+       "issuer_id": "2005",
+       "currency_id": "ARS",
+       "status_code": null,
+       "date_created": "2026-10-05T14:53:39.000-04:00",
+       "installments": 1,
+       "payment_type": "account_money",
+       "taxes_amount": 0,
+       "coupon_amount": 0,
+       "date_approved": "2026-10-05T14:53:39.000-04:00",
+       "shipping_cost": 0,
+       "status_detail": "accredited",
+       "activation_uri": null,
+       "operation_type": "regular_payment",
+       "deferred_period": null,
+       "overpaid_amount": 0,
+       "available_actions": [
+        "refund"
+       ],
+       "payment_method_id": "account_money",
+       "total_paid_amount": 18857,
+       "authorization_code": null,
+       "date_last_modified": "2026-10-05T14:53:39.000-04:00",
+       "installment_amount": null,
+       "transaction_amount": 18857,
+       "transaction_order_id": null,
+       "atm_transfer_reference": {
+        "company_id": null,
+        "transaction_id": null
+       },
+       "transaction_amount_refunded": 0
+      }
+     ],
+     "shipping": {
+      "id": 48178052704
+     },
+     "fulfilled": true,
+     "pickup_id": null,
+     "currency_id": "ARS",
+     "date_closed": "2026-10-05T14:53:41.000-04:00",
+     "order_items": [
+      {
+       "item": {
+        "id": "MLA3534578552",
+        "title": "Adaptador Bluetooth Usb Tplink Ub500 Plus Largo Alcance",
+        "warranty": "Garantía de fábrica: 6 días",
+        "condition": "new",
+        "net_weight": null,
+        "seller_sku": "8885020626193",
+        "category_id": "MLA6050",
+        "global_price": null,
+        "variation_id": null,
+        "seller_custom_field": "2539",
+        "variation_attributes": [
+         {
+          "id": "COLOR",
+          "name": "Color",
+          "value_id": "52049",
+          "value_name": "Negro"
+         }
+        ]
+       },
+       "stock": {
+        "node_id": "ARP4136582251",
+        "store_id": null
+       },
+       "bundle": null,
+       "quantity": 1,
+       "sale_fee": 5662.84,
+       "element_id": 1,
+       "unit_price": 18857,
+       "currency_id": "ARS",
+       "gross_price": 18857,
+       "listing_type_id": "gold_special",
+       "picked_quantity": null,
+       "base_currency_id": null,
+       "base_exchange_rate": null,
+       "manufacturing_days": null,
+       "requested_quantity": {
+        "value": 1,
+        "measure": "unit"
+       }
+      }
+     ],
+     "paid_amount": 18857,
+     "static_tags": [
+      "d2c",
+      "one_shot",
+      "pack_order"
+     ],
+     "date_created": "2026-10-05T14:53:38.000-04:00",
+     "last_updated": "2026-10-06T19:15:46.000-04:00",
+     "total_amount": 18857,
+     "order_request": {
+      "change": null,
+      "return": null
+     },
+     "shipping_cost": null,
+     "status_detail": null,
+     "expiration_date": "2026-11-02T14:53:41.000-04:00",
+     "date_created_ttl": null,
+     "date_last_updated": "2026-10-06T23:15:53+00:00",
+     "manufacturing_ending_date": null
+    },
+    "ingest_error": null,
+    "first_seen_at": "2026-10-05T19:14:06.309727+00:00",
+    "last_synced_at": "2026-10-07T07:58:03.618156+00:00",
+    "payment_status": "approved",
+    "covered_by_marketplace": null,
+    "payments_synced_at": "2026-10-06T23:15:58.437639+00:00",
+    "has_no_shipping_tag": false,
+    "total_gauss": -2159.24,
+    "total_gauss_at": "2026-10-06T23:15:58.891558+00:00",
+    "total_gauss_stale": false,
+    "total_gauss_provisional": false,
+    "payments_recheck_at": null,
+    "payments_recheck_attempts": 0
+   }
+  ],
+  "items": [
+   {
+    "id": 170361,
+    "order_id": 2000018808335864,
+    "item_id": "MLA3534578552",
+    "variation_id": null,
+    "seller_sku": "8885020626193",
+    "title": "Adaptador Bluetooth Usb Tplink Ub500 Plus Largo Alcance",
+    "quantity": 1,
+    "unit_price": 18857.0,
+    "full_unit_price": null,
+    "sale_fee": 5662.84,
+    "listing_type_id": "gold_special",
+    "raw_item": {
+     "item": {
+      "id": "MLA3534578552",
+      "title": "Adaptador Bluetooth Usb Tplink Ub500 Plus Largo Alcance",
+      "warranty": "Garantía de fábrica: 6 días",
+      "condition": "new",
+      "net_weight": null,
+      "seller_sku": "8885020626193",
+      "category_id": "MLA6050",
+      "global_price": null,
+      "variation_id": null,
+      "seller_custom_field": "2539",
+      "variation_attributes": [
+       {
+        "id": "COLOR",
+        "name": "Color",
+        "value_id": "52049",
+        "value_name": "Negro"
+       }
+      ]
+     },
+     "stock": {
+      "node_id": "ARP4136582251",
+      "store_id": null
+     },
+     "bundle": null,
+     "quantity": 1,
+     "sale_fee": 5662.84,
+     "element_id": 1,
+     "unit_price": 18857,
+     "currency_id": "ARS",
+     "gross_price": 18857,
+     "listing_type_id": "gold_special",
+     "picked_quantity": null,
+     "base_currency_id": null,
+     "base_exchange_rate": null,
+     "manufacturing_days": null,
+     "requested_quantity": {
+      "value": 1,
+      "measure": "unit"
+     }
+    }
+   }
+  ],
+  "payments": [
+   {
+    "payment_id": 181528413163,
+    "order_id": 2000018808335864,
+    "status": "approved",
+    "transaction_amount": 18857.0,
+    "shipping_amount": 0.0,
+    "coupon_amount": 0.0,
+    "total_paid_amount": 18857.0,
+    "net_received_amount": 13024.45,
+    "transaction_amount_refunded": 0.0,
+    "taxes_amount": 0.0,
+    "currency_id": "ARS",
+    "date_approved": "2026-10-05T18:53:39+00:00",
+    "synced_at": "2026-10-06T23:15:57.314632+00:00",
+    "raw_payload": {
+     "status": "approved",
+     "order_id": "2000018808335864",
+     "payment_id": 181528413163,
+     "currency_id": "ARS",
+     "taxes_amount": 0,
+     "coupon_amount": 0,
+     "date_approved": "2026-10-05T14:53:39.000-04:00",
+     "charges_details": [
+      {
+       "name": "tax_withholding_collector-debitos_creditos",
+       "type": "tax",
+       "amount": 113.14,
+       "refunded": 0
+      },
+      {
+       "name": "tax_withholding_sirtac-buenos_aires",
+       "type": "tax",
+       "amount": 56.57,
+       "refunded": 0
+      },
+      {
+       "name": "meli_percentage_fee",
+       "type": "fee",
+       "amount": 2922.84,
+       "refunded": 0
+      },
+      {
+       "name": "flat_fee",
+       "type": "fee",
+       "amount": 2740,
+       "refunded": 0
+      }
+     ],
+     "shipping_amount": 0,
+     "total_paid_amount": 18857,
+     "transaction_amount": 18857,
+     "net_received_amount": 13024.45,
+     "transaction_amount_refunded": 0
+    }
+   }
+  ],
+  "payment_charges": [
+   {
+    "id": 471033,
+    "payment_id": 181528413163,
+    "name": "tax_withholding_collector-debitos_creditos",
+    "type": "tax",
+    "amount": 113.14,
+    "refunded": 0.0
+   },
+   {
+    "id": 471034,
+    "payment_id": 181528413163,
+    "name": "tax_withholding_sirtac-buenos_aires",
+    "type": "tax",
+    "amount": 56.57,
+    "refunded": 0.0
+   },
+   {
+    "id": 471035,
+    "payment_id": 181528413163,
+    "name": "meli_percentage_fee",
+    "type": "fee",
+    "amount": 2922.84,
+    "refunded": 0.0
+   },
+   {
+    "id": 471036,
+    "payment_id": 181528413163,
+    "name": "flat_fee",
+    "type": "fee",
+    "amount": 2740.0,
+    "refunded": 0.0
+   }
+  ],
+  "shipments": [
+   {
+    "shipment_id": 48178052704,
+    "order_id": 2000018808335864,
+    "status": "delivered",
+    "substatus": null,
+    "logistic_type": "self_service",
+    "tracking_number": "48178052704",
+    "tracking_method": "GAUSS ONLINE Super Express",
+    "date_created": "2026-10-05T18:53:40.787+00:00",
+    "last_updated": "2026-10-06T22:22:41.002+00:00",
+    "receiver_address": {
+     "id": 1223317257,
+     "city": {
+      "id": "TUxBQ0FMTWlyYW50",
+      "name": "Almirante Brown"
+     },
+     "node": null,
+     "state": {
+      "id": "AR-B",
+      "name": "Buenos Aires"
+     },
+     "types": [
+      "default_buying_address"
+     ],
+     "agency": null,
+     "comment": "REDACTED",
+     "country": {
+      "id": "AR",
+      "name": "Argentina"
+     },
+     "scoring": 1.0,
+     "version": "AR-850b4cf5d89602370b1fe26a7ad36e30",
+     "latitude": "REDACTED",
+     "zip_code": "1847",
+     "longitude": "REDACTED",
+     "location_id": 82799173,
+     "street_name": "REDACTED",
+     "address_line": "REDACTED",
+     "intersection": null,
+     "municipality": {
+      "id": null,
+      "name": null
+     },
+     "neighborhood": {
+      "id": null,
+      "name": null
+     },
+     "receiver_name": "REDACTED",
+     "street_number": "4031",
+     "receiver_phone": "XXXXXXX",
+     "geolocation_type": "ROOFTOP",
+     "geolocation_source": "geolocation-visits",
+     "delivery_preference": "residential",
+     "geolocation_last_updated": "2026-09-16T19:24:37.046Z"
+    },
+    "raw_shipment": {
+     "id": 48178052704,
+     "mode": "me2",
+     "tags": [],
+     "type": "forward",
+     "status": "delivered",
+     "sibling": {
+      "reason": null,
+      "source": null,
+      "sibling_id": null,
+      "description": null,
+      "date_created": null,
+      "last_updated": null
+     },
+     "site_id": "MLA",
+     "comments": null,
+     "order_id": 2000018808335864,
+     "base_cost": 0,
+     "quotation": null,
+     "sender_id": 413658225,
+     "substatus": null,
+     "created_by": "receiver",
+     "order_cost": 18857,
+     "service_id": 240722,
+     "customer_id": null,
+     "items_types": [
+      "new",
+      "conveyable"
+     ],
+     "receiver_id": 1076087235,
+     "carrier_info": null,
+     "date_created": "2026-10-05T14:53:40.787-04:00",
+     "last_updated": "2026-10-06T18:22:41.002-04:00",
+     "market_place": "MELI",
+     "logistic_type": "self_service",
+     "application_id": null,
+     "priority_class": {
+      "id": "50"
+     },
+     "return_details": null,
+     "sender_address": {
+      "id": null,
+      "city": {
+       "id": "TUxBQkNBQjM4MDda",
+       "name": "Caballito"
+      },
+      "node": {
+       "node_id": "ARP4136582251",
+       "logistic_center_id": "ARP4136582251"
+      },
+      "state": {
+       "id": "AR-C",
+       "name": "Capital Federal"
+      },
+      "types": [
+       "logistic_center_ARP4136582251",
+       "self_service_partner"
+      ],
+      "agency": null,
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "scoring": null,
+      "version": null,
+      "latitude": "REDACTED",
+      "zip_code": "XXXXXXX",
+      "longitude": "REDACTED",
+      "location_id": null,
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": null
+      },
+      "street_number": "XXXXXXX",
+      "geolocation_type": "ROOFTOP",
+      "geolocation_source": null,
+      "geolocation_last_updated": null
+     },
+     "shipping_items": [
+      {
+       "id": "MLA3534578552",
+       "bundle": null,
+       "quantity": 1,
+       "sender_id": 413658225,
+       "dimensions": "14.0x11.0x3.0,40.0",
+       "description": "Adaptador Bluetooth Usb Tplink Ub500 Plus Largo Alcance",
+       "user_product_id": "MLAU4171238975",
+       "item_ponderation": 100,
+       "dimensions_source": {
+        "id": "MLA3534578552__1",
+        "origin": "fd"
+       },
+       "measurable_picked_quantity": null
+      }
+     ],
+     "status_history": {
+      "date_shipped": "2026-10-06T17:14:28.000-04:00",
+      "date_handling": "2026-10-05T14:54:32.000-04:00",
+      "date_returned": null,
+      "date_cancelled": null,
+      "date_delivered": "2026-10-06T18:22:39.000-04:00",
+      "date_first_visit": "2026-10-06T18:22:39.000-04:00",
+      "date_not_delivered": null,
+      "date_ready_to_ship": "2026-10-05T14:54:45.238-04:00"
+     },
+     "cost_components": {
+      "ratio": 0,
+      "compensation": 0,
+      "gap_discount": 0,
+      "loyal_discount": 1,
+      "special_discount": 0
+     },
+     "shipping_option": {
+      "id": 1856983324,
+      "cost": 0,
+      "name": "Prioritario a domicilio",
+      "buffering": {
+       "date": null
+      },
+      "list_cost": 0,
+      "currency_id": "ARS",
+      "delivery_type": "estimated",
+      "pickup_promise": {
+       "to": null,
+       "from": null
+      },
+      "priority_class": {
+       "id": "50"
+      },
+      "processing_time": null,
+      "delivery_promise": "estimated",
+      "shipping_method_id": 510445,
+      "estimated_delivery_time": {
+       "date": "2026-10-06T00:00:00.000-03:00",
+       "type": "known",
+       "unit": "hour",
+       "offset": {
+        "date": null,
+        "shipping": null
+       },
+       "handling": 0,
+       "schedule": null,
+       "shipping": 0,
+       "pay_before": "2026-10-06T13:00:00.000-03:00",
+       "time_frame": {
+        "to": null,
+        "from": null
+       }
+      },
+      "estimated_delivery_final": {
+       "date": "2026-10-06T00:00:00.000-03:00"
+      },
+      "estimated_delivery_limit": {
+       "date": "2026-10-06T00:00:00.000-03:00"
+      },
+      "estimated_schedule_limit": {
+       "date": null
+      },
+      "desired_promised_delivery": {
+       "from": null
+      },
+      "estimated_delivery_extended": {
+       "date": "2026-10-06T00:00:00.000-03:00"
+      }
+     },
+     "tracking_method": "GAUSS ONLINE Super Express",
+     "tracking_number": "48178052704",
+     "receiver_address": {
+      "id": 1223317257,
+      "city": {
+       "id": "TUxBQ0FMTWlyYW50",
+       "name": "Almirante Brown"
+      },
+      "node": null,
+      "state": {
+       "id": "AR-B",
+       "name": "Buenos Aires"
+      },
+      "types": [
+       "default_buying_address"
+      ],
+      "agency": null,
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "scoring": 1.0,
+      "version": "AR-850b4cf5d89602370b1fe26a7ad36e30",
+      "latitude": "REDACTED",
+      "zip_code": "1847",
+      "longitude": "REDACTED",
+      "location_id": 82799173,
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": null
+      },
+      "receiver_name": "REDACTED",
+      "street_number": "4031",
+      "receiver_phone": "XXXXXXX",
+      "geolocation_type": "ROOFTOP",
+      "geolocation_source": "geolocation-visits",
+      "delivery_preference": "residential",
+      "geolocation_last_updated": "2026-09-16T19:24:37.046Z"
+     },
+     "snapshot_packing": {
+      "pack_hash": "1",
+      "snapshot_id": "cdb56dc7-292d-43a0-bf8f-688f4d0c7337"
+     },
+     "substatus_history": [
+      {
+       "date": "2026-10-05T14:54:27.796-04:00",
+       "status": "pending",
+       "substatus": "shipment_paid"
+      }
+     ],
+     "date_first_printed": "2026-10-06T07:03:23.152-04:00",
+     "return_tracking_number": null,
+     "threshold_cancellation": 65
+    },
+    "last_synced_at": "2026-10-06T22:22:47.626746+00:00",
+    "sender_cost": 0.0,
+    "receiver_cost": 0.0,
+    "costs_synced_at": "2026-10-05T19:14:10.773359+00:00",
+    "raw_costs": {
+     "senders": [
+      {
+       "cost": 0,
+       "fees": [],
+       "save": 0,
+       "charges": {
+        "charge_flex": 0
+       },
+       "user_id": 413658225,
+       "discounts": [],
+       "compensation": 0,
+       "compensations": []
+      }
+     ],
+     "receiver": {
+      "cost": 0,
+      "fees": [],
+      "save": 8990,
+      "discounts": [
+       {
+        "rate": 1,
+        "type": "loyal",
+        "promoted_amount": 8990
+       }
+      ],
+      "compensation": 0,
+      "cost_details": [],
+      "compensations": []
+     },
+     "gross_amount": 8990,
+     "base_exchange": null
+    }
+   }
+  ]
+ },
+ "ml": {
+  "shipment_48178052704_costs": {
+   "status": 200,
+   "body": {
+    "receiver": {
+     "compensations": [],
+     "fees": [],
+     "cost": 0,
+     "discounts": [
+      {
+       "rate": 1,
+       "type": "loyal",
+       "promoted_amount": 8990
+      }
+     ],
+     "user_id": 1076087235,
+     "cost_details": [],
+     "save": 8990,
+     "compensation": 0
+    },
+    "gross_amount": 8990,
+    "senders": [
+     {
+      "compensations": [],
+      "charges": {
+       "charge_flex": 0
+      },
+      "fees": [],
+      "cost": 0,
+      "discounts": [],
+      "user_id": 413658225,
+      "save": 0,
+      "compensation": 0
+     }
+    ],
+    "base_exchange": null
+   }
+  },
+  "order_2000018808335864_discounts": {
+   "status": 404,
+   "body": {
+    "cause": "",
+    "message": "Discount not found",
+    "error": "discount_not_found",
+    "status": 404
+   }
+  }
+ }
+}

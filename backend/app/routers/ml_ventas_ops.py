@@ -99,8 +99,9 @@ from app.services.ml_sales_query.filters import (
     store_facet_counts,
 )
 from app.services.product_facets import ProductFacetOptions
-from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
+from app.services.ml_ventas_desglose.deducciones import BonificacionEnvioDeduccion, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
+from app.services.ml_ventas_desglose.bonificacion_flex import CONCEPTO_BONIFICACION_ENVIO
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_group_metrics import MlGroupMetrics
@@ -497,6 +498,19 @@ class DescomposicionIvaSummary(BaseModel):
         )
 
 
+class ImporteDesglosadoSummary(BaseModel):
+    """ONE shape for a line whose amount is shown split into gross, net and
+    IVA (ventas-ml-bonificacion-envio-flex). `bruto == neto + iva` exactly.
+    Only the `neto` ever enters the Total Gauss; the `iva` is informational
+    / fiscal (it never reduces it) -- exposed as its own field so the data
+    can feed an IVA sales/purchases book later. Shipping lines use this same
+    shape (the shipping the BUYER pays will, in a later change)."""
+
+    bruto: float
+    neto: float
+    iva: float
+
+
 class DeduccionLineaSummary(BaseModel):
     """One link of `CadenaTotalGaussSummary.lineas`. `monto=None` is the
     exact link that blocked the chain (design D7) -- the UI points at it,
@@ -515,6 +529,10 @@ class DeduccionLineaSummary(BaseModel):
     # says so, so the panel never presents the split amount as if it were
     # the whole shipping cost of this order alone.
     prorateado: bool = False
+    # Gross / net / IVA of the line, when it has a fiscal breakdown to show
+    # (today only `bonificacion_envio`). `None` for every other link: their
+    # `monto` already is the whole story.
+    importe: Optional[ImporteDesglosadoSummary] = None
 
 
 class ItemCostoLineSummary(BaseModel):
@@ -598,7 +616,11 @@ class CadenaTotalGaussSummary(BaseModel):
 
     @classmethod
     def from_stored(
-        cls, stored, costo_items: Optional[List] = None, envio_flex_prorateado: bool = False
+        cls,
+        stored,
+        costo_items: Optional[List] = None,
+        envio_flex_prorateado: bool = False,
+        importes_by_code: Optional[Dict[str, ImporteDesglosadoSummary]] = None,
     ) -> "CadenaTotalGaussSummary":
         """ventas-ml-rediseno PR7 (design D2/D13, spec SM R5/R6): the
         detail panel's chain now renders from the STORED
@@ -626,6 +648,7 @@ class CadenaTotalGaussSummary(BaseModel):
                     monto=float(monto) if monto is not None else None,
                     concepto=concepto,
                     prorateado=(code == "envio_flex" and envio_flex_prorateado),
+                    importe=(importes_by_code or {}).get(code),
                 )
                 for code, monto, concepto in stored.lineas
             ],
@@ -2332,10 +2355,26 @@ def obtener_operacion(
         total_gauss=float(order_metrics.total_gauss) if order_metrics.total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
         cadena_total_gauss=CadenaTotalGaussSummary.from_stored(
-            order_stored_metrics, order_costo_items, envio_flex_prorateado=envio_flex_prorateado
+            order_stored_metrics,
+            order_costo_items,
+            envio_flex_prorateado=envio_flex_prorateado,
+            importes_by_code=_importes_desglosados(order_descomposicion),
         ),
         metrics_state=order_metrics_state,
     )
+
+
+def _importes_desglosados(descomposicion) -> Dict[str, ImporteDesglosadoSummary]:
+    """Gross / net / IVA of the chain lines that carry a fiscal breakdown,
+    read from the SAME `iva.py` component the IVA section shows -- one
+    source, so the line and the section cannot disagree."""
+    importes: Dict[str, ImporteDesglosadoSummary] = {}
+    for componente in descomposicion.componentes:
+        if componente.concepto == CONCEPTO_BONIFICACION_ENVIO:
+            importes[BonificacionEnvioDeduccion.code] = ImporteDesglosadoSummary(
+                bruto=float(componente.bruto), neto=float(componente.base), iva=float(componente.iva)
+            )
+    return importes
 
 
 class ResyncResponse(BaseModel):

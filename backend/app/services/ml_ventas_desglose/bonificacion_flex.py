@@ -1,0 +1,202 @@
+"""The Flex "Bonificación por envío" (ventas-ml-bonificacion-envio-flex).
+
+On a Flex sale (`logistic_type = self_service`) whose buyer got free
+shipping through an ML discount, ML pays the SELLER for the shipping the
+seller delivers. That money is income, and it is in none of the places the
+net is built from: not in `net_received_amount`, not in billing, not in
+`/orders/{id}/discounts` (404). It sits only in the shipment's costs
+payload, which `ml_shipments_ops.raw_costs` stores verbatim:
+
+    receiver.discounts = [{"rate": 1, "type": "loyal", "promoted_amount": 8990}]
+
+Confirmed against ML's panel for sale 2000018808335864: $8.990, IVA included
+(real capture, `tests/fixtures/ml_ventas_bonificacion/`).
+
+## What counts
+
+- ONLY `self_service`. On drop-off / fulfillment the buyer's discount is
+  subsidised by ML and is not income for the seller. Same per-order mode
+  `compute_breakdown` and the Flex freight use (`resolve_modes`).
+- The amount is the SUM of `promoted_amount` over `receiver.discounts`.
+  The only captured shape is `type: "loyal"`, `rate: 1`; a partial discount
+  (`rate < 1`) has never been captured, so none is special-cased: its
+  `promoted_amount` is summed like any other. That is an assumption, written
+  here instead of discovered later -- if a capture ever contradicts it, this
+  is the one place to change.
+
+## Fail-closed
+
+A missing, non-numeric (a string, a bool, NaN/inf) or negative
+`promoted_amount` never adds money. ONE unreadable entry voids the whole
+shipment's amount: a valid 5.990 next to an entry we cannot read would
+present as ML's payment a figure we cannot show adds up to what ML paid.
+"When in doubt, nothing, and a log" -- never an invented amount, never an
+exception on the write path (this runs inside the metrics recompute).
+
+An absent / unsynced cost payload is the NORMAL state of a young sale and
+is silent: the shipment trigger on `raw_costs` recomputes the sale the
+moment it lands.
+
+## One shipment, one bonificación
+
+A pack can hold several orders under a single `shipping_id`; the payment is
+for the SHIPMENT. Every order would otherwise read the whole amount and the
+group total (which sums its members) would count it once per order. Same
+criterion as `EnvioFlexDeduccion`: the divisor is the number of orders
+sharing the `shipping_id` IN THE DATABASE, never in the batch (a number
+that changed when you scrolled would be worse than a wrong one).
+
+Unlike the freight, the split is EXACT to the cent: gross and net are each
+distributed so their shares add up to the shipment's amount, the remainder
+cents going to the lowest `order_id`s. `iva = bruto - neto` per share, so
+`base + iva == bruto` holds like every component of `iva.py`.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, Dict, List, Optional, Sequence
+
+from sqlalchemy.orm import Session
+
+from app.models.ml_orders_ops import MlOrdersOps
+from app.services.ml_orders_ingestion.mode_resolution import MODO_SELF_SERVICE
+from app.services.ml_ventas_desglose.breakdown_service import resolve_modes
+
+logger = logging.getLogger(__name__)
+
+CONCEPTO_BONIFICACION_ENVIO = "Bonificación por envío"
+
+_CENT = Decimal("0.01")
+
+
+@dataclass(frozen=True)
+class BonificacionOrden:
+    """One order's share of its shipment's bonificación. `bruto` is what ML
+    pays (IVA included); `neto` the same without IVA. Both are POSITIVE:
+    the sign belongs to whoever puts it in a chain."""
+
+    bruto: Decimal
+    neto: Decimal
+
+
+def _warn(shipment_id: Optional[int], reason: str) -> None:
+    logger.warning(
+        "bonificacion_flex: shipment_id=%s raw_costs discounts ignored (%s); contributing nothing",
+        shipment_id,
+        reason,
+    )
+
+
+def bonificacion_bruta_desde_raw_costs(raw_costs: Any, shipment_id: Optional[int] = None) -> Optional[Decimal]:
+    """The shipment's bonificación with IVA, or `None` for "nothing to add".
+
+    `None` covers both "there is no bonificación" (silent) and "we could not
+    read it" (logged): either way no money is invented. Never raises."""
+    if raw_costs is None:
+        return None
+    if not isinstance(raw_costs, dict):
+        _warn(shipment_id, "raw_costs is not an object")
+        return None
+    receiver = raw_costs.get("receiver")
+    if receiver is None:
+        return None
+    if not isinstance(receiver, dict):
+        _warn(shipment_id, "receiver is not an object")
+        return None
+    discounts = receiver.get("discounts")
+    if discounts is None:
+        return None
+    if not isinstance(discounts, list):
+        _warn(shipment_id, "discounts is not a list")
+        return None
+
+    total = Decimal("0")
+    for entry in discounts:
+        if not isinstance(entry, dict):
+            _warn(shipment_id, "a discount entry is not an object")
+            return None
+        amount = entry.get("promoted_amount")
+        # `bool` is an `int` in Python: `True` would be read as one peso.
+        if isinstance(amount, bool) or not isinstance(amount, (int, float, Decimal)):
+            _warn(shipment_id, "promoted_amount is missing or not a number")
+            return None
+        if isinstance(amount, float) and not math.isfinite(amount):
+            _warn(shipment_id, "promoted_amount is not finite")
+            return None
+        value = Decimal(str(amount))
+        if not value.is_finite() or value < 0:
+            _warn(shipment_id, "promoted_amount is negative or not finite")
+            return None
+        total += value
+
+    total = total.quantize(_CENT, rounding=ROUND_HALF_UP)
+    return total if total > 0 else None
+
+
+def repartir_en_centavos(total: Decimal, n: int) -> List[Decimal]:
+    """`total` split into `n` shares that add up to it EXACTLY: the first
+    `total_cents % n` shares carry one extra cent."""
+    cents = int((total * 100).to_integral_value(rounding=ROUND_HALF_UP))
+    base, resto = divmod(cents, n)
+    return [Decimal(base + (1 if i < resto else 0)) / Decimal(100) for i in range(n)]
+
+
+def resolve_bonificacion_flex_by_order_ids(
+    db: Session, order_ids: Sequence[int], divisor: Decimal
+) -> Dict[int, BonificacionOrden]:
+    """Per-order share of the Flex bonificación. An order WITHOUT a key has
+    none: not Flex, no payload yet, nothing readable, or nothing paid. It is
+    never a lying zero and never blocks anything.
+
+    `divisor` is the IVA divisor ML's figures carry (`iva.IVA_ML_DIVISOR`),
+    passed in so this module does not import `iva` (which imports it).
+
+    Bulk: a handful of queries for the whole batch, never one per order."""
+    order_ids = list(order_ids)
+    result: Dict[int, BonificacionOrden] = {}
+    if not order_ids:
+        return result
+
+    orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
+    modes_by_order, shipments_by_id = resolve_modes(db, orders)
+
+    bruto_by_shipment: Dict[int, Decimal] = {}
+    for order in orders:
+        shipping_id = order.shipping_id
+        if shipping_id is None or modes_by_order.get(order.order_id) != MODO_SELF_SERVICE:
+            continue
+        if shipping_id in bruto_by_shipment:
+            continue
+        shipment = shipments_by_id.get(shipping_id)
+        bruto = bonificacion_bruta_desde_raw_costs(shipment.raw_costs if shipment else None, shipping_id)
+        if bruto is not None:
+            bruto_by_shipment[shipping_id] = bruto
+    if not bruto_by_shipment:
+        return result
+
+    # The members come from the DATABASE, not from `order_ids`.
+    members: Dict[int, List[int]] = {}
+    for member_id, shipping_id in (
+        db.query(MlOrdersOps.order_id, MlOrdersOps.shipping_id)
+        .filter(MlOrdersOps.shipping_id.in_(sorted(bruto_by_shipment)))
+        .order_by(MlOrdersOps.order_id)
+        .all()
+    ):
+        members.setdefault(shipping_id, []).append(member_id)
+
+    wanted = set(order_ids)
+    for shipping_id, bruto in bruto_by_shipment.items():
+        neto = (bruto / divisor).quantize(_CENT, rounding=ROUND_HALF_UP)
+        ids = members.get(shipping_id, [])
+        if not ids:
+            continue
+        bruto_shares = repartir_en_centavos(bruto, len(ids))
+        neto_shares = repartir_en_centavos(neto, len(ids))
+        for member_id, bruto_share, neto_share in zip(ids, bruto_shares, neto_shares):
+            if member_id in wanted:
+                result[member_id] = BonificacionOrden(bruto=bruto_share, neto=neto_share)
+    return result

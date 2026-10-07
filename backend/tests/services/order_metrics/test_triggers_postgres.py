@@ -745,7 +745,7 @@ class TestShipmentsOpsTrigger:
             session.commit()
             _clear_orders(session, order_id)
 
-    def test_sender_receiver_cost_and_raw_costs_changes_do_not_fire(self, clean_slate) -> None:
+    def test_sender_receiver_cost_changes_do_not_fire(self, clean_slate) -> None:
         session = clean_slate
         order_id = 330002
         shipment_id = 800000002
@@ -763,9 +763,84 @@ class TestShipmentsOpsTrigger:
 
             session.execute(
                 text(
-                    "UPDATE ml_shipments_ops SET sender_cost = 15.5, receiver_cost = 3.0, "
-                    "raw_costs = '{\"gross_amount\": 15.5}'::jsonb WHERE shipment_id = :shipment_id"
+                    "UPDATE ml_shipments_ops SET sender_cost = 15.5, receiver_cost = 3.0 "
+                    "WHERE shipment_id = :shipment_id"
                 ),
+                {"shipment_id": shipment_id},
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_id) is None
+        finally:
+            session.execute(
+                text("DELETE FROM ml_shipments_ops WHERE shipment_id = :shipment_id"), {"shipment_id": shipment_id}
+            )
+            session.commit()
+            _clear_orders(session, order_id)
+
+    def test_raw_costs_change_enqueues_every_order_sharing_the_shipment(self, clean_slate) -> None:
+        """ventas-ml-bonificacion-envio-flex: `raw_costs` carries the Flex
+        bonificación (`receiver.discounts`), so it is now in the metrics read
+        set. It lands AFTER the shipment (the cost sweep fetches it later),
+        and without this trigger a sale computed before that moment would
+        never be recomputed. MUTATION: dropping `raw_costs` from the trigger
+        fails this test."""
+        session = clean_slate
+        order_a, order_b = 330012, 330013
+        shipment_id = 800000012
+        try:
+            _insert_order(session, order_a, shipping_id=shipment_id)
+            _insert_order(session, order_b, shipping_id=shipment_id)
+            session.execute(
+                text(
+                    "INSERT INTO ml_shipments_ops (shipment_id, order_id, logistic_type) "
+                    "VALUES (:shipment_id, :order_id, 'self_service')"
+                ),
+                {"shipment_id": shipment_id, "order_id": order_a},
+            )
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text(
+                    "UPDATE ml_shipments_ops SET raw_costs = "
+                    '\'{"receiver": {"discounts": [{"rate": 1, "type": "loyal", "promoted_amount": 8990}]}}\'::jsonb '
+                    "WHERE shipment_id = :shipment_id"
+                ),
+                {"shipment_id": shipment_id},
+            )
+            session.commit()
+
+            for order_id in (order_a, order_b):
+                assert _dirty_row(session, order_id) is not None
+        finally:
+            session.execute(
+                text("DELETE FROM ml_shipments_ops WHERE shipment_id = :shipment_id"), {"shipment_id": shipment_id}
+            )
+            session.commit()
+            _clear_orders(session, order_a, order_b)
+
+    def test_rewriting_the_same_raw_costs_enqueues_nothing(self, clean_slate) -> None:
+        """The sweep re-stores the payload on every retry; an identical
+        rewrite must not wake the worker (`IS DISTINCT FROM` on jsonb)."""
+        session = clean_slate
+        order_id = 330014
+        shipment_id = 800000014
+        payload = "'{\"gross_amount\": 8990}'::jsonb"
+        try:
+            _insert_order(session, order_id, shipping_id=shipment_id)
+            session.execute(
+                text(
+                    "INSERT INTO ml_shipments_ops (shipment_id, order_id, logistic_type, raw_costs) "
+                    f"VALUES (:shipment_id, :order_id, 'self_service', {payload})"
+                ),
+                {"shipment_id": shipment_id, "order_id": order_id},
+            )
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text(f"UPDATE ml_shipments_ops SET raw_costs = {payload} WHERE shipment_id = :shipment_id"),
                 {"shipment_id": shipment_id},
             )
             session.commit()

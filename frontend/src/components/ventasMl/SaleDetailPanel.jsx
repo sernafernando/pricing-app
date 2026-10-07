@@ -100,6 +100,8 @@ const DEDUCCION_LABELS = {
   costo_mercaderia: 'Costo de mercadería',
   envio_flex: 'Envío Flex',
   varios: '% de varios',
+  // ML pays the seller for the Flex shipping it delivers: income, shown as `(+)`.
+  bonificacion_envio: 'Bonificación por envío',
 };
 
 function formatAlicuota(value) {
@@ -484,16 +486,17 @@ export default function SaleDetailPanel({
                         >
                           <span className={styles.lineConcepto}>
                             {componente.concepto}
-                            {componente.informativo ? (
-                              <span className={styles.mutedNote}> (informativo)</span>
-                            ) : (
+                            {componente.informativo && <span className={styles.mutedNote}> (informativo)</span>}
+                            {(!componente.informativo || componente.alicuota !== null) && (
                               <span className={styles.ivaAlicuota}> ({formatAlicuota(componente.alicuota)})</span>
                             )}
                           </span>
-                          {/* An informativo componente (SIRTAC) shows no
-                              base/IVA split -- it carries no rate and does not
-                              count in `neto_sin_iva`. */}
-                          {!componente.informativo && (
+                          {/* An informativo componente WITHOUT a rate (SIRTAC)
+                              shows no base/IVA split -- it carries no rate and
+                              does not count in `neto_sin_iva`. One WITH a rate
+                              (the Flex bonificación) does show it: the split is
+                              the point, the amount just is not in the sum. */}
+                          {(!componente.informativo || componente.alicuota !== null) && (
                             <span className={styles.lineMonto}>
                               base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
                             </span>
@@ -554,6 +557,17 @@ export default function SaleDetailPanel({
                               exclusive shipping cost. */}
                           {linea.code === 'envio_flex' && linea.prorateado && (
                             <span className={styles.mutedNote}> (prorrateado entre las órdenes del envío)</span>
+                          )}
+                          {/* ventas-ml-bonificacion-envio-flex: gross, net and
+                              IVA as SEPARATE figures (the same data can feed an
+                              IVA book later). Only the NET is in the amount at
+                              the right; the IVA is informational. */}
+                          {linea.importe && (
+                            <span className={styles.mutedNote}>
+                              {' '}
+                              (Bruto {formatMoney(linea.importe.bruto)} · Neto {formatMoney(linea.importe.neto)} · IVA{' '}
+                              {formatMoney(linea.importe.iva)} — el IVA no suma al Total Gauss)
+                            </span>
                           )}
                         </span>
                         <span

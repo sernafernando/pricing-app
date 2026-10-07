@@ -877,6 +877,7 @@ def pg_order_metrics_triggers_engine():
     from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
     from app.services.order_metrics.triggers import create_triggers, drop_triggers
     from app.services.order_metrics.triggers_pack import create_pack_triggers
+    from app.services.order_metrics.triggers_shipment_costs import create_shipment_costs_trigger
 
     # `ml_order_metrics_dirty` LAST -- the trigger DDL applied right after
     # this list is created references the six tables above.
@@ -914,6 +915,9 @@ def pg_order_metrics_triggers_engine():
         # the same function -- the other order would silently revert the pack
         # fan-out and the orphan cleanup.
         create_pack_triggers(conn)
+        # ventas-ml-bonificacion-envio-flex: `raw_costs` joins the watched
+        # columns. AFTER `create_triggers`, which creates the trigger it replaces.
+        create_shipment_costs_trigger(conn)
     _patch_pg_types_for_sqlite()
     yield eng
     with eng.begin() as conn:
@@ -1094,6 +1098,7 @@ def pg_order_metrics_config_triggers_engine():
     from app.models.varios_venta_pct import VariosVentaPct as _VariosVentaPct
     from app.services.order_metrics.triggers import create_triggers, drop_triggers
     from app.services.order_metrics.triggers_pack import create_pack_triggers
+    from app.services.order_metrics.triggers_shipment_costs import create_shipment_costs_trigger
     from app.services.order_metrics.triggers_config import create_config_triggers, drop_config_triggers
 
     own_tables = [
@@ -1183,6 +1188,9 @@ def pg_order_metrics_config_triggers_engine():
         # the same function -- the other order would silently revert the pack
         # fan-out and the orphan cleanup.
         create_pack_triggers(conn)
+        # ventas-ml-bonificacion-envio-flex: `raw_costs` joins the watched
+        # columns. AFTER `create_triggers`, which creates the trigger it replaces.
+        create_shipment_costs_trigger(conn)
         create_config_triggers(conn)
     _patch_pg_types_for_sqlite()
     yield eng
