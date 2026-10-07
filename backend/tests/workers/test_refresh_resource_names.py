@@ -7,7 +7,7 @@ treat (fetch it, or drop it uncharged)."""
 from __future__ import annotations
 
 from app.scripts import ml_publications_enqueue
-from app.services.ml_publications import queue, resources
+from app.services.ml_publications import bundle, queue, resources
 from app.workers.handlers import ml_publications as handlers
 
 
@@ -26,10 +26,10 @@ class TestSingleSourceOfTruth:
 
     def test_every_canonical_name_is_understood_by_the_handler(self) -> None:
         for name in resources.REFRESH_RESOURCES:
-            needs_core, dropped = handlers._plan(claim_for(name), [])
+            plan = bundle.plan(claim_for(name).resources, [])
             fetched = name in (resources.CORE_RESOURCE, resources.BUNDLE_RESOURCE)
-            assert needs_core is fetched, name
-            assert (name in dropped) is (not fetched), name
+            assert plan.needs_core is fetched, name
+            assert (name in plan.dropped) is (not fetched), name
 
     def test_every_default_bundle_resource_is_a_canonical_name(self) -> None:
         from app.core.config import settings

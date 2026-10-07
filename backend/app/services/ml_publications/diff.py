@@ -78,7 +78,14 @@ def array_keys_for(resource_type: str) -> ArrayKeys:
 # (resource_type, path glob; `*` matches any run of characters). EVERY entry needs a
 # written justification with evidence from captures or measured churn. Empty by
 # default: anything not listed is recorded (spec "Volatile and excluded field policy").
-EXCLUDED_NOISE: dict[tuple[str, str], str] = {}
+EXCLUDED_NOISE: dict[tuple[str, str], str] = {
+    ("sale_price", "reference_date"): (
+        "`reference_date` of `GET /items/{id}/sale_price` is the time ML answered, not data about the item: "
+        "in all four captures of 2026-10-06 (sale_price_20261006.json) it equals the response `Date` header "
+        "to the second (13:24:08, 13:24:27, 13:23:59, 13:24:01), so it differs on every fetch while the price "
+        "is unchanged and would write one change-log row per fetch. The raw body is still stored with it."
+    ),
+}
 
 
 @dataclass(frozen=True)

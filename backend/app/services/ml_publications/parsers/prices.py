@@ -61,11 +61,15 @@ def _marketplace_entry(prices: list, kind: str) -> Optional[Mapping[str, Any]]:
     return unrestricted
 
 
-def map_prices(raw: Mapping[str, Any]) -> dict[str, Any]:
+def marketplace_entries(raw: Mapping[str, Any]) -> tuple[Optional[Mapping[str, Any]], Optional[Mapping[str, Any]]]:
+    """The marketplace `(standard, promotion)` entries of a prices body (each None when absent)."""
     prices = raw.get("prices")
     entries = [e for e in prices if isinstance(e, Mapping)] if isinstance(prices, list) else []
-    standard = _marketplace_entry(entries, "standard")
-    promotion = _marketplace_entry(entries, "promotion")
+    return _marketplace_entry(entries, "standard"), _marketplace_entry(entries, "promotion")
+
+
+def map_prices(raw: Mapping[str, Any]) -> dict[str, Any]:
+    standard, promotion = marketplace_entries(raw)
     promotion_amount: Optional[Decimal] = to_decimal(promotion.get("amount")) if promotion else None
     return {
         "standard_amount": to_decimal(standard.get("amount")) if standard else None,

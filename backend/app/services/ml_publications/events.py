@@ -6,7 +6,8 @@ write and the re-derivation of events from the change log alone (spec Domain 5).
 called only for rows that were actually written: a first sighting or a noise-only diff has
 no row and therefore no event. No I/O here; persistence lives in `events_store`.
 
-This PR covers the item core catalog; other resources add their rules with their PRs.
+Covers the item core and the price events (`price_changed` kinds standard, promotion, sale);
+other resources add their rules with their PRs.
 """
 
 from __future__ import annotations
@@ -18,6 +19,11 @@ from typing import Any, Mapping, Optional, Sequence
 
 ITEM_RESOURCE = "item"
 PRODUCT_LINK_RESOURCE = "product_link"
+PRICES_RESOURCE = "prices"
+SALE_PRICE_RESOURCE = "sale_price"
+PRICE_CHANGED = "price_changed"
+# Row kinds that carry a state change; `gone` rows say the resource vanished, not that a price moved.
+_CHANGE_KINDS = ("change", "restored")
 
 STATUS_EVENT_BY_VALUE = {
     "paused": "status_paused",
@@ -173,10 +179,100 @@ def _product_link_events(row: ChangeRow) -> list[Event]:
     ]
 
 
+def _entries(row: ChangeRow) -> tuple[Optional[Mapping[str, Any]], Optional[Mapping[str, Any]]]:
+    entries = row.context.get("entries")
+    if not isinstance(entries, Mapping):
+        return None, None
+    old, new = entries.get("old"), entries.get("new")
+    return (old if isinstance(old, Mapping) else None, new if isinstance(new, Mapping) else None)
+
+
+def _side(entries: Optional[Mapping[str, Any]], kind: str) -> Optional[Mapping[str, Any]]:
+    entry = entries.get(kind) if entries else None
+    return entry if isinstance(entry, Mapping) else None
+
+
+def _promotion_identity(entry: Optional[Mapping[str, Any]]) -> Optional[tuple]:
+    """What makes a promotion price "changed": amount and promotion metadata, not the ML price entry id."""
+    if entry is None:
+        return None
+    return (entry.get("amount"), entry.get("promotion_id"), entry.get("promotion_type"))
+
+
+def _prices_events(row: ChangeRow) -> list[Event]:
+    """Standard and promotion price changes of the marketplace channel (design D16)."""
+    old, new = _entries(row)
+    if old is None and new is None:
+        return []
+    item_id = row.item_id or ""
+    events: list[Event] = []
+    old_standard, new_standard = _side(old, "standard"), _side(new, "standard")
+    old_amount = old_standard.get("amount") if old_standard else None
+    new_amount = new_standard.get("amount") if new_standard else None
+    if old_amount != new_amount:
+        shown = new_standard or old_standard or {}
+        events.append(
+            Event(
+                PRICE_CHANGED,
+                item_id,
+                old_value=old_amount,
+                new_value=new_amount,
+                payload={"currency_id": shown.get("currency_id"), "price_id": shown.get("price_id")},
+                price_kind="standard",
+            )
+        )
+    old_promotion, new_promotion = _side(old, "promotion"), _side(new, "promotion")
+    if _promotion_identity(old_promotion) != _promotion_identity(new_promotion):
+        shown = new_promotion or old_promotion or {}
+        events.append(
+            Event(
+                PRICE_CHANGED,
+                item_id,
+                old_value=old_promotion.get("amount") if old_promotion else None,
+                new_value=new_promotion.get("amount") if new_promotion else None,
+                payload={"price_id": shown.get("price_id")},
+                promotion_id=shown.get("promotion_id"),
+                promotion_type=shown.get("promotion_type"),
+                price_kind="promotion",
+            )
+        )
+    return events
+
+
+def _sale_price_events(row: ChangeRow) -> list[Event]:
+    """The price the buyer pays moved: `amount` of `sale_price` changed (design D16, kind `sale`)."""
+    old, new = _entries(row)
+    if old is None and new is None:
+        return []
+    old_amount = old.get("amount") if old else None
+    new_amount = new.get("amount") if new else None
+    if old_amount == new_amount:
+        return []
+    shown = new or old or {}
+    # The promotion involved: the one in force after the change, else the one that just ended.
+    promotion = new if new and (new.get("promotion_id") or new.get("promotion_type")) else (old or {})
+    return [
+        Event(
+            PRICE_CHANGED,
+            row.item_id or "",
+            old_value=old_amount,
+            new_value=new_amount,
+            payload={"regular_amount": shown.get("regular_amount"), "currency_id": shown.get("currency_id")},
+            promotion_id=promotion.get("promotion_id"),
+            promotion_type=promotion.get("promotion_type"),
+            price_kind="sale",
+        )
+    ]
+
+
 def derive_events(row: ChangeRow) -> list[Event]:
     """Typed events of one change-log row; empty when the change maps to none."""
     if row.resource_type == PRODUCT_LINK_RESOURCE:
         return _product_link_events(row)
+    if row.resource_type in (PRICES_RESOURCE, SALE_PRICE_RESOURCE):
+        if row.kind not in _CHANGE_KINDS:
+            return []
+        return _prices_events(row) if row.resource_type == PRICES_RESOURCE else _sale_price_events(row)
     if row.resource_type != ITEM_RESOURCE:
         return []
     item_id = row.item_id or ""
