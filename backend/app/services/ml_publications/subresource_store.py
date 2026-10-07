@@ -1,8 +1,8 @@
 """Transactional upsert of one fetched sub-resource (design D8 for sub-resources).
 
 The same contract as `store.apply_fetch`, for the sub-resource tables keyed by item id
-(`description`, `prices`, `sale_price`, `promotions`), by user product id (`user_product`, `stock`) or by
-family id (`family`): one call is one transaction on one entity, the row is locked, the response is compared against the COMMITTED state and the state, its change-log row
+(`description`, `prices`, `sale_price`, `promotions`), by user product id (`user_product`, `stock`) or
+by family id (`family`): one call is one transaction on one entity, the row is locked, the response is compared against the COMMITTED state and the state, its change-log row
 and its events commit together or not at all. Nothing here deletes a store row.
 
 Differences from the item core: classification is by HTTP status through the resource parser
@@ -35,7 +35,7 @@ from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import diff, split_excluded
 from app.services.ml_publications.ml_http import MlResponse
 from app.services.ml_publications.parsers.subresource import MalformedSubResource, ParsedSubResource
-from app.services.ml_publications.resources import ResourceSpec
+from app.services.ml_publications.resources import RESOURCES, ResourceSpec
 
 # Writes and bookkeeping shared with the item core, so both stores keep one definition of "write
 # the state", "record an error" and "log a change".
@@ -95,9 +95,23 @@ def _is_item_scoped(spec: ResourceSpec) -> bool:
     return _key_column(spec) == ITEM_KEY
 
 
-def _key_value(model: Any, column: str, key: Any) -> Any:
-    """The queue's text id as the key column holds it (a family id is a BIGINT)."""
-    return int(key) if getattr(model, column).type.python_type is int else key
+class InvalidKey(ValueError):
+    """An entity id the key column cannot hold (a family id that is not a BIGINT)."""
+
+
+MAX_BIGINT = 2**63 - 1
+
+
+def typed_key(resource: str, key: str) -> Any:
+    """The queue's text id as the key column of `resource` holds it (a family id is a BIGINT); raises
+    `InvalidKey` for an id that column cannot hold. Queue ids are not validated on enqueue, so every
+    reader of a key goes through here before it reaches the database."""
+    model = MODELS[resource]
+    if getattr(model, RESOURCES[resource].key_columns[0]).type.python_type is not int:
+        return key
+    if not (isinstance(key, str) and key.isascii() and key.isdigit() and int(key) <= MAX_BIGINT):
+        raise InvalidKey(f"{key!r} is not a valid {resource} id")
+    return int(key)
 
 
 def _checked(row: Any, response: MlResponse) -> None:
@@ -130,7 +144,7 @@ def apply_subresource(
     counters = counters if counters is not None else ApplyCounters()
     column = _key_column(spec)
     (entity_key,) = key
-    entity_key = _key_value(model, column, entity_key)
+    entity_key = typed_key(spec.name, entity_key)
     if events_enabled is None:
         events_enabled = _events_enabled()
     parsed, malformed = _parse(spec, response)

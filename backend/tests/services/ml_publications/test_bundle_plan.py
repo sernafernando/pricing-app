@@ -144,6 +144,20 @@ class TestPlanByQueueKind:
         assert dict(plan.wanted) == {} and plan.dropped == {"stock"}
 
 
+class TestKeyValidity:
+    @pytest.mark.parametrize("key", ["1", "5385385211222674", str(2**63 - 1)])
+    def test_a_bigint_family_id_is_valid(self, key) -> None:
+        assert bundle.is_valid_key("family", key) is True
+
+    @pytest.mark.parametrize("key", ["", "abc", "-1", "1.5", " 7", str(2**63), "٣"])
+    def test_anything_else_is_not_a_family_id(self, key) -> None:
+        assert bundle.is_valid_key("family", key) is False
+
+    @pytest.mark.parametrize("resource", ["user_product", "stock", "description", "prices"])
+    def test_text_keyed_resources_hold_any_id(self, resource) -> None:
+        assert bundle.is_valid_key(resource, "whatever") is True
+
+
 class TestMinAge:
     def test_configured_ages_are_read_and_prices_default_to_zero(self) -> None:
         configured = {"description": 21600}

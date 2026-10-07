@@ -398,7 +398,8 @@ class RefreshHandler:
     def _targets(self, works: Sequence[_Work]) -> Dict[Tuple[str, str], Dict[str, str]]:
         """Per entry, the id each wanted resource is fetched by: the entry's own id, or for an item entry
         the user product / family of its stored row. A resource with no such id (the item has no user
-        product, or was never stored) is settled here: nothing to fetch is not a failure."""
+        product, or was never stored) is settled here: nothing to fetch is not a failure. An own id the
+        resource cannot hold (queue ids are not validated on enqueue) is charged to that entry alone."""
         linked = bundle.linked_ids(
             [
                 w.claim.entity_id
@@ -418,6 +419,9 @@ class RefreshHandler:
                 )
                 if key is None:
                     self._skipped_not_applicable[resource] += 1
+                    work.done.add(resource)
+                elif not bundle.is_valid_key(resource, key):  # a hand-loaded id: fails this entry, not the batch
+                    work.failed[resource] = f"invalid {entity} id"
                     work.done.add(resource)
                 else:
                     ids[resource] = key

@@ -382,6 +382,39 @@ class TestUserProductEntries:
         assert queue_entry(env, "item", ITEM) is None and queue_entry(env, "user_product", OTHER_UP) is None
 
 
+class TestInvalidEntityIds:
+    """`queue.enqueue` does not validate ids, and these entries can be loaded by hand: an id the key column
+    cannot hold must fail that entry alone, visibly, never the batch."""
+
+    @pytest.mark.parametrize("bad", ["abc", "99999999999999999999", "-5", "12.5", "", " 77 "])
+    def test_a_family_entry_with_an_id_that_is_not_a_bigint_is_charged_alone_and_the_batch_goes_on(
+        self, env, bad
+    ) -> None:
+        enable_refresh(bundle_resources=ALL)
+        enqueue_entity("family", bad, resources=("bundle",))
+        enqueue_items(ITEM)
+        transport = ScriptedTransport(responder_with())
+
+        result = make_handler(transport).run(context())
+
+        assert result.success is True
+        families = [p for p in paths(transport) if "user-products-families" in p]
+        assert families == [f"/sites/MLA/user-products-families/{FAMILY}"]  # the item's own, never the bad id
+        assert queue_entry(env, "item", ITEM) is None  # the healthy entry of the batch completed
+        entry = queue_entry(env, "family", bad)
+        assert entry["attempts"] == 1 and entry["last_error"] == "family: invalid family id"
+        assert list(entry["resources"]) == ["family"]  # visible and retried, parked after the poison limit
+
+    def test_a_family_entry_with_a_valid_id_is_still_fetched(self, env) -> None:
+        enable_refresh(bundle_resources=ALL)
+        enqueue_entity("family", str(2**63 - 1), resources=("family",))
+        transport = ScriptedTransport(responder_with())
+
+        make_handler(transport).run(context())
+
+        assert paths(transport) == [f"/sites/MLA/user-products-families/{2**63 - 1}"]
+
+
 class TestFamilyEntries:
     def test_a_family_entry_is_fetched_by_its_id_without_any_item(self, env) -> None:
         enable_refresh(bundle_resources=ALL)

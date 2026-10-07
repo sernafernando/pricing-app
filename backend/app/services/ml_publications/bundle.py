@@ -25,7 +25,7 @@ from app.services.ml_publications.resources import (
     RESOURCES,
     USER_PRODUCT_KIND,
 )
-from app.services.ml_publications.subresource_store import MODELS
+from app.services.ml_publications.subresource_store import MODELS, InvalidKey, typed_key
 
 
 @dataclass(frozen=True)
@@ -134,6 +134,15 @@ def is_due(*, explicit: bool, min_age: int, last_checked_at: Optional[datetime],
     return now - last_checked_at >= timedelta(seconds=min_age)
 
 
+def is_valid_key(resource: str, key: str) -> bool:
+    """Whether `key` is an id the state table of `resource` can hold (see `subresource_store.typed_key`)."""
+    try:
+        typed_key(resource, key)
+    except InvalidKey:
+        return False
+    return True
+
+
 def last_checked(resource: str, keys: Sequence[str]) -> Dict[str, datetime]:
     """`last_checked_at` of the stored `resource` rows of `keys` (never checked: absent). The key is
     the id the resource's row is keyed by: item, user product or family id."""
@@ -144,15 +153,10 @@ def last_checked(resource: str, keys: Sequence[str]) -> Dict[str, datetime]:
     with database.get_background_db() as db:
         rows = (
             db.query(column, model.last_checked_at)
-            .filter(column.in_([_key_value(column, key) for key in keys]), model.last_checked_at.isnot(None))
+            .filter(column.in_([typed_key(resource, key) for key in keys]), model.last_checked_at.isnot(None))
             .all()
         )
     return {str(key): checked for key, checked in rows}
-
-
-def _key_value(column, key: str):
-    """The key as its column type holds it (a family id is an integer)."""
-    return int(key) if column.type.python_type is int else key
 
 
 def linked_ids(item_ids: Sequence[str]) -> Dict[str, Dict[str, str]]:

@@ -163,6 +163,22 @@ class TestChange:
         assert entry["entity_id"] == FAMILY and entry["item_id"] is None
         assert row_of(mlpub_pg, "family", FAMILY)["user_products_ids"] == ["MLAU245334053", "MLAU266459622"]
 
+    def test_locations_sharing_a_type_fall_back_to_the_whole_array_in_the_change_log(self, mlpub_pg) -> None:
+        """PINNING (the rule already holds, from the shared diff engine). Real stock with a second location
+        of the same type added (no such payload was captured: `type` is unique in every capture). A keyed
+        array whose key repeats cannot be followed element by element, so the change is reported at
+        `locations`; the change is still logged and nothing breaks."""
+        old = stock_body()
+        new = copy.deepcopy(old)
+        new["locations"].append({"type": "selling_address", "quantity": 9})
+        apply("stock", UP, old, minutes=1)
+
+        apply("stock", UP, new, minutes=2)
+
+        (entry,) = logs(mlpub_pg, "stock")
+        assert entry["changed_paths"] == ["locations"]
+        assert row_of(mlpub_pg, "stock", UP)["total_quantity"] == 11
+
     @pytest.mark.parametrize("resource", ["user_product", "stock", "family"])
     def test_these_resources_raise_no_event_even_with_events_on(self, mlpub_pg, resource) -> None:
         """Stock zero-crossings are item events (`available_quantity`); these rows have no event rules."""
