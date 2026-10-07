@@ -270,6 +270,34 @@ class TestPriceChanged:
         ]
 
 
+class TestEntriesContext:
+    def test_two_entries_without_an_id_and_with_the_same_type_are_both_kept(self) -> None:
+        """Real candidates-only list with PRICE_DISCOUNT repeated (ML sends one; the context must not lose a twin)."""
+        body = subresource_body("promotions", ONLY_CANDIDATES)
+        twin = copy.deepcopy(entry(body, "PRICE_DISCOUNT"))
+        twin["status"] = "started"
+        twin["price"] = 50000
+        body.append(twin)
+
+        entries = entries_context("promotions", body, body)["entries"]["new"]
+
+        assert len(entries) == len(body) == 9
+        statuses = sorted(e["status"] for k, e in entries.items() if e["type"] == "PRICE_DISCOUNT")
+        assert statuses == ["candidate", "started"]
+
+    def test_an_entry_that_appears_already_pending_is_not_an_event_until_it_starts(self) -> None:
+        """Pinned rule (design D16): `promotion_offered` is for candidates only; pending is silent."""
+        new = subresource_body("promotions", ONLY_CANDIDATES)
+        pending = with_fields(new, CANDIDATE_ID, status="pending", price=1900000)
+        old = without(pending, CANDIDATE_ID)
+
+        assert derive_events(promotions_row(old, pending)) == []
+
+        started = with_fields(pending, CANDIDATE_ID, status="started")
+        (event,) = derive_events(promotions_row(pending, started))
+        assert (event.event_type, event.old_value, event.new_value) == ("promotion_activated", "pending", "1900000")
+
+
 class TestRowShapes:
     def test_the_rules_need_only_the_stored_row(self) -> None:
         """Re-derivation: a JSON round trip of the stored row yields the same events."""

@@ -17,6 +17,7 @@ min/max/suggested_discounted_price}` with amounts as decimal strings. No I/O.
 from __future__ import annotations
 
 from decimal import Decimal
+from itertools import count
 from typing import Any, Callable, Mapping, Optional
 
 from app.services.ml_publications.mappers import to_decimal
@@ -87,14 +88,22 @@ _PROMOTION_AMOUNTS = (
 
 
 def promotions_entries(raw: Any) -> Optional[dict]:
-    """The promotions the event rules read, by promotion key (`id`, else `type`)."""
+    """The promotions the event rules read, by promotion key (`id`, else `type`).
+
+    ML sends one entry per key. If a key ever repeats, the twin is kept under `<key>#<n>` instead of
+    overwriting the first, so no entry is lost from the context."""
     if not isinstance(raw, list):
         return None
     entries: dict = {}
     for entry in raw:
         if not isinstance(entry, Mapping):
             continue
-        entries[promotion_key(entry)] = {
+        key = base = promotion_key(entry)
+        for ordinal in count(2):
+            if key not in entries:
+                break
+            key = f"{base}#{ordinal}"
+        entries[key] = {
             "id": None if entry.get("id") is None else str(entry["id"]),
             "type": entry.get("type"),
             "status": entry.get("status"),

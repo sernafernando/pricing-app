@@ -267,6 +267,8 @@ def _sale_price_events(row: ChangeRow) -> list[Event]:
     ]
 
 
+# Statuses of a promotion entry. `promotion_offered` is for candidates only: an entry that first shows up as
+# `pending` raises nothing until it starts (then `promotion_activated`), and one that vanishes is finished.
 PROMOTION_CANDIDATE = "candidate"
 PROMOTION_PENDING = "pending"
 PROMOTION_STARTED = "started"
