@@ -71,3 +71,9 @@ def test_topics_without_a_fixed_pattern_are_documented_as_such(doc) -> None:
     unmapped = [t for t in OPTIONAL_TOPICS if t not in TOPIC_PATTERNS]
     assert unmapped == ["stock-locations", "user-products-families"]
     assert "real `webhook_latest` row" in doc
+
+
+def test_enabling_the_price_fetchers_is_documented_with_its_gate_ages_and_rollback(doc) -> None:
+    assert "## Enabling the description, prices and sale_price fetchers" in doc
+    for needle in ("bundle_resources", "min_age_seconds", "description", "6 h", "reference_date", "Rollback"):
+        assert needle in doc, needle

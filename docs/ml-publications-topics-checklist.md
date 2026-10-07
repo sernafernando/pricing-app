@@ -68,3 +68,22 @@ Until a topic is mapped, its sub-resource is still covered: the `items` notifica
 full-bundle refresh, and the periodic rescans re-request every sub-resource enabled in
 `bundle_resources`. Mapping a topic only makes that sub-resource fresher (seconds instead of the
 rescan period); it never adds coverage that does not exist.
+
+## Enabling the description, prices and sale_price fetchers
+
+The refresh handler ships these three fetchers dark: they run only for resources listed in the
+`bundle_resources` setting (default `["core"]`).
+
+1. Enable one group at a time, watching the per-endpoint 429 counter in `worker_job_state.detail`:
+   `bundle_resources = ["core", "prices", "sale_price"]` first, `description` afterwards.
+2. A `bundle` request fetches every enabled resource whose minimum age (`min_age_seconds`) has
+   passed since its last check: `description` waits 6 h, `prices` and `sale_price` have no minimum.
+   A request that names the resource (`prices`, `sale_price` from a price topic, or a manual
+   enqueue) bypasses the minimum age. `skipped_min_age` counts what the age skipped.
+3. `sale_price.reference_date` is the response time, so it is excluded from the change log (a fetch
+   that only moves it refreshes raw and writes no row); every real change is logged and, with
+   `events.enabled`, produces `price_changed` events of kind `standard`, `promotion` or `sale`.
+4. A sub-resource that answers non-2xx is stored with its status and error body and retried alone;
+   an item whose core answers 404 gets no sub-resource calls.
+
+Rollback: remove the names from `bundle_resources`; nothing already stored is deleted.
