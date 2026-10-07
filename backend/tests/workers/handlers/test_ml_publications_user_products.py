@@ -386,7 +386,7 @@ class TestInvalidEntityIds:
     """`queue.enqueue` does not validate ids, and these entries can be loaded by hand: an id the key column
     cannot hold must fail that entry alone, visibly, never the batch."""
 
-    @pytest.mark.parametrize("bad", ["abc", "99999999999999999999", "-5", "12.5", "", " 77 "])
+    @pytest.mark.parametrize("bad", ["abc", "99999999999999999999", "-5", "12.5", "", " 77 ", "007"])
     def test_a_family_entry_with_an_id_that_is_not_a_bigint_is_charged_alone_and_the_batch_goes_on(
         self, env, bad
     ) -> None:
@@ -404,6 +404,26 @@ class TestInvalidEntityIds:
         entry = queue_entry(env, "family", bad)
         assert entry["attempts"] == 1 and entry["last_error"] == "family: invalid family id"
         assert list(entry["resources"]) == ["family"]  # visible and retried, parked after the poison limit
+
+    def test_an_interruption_before_the_bad_entry_is_reached_still_charges_it(self, env) -> None:
+        """PINNING (it holds since a failed resource stopped being pending). A 429 on the first entry ends the run; the family entry behind it was never walked but its bad id
+        is a real failure: it is charged and kept, not released uncharged with its resource forgotten."""
+        enable_refresh(bundle_resources=["core", "stock", "family"])
+        enqueue_items(ITEM)
+        enqueue_entity("family", "abc", resources=("family",))
+        transport = ScriptedTransport(
+            responder_with(
+                overrides={"stock": json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})}
+            )
+        )
+
+        make_handler(transport).run(context())
+
+        assert paths(transport)[-1] == f"/user-products/{UP}/stock"  # the 429 ended the run
+        assert not any("/abc" in p for p in paths(transport))
+        entry = queue_entry(env, "family", "abc")
+        assert entry["attempts"] == 1 and entry["last_error"] == "family: invalid family id"
+        assert list(entry["resources"]) == ["family"]
 
     def test_a_family_entry_with_a_valid_id_is_still_fetched(self, env) -> None:
         enable_refresh(bundle_resources=ALL)

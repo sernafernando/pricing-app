@@ -110,7 +110,8 @@ def typed_key(resource: str, key: str) -> Any:
     model = MODELS[resource]
     if getattr(model, RESOURCES[resource].key_columns[0]).type.python_type is not int:
         return key
-    if not (isinstance(key, str) and key.isascii() and key.isdigit() and int(key) <= MAX_BIGINT):
+    canonical = isinstance(key, str) and key.isascii() and key.isdigit() and key == str(int(key))
+    if not (canonical and int(key) <= MAX_BIGINT):  # "007" would be stored as 7 yet fetched as /007
         raise InvalidKey(f"{key!r} is not a valid {resource} id")
     return int(key)
 

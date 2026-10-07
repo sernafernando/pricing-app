@@ -149,7 +149,7 @@ class TestKeyValidity:
     def test_a_bigint_family_id_is_valid(self, key) -> None:
         assert bundle.is_valid_key("family", key) is True
 
-    @pytest.mark.parametrize("key", ["", "abc", "-1", "1.5", " 7", str(2**63), "٣"])
+    @pytest.mark.parametrize("key", ["", "abc", "-1", "1.5", " 7", str(2**63), "٣", "007", "00"])
     def test_anything_else_is_not_a_family_id(self, key) -> None:
         assert bundle.is_valid_key("family", key) is False
 

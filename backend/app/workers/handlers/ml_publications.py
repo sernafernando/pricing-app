@@ -515,13 +515,12 @@ class RefreshHandler:
 
     def _stop_walking(self, works: Sequence[_Work], interruption: _Interruption) -> None:
         """The run ended inside the sub-resource phase; `works[0]` is the entry being walked."""
-        current = works[0]
-        if current.failed:
-            # Failures already observed on this entry are real: charge them, keep the rest queued.
-            self._finish(current, interrupted=True)
-            works = works[1:]
         for work in works:
-            if not work.pending:  # everything was skipped by minimum age: nothing left to retry
+            if work.failed:
+                # Failures already observed are real (a failed fetch of the entry being walked, or an id the
+                # entry cannot be fetched by): charge them, keep what was not reached queued by name.
+                self._finish(work, interrupted=True)
+            elif not work.pending:  # everything was skipped by minimum age: nothing left to retry
                 self._finish(work)
         self._release(works, interruption.not_before)
 
