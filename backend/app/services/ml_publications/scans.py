@@ -306,7 +306,8 @@ def _close_lap(
             run.finished_at = now
             run.outcome = "failed" if failed else "success"
             run.counts = counts
-            run.last_error = failed or None
+            # keep an error noted by an earlier run of this lap (`record_failure`)
+            run.last_error = "; ".join(part for part in (run.last_error, failed) if part) or None
 
 
 def record_failure(error: str, now: Optional[datetime] = None) -> None:
@@ -477,11 +478,18 @@ def _handle_rejection(status: str, state: MlPubScanState, response: MlResponse, 
 # --- missing from scan ------------------------------------------------------------------------
 
 
-def _enqueue_unseen(statuses: Sequence[str], lap: _Lap, *, now: datetime, stale_days: int) -> int:
+def _enqueue_unseen(
+    statuses: Sequence[str], lap: _Lap, *, now: datetime, stale_days: int, keep_going: Callable[[], bool]
+) -> Optional[int]:
     """Stored, non-gone items of fully covered statuses that no scan returned during the lap.
 
     A `closed` item is refreshed only once stale: closed items drop out of the scans while ML keeps
-    answering 200 for them, so refreshing them on every lap would never end."""
+    answering 200 for them, so refreshing them on every lap would never end.
+
+    Only the item `core` is requested on purpose: the question is whether ML still answers (200 or
+    404). When `bundle_resources` grows, notifications and the sub-resource policy fill the rest.
+    Returns None when the flag was turned off between batches; the lap stays open and the next run
+    repeats the step (the query is state-derived, so it is idempotent)."""
     stale_before = now - timedelta(days=stale_days)
     rows = _states(statuses)
     completed = [s for s, r in rows.items() if r is not None and r.completed_at is not None and not r.last_error]
@@ -490,6 +498,8 @@ def _enqueue_unseen(statuses: Sequence[str], lap: _Lap, *, now: datetime, stale_
         return 0
     total, after = 0, ""
     while True:
+        if not keep_going():
+            return None
         with database.get_background_db() as session:
             ids = (
                 session.execute(
@@ -555,7 +565,12 @@ def run_scan(
         if stop:
             _summarize(result, ordered)
             return result
-    result.missing_enqueued = _enqueue_unseen(ordered, lap, now=now(), stale_days=stale_days)
+    missing = _enqueue_unseen(ordered, lap, now=now(), stale_days=stale_days, keep_going=keep_going)
+    if missing is None:
+        result.stopped = STOP_DISABLED
+        _summarize(result, ordered)
+        return result
+    result.missing_enqueued = missing
     _close_lap(ordered, lap, result, now(), requested_mode=requested_mode)
     result.complete = True
     return result

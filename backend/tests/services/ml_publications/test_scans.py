@@ -478,6 +478,24 @@ class TestMissingFromScan:
         assert result.failed_statuses == ["active"] and result.missing_enqueued == 0
         assert "MLA333" not in queue_rows(env)
 
+    def test_the_unseen_step_honors_the_pause_flag_and_resumes(self, env, monkeypatch):
+        monkeypatch.setattr(scans, "UNSEEN_BATCH", 2)
+        for n in range(5):
+            put_item(env, f"MLA90{n}", checked_ago_days=1)
+        for item_id in ACTIVE:
+            put_item(env, item_id, checked_ago_days=1)
+        ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else None)
+        # allowed: page request, empty-page request, first unseen batch; then paused
+        result = self.lap(ml, keep_going=iter([True, True, True, False]).__next__)
+        assert result.stopped == "disabled" and not result.complete
+        assert len(queue_rows(env)) == 2
+        with env.connect() as conn:
+            assert (
+                conn.execute(text("SELECT completed_at FROM ml_pub_scan_state WHERE status = '_lap'")).scalar() is None
+            )
+        resumed = self.lap(ml)
+        assert resumed.complete and len(queue_rows(env)) == 5
+
     def test_the_pending_scan_covers_inactive_bodies_only_with_the_inactive_scan(self, env):
         put_item(env, "MLA444", status="inactive", checked_ago_days=1)
         ml = Ml(lambda status, scroll, n: page("pending_page1") if scroll is None else None)
@@ -580,6 +598,15 @@ class TestLapsAndRecords:
         with env.connect() as conn:
             row = conn.execute(text("SELECT outcome, last_error FROM ml_pub_job_runs")).one()
         assert row[0] == "failed" and "active" in row[1]
+
+    def test_an_error_noted_during_the_lap_survives_its_successful_close(self, env):
+        ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else None)
+        run(ml, keep_going=iter([True, False]).__next__)  # leaves the lap open
+        scans.record_failure("RuntimeError: transient boom")
+        run(ml)
+        with env.connect() as conn:
+            row = conn.execute(text("SELECT outcome, last_error FROM ml_pub_job_runs")).one()
+        assert row[0] == "success" and "transient boom" in row[1]
 
     def test_the_deadline_stops_the_run_between_pages(self, env):
         ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else page("active_page2"))
