@@ -601,3 +601,103 @@ def _finish_lap(db, state: _SweepState, now: datetime) -> None:
         _write_setting(db, FINGERPRINT_KEY, state.target, now)
         _write_setting(db, LAST_FULL_PASS_KEY, state.started_at, now)
     _write_setting(db, SWEEP_STATE_KEY, _SweepState().as_value(), now)
+
+
+# --- coverage report (read-only) ---------------------------------------------------------------------
+
+CLASSES = (
+    "linked_auto",
+    "linked_manual",
+    "manual_none",
+    "unmatched_no_key",
+    "unmatched_key_not_found",
+    "conflict",
+    "dangling",
+    "never_evaluated",
+)
+DEFAULT_SAMPLE_SIZE = 10
+COVERAGE_STATEMENT_TIMEOUT = "5s"
+
+# Every unit is classified exactly once: the stored links first, then the units that have no link row
+# yet (items without live variations have an item-level unit, every live variation has its own).
+_UNITS_CTE = """
+WITH units AS (
+    SELECT coalesce(i.status, 'unknown') AS item_status, (l.variation_id > 0) AS is_variation,
+           l.item_id, l.variation_id,
+           CASE
+               WHEN l.evaluated_at IS NULL THEN 'never_evaluated'
+               WHEN l.producto_item_id IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM productos_erp p WHERE p.item_id = l.producto_item_id)
+                   THEN 'dangling'
+               WHEN l.source = 'manual_none' THEN 'manual_none'
+               WHEN l.source = 'manual' THEN 'linked_manual'
+               WHEN l.match_status = 'linked' THEN 'linked_auto'
+               WHEN l.match_status = 'conflict' THEN 'conflict'
+               WHEN l.matched_sku IS NULL THEN 'unmatched_no_key'
+               ELSE 'unmatched_key_not_found'
+           END AS cls
+    FROM ml_item_product_links l
+    LEFT JOIN ml_items i ON i.item_id = l.item_id
+    UNION ALL
+    SELECT coalesce(i.status, 'unknown'), false, i.item_id, 0, 'never_evaluated'
+    FROM ml_items i
+    WHERE i.raw IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM ml_item_variations v WHERE v.item_id = i.item_id AND v.gone_at IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM ml_item_product_links l WHERE l.item_id = i.item_id AND l.variation_id = 0)
+    UNION ALL
+    SELECT coalesce(i.status, 'unknown'), true, v.item_id, v.variation_id, 'never_evaluated'
+    FROM ml_item_variations v
+    LEFT JOIN ml_items i ON i.item_id = v.item_id
+    WHERE v.gone_at IS NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM ml_item_product_links l WHERE l.item_id = v.item_id AND l.variation_id = v.variation_id
+      )
+)
+"""
+_COUNTS_SQL = _UNITS_CTE + "SELECT item_status, is_variation, cls, count(*) FROM units GROUP BY 1, 2, 3"
+_SAMPLES_SQL = (
+    _UNITS_CTE
+    + """
+SELECT cls, item_id, variation_id FROM (
+    SELECT cls, item_id, variation_id,
+           row_number() OVER (PARTITION BY cls ORDER BY item_id, variation_id) AS rn
+    FROM units
+) ranked
+WHERE rn <= :size
+ORDER BY cls, item_id, variation_id
+"""
+)
+_MANUAL_DIFFERS_SQL = """
+SELECT count(*) FROM ml_item_product_links
+WHERE source <> 'sku_auto' AND suggestion_status = 'linked'
+  AND suggested_producto_item_id IS DISTINCT FROM producto_item_id
+"""
+
+
+def coverage(db, *, sample_size: int = DEFAULT_SAMPLE_SIZE) -> dict[str, Any]:
+    """Link coverage: counts per primary class by item status, item-level vs variation units, and bounded samples.
+
+    `classes` sums to `total_units` (each unit is in exactly one primary class). `manual_differs` is
+    reported beside them: manual and manual_none units whose decision differs from the SKU suggestion
+    are also counted in their own class. Read-only; one pass over the link table, the items and the
+    products' primary key.
+    """
+    db.execute(text(f"SET LOCAL statement_timeout = '{COVERAGE_STATEMENT_TIMEOUT}'"))
+    classes = {name: 0 for name in CLASSES}
+    by_status: dict[str, dict[str, dict[str, int]]] = {}
+    for status, is_variation, cls, count in db.execute(text(_COUNTS_SQL)).all():
+        classes[cls] += count
+        level = by_status.setdefault(status, {"item_level": {}, "variation": {}})[
+            "variation" if is_variation else "item_level"
+        ]
+        level[cls] = count
+    samples: dict[str, list[dict[str, Any]]] = {name: [] for name in CLASSES}
+    for cls, item_id, variation_id in db.execute(text(_SAMPLES_SQL), {"size": sample_size}).all():
+        samples[cls].append({"item_id": item_id, "variation_id": variation_id})
+    return {
+        "total_units": sum(classes.values()),
+        "classes": classes,
+        "by_status": by_status,
+        "manual_differs": db.execute(text(_MANUAL_DIFFERS_SQL)).scalar(),
+        "samples": samples,
+    }

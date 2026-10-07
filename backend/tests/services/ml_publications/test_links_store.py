@@ -18,7 +18,7 @@ from app.services.ml_publications import events_store, links
 from app.services.ml_publications import store as store_module
 from app.services.ml_publications.mappers import map_item, map_variations
 from app.services.ml_publications.settings_store import set_setting
-from tests.services.ml_publications.conftest import item_with_variations, sample_item
+from tests.services.ml_publications.conftest import bulk_item, item_with_variations, sample_item
 from tests.services.ml_publications.test_store_apply_fetch import apply, item_row, only_not_found
 
 pytestmark = pytest.mark.postgres
@@ -463,3 +463,121 @@ class TestApplyFetchHook:
         apply(sample_item(ITEM), ITEM, minutes=1)
         only_not_found(ITEM, 5)
         assert [r["item_id"] for r in link_rows(links_on)] == [ITEM]
+
+
+# --- coverage report (spec "Coverage report") -----------------------------------------------------
+
+VARIATIONS = "MLA1207279308"  # real closed item with 4 variations and no SKU anywhere
+SAMPLE_ITEMS = {"MLA874027718", "MLA882393030", "MLA862580589", VARIATIONS}
+
+
+def store_item(item_id: str, minutes: float = 0) -> dict:
+    """Write a real capture to the store with linking OFF; returns its body."""
+    if item_id == VARIATIONS:
+        body = item_with_variations()
+    elif item_id in SAMPLE_ITEMS:
+        body = sample_item(item_id)
+    else:
+        body = bulk_item(item_id)
+    apply(body, item_id, minutes=minutes, links_enabled=False, events_enabled=False)
+    return body
+
+
+def coverage_of(engine, **kwargs) -> dict:
+    with database.get_background_db() as db:
+        return links.coverage(db, **kwargs)
+
+
+@pytest.fixture()
+def coverage_data(env):
+    """Nine units, one or two per class (see `test_every_unit_lands_in_exactly_one_primary_class`)."""
+    add_product(env, 41, SKU_A)
+    add_product(env, 7, "OTHER")
+    add_product(env, 61, "840006604815")
+    add_product(env, 62, "840006604815")  # two products share the codigo of MLA934406852
+    for minutes, item_id in enumerate(
+        ["MLA874027718", "MLA882393030", PAUSED_ITEM, "MLA934406852", "MLA862580589", VARIATIONS], start=1
+    ):
+        body = store_item(item_id, minutes)
+        if item_id in ("MLA874027718", "MLA934406852", VARIATIONS):
+            evaluate(body, minutes=minutes)
+    put_link(env, "MLA882393030", 0, "manual", "linked", 7, linked_by=3)  # suggestion (41) differs
+    evaluate(sample_item("MLA882393030"), minutes=9)
+    put_link(env, PAUSED_ITEM, 0, "manual_none", "no_product", None, evaluated_at=at(9))
+    with env.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE ml_item_product_links SET source='sku_auto', match_status='linked', producto_item_id=999 "
+                "WHERE item_id = :i AND variation_id = 175550253195"
+            ),
+            {"i": VARIATIONS},
+        )
+        conn.execute(
+            text(
+                "UPDATE ml_item_product_links SET matched_sku='XYZ' WHERE item_id = :i AND variation_id = 175550253197"
+            ),
+            {"i": VARIATIONS},
+        )
+        conn.execute(
+            text("DELETE FROM ml_item_product_links WHERE item_id = :i AND variation_id = 175550253198"),
+            {"i": VARIATIONS},
+        )
+    return env
+
+
+PAUSED_ITEM = "MLA935110613"
+
+
+class TestCoverage:
+    def test_every_unit_lands_in_exactly_one_primary_class_and_the_counts_sum_to_the_total(self, coverage_data) -> None:
+        report = coverage_of(coverage_data)
+
+        assert report["total_units"] == 9
+        assert report["classes"] == {
+            "linked_auto": 1,
+            "linked_manual": 1,
+            "manual_none": 1,
+            "unmatched_no_key": 1,
+            "unmatched_key_not_found": 1,
+            "conflict": 1,
+            "dangling": 1,
+            "never_evaluated": 2,
+        }
+        assert sum(report["classes"].values()) == report["total_units"]
+
+    def test_manual_differs_is_reported_beside_the_primary_classes(self, coverage_data) -> None:
+        assert coverage_of(coverage_data)["manual_differs"] == 1
+
+    def test_counts_are_split_by_item_status_and_by_item_level_versus_variation_units(self, coverage_data) -> None:
+        report = coverage_of(coverage_data)
+        by_status = report["by_status"]
+
+        total = sum(sum(counts.values()) for status in by_status.values() for counts in status.values())
+        assert total == 9
+        closed = by_status[item_row(coverage_data, VARIATIONS)["status"]]
+        assert sum(closed["variation"].values()) == 4 and closed["item_level"] == {}
+        assert by_status[item_row(coverage_data, PAUSED_ITEM)["status"]]["item_level"].get("manual_none") == 1
+
+    def test_samples_are_bounded_per_class(self, coverage_data) -> None:
+        report = coverage_of(coverage_data, sample_size=1)
+        assert all(len(ids) <= 1 for ids in report["samples"].values())
+        assert report["samples"]["never_evaluated"] == [{"item_id": VARIATIONS, "variation_id": 175550253198}]
+        assert report["samples"]["dangling"] == [{"item_id": VARIATIONS, "variation_id": 175550253195}]
+
+    def test_a_manual_link_to_a_product_that_no_longer_exists_is_dangling_not_linked_manual(self, env) -> None:
+        store_item(PAUSED_ITEM, 1)
+        put_link(env, PAUSED_ITEM, 0, "manual", "linked", 555, evaluated_at=at(1))
+        report = coverage_of(env)
+        assert report["classes"]["dangling"] == 1 and report["classes"]["linked_manual"] == 0
+
+    def test_an_empty_store_reports_zero_everywhere(self, env) -> None:
+        report = coverage_of(env)
+        assert report["total_units"] == 0
+        assert set(report["classes"].values()) == {0}
+        assert report["by_status"] == {} and report["manual_differs"] == 0
+        assert all(ids == [] for ids in report["samples"].values())
+
+    def test_it_is_read_only(self, coverage_data) -> None:
+        before = (link_rows(coverage_data), log_rows(coverage_data))
+        coverage_of(coverage_data)
+        assert (link_rows(coverage_data), log_rows(coverage_data)) == before
