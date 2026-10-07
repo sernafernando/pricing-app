@@ -468,6 +468,8 @@ class TestPagingIsStableUnderTies:
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 300)
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, sort="units_24h")
         monkeypatch.setattr(ml_metricas, "_can_see_margin", lambda db, user: True)
+        # A full-view caller: this test is about paging, not the PM scope.
+        monkeypatch.setattr(ml_metricas, "_scope_pairs", lambda db, user: None)
 
         @contextmanager
         def page_session():
