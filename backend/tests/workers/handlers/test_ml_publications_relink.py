@@ -160,7 +160,13 @@ class TestFirstPass:
         enable("links")
         run()
         assert isinstance(state(env, "links.catalog_fingerprint"), str)
-        assert state(env, "links.sweep_state") == {"cursor": None, "force": False, "target": None, "started_at": None}
+        assert state(env, "links.sweep_state") == {
+            "cursor": None,
+            "force": False,
+            "target": None,
+            "started_at": None,
+            "retry": False,
+        }
 
 
 class TestIncrementalPasses:
@@ -358,6 +364,93 @@ class TestDeadlineAndResume:
 
         assert result.detail["errors"] == 1 and result.detail["complete"] is True
         assert [r["item_id"] for r in link_rows(env)] == ["MLA882393030"]
+
+
+def _with_sku(sku: str) -> dict:
+    """Real MLA882393030 with its SELLER_SKU value changed (one field)."""
+    body = sample_item("MLA882393030")
+    body["attributes"] = [{**a, "value_name": sku} if a["id"] == "SELLER_SKU" else a for a in body["attributes"]]
+    return body
+
+
+class TestConcurrencyWithApplyFetch:
+    def test_a_fetch_that_commits_between_the_snapshot_and_the_evaluation_is_not_reverted(
+        self, env, monkeypatch
+    ) -> None:
+        """The sweep read the item's SKU, then a refresh committed a new SKU and its link; the sweep must
+        evaluate the CURRENT SKU, never write the previous product back (and log a change that never happened)."""
+        add_product(env, 41, SKU_A)
+        add_product(env, 42, SKU_B)
+        enable("links", "events")
+        apply(sample_item("MLA882393030"), "MLA882393030", minutes=1)  # linked to 41 by the hook
+        add_product(env, 43, "NEW")  # catalog changed: the next lap is forced
+        original = links._typed_batch
+        raced: list[bool] = []
+
+        def snapshot_then_refresh(db, cursor, size):
+            batch = original(db, cursor, size)
+            if not raced:
+                raced.append(True)
+                apply(_with_sku(SKU_B), "MLA882393030", minutes=30, links_enabled=True, events_enabled=True)
+            return batch
+
+        monkeypatch.setattr(links, "_typed_batch", snapshot_then_refresh)
+
+        result = run()
+
+        assert result.detail["complete"] is True
+        assert link(env, "MLA882393030")["producto_item_id"] == 42
+        (entry,) = log_rows(env)  # exactly the refresh's own change, no second one from the sweep
+        assert (entry["context"]["producto_item_id_old"], entry["context"]["producto_item_id_new"]) == (41, 42)
+
+    def test_the_link_locks_of_an_item_are_released_before_the_next_item_starts(self, env, monkeypatch) -> None:
+        seed_items(*ITEMS)
+        add_product(env, 41, SKU_A)
+        enable("links")
+        run()  # both units exist now, so the forced lap below locks real rows
+        add_product(env, 43, "NEW")  # catalog changed: the next lap is forced
+        original = links.evaluate_item
+        free: list[bool] = []
+
+        def spy(db, item_id, *args, **kwargs):
+            if item_id == "MLA882393030":  # the second item: the first one's rows must be free by now
+                try:
+                    with env.begin() as conn:
+                        conn.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                        conn.execute(
+                            text("SELECT 1 FROM ml_item_product_links WHERE item_id = 'MLA874027718' FOR UPDATE")
+                        )
+                    free.append(True)
+                except Exception:  # noqa: BLE001
+                    free.append(False)
+            return original(db, item_id, *args, **kwargs)
+
+        monkeypatch.setattr(links, "evaluate_item", spy)
+
+        run()
+
+        assert free == [True]
+
+    def test_an_item_locked_by_a_fetch_in_flight_is_skipped_not_waited_for_and_the_lap_is_redone(self, env) -> None:
+        seed_items(*ITEMS)
+        add_product(env, 41, SKU_A)
+        enable("links")
+        holder = env.connect()
+        transaction = holder.begin()
+        holder.execute(text("SELECT 1 FROM ml_items WHERE item_id = 'MLA874027718' FOR UPDATE"))
+        try:
+            result = run()
+        finally:
+            transaction.rollback()
+            holder.close()
+
+        assert result.detail["contended"] == 1 and result.detail["complete"] is True
+        assert [r["item_id"] for r in link_rows(env)] == ["MLA882393030"]
+        assert state(env, "links.catalog_fingerprint") is None  # the forced lap must be redone
+        again = run()
+        assert again.detail["contended"] == 0
+        assert [r["item_id"] for r in link_rows(env)] == ["MLA874027718", "MLA882393030"]
+        assert isinstance(state(env, "links.catalog_fingerprint"), str)
 
 
 class TestRegistry:

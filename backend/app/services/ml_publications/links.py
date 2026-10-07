@@ -404,6 +404,7 @@ class SweepResult:
     batches: int = 0
     items: int = 0
     errors: int = 0
+    contended: int = 0  # items skipped because a fetch held their row; the next lap picks them up
     complete: bool = False
     forced: bool = False
     stopped: Optional[str] = None
@@ -415,6 +416,7 @@ class SweepResult:
             batches=self.batches,
             items=self.items,
             errors=self.errors,
+            contended=self.contended,
             complete=self.complete,
             forced=self.forced,
         )
@@ -429,6 +431,7 @@ class _SweepState:
     force: bool = False  # the lap in progress re-evaluates every unit (catalog change / daily pass)
     target: Optional[str] = None  # catalog fingerprint the forced lap converges to
     started_at: Optional[str] = None  # when the forced lap began (ISO, UTC)
+    retry: bool = False  # an item failed or was busy during a forced lap: do not record it as converged
 
     def as_value(self) -> dict[str, Any]:
         return asdict(self)
@@ -475,27 +478,18 @@ def _load_state(db) -> _SweepState:
     stored = _read_setting(db, SWEEP_STATE_KEY)
     if not isinstance(stored, dict):
         return _SweepState()
-    return _SweepState(**{k: stored.get(k) for k in ("cursor", "force", "target", "started_at")})
+    return _SweepState(**{k: stored.get(k) for k in ("cursor", "force", "target", "started_at", "retry")})
 
 
-def _typed_batch(db, cursor: Optional[str], size: int) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
-    """The next `size` stored items after `cursor` (keyset on `item_id`) with their live variations."""
-    query = db.query(
-        MlItem.item_id, MlItem.seller_sku, MlItem.seller_custom_field, MlItem.official_store_id, MlItem.brand
-    ).filter(MlItem.raw.isnot(None))
-    if cursor is not None:
-        query = query.filter(MlItem.item_id > cursor)
-    items = query.order_by(MlItem.item_id).limit(size).all()
-    if not items:
-        return []
-    ids = [item.item_id for item in items]
+def _variations_by_item(db, ids: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
+    """Live (not gone) variations of the given items, in the typed shape `units_for_item` reads."""
     variations: dict[str, list[dict[str, Any]]] = {item_id: [] for item_id in ids}
     for row in db.query(
         MlItemVariation.item_id,
         MlItemVariation.variation_id,
         MlItemVariation.seller_sku,
         MlItemVariation.seller_custom_field,
-    ).filter(MlItemVariation.item_id.in_(ids), MlItemVariation.gone_at.is_(None)):
+    ).filter(MlItemVariation.item_id.in_(list(ids)), MlItemVariation.gone_at.is_(None)):
         variations[row.item_id].append(
             {
                 "variation_id": row.variation_id,
@@ -503,6 +497,25 @@ def _typed_batch(db, cursor: Optional[str], size: int) -> list[tuple[dict[str, A
                 "seller_custom_field": row.seller_custom_field,
             }
         )
+    return variations
+
+
+_ITEM_COLUMNS = (MlItem.item_id, MlItem.seller_sku, MlItem.seller_custom_field, MlItem.official_store_id, MlItem.brand)
+
+
+def _typed_batch(db, cursor: Optional[str], size: int) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    """The next `size` stored items after `cursor` (keyset on `item_id`) with their live variations.
+
+    An unlocked snapshot: it only decides which items look like they need work. Whatever is evaluated
+    is re-read under the item's row lock (`_evaluate_one`).
+    """
+    query = db.query(*_ITEM_COLUMNS).filter(MlItem.raw.isnot(None))
+    if cursor is not None:
+        query = query.filter(MlItem.item_id > cursor)
+    items = query.order_by(MlItem.item_id).limit(size).all()
+    if not items:
+        return []
+    variations = _variations_by_item(db, [item.item_id for item in items])
     return [(dict(item._mapping), variations[item.item_id]) for item in items]
 
 
@@ -548,12 +561,15 @@ def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _
         if events_enabled is None:
             result.stopped = STOPPED_DISABLED
             return result
-        with database.get_background_db() as db:
+        with database.get_background_db() as db:  # unlocked snapshot, no write
             _set_timeouts(db)
             batch = _typed_batch(db, state.cursor, SWEEP_BATCH)
+            evaluated = _evaluated_keys(db, [typed["item_id"] for typed, _ in batch])
+        result.batches += 1 if batch else 0
+        for typed, variations in batch:
+            _sweep_item(typed, variations, evaluated, state, batch_now, events_enabled, result)
+        with database.get_background_db() as db:  # progress, committed after the batch's per-item work
             if batch:
-                result.batches += 1
-                _sweep_batch(db, batch, state, batch_now, events_enabled, result)
                 state.cursor = batch[-1][0]["item_id"]
             if len(batch) < SWEEP_BATCH:
                 _finish_lap(db, state, batch_now)
@@ -569,35 +585,64 @@ def _set_timeouts(db) -> None:
     db.execute(text(f"SET LOCAL statement_timeout = '{SWEEP_STATEMENT_TIMEOUT}'"))
 
 
-def _sweep_batch(db, batch, state: _SweepState, now: datetime, events_enabled: bool, result: SweepResult) -> None:
-    evaluated = _evaluated_keys(db, [typed["item_id"] for typed, _ in batch])
-    for typed, variations in batch:
-        result.items += 1
-        units = units_for_item(typed, variations)
-        if not state.force and not _needs_evaluation(units, evaluated):
-            result.units.skipped += len(units)
-            continue
-        try:
-            with db.begin_nested():
-                result.units.add(
-                    evaluate_item(
-                        db,
-                        typed["item_id"],
-                        typed,
-                        variations,
-                        now=now,
-                        events_enabled=events_enabled,
-                        force=state.force,
-                    )
-                )
-        except Exception:  # noqa: BLE001 -- one item must not stop the lap; the next lap retries it
-            result.errors += 1
-            logger.exception("product links sweep failed for %s", typed["item_id"])
+def _sweep_item(
+    typed: Mapping[str, Any],
+    variations: Sequence[Mapping[str, Any]],
+    evaluated: Mapping[tuple[str, int], Any],
+    state: _SweepState,
+    now: datetime,
+    events_enabled: bool,
+    result: SweepResult,
+) -> None:
+    result.items += 1
+    units = units_for_item(typed, variations)
+    if not state.force and not _needs_evaluation(units, evaluated):
+        result.units.skipped += len(units)
+        return
+    try:
+        outcome = _evaluate_one(typed["item_id"], force=state.force, now=now, events_enabled=events_enabled)
+    except Exception:  # noqa: BLE001 -- one item must not stop the lap; the next lap retries it
+        result.errors += 1
+        state.retry = state.retry or state.force
+        logger.exception("product links sweep failed for %s", typed["item_id"])
+        return
+    if outcome is None:
+        result.contended += 1
+        state.retry = state.retry or state.force
+        return
+    result.units.add(outcome)
+
+
+def _evaluate_one(item_id: str, *, force: bool, now: datetime, events_enabled: bool) -> Optional[EvaluationResult]:
+    """Evaluate one item in its own short transaction, on its CURRENT state.
+
+    The item row is share-locked (`SKIP LOCKED`) and its SKU fields re-read under that lock, so a fetch
+    that committed after the sweep's snapshot is never evaluated against stale data, and a fetch in
+    flight is neither waited for nor blocked for longer than this one item (it evaluates the item itself).
+    Returns None when the row is busy. The transaction ends here, so no link-row lock outlives the item.
+    """
+    with database.get_background_db() as db:
+        _set_timeouts(db)
+        row = (
+            db.query(*_ITEM_COLUMNS)
+            .filter(MlItem.item_id == item_id, MlItem.raw.isnot(None))
+            .with_for_update(read=True, skip_locked=True, of=MlItem)
+            .first()
+        )
+        if row is None:
+            return None
+        variations = _variations_by_item(db, [item_id])[item_id]
+        return evaluate_item(
+            db, item_id, dict(row._mapping), variations, now=now, events_enabled=events_enabled, force=force
+        )
 
 
 def _finish_lap(db, state: _SweepState, now: datetime) -> None:
-    """The lap ended: a forced lap records the catalog it converged to and when it started."""
-    if state.force:
+    """The lap ended: a forced lap that evaluated every item records the catalog it converged to.
+
+    A lap with a failed or busy item records nothing, so the next run forces another lap.
+    """
+    if state.force and not state.retry:
         _write_setting(db, FINGERPRINT_KEY, state.target, now)
         _write_setting(db, LAST_FULL_PASS_KEY, state.started_at, now)
     _write_setting(db, SWEEP_STATE_KEY, _SweepState().as_value(), now)
