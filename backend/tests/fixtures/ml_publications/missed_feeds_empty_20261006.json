@@ -1,0 +1,13 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "name": "missed_feeds_items_prices",
+ "path": "/missed_feeds?app_id=7211863044554429&topic=items_prices&limit=5",
+ "status": 200,
+ "headers": {
+  "date": "Tue, 06 Oct 2026 13:24:36 GMT"
+ },
+ "body": {
+  "messages": null
+ }
+}

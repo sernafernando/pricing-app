@@ -1,0 +1,83 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "name": "missed_feeds_items",
+ "path": "/missed_feeds?app_id=7211863044554429&topic=items&site_id=MLA&limit=5",
+ "status": 200,
+ "headers": {
+  "date": "Tue, 06 Oct 2026 13:24:35 GMT"
+ },
+ "body": {
+  "messages": [
+   {
+    "_id": "4df9154d-c8c6-49e2-a835-360a59d664fb",
+    "resource": "/items/MLA3510103662",
+    "user_id": "413658225",
+    "topic": "items",
+    "application_id": 7211863044554429,
+    "attempts": 3,
+    "sent": "2026-10-05T11:15:10Z",
+    "received": "2026-10-05T11:05:27Z",
+    "actions": [],
+    "source": "missed",
+    "request": {
+     "url": "https://ml-webhook.gaussonline.com.ar/webhook",
+     "data": "{\"_id\":\"4df9154d-c8c6-49e2-a835-360a59d664fb\",\"topic\":\"items\",\"resource\":\"/items/MLA3510103662\",\"user_id\":413658225,\"application_id\":7211863044554429,\"attempts\":3,\"recieved\":\"2026-10-05T11:05:27.660451532Z\",\"sent\":\"2026-10-05T11:15:10.237765132Z\",\"actions\":[]}",
+     "headers": {}
+    },
+    "response": {
+     "req_time": 1000,
+     "http_code": 0,
+     "body": "{}",
+     "headers": {}
+    }
+   },
+   {
+    "_id": "593ce8bd-0ea6-427c-9459-8e5bac56f006",
+    "resource": "/items/MLA4010366978",
+    "user_id": "413658225",
+    "topic": "items",
+    "application_id": 7211863044554429,
+    "attempts": 3,
+    "sent": "2026-10-05T11:18:19Z",
+    "received": "2026-10-05T11:09:58Z",
+    "actions": [],
+    "source": "missed",
+    "request": {
+     "url": "https://ml-webhook.gaussonline.com.ar/webhook",
+     "data": "{\"_id\":\"593ce8bd-0ea6-427c-9459-8e5bac56f006\",\"topic\":\"items\",\"resource\":\"/items/MLA4010366978\",\"user_id\":413658225,\"application_id\":7211863044554429,\"attempts\":3,\"recieved\":\"2026-10-05T11:09:58.97586524Z\",\"sent\":\"2026-10-05T11:18:19.498634289Z\",\"actions\":[]}",
+     "headers": {}
+    },
+    "response": {
+     "req_time": 1000,
+     "http_code": 0,
+     "body": "{}",
+     "headers": {}
+    }
+   },
+   {
+    "_id": "a118d3ee-7b49-4e06-bab5-deb27f4b3fd1",
+    "resource": "/items/MLA1854370497",
+    "user_id": "413658225",
+    "topic": "items",
+    "application_id": 7211863044554429,
+    "attempts": 3,
+    "sent": "2026-10-05T11:15:11Z",
+    "received": "2026-10-05T11:05:34Z",
+    "actions": [],
+    "source": "missed",
+    "request": {
+     "url": "https://ml-webhook.gaussonline.com.ar/webhook",
+     "data": "{\"_id\":\"a118d3ee-7b49-4e06-bab5-deb27f4b3fd1\",\"topic\":\"items\",\"resource\":\"/items/MLA1854370497\",\"user_id\":413658225,\"application_id\":7211863044554429,\"attempts\":3,\"recieved\":\"2026-10-05T11:05:34.142392013Z\",\"sent\":\"2026-10-05T11:15:11.931208583Z\",\"actions\":[]}",
+     "headers": {}
+    },
+    "response": {
+     "req_time": 1000,
+     "http_code": 0,
+     "body": "{}",
+     "headers": {}
+    }
+   }
+  ]
+ }
+}
