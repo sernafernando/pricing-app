@@ -449,7 +449,10 @@ def _handle_rejection(status: str, state: MlPubScanState, response: MlResponse, 
                 last_error=f"scroll expired {restarts} times: restarts exhausted",
             )
             return False
-        _store_state(status, scroll_id=None, scroll_started_at=None, pages=0, restarts=restarts + 1)
+        # the counts describe the scroll in progress; `restarts` keeps the history
+        _store_state(
+            status, scroll_id=None, scroll_started_at=None, pages=0, enumerated=0, enqueued=0, restarts=restarts + 1
+        )
         return True
     if state.scroll_id:  # a 400 on a scroll that is not the documented expiry: not a status problem
         _store_state(

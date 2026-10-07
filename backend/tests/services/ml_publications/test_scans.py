@@ -289,6 +289,8 @@ class TestBackfill:
         assert [s for _, s in ml.calls()][:3] == [None, scan_body("active_page1")["scroll_id"], None]
         state = scan_state(env, "active")
         assert state["restarts"] == 1 and state["completed_at"] is not None and state["last_error"] is None
+        # counts describe the scroll that completed: the items read before the restart are not added twice
+        assert (state["enumerated"], state["enqueued"]) == (5, 5)
         assert set(queue_rows(env)) == set(ACTIVE)  # already-enqueued items are deduped, not doubled
 
     def test_scroll_expiry_is_bounded_then_the_status_is_failed_and_the_next_one_runs(self, env):
