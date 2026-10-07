@@ -45,6 +45,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, JSONB, UUID as PG_UUID
 from pgvector.sqlalchemy import Vector
 
+from tests import pg_worker_db
 from app.core.database import Base, get_async_db, get_db
 from app.core.security import get_password_hash, create_access_token, create_refresh_token
 from app.core import token_revocation
@@ -373,7 +374,11 @@ class _QueryCounter:
 # a clear message — the rest of the suite (~3700 tests) is unaffected and
 # keeps running on the in-memory SQLite `db` fixture above.
 
-POSTGRES_TEST_URL = os.environ.get("POSTGRES_TEST_URL", "postgresql+psycopg2://postgres@localhost:5432/pricing_test")
+# Under pytest-xdist each worker gets its own database (`<base>_gw0`, ...) and
+# `os.environ["POSTGRES_TEST_URL"]` is rewritten here, at import time, so every
+# other reader (module-level `os.environ.get(...)` in test files, subprocesses)
+# sees the same per-worker URL. Without xdist this is the unchanged base URL.
+POSTGRES_TEST_URL = pg_worker_db.configure_environment(os.environ)
 
 
 def _postgres_reachable() -> bool:
