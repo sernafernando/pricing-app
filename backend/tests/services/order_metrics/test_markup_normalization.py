@@ -64,8 +64,8 @@ def test_an_order_missing_from_the_chain_result_is_skipped(db, monkeypatch) -> N
 
     real = compute_module.calcular_total_gauss
 
-    def _drops_72(db_, order_ids, neto_sin_iva_by_order, *, venta_sin_iva_by_order):
-        result = real(db_, order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order)
+    def _drops_72(db_, order_ids, neto_sin_iva_by_order, *, base_varios_by_order):
+        result = real(db_, order_ids, neto_sin_iva_by_order, base_varios_by_order=base_varios_by_order)
         result.pop(72, None)
         return result
 

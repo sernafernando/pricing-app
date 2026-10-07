@@ -89,10 +89,15 @@ deja un warning con el shipment id.
   efecto de `% varios x envío / 1,21` (centenas de pesos). El `varios` sigue bloqueando solo cuando falta la
   base de BIENES, como hoy. Costo asumido: ante un dato corrupto la base queda corta (margen
   levemente alto), con log. Cambiar a (b) es local a `descomponer_neto`.
-- **D5. Dónde se ve:** componente informativo `Envío pagado por el comprador` en `iva.py`
-  (mismo patrón que la bonificación: se muestra con su base/IVA al 21%, no entra en `neto_sin_iva`;
-  0 = sin línea), más `iva_decomposicion.envio_comprador` y `iva_decomposicion.base_varios` en la API.
-  `base_venta_sin_iva` (bienes) queda intacta.
+- **D5. Dónde se ve:** `iva.py` YA tenía la línea visible `Envío cobrado al comprador`
+  (desde `payment.shipping_amount` de los pagos relevantes, dentro de `net_received_amount`, con
+  bruto/base/IVA). Coincide con `paid_amount - total_amount` en las 7 capturas (hay un test que lo
+  fija), así que NO se agrega una segunda línea informativa (duplicaría la misma plata en la tabla de
+  IVA). Lo nuevo en la API: `iva_decomposicion.envio_comprador` `{bruto, neto, iva}` (forma
+  `ImporteDesglosadoSummary`, para el libro IVA) y `iva_decomposicion.base_varios`.
+  `base_venta_sin_iva` (bienes) queda intacta. **Ambigüedad a confirmar:** hay dos lecturas de la
+  misma plata (orden para la base; pagos para la línea); se eligió la orden por instrucción del
+  coordinador y la otra queda como chequeo cruzado.
 - **D6. La base se arma en `descomponer_neto`** (`DescomposicionNeto.base_varios`) de las MISMAS
   fuentes que muestran las líneas, no de `componentes`. `calcular_total_gauss` recibe
   `base_varios_by_order` (renombrado desde `venta_sin_iva_by_order`: el nombre ya mentía).
@@ -138,13 +143,13 @@ ORDER BY formula_version;
 ## Tareas
 
 - [x] T0 Documento + espejo en Engram (`odd/ventas-ml-varios-base-envio/tasks`)
-- [ ] T0b RED/GREEN: corrección de la regla de bonificación (senders + receiver `loyal`; unknown type no suma)
-- [ ] T1 RED/GREEN: `envio_comprador_bruto` (fail-closed sobre `paid_amount - total_amount`)
-- [ ] T2 RED/GREEN: `resolve_envio_comprador_by_order_ids` (por orden, sin reparto)
-- [ ] T3 RED/GREEN: `descomponer_neto` — componente informativo + `base_varios` (primer test: fixture 990/990)
-- [ ] T4 RED/GREEN: `VariosDeduccion` usa `base_varios` (rename del kwarg, `compute.py` y tests)
-- [ ] T5 RED/GREEN: API `iva_decomposicion.envio_comprador` / `base_varios`
-- [ ] T6 RED/GREEN: casos capturados + pack sin doble conteo + 3 pagos + shipment bajo otra orden
+- [x] T0b RED/GREEN: corrección de la regla de bonificación (senders + receiver `loyal`; unknown type no suma)
+- [x] T1 RED/GREEN: `envio_comprador_bruto` (fail-closed sobre `paid_amount - total_amount`)
+- [x] T2 RED/GREEN: `resolve_envio_comprador_by_order_ids` (por orden, sin reparto)
+- [x] T3 RED/GREEN: `descomponer_neto` — `base_varios` (primer test: fixture 990/990, RED observado: AttributeError base_varios; luego 303,31 vs 319,67)
+- [x] T4 RED/GREEN: `VariosDeduccion` usa `base_varios` (rename del kwarg, `compute.py` y tests)
+- [x] T5 RED/GREEN: API `iva_decomposicion.envio_comprador` / `base_varios`
+- [x] T6 RED/GREEN: casos capturados + pack Flex (599, comprador 0) + 3 pagos + sin doble conteo
 - [ ] T7 (ULTIMO commit, retenido hasta confirmación) RED/GREEN: `CURRENT_FORMULA_VERSION` = 3 + reconcile selecciona fila vieja + divergencia no inunda
 - [ ] T8 Frontend: test de vitest del componente informativo + novedad
 - [ ] T9 Runbook (backfill), lint, push, observaciones del GGA
@@ -158,7 +163,9 @@ No se corre la suite entera (la corre el CI).
 
 ## Evidencia
 
-(se completa por tarea)
+- T0b..T6: `pytest tests/services/ml_ventas_desglose tests/services/order_metrics tests/services/ml_group_metrics
+  tests/workers tests/integration/test_ml_ventas_ops*.py` -> 1154 passed (antes del bump de versión).
+- Commits: 10cffba8 (regla de bonificación). Ver `git log`.
 
 ## Próximo paso
 

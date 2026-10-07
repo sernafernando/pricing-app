@@ -61,15 +61,16 @@ class DeduccionResolver(Protocol):
     orchestrator what a PERCENTAGE resolver's returned value multiplies:
     `"neto"` is `neto_sin_iva` (the chain's starting point, never touched by
     earlier deductions), `"corriente"` is the running total AFTER every
-    earlier deduction in `orden`, `"venta_sin_iva"` (ml-ventas-neto-iibb-varios
-    R3, design D4) is `venta_sin_iva_by_order` -- the goods without IVA,
+    earlier deduction in `orden`, `"base_varios"` (ml-ventas-neto-iibb-varios
+    R3, design D4; ventas-ml-varios-base-envio) is `base_varios_by_order` --
+    the goods without IVA plus the shipping that comes in without IVA,
     independent of both `neto_sin_iva` and the running total. Non-percentage
     resolvers ignore `base`."""
 
     code: str
     concepto: str
     orden: int
-    base: str  # "neto" | "corriente" | "venta_sin_iva"
+    base: str  # "neto" | "corriente" | "base_varios"
     es_porcentaje: bool
 
     def resolve_bulk(self, db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]: ...
@@ -312,15 +313,19 @@ class VariosDeduccion:
     `es_porcentaje=True` tells the orchestrator to multiply it against
     `base`.
 
-    `base = "venta_sin_iva"` (ml-ventas-neto-iibb-varios R3, design D4):
-    the percentage applies to the GOODS WITHOUT IVA -- Σ, at each item's
-    own frozen rate (mixed-rate packs never use one rate on the aggregate),
-    of the same per-item bases `iva.descomponer_neto`'s `CONCEPTO_VENTA_ITEM`
-    components already show on the drawer. NOT `neto_sin_iva` (which also
-    carries ML's fees/freight/withholdings, net of IVA) and NOT the running
-    total after earlier deductions in the chain -- subtracted at the END of
-    the chain (`orden = 3`, last), against a base that earlier deductions
-    never touch.
+    `base = "base_varios"` (ml-ventas-neto-iibb-varios R3, design D4, widened
+    by ventas-ml-varios-base-envio): the percentage applies to the GOODS
+    WITHOUT IVA, at each item's own frozen rate (mixed-rate packs never use
+    one rate on the aggregate), PLUS all the shipping money that comes in,
+    without IVA: what the buyer paid (`envio_comprador.py`) and the Flex
+    bonificación (`bonificacion_flex.py`). The shipping counts GROSS even when
+    ML charges it back (`shp_*`, which keeps being subtracted where it is):
+    "lo que facturamos, después pagamos IIBB". Its IVA is never subtracted as
+    an expense. NOT `neto_sin_iva` (which also carries ML's fees/freight/
+    withholdings, net of IVA) and NOT the running total after earlier
+    deductions in the chain -- subtracted at the END of the chain
+    (`orden = 3`, last), against a base that earlier deductions never touch.
+    The base is built ONCE, in `iva.descomponer_neto` (`base_varios`).
 
     `pricing_calculator.calcular_comision_ml_total`/`varios_porcentaje` is a
     SEPARATE, forward-pricing estimate (obs #2064) -- it projects a price
@@ -332,7 +337,7 @@ class VariosDeduccion:
     code = "varios"
     concepto = "Varios (ventas)"
     orden = 3
-    base = "venta_sin_iva"
+    base = "base_varios"
     es_porcentaje = True
 
     def resolve_bulk(self, db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
@@ -467,7 +472,7 @@ def calcular_total_gauss(
     order_ids: Sequence[int],
     neto_sin_iva_by_order: Dict[int, Optional[Decimal]],
     *,
-    venta_sin_iva_by_order: Dict[int, Optional[Decimal]],
+    base_varios_by_order: Dict[int, Optional[Decimal]],
 ) -> Dict[int, TotalGaussResultado]:
     """Applies `DEDUCCIONES` in order, per order_id, over the bulk-resolved
     result of EVERY registered deduction -- one `resolve_bulk` call per
@@ -479,12 +484,12 @@ def calcular_total_gauss(
     display (never served from the stored column) and by whatever
     persists the stored column for sorting.
 
-    `venta_sin_iva_by_order` (ml-ventas-neto-iibb-varios R3, design D4) is
+    `base_varios_by_order` (ml-ventas-neto-iibb-varios R3, design D4) is
     REQUIRED and keyword-only, EXPLICIT at every caller -- a caller that
     silently forgets it must fail loudly (`TypeError`), never fall back to
     an empty map that quietly blocks every "% de varios" line with base
-    `"venta_sin_iva"`. It carries `iva.DescomposicionNeto.base_venta_sin_iva`
-    per order, which every caller already has in hand from `descomponer_neto`
+    `"base_varios"`. It carries `iva.DescomposicionNeto.base_varios` (goods
+    plus shipping, without IVA) per order, which every caller already has in hand from `descomponer_neto`
     -- zero new queries here.
     """
     order_ids = list(order_ids)
@@ -545,7 +550,7 @@ def calcular_total_gauss(
                     objetivo_by_base = {
                         "neto": neto_sin_iva,
                         "corriente": total,
-                        "venta_sin_iva": venta_sin_iva_by_order.get(order_id),
+                        "base_varios": base_varios_by_order.get(order_id),
                     }
                     objetivo = objetivo_by_base[deduccion.base]
                     monto = (

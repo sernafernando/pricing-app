@@ -108,11 +108,9 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
     neto_by_order = compute_neto_by_order_ids(db, order_ids)
     descomposiciones = descomponer_neto(db, order_ids)
     neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposiciones.items()}
-    venta_sin_iva_by_order = {oid: desc.base_venta_sin_iva for oid, desc in descomposiciones.items()}
+    base_varios_by_order = {oid: desc.base_varios for oid, desc in descomposiciones.items()}
 
-    resultados = calcular_total_gauss(
-        db, order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order
-    )
+    resultados = calcular_total_gauss(db, order_ids, neto_sin_iva_by_order, base_varios_by_order=base_varios_by_order)
 
     computed_at = datetime.now(timezone.utc)
 

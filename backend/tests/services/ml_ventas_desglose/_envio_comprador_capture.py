@@ -64,14 +64,13 @@ def seed_case(
     order_id: Optional[int] = None,
     shipping_id: Any = ...,
     raw_costs: Any = ...,
-    shipment_order_id: Optional[int] = None,
     with_shipment: bool = True,
     seed_payments: bool = True,
 ) -> Dict[str, Any]:
     """Seeds one captured case. `order_id` seeds a SIBLING of the pack (its
-    own payment ids, the shipment is shared); `shipment_order_id` stores the
-    shipment row under ANOTHER order, like ML does inside a pack;
-    `raw_costs=...` keeps the captured payload."""
+    own payment ids; pass `with_shipment=False` so the shipment row, shared by
+    the whole pack, is not inserted twice); `raw_costs=...` keeps the captured
+    payload."""
     data = capture(case)["db"]
     oid = order_id or case
     order = data["orders"][0]
@@ -102,7 +101,7 @@ def seed_case(
 
     if with_shipment and data["shipments"]:
         shipment = data["shipments"][0]
-        overrides: Dict[str, Any] = {"shipment_id": ship_id, "order_id": shipment_order_id or oid}
+        overrides: Dict[str, Any] = {"shipment_id": ship_id, "order_id": oid}
         if raw_costs is not ...:
             overrides["raw_costs"] = raw_costs
         db.add(_row(MlShipmentOps, shipment, **overrides))

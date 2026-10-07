@@ -70,6 +70,7 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
+from app.services.ml_ventas_desglose.envio_comprador import EnvioCompradorOrden, resolve_envio_comprador_by_order_ids
 from app.services.ml_ventas_desglose.bonificacion_flex import (
     CONCEPTO_BONIFICACION_ENVIO,
     resolve_bonificacion_flex_by_order_ids,
@@ -181,6 +182,17 @@ class DescomposicionNeto:
     # per-item goods split remains exactly known regardless of what the
     # charges side did.
     base_venta_sin_iva: Optional[Decimal] = None
+    # ventas-ml-varios-base-envio: the base of the "% de varios" = the goods
+    # without IVA (`base_venta_sin_iva`) + the shipping the buyer paid + the
+    # Flex bonificación, each WITHOUT IVA. `None` exactly when
+    # `base_venta_sin_iva` is: the shipping can only add to a goods side we
+    # trust, it never makes an unresolved base look resolved. Built from the
+    # SAME resolvers that feed the informational IVA components below, never
+    # re-derived from `componentes`.
+    base_varios: Optional[Decimal] = None
+    # The shipping the buyer paid, gross / net, for the API's gross-net-IVA
+    # breakdown (IVA books). `None` = the buyer paid none (or it is unreadable).
+    envio_comprador: Optional[EnvioCompradorOrden] = None
 
 
 def _split(bruto: Decimal, divisor: Decimal) -> Tuple[Decimal, Decimal]:
@@ -246,6 +258,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         items_by_order[it.order_id] = items_by_order.get(it.order_id, 0) + 1
 
     bonificacion_by_order = resolve_bonificacion_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
+    envio_comprador_by_order = resolve_envio_comprador_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
 
     for order_id in order_ids:
         order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -451,6 +464,13 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # (`BonificacionEnvioDeduccion`), never through `neto_sin_iva`.
         # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
         # so a pack's components add up to ONE bonificación.
+        # ventas-ml-varios-base-envio: the shipping the BUYER paid already has
+        # its visible, non-informational line above (`CONCEPTO_ENVIO_COMPRADOR`,
+        # from `payment.shipping_amount`, inside `net_received_amount`), so no
+        # second line is added here. The "% de varios" base reads the money
+        # that came in from the ORDER (`envio_comprador.py`: paid - total).
+        envio_comprador = envio_comprador_by_order.get(order_id)
+
         bonificacion = bonificacion_by_order.get(order_id)
         if bonificacion is not None:
             componentes.append(
@@ -498,6 +518,14 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             else None
         )
 
+        base_varios = (
+            base_venta_sin_iva
+            + (envio_comprador.neto if envio_comprador is not None else Decimal("0"))
+            + (bonificacion.neto if bonificacion is not None else Decimal("0"))
+            if base_venta_sin_iva is not None
+            else None
+        )
+
         result[order_id] = DescomposicionNeto(
             componentes=componentes,
             neto_sin_iva=neto_sin_iva,
@@ -506,6 +534,8 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             razones=razones,
             debitos_creditos_retiro=extra_debitos_creditos,
             base_venta_sin_iva=base_venta_sin_iva,
+            base_varios=base_varios,
+            envio_comprador=envio_comprador,
         )
 
     return result

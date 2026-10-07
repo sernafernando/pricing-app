@@ -312,7 +312,7 @@ class TestInTheChain:
     def test_the_chain_unit_adds_the_negative_monto(self, db) -> None:
         seed_capture(db)
         result = calcular_total_gauss(
-            db, [ORDER_ID], {ORDER_ID: Decimal("1000.00")}, venta_sin_iva_by_order={ORDER_ID: Decimal("500")}
+            db, [ORDER_ID], {ORDER_ID: Decimal("1000.00")}, base_varios_by_order={ORDER_ID: Decimal("500")}
         )[ORDER_ID]
         monto = next(m for code, m, _c in result.lineas if code == "bonificacion_envio")
         assert monto == -NET_OF_IVA
