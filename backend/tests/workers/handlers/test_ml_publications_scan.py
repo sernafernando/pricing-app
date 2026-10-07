@@ -215,6 +215,95 @@ class ScriptedUnauthorized(httpx.BaseTransport):
         return httpx.Response(401, json={"message": "invalid access token", "status": 401})
 
 
+class ScriptedServerError(httpx.BaseTransport):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.healthy = False
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        if self.healthy:
+            return httpx.Response(200, json=scan_body("under_review_empty"))
+        return httpx.Response(503, json={"message": "unavailable", "status": 503})
+
+
+class TestSustainedUpstreamErrors:
+    def test_a_persistent_server_error_stops_spinning_after_a_streak_and_falls_back_to_the_slot(self, env) -> None:
+        enable_scan()
+        transport = ScriptedServerError()
+        handler = make_handler(transport)
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+        now = datetime.now(timezone.utc)
+
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert runtime._run_handler(handler, now) is False  # a failed run: retried on the next pass
+        assert runtime._run_handler(handler, now) is True  # the streak is over: blocked, not retried
+
+        assert detail_of(env)["blocked"] == "upstream_error" and detail_of(env)["complete"] is True
+        assert runtime._due_handlers(now + timedelta(seconds=31)) == []
+
+    def test_the_log_blames_ml_not_the_setup_when_the_streak_ends(self, env, caplog) -> None:
+        enable_scan()
+        handler = make_handler(ScriptedServerError())
+        with caplog.at_level("ERROR", logger=handlers.logger.name):
+            for _ in range(handlers.UPSTREAM_ERROR_STREAK):
+                handler.run(context())
+        assert "upstream_error" in caplog.text and "setup" not in caplog.text
+
+    def test_failures_of_different_kinds_do_not_add_up_to_a_misleading_reason(self, env, monkeypatch) -> None:
+        enable_scan()
+        handler = make_handler(ScriptedServerError())
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert handler.run(context()).success is False  # ML errors
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("our bug")
+
+        monkeypatch.setattr(scans, "run_scan", explode)
+        assert handler.run(context()).success is False  # one internal error: its own streak starts at 1
+
+    def test_a_disabled_or_blocked_run_clears_the_streak(self, env, monkeypatch) -> None:
+        enable_scan()
+        handler = make_handler(ScriptedServerError())
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert handler.run(context()).success is False
+        settings_store.set_setting("scan.enabled", False, "test")
+        assert handler.run(context()).detail == {"disabled": True}
+        settings_store.set_setting("scan.enabled", True, "test")
+        assert handler.run(context()).success is False  # the old failures no longer count
+
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 2):
+            assert handler.run(context()).success is False
+        monkeypatch.setattr(settings, "ML_USER_ID", None)
+        assert handler.run(context()).detail["blocked"] == "seller_not_configured"
+        monkeypatch.setattr(settings, "ML_USER_ID", "413658225")
+        assert handler.run(context()).success is False
+
+    def test_our_own_exceptions_are_blocked_as_internal_not_as_an_ml_outage(self, env, monkeypatch) -> None:
+        enable_scan()
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("our bug")
+
+        monkeypatch.setattr(scans, "run_scan", explode)
+        handler = make_handler(NoCallTransport())
+        results = [handler.run(context()) for _ in range(handlers.UPSTREAM_ERROR_STREAK)]
+        assert [r.success for r in results] == [False] * (handlers.UPSTREAM_ERROR_STREAK - 1) + [True]
+        assert results[-1].detail["blocked"] == "internal_error"
+
+    def test_a_good_run_resets_the_streak(self, env) -> None:
+        enable_scan()
+        transport = ScriptedServerError()
+        handler = make_handler(transport)
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert handler.run(context()).success is False
+        transport.healthy = True
+        assert handler.run(context()).success is True  # finished lap, streak cleared
+        transport.healthy = False
+        settings_store.set_setting("scan.next_mode", "full", "test")  # a new lap will start
+        assert handler.run(context()).success is False  # first error of a new streak, not blocked
+
+
 class TestBlockedBySetup:
     """Missing credentials must not leave the lap `complete=False`: that would spin the 30 s catch-up."""
 

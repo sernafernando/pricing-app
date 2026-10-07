@@ -604,6 +604,12 @@ class RelinkHandler:
 SCAN_HANDLER = "ml_publications.scan"
 _SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
+# Failing runs of the same kind (ML errors, unexpected exceptions) with no good run in between, after
+# which the scan stops retrying on every pass and waits for its daily slot; each failed run is retried
+# on the next pass until then. The streak lives in the process (a restart clears it) and only failing
+# runs extend it: a run cut short by the deadline or a 429 counts as a good one, so an outage that
+# alternates 503 and 429 keeps retrying.
+UPSTREAM_ERROR_STREAK = 5
 # Engine errors that only a setup change can fix (`MlResponse.error` values of a call that was refused).
 _BLOCKED_BY_SETUP = frozenset({OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN, "unauthorized"})
 
@@ -632,10 +638,12 @@ class ScanHandler:
         self.pacer = pacer or Pacer()
         self._client_factory = client_factory or (lambda pacer: MlHttpClient(pacer=pacer))
         self._client: Optional[MlHttpClient] = None
+        self._error_streaks: Counter = Counter()  # consecutive failed runs of this process, per kind
 
     def run(self, ctx: WorkerContext) -> JobResult:
         config = settings_store.get_settings(_SCAN_KEYS)
         if config["scan.enabled"].value is not True:
+            self._error_streaks.clear()
             return disabled_outcome()
         if not settings.ML_USER_ID:
             return self._blocked(ERROR_SELLER_NOT_CONFIGURED)
@@ -658,21 +666,37 @@ class ScanHandler:
             logger.exception("scan run failed")
             error = f"{type(exc).__name__}: {exc}"[:300]
             self._record_failure(error)
-            return JobResult(success=False, detail=self._flush({"complete": False, "error": error}), error=error)
+            return self._failed(error, reason="internal_error")
         if result.error in _BLOCKED_BY_SETUP:
             return self._blocked(result.error)
-        return JobResult(success=result.error is None, detail=self._flush(result.as_detail()), error=result.error)
+        if result.error:
+            return self._failed(result.error, result.as_detail())
+        self._error_streaks.clear()
+        return JobResult(success=True, detail=self._flush(result.as_detail()))
+
+    def _failed(
+        self, error: str, detail: Optional[Dict[str, Any]] = None, *, reason: str = "upstream_error"
+    ) -> JobResult:
+        """A failed run is retried on the next pass; a streak of them means retrying will not help, so stop spinning."""
+        self._error_streaks[reason] += 1
+        if self._error_streaks[reason] >= UPSTREAM_ERROR_STREAK:
+            self._error_streaks.clear()
+            return self._blocked(reason)
+        body = {**(detail or {"complete": False}), "error": error}
+        return JobResult(success=False, detail=self._flush(body), error=error)
 
     def _blocked(self, reason: str) -> JobResult:
-        """Credentials or seller missing, or the token rejected: nothing can run until an operator fixes the setup. Report a
+        """Nothing can run until something outside the scan changes: a missing seller or credentials, a
+        rejected token (setup), or a sustained ML outage (`upstream_error`). Report a
         finished run (`complete` true, `blocked` names the reason) so the 30 s catch-up does not spin
         and the handler falls back to its daily slot; the open lap, if any, resumes from its stored
-        progress when the setup exists.
+        progress on the next run.
 
         A pending operator request is consumed by this run (the runtime clears it on success); a
         `--mode full` request is not lost, since `scan.next_mode` stays, but running it now is: it
         starts at the next daily slot or on a new request once the setup is fixed."""
-        logger.error("scan blocked by setup: %s", reason)
+        self._error_streaks.clear()
+        logger.error("scan blocked: %s", reason)
         return JobResult(success=True, detail=self._flush({"complete": True, "blocked": reason}))
 
     @staticmethod

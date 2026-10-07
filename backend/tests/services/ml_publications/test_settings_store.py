@@ -82,6 +82,39 @@ class TestScanNextMode:
         assert (got.value, got.source) == ("rescan", "env")
 
 
+class TestScanStatuses:
+    @pytest.mark.parametrize("value", [["closd"], [], ["closed", "everything"], "closed", [1]])
+    def test_a_misspelled_or_empty_status_list_is_rejected_at_write(self, settings_db, engine, value) -> None:
+        with pytest.raises(ValueError):
+            set_setting("scan.statuses", value, updated_by="tester")
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM ml_pub_settings")).scalar() == 0
+
+    def test_every_scannable_status_is_accepted_in_any_order(self, settings_db) -> None:
+        every = ["active", "paused", "closed", "under_review", "inactive", "pending"]
+        set_setting("scan.statuses", every, updated_by="tester")
+        assert get_setting("scan.statuses").value == every
+
+    def test_an_invalid_stored_list_falls_back_to_the_env_default(self, settings_db, engine) -> None:
+        _insert_raw(engine, "scan.statuses", '["closd"]')
+        got = get_setting("scan.statuses")
+        assert got.source == "env" and got.value[0] == "closed"
+
+
+class TestScanStatusesEnv:
+    @pytest.mark.parametrize("value", [["closd"], []])
+    def test_a_bad_env_default_fails_at_startup(self, value) -> None:
+        with pytest.raises(ValueError):
+            type(settings)(ML_PUB_SCAN_STATUSES=value)
+
+    def test_the_env_validation_and_the_store_share_one_status_vocabulary(self) -> None:
+        from app.core.config import SCAN_STATUS_NAMES
+
+        from app.services.ml_publications import scans
+
+        assert scans.ALL_SCAN_STATUSES is SCAN_STATUS_NAMES
+
+
 class TestDbOverridesEnv:
     def test_db_row_overrides_env(self, settings_db) -> None:
         set_setting("rate_per_sec", 5.0, updated_by="tester")
