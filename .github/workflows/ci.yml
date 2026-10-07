@@ -136,9 +136,9 @@ jobs:
     # same time as the parallel step, so the backend wall time is the slower
     # of the two instead of their sum.
     #
-    # Still SERIAL inside this job: they share one real database in the
-    # `postgres` service, and handing that to several workers at once
-    # trades a slow suite for a flaky one.
+    # Parallel inside this job (`-n 4`): every xdist worker gets its own
+    # database in the `postgres` service (`pricing_test_gw0`, ...), created
+    # on demand by `tests/pg_worker_db.py`, so workers never share tables.
     services:
       postgres:
         image: postgres:16
@@ -167,8 +167,8 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-xdist httpx
 
-      - name: Run tests (postgres-only, serial)
-        run: pytest tests/ -m postgres -q --tb=short --durations=15
+      - name: Run tests (postgres-only, parallel)
+        run: pytest tests/ -m postgres -n 4 -q --tb=short --durations=15
         env:
           ENVIRONMENT: testing
           DATABASE_URL: "sqlite:///./test.db"
