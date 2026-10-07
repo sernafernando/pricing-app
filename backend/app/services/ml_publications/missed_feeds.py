@@ -202,12 +202,14 @@ def _apply_page(
         resource = message.get("resource")
         resource = resource if isinstance(resource, str) else ""
         item_id = intake.parse_resource(mapping.topic, resource)
-        if item_id is not None:
+        user_id = message.get("user_id")
+        # only the seller's messages count as "read": another seller's row (counted as foreign by `classify`)
+        # must not hide the seller's own message for the same resource
+        if item_id is not None and user_id is not None and str(user_id) == seller_id:
             if item_id in seen:
                 result.duplicates += 1
                 continue
             seen.add(item_id)
-        user_id = message.get("user_id")
         rows.append(
             intake.NotificationRow(
                 resource=resource,

@@ -256,6 +256,14 @@ class TestRecovery:
         assert queue_rows(env) == {}
         assert (result.foreign, result.unparsed) == (1, 2)
 
+    def test_a_foreign_message_does_not_hide_the_same_resource_from_the_seller(self, env):
+        """The first real message with `user_id` changed to another seller, then the unchanged one."""
+        foreign = with_message(_id="a", user_id="999")
+        own = with_message(_id="b")
+        result = run(Ml({("items", 0): {"messages": [foreign, own]}}))
+        assert set(queue_rows(env)) == {"MLA3510103662"}
+        assert (result.foreign, result.duplicates, result.enqueued) == (1, 0, 1)
+
     def test_an_item_fetched_after_the_missed_delivery_needs_no_refresh(self, env):
         with env.begin() as conn:
             conn.execute(
