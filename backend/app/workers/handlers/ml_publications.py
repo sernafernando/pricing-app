@@ -1112,6 +1112,8 @@ class VerifyHandler:
             snapshot = verification.run_snapshot(bundle_resources=config["bundle_resources"].value)
             detail["snapshot"] = snapshot.as_detail()
             error = error or snapshot.error
+        if error:
+            detail["error"] = error  # `jobs[].last_error` of the status report reads it here
         return JobResult(success=True, detail=self._flush(detail), error=error)
 
     def _divergence(self, ctx: WorkerContext, config) -> verification.DivergenceResult:

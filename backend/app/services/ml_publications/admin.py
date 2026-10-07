@@ -162,7 +162,7 @@ def request_job(db: Session, name: str, *, mode: Optional[str], actor: str) -> D
         db.rollback()
         raise
     # a handler can serve several jobs (verify and divergence): it runs when ANY of its flags is on
-    flags = [flag for name, flag in JOBS.values() if name == handler]
+    flags = [flag for served_by, flag in JOBS.values() if served_by == handler]
     enabled = any(settings_store.get_setting(flag).value is True for flag in flags)
     return {
         "job": job,

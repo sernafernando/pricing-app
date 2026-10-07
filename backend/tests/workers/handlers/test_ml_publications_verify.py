@@ -176,6 +176,7 @@ class TestOutcomes:
         result = make_handler(MlTransport(fresh, status=500)).run(context())
 
         assert result.success is True and "500" in str(result.error)
+        assert "500" in result.detail["error"]  # where the status report's `jobs[].last_error` reads it
         assert runs(env)["divergence"]["outcome"] == "failed"
 
     def test_an_interrupted_check_is_incomplete_not_failed_and_runs_no_snapshot(self, env) -> None:

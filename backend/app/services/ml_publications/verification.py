@@ -170,7 +170,10 @@ def differences(stored: Dict[str, Any], fresh: Dict[str, Any]) -> List[Dict[str,
 
 
 def sample(size: int) -> List[Dict[str, Any]]:
-    """Up to `size` stored items, taken in turn from every status (random within it), so no status is left out."""
+    """Up to `size` stored items, taken in turn from every status (random within it), so no status is left out.
+
+    `ORDER BY random()` reads each status once (about 25k narrow rows in all, under the statement timeout); a
+    store that grew by orders of magnitude would move to `TABLESAMPLE`."""
     with database.get_background_db() as db:
         db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
         per_status = [
