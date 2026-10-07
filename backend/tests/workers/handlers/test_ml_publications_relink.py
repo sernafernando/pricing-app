@@ -505,4 +505,6 @@ class TestRegistry:
             "ml_publications.intake",
             "ml_publications.relink",
             "ml_publications.scan",
+            "ml_publications.missed_feeds",
+            "ml_publications.sweep",
         ]

@@ -227,6 +227,24 @@ def scan_body(name: str) -> Any:
     return scan_call(name)["body"]
 
 
+# --- `/missed_feeds` (captured 2026-10-06) --------------------------------------------------
+
+MISSED_FEEDS_FIXTURES = {
+    "items": "missed_feeds_items_20261006.json",
+    "empty": "missed_feeds_empty_20261006.json",
+    "items_page2": "missed_feeds_items_page2_20261006.json",
+}
+
+
+def missed_call(name: str) -> dict:
+    """One captured `/missed_feeds` call `{name, path, status, headers, body}` (deep copy)."""
+    return copy.deepcopy(load_fixture(MISSED_FEEDS_FIXTURES[name]))
+
+
+def missed_body(name: str) -> Any:
+    return missed_call(name)["body"]
+
+
 # --- Bridge `webhook_latest` (captured 2026-10-06) -----------------------------------------
 
 WEBHOOK_SAMPLES = "webhook_latest_samples.json"

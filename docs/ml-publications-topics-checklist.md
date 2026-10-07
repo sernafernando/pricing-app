@@ -181,7 +181,7 @@ The refresh handler ships four more fetchers dark. Each makes no ML call until i
 |---|---|---|---|
 | `competition` | `GET /items/{id}/price_to_win?version=v2` | the stored item has `catalog_listing = true`, on the bundle and when named | 900 s |
 | `moderation` | `GET /moderations/last_moderation/{id}-ITM` | on the bundle: status `under_review`, or a moderation sub_status/tag (below); when named: always | 3600 s |
-| `performance` | `GET /item/{id}/performance` | only when an entry names it (the sweeps of a later PR do); never on the bundle | none |
+| `performance` | `GET /item/{id}/performance` | only when an entry names it (the sweep does); never on the bundle | none |
 | `visits` | `GET /items/{id}/visits/time_window?last=30&unit=day` | only when an entry names it; never on the bundle | none |
 
 Notes, all from the 2026-10-06 captures:
@@ -198,7 +198,8 @@ Notes, all from the 2026-10-06 captures:
 - Performance of a catalog product item answers `400 "Entity not calculated: Product items are not supported"`: stored
   as `applicable = false`, the queue entry completes without a charged attempt. Any other 400 is a failure.
 - Performance and visits are sweep-only (no ML notification, high cost per sale-triggered event). Listing them in
-  `bundle_resources` only allows a NAMED request; a `bundle` entry skips them. The sweeps arrive in a later PR.
+  `bundle_resources` only allows a NAMED request; a `bundle` entry skips them. The sweep (see "Missed feeds and
+  sweeps" below) is what names them.
 - Visits `results` are diffed by `date`: a daily refetch logs the day that entered or left the 30-day window, never the
   whole window.
 - With `events.enabled`: `catalog_competition_won` / `catalog_competition_lost` (the status becomes or stops being
@@ -227,7 +228,88 @@ Order to turn it on, one resource at a time, watching its counters in `worker_jo
 
 1. `bundle_resources = ["core", "competition"]`, then enqueue one catalog item and read its `ml_item_competition` row.
 2. Add `moderation`, then `catalog_item_competition_status` to `intake.topics`.
-3. `performance` and `visits` only once their sweeps ship.
+3. `performance` and `visits` through the sweep (see "Missed feeds and sweeps" below).
 
 Rollback: remove the names from `bundle_resources` (and the topic from `intake.topics`); nothing already stored is
 deleted, and the migration `20261007_ml_publications_quality` downgrades by dropping its four tables.
+
+## Missed feeds and sweeps
+
+Two more jobs of the `pricing-worker-ml` worker, each behind its own flag (default off, independent of each other
+and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the schedule is the generic worker's
+`interval`.
+
+| Job | Handler | Schedule | Flag | What it does |
+|---|---|---|---|---|
+| Missed feeds | `ml_publications.missed_feeds` | every 2 hours | `missed_feeds.enabled` | pages ML `/missed_feeds` (app and topic scoped, site MLA) for each topic of `intake.topics` and enqueues the resources in the reconcile lane (2), through the same topic parser as intake |
+| Sweep | `ml_publications.sweep` | every 10 minutes | `sweep.enabled` | enqueues the oldest `ceil(eligible / 144)` items for performance and for visits in the sweep lane (4), naming the resource; makes no ML call itself |
+
+### Missed feeds
+
+* ML keeps undelivered notifications for 2 days. A run pages with `limit` 20 and `offset` until ML answers
+  `{messages: null}` (the end of the list; a short page does not end it). Only `resource`, `topic`, `user_id` and
+  `received` of a message are read: the delivery attempt (`request`, `response`) is never stored.
+* A resource already fetched after the missed delivery needs no refresh and is not enqueued; another seller's
+  message is dropped; each resource is enqueued once per run however many pages repeat it.
+* Only a completed run is a success: a list that every run leaves partial and never finishes is, by definition, a gap.
+* If the last successful run is older than 48 h, the run records a coverage gap in its `ml_pub_job_runs` row
+  (`counts.coverage_gap`) and requests a scan rescan (`worker_job_state.state = 'requested'` for
+  `ml_publications.scan`, honored once `scan.enabled` is on), once per gap.
+* A run that does not finish (worker deadline, flag turned off, 429) continues from its page on the next pass
+  (`worker_job_state.detail.resume`; a position older than 3 hours is dropped and the list is read again from the first
+  page, because ML trims it from the front). A failed run waits 1, 2, 4, ... minutes (at most 1 hour) before the next try
+  (`detail.failures`, `detail.retry_at`); a missing `ML_USER_ID` / `ML_CLIENT_ID` or a rejected token ends the run as
+  `blocked` until the setup is fixed.
+* Known gap: the capture does not say in which order ML returns the messages. If it trims the list at the end the
+  run pages from, a run that resumes can skip messages without noticing; the 3 hour limit on a saved position, the
+  next 2-hourly run and the rescan requested after a gap of more than 48 h bound that risk.
+* Known gaps: the capture's calls for `stock-location` and `user_products` used wrong topic names (there is no such
+  topic), so only their shape (`{messages: null}`) is evidence. The 20 messages per page is a conservative choice:
+  the capture used `limit=5` and ML's ceiling is not in it.
+
+### Sweeps
+
+* `performance` and `visits` have no notification topic. Eligible: status in `sweep.statuses` (default every
+  non-closed status: `active`, `paused`, `under_review`, `inactive`, `pending`; `closed` is never swept and is
+  rejected by the setting), not gone. A performance state stored as `not_applicable` (a catalog product item) is
+  rechecked only after `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS` (30 days). Visits are one item per call.
+* With `refresh.enabled` off the entries only wait in the queue (nothing fetches them), and while live entries wait
+  (intake keeps enqueuing) the tick records `yielded`: expected, not a fault (each tick's run record
+  carries `yielded_in_a_row`; a long streak, logged as a warning at 36 ticks, means live work is starving the sweep).
+* Only the resources listed in `bundle_resources` are swept: add `performance` and/or `visits` first, or the tick
+  records `no_resources` and does nothing.
+* The tick enqueues nothing while manual or notification-lane work is ready to be claimed (it yields), skips
+  items that already have a queue entry (an item whose entry is parked, that is, failed past its attempts, is not
+  eligible at all until it is enqueued by hand in the manual lane), and stops adding work while 3 ticks' worth of sweep entries wait unfetched
+  (a stopped `refresh.enabled` cannot make the queue grow).
+* Sizing (2026-10-06): about 24.6k eligible items (16.2k of them paused) x 2 resources = about 49k calls a day =
+  0.57 req/s, close to 30% of the 2 req/s budget. With `sweep.statuses = ["active"]` (about 7.8k items) it is about
+  15.6k calls a day = 0.18 req/s. Each tick's run record carries `calls_per_day` and `requests_per_second`.
+
+The sweep handler reports success even when a tick fails (the next tick, ten minutes later, retries it), so
+`worker_job_state.last_success_at` is not a health signal for it: watch `outcome` and `last_error` in `ml_pub_job_runs`
+where `job = 'sweep'`.
+
+### Turning it on
+
+Order, watching the 429 counter in `worker_job_state.detail.counters`:
+
+1. Missed feeds (run it once by hand to see it work):
+   `python -m app.scripts.ml_publications_settings set missed_feeds.enabled true` then
+   `python -m app.scripts.ml_publications_request ml_publications.missed_feeds`.
+   Check: `SELECT outcome, counts, last_error FROM ml_pub_job_runs WHERE job = 'missed_feeds' ORDER BY id DESC LIMIT 3;`
+   (outcome `success`, no `coverage_gap` after the first run).
+2. Sweep, narrowed first:
+   `python -m app.scripts.ml_publications_settings set sweep.statuses '["active"]'`
+   `python -m app.scripts.ml_publications_settings set bundle_resources '["core","performance","visits"]'`
+   `python -m app.scripts.ml_publications_settings set sweep.enabled true`
+   Check: `SELECT outcome, counts FROM ml_pub_job_runs WHERE job = 'sweep' ORDER BY id DESC LIMIT 3;` (`eligible`,
+   `batch`, `selected` per resource), performance/visits rows appearing in `ml_item_performance` / `ml_item_visits`,
+   and `not_applicable` performance (`applicable = false`) not counted as failures.
+3. Widen to every non-closed status when the first day stays within budget:
+   `python -m app.scripts.ml_publications_settings set sweep.statuses '["active","paused","under_review","inactive","pending"]'`
+
+Rollback: `python -m app.scripts.ml_publications_settings set missed_feeds.enabled false` and
+`python -m app.scripts.ml_publications_settings set sweep.enabled false` (each at its own next tick; nothing stored is
+deleted, queued entries are still served by the refresh handler). To stop only the fetching of performance and visits,
+remove them from `bundle_resources`.

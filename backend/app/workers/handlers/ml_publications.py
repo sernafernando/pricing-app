@@ -22,7 +22,17 @@ from sqlalchemy import text
 from app.core import database
 from app.core.config import settings
 from app.services.ml_publications import intake as intake_core
-from app.services.ml_publications import bundle, links, queue, scans, settings_store, store, subresource_store
+from app.services.ml_publications import (
+    bundle,
+    links,
+    missed_feeds as missed_feeds_core,
+    queue,
+    scans,
+    settings_store,
+    store,
+    subresource_store,
+    sweeps as sweeps_core,
+)
 from app.services.ml_publications.ml_http import (
     ERROR_INVALID_JSON,
     ERROR_NETWORK,
@@ -850,7 +860,198 @@ class ScanHandler:
         return detail
 
 
+MISSED_FEEDS_HANDLER = "ml_publications.missed_feeds"
+_MISSED_FEEDS_KEYS = ("missed_feeds.enabled", "intake.topics", "rate_per_sec", "stock_rate_per_min")
+ERROR_CLIENT_NOT_CONFIGURED = "client_not_configured"
+# A failed run waits before the next try, doubling from a minute up to an hour: the interval job would
+# otherwise be due again on every pass (a handler that fails is never marked as having succeeded).
+MISSED_FEEDS_RETRY_BASE = timedelta(seconds=60)
+MISSED_FEEDS_RETRY_CAP = timedelta(hours=1)
+MAX_RETRY_EXPONENT = 20  # 60 s * 2 ** 20 is far past the cap
+# A saved page position is an offset into a list ML trims from the front (it keeps messages 2 days): after
+# this long it no longer points at the same messages, so the run starts again from the first page.
+MISSED_FEEDS_RESUME_MAX_AGE = timedelta(hours=3)
+
+
+def missed_feeds_retry_delay(failures: int) -> timedelta:
+    """How long to wait after the `failures`-th consecutive failed run (1 -> 60 s, 2 -> 120 s, ... capped)."""
+    # the exponent is bounded BEFORE it multiplies: 2 ** 100 would overflow `timedelta` long before the cap applies
+    exponent = min(max(failures - 1, 0), MAX_RETRY_EXPONENT)
+    return min(MISSED_FEEDS_RETRY_BASE * 2**exponent, MISSED_FEEDS_RETRY_CAP)
+
+
+def _read_detail(name: str) -> Dict[str, Any]:
+    try:
+        with database.get_background_db() as db:
+            found = db.execute(text("SELECT detail FROM worker_job_state WHERE name = :name"), {"name": name}).scalar()
+    except Exception:  # noqa: BLE001 -- an unreadable state only costs a restart from the first page
+        logger.exception("could not read %s state", name)
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
+class MissedFeedsHandler:
+    """`ml_publications.missed_feeds`: recovers notifications ML could not deliver (design D17).
+
+    Scheduled by the existing worker every 2 hours (ML keeps missed feeds for 2 days). A run that does not
+    finish (worker deadline, flag turned off, 429, failure) persists its position in
+    `worker_job_state.detail.resume` and the next run continues there; a failed run waits
+    `missed_feeds_retry_delay(failures)` before the next try. Every execution leaves an `ml_pub_job_runs` row.
+    """
+
+    name = MISSED_FEEDS_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(hours=2)
+    run_at_local: Optional[time] = None
+
+    def __init__(
+        self,
+        *,
+        client_factory: Optional[Callable[[Pacer], MlHttpClient]] = None,
+        pacer: Optional[Pacer] = None,
+    ) -> None:
+        self.pacer = pacer or Pacer()
+        self._client_factory = client_factory or (lambda pacer: MlHttpClient(pacer=pacer))
+        self._client: Optional[MlHttpClient] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        config = settings_store.get_settings(_MISSED_FEEDS_KEYS)
+        if config["missed_feeds.enabled"].value is not True:
+            return disabled_outcome()
+        state = _read_detail(self.name)
+        if not settings.ML_USER_ID:
+            return self._blocked(ERROR_SELLER_NOT_CONFIGURED, state)
+        if not settings.ML_CLIENT_ID:
+            return self._blocked(ERROR_CLIENT_NOT_CONFIGURED, state)
+        resume = _valid_resume(state.get("resume"), _parse_moment(state.get("resume_at")))
+        retry_at = _parse_moment(state.get("retry_at"))
+        if retry_at is not None and _utcnow() < retry_at:
+            return JobResult(success=False, detail={"backoff_until": retry_at.isoformat()})
+        mappings = intake_core.topic_mappings(config["intake.topics"].value)
+        self.pacer.configure(
+            rate_per_sec=config["rate_per_sec"].value, stock_rate_per_min=config["stock_rate_per_min"].value
+        )
+        if self._client is None:
+            self._client = self._client_factory(self.pacer)
+        result = missed_feeds_core.run_missed_feeds(
+            self._client,
+            seller_id=str(settings.ML_USER_ID),
+            app_id=str(settings.ML_CLIENT_ID),
+            mappings=mappings,
+            keep_going=lambda: settings_store.get_setting("missed_feeds.enabled").value is True,
+            deadline=ctx.deadline,
+            resume=resume,
+        )
+        error = result.error
+        if error in _BLOCKED_BY_SETUP or error == "http_401":
+            return self._blocked("unauthorized" if error == "http_401" else str(error), state)
+        failures = state["failures"] if isinstance(state.get("failures"), int) else 0
+        retry: Optional[datetime] = None
+        if error:
+            failures += 1
+            retry = _utcnow() + missed_feeds_retry_delay(failures)
+        elif result.complete:
+            failures = 0
+        elif result.stopped == missed_feeds_core.STOP_RATE_LIMITED:
+            retry = _utcnow() + MISSED_FEEDS_RETRY_BASE  # waiting out a 429 is not a failure
+        detail = self._flush(
+            result.as_detail(),
+            failures=failures,
+            retry_at=retry,
+            resume=result.resume,
+            # the age of the chain of runs that walk this list, not of the last one: a run that keeps failing
+            # must not keep a position alive for days
+            resume_at=(state["resume_at"] if resume else _utcnow().isoformat()) if result.resume else None,
+        )
+        return JobResult(success=result.complete, detail=detail, error=error)
+
+    def _blocked(self, reason: str, state: Dict[str, Any]) -> JobResult:
+        """Nothing can run until setup changes: report a finished run so the handler waits for its next
+        interval instead of spinning; a stored resume position is kept for when it is fixed."""
+        logger.error("missed feeds blocked: %s", reason)
+        detail = self._flush(
+            {"complete": True, "blocked": reason},
+            failures=0,
+            retry_at=None,
+            resume=state.get("resume"),
+            resume_at=state.get("resume_at"),  # keeps its age: waiting for the setup does not refresh a position
+        )
+        return JobResult(success=True, detail=detail)
+
+    def _flush(
+        self,
+        detail: Dict[str, Any],
+        *,
+        failures: int,
+        retry_at: Optional[datetime],
+        resume: Optional[Dict[str, Any]],
+        resume_at: Optional[str],
+    ) -> Dict[str, Any]:
+        detail = {
+            **detail,
+            "failures": failures,
+            "retry_at": retry_at.isoformat() if retry_at else None,
+            "resume": resume,
+            "resume_at": resume_at,
+            "counters": self._client.counters.snapshot() if self._client is not None else {},
+            "at": _utcnow().isoformat(),
+        }
+        _persist_detail(self.name, detail)
+        return detail
+
+
+def _valid_resume(value: Any, saved_at: Optional[datetime]) -> Optional[Dict[str, Any]]:
+    """The stored page position when it is well formed and recent enough to still mean the same messages."""
+    if not (isinstance(value, dict) and isinstance(value.get("topic"), str) and isinstance(value.get("offset"), int)):
+        return None
+    if saved_at is None or _utcnow() - saved_at > MISSED_FEEDS_RESUME_MAX_AGE:
+        return None
+    return value
+
+
+def _parse_moment(value: Any) -> Optional[datetime]:
+    try:
+        moment = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+    return moment if moment is None or moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+SWEEP_HANDLER = "ml_publications.sweep"
+_SWEEP_KEYS = ("sweep.enabled", "sweep.statuses", "bundle_resources")
+
+
+class SweepHandler:
+    """`ml_publications.sweep`: performance and visits have no notification topic, so every 10 minutes
+    this tick enqueues the oldest `ceil(eligible / 144)` items of each in the sweep lane (design D17).
+
+    It makes NO ML call and holds no pacer: the refresh handler fetches what it enqueues, under the shared
+    budget and the lane order, and the tick itself yields while live work is waiting. A tick that fails is
+    recorded and simply followed by the next one, ten minutes later.
+    """
+
+    name = SWEEP_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(minutes=10)
+    run_at_local: Optional[time] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        config = settings_store.get_settings(_SWEEP_KEYS)
+        if config["sweep.enabled"].value is not True:
+            return disabled_outcome()
+        result = sweeps_core.run_sweep(
+            statuses=sweeps_core.sweep_statuses(config["sweep.statuses"].value),
+            bundle_resources=config["bundle_resources"].value,
+            recheck_days=settings.ML_PUB_NOT_APPLICABLE_RECHECK_DAYS,
+        )
+        detail = {**result.as_detail(), "at": _utcnow().isoformat()}
+        _persist_detail(self.name, detail)
+        return JobResult(success=True, detail=detail, error=result.error)
+
+
 refresh = RefreshHandler()
 intake = IntakeHandler()
 relink = RelinkHandler()
 scan = ScanHandler(pacer=refresh.pacer)  # one in-process ML budget for every call the store makes
+missed_feeds = MissedFeedsHandler(pacer=refresh.pacer)
+sweep = SweepHandler()
