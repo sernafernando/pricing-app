@@ -245,6 +245,43 @@ def _sweep(db: Session) -> Dict[str, Any]:
     return {"last_run": _run_summary(db, "sweep")}
 
 
+_LAST_COUNTS_SQL = text(
+    "SELECT started_at, finished_at, outcome, last_error, counts FROM ml_pub_job_runs "
+    "WHERE job = :job ORDER BY started_at DESC LIMIT 1"
+)
+DIVERGENCE_LISTED = 20  # pairs of the latest divergence run shown in the report
+
+
+def _verification(db: Session) -> Dict[str, Any]:
+    """The latest divergence spot-check (rate, flag, diverging pairs) and freshness snapshot (outcome, size)."""
+    divergence = db.execute(_LAST_COUNTS_SQL, {"job": "divergence"}).mappings().first()
+    snapshot = db.execute(_LAST_COUNTS_SQL, {"job": "freshness"}).mappings().first()
+    if divergence is not None:
+        counts = divergence["counts"] or {}
+        divergence = {
+            "started_at": divergence["started_at"],
+            "finished_at": divergence["finished_at"],
+            "outcome": divergence["outcome"],
+            "error": divergence["last_error"],
+            "rate": counts.get("rate"),
+            "target": counts.get("target"),
+            "below_target": counts.get("below_target") is True,
+            "sampled": counts.get("sampled") or 0,
+            "divergence_pairs": counts.get("divergence_pairs") or 0,
+            "changed_after_sampling": len(counts.get("changed_after_sampling") or []),
+            "divergences": (counts.get("divergences") or [])[:DIVERGENCE_LISTED],
+        }
+    if snapshot is not None:
+        snapshot = {
+            "started_at": snapshot["started_at"],
+            "finished_at": snapshot["finished_at"],
+            "outcome": snapshot["outcome"],
+            "error": snapshot["last_error"],
+            "items": ((snapshot["counts"] or {}).get("items") or {}).get("total"),
+        }
+    return {"divergence": divergence, "snapshot": snapshot}
+
+
 # --- items, freshness, lag, completeness --------------------------------------------------------------
 
 
@@ -378,6 +415,18 @@ def _top_changed_paths(db: Session) -> List[Dict[str, Any]]:
     return [dict(row) for row in db.execute(_TOP_PATHS_SQL, {"limit": TOP_PATHS_LIMIT}).mappings()]
 
 
+def freshness_metrics(db: Session, bundle_resources: List[str]) -> Dict[str, Any]:
+    """The freshness and completeness numbers of the report, for the daily snapshot job (one metric, one source:
+    the snapshot stores what the status endpoint computes). Raises on a failure; the caller records it."""
+    lag = _lag(db)
+    return {
+        "items": _items(db),
+        "freshness": _freshness(db),
+        **lag,
+        "completeness": _completeness(db, bundle_resources),
+    }
+
+
 # --- the report ----------------------------------------------------------------------------------------------
 
 
@@ -401,6 +450,7 @@ def build_status(db: Session) -> Dict[str, Any]:
         "backfill": _guarded(db, "backfill", _backfill, failed),
         "missed_feeds": _guarded(db, "missed_feeds", _missed_feeds, failed),
         "sweep": _guarded(db, "sweep", _sweep, failed),
+        "verification": _guarded(db, "verification", _verification, failed),
         "items": _guarded(db, "items", _items, failed),
         "freshness": _guarded(db, "freshness", _freshness, failed),
         **lag,
