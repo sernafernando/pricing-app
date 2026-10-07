@@ -181,6 +181,29 @@ def subresource_body(resource: str, name: str) -> Any:
     return subresource_call(resource, name)["body"]
 
 
+# --- Scan pages (`/users/{seller}/items/search?search_type=scan`, captured 2026-10-06) ------
+
+SCAN_FIXTURES = {
+    "active_page1": "scan_active_page1_20261006.json",
+    "active_page2": "scan_active_page2_20261006.json",
+    "paused_page1": "scan_paused_page1_20261006.json",
+    "closed_page1": "scan_closed_page1_20261006.json",
+    "pending_page1": "scan_pending_page1_20261006.json",
+    "under_review_empty": "scan_under_review_empty_20261006.json",
+    "inactive_empty": "scan_inactive_empty_20261006.json",
+    "invalid_scroll": "scan_invalid_scroll_20261006.json",
+}
+
+
+def scan_call(name: str) -> dict:
+    """One captured scan call `{name, path, status, headers, body}` (deep copy)."""
+    return copy.deepcopy(load_fixture(SCAN_FIXTURES[name]))
+
+
+def scan_body(name: str) -> Any:
+    return scan_call(name)["body"]
+
+
 # --- Bridge `webhook_latest` (captured 2026-10-06) -----------------------------------------
 
 WEBHOOK_SAMPLES = "webhook_latest_samples.json"

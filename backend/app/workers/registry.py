@@ -63,8 +63,8 @@ def __getattr__(name: str) -> List[JobHandler]:
     global _ml_publications_registry
     if name == "ML_PUBLICATIONS_REGISTRY":
         if _ml_publications_registry is None:
-            from app.workers.handlers.ml_publications import intake, refresh, relink
+            from app.workers.handlers.ml_publications import intake, refresh, relink, scan
 
-            _ml_publications_registry = [refresh, intake, relink]
+            _ml_publications_registry = [refresh, intake, relink, scan]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,6 +1,6 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 # Environments where testing affordances (docs, testing-only endpoints) are
 # allowed. CI runs ENVIRONMENT=testing (.github/workflows/ci.yml), local dev
@@ -194,6 +194,8 @@ class Settings(BaseSettings):
     ML_PUB_SWEEP_STATUSES: List[str] = Field(
         default_factory=lambda: ["paused", "under_review", "inactive", "pending", "active"]
     )
+    # Mode of the next scan lap: an operator sets `full` to ask for a backfill; the lap consumes it.
+    ML_PUB_SCAN_NEXT_MODE: Literal["full", "rescan"] = "rescan"
     ML_PUB_STALE_DAYS: int = Field(default=7, ge=1)
     ML_PUB_NOT_APPLICABLE_RECHECK_DAYS: int = Field(default=30, ge=1)
 
