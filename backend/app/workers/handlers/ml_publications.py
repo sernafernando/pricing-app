@@ -19,6 +19,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 from sqlalchemy import text
 
 from app.core import database
+from app.core.config import settings
+from app.services.ml_publications import intake as intake_core
 from app.services.ml_publications import queue, settings_store, store
 from app.services.ml_publications.ml_http import (
     ERROR_INVALID_JSON,
@@ -325,17 +327,22 @@ class RefreshHandler:
             "skipped_disabled": {},
         }
         detail = {"counters": counters, "last_run": {**run.as_detail(), "at": _utcnow().isoformat()}}
-        try:
-            with database.get_background_db() as db:
-                db.execute(
-                    text(
-                        "INSERT INTO worker_job_state (name, detail) VALUES (:name, CAST(:detail AS jsonb)) "
-                        "ON CONFLICT (name) DO UPDATE SET detail = EXCLUDED.detail"
-                    ),
-                    {"name": self.name, "detail": json.dumps(detail)},
-                )
-        except Exception:  # noqa: BLE001 -- observability must never fail the run
-            logger.exception("could not flush %s counters", self.name)
+        _persist_detail(self.name, detail)
+
+
+def _persist_detail(name: str, detail: Dict[str, Any]) -> None:
+    """Write `worker_job_state.detail` for `name`. Observability must never fail a run."""
+    try:
+        with database.get_background_db() as db:
+            db.execute(
+                text(
+                    "INSERT INTO worker_job_state (name, detail) VALUES (:name, CAST(:detail AS jsonb)) "
+                    "ON CONFLICT (name) DO UPDATE SET detail = EXCLUDED.detail"
+                ),
+                {"name": name, "detail": json.dumps(detail)},
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("could not flush %s counters", name)
 
 
 def _plan(claim: queue.QueueClaim, bundle_resources: Sequence[str]) -> Tuple[bool, Set[str]]:
@@ -352,4 +359,61 @@ def _plan(claim: queue.QueueClaim, bundle_resources: Sequence[str]) -> Tuple[boo
     return needs_core, dropped
 
 
+INTAKE_HANDLER = "ml_publications.intake"
+_INTAKE_KEYS = ("intake.enabled", "intake.topics")
+
+
+class IntakeHandler:
+    """`ml_publications.intake`: turns bridge `webhook_latest` notifications into queue entries.
+
+    It only enqueues (lane 1); with `refresh.enabled` off nothing is fetched and nothing is lost,
+    the entries wait in the queue. The bridge is only ever read (design D13).
+    """
+
+    name = INTAKE_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(seconds=15)
+    run_at_local: Optional[time] = None
+
+    def __init__(self, *, bridge_engine: Optional[Callable[[], Any]] = None) -> None:
+        self._bridge_engine = bridge_engine or (lambda: database.get_mlwebhook_engine())
+        self._totals: Counter = Counter()  # cumulative since process start, mirrors the cursor columns
+        self._memory = intake_core.OverlapMemory()  # rows the overlap window must not enqueue twice
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        config = settings_store.get_settings(_INTAKE_KEYS)
+        if config["intake.enabled"].value is not True:
+            return disabled_outcome()
+        mappings = intake_core.topic_mappings(config["intake.topics"].value)
+
+        def keep_going() -> bool:
+            # The flag is re-read at every batch boundary, so turning it off stops the pass promptly.
+            return _utcnow() < ctx.deadline and settings_store.get_setting("intake.enabled").value is True
+
+        result = intake_core.run_pass(
+            mappings,
+            bridge_engine=self._bridge_engine,
+            seller_id=settings.ML_USER_ID,
+            batch=settings.ML_PUB_INTAKE_BATCH,
+            overlap_seconds=settings.ML_PUB_INTAKE_OVERLAP_SECONDS,
+            keep_going=keep_going,
+            memory=self._memory,
+        )
+        stats = result.stats.as_dict()
+        if stats["rows_read"] or stats["overlap_rows"] or result.error:
+            self._flush_counters(stats, result.error)
+        return JobResult(success=result.error is None, detail=stats, error=result.error)
+
+    def _flush_counters(self, stats: Dict[str, int], error: Optional[str]) -> None:
+        self._totals.update(stats)
+        if error:
+            self._totals[f"error_{error.split(':')[0]}"] += 1
+        detail = {
+            "counters": dict(self._totals),
+            "last_run": {**stats, "error": error, "at": _utcnow().isoformat()},
+        }
+        _persist_detail(self.name, detail)
+
+
 refresh = RefreshHandler()
+intake = IntakeHandler()

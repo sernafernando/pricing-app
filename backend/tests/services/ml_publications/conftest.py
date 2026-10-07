@@ -175,3 +175,71 @@ def subresource_call(resource: str, name: str) -> dict:
 
 def subresource_body(resource: str, name: str) -> Any:
     return subresource_call(resource, name)["body"]
+
+
+# --- Bridge `webhook_latest` (captured 2026-10-06) -----------------------------------------
+
+WEBHOOK_SAMPLES = "webhook_latest_samples.json"
+BRIDGE_DDL = "bridge_webhook_latest.sql"
+
+
+def webhook_row(topic: str, index: int = 0, **overrides: Any) -> dict:
+    """One real captured `webhook_latest` row of `topic` (deep copy). `overrides` replace top-level
+    columns (real payload, `received_at`/`resource` changed to place it on a test timeline); a
+    changed `resource` is mirrored into the payload."""
+    rows = [r for r in load_fixture(WEBHOOK_SAMPLES)["samples"] if r["topic"] == topic]
+    row = copy.deepcopy(rows[index])
+    row.update(overrides)
+    if "resource" in overrides:
+        row["payload"]["resource"] = overrides["resource"]
+    return row
+
+
+@pytest.fixture()
+def bridge_pg(mlpub_pg):
+    """A second throwaway schema standing in for the bridge database, holding the real
+    `webhook_latest` DDL (copied from the bridge migration). Yields its engine."""
+    import uuid
+
+    from sqlalchemy import create_engine, text
+
+    from tests.conftest import POSTGRES_TEST_URL
+
+    schema = f"mlbridge_t_{uuid.uuid4().hex[:8]}"
+    admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f"CREATE SCHEMA {schema}"))
+    eng = create_engine(POSTGRES_TEST_URL, connect_args={"options": f"-csearch_path={schema}"}, pool_size=5)
+    with eng.begin() as conn:
+        conn.exec_driver_sql((FIXTURES_DIR / BRIDGE_DDL).read_text(encoding="utf-8"))
+    try:
+        yield eng
+    finally:
+        eng.dispose()
+        with admin.connect() as conn:
+            conn.execute(text(f"DROP SCHEMA {schema} CASCADE"))
+        admin.dispose()
+
+
+def put_webhook(engine, row: dict) -> None:
+    """Upsert one row the way the bridge handler does (one row per (topic, resource), latest wins)."""
+    import json
+
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO webhook_latest (topic, resource, webhook_id, received_at, payload) "
+                "VALUES (:topic, :resource, :webhook_id, CAST(:received_at AS timestamptz), CAST(:payload AS jsonb)) "
+                "ON CONFLICT (topic, resource) DO UPDATE SET webhook_id = EXCLUDED.webhook_id, "
+                "received_at = EXCLUDED.received_at, payload = EXCLUDED.payload"
+            ),
+            {
+                "topic": row["topic"],
+                "resource": row["resource"],
+                "webhook_id": row.get("webhook_id"),
+                "received_at": str(row["received_at"]),
+                "payload": json.dumps(row["payload"]),
+            },
+        )
