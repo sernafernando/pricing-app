@@ -67,8 +67,9 @@ can be retired. `pm_scope` stays the single source of the rule.
 
 ## Tasks
 
-- [x] **T1 — Board scope filter (service).** `Board(..., scope_pairs=None)`;
-  `None` = no filter, `[]` = nothing, list = `(UPPER(marca), UPPER(categoria))
+- [x] **T1 — Board scope filter (service).** `Board(..., scope_pairs=...)`, a
+  required keyword since T5 (no default, so a missed call site fails closed);
+  explicit `None` = full view, `[]` = nothing, list = `(UPPER(marca), UPPER(categoria))
   IN pairs` in the base. Postgres tests: rows, KPIs, facets (marca, categoría,
   subcategoría, PM, tienda), every group level, product publications,
   through_leaves export keys; empty scope → nothing; ceiling unchanged.
@@ -144,6 +145,12 @@ can be retired. `pm_scope` stays the single source of the rule.
   passed, integration 214 passed. Docs-only collation note (`rg collation`
   over alembic/models: no hits, so the claim is true). Commits:
   `refactor(ml-metricas): require an explicit scope...` (072fc0cf) and the docs one.
+- Third review pass (approved, advisory): accent test extended to the router's
+  path (`get_pares_marca_categoria_usuario`, sub-PM pair under `C` collation).
+  RED against the pre-fix `pm_scope.py` (a64740ac): `assert set() == {'24'}`;
+  GREEN on current code (14 passed). T1 text corrected to the required keyword.
+- Reviews: three native passes, each approved with only advisory findings, all
+  addressed in this branch. Tests run on the private `pricing_test_vmp` DB.
 
 ## Next step
 

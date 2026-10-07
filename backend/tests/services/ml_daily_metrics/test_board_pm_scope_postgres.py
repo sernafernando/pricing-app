@@ -188,3 +188,34 @@ def test_accented_pairs_match_under_a_byte_collation(tree_catalog) -> None:
     pairs = pm_scope.get_pares_para_pm_ids(db, [903])
 
     assert _page_keys(db, pairs) == {"24"}
+
+
+@pytest.mark.postgres
+def test_an_accented_sub_pm_pair_matches_through_the_callers_scope(tree_catalog, monkeypatch) -> None:
+    """The router resolves the scope with `get_pares_marca_categoria_usuario`
+    (titular UNION sub-PM): an accented pair owned only as sub-PM must still
+    match under the `C` collation."""
+    from types import SimpleNamespace
+
+    from app.services import pm_scope
+
+    db = tree_catalog
+    db.execute(
+        text(
+            'ALTER TABLE productos_erp ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
+            'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
+            'ALTER TABLE marcas_pm ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
+            'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
+            "DROP TABLE IF EXISTS marca_sub_pm;"
+            'CREATE TABLE marca_sub_pm (id SERIAL PRIMARY KEY, marca VARCHAR(100) COLLATE "C", '
+            'categoria VARCHAR(100) COLLATE "C", usuario_id INTEGER);'
+            "UPDATE productos_erp SET marca = 'Periféricos', categoria = 'Teclados ñ' WHERE item_id = 24;"
+            "INSERT INTO marca_sub_pm (marca, categoria, usuario_id) VALUES ('Periféricos', 'Teclados ñ', 904);"
+        )
+    )
+    monkeypatch.setattr(pm_scope, "is_full_view", lambda usuario, db=None: False)
+    sub_pm = SimpleNamespace(id=904, activo=True)
+
+    pairs = pm_scope.get_pares_marca_categoria_usuario(db, sub_pm)
+
+    assert _page_keys(db, pairs) == {"24"}
