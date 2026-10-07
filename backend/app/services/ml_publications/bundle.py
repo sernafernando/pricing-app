@@ -38,8 +38,14 @@ FETCHERS: Dict[str, SubFetcher] = {
         SubFetcher("prices", "/items/{item_id}/prices"),
         # The marketplace price is the one the buyer pays and the one the typed columns follow.
         SubFetcher("sale_price", "/items/{item_id}/sale_price", {"context": "channel_marketplace"}),
+        # The seller's promotions of the item, fetched from ML (never read from the bridge mirror).
+        SubFetcher("promotions", "/seller-promotions/items/{item_id}", {"app_version": "v2"}),
     )
 }
+
+# Resources that need their own flag on top of being listed in `bundle_resources` (design D14: the
+# promotions endpoint is shared with the bridge's ML application, so it has a separate kill point).
+FLAG_GATES: Dict[str, str] = {"promotions": "promotions.enabled"}
 
 
 def has_fetcher(resource: str) -> bool:
@@ -55,8 +61,11 @@ class Plan:
     dropped: frozenset = frozenset()
 
 
-def plan(requested: Sequence[str], bundle_resources: Sequence[str]) -> Plan:
-    """What an entry that requests `requested` needs, given the enabled `bundle_resources`."""
+def plan(requested: Sequence[str], bundle_resources: Sequence[str], gated_off: frozenset = frozenset()) -> Plan:
+    """What an entry that requests `requested` needs, given the enabled `bundle_resources`.
+
+    A resource in `gated_off` (its flag in `FLAG_GATES` is off) is dropped like one with no fetcher,
+    whether the entry names it or the bundle would include it."""
     needs_core = False
     wanted: Dict[str, bool] = {}
     dropped: set[str] = set()
@@ -64,14 +73,14 @@ def plan(requested: Sequence[str], bundle_resources: Sequence[str]) -> Plan:
         for name in bundle_resources:
             if name in (CORE_RESOURCE, BUNDLE_RESOURCE):
                 continue
-            if has_fetcher(name):
+            if has_fetcher(name) and name not in gated_off:
                 wanted[name] = False
             else:
                 dropped.add(name)
     for name in requested:
         if name in (CORE_RESOURCE, BUNDLE_RESOURCE):
             needs_core = True
-        elif has_fetcher(name) and name in bundle_resources:
+        elif has_fetcher(name) and name in bundle_resources and name not in gated_off:
             wanted[name] = True
         else:
             dropped.add(name)

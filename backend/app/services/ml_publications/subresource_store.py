@@ -1,7 +1,7 @@
 """Transactional upsert of one fetched item sub-resource (design D8 for sub-resources).
 
 The same contract as `store.apply_fetch`, for the sub-resource tables keyed by item id
-(`description`, `prices`, `sale_price`): one call is one transaction on one entity, the row is
+(`description`, `prices`, `sale_price`, `promotions`): one call is one transaction on one entity, the row is
 locked, the response is compared against the COMMITTED state and the state, its change-log row
 and its events commit together or not at all. Nothing here deletes a store row.
 
@@ -21,7 +21,13 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
-from app.models.ml_publications import MlItem, MlItemDescription, MlItemPrices, MlItemSalePrice
+from app.models.ml_publications import (
+    MlItem,
+    MlItemDescription,
+    MlItemPrices,
+    MlItemSalePrice,
+    MlItemSellerPromotions,
+)
 from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import diff, split_excluded
 from app.services.ml_publications.ml_http import MlResponse
@@ -49,6 +55,7 @@ MODELS: dict[str, Any] = {
     "description": MlItemDescription,
     "prices": MlItemPrices,
     "sale_price": MlItemSalePrice,
+    "promotions": MlItemSellerPromotions,
 }
 
 MAX_REASON_CHARS = 300

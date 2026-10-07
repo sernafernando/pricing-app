@@ -57,6 +57,7 @@ _SETTING_KEYS = (
     "refresh.enabled",
     "events.enabled",
     "links.enabled",
+    *bundle.FLAG_GATES.values(),
     "bundle_resources",
     "min_age_seconds",
     "bulk_max_ids",
@@ -127,9 +128,11 @@ class _Interruption:
 
 class RefreshHandler:
     """`ml_publications.refresh`: claims queued items and refreshes them from `/items/bulk`, then
-    fetches the sub-resources each entry asks for (`bundle.FETCHERS`: description, prices, sale_price).
+    fetches the sub-resources each entry asks for (`bundle.FETCHERS`: description, prices, sale_price,
+    promotions).
 
-    A sub-resource runs only when it is enabled in `bundle_resources` (default: the core only). Any
+    A sub-resource runs only when it is enabled in `bundle_resources` (default: the core only); promotions
+    also need `promotions.enabled`. Any
     other requested resource is dropped from its entry without charging an attempt (design D12):
     intake and manual enqueues can name resources that are disabled or whose code ships in a later
     PR without poisoning the queue. A failing sub-resource is charged to that resource alone: the
@@ -226,9 +229,10 @@ class RefreshHandler:
         run: _Run,
     ) -> None:
         bundle_resources = config["bundle_resources"].value
+        gated_off = frozenset(name for name, flag in bundle.FLAG_GATES.items() if config[flag].value is not True)
         works: List[_Work] = []
         for claim in claims:
-            work = _Work(claim, bundle.plan(claim.resources, bundle_resources))
+            work = _Work(claim, bundle.plan(claim.resources, bundle_resources, gated_off))
             if work.plan.needs_core or work.plan.wanted:
                 works.append(work)
             else:  # nothing this deployment can fetch: settle the entry, no ML call, nothing charged
