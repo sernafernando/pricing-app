@@ -22,9 +22,10 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.ml_publications import MlChangeLog, MlItem, MlItemProductLink, MlItemVariation, MlPubSetting
 from app.models.producto import ProductoERP
-from app.services.ml_publications import events_store
+from app.services.ml_publications import events_store, settings_store
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ SOURCE_MANUAL_NONE = "manual_none"
 STATUS_LINKED = "linked"
 STATUS_UNMATCHED = "unmatched"
 STATUS_CONFLICT = "conflict"
+STATUS_NO_PRODUCT = "no_product"
 
 
 @dataclass(frozen=True)
@@ -332,12 +334,14 @@ def log_link_change(
     observed_at: datetime,
     events_enabled: bool,
     typed_item: Mapping[str, Any],
+    actor: Optional[int] = None,
 ) -> MlChangeLog:
     """Change-log row (resource `product_link`) of an effective link change, plus its events.
 
     Written in the caller's transaction: the link change, its history row and its event commit
     together or not at all. The context carries everything `product_link_changed` needs, so the
-    event can be re-derived from the row alone.
+    event can be re-derived from the row alone. `actor` is the operator behind a manual operation; it
+    wins over the link's own author in the context (a revert to automatic leaves the link authorless).
     """
     changes = [
         {"p": name, "op": "replace", "old": getattr(old, name), "new": getattr(new, name)}
@@ -362,7 +366,7 @@ def log_link_change(
             "match_status_new": new.match_status,
             "matched_sku": new.matched_sku,
             "sku_field": new.sku_field,
-            "linked_by": new.linked_by,
+            "linked_by": new.linked_by if actor is None else actor,
             "official_store_id": typed_item.get("official_store_id"),
             "brand": typed_item.get("brand"),
         },
@@ -672,6 +676,295 @@ def _finish_lap(db, state: _SweepState, now: datetime) -> None:
         _write_setting(db, FINGERPRINT_KEY, state.target, now)
         _write_setting(db, LAST_FULL_PASS_KEY, now.isoformat(), now)
     _write_setting(db, SWEEP_STATE_KEY, _SweepState().as_value(), now)
+
+
+# --- manual operations (operator decisions; the router's writes, one transaction each) ---------------
+
+
+class LinkError(Exception):
+    """A manual operation was refused; nothing was written."""
+
+
+class UnknownItem(LinkError):
+    """The item is not in the store (never fetched, or only known by id)."""
+
+
+class UnknownUnit(LinkError):
+    """The variation is not part of the item and has no link row."""
+
+
+class ProductNotFound(LinkError):
+    """The product the operator picked does not exist in the catalog."""
+
+
+@dataclass(frozen=True)
+class ManualOutcome:
+    """`changed` is True when the link itself moved (history written); a note-only edit is not a move."""
+
+    changed: bool
+
+
+def read_flag(handler: str) -> bool:
+    """A `<handler>.enabled` runtime flag, fail closed: an unreadable flag counts as off."""
+    try:
+        return settings_store.is_enabled(handler) is True
+    except Exception:  # noqa: BLE001 -- a settings failure must never take an operator request down
+        logger.exception("ml_pub %s flag unreadable; treated as off", handler)
+        return False
+
+
+def _clean_note(note: Optional[str]) -> Optional[str]:
+    """Free text from the operator: trimmed, blank means no note."""
+    if note is None:
+        return None
+    note = note.strip()
+    return note or None
+
+
+def _load_typed(db, item_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The typed columns of a stored item and its live variations; fails closed on an unknown item."""
+    row = db.query(*_ITEM_COLUMNS).filter(MlItem.item_id == item_id, MlItem.raw.isnot(None)).first()
+    if row is None:
+        raise UnknownItem(item_id)
+    return dict(row._mapping), _variations_by_item(db, [item_id])[item_id]
+
+
+def evaluate_for_item(
+    db, item_id: str, *, now: datetime, events_enabled: bool, force: bool = False
+) -> EvaluationResult:
+    """`evaluate_item` over the item as stored now (the typed columns are read here)."""
+    typed, variations = _load_typed(db, item_id)
+    return evaluate_item(db, item_id, typed, variations, now=now, events_enabled=events_enabled, force=force)
+
+
+def _product_exists(db, producto_item_id: int) -> bool:
+    return db.query(ProductoERP.item_id).filter(ProductoERP.item_id == producto_item_id).first() is not None
+
+
+def _row_exists(db, item_id: str, variation_id: int) -> bool:
+    return (
+        db.query(MlItemProductLink.item_id)
+        .filter(MlItemProductLink.item_id == item_id, MlItemProductLink.variation_id == variation_id)
+        .first()
+        is not None
+    )
+
+
+@dataclass
+class _Target:
+    """The unit an operation acts on, validated and locked."""
+
+    row: MlItemProductLink
+    unit: LinkUnit
+    typed: Mapping[str, Any]
+
+
+def _resolve_target(
+    db, item_id: str, variation_id: int
+) -> tuple[dict[str, Any], list[dict[str, Any]], Optional[LinkUnit]]:
+    """Validate the item and the unit before anything is written (read-only)."""
+    typed, variations = _load_typed(db, item_id)
+    unit = next((u for u in units_for_item(typed, variations) if u.variation_id == variation_id), None)
+    if unit is None and not _row_exists(db, item_id, variation_id):
+        raise UnknownUnit(f"{item_id}:{variation_id}")
+    return typed, variations, unit
+
+
+def _lock_target(
+    db,
+    item_id: str,
+    variation_id: int,
+    typed: dict[str, Any],
+    variations: Sequence[Mapping[str, Any]],
+    unit: Optional[LinkUnit],
+    *,
+    now: datetime,
+    events_enabled: bool,
+) -> _Target:
+    """Make sure the unit's row exists and is evaluated with its current SKU, then lock it.
+
+    A live unit that was never evaluated (or whose SKU moved since) is evaluated first, exactly as the
+    sweep would, so the suggestion columns the operator sees are current.
+    """
+    if unit is not None:
+        evaluate_item(db, item_id, typed, variations, now=now, events_enabled=events_enabled)
+        db.flush()
+    row = _lock(db, LinkUnit(item_id, variation_id, None, None))
+    if unit is None:  # a gone variation: its stored SKU key is all that is left of it
+        unit = LinkUnit(item_id, variation_id, row.evaluated_sku_key, row.sku_field)
+    return _Target(row, unit, typed)
+
+
+def _audit_values(item_id: str, variation_id: int, state: LinkState) -> dict[str, Any]:
+    return {
+        "mla": item_id,
+        "variation_id": variation_id,
+        "producto_item_id": state.producto_item_id,
+        "source": state.source,
+        "match_status": state.match_status,
+    }
+
+
+def _record_audit(
+    db,
+    tipo: TipoAccion,
+    usuario_id: int,
+    item_id: str,
+    variation_id: int,
+    before: LinkState,
+    after: LinkState,
+    note: Optional[str],
+    now: datetime,
+) -> None:
+    """One `auditoria` row in the caller's transaction.
+
+    Added with `db.add`, never through `registrar_auditoria` (it commits on its own, which would
+    split the audit row from the link change). `auditoria.item_id` is the product, the MLA and the
+    variation travel in the values. `fecha` is naive UTC like the column's own default.
+    """
+    db.add(
+        Auditoria(
+            item_id=after.producto_item_id,
+            usuario_id=usuario_id,
+            tipo_accion=tipo,
+            valores_anteriores=_audit_values(item_id, variation_id, before),
+            valores_nuevos=_audit_values(item_id, variation_id, after),
+            es_masivo=0,
+            comentario=note,
+            fecha=now.astimezone(timezone.utc).replace(tzinfo=None),
+        )
+    )
+
+
+def _decide(
+    db,
+    target: _Target,
+    *,
+    source: str,
+    match_status: str,
+    producto_item_id: Optional[int],
+    note: Optional[str],
+    actor: int,
+    now: datetime,
+    events_enabled: bool,
+    tipo: TipoAccion,
+) -> ManualOutcome:
+    """Record an operator decision on a locked unit: link, history, event and audit in one transaction."""
+    row = target.row
+    before = LinkState.of(row)
+    same_link = (row.source, row.match_status, row.producto_item_id) == (source, match_status, producto_item_id)
+    if same_link and row.note == note:
+        return ManualOutcome(changed=False)
+    row.source = source
+    row.match_status = match_status
+    row.producto_item_id = producto_item_id
+    row.candidate_ids = None
+    row.note = note
+    row.linked_by = actor
+    row.linked_at = now
+    row.updated_at = now
+    after = LinkState.of(row)
+    unit = target.unit
+    if not same_link:
+        log_link_change(db, unit.item_id, unit.variation_id, before, after, now, events_enabled, target.typed, actor)
+    _record_audit(db, tipo, actor, unit.item_id, unit.variation_id, before, after, note, now)
+    return ManualOutcome(changed=not same_link)
+
+
+def set_manual(
+    db,
+    item_id: str,
+    variation_id: int,
+    producto_item_id: int,
+    note: Optional[str],
+    usuario_id: int,
+    *,
+    now: datetime,
+    events_enabled: bool,
+) -> ManualOutcome:
+    """Link a unit to a product by hand. The caller commits (or rolls everything back)."""
+    typed, variations, unit = _resolve_target(db, item_id, variation_id)
+    if not _product_exists(db, producto_item_id):
+        raise ProductNotFound(str(producto_item_id))
+    target = _lock_target(db, item_id, variation_id, typed, variations, unit, now=now, events_enabled=events_enabled)
+    return _decide(
+        db,
+        target,
+        source=SOURCE_MANUAL,
+        match_status=STATUS_LINKED,
+        producto_item_id=producto_item_id,
+        note=_clean_note(note),
+        actor=usuario_id,
+        now=now,
+        events_enabled=events_enabled,
+        tipo=TipoAccion.ML_VINCULO_MANUAL,
+    )
+
+
+def set_manual_none(
+    db,
+    item_id: str,
+    variation_id: int,
+    note: Optional[str],
+    usuario_id: int,
+    *,
+    now: datetime,
+    events_enabled: bool,
+) -> ManualOutcome:
+    """Mark a unit as explicitly having no product (distinct from `unmatched`)."""
+    typed, variations, unit = _resolve_target(db, item_id, variation_id)
+    target = _lock_target(db, item_id, variation_id, typed, variations, unit, now=now, events_enabled=events_enabled)
+    return _decide(
+        db,
+        target,
+        source=SOURCE_MANUAL_NONE,
+        match_status=STATUS_NO_PRODUCT,
+        producto_item_id=None,
+        note=_clean_note(note),
+        actor=usuario_id,
+        now=now,
+        events_enabled=events_enabled,
+        tipo=TipoAccion.ML_VINCULO_SIN_PRODUCTO,
+    )
+
+
+def revert_to_auto(
+    db,
+    item_id: str,
+    variation_id: int,
+    usuario_id: int,
+    *,
+    now: datetime,
+    events_enabled: bool,
+) -> ManualOutcome:
+    """Hand a unit back to the automatic rule, resolved right now with its current SKU and the current catalog.
+
+    An automatic unit that already holds what the rule says changes nothing (no history, no audit).
+    """
+    typed, variations, unit = _resolve_target(db, item_id, variation_id)
+    target = _lock_target(db, item_id, variation_id, typed, variations, unit, now=now, events_enabled=events_enabled)
+    row, unit = target.row, target.unit
+    keys = [unit.key] if unit.key is not None else []
+    suggestion = resolve(unit, load_codigo_index(db, keys) if keys else {})
+    if row.source == SOURCE_AUTO and (row.producto_item_id, row.match_status) == (
+        suggestion.producto_item_id,
+        suggestion.status,
+    ):
+        return ManualOutcome(changed=False)
+    before = LinkState.of(row)
+    row.source = SOURCE_AUTO
+    for column, value in {**_link_columns(suggestion), **_suggestion_columns(suggestion)}.items():
+        setattr(row, column, value)
+    row.evaluated_sku_key = unit.key
+    row.evaluated_at = now
+    row.linked_by = None
+    row.linked_at = now
+    row.note = None
+    row.updated_at = now
+    after = LinkState.of(row)
+    log_link_change(db, item_id, variation_id, before, after, now, events_enabled, typed, usuario_id)
+    _record_audit(db, TipoAccion.ML_VINCULO_AUTOMATICO, usuario_id, item_id, variation_id, before, after, None, now)
+    return ManualOutcome(changed=True)
 
 
 # --- coverage report (read-only) ---------------------------------------------------------------------
