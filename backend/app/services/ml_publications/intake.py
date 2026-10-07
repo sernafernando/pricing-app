@@ -171,6 +171,9 @@ class _Row:
     user_id: Optional[str]
 
 
+NotificationRow = _Row
+
+
 class _BridgeUnavailable(Exception):
     pass
 
@@ -243,7 +246,16 @@ class _Classified:
     unparsed: int = 0
 
 
-def _classify(session: Session, mapping: TopicMapping, rows: Sequence[_Row], seller_id: str) -> _Classified:
+def classify(
+    session: Session,
+    mapping: TopicMapping,
+    rows: Sequence["_Row"],
+    seller_id: str,
+    lane: int = queue.LANE_NOTIFICATION,
+) -> _Classified:
+    """Turn notification rows of one topic into queue entries of `lane`. Shared with `/missed_feeds`
+    recovery, which enqueues in the reconcile lane through this very rule (foreign seller, topic parser,
+    "already fetched after the notification")."""
     out = _Classified()
     candidates: List[Tuple[str, _Row]] = []
     for row in rows:
@@ -268,7 +280,7 @@ def _classify(session: Session, mapping: TopicMapping, rows: Sequence[_Row], sel
             queue.EnqueueEntry(
                 kind=mapping.kind,
                 entity_id=item_id,
-                lane=queue.LANE_NOTIFICATION,
+                lane=lane,
                 resources=mapping.resources,
                 source_received_at=row.received_at,
                 not_before=row.received_at + mapping.debounce if mapping.debounce else None,
@@ -306,7 +318,7 @@ def _forward(
         if not rows:
             break
         with database.get_background_db() as session:
-            classified = _classify(session, mapping, rows, seller_id)
+            classified = classify(session, mapping, rows, seller_id)
             last = rows[-1]
             # Cursor first, enqueue second, one transaction: any failure rolls both back. The advance only
             # moves the cursor forward: a second intake process that got further is never pulled back.
@@ -376,7 +388,7 @@ def _overlap(
     if not rows:
         return
     with database.get_background_db() as session:
-        classified = _classify(session, mapping, rows, seller_id)
+        classified = classify(session, mapping, rows, seller_id)
         queue.enqueue(classified.entries, session=session)
     memory.add(mapping.topic, rows)
     stats.overlap_enqueued += len(classified.entries)

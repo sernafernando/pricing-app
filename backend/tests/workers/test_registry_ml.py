@@ -24,17 +24,19 @@ class TestExistingRegistryIsUntouched:
 
 
 class TestMlPublicationsRegistry:
-    def test_contains_the_refresh_intake_relink_and_scan_handlers_in_that_order(self) -> None:
+    def test_contains_the_refresh_intake_relink_scan_and_missed_feeds_handlers_in_that_order(self) -> None:
         assert [h.name for h in registry.ML_PUBLICATIONS_REGISTRY] == [
             "ml_publications.refresh",
             "ml_publications.intake",
             "ml_publications.relink",
             "ml_publications.scan",
+            "ml_publications.missed_feeds",
         ]
         assert registry.ML_PUBLICATIONS_REGISTRY[0] is ml_publications.refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[1] is ml_publications.intake
         assert registry.ML_PUBLICATIONS_REGISTRY[2] is ml_publications.relink
         assert registry.ML_PUBLICATIONS_REGISTRY[3] is ml_publications.scan
+        assert registry.ML_PUBLICATIONS_REGISTRY[4] is ml_publications.missed_feeds
 
     def test_intake_runs_every_fifteen_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[1]
@@ -77,5 +79,5 @@ class TestProcessIsolation:
         )
         assert self._run(code) == (
             "['ml_publications.refresh', 'ml_publications.intake', 'ml_publications.relink', "
-            "'ml_publications.scan'] True"
+            "'ml_publications.scan', 'ml_publications.missed_feeds'] True"
         )
