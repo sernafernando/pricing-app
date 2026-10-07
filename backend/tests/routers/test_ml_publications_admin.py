@@ -277,6 +277,9 @@ class TestSettings:
         body = client.put(f"{BASE}/settings/refresh.enabled", json={"value": True}, headers=operator).json()
 
         assert (body["value"], body["source"]) == (False, "kill_switch")
+        assert body["requested"] is None  # the handler would only report disabled: no mark that waits for later
+        assert rows(pg, "SELECT 1 FROM worker_job_state") == []
+        assert rows(pg, "SELECT value FROM ml_pub_settings WHERE key = 'refresh.enabled'")[0]["value"] is True
 
 
 class TestEnqueue:

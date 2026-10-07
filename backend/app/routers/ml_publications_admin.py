@@ -21,13 +21,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import require_permission
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.services.ml_publications import admin
 from app.services.ml_publications import status as store_status
 from app.services.ml_publications.resources import BUNDLE_RESOURCE, REFRESH_RESOURCES
-from app.services.permisos_service import PermisosService
 
 PERMISO_VER = "ml_ops.ver"
 PERMISO_GESTIONAR = "ml_ops.gestionar"
@@ -35,20 +34,6 @@ PERMISO_GESTIONAR = "ml_ops.gestionar"
 ENQUEUE_MAX = 100
 
 router = APIRouter(prefix="/ml-publications", tags=["ML Publications Admin"])
-
-
-def require_permission(permission: str):
-    """Dependency for a required permission code (same pattern as `ml_ventas_ops.py`)."""
-
-    def _check_permission(
-        current_user: Usuario = Depends(get_current_user),
-        db: Session = Depends(get_db),
-    ) -> Usuario:
-        if not PermisosService(db).tiene_permiso(current_user, permission):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"No tienes permiso: {permission}")
-        return current_user
-
-    return _check_permission
 
 
 def get_admin_db(db: Session = Depends(get_db)) -> Session:

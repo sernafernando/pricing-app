@@ -82,7 +82,9 @@ def update_setting(db: Session, key: str, value: Any, updated_by: str) -> Dict[s
     """Write one setting (allow-list and validation of `settings_store`) and answer its effective value."""
     if key not in settings_store.SETTING_DEFS:
         raise UnknownSetting(key)
-    handler = FLAG_HANDLER.get(key) if value is True else None
+    # Only a flag that will actually read as on is worth a mark: under the kill switch the handler would just
+    # report disabled, and the mark would make it run the moment the switch is lifted.
+    handler = FLAG_HANDLER.get(key) if value is True and not settings.ML_PUB_KILL_SWITCH else None
     try:
         settings_store.set_setting(key, value, updated_by, session=db)
         if handler:
