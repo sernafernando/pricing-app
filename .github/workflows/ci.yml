@@ -69,14 +69,15 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    # This job runs the WHOLE suite, not a smoke subset -- it was named
-    # "Backend Smoke Tests" while running `pytest tests/`, which is the kind
-    # of name that sends the next reader to the wrong conclusion.
+    # This job runs every test NOT marked `postgres`, not a smoke subset --
+    # it was named "Backend Smoke Tests" while running `pytest tests/`, which
+    # is the kind of name that sends the next reader to the wrong conclusion.
+    # The `postgres` tests run in their own job (`backend-postgres`, below),
+    # at the same time as this one.
     #
-    # Postgres service for `@pytest.mark.postgres` tests only (39 of ~6400:
-    # the PPP resolver's LATERAL joins and the ML ingestion SAVEPOINT
-    # isolation, both of which SQLite genuinely cannot express). Everything
-    # else runs on the per-process in-memory SQLite `db` fixture.
+    # The Postgres service stays here too: a test that probes
+    # `POSTGRES_TEST_URL` without the `postgres` marker would otherwise skip
+    # silently instead of running. Starting the service costs ~20 s.
     services:
       postgres:
         image: postgres:16
@@ -105,18 +106,12 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-xdist httpx
 
-      # Split in two on purpose.
-      #
       # The bulk runs in PARALLEL: every worker builds its own in-memory
       # SQLite database (`TEST_DB_URL = "sqlite://"`), so there is nothing
       # to contend over. Measured locally, 4 workers took the suite from
       # 11m43s to 4m11s. `-v` is gone: printing one line per test for 6400
       # tests costs time and buries the failures it is supposed to surface.
       # `--durations` makes the slow tests visible instead of guessed at.
-      #
-      # The 39 `postgres` tests run SERIALLY afterwards: they share one real
-      # database in the `postgres` service, and handing that to four workers
-      # at once trades a slow suite for a flaky one -- a far worse deal.
       - name: Run tests (parallel)
         run: pytest tests/ -m "not postgres" -n 4 -q --tb=short --durations=15
         env:
@@ -126,8 +121,54 @@ jobs:
           ERP_BASE_URL: "http://localhost:9999"
           POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
 
+  backend-postgres:
+    name: Backend Tests (Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    # The `@pytest.mark.postgres` tests: the ones SQLite genuinely cannot
+    # express (LATERAL joins, SAVEPOINT isolation, row locks, JSONB, the ML
+    # publications store). They used to run serially AFTER the parallel step
+    # of `backend-smoke`, when they were 39; by 2026-10 they were ~870 and
+    # took ~4.5 of that job's ~11 minutes. As their own job they run at the
+    # same time as the parallel step, so the backend wall time is the slower
+    # of the two instead of their sum.
+    #
+    # Still SERIAL inside this job: they share one real database in the
+    # `postgres` service, and handing that to several workers at once
+    # trades a slow suite for a flaky one.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pricing_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-xdist httpx
+
       - name: Run tests (postgres-only, serial)
-        run: pytest tests/ -m postgres -q --tb=short
+        run: pytest tests/ -m postgres -q --tb=short --durations=15
         env:
           ENVIRONMENT: testing
           DATABASE_URL: "sqlite:///./test.db"
