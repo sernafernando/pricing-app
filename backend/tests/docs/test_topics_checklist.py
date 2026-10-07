@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 import pytest
 
-from app.services.ml_publications.intake import TOPIC_PATTERNS
+from app.services.ml_publications.intake import TOPIC_PATTERNS, topic_mappings
 from tests.services.ml_publications.conftest import WEBHOOK_SAMPLES, load_fixture
 
 DOC = Path(__file__).resolve().parents[3] / "docs" / "ml-publications-topics-checklist.md"
@@ -110,14 +111,10 @@ def test_the_promotions_cost_note_carries_the_measured_volumes_and_the_budget_sh
 
 
 def test_the_documented_promotions_topic_map_is_accepted_by_intake(doc) -> None:
-    import json
-
     section = promotions_section(doc)
     blocks = re.findall(r"```json\n(.*?)\n```", section, flags=re.DOTALL)
     assert len(blocks) == 1
     topics = json.loads(blocks[0])
-
-    from app.services.ml_publications.intake import topic_mappings
 
     mappings = topic_mappings(topics)
     assert sorted((m.topic, m.resources, m.debounce is not None) for m in mappings) == [

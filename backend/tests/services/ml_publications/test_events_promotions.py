@@ -249,6 +249,15 @@ class TestPriceChanged:
         assert (event.old_value, event.new_value) == ("1509999", "1400000")
         assert (event.promotion_id, event.promotion_type) == (STARTED_ID, "SELLER_CAMPAIGN")
 
+    def test_a_status_change_wins_over_a_price_change_of_the_same_entry(self) -> None:
+        """Pinned rule: a started campaign finishing with a new price is ONE `promotion_finished`, no price event."""
+        old = subresource_body("promotions", STARTED)
+        new = with_fields(old, STARTED_ID, status="finished", price=1400000)
+
+        events = derive_events(promotions_row(old, new))
+
+        assert [(e.event_type, e.payload) for e in events] == [("promotion_finished", {"reason": "ended"})]
+
     def test_a_started_promotion_with_the_same_price_and_another_name_is_no_event(self) -> None:
         old = subresource_body("promotions", STARTED)
         new = with_fields(old, STARTED_ID, name="PREMIUM OCTUBRE 2")
