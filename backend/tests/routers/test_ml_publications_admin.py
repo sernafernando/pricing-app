@@ -115,7 +115,7 @@ class TestContract:
         assert rows(pg, "SELECT 1 FROM ml_pub_refresh_queue") == []
         assert rows(pg, "SELECT 1 FROM worker_job_state") == []
 
-    def test_the_four_mutating_routes_are_post_or_put_and_nothing_deletes(self) -> None:
+    def test_the_three_mutating_routes_are_post_or_put_and_nothing_deletes(self) -> None:
         verbs = {method for route in ml_publications_admin.router.routes for method in getattr(route, "methods", set())}
         assert verbs == {"GET", "PUT", "POST"}
 
