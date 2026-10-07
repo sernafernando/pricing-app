@@ -123,9 +123,7 @@ def plan(
                 continue
             if not applies_to_kind(name, kind):
                 continue  # not meant for this entity (item resources, other entities): not applicable, not dropped
-            if name in SWEEP_ONLY and has_fetcher(name) and name not in gated_off:
-                continue  # never part of the bundle: reached only by naming it
-            if not has_fetcher(name) or name in gated_off:
+            if not has_fetcher(name) or name in gated_off or name in SWEEP_ONLY:  # sweep-only: named requests only
                 dropped.add(name)
             else:
                 wanted[name] = False
