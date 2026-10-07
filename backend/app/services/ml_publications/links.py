@@ -13,13 +13,16 @@ table, the change log (resource `product_link`) and the events derived from it.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Mapping, Optional, Sequence
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, time, timezone
+from typing import Any, Callable, Mapping, Optional, Sequence
+from zoneinfo import ZoneInfo
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.models.ml_publications import MlChangeLog, MlItemProductLink
+from app.core import database
+from app.models.ml_publications import MlChangeLog, MlItem, MlItemProductLink, MlItemVariation, MlPubSetting
 from app.models.producto import ProductoERP
 from app.services.ml_publications import events_store
 
@@ -363,3 +366,238 @@ def log_link_change(
     if events_enabled:
         events_store.write_events(db, entry)
     return entry
+
+
+# --- re-link sweep (no ML call; driven by the `ml_publications.relink` worker handler) ------------
+
+SWEEP_BATCH = 500
+ARGENTINA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+DAILY_PASS_AT = time(4, 30)  # Argentina local: the safety-net full pass
+SWEEP_STATEMENT_TIMEOUT = "30s"
+SWEEP_LOCK_TIMEOUT = "5s"
+
+# Internal `ml_pub_settings` rows (not operator-writable: they are not in the settings allow-list).
+SWEEP_STATE_KEY = "links.sweep_state"
+FINGERPRINT_KEY = "links.catalog_fingerprint"
+LAST_FULL_PASS_KEY = "links.last_full_pass_at"
+
+FINGERPRINT_SQL = (
+    "SELECT md5(coalesce(string_agg(item_id::text || ':' || coalesce(codigo, ''), ',' ORDER BY item_id), '')) "
+    "FROM productos_erp"
+)
+
+STOPPED_DEADLINE = "deadline"
+STOPPED_DISABLED = "disabled"
+
+# `gate()` is read at every batch boundary: the events flag while linking stays on, None to stop.
+Gate = Callable[[], Optional[bool]]
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass
+class SweepResult:
+    """What one sweep run did; `complete` means a whole lap over the items finished."""
+
+    batches: int = 0
+    items: int = 0
+    errors: int = 0
+    complete: bool = False
+    forced: bool = False
+    stopped: Optional[str] = None
+    units: EvaluationResult = field(default_factory=EvaluationResult)
+
+    def as_detail(self) -> dict[str, Any]:
+        detail = asdict(self.units)
+        detail.update(
+            batches=self.batches,
+            items=self.items,
+            errors=self.errors,
+            complete=self.complete,
+            forced=self.forced,
+        )
+        if self.stopped:
+            detail["stopped"] = self.stopped
+        return detail
+
+
+@dataclass
+class _SweepState:
+    cursor: Optional[str] = None  # last item_id of the lap in progress (keyset)
+    force: bool = False  # the lap in progress re-evaluates every unit (catalog change / daily pass)
+    target: Optional[str] = None  # catalog fingerprint the forced lap converges to
+    started_at: Optional[str] = None  # when the forced lap began (ISO, UTC)
+
+    def as_value(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _read_setting(db, key: str) -> Any:
+    row = db.get(MlPubSetting, key)
+    return row.value if row is not None else None
+
+
+def _write_setting(db, key: str, value: Any, now: datetime) -> None:
+    db.execute(
+        pg_insert(MlPubSetting)
+        .values(key=key, value=value, updated_by="links", updated_at=now)
+        .on_conflict_do_update(index_elements=["key"], set_={"value": value, "updated_by": "links", "updated_at": now})
+    )
+
+
+def catalog_fingerprint(db) -> str:
+    """Cheap fingerprint of the product catalog (`item_id`, `codigo`): any added, removed or edited code changes it."""
+    return db.execute(text(FINGERPRINT_SQL)).scalar()
+
+
+def _daily_pass_due(now: datetime, last_full: Optional[str]) -> bool:
+    """Today's slot reached and no full pass since it (same rule as `scheduling.is_due` for daily jobs)."""
+    local_now = now.astimezone(ARGENTINA_TZ)
+    slot = local_now.replace(hour=DAILY_PASS_AT.hour, minute=DAILY_PASS_AT.minute, second=0, microsecond=0)
+    if local_now < slot:
+        return False
+    return last_full is None or datetime.fromisoformat(last_full).astimezone(ARGENTINA_TZ) < slot
+
+
+def _plan_lap(db, state: _SweepState, now: datetime) -> _SweepState:
+    """Decide, when no lap is in progress, whether the next one is forced (catalog changed or daily pass)."""
+    if state.force or state.cursor is not None:
+        return state
+    fingerprint = catalog_fingerprint(db)
+    if fingerprint != _read_setting(db, FINGERPRINT_KEY) or _daily_pass_due(now, _read_setting(db, LAST_FULL_PASS_KEY)):
+        return _SweepState(force=True, target=fingerprint, started_at=now.isoformat())
+    return state
+
+
+def _load_state(db) -> _SweepState:
+    stored = _read_setting(db, SWEEP_STATE_KEY)
+    if not isinstance(stored, dict):
+        return _SweepState()
+    return _SweepState(**{k: stored.get(k) for k in ("cursor", "force", "target", "started_at")})
+
+
+def _typed_batch(db, cursor: Optional[str], size: int) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    """The next `size` stored items after `cursor` (keyset on `item_id`) with their live variations."""
+    query = db.query(
+        MlItem.item_id, MlItem.seller_sku, MlItem.seller_custom_field, MlItem.official_store_id, MlItem.brand
+    ).filter(MlItem.raw.isnot(None))
+    if cursor is not None:
+        query = query.filter(MlItem.item_id > cursor)
+    items = query.order_by(MlItem.item_id).limit(size).all()
+    if not items:
+        return []
+    ids = [item.item_id for item in items]
+    variations: dict[str, list[dict[str, Any]]] = {item_id: [] for item_id in ids}
+    for row in db.query(
+        MlItemVariation.item_id,
+        MlItemVariation.variation_id,
+        MlItemVariation.seller_sku,
+        MlItemVariation.seller_custom_field,
+    ).filter(MlItemVariation.item_id.in_(ids), MlItemVariation.gone_at.is_(None)):
+        variations[row.item_id].append(
+            {
+                "variation_id": row.variation_id,
+                "seller_sku": row.seller_sku,
+                "seller_custom_field": row.seller_custom_field,
+            }
+        )
+    return [(dict(item._mapping), variations[item.item_id]) for item in items]
+
+
+def _evaluated_keys(db, ids: Sequence[str]) -> dict[tuple[str, int], tuple[Optional[str], Optional[datetime]]]:
+    rows = db.query(
+        MlItemProductLink.item_id,
+        MlItemProductLink.variation_id,
+        MlItemProductLink.evaluated_sku_key,
+        MlItemProductLink.evaluated_at,
+    ).filter(MlItemProductLink.item_id.in_(list(ids)))
+    return {(r.item_id, r.variation_id): (r.evaluated_sku_key, r.evaluated_at) for r in rows}
+
+
+def _needs_evaluation(units: Sequence[LinkUnit], evaluated: Mapping[tuple[str, int], Any]) -> bool:
+    for unit in units:
+        known = evaluated.get((unit.item_id, unit.variation_id))
+        if known is None or known[1] is None or known[0] != unit.key:
+            return True
+    return False
+
+
+def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _utcnow) -> SweepResult:
+    """Evaluate the links of the stored items in keyset batches until the lap ends or the deadline hits.
+
+    An ordinary lap evaluates only units never evaluated or whose SKU key changed; a forced lap
+    (the product catalog fingerprint changed, or the daily 04:30 safety net) re-evaluates every
+    unit, which also refreshes the suggestion of manual units. Progress lives in `ml_pub_settings`
+    (the cursor commits with each batch's work), so a stopped run resumes where it ended.
+    """
+    result = SweepResult()
+    started = now()
+    with database.get_background_db() as db:
+        _set_timeouts(db)
+        state = _plan_lap(db, _load_state(db), started)
+        _write_setting(db, SWEEP_STATE_KEY, state.as_value(), started)
+    result.forced = state.force
+    while True:
+        batch_now = now()
+        if batch_now >= deadline:
+            result.stopped = STOPPED_DEADLINE
+            return result
+        events_enabled = gate()
+        if events_enabled is None:
+            result.stopped = STOPPED_DISABLED
+            return result
+        with database.get_background_db() as db:
+            _set_timeouts(db)
+            batch = _typed_batch(db, state.cursor, SWEEP_BATCH)
+            if batch:
+                result.batches += 1
+                _sweep_batch(db, batch, state, batch_now, events_enabled, result)
+                state.cursor = batch[-1][0]["item_id"]
+            if len(batch) < SWEEP_BATCH:
+                _finish_lap(db, state, batch_now)
+                result.complete = True
+            else:
+                _write_setting(db, SWEEP_STATE_KEY, state.as_value(), batch_now)
+        if result.complete:
+            return result
+
+
+def _set_timeouts(db) -> None:
+    db.execute(text(f"SET LOCAL lock_timeout = '{SWEEP_LOCK_TIMEOUT}'"))
+    db.execute(text(f"SET LOCAL statement_timeout = '{SWEEP_STATEMENT_TIMEOUT}'"))
+
+
+def _sweep_batch(db, batch, state: _SweepState, now: datetime, events_enabled: bool, result: SweepResult) -> None:
+    evaluated = _evaluated_keys(db, [typed["item_id"] for typed, _ in batch])
+    for typed, variations in batch:
+        result.items += 1
+        units = units_for_item(typed, variations)
+        if not state.force and not _needs_evaluation(units, evaluated):
+            result.units.skipped += len(units)
+            continue
+        try:
+            with db.begin_nested():
+                result.units.add(
+                    evaluate_item(
+                        db,
+                        typed["item_id"],
+                        typed,
+                        variations,
+                        now=now,
+                        events_enabled=events_enabled,
+                        force=state.force,
+                    )
+                )
+        except Exception:  # noqa: BLE001 -- one item must not stop the lap; the next lap retries it
+            result.errors += 1
+            logger.exception("product links sweep failed for %s", typed["item_id"])
+
+
+def _finish_lap(db, state: _SweepState, now: datetime) -> None:
+    """The lap ended: a forced lap records the catalog it converged to and when it started."""
+    if state.force:
+        _write_setting(db, FINGERPRINT_KEY, state.target, now)
+        _write_setting(db, LAST_FULL_PASS_KEY, state.started_at, now)
+    _write_setting(db, SWEEP_STATE_KEY, _SweepState().as_value(), now)

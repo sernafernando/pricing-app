@@ -21,7 +21,7 @@ from sqlalchemy import text
 from app.core import database
 from app.core.config import settings
 from app.services.ml_publications import intake as intake_core
-from app.services.ml_publications import queue, settings_store, store
+from app.services.ml_publications import links, queue, settings_store, store
 from app.services.ml_publications.ml_http import (
     ERROR_INVALID_JSON,
     ERROR_NETWORK,
@@ -55,6 +55,7 @@ def disabled_outcome() -> JobResult:
 _SETTING_KEYS = (
     "refresh.enabled",
     "events.enabled",
+    "links.enabled",
     "bundle_resources",
     "bulk_max_ids",
     "rate_per_sec",
@@ -123,8 +124,9 @@ class RefreshHandler:
         self._elements: Counter = Counter()
         self._skipped_no_fetcher: Counter = Counter()
         self._apply_counters = store.ApplyCounters()
-        # `events.enabled` as of the current batch boundary (read with the other settings).
+        # `events.enabled` / `links.enabled` as of the current batch boundary (read with the other settings).
         self._events_enabled = False
+        self._links_enabled = False
 
     # --- run ---------------------------------------------------------------------------
 
@@ -133,6 +135,7 @@ class RefreshHandler:
         if config["refresh.enabled"].value is not True:
             return disabled_outcome()
         self._events_enabled = config["events.enabled"].value is True
+        self._links_enabled = config["links.enabled"].value is True
         run = _Run()
         try:
             while _utcnow() < ctx.deadline:
@@ -155,6 +158,7 @@ class RefreshHandler:
                     break
                 config = settings_store.get_settings(_SETTING_KEYS)
                 self._events_enabled = config["events.enabled"].value is True
+                self._links_enabled = config["links.enabled"].value is True
         finally:
             if run.claimed or run.called:
                 self._flush_counters(run)
@@ -276,6 +280,7 @@ class RefreshHandler:
                 trigger_received_at=claim.source_received_at,
                 counters=self._apply_counters,
                 events_enabled=self._events_enabled,
+                links_enabled=self._links_enabled,
             )
         except Exception as exc:  # noqa: BLE001 -- one item's failure must not lose the batch
             logger.exception("apply_fetch failed for %s", claim.entity_id)
@@ -415,5 +420,39 @@ class IntakeHandler:
         _persist_detail(self.name, detail)
 
 
+RELINK_HANDLER = "ml_publications.relink"
+_RELINK_KEYS = ("links.enabled", "events.enabled")
+
+
+def _relink_gate() -> Optional[bool]:
+    """Read at every sweep batch boundary: the `events.enabled` flag while linking is on, else None (stop)."""
+    config = settings_store.get_settings(_RELINK_KEYS)
+    if config["links.enabled"].value is not True:
+        return None
+    return config["events.enabled"].value is True
+
+
+class RelinkHandler:
+    """`ml_publications.relink`: the product link re-link sweep (design D20). Makes no ML call.
+
+    Every 15 minutes it evaluates units never evaluated or whose SKU key changed; when the product
+    catalog fingerprint changed, and once a day after 04:30 (Argentina), it runs a forced lap that
+    re-evaluates every unit. The daily pass lives inside this interval job: the scheduler gives a
+    handler either an interval or a daily slot, never both, and no cron is introduced.
+    """
+
+    name = RELINK_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(minutes=15)
+    run_at_local: Optional[time] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        if _relink_gate() is None:
+            return disabled_outcome()
+        sweep = links.run_sweep(deadline=ctx.deadline, gate=_relink_gate)
+        return JobResult(success=True, detail=sweep.as_detail())
+
+
 refresh = RefreshHandler()
 intake = IntakeHandler()
+relink = RelinkHandler()
