@@ -7,7 +7,9 @@ error. Only that captured body is the state, so another 404 (a gateway, a differ
 
 No item under review existed on 2026-10-06, so no moderation record was captured: a 200 object is
 stored unchanged and typed only as `has_moderation = true`. The restrictive and resolved values inside
-a record are NOT interpreted until a real record is captured.
+a record are NOT interpreted until a real record is captured. The fixture test
+`test_moderation_captures_are_only_the_no_moderation_404_body` fails the day a record is added to the
+fixture, which is the cue to revisit `map_moderation`, the events and `bundle.MODERATION_*`.
 """
 
 from __future__ import annotations

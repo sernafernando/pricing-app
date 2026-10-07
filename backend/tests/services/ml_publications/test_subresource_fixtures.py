@@ -102,7 +102,11 @@ def test_performance_captures_a_200_for_a_user_product_and_the_product_items_400
 
 def test_moderation_captures_are_only_the_no_moderation_404_body():
     calls = load_fixture(SUBRESOURCE_FIXTURES["moderation"])["calls"]
-    assert calls and {(c["status"], json.dumps(c["body"])) for c in calls} == {(404, '{"Status": 404}')}
+    captured = {(c["status"], json.dumps(c["body"])) for c in calls}
+    assert calls and captured == {(404, '{"Status": 404}')}, (
+        "a real moderation record was added to the fixture: re-check `map_moderation` (today any 200 object is "
+        "`has_moderation = true`), the moderation events and the sub_status/tag set of `bundle.MODERATION_*`"
+    )
 
 
 def test_visits_captures_have_daily_results_and_an_empty_window():
