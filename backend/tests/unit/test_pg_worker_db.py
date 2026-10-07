@@ -1,5 +1,7 @@
 """Per-xdist-worker PostgreSQL database isolation (tests/pg_worker_db.py)."""
 
+import os
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
@@ -45,8 +47,6 @@ def test_ensure_database_creates_once_and_is_idempotent():
 
     if not _postgres_reachable():
         pytest.skip("PostgreSQL not reachable")
-    import os
-
     base = os.environ["POSTGRES_TEST_URL"]
     url = pg_worker_db.worker_database_url(base, "unitcheck")
     pg_worker_db.ensure_database(url)
