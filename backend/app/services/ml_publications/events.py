@@ -6,9 +6,9 @@ write and the re-derivation of events from the change log alone (spec Domain 5).
 called only for rows that were actually written: a first sighting or a noise-only diff has
 no row and therefore no event. No I/O here; persistence lives in `events_store`.
 
-Covers the item core, the price events (`price_changed` kinds standard, promotion, sale) and the
-promotion events (offered, activated, finished, price changed); other resources add their rules
-with their PRs.
+Covers the item core, the price events (`price_changed` kinds standard, promotion, sale), the
+promotion events (offered, activated, finished, price changed), the catalog competition events
+(won, lost) and the moderation events (applied, resolved); other resources add their rules with their PRs.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Optional, Sequence
 
-from app.services.ml_publications.resources import PROMOTIONS_RESOURCE
+from app.services.ml_publications.resources import COMPETITION_RESOURCE, MODERATION_RESOURCE, PROMOTIONS_RESOURCE
 
 ITEM_RESOURCE = "item"
 PRODUCT_LINK_RESOURCE = "product_link"
@@ -373,6 +373,51 @@ def _promotions_events(row: ChangeRow) -> list[Event]:
     return events
 
 
+COMPETITION_WINNING = "winning"
+MODERATION_ABSENT, MODERATION_PRESENT = "no_moderation", "moderation"
+
+
+def _competition_events(row: ChangeRow) -> list[Event]:
+    """Won / lost the catalog buy box: `status` becomes `winning` from another status, or leaves `winning`.
+
+    Moving between two non-winning statuses (`competing`, `sharing_first_place`, `listed`, `not_listed`)
+    is a change-log fact, not an event. The prices ride in the payload, as of the new observation."""
+    old, new = _entries(row)
+    if old is None or new is None:
+        return []
+    old_status, new_status = old.get("status"), new.get("status")
+    if old_status == new_status or old_status is None or new_status is None:
+        return []
+    if new_status == COMPETITION_WINNING:
+        event_type = "catalog_competition_won"
+    elif old_status == COMPETITION_WINNING:
+        event_type = "catalog_competition_lost"
+    else:
+        return []
+    payload = {name: new.get(name) for name in ("price_to_win", "current_price", "currency_id")}
+    return [Event(event_type, row.item_id or "", old_value=old_status, new_value=new_status, payload=payload)]
+
+
+def _moderation_events(row: ChangeRow) -> list[Event]:
+    """Applied / resolved: a moderation record appears after the no-moderation state, or goes back to it.
+
+    Only presence is read. No positive record was captured (no item was under review on 2026-10-06), so
+    what a record says (restrictive, resolved) is not interpreted until a real one is."""
+    old, new = _entries(row)
+    if old is None or new is None:
+        return []
+    was, is_now = old.get("has_moderation"), new.get("has_moderation")
+    if was is False and is_now is True:
+        return [
+            Event("moderation_applied", row.item_id or "", old_value=MODERATION_ABSENT, new_value=MODERATION_PRESENT)
+        ]
+    if was is True and is_now is False:
+        return [
+            Event("moderation_resolved", row.item_id or "", old_value=MODERATION_PRESENT, new_value=MODERATION_ABSENT)
+        ]
+    return []
+
+
 def derive_events(row: ChangeRow) -> list[Event]:
     """Typed events of one change-log row; empty when the change maps to none."""
     if row.resource_type == PRODUCT_LINK_RESOURCE:
@@ -383,6 +428,10 @@ def derive_events(row: ChangeRow) -> list[Event]:
         return _prices_events(row) if row.resource_type == PRICES_RESOURCE else _sale_price_events(row)
     if row.resource_type == PROMOTIONS_RESOURCE:
         return _promotions_events(row) if row.kind in _CHANGE_KINDS else []
+    if row.resource_type == COMPETITION_RESOURCE:
+        return _competition_events(row) if row.kind in _CHANGE_KINDS else []
+    if row.resource_type == MODERATION_RESOURCE:
+        return _moderation_events(row) if row.kind in _CHANGE_KINDS else []
     if row.resource_type != ITEM_RESOURCE:
         return []
     item_id = row.item_id or ""

@@ -130,6 +130,12 @@ def user_products_section(doc: str) -> str:
     return doc[start : nxt if nxt != -1 else len(doc)]
 
 
+def quality_section(doc: str) -> str:
+    start = doc.index("## Enabling competition, moderation, performance and visits")
+    nxt = doc.find("\n## ", start + 1)
+    return doc[start : nxt if nxt != -1 else len(doc)]
+
+
 def test_enabling_the_user_product_fetchers_is_documented_with_gate_ages_budget_and_rollback(doc) -> None:
     section = user_products_section(doc)
     for needle in (
@@ -148,6 +154,26 @@ def test_enabling_the_user_product_fetchers_is_documented_with_gate_ages_budget_
         assert needle in section, needle
 
 
+def test_enabling_the_quality_resources_is_documented_with_gates_applicability_and_rollback(doc) -> None:
+    section = quality_section(doc)
+    for needle in (
+        "bundle_resources",
+        "competition",
+        "catalog_listing",
+        "moderation",
+        '{"Status": 404}',
+        "performance",
+        "Product items are not supported",
+        "visits",
+        "sweep",
+        "skipped_not_applicable",
+        "requeued_for_core",
+        "ML_PUB_MIN_AGE_SECONDS",
+        "Rollback",
+    ):
+        assert needle in section, needle
+
+
 def test_the_stock_and_family_topics_stay_unmapped_until_a_real_row_fixes_their_pattern(doc) -> None:
     section = user_products_section(doc)
     for topic in ("stock-locations", "user-products-families"):
@@ -158,3 +184,24 @@ def test_the_stock_and_family_topics_stay_unmapped_until_a_real_row_fixes_their_
         section
     )
     assert "NOT mapped" in section
+
+
+def test_a_stale_competition_row_is_explained_with_how_to_read_it(doc) -> None:
+    section = " ".join(quality_section(doc).split())
+    assert "ml_items.catalog_listing" in section and "no event" in section.lower()
+
+
+def test_the_moderation_gap_and_the_unverified_signal_set_are_stated(doc) -> None:
+    section = " ".join(quality_section(doc).lower().split())
+    for needle in ("no moderation record was captured", "moderation_penalty", "waiting_for_patch", "ml documentation"):
+        assert needle in section, needle
+
+
+def test_the_documented_competition_topic_map_is_accepted_by_intake(doc) -> None:
+    blocks = re.findall(r"```json\n(.*?)\n```", quality_section(doc), flags=re.DOTALL)
+    assert len(blocks) == 1
+    mappings = topic_mappings(json.loads(blocks[0]))
+    assert sorted((m.topic, m.resources) for m in mappings) == [
+        ("catalog_item_competition_status", ("competition",)),
+        ("items", ("bundle",)),
+    ]

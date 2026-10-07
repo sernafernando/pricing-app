@@ -18,12 +18,16 @@ from app.core import database
 from app.models.ml_publications import MlItem
 from app.services.ml_publications.resources import (
     BUNDLE_RESOURCE,
+    COMPETITION_RESOURCE,
     CORE_RESOURCE,
     FAMILY_KIND,
     ITEM_KIND,
+    MODERATION_RESOURCE,
+    PERFORMANCE_RESOURCE,
     PROMOTIONS_RESOURCE,
     RESOURCES,
     USER_PRODUCT_KIND,
+    VISITS_RESOURCE,
 )
 from app.services.ml_publications.subresource_store import MODELS, InvalidKey, typed_key
 
@@ -59,8 +63,20 @@ FETCHERS: Dict[str, SubFetcher] = {
         SubFetcher("stock", "/user-products/{id}/stock", entity=USER_PRODUCT_KIND),
         # The family the item belongs to (`/sites/MLA/user-products-families/{family_id}`).
         SubFetcher("family", "/sites/MLA/user-products-families/{id}", entity=FAMILY_KIND),
+        # Catalog buy-box competition; only catalog listings have one (`is_applicable`).
+        SubFetcher(COMPETITION_RESOURCE, "/items/{id}/price_to_win", {"version": "v2"}),
+        # Last moderation; `404 {"Status": 404}` means "none" and is stored as a state (parsers/moderation.py).
+        SubFetcher(MODERATION_RESOURCE, "/moderations/last_moderation/{id}-ITM"),
+        # Note `item`, singular. A catalog product item answers a 400 that is stored as a state.
+        SubFetcher(PERFORMANCE_RESOURCE, "/item/{id}/performance"),
+        SubFetcher(VISITS_RESOURCE, "/items/{id}/visits/time_window", {"last": "30", "unit": "day"}),
     )
 }
+
+# Never part of the bundle (design D12: no notification topic, too costly per sale-triggered event): an entry
+# reaches them only by naming them, which the sweeps do. Listing them in `bundle_resources` enables the named
+# request; the bundle itself skips them.
+SWEEP_ONLY: frozenset = frozenset({PERFORMANCE_RESOURCE, VISITS_RESOURCE})
 
 # Resources that need their own flag on top of being listed in `bundle_resources` (design D14: the
 # promotions endpoint is shared with the bridge's ML application, so it has a separate kill point).
@@ -107,7 +123,7 @@ def plan(
                 continue
             if not applies_to_kind(name, kind):
                 continue  # not meant for this entity (item resources, other entities): not applicable, not dropped
-            if not has_fetcher(name) or name in gated_off:
+            if not has_fetcher(name) or name in gated_off or name in SWEEP_ONLY:  # sweep-only: named requests only
                 dropped.add(name)
             else:
                 wanted[name] = False
@@ -121,7 +137,64 @@ def plan(
             wanted[name] = True
         else:
             dropped.add(name)
+    dropped.difference_update(wanted)  # a sweep-only name skipped by the bundle but asked for by name is wanted
     return Plan(needs_core=needs_core, wanted=wanted, dropped=frozenset(dropped))
+
+
+# What makes an item worth a moderation request on a bundle refresh. `under_review` is the item status the
+# store already scans for. The sub_status and tag values come from the ML documentation, NOT from a capture
+# (no item under review or penalized existed on 2026-10-06, see the apply notes): a value missing here only
+# means the bundle does not ask, and a named `moderation` entry always does.
+MODERATION_STATUSES: frozenset = frozenset({"under_review"})
+MODERATION_SUB_STATUSES: frozenset = frozenset({"forbidden", "waiting_for_patch"})
+MODERATION_TAGS: frozenset = frozenset({"moderation_penalty"})
+
+
+# Resources whose `is_applicable` reads the stored item.
+SIGNAL_RESOURCES: frozenset = frozenset({COMPETITION_RESOURCE, MODERATION_RESOURCE})
+
+
+@dataclass(frozen=True)
+class ItemSignals:
+    """The stored facts of an item that decide whether a sub-resource applies to it."""
+
+    catalog_listing: Optional[bool]
+    status: Optional[str]
+    sub_status: Sequence[str] = ()
+    tags: Sequence[str] = ()
+
+
+def is_applicable(resource: str, signals: Optional[ItemSignals], *, explicit: bool) -> bool:
+    """Whether `resource` is worth asking ML about for an item (`None`: the item is not in the store).
+
+    Competition exists only for catalog listings, so it is never requested for anything else, not even by
+    name (spec "Sub-resource not applicable"). Moderation is asked on the bundle only for an item whose state
+    suggests one; a named request always goes through. Every other resource always applies."""
+    if resource == COMPETITION_RESOURCE:
+        return signals is not None and signals.catalog_listing is True
+    if resource == MODERATION_RESOURCE and not explicit:
+        return signals is not None and (
+            signals.status in MODERATION_STATUSES
+            or bool(MODERATION_SUB_STATUSES.intersection(signals.sub_status or ()))
+            or bool(MODERATION_TAGS.intersection(signals.tags or ()))
+        )
+    return True
+
+
+def item_signals(item_ids: Sequence[str]) -> Dict[str, ItemSignals]:
+    """`ItemSignals` of the stored items among `item_ids` (items not stored are absent)."""
+    if not item_ids:
+        return {}
+    with database.get_background_db() as db:
+        rows = (
+            db.query(MlItem.item_id, MlItem.catalog_listing, MlItem.status, MlItem.sub_status, MlItem.tags)
+            .filter(MlItem.item_id.in_(list(item_ids)))
+            .all()
+        )
+    return {
+        item_id: ItemSignals(catalog_listing, status, sub_status or (), tags or ())
+        for item_id, catalog_listing, status, sub_status, tags in rows
+    }
 
 
 def min_age_seconds(resource: str, configured: Mapping[str, Any]) -> int:

@@ -2,8 +2,9 @@
 operational tables of the refresh pipeline.
 
 Mirrors `alembic/versions/20261006_ml_publications_core.py` and, for the sub-resource
-state tables at the end of the module, `20261006_ml_publications_subresources.py`. Data comes only
-from MercadoLibre: no column or foreign key points at a GBP/ERP table.
+state tables at the end of the module, `20261006_ml_publications_subresources.py` and
+`20261007_ml_publications_quality.py`. Data comes only from MercadoLibre: no column or foreign key
+points at a GBP/ERP table.
 
 `fillfactor = 85` on the state tables is set by the migration only
 (SQLAlchemy has no table-level `postgresql_with`); Alembic autogenerate does not compare it.
@@ -338,6 +339,49 @@ class MlUserProductFamily(_SubResourceState, Base):
 
     family_id = Column(BigInteger, primary_key=True, autoincrement=False)
     user_products_ids = Column(ARRAY(Text))
+
+
+# --- Quality sub-resources (migration 20261007_ml_publications_quality) --------------------------------
+
+
+class MlItemCompetition(_SubResourceState, Base):
+    __tablename__ = "ml_item_competition"
+
+    item_id = Column(Text, primary_key=True)
+    status = Column(Text)
+    price_to_win = Column(Numeric(16, 2))
+    current_price = Column(Numeric(16, 2))
+    currency_id = Column(Text)
+    consistent = Column(Boolean)
+
+
+class MlItemPerformance(_SubResourceState, Base):
+    __tablename__ = "ml_item_performance"
+
+    item_id = Column(Text, primary_key=True)
+    applicable = Column(Boolean)
+    entity_type = Column(Text)
+    entity_id = Column(Text)
+    score = Column(Numeric(5, 2))
+    level = Column(Text)
+    calculated_at = Column(_TS)
+
+
+class MlItemModeration(_SubResourceState, Base):
+    __tablename__ = "ml_item_moderations"
+
+    item_id = Column(Text, primary_key=True)
+    has_moderation = Column(Boolean)
+
+
+class MlItemVisits(_SubResourceState, Base):
+    __tablename__ = "ml_item_visits"
+
+    item_id = Column(Text, primary_key=True)
+    window_days = Column(Integer)
+    total_visits = Column(Integer)
+    date_from = Column(_TS)
+    date_to = Column(_TS)
 
 
 # --- Product links (migration 20261006_ml_publications_product_links, design D20) -------------------

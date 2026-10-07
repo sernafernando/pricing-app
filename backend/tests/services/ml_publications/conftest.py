@@ -107,6 +107,7 @@ def mlpub_pg(monkeypatch):
         "20261006_ml_publications_core",
         "20261006_ml_publications_subresources",
         "20261006_ml_publications_product_links",
+        "20261007_ml_publications_quality",
     ):
         module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
         migration = importlib.util.module_from_spec(module_spec)
@@ -173,7 +174,8 @@ def item_with_variations() -> dict:
     return copy.deepcopy(load_fixture(ITEM_WITH_VARIATIONS))
 
 
-# --- Sub-resource captures (description, prices, sale price, promotions, user product, stock, family) ---
+# --- Sub-resource captures (description, prices, sale price, promotions, user product, stock, family,
+# competition, performance, moderation, visits) ---
 
 SUBRESOURCE_FIXTURES = {
     "description": "description_20261006.json",
@@ -183,6 +185,10 @@ SUBRESOURCE_FIXTURES = {
     "user_product": "user_product_20261006.json",
     "stock": "user_product_stock_20261006.json",
     "family": "family_20261006.json",
+    "competition": "price_to_win_20261006.json",
+    "performance": "performance_20261006.json",
+    "moderation": "moderation_20261006.json",
+    "visits": "visits_20261006.json",
 }
 
 

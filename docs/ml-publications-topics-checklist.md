@@ -169,3 +169,65 @@ Until then the stock and family stay as fresh as the `items` notification and th
 sale fires an `items` notification, and the item bundle re-checks them past their minimum age).
 
 Rollback: remove the names from `bundle_resources`; nothing already stored is deleted.
+
+## Enabling competition, moderation, performance and visits
+
+The refresh handler ships four more fetchers dark. Each makes no ML call until its name is listed in
+`bundle_resources` (default `["core"]`); a name that is not listed is dropped uncharged and counted in
+`skipped_disabled`. Rows go to `ml_item_competition`, `ml_item_moderations`, `ml_item_performance` and
+`ml_item_visits`; the answers are kept raw with one change-log row per real change.
+
+| Resource | Endpoint | Asked when | Bundle min age (`ML_PUB_MIN_AGE_SECONDS`) |
+|---|---|---|---|
+| `competition` | `GET /items/{id}/price_to_win?version=v2` | the stored item has `catalog_listing = true`, on the bundle and when named | 900 s |
+| `moderation` | `GET /moderations/last_moderation/{id}-ITM` | on the bundle: status `under_review`, or a moderation sub_status/tag (below); when named: always | 3600 s |
+| `performance` | `GET /item/{id}/performance` | only when an entry names it (the sweeps of a later PR do); never on the bundle | none |
+| `visits` | `GET /items/{id}/visits/time_window?last=30&unit=day` | only when an entry names it; never on the bundle | none |
+
+Notes, all from the 2026-10-06 captures:
+
+- An item that is not a catalog listing gets no `price_to_win` request and no row, even when `competition` is named
+  (`skipped_not_applicable` counts it). The core of the same run is stored first, so the decision reads fresh data.
+  An entry that names `competition` for an item that is not stored yet (its notification can come first) cannot be
+  decided: its core is queued first (counter `requeued_for_core`) and the entry is refetched in the same run.
+- A competition row is never deleted. If an item later stops being a catalog listing, its row keeps the last status
+  and no event is raised (no `catalog_competition_lost`); read `ml_item_competition` together with
+  `ml_items.catalog_listing`.
+- A moderation `404 {"Status": 404}` means "no moderation": it is stored as `has_moderation = false`, not as gone, not
+  as a failure, and raises no `item_gone`. Any other 404 body is a missing resource and marks the row gone.
+- Performance of a catalog product item answers `400 "Entity not calculated: Product items are not supported"`: stored
+  as `applicable = false`, the queue entry completes without a charged attempt. Any other 400 is a failure.
+- Performance and visits are sweep-only (no ML notification, high cost per sale-triggered event). Listing them in
+  `bundle_resources` only allows a NAMED request; a `bundle` entry skips them. The sweeps arrive in a later PR.
+- Visits `results` are diffed by `date`: a daily refetch logs the day that entered or left the 30-day window, never the
+  whole window.
+- With `events.enabled`: `catalog_competition_won` / `catalog_competition_lost` (the status becomes or stops being
+  `winning`) and `moderation_applied` / `moderation_resolved` (a moderation record appears, or the answer goes back to
+  the no-moderation 404).
+
+Known gaps, stated rather than guessed:
+
+- No moderation record was captured (no item was under review on 2026-10-06). A 200 is stored unchanged and typed only
+  as `has_moderation = true`; what a record says (restrictive, resolved) is not interpreted until a real one is
+  captured. No losing competition sample was captured either: `lost` is tested on a real winning body with one field
+  changed.
+- The moderation sub_status/tag set that makes the bundle ask (`forbidden`, `waiting_for_patch`, tag
+  `moderation_penalty`) comes from the ML documentation, not from a capture. A value missing from it only means the
+  bundle does not ask; a named `moderation` entry always does.
+
+Intake can keep competition fresh from its notification topic (19 resources per hour on 2026-10-06, so the default
+900 s age is never the limit). Not part of the default map:
+
+```json
+{"items": {"kind": "item", "resources": ["bundle"]},
+ "catalog_item_competition_status": {"kind": "item", "resources": ["competition"]}}
+```
+
+Order to turn it on, one resource at a time, watching its counters in `worker_job_state.detail`:
+
+1. `bundle_resources = ["core", "competition"]`, then enqueue one catalog item and read its `ml_item_competition` row.
+2. Add `moderation`, then `catalog_item_competition_status` to `intake.topics`.
+3. `performance` and `visits` only once their sweeps ship.
+
+Rollback: remove the names from `bundle_resources` (and the topic from `intake.topics`); nothing already stored is
+deleted, and the migration `20261007_ml_publications_quality` downgrades by dropping its four tables.

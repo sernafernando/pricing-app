@@ -16,11 +16,17 @@ from app.services.ml_publications.mappers import map_item
 from app.services.ml_publications.parsers.description import map_description, parse_description
 from app.services.ml_publications.parsers.family import map_family, parse_family
 from app.services.ml_publications.parsers.items_bulk import parse_items_bulk
+from app.services.ml_publications.parsers.moderation import NEGATIVE_STATES as MODERATION_NEGATIVE_STATES
+from app.services.ml_publications.parsers.moderation import map_moderation, parse_moderation
+from app.services.ml_publications.parsers.performance import NEGATIVE_STATES as PERFORMANCE_NEGATIVE_STATES
+from app.services.ml_publications.parsers.performance import map_performance, parse_performance
+from app.services.ml_publications.parsers.price_to_win import map_price_to_win, parse_price_to_win
 from app.services.ml_publications.parsers.prices import map_prices, parse_prices
 from app.services.ml_publications.parsers.sale_price import map_sale_price, parse_sale_price
 from app.services.ml_publications.parsers.seller_promotions import map_seller_promotions, parse_seller_promotions
 from app.services.ml_publications.parsers.user_product import map_user_product, parse_user_product
 from app.services.ml_publications.parsers.user_product_stock import map_user_product_stock, parse_user_product_stock
+from app.services.ml_publications.parsers.visits import map_visits, parse_visits
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,10 @@ PROMOTIONS_RESOURCE = "promotions"
 ITEM_KIND = "item"
 USER_PRODUCT_KIND = "user_product"
 FAMILY_KIND = "family"
+COMPETITION_RESOURCE = "competition"
+MODERATION_RESOURCE = "moderation"
+PERFORMANCE_RESOURCE = "performance"
+VISITS_RESOURCE = "visits"
 REFRESH_RESOURCES: tuple[str, ...] = (
     BUNDLE_RESOURCE,
     CORE_RESOURCE,
@@ -57,10 +67,10 @@ REFRESH_RESOURCES: tuple[str, ...] = (
     "user_product",
     "stock",
     "family",
-    "competition",
-    "moderation",
-    "performance",
-    "visits",
+    COMPETITION_RESOURCE,
+    MODERATION_RESOURCE,
+    PERFORMANCE_RESOURCE,
+    VISITS_RESOURCE,
 )
 
 RESOURCES: dict[str, ResourceSpec] = {}
@@ -93,10 +103,10 @@ register(
 )
 
 # Sub-resources, named as in REFRESH_RESOURCES. Their fetchers arrive in later PRs.
-for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
-    ("description", ("item_id",), map_description, parse_description, "description_20261006.json", {}),
-    ("prices", ("item_id",), map_prices, parse_prices, "prices_20261006.json", {}),
-    ("sale_price", ("item_id",), map_sale_price, parse_sale_price, "sale_price_20261006.json", {}),
+for _name, _keys, _mapper, _parser, _fixture, _array_keys, _negative_states in (
+    ("description", ("item_id",), map_description, parse_description, "description_20261006.json", {}, {}),
+    ("prices", ("item_id",), map_prices, parse_prices, "prices_20261006.json", {}, {}),
+    ("sale_price", ("item_id",), map_sale_price, parse_sale_price, "sale_price_20261006.json", {}, {}),
     (
         PROMOTIONS_RESOURCE,
         ("item_id",),
@@ -104,8 +114,17 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
         parse_seller_promotions,
         "seller_promotions_20261006.json",
         array_keys_for("promotions"),
+        {},
     ),
-    ("user_product", ("user_product_id",), map_user_product, parse_user_product, "user_product_20261006.json", {}),
+    (
+        "user_product",
+        ("user_product_id",),
+        map_user_product,
+        parse_user_product,
+        "user_product_20261006.json",
+        {},
+        {},
+    ),
     (
         "stock",
         ("user_product_id",),
@@ -113,8 +132,37 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
         parse_user_product_stock,
         "user_product_stock_20261006.json",
         array_keys_for("stock"),
+        {},
     ),
-    ("family", ("family_id",), map_family, parse_family, "family_20261006.json", {}),
+    ("family", ("family_id",), map_family, parse_family, "family_20261006.json", {}, {}),
+    (
+        COMPETITION_RESOURCE,
+        ("item_id",),
+        map_price_to_win,
+        parse_price_to_win,
+        "price_to_win_20261006.json",
+        {},
+        {},
+    ),
+    (
+        PERFORMANCE_RESOURCE,
+        ("item_id",),
+        map_performance,
+        parse_performance,
+        "performance_20261006.json",
+        {},
+        PERFORMANCE_NEGATIVE_STATES,
+    ),
+    (
+        MODERATION_RESOURCE,
+        ("item_id",),
+        map_moderation,
+        parse_moderation,
+        "moderation_20261006.json",
+        {},
+        MODERATION_NEGATIVE_STATES,
+    ),
+    (VISITS_RESOURCE, ("item_id",), map_visits, parse_visits, "visits_20261006.json", array_keys_for("visits"), {}),
 ):
     register(
         ResourceSpec(
@@ -124,5 +172,6 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
             parser=_parser,
             fixture=_fixture,
             array_keys=_array_keys,
+            negative_states=_negative_states,
         )
     )

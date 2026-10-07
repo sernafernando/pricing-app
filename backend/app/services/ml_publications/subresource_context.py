@@ -9,7 +9,8 @@ the business reads, before and after the change, with amounts as decimal strings
 `prices` entries: `{"standard": {amount, currency_id, price_id} | None,
 "promotion": {amount, price_id, promotion_id, promotion_type} | None}`, selected for the
 marketplace channel exactly as the typed columns are. `sale_price` entries: `{amount,
-regular_amount, currency_id, campaign_id, promotion_id, promotion_type}`. `promotions` entries: the
+regular_amount, currency_id, campaign_id, promotion_id, promotion_type}`. `competition` entries: `{status,
+price_to_win, current_price, currency_id}`; `moderation` entries: `{has_moderation}`. `promotions` entries: the
 list keyed by promotion key (`id`, else `type`), each `{id, type, status, price, original_price,
 min/max/suggested_discounted_price}` with amounts as decimal strings; a key ML repeats is
 `{ambiguous: true, id, type}` and raises no event. No I/O.
@@ -21,14 +22,18 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping, Optional
 
 from app.services.ml_publications.mappers import to_decimal
+from app.services.ml_publications.parsers.moderation import map_moderation
+from app.services.ml_publications.parsers.price_to_win import map_price_to_win
 from app.services.ml_publications.parsers.prices import marketplace_entries
 from app.services.ml_publications.parsers.sale_price import map_sale_price
 from app.services.ml_publications.parsers.seller_promotions import promotion_key
-from app.services.ml_publications.resources import PROMOTIONS_RESOURCE
+from app.services.ml_publications.resources import COMPETITION_RESOURCE, MODERATION_RESOURCE, PROMOTIONS_RESOURCE
 
 PRICES = "prices"
 SALE_PRICE = "sale_price"
 PROMOTIONS = PROMOTIONS_RESOURCE
+COMPETITION = COMPETITION_RESOURCE
+MODERATION = MODERATION_RESOURCE
 
 
 def _money(value: Optional[Decimal]) -> Optional[str]:
@@ -117,10 +122,30 @@ def promotions_entries(raw: Any) -> Optional[dict]:
     return entries
 
 
+def competition_entries(raw: Any) -> Optional[dict]:
+    if not isinstance(raw, Mapping):
+        return None
+    typed = map_price_to_win(raw)
+    return {
+        "status": typed["status"],
+        "price_to_win": _money(typed["price_to_win"]),
+        "current_price": _money(typed["current_price"]),
+        "currency_id": typed["currency_id"],
+    }
+
+
+def moderation_entries(raw: Any) -> Optional[dict]:
+    if not isinstance(raw, Mapping):
+        return None
+    return {"has_moderation": map_moderation(raw)["has_moderation"]}
+
+
 _BUILDERS: dict[str, Callable[[Any], Optional[dict]]] = {
     PRICES: prices_entries,
     SALE_PRICE: sale_price_entries,
     PROMOTIONS: promotions_entries,
+    COMPETITION: competition_entries,
+    MODERATION: moderation_entries,
 }
 
 
