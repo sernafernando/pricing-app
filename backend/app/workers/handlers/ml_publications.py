@@ -604,11 +604,11 @@ class RelinkHandler:
 SCAN_HANDLER = "ml_publications.scan"
 _SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
-# Failing runs of the same kind (ML errors, unexpected exceptions), with no good run in between,
-# after which the scan stops retrying every
-# pass and waits for its daily slot; each failed run is retried on the next pass until then. The streak
-# lives in the process (a restart clears it) and only failing runs extend it: a run cut short by the
-# deadline or a 429 counts as a good one, so an outage that alternates 503 and 429 keeps retrying.
+# Failing runs of the same kind (ML errors, unexpected exceptions) with no good run in between, after
+# which the scan stops retrying on every pass and waits for its daily slot; each failed run is retried
+# on the next pass until then. The streak lives in the process (a restart clears it) and only failing
+# runs extend it: a run cut short by the deadline or a 429 counts as a good one, so an outage that
+# alternates 503 and 429 keeps retrying.
 UPSTREAM_ERROR_STREAK = 5
 # Engine errors that only a setup change can fix (`MlResponse.error` values of a call that was refused).
 _BLOCKED_BY_SETUP = frozenset({OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN, "unauthorized"})
@@ -677,7 +677,7 @@ class ScanHandler:
     def _failed(
         self, error: str, detail: Optional[Dict[str, Any]] = None, *, reason: str = "upstream_error"
     ) -> JobResult:
-        """A failed run is retried on the next pass; a streak of them means ML is down, so stop spinning."""
+        """A failed run is retried on the next pass; a streak of them means retrying will not help, so stop spinning."""
         self._error_streaks[reason] += 1
         if self._error_streaks[reason] >= UPSTREAM_ERROR_STREAK:
             self._error_streaks.clear()
