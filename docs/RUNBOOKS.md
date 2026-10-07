@@ -924,6 +924,8 @@ connection. Install: `sudo cp deploy/systemd/pricing-worker-ml.service
 app.scripts.ml_publications_settings get|set`, `ml_publications_enqueue` and
 `ml_publications_request` (run from `backend/`). Roll back: set the flag off,
 then `sudo systemctl disable --now pricing-worker-ml`.
+The scan (first backfill, rescans, pause): see
+`docs/ml-publications-scan-runbook.md`.
 
 ### Heartbeat death / unexpected restarts
 
