@@ -259,6 +259,9 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   page, because ML trims it from the front). A failed run waits 1, 2, 4, ... minutes (at most 1 hour) before the next try
   (`detail.failures`, `detail.retry_at`); a missing `ML_USER_ID` / `ML_CLIENT_ID` or a rejected token ends the run as
   `blocked` until the setup is fixed.
+* Known gap: the capture does not say in which order ML returns the messages. If it trims the list at the end the
+  run pages from, a run that resumes can skip messages without noticing; the 3 hour limit on a saved position, the
+  next 2-hourly run and the rescan requested after a gap of more than 48 h bound that risk.
 * Known gaps: the capture's calls for `stock-location` and `user_products` used wrong topic names (there is no such
   topic), so only their shape (`{messages: null}`) is evidence. The 20 messages per page is a conservative choice:
   the capture used `limit=5` and ML's ceiling is not in it.
@@ -280,6 +283,10 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
 * Sizing (2026-10-06): about 24.6k eligible items (16.2k of them paused) x 2 resources = about 49k calls a day =
   0.57 req/s, close to 30% of the 2 req/s budget. With `sweep.statuses = ["active"]` (about 7.8k items) it is about
   15.6k calls a day = 0.18 req/s. Each tick's run record carries `calls_per_day` and `requests_per_second`.
+
+The sweep handler reports success even when a tick fails (the next tick, ten minutes later, retries it), so
+`worker_job_state.last_success_at` is not a health signal for it: watch `outcome` and `last_error` in `ml_pub_job_runs`
+where `job = 'sweep'`.
 
 ### Turning it on
 

@@ -251,6 +251,7 @@ def _walk_topic(
     while True:
         if not keep_going():
             return stop(STOP_DISABLED)
+        # the worker deadline is wall-clock time: it is deliberately NOT compared with the injected `now`
         if _utcnow() >= deadline:
             return stop(STOP_DEADLINE)
         # the position of the page in flight: an unexpected error while applying it leaves the run here

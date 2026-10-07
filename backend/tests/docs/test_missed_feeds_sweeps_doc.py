@@ -87,6 +87,11 @@ def test_the_yielded_outcome_is_explained(section) -> None:
     assert "`yielded`" in section and "expected, not a fault" in section
 
 
+def test_the_health_signals_and_the_unconfirmed_ordering_are_stated(section) -> None:
+    assert "`last_success_at` is not a health signal" in section
+    assert "does not say in which order" in section
+
+
 def test_the_parked_items_note_is_present(section) -> None:
     assert "parked" in section and "enqueued by hand" in section
 
