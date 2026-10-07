@@ -139,7 +139,8 @@ class _Interruption:
 class RefreshHandler:
     """`ml_publications.refresh`: claims queued items and refreshes them from `/items/bulk`, then
     fetches the sub-resources each entry asks for (`bundle.FETCHERS`: description, prices, sale_price,
-    promotions, and the user product, stock and family of the item).
+    promotions, the user product, stock and family of the item, competition, moderation, performance and
+    visits).
 
     Entries of kind `user_product` and `family` (stock / family notifications, manual) carry no item: they
     fetch only their own resources. An item entry reaches the user product and family through the stored
@@ -147,7 +148,9 @@ class RefreshHandler:
     one user product in a batch fetch it once (`skipped_shared`).
 
     A sub-resource runs only when it is enabled in `bundle_resources` (default: the core only); promotions
-    also need `promotions.enabled`. Any
+    also need `promotions.enabled`. Performance and visits are sweep-only: a bundle never asks for them.
+    Competition and moderation are also skipped, uncharged, for an item they do not apply to
+    (`bundle.is_applicable`, counter `skipped_not_applicable`). Any
     other requested resource is dropped from its entry without charging an attempt (design D12):
     intake and manual enqueues can name resources that are disabled or whose code ships in a later
     PR without poisoning the queue. A failing sub-resource is charged to that resource alone: the
@@ -382,6 +385,7 @@ class RefreshHandler:
                 if resource not in due[work.claim.key]:
                     self._skipped_min_age[resource] += 1
                     work.done.add(resource)
+        self._settle_not_applicable(walking)
         fetched: Dict[Tuple[str, str], Optional[str]] = {}  # (resource, id) -> failure, for this batch
         for position, work in enumerate(walking):
             for resource in sorted(work.pending):
@@ -427,6 +431,22 @@ class RefreshHandler:
                     ids[resource] = key
             targets[work.claim.key] = ids
         return targets
+
+    def _settle_not_applicable(self, works: Sequence[_Work]) -> None:
+        """Settle, uncharged, the pending resources that do not apply to their item (e.g. competition of a
+        non-catalog listing): no request, no row. The item core of this run is already stored.
+        Only item entries have item-entity resources: `item_signals` receives item ids only."""
+        checked = [w for w in works if w.claim.kind == ITEM_KIND and w.pending & bundle.SIGNAL_RESOURCES]
+        if not checked:
+            return
+        signals = bundle.item_signals([w.claim.entity_id for w in checked])
+        for work in checked:
+            for resource in sorted(work.pending & bundle.SIGNAL_RESOURCES):
+                if not bundle.is_applicable(
+                    resource, signals.get(work.claim.entity_id), explicit=work.plan.wanted[resource]
+                ):
+                    self._skipped_not_applicable[resource] += 1
+                    work.done.add(resource)
 
     def _due_resources(
         self,
