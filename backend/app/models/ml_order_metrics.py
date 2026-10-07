@@ -78,7 +78,12 @@ class MlOrderMetricsDirty(Base):
     PR4/PR6) -- this table's DDL alone ships in PR1, inert until then."""
 
     __tablename__ = "ml_order_metrics_dirty"
-    __table_args__ = (Index("ix_ml_order_metrics_dirty_enqueued_at", "enqueued_at"),)
+    __table_args__ = (
+        Index("ix_ml_order_metrics_dirty_enqueued_at", "enqueued_at"),
+        # Serves `claim_dirty`'s ORDER BY (live tier first, then FIFO). The
+        # expression must stay identical to `queue._TIER_SQL`.
+        Index("ix_ml_order_metrics_dirty_priority", text("(reason IN ('divergence', 'reconcile'))"), "enqueued_at"),
+    )
 
     order_id = Column(BigInteger, primary_key=True)
     version = Column(BigInteger, nullable=False, server_default=text("1"))
