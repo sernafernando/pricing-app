@@ -196,6 +196,8 @@ def request_job(
         return admin.request_job(db, job, mode=body.mode, actor=_actor(user))
     except admin.UnknownJob as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Trabajo desconocido: {job}") from exc
+    except admin.InvalidSetting as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except admin.ModeNotApplicable as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="`mode` solo aplica al trabajo `scan`"

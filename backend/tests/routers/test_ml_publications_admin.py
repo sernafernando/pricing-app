@@ -163,6 +163,21 @@ class TestStatus:
         assert "SET LOCAL STATEMENT_TIMEOUT = '5S'" in statements
         assert not [s for s in statements if s.startswith(("INSERT", "UPDATE", "DELETE", "TRUNCATE"))]
 
+    def test_a_job_error_that_is_not_text_does_not_break_the_report(self, client, pg, reader) -> None:
+        with pg.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO worker_job_state (name, detail) VALUES "
+                    "('ml_publications.refresh', CAST('{\"error\": {\"code\": 7}}' AS jsonb))"
+                )
+            )
+
+        response = client.get(f"{BASE}/status", headers=reader)
+
+        assert response.status_code == 200
+        refresh = next(job for job in response.json()["jobs"] if job["job"] == "refresh")
+        assert "7" in refresh["last_error"]
+
     def test_it_reports_a_parked_entry_with_its_error(self, client, pg, reader) -> None:
         with pg.begin() as conn:
             conn.execute(
@@ -408,6 +423,14 @@ class TestJobRequest:
         stored = rows(pg, "SELECT value, updated_by FROM ml_pub_settings WHERE key = 'scan.next_mode'")[0]
         assert (stored["value"], stored["updated_by"]) == (mode, "user:adminuser")
         assert worker_state(pg, "ml_publications.scan") == "requested"
+
+    def test_a_refused_scan_mode_is_422_not_500(self, client, pg, operator, monkeypatch) -> None:
+        def refuse(*args, **kwargs):
+            raise admin.InvalidSetting("invalid value for ml_pub setting 'scan.next_mode'")
+
+        monkeypatch.setattr(admin, "request_job", refuse)
+
+        assert self.post(client, operator, "scan", {"mode": "full"}).status_code == 422
 
     def test_without_a_mode_the_scan_setting_is_left_alone(self, client, pg, operator) -> None:
         self.post(client, operator, "scan")

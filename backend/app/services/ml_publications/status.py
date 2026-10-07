@@ -100,6 +100,7 @@ def _jobs(flags: Dict[str, bool], states: Dict[str, Dict[str, Any]]) -> List[Dic
         enabled = flags[flag_key[: -len(".enabled")]]
         disabled = not enabled or detail.get("disabled") is True
         last_run, last_success = state.get("last_run_at"), state.get("last_success_at")
+        error = detail.get("error") or (detail.get("last_run") or {}).get("error")
         jobs.append(
             {
                 "job": job,
@@ -111,7 +112,7 @@ def _jobs(flags: Dict[str, bool], states: Dict[str, Dict[str, Any]]) -> List[Dic
                 "last_run_at": last_run,
                 "last_success_at": last_success,
                 "failing": not disabled and last_run is not None and (last_success is None or last_run > last_success),
-                "last_error": detail.get("error") or (detail.get("last_run") or {}).get("error"),
+                "last_error": None if error is None else str(error),  # a handler may store anything
             }
         )
     return jobs
