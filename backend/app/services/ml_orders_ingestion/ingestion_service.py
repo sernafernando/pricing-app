@@ -162,6 +162,7 @@ def _upsert_item_row(db: Session, order_id: int, item: OrderItemOpsDTO) -> None:
         "item_id": item.item_id,
         "variation_id": item.variation_id,
         "seller_sku": item.seller_sku,
+        "seller_sku_vendido": item.seller_sku,
         "title": item.title,
         "quantity": item.quantity,
         "unit_price": item.unit_price,
@@ -171,7 +172,17 @@ def _upsert_item_row(db: Session, order_id: int, item: OrderItemOpsDTO) -> None:
         "raw_item": item.raw_item,
     }
     stmt = _insert_stmt(db, MlOrderItemOps.__table__).values(**values)
-    update_cols = {k: stmt.excluded[k] for k in values if k not in ("order_id", "item_id", "variation_id")}
+    update_cols = {
+        k: stmt.excluded[k] for k in values if k not in ("order_id", "item_id", "variation_id", "seller_sku_vendido")
+    }
+    # `seller_sku` follows MercadoLibre (current SKU), but the SKU the item was
+    # sold with is kept: the first known value wins. In the SET clause the bare
+    # column is the row's OLD value, so a row that predates the column (or was
+    # ingested without SKU) adopts its previous current SKU, then the incoming.
+    table = MlOrderItemOps.__table__
+    update_cols["seller_sku_vendido"] = func.coalesce(
+        table.c.seller_sku_vendido, table.c.seller_sku, stmt.excluded["seller_sku"]
+    )
     stmt = stmt.on_conflict_do_update(
         index_elements=["order_id", "item_id", "variation_id"],
         set_=update_cols,

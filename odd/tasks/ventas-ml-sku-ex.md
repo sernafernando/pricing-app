@@ -25,22 +25,23 @@ búsqueda encuentra la venta por cualquiera de los dos SKU.
 - Pre-push hook corre GGA; se arreglan todas las observaciones. No PR.
 
 ## Tareas
-- [ ] T1 Búsqueda por SKU numérico/EAN exacto (RED -> GREEN) + fuera de BIGINT
-- [ ] T2 Migración + modelo `seller_sku_vendido` (cabeza única de alembic)
-- [ ] T3 Ingesta conserva el SKU vendido en re-ingesta (RED -> GREEN, Postgres)
+- [x] T1 Búsqueda por SKU numérico/EAN exacto (RED -> GREEN) + fuera de BIGINT
+- [x] T2 Migración + modelo `seller_sku_vendido` (cabeza única de alembic)
+- [x] T3 Ingesta conserva el SKU vendido en re-ingesta (RED -> GREEN, Postgres)
 - [ ] T4 Búsqueda de texto libre incluye `seller_sku_vendido`
 - [ ] T5 API `seller_sku_anterior` (RED -> GREEN)
 - [ ] T6 Frontend "ex SKU" fila + detalle (vitest RED -> GREEN)
 - [ ] T7 Novedad + lint + push
 
 ## Hallazgos
-- Recuperación de SKUs ya pisados: pendiente de confirmar (raw_item también se pisa en el upsert).
+- Recuperación de SKUs ya pisados: NO es posible. `raw_item` (JSONB) se pisa en el mismo upsert; `ml_order_item_costos` no guarda SKU (solo producto_item_id de ERP); `ml_cancelled_orders.items` solo existe para canceladas y no hay tabla de payload crudo histórico de ítems. El backfill copia el SKU actual.
 
 ## Checks
 `pytest` de tests/services/ml_sales_query, tests/services/ml_orders_ingestion, router ml_ventas_ops; vitest ventasMl; ruff check/format; `pnpm run lint`, `pnpm run lint:css`.
 
 ## Progreso / evidencia
-(vacío)
+- T1 RED: 3 tests fallan (SKU numérico, unión, EAN > BIGINT) -> GREEN 20 passed (test_search.py).
+- T2/T3 RED: 5 tests Postgres fallan (seller_sku_vendido None) -> GREEN: tests/services/ml_orders_ingestion 465 passed; migración: 5 passed, mutación del backfill la rompe (2 failed).
 
 ## Mirror Engram
 topic `odd/ventas-ml-sku-ex/tasks`, proyecto pricing-app.

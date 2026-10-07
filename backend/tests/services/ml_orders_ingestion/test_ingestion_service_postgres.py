@@ -128,3 +128,74 @@ class TestQuarantineIsolationOnRealPostgres:
         assert db.query(MlOrdersOps).filter_by(order_id=2001).count() == 1
         assert db.query(MlOrdersOps).filter_by(order_id=2003).count() == 1
         assert db.query(MlOrdersOpsCuarentena).filter_by(order_id=2002).count() == 1
+
+
+@pytest.mark.postgres
+class TestSoldSkuIsKeptOnReingestion:
+    """`seller_sku` always follows MercadoLibre (the CURRENT SKU), while
+    `seller_sku_vendido` keeps the first SKU ingestion ever saw for the item."""
+
+    @staticmethod
+    def _with_sku(payload: dict, sku) -> dict:
+        payload["order_items"][0]["item"]["seller_sku"] = sku
+        return payload
+
+    def _item(self, db, order_id: int) -> MlOrderItemOps:
+        db.expire_all()
+        return db.query(MlOrderItemOps).filter_by(order_id=order_id).one()
+
+    def test_first_ingestion_stores_the_incoming_sku_as_sold(self, pg_orders_ops_db):
+        db = pg_orders_ops_db
+        upsert_order(db, self._with_sku(_order_payload(order_id=3001), "1214"))
+
+        item = self._item(db, 3001)
+        assert (item.seller_sku, item.seller_sku_vendido) == ("1214", "1214")
+
+    def test_reingestion_with_a_new_sku_updates_current_but_keeps_the_sold_one(self, pg_orders_ops_db):
+        db = pg_orders_ops_db
+        upsert_order(db, self._with_sku(_order_payload(order_id=3002), "1214"))
+        upsert_order(
+            db,
+            self._with_sku(_order_payload(order_id=3002, last_updated="2026-09-11T10:00:00.000-04:00"), "1215"),
+        )
+
+        item = self._item(db, 3002)
+        assert (item.seller_sku, item.seller_sku_vendido) == ("1215", "1214")
+
+    def test_a_third_change_still_keeps_the_first_sku(self, pg_orders_ops_db):
+        db = pg_orders_ops_db
+        for sku, day in (("1214", "10"), ("1215", "11"), ("1216", "12")):
+            upsert_order(
+                db,
+                self._with_sku(_order_payload(order_id=3003, last_updated=f"2026-09-{day}T10:00:00.000-04:00"), sku),
+            )
+
+        item = self._item(db, 3003)
+        assert (item.seller_sku, item.seller_sku_vendido) == ("1216", "1214")
+
+    def test_a_row_without_sold_sku_adopts_its_previous_current_sku(self, pg_orders_ops_db):
+        """Rows from before the column existed that the backfill left NULL
+        (no SKU then) or that predate it: the previous `seller_sku` is the
+        best known 'sold' value, never the incoming one."""
+        db = pg_orders_ops_db
+        upsert_order(db, self._with_sku(_order_payload(order_id=3004), "1214"))
+        db.query(MlOrderItemOps).filter_by(order_id=3004).update({"seller_sku_vendido": None})
+        db.flush()
+        upsert_order(
+            db,
+            self._with_sku(_order_payload(order_id=3004, last_updated="2026-09-11T10:00:00.000-04:00"), "1215"),
+        )
+
+        item = self._item(db, 3004)
+        assert (item.seller_sku, item.seller_sku_vendido) == ("1215", "1214")
+
+    def test_an_item_first_ingested_without_sku_adopts_the_first_sku_it_gets(self, pg_orders_ops_db):
+        db = pg_orders_ops_db
+        upsert_order(db, self._with_sku(_order_payload(order_id=3005), None))
+        upsert_order(
+            db,
+            self._with_sku(_order_payload(order_id=3005, last_updated="2026-09-11T10:00:00.000-04:00"), "1215"),
+        )
+
+        item = self._item(db, 3005)
+        assert (item.seller_sku, item.seller_sku_vendido) == ("1215", "1215")
