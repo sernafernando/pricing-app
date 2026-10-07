@@ -67,6 +67,9 @@ ARRAY_KEYS_BY_RESOURCE: dict[str, ArrayKeys] = {
     "promotions": {"": ("id", "type")},
     # Visits time window: one element per day.
     "visits": {"results": ("date",)},
+    # User product stock: one element per location type (selling_address, meli_facility, seller_warehouse),
+    # so a quantity change reads `locations[selling_address].quantity` and a reorder is no change.
+    "stock": {"locations": ("type",)},
 }
 
 

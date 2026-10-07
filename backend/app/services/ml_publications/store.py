@@ -420,11 +420,15 @@ def _log_change(
     response: MlResponse,
     source_last_updated: Optional[datetime],
     context: dict,
+    *,
+    item_scoped: bool = True,
 ) -> MlChangeLog:
+    """Append one change-log row for `item_id` (the entity id: the item's, or with `item_scoped` off the
+    user product's or family's, which are not items and leave `item_id` empty)."""
     entry = MlChangeLog(
         resource_type=spec.name,
         entity_id=item_id,
-        item_id=item_id,
+        item_id=item_id if item_scoped else None,
         kind=kind,
         observed_at=response.received_at,
         source_last_updated=source_last_updated,

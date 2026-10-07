@@ -112,7 +112,7 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys in (
         map_user_product_stock,
         parse_user_product_stock,
         "user_product_stock_20261006.json",
-        {},
+        array_keys_for("stock"),
     ),
     ("family", ("family_id",), map_family, parse_family, "family_20261006.json", {}),
 ):
