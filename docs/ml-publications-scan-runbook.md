@@ -69,4 +69,5 @@ has not started.
   `not_configured`, `no_token`, `unauthorized`) the run reports `blocked` in `worker_job_state.detail`, ends as
   finished and falls back to the daily 03:30 slot instead of retrying every 30 s. That run also consumes a
   pending request; `scan.next_mode = full` is kept, so fix the setup and request the scan again to run it now. Five consecutive failing runs (a sustained ML
-  outage) end the same way with `blocked = upstream_error`.
+  outage) end the same way with `blocked = upstream_error` (`internal_error` when the failures are
+  unexpected exceptions of the scan itself).

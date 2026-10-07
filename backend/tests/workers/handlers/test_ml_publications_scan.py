@@ -250,6 +250,35 @@ class TestSustainedUpstreamErrors:
                 handler.run(context())
         assert "upstream_error" in caplog.text and "setup" not in caplog.text
 
+    def test_a_disabled_or_blocked_run_clears_the_streak(self, env, monkeypatch) -> None:
+        enable_scan()
+        handler = make_handler(ScriptedServerError())
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
+            assert handler.run(context()).success is False
+        settings_store.set_setting("scan.enabled", False, "test")
+        assert handler.run(context()).detail == {"disabled": True}
+        settings_store.set_setting("scan.enabled", True, "test")
+        assert handler.run(context()).success is False  # the old failures no longer count
+
+        for _ in range(handlers.UPSTREAM_ERROR_STREAK - 2):
+            assert handler.run(context()).success is False
+        monkeypatch.setattr(settings, "ML_USER_ID", None)
+        assert handler.run(context()).detail["blocked"] == "seller_not_configured"
+        monkeypatch.setattr(settings, "ML_USER_ID", "413658225")
+        assert handler.run(context()).success is False
+
+    def test_our_own_exceptions_are_blocked_as_internal_not_as_an_ml_outage(self, env, monkeypatch) -> None:
+        enable_scan()
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("our bug")
+
+        monkeypatch.setattr(scans, "run_scan", explode)
+        handler = make_handler(NoCallTransport())
+        results = [handler.run(context()) for _ in range(handlers.UPSTREAM_ERROR_STREAK)]
+        assert [r.success for r in results] == [False] * (handlers.UPSTREAM_ERROR_STREAK - 1) + [True]
+        assert results[-1].detail["blocked"] == "internal_error"
+
     def test_a_good_run_resets_the_streak(self, env) -> None:
         enable_scan()
         transport = ScriptedServerError()

@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Literal, Optional
 
@@ -6,6 +6,10 @@ from typing import List, Literal, Optional
 # allowed. CI runs ENVIRONMENT=testing (.github/workflows/ci.yml), local dev
 # runs ENVIRONMENT=development (backend/.env). Production is never in here.
 DEV_LIKE_ENVIRONMENTS: tuple[str, ...] = ("development", "testing")
+
+
+# Statuses the ML publications scan can be asked for (mirrored by `settings_store.SCAN_STATUSES`).
+SCAN_STATUS_NAMES = ("active", "paused", "closed", "under_review", "inactive", "pending")
 
 
 class Settings(BaseSettings):
@@ -196,6 +200,7 @@ class Settings(BaseSettings):
     )
     # Mode of the next scan lap: an operator sets `full` to ask for a backfill; the lap consumes it.
     ML_PUB_SCAN_NEXT_MODE: Literal["full", "rescan"] = "rescan"
+
     ML_PUB_STALE_DAYS: int = Field(default=7, ge=1)
     ML_PUB_NOT_APPLICABLE_RECHECK_DAYS: int = Field(default=30, ge=1)
 
@@ -361,6 +366,13 @@ class Settings(BaseSettings):
     PREARMADAS_STATS_VOLUME_WARN: int = 5000
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+
+    @field_validator("ML_PUB_SCAN_STATUSES")
+    @classmethod
+    def _scan_statuses_are_known(cls, value: List[str]) -> List[str]:
+        if not value or any(status not in SCAN_STATUS_NAMES for status in value):
+            raise ValueError(f"ML_PUB_SCAN_STATUSES must be a non-empty list of {', '.join(SCAN_STATUS_NAMES)}")
+        return value
 
 
 settings = Settings()

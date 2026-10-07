@@ -101,6 +101,18 @@ class TestScanStatuses:
         assert got.source == "env" and got.value[0] == "closed"
 
 
+class TestScanStatusesEnv:
+    @pytest.mark.parametrize("value", [["closd"], []])
+    def test_a_bad_env_default_fails_at_startup(self, value) -> None:
+        with pytest.raises(ValueError):
+            type(settings)(ML_PUB_SCAN_STATUSES=value)
+
+    def test_the_env_validation_and_the_store_share_one_status_vocabulary(self) -> None:
+        from app.core.config import SCAN_STATUS_NAMES
+
+        assert tuple(SCAN_STATUS_NAMES) == settings_store.SCAN_STATUSES
+
+
 class TestDbOverridesEnv:
     def test_db_row_overrides_env(self, settings_db) -> None:
         set_setting("rate_per_sec", 5.0, updated_by="tester")
