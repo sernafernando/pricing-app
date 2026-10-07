@@ -497,10 +497,11 @@ class TestStoredState:
 
 
 class TestRegistry:
-    def test_the_relink_handler_is_registered_after_refresh(self) -> None:
+    def test_the_relink_handler_is_registered_after_refresh_and_intake(self) -> None:
         from app.workers import registry
 
         assert [h.name for h in registry.ML_PUBLICATIONS_REGISTRY] == [
             "ml_publications.refresh",
+            "ml_publications.intake",
             "ml_publications.relink",
         ]
