@@ -246,6 +246,29 @@ class TestAutomaticChanges:
         assert link(events_on)["producto_item_id"] == 41
         assert log_rows(events_on) == []
 
+    def test_a_sku_change_that_leaves_the_link_state_alone_updates_the_row_without_history(self, events_on) -> None:
+        """unmatched stays unmatched under another SKU; a conflict stays a conflict with other candidates."""
+        evaluate(sample_item(ITEM), minutes=1, events=True)
+
+        evaluate(_with_sku("NOT-IN-THE-CATALOG"), minutes=5, events=True)
+
+        row = link(events_on)
+        assert (row["match_status"], row["matched_sku"], row["evaluated_sku_key"]) == (
+            "unmatched",
+            "NOT-IN-THE-CATALOG",
+            "NOT-IN-THE-CATALOG",
+        )
+        assert row["linked_at"] == at(1)
+        assert log_rows(events_on) == [] and event_rows(events_on) == []
+        add_product(events_on, 5, SKU_B)
+        add_product(events_on, 6, SKU_B)
+        evaluate(_with_sku(SKU_B), minutes=9, events=True)  # unmatched -> conflict IS a status change
+        assert len(log_rows(events_on)) == 1
+        add_product(events_on, 8, SKU_B)
+        evaluate(_with_sku(SKU_B), minutes=12, events=True, force=True)  # conflict -> conflict, one more candidate
+        assert link(events_on)["candidate_ids"] == [5, 6, 8]
+        assert len(log_rows(events_on)) == 1
+
     def test_a_unit_that_stops_matching_becomes_unmatched_and_is_logged(self, events_on) -> None:
         add_product(events_on, 41, SKU_A)
         evaluate(sample_item(ITEM), minutes=1, events=True)

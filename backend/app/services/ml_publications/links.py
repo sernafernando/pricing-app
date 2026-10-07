@@ -295,7 +295,13 @@ def _apply_existing(
     events_enabled: bool,
     result: EvaluationResult,
 ) -> None:
-    """Store the suggestion; move the link only when it is automatic (manual always wins)."""
+    """Store the suggestion; move the link only when it is automatic (manual always wins).
+
+    History (change-log row and event) is written only when `producto_item_id` or `match_status`
+    changes (spec "Link history and events"). A new SKU that leaves both alone (still unmatched under
+    another key, still a conflict among other candidates) updates the row's SKU and candidate columns
+    without history: nothing about the link itself changed.
+    """
     before = LinkState.of(row)
     moved = False
     touched = _assign(row, _suggestion_columns(suggestion))
@@ -450,7 +456,11 @@ def _write_setting(db, key: str, value: Any, now: datetime) -> None:
 
 
 def catalog_fingerprint(db) -> str:
-    """Cheap fingerprint of the product catalog (`item_id`, `codigo`): any added, removed or edited code changes it."""
+    """Fingerprint of the product catalog (`item_id`, `codigo`): any added, removed or edited code changes it.
+
+    One aggregate over two narrow columns, run at the start of every lap that is not already in
+    progress (every 15 minutes) under the sweep's statement timeout; no cache until measured.
+    """
     return db.execute(text(FINGERPRINT_SQL)).scalar()
 
 
