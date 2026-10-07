@@ -74,6 +74,7 @@ class StatusOut(BaseModel):
     backfill: Optional[list[dict[str, Any]]] = None
     missed_feeds: Optional[dict[str, Any]] = None
     sweep: Optional[dict[str, Any]] = None
+    verification: Optional[dict[str, Any]] = None
     items: Optional[dict[str, Any]] = None
     freshness: Optional[dict[str, dict[str, Any]]] = None
     lag_p95_seconds_24h: Optional[float] = None

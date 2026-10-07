@@ -35,6 +35,9 @@ JOBS: Dict[str, Tuple[str, str]] = {
     "scan": ("ml_publications.scan", "scan.enabled"),
     "missed_feeds": ("ml_publications.missed_feeds", "missed_feeds.enabled"),
     "sweep": ("ml_publications.sweep", "sweep.enabled"),
+    # one handler, two sub-jobs: each flag is its own entry so turning either on marks the handler `requested`
+    "verify": ("ml_publications.verify", "verify.enabled"),
+    "divergence": ("ml_publications.verify", "divergence.enabled"),
 }
 FLAG_HANDLER: Dict[str, str] = {flag: handler for handler, flag in JOBS.values()}
 

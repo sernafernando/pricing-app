@@ -412,7 +412,7 @@ class TestJobRequest:
         assert body["enabled"] is True and body["note"] is None
 
     def test_an_unknown_job_is_404_and_writes_nothing(self, client, pg, operator) -> None:
-        assert self.post(client, operator, "verify").status_code == 404
+        assert self.post(client, operator, "nonexistent").status_code == 404
         assert rows(pg, "SELECT 1 FROM worker_job_state") == []
 
     @pytest.mark.parametrize("mode", ["full", "rescan"])

@@ -163,6 +163,8 @@ class Settings(BaseSettings):
     ML_PUB_LINKS_ENABLED: bool = False
     ML_PUB_VERIFY_ENABLED: bool = False
     ML_PUB_DIVERGENCE_ENABLED: bool = False
+    # Items the divergence spot-check re-fetches per run (env-only; covers every status, never more than this).
+    ML_PUB_DIVERGENCE_SAMPLE_SIZE: int = Field(default=50, ge=1, le=500)
     # Global ML budget (requests per second) and the stock sub-budget (ML
     # documents 100/min for /user-products/{id}/stock; stay below it).
     ML_PUB_RATE_PER_SEC: float = Field(default=2.0, gt=0, le=20)
