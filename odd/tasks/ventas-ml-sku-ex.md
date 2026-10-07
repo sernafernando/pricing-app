@@ -28,8 +28,8 @@ búsqueda encuentra la venta por cualquiera de los dos SKU.
 - [x] T1 Búsqueda por SKU numérico/EAN exacto (RED -> GREEN) + fuera de BIGINT
 - [x] T2 Migración + modelo `seller_sku_vendido` (cabeza única de alembic)
 - [x] T3 Ingesta conserva el SKU vendido en re-ingesta (RED -> GREEN, Postgres)
-- [ ] T4 Búsqueda de texto libre incluye `seller_sku_vendido`
-- [ ] T5 API `seller_sku_anterior` (RED -> GREEN)
+- [x] T4 Búsqueda de texto libre incluye `seller_sku_vendido`
+- [x] T5 API `seller_sku_anterior` (RED -> GREEN)
 - [ ] T6 Frontend "ex SKU" fila + detalle (vitest RED -> GREEN)
 - [ ] T7 Novedad + lint + push
 

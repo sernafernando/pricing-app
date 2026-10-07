@@ -851,6 +851,15 @@ class BreakdownLine:
     origen: str = "api"
 
 
+def sku_anterior(current: Optional[str], sold: Optional[str]) -> Optional[str]:
+    """The SKU an item was sold with, but only when it differs from the
+    current one. `None` when equal or unknown: the UI shows "ex <SKU>" only
+    for a real change."""
+    if not sold or sold == current:
+        return None
+    return sold
+
+
 @dataclass(frozen=True)
 class ItemLine:
     """One product line under "Monto de la operación" (product-owner
@@ -866,6 +875,8 @@ class ItemLine:
     title: Optional[str]
     quantity: Optional[int]
     monto: Optional[Decimal]
+    # The SKU the item was sold with, only when it differs from `seller_sku`.
+    seller_sku_anterior: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -1247,6 +1258,7 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
                     title=item.title,
                     quantity=item.quantity,
                     monto=monto,
+                    seller_sku_anterior=sku_anterior(item.seller_sku, item.seller_sku_vendido),
                 )
             )
         if ordenes_sin_items:
