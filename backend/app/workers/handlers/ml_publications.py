@@ -867,6 +867,7 @@ ERROR_CLIENT_NOT_CONFIGURED = "client_not_configured"
 # otherwise be due again on every pass (a handler that fails is never marked as having succeeded).
 MISSED_FEEDS_RETRY_BASE = timedelta(seconds=60)
 MISSED_FEEDS_RETRY_CAP = timedelta(hours=1)
+MAX_RETRY_EXPONENT = 20  # 60 s * 2 ** 20 is far past the cap
 # A saved page position is an offset into a list ML trims from the front (it keeps messages 2 days): after
 # this long it no longer points at the same messages, so the run starts again from the first page.
 MISSED_FEEDS_RESUME_MAX_AGE = timedelta(hours=3)
@@ -874,7 +875,9 @@ MISSED_FEEDS_RESUME_MAX_AGE = timedelta(hours=3)
 
 def missed_feeds_retry_delay(failures: int) -> timedelta:
     """How long to wait after the `failures`-th consecutive failed run (1 -> 60 s, 2 -> 120 s, ... capped)."""
-    return min(MISSED_FEEDS_RETRY_BASE * 2 ** max(failures - 1, 0), MISSED_FEEDS_RETRY_CAP)
+    # the exponent is bounded BEFORE it multiplies: 2 ** 100 would overflow `timedelta` long before the cap applies
+    exponent = min(max(failures - 1, 0), MAX_RETRY_EXPONENT)
+    return min(MISSED_FEEDS_RETRY_BASE * 2**exponent, MISSED_FEEDS_RETRY_CAP)
 
 
 def _read_detail(name: str) -> Dict[str, Any]:

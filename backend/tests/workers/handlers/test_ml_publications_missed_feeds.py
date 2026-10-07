@@ -240,6 +240,22 @@ class TestRetryWithBackoff:
         delays = [handlers.missed_feeds_retry_delay(n).total_seconds() for n in (1, 2, 3, 4, 7, 20)]
         assert delays == [60, 120, 240, 480, 3600, 3600]
 
+    @pytest.mark.parametrize("failures", [41, 42, 100, 10**6])
+    def test_the_delay_stays_at_the_cap_however_many_failures_piled_up(self, failures) -> None:
+        assert handlers.missed_feeds_retry_delay(failures) == handlers.MISSED_FEEDS_RETRY_CAP
+
+    def test_a_run_with_a_huge_stored_failure_count_still_backs_off(self, env) -> None:
+        enable()
+        with env.begin() as conn:
+            conn.execute(
+                text("INSERT INTO worker_job_state (name, detail) VALUES (:n, CAST(:d AS jsonb))"),
+                {"n": HANDLER_NAME, "d": '{"failures": 100}'},
+            )
+        result = make_handler(MissedTransport(status=403)).run(context())
+        detail = detail_of(env)
+        assert result.success is False and detail["failures"] == 101
+        assert datetime.fromisoformat(detail["retry_at"]) > datetime.now(timezone.utc)
+
     def test_a_failed_run_is_not_retried_before_its_delay(self, env) -> None:
         enable()
         transport = MissedTransport(status=503)
