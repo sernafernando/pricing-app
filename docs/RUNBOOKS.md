@@ -891,6 +891,58 @@ length, to size the backlog. A gate review must still look at the sample
 list explicitly for the `last_error` detail: those orders failed five
 times and nothing will retry them until a real input write arrives.
 
+### Recomputing every stored Total Gauss (bumping `CURRENT_FORMULA_VERSION`)
+
+The Total Gauss is persisted in `ml_order_metrics`. When the formula changes,
+bump `CURRENT_FORMULA_VERSION` in `app/services/order_metrics/constants.py`:
+that IS the backfill (no script, no cron). `order_metrics.reconcile` (every 10
+minutes) enqueues every order whose `formula_version` is below the constant
+and `order_metrics.drain` recomputes them. First used by
+ventas-ml-varios-base-envio (2 -> 3: "% de varios" base with shipping, and the
+corrected Flex bonificación).
+
+**Load, in bounded batches** (nothing here holds more than one DB connection):
+
+| Piece | Bound |
+|---|---|
+| `order_metrics.reconcile` | `RECONCILE_BATCH_SIZE = 5000` ids per set-based `INSERT...SELECT` (`order_metrics_enqueue_system`, `ON CONFLICT DO NOTHING`), one short `get_background_db` block per batch, stops at the handler deadline (30 s). Enqueueing is cheap; the next run (10 min) continues where this one stopped. |
+| `order_metrics.drain` | `WORKER_BATCH_SIZE = 200` orders per claim, lease `WORKER_LEASE_SECONDS = 120`, `WORKER_BATCH_TIMEOUT_SECONDS = 60`, `statement_timeout = 30s` per compute, one short `get_background_db` block per compute and a separate short transaction per stored order. A run lasts up to 30 s and wakes on NOTIFY and on the 5 s safety poll. |
+
+The real pace depends on the host and was not measured here: read it from the
+progress query below (rows per minute) instead of assuming it. Orders that
+fail five times are parked (`attempts >= 5`) and listed under
+`poisoned_orders` in the health endpoint.
+
+**Progress** (run it on the production database, read-only):
+
+```sql
+-- how many orders are still on each formula version
+SELECT formula_version, count(*) AS ordenes
+FROM ml_order_metrics
+GROUP BY formula_version
+ORDER BY formula_version;
+
+-- the queue
+SELECT count(*) AS en_cola,
+       count(*) FILTER (WHERE claimed_at IS NOT NULL) AS en_proceso,
+       count(*) FILTER (WHERE attempts >= 5) AS parked
+FROM ml_order_metrics_dirty;
+```
+
+Done when no row has `formula_version < CURRENT_FORMULA_VERSION`, the queue is
+empty and `missing_metrics_count` in `GET /api/ml-ops/order-metrics/health` is 0.
+
+**Divergence while it runs.** `order_metrics.divergence` skips every order that
+has a dirty row, and `reconcile` enqueues the whole backlog first, so the
+bulk of the old rows is never compared. An old row that is NOT dirty yet (the
+window between two reconcile runs) is compared against a fresh compute whose
+`formula_version` is the new one, so it counts as divergent: it opens a
+`stored_metrics_mismatch` row and is re-enqueued (self-heal). That is bounded:
+at most `DIVERGENCE_MAX_RECORDED_PER_RUN = 100` records per run. Those records
+are expected during the backfill. Once the progress query is clean, close
+them from the divergences panel (`resolved`); if the same order reappears
+afterwards it is a real mismatch.
+
 ### Restart
 
 `deploy.sh` step 6b (`scripts/restart-verify-workers.sh`) restarts and then
