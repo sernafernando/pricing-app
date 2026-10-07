@@ -20,6 +20,10 @@ QUEUE_TABLE = "ml_pub_refresh_queue"
 DELETE_ALLOWED = {"queue.py": {QUEUE_TABLE}}
 
 FORBIDDEN_ERP_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "productos_erp", "ProductoERP")
+# The linking module is the single accepted reader of our product catalog (design D20); PR5L2 adds
+# its router here. Everything else about GBP and the other ERP-mirror tables stays forbidden for it.
+PRODUCT_CATALOG_NAMES = {"productos_erp", "ProductoERP"}
+PRODUCT_CATALOG_READERS = {"links.py"}
 GBP_NAME_PATTERN = re.compile(r"GBPClient|gbp_client|wsBasicQuery")
 SCHEDULING_PATTERN = re.compile(r"crontab|OnCalendar|\.timer\b|pg_notify|\bLISTEN\b|\bNOTIFY\b")
 
@@ -59,6 +63,14 @@ def erp_references(source: str) -> list[str]:
     return hits
 
 
+def erp_violations(name: str, source: str) -> list[str]:
+    """`erp_references` minus the product catalog names, which only the allow-listed readers may use."""
+    hits = erp_references(source)
+    if name in PRODUCT_CATALOG_READERS:
+        return [hit for hit in hits if hit not in PRODUCT_CATALOG_NAMES]
+    return hits
+
+
 def scheduling_references(source: str) -> list[str]:
     return SCHEDULING_PATTERN.findall(source)
 
@@ -81,6 +93,13 @@ class TestScannersCatchOffenders:
         assert erp_references("import app.services.gbp as g") == ["app.services.gbp"]
         assert erp_references('"""never derived from GBP data"""\nx = 1') == []
         assert erp_references("ml_items ml_item_variations") == []
+
+    def test_the_allow_list_only_opens_the_product_catalog_to_the_linking_module(self) -> None:
+        catalog = "from app.models.producto import ProductoERP"
+        assert erp_violations("links.py", catalog) == []
+        assert erp_violations("store.py", catalog) == ["ProductoERP"]
+        assert erp_violations("links.py", "select * from publicaciones_ml") == ["publicaciones_ml"]
+        assert erp_violations("links.py", "from app.services.gbp_client import x") != []
 
     def test_scheduling_scanner_flags_cron_timers_and_listen_notify(self) -> None:
         for snippet in ("crontab -e", "OnCalendar=daily", "SELECT pg_notify('a','b')", "LISTEN worker_jobs"):
@@ -105,8 +124,12 @@ class TestPackageIsClean:
         assert re.findall(r"DELETE\s+FROM\s+(\w+)", source) == [QUEUE_TABLE]
 
     def test_no_gbp_or_erp_mirror_access(self) -> None:
-        offenders = {name: found for name, source in package_sources() if (found := erp_references(source))}
+        offenders = {name: found for name, source in package_sources() if (found := erp_violations(name, source))}
         assert offenders == {}
+
+    def test_only_the_linking_module_reads_the_product_catalog(self) -> None:
+        readers = {name for name, source in package_sources() if PRODUCT_CATALOG_NAMES & set(erp_references(source))}
+        assert readers == PRODUCT_CATALOG_READERS
 
     def test_no_cron_timer_or_listen_notify_machinery(self) -> None:
         offenders = {name: found for name, source in package_sources() if (found := scheduling_references(source))}

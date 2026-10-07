@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Mapping, Optional, Sequence
 
 ITEM_RESOURCE = "item"
+PRODUCT_LINK_RESOURCE = "product_link"
 
 STATUS_EVENT_BY_VALUE = {
     "paused": "status_paused",
@@ -141,8 +142,41 @@ def _stock_events(row: ChangeRow) -> list[Event]:
     return [Event(event_type, row.item_id or "", old_value=old, new_value=new, payload=payload)]
 
 
+def _product_link_events(row: ChangeRow) -> list[Event]:
+    """`product_link_changed` from a `product_link` row (design D20): old/new product, sources in the payload.
+
+    The only event whose inputs include our product catalog; everything it needs was written into
+    the row's `context` at the moment of the change.
+    """
+    ctx = row.context
+    payload = {
+        key: ctx.get(key)
+        for key in (
+            "variation_id",
+            "source_old",
+            "source_new",
+            "match_status_old",
+            "match_status_new",
+            "matched_sku",
+            "sku_field",
+            "linked_by",
+        )
+    }
+    return [
+        Event(
+            "product_link_changed",
+            row.item_id or "",
+            old_value=ctx.get("producto_item_id_old"),
+            new_value=ctx.get("producto_item_id_new"),
+            payload=payload,
+        )
+    ]
+
+
 def derive_events(row: ChangeRow) -> list[Event]:
     """Typed events of one change-log row; empty when the change maps to none."""
+    if row.resource_type == PRODUCT_LINK_RESOURCE:
+        return _product_link_events(row)
     if row.resource_type != ITEM_RESOURCE:
         return []
     item_id = row.item_id or ""
