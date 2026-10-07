@@ -43,6 +43,8 @@ búsqueda encuentra la venta por cualquiera de los dos SKU.
 - T1 RED: 3 tests fallan (SKU numérico, unión, EAN > BIGINT) -> GREEN 20 passed (test_search.py).
 - T2/T3 RED: 5 tests Postgres fallan (seller_sku_vendido None) -> GREEN: tests/services/ml_orders_ingestion 465 passed; migración: 5 passed, mutación del backfill la rompe (2 failed).
 
+- T4 RED 3 failed -> GREEN ml_sales_query 140 passed. T5 RED KeyError seller_sku_anterior -> GREEN; related suites 1167 passed. T6 RED 3 failed (vitest) -> GREEN ventasMl 146 passed; novedad 13 passed; pnpm lint 0 errors (2 preexisting warnings), lint:css clean.
+- Push: GGA bloqueó 1 vez (migración mantenía lock; spacing sin token) -> corregido; 2da pasada PASSED. CSV export sigue con SKU actual (decisión de producto pendiente).
+
 ## Mirror Engram
 topic `odd/ventas-ml-sku-ex/tasks`, proyecto pricing-app.
-- T4 RED 3 failed -> GREEN ml_sales_query 140 passed. T5 RED KeyError seller_sku_anterior -> GREEN; related suites 1167 passed. T6 RED 3 failed (vitest) -> GREEN ventasMl 146 passed; novedad 13 passed; pnpm lint 0 errors (2 preexisting warnings), lint:css clean.

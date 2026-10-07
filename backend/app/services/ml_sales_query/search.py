@@ -6,7 +6,8 @@ them (R26) -- the caller (`filters.build_scope`) applies it last, after
 the status filters.
 
 R25a is the load-bearing rule: free text matches the sale's OWN item
-fields (`ml_order_items_ops.title`, `ml_order_items_ops.seller_sku`),
+fields (`ml_order_items_ops.title`, `ml_order_items_ops.seller_sku`,
+`ml_order_items_ops.seller_sku_vendido`),
 never through `producto_item_id` (the frozen-cost join used by the
 product-level facets). An order-item with no `ml_order_item_costos` row
 still has its own `title`/`seller_sku` from ingestion, so it must still be
@@ -45,7 +46,7 @@ def _escape_like(text: str) -> str:
 
 
 # PERFORMANCE NOTE: the item subquery is an unanchored ILIKE over
-# `ml_order_items_ops.title`/`seller_sku`, not bounded by seller or date, and
+# `ml_order_items_ops.title`/`seller_sku`/`seller_sku_vendido`, not bounded by seller or date, and
 # a listing request runs it several times (rows, total and the facet
 # counts). It is fine at today's volume; if it stops being fine, the fixes
 # are a `pg_trgm` index (already an open question in the design) or bounding
