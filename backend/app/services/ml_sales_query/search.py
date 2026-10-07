@@ -55,10 +55,11 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
 
     - No `q` (`None` or blank) -> query unchanged.
     - All digits -> `order_id` OR `pack_id` (matches a pack too, R25
-      scenario 1) OR an EXACT SKU of one of the sale's items.
+      scenario 1) OR an EXACT SKU (current or the one it was sold
+      with) of one of the sale's items.
     - `^MLA\\d+$` (case-insensitive) -> `item_id`, via `ml_order_items_ops`.
     - Otherwise, 3+ chars -> ILIKE on `buyer_nickname` and the sale's OWN
-      item fields (`title`, `seller_sku`), via `ml_order_items_ops`.
+      item fields (`title`, `seller_sku`, `seller_sku_vendido`), via `ml_order_items_ops`.
     - Anything else (fewer than 3 chars, not digits, not an MLA id) ->
       matches nothing explicitly (R27: an empty/no-match search state is
       explicit, never a silent "no filter" or an error).
@@ -79,7 +80,11 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
         # order_id/pack_id columns. In both cases the id comparison is
         # skipped (comparing would raise in the driver), but the exact SKU
         # match still applies: a 13-digit EAN fits, a 25-digit one does not.
-        sku_order_ids = db.query(MlOrderItemOps.order_id).filter(MlOrderItemOps.seller_sku == text).scalar_subquery()
+        sku_order_ids = (
+            db.query(MlOrderItemOps.order_id)
+            .filter(or_(MlOrderItemOps.seller_sku == text, MlOrderItemOps.seller_sku_vendido == text))
+            .scalar_subquery()
+        )
         conditions = [MlOrdersOps.order_id.in_(sku_order_ids)]
         try:
             value = int(text)
@@ -103,6 +108,7 @@ def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
             or_(
                 MlOrderItemOps.title.ilike(like, escape=_LIKE_ESCAPE),
                 MlOrderItemOps.seller_sku.ilike(like, escape=_LIKE_ESCAPE),
+                MlOrderItemOps.seller_sku_vendido.ilike(like, escape=_LIKE_ESCAPE),
             )
         )
         .scalar_subquery()
