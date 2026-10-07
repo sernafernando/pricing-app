@@ -7,7 +7,7 @@ Same mechanism as `POST /order-metrics/divergence/run`: sets `worker_job_state.s
 'requested'` and wakes the worker through `worker_jobs`. The runtime clears the flag only after
 a SUCCESSFUL run, so a request made while the handler is disabled is honored once it is enabled.
 `--mode full|rescan` (scan only) first writes `scan.next_mode`: `full` makes the next lap a backfill of
-every status, consumed when that lap completes; without `--mode` the lap is a rescan (or a backfill
+the statuses in `scan.statuses`, consumed when that lap completes; without `--mode` the lap is a rescan (or a backfill
 when the store is empty). Run from `backend/`.
 """
 
