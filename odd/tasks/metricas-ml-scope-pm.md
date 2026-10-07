@@ -149,7 +149,10 @@ can be retired. `pm_scope` stays the single source of the rule.
   path (`get_pares_marca_categoria_usuario`, sub-PM pair under `C` collation).
   RED against the pre-fix `pm_scope.py` (a64740ac): `assert set() == {'24'}`;
   GREEN on current code (14 passed). T1 text corrected to the required keyword.
-- Reviews: three native passes, each approved with only advisory findings, all
+- Fourth review pass (approved, advisory): the sub-PM accent test now uses the
+  real `marca_sub_pm` table from the model (FK to a seeded usuario) and only
+  alters its collation, instead of a hand-written table. RED/GREEN re-proved.
+- Reviews: four native passes, each approved with only advisory findings, all
   addressed in this branch. Tests run on the private `pricing_test_vmp` DB.
 
 ## Next step

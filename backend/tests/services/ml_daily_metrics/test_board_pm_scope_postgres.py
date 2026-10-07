@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.models.marca_sub_pm import MarcaSubPM
 from app.services.ml_daily_metrics import board, groups
 from tests.services.ml_daily_metrics import test_board_nested_groups_postgres as nested
 
@@ -200,16 +201,19 @@ def test_an_accented_sub_pm_pair_matches_through_the_callers_scope(tree_catalog,
     from app.services import pm_scope
 
     db = tree_catalog
+    # The real table, from the model (the fixture's lookup DDL has none); the
+    # fixture's transaction rolls it back with everything else.
+    MarcaSubPM.__table__.create(bind=db.connection(), checkfirst=True)
     db.execute(
         text(
             'ALTER TABLE productos_erp ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
             'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
             'ALTER TABLE marcas_pm ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
             'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
-            "DROP TABLE IF EXISTS marca_sub_pm;"
-            'CREATE TABLE marca_sub_pm (id SERIAL PRIMARY KEY, marca VARCHAR(100) COLLATE "C", '
-            'categoria VARCHAR(100) COLLATE "C", usuario_id INTEGER);'
+            'ALTER TABLE marca_sub_pm ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
+            'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
             "UPDATE productos_erp SET marca = 'Periféricos', categoria = 'Teclados ñ' WHERE item_id = 24;"
+            "INSERT INTO usuarios (id, nombre) VALUES (904, 'Sub PM');"
             "INSERT INTO marca_sub_pm (marca, categoria, usuario_id) VALUES ('Periféricos', 'Teclados ñ', 904);"
         )
     )
