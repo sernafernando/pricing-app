@@ -6,7 +6,7 @@ an ORDERED, EXTENSIBLE chain of deductions subtracted, entirely WITHOUT IVA
 IVA first).
 
 The chain is a plain tuple, `DEDUCCIONES`, walked in order with no hardcoded
-length -- adding a fourth deduction is adding one entry, never touching the
+length -- adding a deduction is adding one entry, never touching the
 orchestrator (`calcular_total_gauss`).
 
 ## `None` propagates, NEVER a lying zero (design D1, D7)
@@ -408,7 +408,7 @@ class BonificacionEnvioDeduccion:
 
 
 # The chain, in resolution order (design D1). Extensible: `orden`/`len()`
-# are never hardcoded anywhere else in this module -- adding a fourth
+# are never hardcoded anywhere else in this module -- adding one
 # deduction here is the ONLY change needed to grow the chain.
 DEDUCCIONES: Tuple[DeduccionResolver, ...] = (
     CostoMercaderiaDeduccion(),

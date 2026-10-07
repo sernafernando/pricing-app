@@ -98,3 +98,4 @@ panel: junto a la línea). El IVA es informativo/fiscal: nunca resta del Total G
 - Rutas: todo delegado directo no aplicó; implementado inline por el agente de esta tarea (un solo escritor).
 - Backfill histórico: fuera de esta PR por decisión del usuario.
 - Verificación final: 965 tests relacionados verdes (pytest -n 4), vitest ventasMl 144 verdes, ruff 0.15.1 (versión del CI) y pnpm lint/lint:css sin errores. GGA: PASSED con 1 observación (T8 sin tildar), corregida.
+- GGA (2da pasada): observación 1 (comentario 'fourth deduction') corregida. Observación 2: `order_metrics.divergence` compara lo guardado vs recalculado y re-encola lo que difiera, así que las ventas Flex históricas con bonificación se autocurarán por esa vuelta y abrirán `stored_metrics_mismatch`; anotado para el backfill de la PR siguiente.
