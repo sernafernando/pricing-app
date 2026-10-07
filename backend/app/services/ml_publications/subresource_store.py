@@ -32,10 +32,10 @@ from app.models.ml_publications import (
     MlItemPrices,
     MlItemSalePrice,
     MlItemSellerPromotions,
+    MlItemVisits,
     MlUserProduct,
     MlUserProductFamily,
     MlUserProductStock,
-    MlItemVisits,
 )
 from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import diff, split_excluded
