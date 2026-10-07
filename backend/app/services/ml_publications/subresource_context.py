@@ -9,7 +9,9 @@ the business reads, before and after the change, with amounts as decimal strings
 `prices` entries: `{"standard": {amount, currency_id, price_id} | None,
 "promotion": {amount, price_id, promotion_id, promotion_type} | None}`, selected for the
 marketplace channel exactly as the typed columns are. `sale_price` entries: `{amount,
-regular_amount, currency_id, campaign_id, promotion_id, promotion_type}`. No I/O.
+regular_amount, currency_id, campaign_id, promotion_id, promotion_type}`. `promotions` entries: the
+list keyed by promotion key (`id`, else `type`), each `{id, type, status, price, original_price,
+min/max/suggested_discounted_price}` with amounts as decimal strings. No I/O.
 """
 
 from __future__ import annotations
@@ -20,9 +22,11 @@ from typing import Any, Callable, Mapping, Optional
 from app.services.ml_publications.mappers import to_decimal
 from app.services.ml_publications.parsers.prices import marketplace_entries
 from app.services.ml_publications.parsers.sale_price import map_sale_price
+from app.services.ml_publications.parsers.seller_promotions import promotion_key
 
 PRICES = "prices"
 SALE_PRICE = "sale_price"
+PROMOTIONS = "promotions"
 
 
 def _money(value: Optional[Decimal]) -> Optional[str]:
@@ -73,7 +77,41 @@ def sale_price_entries(raw: Any) -> Optional[dict]:
     }
 
 
-_BUILDERS: dict[str, Callable[[Any], Optional[dict]]] = {PRICES: prices_entries, SALE_PRICE: sale_price_entries}
+_PROMOTION_AMOUNTS = (
+    "price",
+    "original_price",
+    "min_discounted_price",
+    "max_discounted_price",
+    "suggested_discounted_price",
+)
+
+
+def promotions_entries(raw: Any) -> Optional[dict]:
+    """The promotions the event rules read, by promotion key (`id`, else `type`)."""
+    if not isinstance(raw, list):
+        return None
+    entries: dict = {}
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        entries[promotion_key(entry)] = {
+            "id": None if entry.get("id") is None else str(entry["id"]),
+            "type": entry.get("type"),
+            "status": entry.get("status"),
+            **{name: _amount_of(entry, name) for name in _PROMOTION_AMOUNTS},
+        }
+    return entries
+
+
+def _amount_of(entry: Mapping[str, Any], name: str) -> Optional[str]:
+    return _money(to_decimal(entry.get(name)))
+
+
+_BUILDERS: dict[str, Callable[[Any], Optional[dict]]] = {
+    PRICES: prices_entries,
+    SALE_PRICE: sale_price_entries,
+    PROMOTIONS: promotions_entries,
+}
 
 
 def entries_context(resource: str, old_raw: Any, new_raw: Any) -> dict:
