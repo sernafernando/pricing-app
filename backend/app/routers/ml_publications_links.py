@@ -138,6 +138,19 @@ class ListOut(BaseModel):
     next_cursor: Optional[str] = None
 
 
+class SampleOut(BaseModel):
+    item_id: str
+    variation_id: int
+
+
+class CoverageOut(BaseModel):
+    total_units: int
+    classes: dict[str, int]
+    by_status: dict[str, dict[str, dict[str, int]]]
+    manual_differs: int
+    samples: dict[str, list[SampleOut]]
+
+
 class ManualLinkIn(BaseModel):
     """`extra=forbid`: a body naming `linked_by` (or anything else unknown) is refused, never ignored."""
 
@@ -233,7 +246,7 @@ def list_links(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Cursor inválido")
 
 
-@router.get("/product-links/coverage")
+@router.get("/product-links/coverage", response_model=CoverageOut)
 def get_coverage(
     samples: int = Query(default=links.DEFAULT_SAMPLE_SIZE, ge=0, le=SAMPLES_MAX),
     _user: Usuario = Depends(require_permission(PERMISO_VER)),

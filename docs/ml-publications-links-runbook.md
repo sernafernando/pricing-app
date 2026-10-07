@@ -41,7 +41,8 @@ suggestion and never moves the link.
 - `none` takes `{"note": "<optional>"}` and records "explicitly no product" (different from `unmatched`).
 - `revert-auto` returns the unit to the automatic rule, resolved immediately with the current SKU and catalog.
 - Repeating the same decision changes nothing and writes no history. There is no DELETE: `revert-auto` is the way back.
-- Every write answers `{"changed": <bool>, "unit": {...}}`; `changed` is false when only the note moved or nothing did.
+- Every write answers `{"changed": <bool>, "unit": {...}}`; `changed` is false when only the note moved or nothing did
+  (the unit's SKU suggestion may still be refreshed, exactly as the re-link sweep would).
 
 ## Suggested pass after enabling links
 

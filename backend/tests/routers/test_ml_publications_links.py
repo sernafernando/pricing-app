@@ -400,6 +400,12 @@ class TestLists:
 
 
 class TestCoverage:
+    def test_the_response_is_typed_in_the_openapi_schema(self) -> None:
+        schema = app.openapi()["paths"][f"{BASE}/product-links/coverage"]["get"]["responses"]["200"]
+        ref = schema["content"]["application/json"]["schema"]["$ref"]
+        component = app.openapi()["components"]["schemas"][ref.rsplit("/", 1)[1]]
+        assert {"total_units", "classes", "by_status", "manual_differs", "samples"} <= set(component["properties"])
+
     def test_without_ml_ops_ver_is_403(self, client, pg, auth_headers) -> None:
         assert client.get(f"{BASE}/product-links/coverage", headers=auth_headers).status_code == 403
 

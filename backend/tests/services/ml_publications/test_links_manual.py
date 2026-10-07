@@ -171,6 +171,22 @@ class TestSetManual:
         assert outcome.changed is False
         assert (link(audited), log_rows(audited), event_rows(audited), audit_rows(audited)) == before
 
+    def test_a_no_change_request_may_still_refresh_the_suggestion_but_writes_no_decision(self, audited) -> None:
+        add_product(audited, 41, SKU_A)
+        add_product(audited, 42, "OTHER")
+        store(audited, sample_item(ITEM))
+        manual(42, "n", minutes=10)
+        store(audited, _with_sku("NOT-IN-THE-CATALOG"), minutes=5)  # the SKU moved since the manual decision
+        audits, logs = len(audit_rows(audited)), len(log_rows(audited))
+
+        outcome = manual(42, "n", minutes=20)
+
+        assert outcome.changed is False
+        row = link(audited)
+        assert (row["suggestion_status"], row["evaluated_sku_key"]) == ("unmatched", "NOT-IN-THE-CATALOG")
+        assert (row["source"], row["producto_item_id"], row["linked_at"]) == ("manual", 42, at(10))
+        assert (len(audit_rows(audited)), len(log_rows(audited))) == (audits, logs)
+
     def test_a_new_note_on_the_same_link_updates_the_note_with_an_audit_row_but_no_history(self, audited) -> None:
         add_product(audited, 42, "OTHER")
         store(audited, sample_item(ITEM))

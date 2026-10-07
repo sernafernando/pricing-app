@@ -22,7 +22,7 @@ def doc() -> str:
 def test_every_route_of_the_router_is_documented_with_its_verb(doc) -> None:
     for route in router_module.router.routes:
         for method in route.methods:
-            path = "/api" + route.path.replace("{variation_id}", "{variation_id}")
+            path = "/api" + route.path
             assert f"{method} {path}" in doc, f"{method} {path}"
 
 
@@ -36,3 +36,7 @@ def test_both_permissions_and_the_flags_are_named(doc) -> None:
     assert router_module.PERMISO_VER in doc and router_module.PERMISO_VINCULAR in doc
     for key in ("links.enabled", "events.enabled"):
         assert key in doc and key in settings_store.SETTING_DEFS
+
+
+def test_the_runbook_says_a_no_change_write_may_still_refresh_the_suggestion(doc) -> None:
+    assert "the unit's SKU suggestion may still be refreshed" in doc
