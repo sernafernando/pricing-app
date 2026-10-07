@@ -115,6 +115,37 @@ class TestScanStatusesEnv:
         assert scans.ALL_SCAN_STATUSES is SCAN_STATUS_NAMES
 
 
+class TestSweepStatuses:
+    """`sweep.statuses` narrows the sweep without a deploy; closed items are never swept."""
+
+    @pytest.mark.parametrize("value", [["activ"], [], ["closed"], ["active", "closed"], "active", [1]])
+    def test_a_misspelled_empty_or_closed_status_list_is_rejected_at_write(self, settings_db, engine, value) -> None:
+        with pytest.raises(ValueError):
+            set_setting("sweep.statuses", value, updated_by="tester")
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM ml_pub_settings")).scalar() == 0
+
+    def test_narrowing_to_active_is_accepted_and_read_back(self, settings_db) -> None:
+        set_setting("sweep.statuses", ["active"], updated_by="tester")
+        got = get_setting("sweep.statuses")
+        assert (got.value, got.source) == (["active"], "db")
+
+    def test_the_default_is_every_non_closed_status(self, settings_db) -> None:
+        from app.core.config import SCAN_STATUS_NAMES
+
+        got = get_setting("sweep.statuses")
+        assert got.source == "env" and set(got.value) == set(SCAN_STATUS_NAMES) - {"closed"}
+
+    def test_an_invalid_stored_list_falls_back_to_the_env_default(self, settings_db, engine) -> None:
+        _insert_raw(engine, "sweep.statuses", '["closed"]')
+        assert get_setting("sweep.statuses").source == "env"
+
+    @pytest.mark.parametrize("value", [["closd"], [], ["closed"]])
+    def test_a_bad_env_default_fails_at_startup(self, value) -> None:
+        with pytest.raises(ValueError):
+            type(settings)(ML_PUB_SWEEP_STATUSES=value)
+
+
 class TestDbOverridesEnv:
     def test_db_row_overrides_env(self, settings_db) -> None:
         set_setting("rate_per_sec", 5.0, updated_by="tester")

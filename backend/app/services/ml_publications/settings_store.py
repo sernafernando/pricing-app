@@ -77,6 +77,11 @@ def _scan_status_list(value: Any) -> bool:
     return isinstance(value, list) and bool(value) and all(isinstance(v, str) and v in SCAN_STATUS_NAMES for v in value)
 
 
+def _sweep_status_list(value: Any) -> bool:
+    """Scannable statuses except `closed`: the sweeps never cover closed items (design D17)."""
+    return _scan_status_list(value) and "closed" not in value
+
+
 def _scan_mode(value: Any) -> bool:
     return value in ("full", "rescan") and isinstance(value, str)
 
@@ -107,7 +112,7 @@ SETTING_DEFS: Dict[str, _Def] = {
     "min_age_seconds": _Def("ML_PUB_MIN_AGE_SECONDS", _json_object),
     "scan.statuses": _Def("ML_PUB_SCAN_STATUSES", _scan_status_list),
     "scan.next_mode": _Def("ML_PUB_SCAN_NEXT_MODE", _scan_mode),
-    "sweep.statuses": _Def("ML_PUB_SWEEP_STATUSES", _str_list),
+    "sweep.statuses": _Def("ML_PUB_SWEEP_STATUSES", _sweep_status_list),
     "rate_per_sec": _Def("ML_PUB_RATE_PER_SEC", _positive_number(20)),
     "stock_rate_per_min": _Def("ML_PUB_STOCK_RATE_PER_MIN", _int_between(1, 100)),
     "bulk_max_ids": _Def("ML_PUB_BULK_MAX_IDS", _int_between(1, 20)),

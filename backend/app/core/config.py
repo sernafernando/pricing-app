@@ -377,5 +377,12 @@ class Settings(BaseSettings):
             raise ValueError(f"ML_PUB_SCAN_STATUSES must be a non-empty list of {', '.join(SCAN_STATUS_NAMES)}")
         return value
 
+    @field_validator("ML_PUB_SWEEP_STATUSES")
+    @classmethod
+    def _sweep_statuses_are_known_and_not_closed(cls, value: List[str]) -> List[str]:
+        if not value or any(status not in SCAN_STATUS_NAMES or status == "closed" for status in value):
+            raise ValueError("ML_PUB_SWEEP_STATUSES must be a non-empty list of non-closed scan statuses")
+        return value
+
 
 settings = Settings()

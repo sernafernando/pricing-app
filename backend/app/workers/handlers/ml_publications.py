@@ -31,6 +31,7 @@ from app.services.ml_publications import (
     settings_store,
     store,
     subresource_store,
+    sweeps as sweeps_core,
 )
 from app.services.ml_publications.ml_http import (
     ERROR_INVALID_JSON,
@@ -981,8 +982,41 @@ def _parse_moment(value: Any) -> Optional[datetime]:
     return moment if moment is None or moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
+SWEEP_HANDLER = "ml_publications.sweep"
+_SWEEP_KEYS = ("sweep.enabled", "sweep.statuses", "bundle_resources")
+
+
+class SweepHandler:
+    """`ml_publications.sweep`: performance and visits have no notification topic, so every 10 minutes
+    this tick enqueues the oldest `ceil(eligible / 144)` items of each in the sweep lane (design D17).
+
+    It makes NO ML call and holds no pacer: the refresh handler fetches what it enqueues, under the shared
+    budget and the lane order, and the tick itself yields while live work is waiting. A tick that fails is
+    recorded and simply followed by the next one, ten minutes later.
+    """
+
+    name = SWEEP_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(minutes=10)
+    run_at_local: Optional[time] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        config = settings_store.get_settings(_SWEEP_KEYS)
+        if config["sweep.enabled"].value is not True:
+            return disabled_outcome()
+        result = sweeps_core.run_sweep(
+            statuses=sweeps_core.sweep_statuses(config["sweep.statuses"].value),
+            bundle_resources=config["bundle_resources"].value,
+            recheck_days=settings.ML_PUB_NOT_APPLICABLE_RECHECK_DAYS,
+        )
+        detail = {**result.as_detail(), "at": _utcnow().isoformat()}
+        _persist_detail(self.name, detail)
+        return JobResult(success=True, detail=detail, error=result.error)
+
+
 refresh = RefreshHandler()
 intake = IntakeHandler()
 relink = RelinkHandler()
 scan = ScanHandler(pacer=refresh.pacer)  # one in-process ML budget for every call the store makes
 missed_feeds = MissedFeedsHandler(pacer=refresh.pacer)
+sweep = SweepHandler()
