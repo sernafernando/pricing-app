@@ -25,9 +25,15 @@ def _script() -> ScriptDirectory:
     return ScriptDirectory.from_config(config)
 
 
-def test_single_head_and_it_is_this_revision() -> None:
+def test_the_revision_is_on_the_single_line_and_reachable_from_every_head() -> None:
+    # Not "is THE head": a later migration on top must not break this test.
     script = _script()
-    assert script.get_heads() == [_REVISION]
+    revision = script.get_revision(_REVISION)
+    assert revision is not None
+    assert revision.down_revision == "20261006_ml_publications_product_links"
+    for head in script.get_heads():
+        ancestors = {r.revision for r in script.walk_revisions(base="base", head=head)}
+        assert _REVISION in ancestors
 
 
 def test_declares_the_catalog_row_like_the_other_ml_ops_permissions() -> None:
