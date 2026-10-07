@@ -333,6 +333,20 @@ class TestBackfill:
         assert state["completed_at"] is not None and "overrun" in state["last_error"]
         assert len(ml.requests) < 100 and result.failed_statuses == ["active"]
 
+    def test_the_overrun_verdict_lands_in_the_same_transaction_as_the_last_page(self, env, monkeypatch):
+        """A crash between "status complete" and "status failed" must not leave a complete status without
+        its error (the unseen step would trust it): the page write carries the verdict."""
+
+        def never(*args, **kwargs):
+            raise RuntimeError("a second write after the page must not be needed")
+
+        monkeypatch.setattr(scans, "_store_state", never)
+        body = scan_body("active_page1")
+        result = run(Ml(lambda status, scroll, n: httpx.Response(200, json=body)))
+        state = scan_state(env, "active")
+        assert state["completed_at"] is not None and "overrun" in state["last_error"]
+        assert result.failed_statuses == ["active"]
+
     def test_a_malformed_page_stops_the_run_without_touching_progress(self, env):
         body = scan_body("active_page1")
         body["results"] = "not a list"  # the one field changed on a real body
@@ -471,6 +485,47 @@ class TestMissingFromScan:
         assert "MLA444" not in queue_rows(env)
         self.lap(ml, statuses=["pending", "inactive"])
         assert "MLA444" in queue_rows(env)
+
+
+@pg
+class TestFullRequestConsumption:
+    def test_a_completed_full_lap_resets_the_request_in_the_same_transaction_as_its_end(self, env):
+        from app.services.ml_publications import settings_store
+
+        settings_store.set_setting("scan.next_mode", "full", "test")
+        ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else None)
+        run(ml, mode=scans.MODE_FULL)
+        assert settings_store.get_setting("scan.next_mode").value == "rescan"
+
+    def test_if_the_reset_fails_the_lap_is_not_closed_and_the_request_survives(self, env, monkeypatch):
+        from app.services.ml_publications import settings_store
+
+        settings_store.set_setting("scan.next_mode", "full", "test")
+        real = settings_store.set_setting
+
+        def failing(key, value, updated_by, session=None):
+            real(key, value, updated_by, session=session)
+            raise RuntimeError("boom after the write")
+
+        monkeypatch.setattr(settings_store, "set_setting", failing)
+        ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else None)
+        with pytest.raises(RuntimeError):
+            run(ml, mode=scans.MODE_FULL)
+        monkeypatch.setattr(settings_store, "set_setting", real)
+        with env.connect() as conn:
+            lap = conn.execute(text("SELECT completed_at FROM ml_pub_scan_state WHERE status = '_lap'")).scalar()
+            finished = conn.execute(text("SELECT finished_at FROM ml_pub_job_runs")).scalar()
+        assert lap is None and finished is None
+        assert settings_store.get_setting("scan.next_mode").value == "full"
+
+    def test_a_rescan_lap_leaves_the_setting_alone(self, env):
+        from app.services.ml_publications import settings_store
+
+        settings_store.set_setting("scan.next_mode", "full", "test")
+        put_item(env, ACTIVE[0], checked_ago_days=1)  # non-empty store, no full request passed -> rescan lap
+        ml = Ml(lambda status, scroll, n: page("active_page1") if scroll is None else None)
+        assert run(ml, mode=scans.MODE_RESCAN).mode == scans.MODE_RESCAN
+        assert settings_store.get_setting("scan.next_mode").value == "full"
 
 
 @pg

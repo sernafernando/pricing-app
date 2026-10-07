@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.core import database
 from app.models.ml_publications import MlItem, MlPubJobRun, MlPubScanState
-from app.services.ml_publications import queue
+from app.services.ml_publications import queue, settings_store
 from app.services.ml_publications.ml_http import OUTCOME_NO_TOKEN, OUTCOME_NOT_CONFIGURED, MlResponse
 from app.services.ml_publications.pacing import DEADLINE
 from app.services.ml_publications.resources import CORE_RESOURCE
@@ -273,7 +273,9 @@ def _summarize(result: ScanResult, statuses: Sequence[str]) -> None:
     result.unsupported_statuses = [s for s, r in rows.items() if r is not None and r.unsupported]
 
 
-def _close_lap(statuses: Sequence[str], lap: _Lap, result: ScanResult, now: datetime) -> None:
+def _close_lap(
+    statuses: Sequence[str], lap: _Lap, result: ScanResult, now: datetime, *, requested_mode: Optional[str]
+) -> None:
     _summarize(result, statuses)
     counts = {
         "mode": lap.mode,
@@ -291,6 +293,9 @@ def _close_lap(statuses: Sequence[str], lap: _Lap, result: ScanResult, now: date
         lap_row.enqueued = counts["enqueued"]
         lap_row.restarts = counts["restarts"]
         lap_row.last_error = failed or None
+        if lap.mode == MODE_FULL and requested_mode == MODE_FULL:
+            # the full request is consumed in the transaction that ends the lap it asked for
+            settings_store.set_setting("scan.next_mode", MODE_RESCAN, "scan", session=session)
         run = (
             session.query(MlPubJobRun)
             .filter(MlPubJobRun.job == JOB, MlPubJobRun.finished_at.is_(None))
@@ -339,7 +344,9 @@ def _stored_items(session: Session, ids: Sequence[str]) -> Dict[str, StoredItem]
     return {r[0]: StoredItem(status=r[1], last_checked_at=r[2], gone_at=r[3]) for r in rows}
 
 
-def _apply_page(status: str, page: ScanPage, lap: _Lap, *, now: datetime, stale_days: int, finished: bool) -> None:
+def _apply_page(
+    status: str, page: ScanPage, lap: _Lap, *, now: datetime, stale_days: int, finished: bool, error: Optional[str]
+) -> None:
     """One transaction: enqueue what the mode asks for, mark the stored items seen, move the progress."""
     with database.get_background_db() as session:
         row = session.get(MlPubScanState, status)
@@ -360,7 +367,7 @@ def _apply_page(status: str, page: ScanPage, lap: _Lap, *, now: datetime, stale_
         row.pages = (row.pages or 0) + 1
         row.enumerated = (row.enumerated or 0) + len(page.ids)
         row.enqueued = (row.enqueued or 0) + len(entries)
-        row.last_error = None  # a page went through: an earlier transient error no longer applies
+        row.last_error = error  # also clears an earlier transient error: a page went through
         if finished:
             row.scroll_id = None
             row.completed_at = now
@@ -429,9 +436,8 @@ def _scan_status(
             return True
         overrun = (state.pages or 0) + 1 > _expected_pages(page.total) + OVERRUN_SLACK_PAGES
         finished = not page.ids or not page.scroll_id
-        _apply_page(status, page, lap, now=now(), stale_days=stale_days, finished=finished or overrun)
-        if overrun and not finished:
-            _store_state(status, last_error=f"scan_overrun: more than {_expected_pages(page.total)} pages announced")
+        verdict = f"scan_overrun: more than {_expected_pages(page.total)} pages announced" if overrun else None
+        _apply_page(status, page, lap, now=now(), stale_days=stale_days, finished=finished or overrun, error=verdict)
         if finished or overrun:
             return False
 
@@ -550,6 +556,6 @@ def run_scan(
             _summarize(result, ordered)
             return result
     result.missing_enqueued = _enqueue_unseen(ordered, lap, now=now(), stale_days=stale_days)
-    _close_lap(ordered, lap, result, now())
+    _close_lap(ordered, lap, result, now(), requested_mode=requested_mode)
     result.complete = True
     return result

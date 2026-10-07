@@ -659,8 +659,6 @@ class ScanHandler:
             error = f"{type(exc).__name__}: {exc}"[:300]
             self._record_failure(error)
             return JobResult(success=False, detail=self._flush({"complete": False, "error": error}), error=error)
-        if result.complete and result.mode == scans.MODE_FULL and config["scan.next_mode"].value == scans.MODE_FULL:
-            settings_store.set_setting("scan.next_mode", scans.MODE_RESCAN, "scan")
         return JobResult(success=result.error is None, detail=self._flush(result.as_detail()), error=result.error)
 
     @staticmethod
