@@ -68,7 +68,9 @@ from app.services.ml_orders_ingestion.operation_status import (
     OPERATION_STATUSES,
 )
 from app.services.ml_ventas_desglose.breakdown_service import (
+    CONCEPTO_BONIFICACION_ENVIO,
     RELEVANT_PAYMENT_STATUSES,
+    bonificacion_bruta_by_order_ids,
     compute_breakdown,
     compute_neto_desglose_by_order_ids,
     sku_anterior,
@@ -99,9 +101,8 @@ from app.services.ml_sales_query.filters import (
     store_facet_counts,
 )
 from app.services.product_facets import ProductFacetOptions
-from app.services.ml_ventas_desglose.deducciones import BonificacionEnvioDeduccion, resolve_costo_mercaderia_detalle
+from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
-from app.services.ml_ventas_desglose.bonificacion_flex import CONCEPTO_BONIFICACION_ENVIO
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_group_metrics import MlGroupMetrics
@@ -324,6 +325,18 @@ class MessageSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ImporteDesglosadoSummary(BaseModel):
+    """ONE shape for a line whose amount is shown split into gross, net and
+    IVA (ventas-ml-bonificacion-envio-flex). `bruto == neto + iva` exactly.
+    The `iva` is exposed as its own field so the data can feed an IVA
+    sales/purchases book later. The bonificación por envío (a line of the
+    neto) and the shipping the BUYER pays use this same shape."""
+
+    bruto: float
+    neto: float
+    iva: float
+
+
 class BreakdownLineSummary(BaseModel):
     """One line of the cost breakdown.
 
@@ -337,7 +350,11 @@ class BreakdownLineSummary(BaseModel):
     The distinction is the point: an operator reading a Flex sale has to
     be able to tell the cost we pay from the charge ML bills.
 
-    `"recuperable"` (ml-ventas-neto-iibb-varios D2) is a third value: a
+    `"bonificacion"` (ventas-ml-bonificacion-en-neto) is the Flex "Bonificación
+    por envío" ML pays for the operation: it IS part of Neto, as a negative
+    charge (it adds), next to the charges ML takes.
+
+    `"recuperable"` (ml-ventas-neto-iibb-varios D2) is another value: a
     SIRTAC withholding, shown so the operator can see it, but NOT part of
     what was subtracted to arrive at Neto -- it is a recoverable tax
     credit ML already gave back inside Neto itself (see
@@ -346,6 +363,11 @@ class BreakdownLineSummary(BaseModel):
     concepto: str
     monto: float
     origen: str = "api"
+    # Gross / net / IVA of the line when it has a fiscal breakdown to show
+    # (today only the Flex bonificación, `origen="bonificacion"`, whose `monto`
+    # is the NEGATIVE gross: money ML pays, it adds to the neto). `None` for
+    # every other line: their `monto` already is the whole story.
+    importe: Optional[ImporteDesglosadoSummary] = None
 
 
 class ItemDesgloseLineSummary(BaseModel):
@@ -407,6 +429,10 @@ class OperationBreakdownSummary(BaseModel):
     # it) -- both `None` only when `neto` itself is `None`.
     neto_depositado: Optional[float] = None
     retenciones_recuperables: Optional[float] = None
+    # ventas-ml-bonificacion-en-neto: the Flex bonificación (gross) inside
+    # `neto` but outside the payment -- `neto_depositado + retenciones_recuperables
+    # + bonificacion_envio == neto`. `None` only when `neto` itself is `None`.
+    bonificacion_envio: Optional[float] = None
 
     @classmethod
     def from_domain(cls, breakdown) -> "OperationBreakdownSummary":
@@ -423,6 +449,7 @@ class OperationBreakdownSummary(BaseModel):
             retenciones_recuperables=(
                 float(breakdown.retenciones_recuperables) if breakdown.neto is not None else None
             ),
+            bonificacion_envio=float(breakdown.bonificacion_envio) if breakdown.neto is not None else None,
             item_lines=[
                 ItemDesgloseLineSummary(
                     item_id=item.item_id,
@@ -454,19 +481,6 @@ class IvaComponenteSummary(BaseModel):
     # `neto_sin_iva` -- it was already added back into `neto`. Every other
     # component stays `informativo=False`.
     informativo: bool = False
-
-
-class ImporteDesglosadoSummary(BaseModel):
-    """ONE shape for a line whose amount is shown split into gross, net and
-    IVA (ventas-ml-bonificacion-envio-flex). `bruto == neto + iva` exactly.
-    Only the `neto` ever enters the Total Gauss; the `iva` is informational
-    / fiscal (it never reduces it) -- exposed as its own field so the data
-    can feed an IVA sales/purchases book later. Shipping lines use this same
-    shape (the shipping the BUYER pays will, in a later change)."""
-
-    bruto: float
-    neto: float
-    iva: float
 
 
 class DescomposicionIvaSummary(BaseModel):
@@ -544,10 +558,6 @@ class DeduccionLineaSummary(BaseModel):
     # says so, so the panel never presents the split amount as if it were
     # the whole shipping cost of this order alone.
     prorateado: bool = False
-    # Gross / net / IVA of the line, when it has a fiscal breakdown to show
-    # (today only `bonificacion_envio`). `None` for every other link: their
-    # `monto` already is the whole story.
-    importe: Optional[ImporteDesglosadoSummary] = None
 
 
 class ItemCostoLineSummary(BaseModel):
@@ -635,7 +645,6 @@ class CadenaTotalGaussSummary(BaseModel):
         stored,
         costo_items: Optional[List] = None,
         envio_flex_prorateado: bool = False,
-        importes_by_code: Optional[Dict[str, ImporteDesglosadoSummary]] = None,
     ) -> "CadenaTotalGaussSummary":
         """ventas-ml-rediseno PR7 (design D2/D13, spec SM R5/R6): the
         detail panel's chain now renders from the STORED
@@ -663,7 +672,6 @@ class CadenaTotalGaussSummary(BaseModel):
                     monto=float(monto) if monto is not None else None,
                     concepto=concepto,
                     prorateado=(code == "envio_flex" and envio_flex_prorateado),
-                    importe=(importes_by_code or {}).get(code),
                 )
                 for code, monto, concepto in stored.lineas
             ],
@@ -839,6 +847,12 @@ class SaleListItem(BaseModel):
     # uses -- `None` only when `neto` itself is `None`.
     neto_depositado: Optional[float] = None
     retenciones_recuperables: Optional[float] = None
+    # ventas-ml-bonificacion-en-neto: the Flex bonificación inside `neto`, so
+    # the tooltip adds up to the neto shown (`neto_depositado +
+    # retenciones_recuperables + bonificacion_envio == neto`); 0 on a settled
+    # sale without one, `None` when that identity cannot be confirmed (row
+    # waiting for its recompute, stored neto from an older formula).
+    bonificacion_envio: Optional[float] = None
     # ventas-ml-rediseno PR10.T2 (design D13, spec LISTING R28): the ERP
     # category of ONE of this order's items, resolved through the frozen
     # cost linkage (`ml_order_item_costos.producto_item_id` ->
@@ -939,6 +953,7 @@ class SaleGroup(BaseModel):
     # nothing like `group_neto` -- `None` if any member's is `None`.
     neto_depositado: Optional[float] = None
     retenciones_recuperables: Optional[float] = None
+    bonificacion_envio: Optional[float] = None
 
 
 class SaleFacetCounts(BaseModel):
@@ -1545,6 +1560,10 @@ def _sales_page(
         # every non-payment recompute to guard against a mismatch that
         # does not occur there; reverted for that reason.
         neto_desglose_by_order = compute_neto_desglose_by_order_ids(db, page_order_ids)
+        # ventas-ml-bonificacion-en-neto: the live Flex bonificación of the
+        # page (one bulk resolution), only to CONFIRM the stored neto's
+        # composition for the tooltip -- never a second source of the neto.
+        bonificacion_live_by_order = bonificacion_bruta_by_order_ids(db, page_order_ids)
         # ventas-ml-rediseno PR10.T7 (design D2/D13, spec LISTING R31):
         # `neto`, `total_gauss` and the new `markup` field are read from the
         # STORED `ml_order_metrics` row -- the SAME reader the detail
@@ -1576,6 +1595,24 @@ def _sales_page(
             order_neto_depositado, order_retenciones_recuperables = neto_desglose_by_order.get(
                 order.order_id, (None, None)
             )
+            # The Flex bonificación inside the stored `neto`. Shown ONLY when
+            # the row is settled AND the identity
+            #   neto == neto_depositado + retenciones_recuperables + bonificación
+            # holds to the cent against the live bonificación: otherwise the
+            # tooltip would not add up to the neto on screen (a row waiting for
+            # its recompute, a stored neto from before this change, a cents
+            # drift) and "unknown" is the honest answer. 0 on a settled sale
+            # that has none, so a pack can sum its members.
+            order_bonificacion = None
+            if (
+                order_metrics_state in ("ok", "provisional")
+                and order_neto is not None
+                and order_neto_depositado is not None
+                and order_retenciones_recuperables is not None
+            ):
+                live_bonificacion = bonificacion_live_by_order.get(order.order_id, Decimal("0"))
+                if order_neto - order_neto_depositado - order_retenciones_recuperables == live_bonificacion:
+                    order_bonificacion = live_bonificacion
             order_coupon_amount = coupon_amount_by_order.get(order.order_id)
             # The real shipment ALWAYS outranks the `no_shipping` tag (order
             # 2000016977234624: tagged `no_shipping` AND a delivered
@@ -1618,6 +1655,7 @@ def _sales_page(
                     retenciones_recuperables=(
                         float(order_retenciones_recuperables) if order_retenciones_recuperables is not None else None
                     ),
+                    bonificacion_envio=(float(order_bonificacion) if order_bonificacion is not None else None),
                     item_category=item_category_by_order.get(order.order_id),
                     city=_nested_str_field(shipment.receiver_address if shipment is not None else None, "city", "name"),
                     province=_nested_str_field(
@@ -1690,6 +1728,12 @@ def _sales_page(
             if (single_currency is None or any(v is None for v in member_retenciones_recuperables))
             else sum(member_retenciones_recuperables)
         )
+        member_bonificacion = [m.bonificacion_envio for m in members]
+        group_bonificacion = (
+            None
+            if (single_currency is None or any(v is None for v in member_bonificacion))
+            else sum(member_bonificacion)
+        )
         groups.append(
             SaleGroup(
                 group_key=key,
@@ -1700,6 +1744,7 @@ def _sales_page(
                 total_gauss_provisional_falta=group_total_gauss_provisional_falta,
                 neto_depositado=group_neto_depositado,
                 retenciones_recuperables=group_retenciones_recuperables,
+                bonificacion_envio=group_bonificacion,
                 # The earliest member's `date_created` -- DISPLAYED to the
                 # user, but NOT what the row is filtered or sorted by. ODD
                 # `ventas-ml-dia-por-acreditacion`: the default sort/filter
@@ -2366,30 +2411,31 @@ def obtener_operacion(
         claim=ClaimSummary.model_validate(claim) if claim else None,
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
-        breakdown=OperationBreakdownSummary.from_domain(breakdown),
+        breakdown=_con_importe_de_bonificacion(OperationBreakdownSummary.from_domain(breakdown), order_descomposicion),
         total_gauss=float(order_metrics.total_gauss) if order_metrics.total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
         cadena_total_gauss=CadenaTotalGaussSummary.from_stored(
             order_stored_metrics,
             order_costo_items,
             envio_flex_prorateado=envio_flex_prorateado,
-            importes_by_code=_importes_desglosados(order_descomposicion),
         ),
         metrics_state=order_metrics_state,
     )
 
 
-def _importes_desglosados(descomposicion) -> Dict[str, ImporteDesglosadoSummary]:
-    """Gross / net / IVA of the chain lines that carry a fiscal breakdown,
-    read from the SAME `iva.py` component the IVA section shows -- one
-    source, so the line and the section cannot disagree."""
-    importes: Dict[str, ImporteDesglosadoSummary] = {}
+def _con_importe_de_bonificacion(resumen: OperationBreakdownSummary, descomposicion) -> OperationBreakdownSummary:
+    """Gives the bonificación line of the breakdown its gross / net / IVA, read
+    from the SAME `iva.py` component the IVA section shows -- one source, so
+    the line and the section cannot disagree."""
     for componente in descomposicion.componentes:
         if componente.concepto == CONCEPTO_BONIFICACION_ENVIO:
-            importes[BonificacionEnvioDeduccion.code] = ImporteDesglosadoSummary(
+            importe = ImporteDesglosadoSummary(
                 bruto=float(componente.bruto), neto=float(componente.base), iva=float(componente.iva)
             )
-    return importes
+            for linea in resumen.lines:
+                if linea.origen == "bonificacion":
+                    linea.importe = importe
+    return resumen
 
 
 class ResyncResponse(BaseModel):

@@ -54,6 +54,22 @@ discipline an unknown cost gets (D7): if the net's composition cannot be
 accounted for exactly, it cannot be honestly de-IVA'd either. This DOES
 fire in production: order 2000018322969636 is the known 1-of-488 mismatch.
 
+## The Flex bonificación is part of the neto, outside the payment
+
+ML pays the Flex "Bonificación por envío" for the operation, but not through
+the payment: it is in none of `net_received_amount`'s inputs
+(ventas-ml-bonificacion-en-neto). `neto` (everywhere) is therefore
+
+    neto = payment part (net_received_amount, refunds, SIRTAC add-back)
+         + bonificación (gross)
+
+and the decomposition keeps the two sides explicit instead of loosening the
+equality: the PAYMENT components (`fuera_del_pago=False`) still reconcile to
+the cent against the payment part alone (`diferencia`, `reconcilia`), and the
+bonificación is its own component (`fuera_del_pago=True`) that adds its gross
+to `neto` and its base to `neto_sin_iva`. A gap in the payment can never be
+absorbed by the bonificación, and no tolerance is introduced.
+
 Nothing here performs fiscal crediting or builds a libro IVA (D13) -- the
 per-component, per-rate figures are a free byproduct of the decomposition,
 not a feature built for a consumer that does not exist yet.
@@ -70,12 +86,10 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
-from app.services.ml_ventas_desglose.bonificacion_flex import (
-    CONCEPTO_BONIFICACION_ENVIO,
-    resolve_bonificacion_flex_by_order_ids,
-)
+from app.services.ml_ventas_desglose.bonificacion_flex import resolve_bonificacion_flex_by_order_ids
 from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
+    CONCEPTO_BONIFICACION_ENVIO,
     RELEVANT_PAYMENT_STATUSES,
     debitos_creditos_total,
     is_recoverable_withholding,
@@ -146,6 +160,12 @@ class ComponenteIVA:
     # `neto` by `payment_effective_net`, so counting it here too would
     # double it. Every other component stays `informativo=False`.
     informativo: bool = False
+    # ventas-ml-bonificacion-en-neto: the component is part of the neto and of
+    # `neto_sin_iva`, but it is NOT inside the payment's `net_received_amount`
+    # (today only the Flex bonificación: ML pays it for the operation, outside
+    # the payment). The payment-side reconciliation leaves it out and checks it
+    # on its own, so it can never absorb a gap in the payment.
+    fuera_del_pago: bool = False
 
 
 @dataclass(frozen=True)
@@ -187,8 +207,10 @@ class DescomposicionNeto:
     # Flex bonificación, each WITHOUT IVA. `None` exactly when
     # `base_venta_sin_iva` is: the shipping can only add to a goods side we
     # trust, it never makes an unresolved base look resolved. Built from the
-    # SAME resolvers that feed the informational IVA components below, never
-    # re-derived from `componentes`.
+    # SAME resolvers that feed the components below, never re-derived from
+    # `componentes` -- and NEVER from `neto_sin_iva`, which carries the
+    # bonificación too (ventas-ml-bonificacion-en-neto): that would count it
+    # twice.
     base_varios: Optional[Decimal] = None
     # The shipping the buyer paid, gross / net, for the API's gross-net-IVA
     # breakdown (IVA books). `None` = the buyer paid none (or it is unreadable).
@@ -460,14 +482,13 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                 )
             )
 
-        # ventas-ml-bonificacion-envio-flex: what ML pays the seller for the
-        # Flex shipping it delivers. At ML's 21% like every ML-side figure
-        # (`IVA_ML_PCT`) -- the maintainer's own rule, 8990 -> 7429,75 --
-        # and displayed as `informativo` for the same reason SIRTAC is: it
-        # is NOT inside `net_received_amount`, so counting it in the exact
-        # reconciliation below would break it (D12). The IVA-free amount
-        # reaches the Total Gauss through the deduction chain
-        # (`BonificacionEnvioDeduccion`), never through `neto_sin_iva`.
+        # ventas-ml-bonificacion-en-neto: what ML pays the seller for the Flex
+        # shipping it delivers is part of the operation's neto. At ML's 21%
+        # like every ML-side figure (`IVA_ML_PCT`) -- the maintainer's own rule,
+        # 8990 -> 7429,75. It is a REAL component (it adds to `neto_sin_iva`
+        # and its IVA is a real part of the split), but it is NOT inside
+        # `net_received_amount`: `fuera_del_pago` keeps it out of the payment
+        # reconciliation below, which is therefore as exact as before.
         # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
         # so a pack's components add up to ONE bonificación.
         envio_comprador = EnvioCompradorOrden(bruto=envio_bruto, neto=envio_neto) if envio_bruto > 0 else None
@@ -481,7 +502,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                     bruto=bonificacion.bruto,
                     base=bonificacion.neto,
                     iva=bonificacion.bruto - bonificacion.neto,
-                    informativo=True,
+                    fuera_del_pago=True,
                 )
             )
 
@@ -490,7 +511,12 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # débitos/créditos component IS included, which is exactly why the
         # reconciliation target below subtracts it from `neto` too.
         no_informativos = [c for c in componentes if not c.informativo]
-        suma_bruto = sum((c.bruto for c in no_informativos), Decimal("0"))
+        # The PAYMENT side reconciles against `net_received_amount` alone
+        # (`neto` here is built from the payments only); the bonificación is
+        # accounted for separately and explicitly, never folded into this
+        # equality. No tolerance anywhere (D12).
+        del_pago = [c for c in no_informativos if not c.fuera_del_pago]
+        suma_bruto = sum((c.bruto for c in del_pago), Decimal("0"))
         objetivo = neto - extra_debitos_creditos
         diferencia = objetivo - suma_bruto
         reconcilia = diferencia == Decimal("0")

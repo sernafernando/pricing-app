@@ -21,8 +21,12 @@ History of the value:
   `order_metrics.reconcile` re-enqueues every row below it and
   `order_metrics.drain` recomputes them (`docs/RUNBOOKS.md`, "Recomputing every
   stored Total Gauss").
+- 4: ventas-ml-bonificacion-en-neto. The Flex bonificación por envío is part of
+  ML's neto, not a deduction of the Total Gauss chain: the stored `neto` grows
+  by its gross and `neto_sin_iva` by its base, and the `bonificacion_envio`
+  chain line is gone. The Total Gauss itself is unchanged. Same backfill as 3.
 """
 
 from __future__ import annotations
 
-CURRENT_FORMULA_VERSION = 3
+CURRENT_FORMULA_VERSION = 4

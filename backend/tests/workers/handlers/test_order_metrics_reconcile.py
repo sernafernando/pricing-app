@@ -184,7 +184,7 @@ class TestTheVariosBaseBumpSelectsRowsStoredUnderTheOldFormula:
     def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_2(
         self, _order_metrics_db_session, pg_order_metrics_engine
     ) -> None:
-        assert CURRENT_FORMULA_VERSION == 3
+        assert CURRENT_FORMULA_VERSION >= 3
         with pg_order_metrics_engine.connect() as conn:
             _insert_order(conn, 500020)
             _insert_metrics(conn, 500020, formula_version=2)
@@ -221,6 +221,34 @@ class TestTheVariosBaseBumpSelectsRowsStoredUnderTheOldFormula:
                 text("SELECT count(*) FROM ml_order_metrics_dirty WHERE order_id BETWEEN 500100 AND 500199")
             ).scalar()
         assert queued == 100
+
+
+@pytest.mark.postgres
+class TestTheBonificacionEnNetoBumpSelectsRowsStoredUnderFormula3:
+    """ventas-ml-bonificacion-en-neto: the stored `neto` / `neto_sin_iva` grow by
+    the Flex bonificación (it moved from the Total Gauss chain into the neto),
+    so every row stored under formula 3 is stale. The historical recompute IS
+    the version bump: `order_metrics.reconcile` must pick those rows up."""
+
+    def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_3(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        assert CURRENT_FORMULA_VERSION == 4
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_order(conn, 500030)
+            _insert_metrics(conn, 500030, formula_version=3)
+            _insert_order(conn, 500031)
+            _insert_metrics(conn, 500031, formula_version=CURRENT_FORMULA_VERSION)
+            conn.commit()
+
+        reconcile.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        with pg_order_metrics_engine.connect() as conn:
+            stale = _dirty_row(conn, 500030)
+            current = _dirty_row(conn, 500031)
+        assert stale is not None
+        assert stale.reason == "reconcile"
+        assert current is None
 
 
 @pytest.mark.postgres

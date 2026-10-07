@@ -63,9 +63,14 @@ distributed so their shares add up to the shipment's amount, the remainder
 cents going to the lowest `order_id`s. `iva = bruto - neto` per share, so
 `base + iva == bruto` holds like every component of `iva.py`.
 
-This module is the ONE place the bonificación is computed: the Total Gauss
-line (`BonificacionEnvioDeduccion`), the IVA component and the "% de varios"
-base all read `resolve_bonificacion_flex_by_order_ids`.
+This module is the ONE place the bonificación is computed: the neto
+(`breakdown_service`), the IVA component (`iva.py`) and the "% de varios" base
+all read `resolve_bonificacion_flex_by_order_ids`.
+
+Where it lives (ventas-ml-bonificacion-en-neto): ML pays it for the operation,
+so it is part of ML's NETO -- gross in `neto`, net of IVA in `neto_sin_iva` --
+and NOT a deduction of the Total Gauss chain. The Total Gauss reaches the same
+figure through `neto_sin_iva`.
 """
 
 from __future__ import annotations
@@ -83,8 +88,6 @@ from app.services.ml_orders_ingestion.mode_resolution import MODO_SELF_SERVICE
 from app.services.ml_ventas_desglose.breakdown_service import resolve_modes
 
 logger = logging.getLogger(__name__)
-
-CONCEPTO_BONIFICACION_ENVIO = "Bonificación por envío"
 
 _CENT = Decimal("0.01")
 

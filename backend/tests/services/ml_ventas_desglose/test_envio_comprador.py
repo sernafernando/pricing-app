@@ -117,9 +117,7 @@ class TestVariosOverTheNewBase:
 
         assert desc.base_venta_sin_iva == Decimal("87601.65")
         assert desc.base_varios == Decimal("87601.65") + Decimal("495.04")
-        assert [c.concepto for c in desc.componentes if c.informativo and c.alicuota is not None] == [
-            "Bonificación por envío"
-        ]
+        assert [c.concepto for c in desc.componentes if c.fuera_del_pago] == ["Bonificación por envío"]
         assert _varios_line(metrics) == Decimal("1761.93")
 
     def test_buyer_shipping_and_bonificacion_both_enter_once_each(self, db) -> None:
