@@ -122,8 +122,9 @@ class _Work:
 
     @property
     def pending(self) -> Set[str]:
-        """Sub-resources still to fetch (only meaningful once the core is applied)."""
-        return {name for name in self.plan.wanted if name not in self.done}
+        """Sub-resources still to fetch (only meaningful once the core is applied): neither settled (`done`)
+        nor already failed (`failed`, charged when the entry settles)."""
+        return {name for name in self.plan.wanted if name not in self.done and name not in self.failed}
 
 
 @dataclass(frozen=True)
@@ -422,7 +423,6 @@ class RefreshHandler:
                     work.done.add(resource)
                 elif not bundle.is_valid_key(resource, key):  # a hand-loaded id: fails this entry, not the batch
                     work.failed[resource] = f"invalid {entity} id"
-                    work.done.add(resource)
                 else:
                     ids[resource] = key
             targets[work.claim.key] = ids

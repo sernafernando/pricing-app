@@ -2,8 +2,9 @@
 
 The same contract as `store.apply_fetch`, for the sub-resource tables keyed by item id
 (`description`, `prices`, `sale_price`, `promotions`), by user product id (`user_product`, `stock`) or
-by family id (`family`): one call is one transaction on one entity, the row is locked, the response is compared against the COMMITTED state and the state, its change-log row
-and its events commit together or not at all. Nothing here deletes a store row.
+by family id (`family`): one call is one transaction on one entity, the row is locked, the response is
+compared against the COMMITTED state and the state, its change-log row and its events commit together or
+not at all. Nothing here deletes a store row.
 
 Differences from the item core: classification is by HTTP status through the resource parser
 (`ok`, `not_found`, `error`), a response is ordered by the time its request started (these
