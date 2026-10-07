@@ -604,7 +604,7 @@ class RelinkHandler:
 SCAN_HANDLER = "ml_publications.scan"
 _SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
-# Consecutive failing runs (ML errors, unexpected exceptions) after which the scan stops retrying every
+# Failing runs of the same kind (ML errors, unexpected exceptions), with no good run in between, after which the scan stops retrying every
 # pass and waits for its daily slot; each failed run is retried on the next pass until then. The streak
 # lives in the process (a restart clears it) and only failing runs extend it: a run cut short by the
 # deadline or a 429 counts as a good one, so an outage that alternates 503 and 429 keeps retrying.

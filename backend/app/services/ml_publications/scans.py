@@ -35,6 +35,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core import database
+from app.core.config import SCAN_STATUS_NAMES
 from app.models.ml_publications import MlItem, MlPubJobRun, MlPubScanState
 from app.services.ml_publications import queue, settings_store
 from app.services.ml_publications.ml_http import OUTCOME_NO_TOKEN, OUTCOME_NOT_CONFIGURED, MlResponse
@@ -67,7 +68,7 @@ STOP_RATE_LIMITED = "rate_limited"
 
 # Every status a scan can be asked for, and the body statuses each one returns. Only `pending` differs
 # (captured 2026-10-06: the `pending` scan returns items whose body `status` is `inactive`).
-ALL_SCAN_STATUSES = settings_store.SCAN_STATUSES
+ALL_SCAN_STATUSES = SCAN_STATUS_NAMES
 SCAN_TO_BODY_STATUS: Mapping[str, FrozenSet[str]] = {"pending": frozenset({"inactive"})}
 
 

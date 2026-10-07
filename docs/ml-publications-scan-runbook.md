@@ -68,6 +68,6 @@ has not started.
 * Missing setup: with no `ML_USER_ID`, no ML credentials or a rejected token (`seller_not_configured`,
   `not_configured`, `no_token`, `unauthorized`) the run reports `blocked` in `worker_job_state.detail`, ends as
   finished and falls back to the daily 03:30 slot instead of retrying every 30 s. That run also consumes a
-  pending request; `scan.next_mode = full` is kept, so fix the setup and request the scan again to run it now. Five consecutive failing runs of the same kind
-  end the same way: `blocked = upstream_error` for a sustained ML outage, `internal_error` when the failures
-  are unexpected exceptions of the scan itself.
+  pending request; `scan.next_mode = full` is kept, so fix the setup and request the scan again to run it now.
+  Five failing runs of the same kind with no successful run in between end the same way: `blocked = upstream_error` for a sustained ML outage,
+  `internal_error` when the failures are unexpected exceptions of the scan itself.

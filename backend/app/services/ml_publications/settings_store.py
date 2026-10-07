@@ -73,12 +73,8 @@ def _str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) and v for v in value)
 
 
-# Statuses the scan can be asked for: one vocabulary, defined next to the env default it validates.
-SCAN_STATUSES = SCAN_STATUS_NAMES
-
-
 def _scan_status_list(value: Any) -> bool:
-    return isinstance(value, list) and bool(value) and all(isinstance(v, str) and v in SCAN_STATUSES for v in value)
+    return isinstance(value, list) and bool(value) and all(isinstance(v, str) and v in SCAN_STATUS_NAMES for v in value)
 
 
 def _scan_mode(value: Any) -> bool:
