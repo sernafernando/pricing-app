@@ -346,6 +346,17 @@ class TestRunRecord:
         run()
         assert run_records(env)[0]["outcome"] == "yielded"
 
+    def test_consecutive_yielded_ticks_are_counted_so_a_starved_sweep_is_visible(self, env) -> None:
+        put_items(env, 1)
+        queue_put(env, "MLA999", queue.LANE_NOTIFICATION)
+        for _ in range(3):
+            run()
+        assert [r["counts"]["yielded_in_a_row"] for r in run_records(env)] == [1, 2, 3]
+        with env.begin() as conn:
+            conn.execute(text("DELETE FROM ml_pub_refresh_queue"))
+        run()
+        assert run_records(env)[-1]["counts"]["yielded_in_a_row"] == 0
+
     def test_an_unexpected_error_is_recorded_and_never_raised(self, env, monkeypatch) -> None:
         def boom(*args, **kwargs):
             raise RuntimeError("db is gone")

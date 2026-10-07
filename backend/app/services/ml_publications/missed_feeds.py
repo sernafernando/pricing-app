@@ -131,8 +131,11 @@ _GAP_ALREADY_RECORDED = text(
 
 
 def _detect_gap(now: datetime) -> Optional[Dict[str, Any]]:
-    """The coverage gap this run must record, or None: no earlier success to compare with (first run), a
-    success within `GAP_HOURS`, or a gap already recorded since that success (a retry of the same gap)."""
+    """The coverage gap this run must record, or None.
+
+    Only a COMPLETED run counts as a success: a list that every run leaves partial and never finishes is, by
+    definition, not covered. None when there is no earlier success to compare with (first run), when the last
+    success is within `GAP_HOURS`, or when a gap was already recorded since that success (a retry of the same gap)."""
     with database.get_background_db() as session:
         last = session.execute(_LAST_SUCCESS, {"job": JOB}).scalar()
         if last is None or now - last <= timedelta(hours=GAP_HOURS):
@@ -200,27 +203,27 @@ def _apply_page(
             result.unparsed += 1
             continue
         resource = message.get("resource")
-        resource = resource if isinstance(resource, str) else ""
-        item_id = intake.parse_resource(mapping.topic, resource)
         user_id = message.get("user_id")
-        # only the seller's messages count as "read": another seller's row (counted as foreign by `classify`)
-        # must not hide the seller's own message for the same resource
-        if item_id is not None and user_id is not None and str(user_id) == seller_id:
-            if item_id in seen:
-                result.duplicates += 1
-                continue
-            seen.add(item_id)
         rows.append(
             intake.NotificationRow(
-                resource=resource,
+                resource=resource if isinstance(resource, str) else "",
                 received_at=_parse_received(message.get("received")) or now,
                 user_id=None if user_id is None else str(user_id),
             )
         )
     with database.get_background_db() as session:
         classified = intake.classify(session, mapping, rows, seller_id, lane=queue.LANE_RECONCILE)
-        queue.enqueue(classified.entries, session=session)
-    result.enqueued += len(classified.entries)
+        # Dedupe on what is actually enqueued, never on what was merely read: a delivery that `classify` judged
+        # already satisfied must not hide a later, newer delivery of the same resource.
+        entries = []
+        for entry in classified.entries:
+            if entry.entity_id in seen:
+                result.duplicates += 1
+                continue
+            seen.add(entry.entity_id)
+            entries.append(entry)
+        queue.enqueue(entries, session=session)
+    result.enqueued += len(entries)
     result.satisfied += classified.satisfied
     result.foreign += classified.foreign
     result.unparsed += classified.unparsed

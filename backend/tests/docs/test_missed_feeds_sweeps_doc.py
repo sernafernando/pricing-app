@@ -88,8 +88,13 @@ def test_the_yielded_outcome_is_explained(section) -> None:
 
 
 def test_the_health_signals_and_the_unconfirmed_ordering_are_stated(section) -> None:
-    assert "`last_success_at` is not a health signal" in section
+    assert "`worker_job_state.last_success_at` is not a health signal" in section
     assert "does not say in which order" in section
+
+
+def test_the_starvation_signal_and_the_partial_run_gap_rule_are_stated(section) -> None:
+    assert "`yielded_in_a_row`" in section
+    assert "never finishes is, by definition, a gap" in section
 
 
 def test_the_parked_items_note_is_present(section) -> None:

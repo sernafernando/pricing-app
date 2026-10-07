@@ -42,6 +42,8 @@ TICKS_PER_DAY = 144
 # Sweep entries allowed to wait unfetched, in ticks' worth of the current batch size.
 BACKLOG_TICKS = 3
 STATEMENT_TIMEOUT = "20s"
+# Yielded ticks in a row (10 minutes each) after which the sweep logs that live work is starving it: 6 hours.
+STARVATION_TICKS = 36
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_YIELDED = "yielded"
@@ -78,6 +80,9 @@ _NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind
 _LIVE_WORK = text(
     "SELECT 1 FROM ml_pub_refresh_queue WHERE lane <= :lane AND claimed_at IS NULL AND parked_at IS NULL "
     "AND not_before <= now() LIMIT 1"
+)
+_PREVIOUS_STREAK = text(
+    "SELECT counts ->> 'yielded_in_a_row' FROM ml_pub_job_runs WHERE job = :job ORDER BY id DESC LIMIT 1"
 )
 _SWEEP_BACKLOG = text("SELECT count(*) FROM ml_pub_refresh_queue WHERE lane = :lane AND parked_at IS NULL")
 
@@ -118,12 +123,14 @@ class SweepResult:
     outcome: str = OUTCOME_SUCCESS
     error: Optional[str] = None
     enqueued: int = 0
+    yielded_in_a_row: int = 0
     resources: Dict[str, ResourceTick] = field(default_factory=dict)
 
     def counts(self) -> Dict[str, Any]:
         calls = daily_calls(*(t.eligible for t in self.resources.values()))
         return {
             "enqueued": self.enqueued,
+            "yielded_in_a_row": self.yielded_in_a_row,
             "resources": {name: tick.as_dict() for name, tick in self.resources.items()},
             "calls_per_day": calls,
             "requests_per_second": round(requests_per_second(calls), 4),
@@ -185,6 +192,15 @@ def _tick(
     return None
 
 
+def _yield_streak(outcome: str) -> int:
+    """Consecutive ticks that yielded to live work, this one included: the signal that the sweep is starving."""
+    if outcome != OUTCOME_YIELDED:
+        return 0
+    with database.get_background_db() as session:
+        previous = session.execute(_PREVIOUS_STREAK, {"job": JOB}).scalar()
+    return (int(previous) if previous and str(previous).isdigit() else 0) + 1
+
+
 def _record(result: SweepResult, resources: Sequence[str], started: datetime, finished: datetime) -> None:
     with database.get_background_db() as session:
         session.add(
@@ -217,6 +233,9 @@ def run_sweep(
         else:
             early = _tick(statuses, resources, started - timedelta(days=recheck_days), result)
             result.outcome = early or OUTCOME_SUCCESS
+        result.yielded_in_a_row = _yield_streak(result.outcome)
+        if result.yielded_in_a_row == STARVATION_TICKS:
+            logger.warning("the sweep has yielded to live work for %s ticks in a row", STARVATION_TICKS)
     except Exception as exc:  # noqa: BLE001 -- the next tick retries
         logger.exception("sweep tick failed")
         result.outcome, result.error = OUTCOME_FAILED, f"internal_error: {type(exc).__name__}: {exc}"[:300]

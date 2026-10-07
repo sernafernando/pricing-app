@@ -251,6 +251,7 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   `received` of a message are read: the delivery attempt (`request`, `response`) is never stored.
 * A resource already fetched after the missed delivery needs no refresh and is not enqueued; another seller's
   message is dropped; each resource is enqueued once per run however many pages repeat it.
+* Only a completed run is a success: a list that every run leaves partial and never finishes is, by definition, a gap.
 * If the last successful run is older than 48 h, the run records a coverage gap in its `ml_pub_job_runs` row
   (`counts.coverage_gap`) and requests a scan rescan (`worker_job_state.state = 'requested'` for
   `ml_publications.scan`, honored once `scan.enabled` is on), once per gap.
@@ -273,7 +274,8 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   rejected by the setting), not gone. A performance state stored as `not_applicable` (a catalog product item) is
   rechecked only after `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS` (30 days). Visits are one item per call.
 * With `refresh.enabled` off the entries only wait in the queue (nothing fetches them), and while live entries wait
-  (intake keeps enqueuing) the tick records `yielded`: expected, not a fault.
+  (intake keeps enqueuing) the tick records `yielded`: expected, not a fault (each tick's run record
+  carries `yielded_in_a_row`; a long streak, logged as a warning at 36 ticks, means live work is starving the sweep).
 * Only the resources listed in `bundle_resources` are swept: add `performance` and/or `visits` first, or the tick
   records `no_resources` and does nothing.
 * The tick enqueues nothing while manual or notification-lane work is ready to be claimed (it yields), skips

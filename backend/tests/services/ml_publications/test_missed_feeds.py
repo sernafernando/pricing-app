@@ -264,6 +264,23 @@ class TestRecovery:
         assert set(queue_rows(env)) == {"MLA3510103662"}
         assert (result.foreign, result.duplicates, result.enqueued) == (1, 0, 1)
 
+    def test_a_later_delivery_of_an_item_already_satisfied_by_an_earlier_one_is_still_evaluated(self, env):
+        """The item was fetched on 2026-10-06, so the real delivery of 2026-10-05 needs nothing; page 2 repeats the
+        resource under a new `_id` with `received` changed to 2026-10-07, which is newer than that fetch."""
+        with env.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO ml_items (item_id, status, http_status, fetched_request_started_at) "
+                    "VALUES ('MLA3510103662', 'active', 200, :at)"
+                ),
+                {"at": datetime(2026, 10, 6, tzinfo=timezone.utc)},
+            )
+        later = with_message(_id="00000000-0000-4000-8000-0000000000bb", received="2026-10-07T00:00:00Z")
+        ml = Ml({("items", 0): missed_body("items"), ("items", missed_feeds.PAGE_LIMIT): {"messages": [later]}})
+        result = run(ml)
+        assert "MLA3510103662" in queue_rows(env)
+        assert (result.satisfied, result.duplicates) == (1, 0)
+
     def test_an_item_fetched_after_the_missed_delivery_needs_no_refresh(self, env):
         with env.begin() as conn:
             conn.execute(
