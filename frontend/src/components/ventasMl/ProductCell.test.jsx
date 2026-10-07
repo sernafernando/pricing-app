@@ -93,4 +93,36 @@ describe('ProductCell', () => {
     rerender(<ProductCell items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1 }]} />);
     expect(screen.queryByRole('img')).toBeNull();
   });
+
+  // The SKU can change in MercadoLibre after the sale: the current one stays
+  // the main value and the one it was sold with shows as "ex <SKU>".
+  it('shows the old SKU as "ex" next to the current one when it changed after the sale', () => {
+    render(
+      <ProductCell
+        items={[{ item_id: 'MLA1', seller_sku: '1215', seller_sku_anterior: '1214', title: 'Cable', quantity: 1 }]}
+      />
+    );
+    expect(screen.getByText(/SKU 1215/)).toBeInTheDocument();
+    expect(screen.getByText(/ex 1214/)).toBeInTheDocument();
+  });
+
+  it('shows no "ex" when the SKU did not change (null seller_sku_anterior)', () => {
+    render(
+      <ProductCell
+        items={[{ item_id: 'MLA1', seller_sku: '1215', seller_sku_anterior: null, title: 'Cable', quantity: 1 }]}
+      />
+    );
+    expect(screen.getByText(/SKU 1215/)).toBeInTheDocument();
+    expect(screen.queryByText(/ex /)).not.toBeInTheDocument();
+  });
+
+  it('shows the old SKU in the pack member sub-row too', () => {
+    render(
+      <ProductCell
+        variant="member"
+        items={[{ item_id: 'MLA1', seller_sku: '1215', seller_sku_anterior: '1214', title: 'Cable', quantity: 1 }]}
+      />
+    );
+    expect(screen.getByText(/ex 1214/)).toBeInTheDocument();
+  });
 });

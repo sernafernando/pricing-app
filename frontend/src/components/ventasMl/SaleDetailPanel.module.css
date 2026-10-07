@@ -219,6 +219,14 @@
   border-radius: var(--radius-base);
 }
 
+/* SKU the item was sold with, shown next to the current one when it changed. */
+.skuAnterior {
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
 /* ── Comprador / Envío / Pago ── */
 
 .buyerNick {

@@ -60,7 +60,13 @@ export default function ProductCell({ items, category, variant = 'row', isPack =
   const title = primary.title || '(sin título)';
 
   const metaParts = [];
-  if (primary.seller_sku) metaParts.push(`SKU ${primary.seller_sku}`);
+  // Always the CURRENT SKU; the one the item was sold with shows as "ex" only
+  // when MercadoLibre changed it after the sale (backend: null otherwise).
+  if (primary.seller_sku || primary.seller_sku_anterior) {
+    const current = primary.seller_sku ? `SKU ${primary.seller_sku}` : '';
+    const previous = primary.seller_sku_anterior ? `ex ${primary.seller_sku_anterior}` : '';
+    metaParts.push(current && previous ? `${current} (${previous})` : current || previous);
+  }
   if (primary.item_id) metaParts.push(primary.item_id);
   if (primary.quantity != null) metaParts.push(`x${primary.quantity}`);
 
