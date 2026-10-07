@@ -434,7 +434,9 @@ class Board:
         """`scope_pairs` is the CALLER's visibility, resolved server-side (never
         from the query): `None` sees everything, `[]` sees nothing, otherwise
         only the products whose upper-cased (marca, categoría) is one of the
-        pairs. It bounds the per-item base, so every read below is bounded.
+        pairs. The pairs MUST come from `pm_scope` (upper-cased by the database,
+        as the board compares them with SQL `upper()`): never upper-case them
+        in Python, which differs from SQL `upper()` on accents. It bounds the per-item base, so every read below is bounded.
 
         `scope` is the PATH of a node of the "group" view under
         `f.dimension`: the keys of levels 0..n-1. The "group" view then reads
@@ -447,7 +449,7 @@ class Board:
         self.f = f
         self.product_item_id = product_item_id
         self.scope = tuple(scope)
-        self.scope_pairs = None if scope_pairs is None else [(m.upper(), c.upper()) for m, c in scope_pairs]
+        self.scope_pairs = None if scope_pairs is None else [tuple(pair) for pair in scope_pairs]
         self.levels = grouping.levels_of(f.dimension)
         # The levels above the products: how many keys a path can hold.
         self.group_levels = len(self.levels) - 1

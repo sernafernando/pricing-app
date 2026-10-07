@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.services.ml_daily_metrics import board, groups
@@ -161,3 +162,29 @@ def test_a_products_publications_respect_the_scope(tree_catalog) -> None:
     assert publications(23, EPSON_LOGI) == set()  # HP: out of scope
     assert publications(23, None) == {"MLA9000000023"}
     assert publications(21, []) == set()
+
+
+@pytest.mark.postgres
+def test_accented_pairs_match_under_a_byte_collation(tree_catalog) -> None:
+    """Under the `C` collation Postgres upper-cases ASCII only (`ñ` stays `ñ`),
+    while Python upper-cases it to `Ñ`: the scope pairs must be upper-cased by
+    the same database function the board compares them with."""
+    from app.services import pm_scope
+
+    db = tree_catalog
+    db.execute(
+        text(
+            'ALTER TABLE productos_erp ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
+            'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
+            'ALTER TABLE marcas_pm ALTER COLUMN marca TYPE VARCHAR(100) COLLATE "C", '
+            'ALTER COLUMN categoria TYPE VARCHAR(100) COLLATE "C";'
+            'CREATE TABLE IF NOT EXISTS marca_sub_pm (id SERIAL PRIMARY KEY, marca VARCHAR(100) COLLATE "C", '
+            'categoria VARCHAR(100) COLLATE "C", usuario_id INTEGER);'
+            "UPDATE productos_erp SET marca = 'Periféricos', categoria = 'Teclados ñ' WHERE item_id = 24;"
+            "INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('Periféricos', 'Teclados ñ', 903);"
+        )
+    )
+
+    pairs = pm_scope.get_pares_para_pm_ids(db, [903])
+
+    assert _page_keys(db, pairs) == {"24"}

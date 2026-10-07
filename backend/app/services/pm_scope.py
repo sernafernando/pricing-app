@@ -60,8 +60,14 @@ def is_full_view(usuario: Usuario, db: Optional[Session] = None) -> bool:
     return verificar_permiso(db, usuario, PERMISO_FULL_VIEW)
 
 
-def _upper_pairs(rows) -> list[tuple]:
-    return [(m.upper(), c.upper()) for m, c in rows]
+def _pair_query(db: Session, model, usuario_filter):
+    """`(UPPER(marca), UPPER(categoria))` of `model`, upper-cased by the database.
+
+    Consumers compare these pairs against SQL `func.upper(col)`, so both sides
+    must use the same function: Python's `str.upper()` also upper-cases accents
+    that a byte collation (`C`) leaves alone, and the pair would never match.
+    """
+    return db.query(func.upper(model.marca), func.upper(model.categoria)).filter(usuario_filter)
 
 
 def get_pares_marca_categoria_usuario(db: Session, usuario: Usuario) -> Optional[list]:
@@ -79,11 +85,10 @@ def get_pares_marca_categoria_usuario(db: Session, usuario: Usuario) -> Optional
     if not usuario.activo:
         return []
 
-    titular_q = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id == usuario.id)
-    sub_pm_q = db.query(MarcaSubPM.marca, MarcaSubPM.categoria).filter(MarcaSubPM.usuario_id == usuario.id)
+    titular_q = _pair_query(db, MarcaPM, MarcaPM.usuario_id == usuario.id)
+    sub_pm_q = _pair_query(db, MarcaSubPM, MarcaSubPM.usuario_id == usuario.id)
 
-    pares = titular_q.union(sub_pm_q).all()
-    return _upper_pairs(pares) if pares else []
+    return [tuple(pair) for pair in titular_q.union(sub_pm_q).all()]
 
 
 def get_pares_para_pm_ids(db: Session, pm_ids: list[int]) -> list:
@@ -94,11 +99,10 @@ def get_pares_para_pm_ids(db: Session, pm_ids: list[int]) -> list:
     if not pm_ids:
         return []
 
-    titular_q = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pm_ids))
-    sub_pm_q = db.query(MarcaSubPM.marca, MarcaSubPM.categoria).filter(MarcaSubPM.usuario_id.in_(pm_ids))
+    titular_q = _pair_query(db, MarcaPM, MarcaPM.usuario_id.in_(pm_ids))
+    sub_pm_q = _pair_query(db, MarcaSubPM, MarcaSubPM.usuario_id.in_(pm_ids))
 
-    pares = titular_q.union(sub_pm_q).all()
-    return _upper_pairs(pares)
+    return [tuple(pair) for pair in titular_q.union(sub_pm_q).all()]
 
 
 def aplicar_filtro_marcas_pm(
