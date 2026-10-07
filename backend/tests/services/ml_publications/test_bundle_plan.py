@@ -139,6 +139,18 @@ class TestPlanByQueueKind:
         plan = bundle.plan((name,), self.ENABLED, kind=kind)
         assert plan.needs_core is False and dict(plan.wanted) == {} and plan.dropped == {name}
 
+    def test_the_bundle_of_a_user_product_never_counts_a_resource_that_was_not_meant_for_it(self) -> None:
+        """Gated-off promotions and a resource with no fetcher yet belong to items: on a user product or
+        family entry they are not applicable, so they are neither wanted nor dropped (no counter noise)."""
+        enabled = [*self.ENABLED, "promotions", "visits"]
+        for kind, wanted in (("user_product", {"user_product", "stock"}), ("family", {"family"})):
+            plan = bundle.plan(("bundle",), enabled, frozenset({"promotions"}), kind=kind)
+            assert set(plan.wanted) == wanted and plan.dropped == frozenset(), kind
+
+    def test_the_bundle_of_an_item_still_drops_what_it_cannot_fetch(self) -> None:
+        plan = bundle.plan(("bundle",), ["core", "promotions", "visits"], frozenset({"promotions"}))
+        assert plan.dropped == {"promotions", "visits"}
+
     def test_a_disabled_user_product_resource_is_dropped_on_its_own_entry(self) -> None:
         plan = bundle.plan(("stock",), ["core"], kind="user_product")
         assert dict(plan.wanted) == {} and plan.dropped == {"stock"}

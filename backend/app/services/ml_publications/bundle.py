@@ -105,9 +105,11 @@ def plan(
         for name in bundle_resources:
             if name in (CORE_RESOURCE, BUNDLE_RESOURCE):
                 continue
+            if kind != ITEM_KIND and not (has_fetcher(name) and _applies_to(name, kind)):
+                continue  # not meant for this entity (item resources, other entities): not applicable, not dropped
             if not has_fetcher(name) or name in gated_off:
                 dropped.add(name)
-            elif _applies_to(name, kind):  # another entity's resource is not applicable, not dropped
+            else:
                 wanted[name] = False
     for name in requested:
         if name in (CORE_RESOURCE, BUNDLE_RESOURCE):
@@ -172,10 +174,6 @@ def linked_ids(item_ids: Sequence[str]) -> Dict[str, Dict[str, str]]:
         )
     linked: Dict[str, Dict[str, str]] = {}
     for item_id, user_product_id, family_id in rows:
-        ids = {}
-        if user_product_id:
-            ids[USER_PRODUCT_KIND] = user_product_id
-        if family_id is not None:
-            ids[FAMILY_KIND] = str(family_id)
-        linked[item_id] = ids
+        candidates = ((USER_PRODUCT_KIND, user_product_id), (FAMILY_KIND, family_id))
+        linked[item_id] = {entity: str(value) for entity, value in candidates if value not in (None, "")}
     return linked
