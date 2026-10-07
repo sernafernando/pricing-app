@@ -4,7 +4,8 @@
 `triggers.py` (PR4) deliberately left `raw_costs` out: "sender_cost/
 receiver_cost/raw_costs stay trigger-free". That was right while nothing in
 the metrics formula read it. The Flex "Bonificación por envío"
-(`bonificacion_flex.py`) reads `raw_costs.receiver.discounts`, and the cost
+(`bonificacion_flex.py`) reads `raw_costs.senders[].discounts` and
+`raw_costs.receiver.discounts`, and the cost
 payload lands AFTER the shipment (`sweep_service._sync_shipment_costs`
 fetches it on a later pass) -- so a sale computed before it arrived would
 keep its stale Total Gauss forever without this.

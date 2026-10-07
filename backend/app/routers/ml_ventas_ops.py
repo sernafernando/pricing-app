@@ -456,6 +456,19 @@ class IvaComponenteSummary(BaseModel):
     informativo: bool = False
 
 
+class ImporteDesglosadoSummary(BaseModel):
+    """ONE shape for a line whose amount is shown split into gross, net and
+    IVA (ventas-ml-bonificacion-envio-flex). `bruto == neto + iva` exactly.
+    Only the `neto` ever enters the Total Gauss; the `iva` is informational
+    / fiscal (it never reduces it) -- exposed as its own field so the data
+    can feed an IVA sales/purchases book later. Shipping lines use this same
+    shape (the shipping the BUYER pays will, in a later change)."""
+
+    bruto: float
+    neto: float
+    iva: float
+
+
 class DescomposicionIvaSummary(BaseModel):
     """PR4's IVA split of THIS order's `neto` (ml-ventas-modo-logistico
     PR6, design D8-D12). `neto_sin_iva=None` with a non-empty `razones`
@@ -474,6 +487,11 @@ class DescomposicionIvaSummary(BaseModel):
     # -- the goods, without IVA. `None` when not yet computed (PR1) or when
     # the split itself could not be formed.
     base_venta_sin_iva: Optional[float] = None
+    # ventas-ml-varios-base-envio: the base the "% de varios" applies to =
+    # goods without IVA + the shipping that comes in without IVA, and that
+    # shipping the buyer paid as gross / net / IVA (`None` = paid none).
+    base_varios: Optional[float] = None
+    envio_comprador: Optional[ImporteDesglosadoSummary] = None
 
     @classmethod
     def from_domain(cls, desc) -> "DescomposicionIvaSummary":
@@ -495,20 +513,17 @@ class DescomposicionIvaSummary(BaseModel):
             razones=list(desc.razones),
             debitos_creditos_retiro=float(desc.debitos_creditos_retiro),
             base_venta_sin_iva=(float(desc.base_venta_sin_iva) if desc.base_venta_sin_iva is not None else None),
+            base_varios=float(desc.base_varios) if desc.base_varios is not None else None,
+            envio_comprador=(
+                ImporteDesglosadoSummary(
+                    bruto=float(desc.envio_comprador.bruto),
+                    neto=float(desc.envio_comprador.neto),
+                    iva=float(desc.envio_comprador.bruto - desc.envio_comprador.neto),
+                )
+                if desc.envio_comprador is not None
+                else None
+            ),
         )
-
-
-class ImporteDesglosadoSummary(BaseModel):
-    """ONE shape for a line whose amount is shown split into gross, net and
-    IVA (ventas-ml-bonificacion-envio-flex). `bruto == neto + iva` exactly.
-    Only the `neto` ever enters the Total Gauss; the `iva` is informational
-    / fiscal (it never reduces it) -- exposed as its own field so the data
-    can feed an IVA sales/purchases book later. Shipping lines use this same
-    shape (the shipping the BUYER pays will, in a later change)."""
-
-    bruto: float
-    neto: float
-    iva: float
 
 
 class DeduccionLineaSummary(BaseModel):

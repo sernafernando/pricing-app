@@ -1,37 +1,49 @@
 """The Flex "Bonificación por envío" (ventas-ml-bonificacion-envio-flex).
 
-On a Flex sale (`logistic_type = self_service`) whose buyer got free
-shipping through an ML discount, ML pays the SELLER for the shipping the
-seller delivers. That money is income, and it is in none of the places the
-net is built from: not in `net_received_amount`, not in billing, not in
-`/orders/{id}/discounts` (404). It sits only in the shipment's costs
-payload, which `ml_shipments_ops.raw_costs` stores verbatim:
+On a Flex sale (`logistic_type = self_service`) ML pays the SELLER a
+bonificación for the shipping the seller delivers. That money is income, and
+it is in none of the places the net is built from: not in
+`net_received_amount`, not in billing, not in `/orders/{id}/discounts` (404).
+It sits only in the shipment's costs payload, which
+`ml_shipments_ops.raw_costs` stores verbatim.
 
-    receiver.discounts = [{"rate": 1, "type": "loyal", "promoted_amount": 8990}]
+## What counts (ventas-ml-varios-base-envio corrected the first rule)
 
-Confirmed against ML's panel for sale 2000018808335864: $8.990, IVA included
-(real capture, `tests/fixtures/ml_ventas_bonificacion/`).
+    bonificación = Σ senders[].discounts[].promoted_amount
+                 + Σ receiver.discounts[type == "loyal"].promoted_amount
 
-## What counts
+Two real samples, both checked against ML's own panel:
 
-- ONLY `self_service`. On drop-off / fulfillment the buyer's discount is
-  subsidised by ML and is not income for the seller. Same per-order mode
-  `compute_breakdown` and the Flex freight use (`resolve_modes`).
-- The amount is the SUM of `promoted_amount` over `receiver.discounts`.
-  The only captured shape is `type: "loyal"`, `rate: 1`; a partial discount
-  (`rate < 1`) has never been captured, so none is special-cased: its
-  `promoted_amount` is summed like any other. That is an assumption, written
-  here instead of discovered later -- if a capture ever contradicts it, this
-  is the one place to change.
+- Sale 2000018808335864: `receiver.discounts = [{type: loyal, rate: 1,
+  promoted_amount: 8990}]`, `senders[0].discounts = []`; the panel shows
+  $8.990.
+- Pack 2000015400388457 (order 2000018846584294):
+  `senders[0].discounts = [{type: mandatory, promoted_amount: 599}]` and
+  `receiver.discounts = [{type: ratio, rate: 0.63, promoted_amount:
+  3773.7}]`; the panel shows $599. The `ratio` 3773.7 is ML's subsidy to the
+  BUYER, not the seller's income. The first version of this module summed
+  every `receiver.discounts` and read 3773.7 there.
+
+The rule rests on those TWO samples. It is not a general statement about
+ML's API: a `receiver.discounts` type that is neither `loyal` nor a known
+non-income type (`ratio`) is NEVER assumed to be income -- it adds nothing
+and logs a warning with the shipment id, so the next unseen type shows up in
+the log instead of in the money. Sender discounts are summed whatever their
+`type` (only `mandatory` has been captured), exactly like the candidate rule.
+
+ONLY `self_service`: on drop-off / fulfillment the discounts are subsidies
+and not income for the seller. Same per-order mode `compute_breakdown` and
+the Flex freight use (`resolve_modes`).
 
 ## Fail-closed
 
 A missing, non-numeric (a string, a bool, NaN/inf) or negative
-`promoted_amount` never adds money. ONE unreadable entry voids the whole
-shipment's amount: a valid 5.990 next to an entry we cannot read would
-present as ML's payment a figure we cannot show adds up to what ML paid.
-"When in doubt, nothing, and a log" -- never an invented amount, never an
-exception on the write path (this runs inside the metrics recompute).
+`promoted_amount` never adds money. ONE unreadable entry (or a `senders` /
+`receiver` / `discounts` of the wrong shape) voids the whole shipment's
+amount: a valid 599 next to an entry we cannot read would present as ML's
+payment a figure we cannot show adds up to what ML paid. "When in doubt,
+nothing, and a log" -- never an invented amount, never an exception on the
+write path (this runs inside the metrics recompute).
 
 An absent / unsynced cost payload is the NORMAL state of a young sale and
 is silent: the shipment trigger on `raw_costs` recomputes the sale the
@@ -50,6 +62,10 @@ Unlike the freight, the split is EXACT to the cent: gross and net are each
 distributed so their shares add up to the shipment's amount, the remainder
 cents going to the lowest `order_id`s. `iva = bruto - neto` per share, so
 `base + iva == bruto` holds like every component of `iva.py`.
+
+This module is the ONE place the bonificación is computed: the Total Gauss
+line (`BonificacionEnvioDeduccion`), the IVA component and the "% de varios"
+base all read `resolve_bonificacion_flex_by_order_ids`.
 """
 
 from __future__ import annotations
@@ -91,6 +107,43 @@ def _warn(shipment_id: Optional[int], reason: str) -> None:
     )
 
 
+# `receiver.discounts` types that are KNOWN not to be the seller's income:
+# `ratio` is ML's subsidy to the buyer (captured on the pack whose panel
+# bonificación is the sender's 599, not this 3773.7).
+_RECEIVER_TIPOS_QUE_NO_SON_INGRESO = frozenset({"ratio"})
+_RECEIVER_TIPO_INGRESO = "loyal"
+
+
+def _importe_promovido(entry: Dict[str, Any], shipment_id: Optional[int]) -> Optional[Decimal]:
+    """`promoted_amount` of one discount entry, or `None` if it cannot be
+    trusted (logged)."""
+    amount = entry.get("promoted_amount")
+    # `bool` is an `int` in Python: `True` would be read as one peso.
+    if isinstance(amount, bool) or not isinstance(amount, (int, float, Decimal)):
+        _warn(shipment_id, "promoted_amount is missing or not a number")
+        return None
+    if isinstance(amount, float) and not math.isfinite(amount):
+        _warn(shipment_id, "promoted_amount is not finite")
+        return None
+    value = Decimal(str(amount))
+    if not value.is_finite() or value < 0:
+        _warn(shipment_id, "promoted_amount is negative or not finite")
+        return None
+    return value
+
+
+def _lista_de_descuentos(container: Dict[str, Any], what: str, shipment_id: Optional[int]) -> Optional[List[Any]]:
+    """`container["discounts"]` as a list: `[]` when absent, `None` (logged)
+    when it is not a list."""
+    discounts = container.get("discounts")
+    if discounts is None:
+        return []
+    if not isinstance(discounts, list):
+        _warn(shipment_id, f"{what} discounts is not a list")
+        return None
+    return discounts
+
+
 def bonificacion_bruta_desde_raw_costs(raw_costs: Any, shipment_id: Optional[int] = None) -> Optional[Decimal]:
     """The shipment's bonificación with IVA, or `None` for "nothing to add".
 
@@ -101,37 +154,53 @@ def bonificacion_bruta_desde_raw_costs(raw_costs: Any, shipment_id: Optional[int
     if not isinstance(raw_costs, dict):
         _warn(shipment_id, "raw_costs is not an object")
         return None
-    receiver = raw_costs.get("receiver")
-    if receiver is None:
-        return None
-    if not isinstance(receiver, dict):
-        _warn(shipment_id, "receiver is not an object")
-        return None
-    discounts = receiver.get("discounts")
-    if discounts is None:
-        return None
-    if not isinstance(discounts, list):
-        _warn(shipment_id, "discounts is not a list")
-        return None
 
     total = Decimal("0")
-    for entry in discounts:
-        if not isinstance(entry, dict):
-            _warn(shipment_id, "a discount entry is not an object")
+
+    senders = raw_costs.get("senders")
+    if senders is not None:
+        if not isinstance(senders, list):
+            _warn(shipment_id, "senders is not a list")
             return None
-        amount = entry.get("promoted_amount")
-        # `bool` is an `int` in Python: `True` would be read as one peso.
-        if isinstance(amount, bool) or not isinstance(amount, (int, float, Decimal)):
-            _warn(shipment_id, "promoted_amount is missing or not a number")
+        for sender in senders:
+            if not isinstance(sender, dict):
+                _warn(shipment_id, "a sender is not an object")
+                return None
+            sender_discounts = _lista_de_descuentos(sender, "sender", shipment_id)
+            if sender_discounts is None:
+                return None
+            for entry in sender_discounts:
+                if not isinstance(entry, dict):
+                    _warn(shipment_id, "a sender discount entry is not an object")
+                    return None
+                value = _importe_promovido(entry, shipment_id)
+                if value is None:
+                    return None
+                total += value
+
+    receiver = raw_costs.get("receiver")
+    if receiver is not None:
+        if not isinstance(receiver, dict):
+            _warn(shipment_id, "receiver is not an object")
             return None
-        if isinstance(amount, float) and not math.isfinite(amount):
-            _warn(shipment_id, "promoted_amount is not finite")
+        receiver_discounts = _lista_de_descuentos(receiver, "receiver", shipment_id)
+        if receiver_discounts is None:
             return None
-        value = Decimal(str(amount))
-        if not value.is_finite() or value < 0:
-            _warn(shipment_id, "promoted_amount is negative or not finite")
-            return None
-        total += value
+        for entry in receiver_discounts:
+            if not isinstance(entry, dict):
+                _warn(shipment_id, "a discount entry is not an object")
+                return None
+            tipo = entry.get("type")
+            if tipo in _RECEIVER_TIPOS_QUE_NO_SON_INGRESO:
+                continue
+            if tipo != _RECEIVER_TIPO_INGRESO:
+                # Never assume an unseen type is income.
+                _warn(shipment_id, f"receiver discount type {tipo!r} is unknown, not counted as income")
+                continue
+            value = _importe_promovido(entry, shipment_id)
+            if value is None:
+                return None
+            total += value
 
     total = total.quantize(_CENT, rounding=ROUND_HALF_UP)
     return total if total > 0 else None

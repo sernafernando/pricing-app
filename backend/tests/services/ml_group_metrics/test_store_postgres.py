@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 from app.services.ml_group_metrics.compute import GroupMetrics
 from app.services.ml_group_metrics.store import store_group_metrics
+from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 
 
 @pytest.fixture()
@@ -62,7 +63,7 @@ class TestStoreGroupMetricsOnPostgres:
             )
         ).one()
         assert fila.gauss_status == "ok"
-        assert fila.formula_version == 2
+        assert fila.formula_version == CURRENT_FORMULA_VERSION
         assert fila.computed_at is not None
         assert list(fila.member_order_ids) == [1, 2]
         assert fila.total_gauss == Decimal("50.00")

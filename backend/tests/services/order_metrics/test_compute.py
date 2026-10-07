@@ -82,7 +82,7 @@ class TestComputeOrderMetricsWrapsExistingFormula:
             db,
             [order_id],
             {order_id: expected_desc[order_id].neto_sin_iva},
-            venta_sin_iva_by_order={order_id: expected_desc[order_id].base_venta_sin_iva},
+            base_varios_by_order={order_id: expected_desc[order_id].base_varios},
         )[order_id]
 
         metrics = compute_order_metrics(db, [order_id])[order_id]
@@ -118,7 +118,7 @@ class TestComputeOrderMetricsWrapsExistingFormula:
             db,
             [order_id],
             {order_id: expected_desc[order_id].neto_sin_iva},
-            venta_sin_iva_by_order={order_id: expected_desc[order_id].base_venta_sin_iva},
+            base_varios_by_order={order_id: expected_desc[order_id].base_varios},
         )[order_id]
 
         # The fixture itself must land on the provisional branch -- an

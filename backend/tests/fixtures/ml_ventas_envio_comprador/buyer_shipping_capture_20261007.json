@@ -1,0 +1,4886 @@
+{
+ "2000018847750422": {
+  "pick": {
+   "order_id": 2000018847750422,
+   "lt": "cross_docking",
+   "receiver_cost": "4699.09",
+   "pack_id": null
+  },
+  "db": {
+   "orders": [
+    {
+     "order_id": 2000018847750422,
+     "pack_id": null,
+     "status": "paid",
+     "status_detail": null,
+     "date_created": "2026-10-07T14:13:38+00:00",
+     "date_closed": "2026-10-07T14:13:41+00:00",
+     "ml_last_updated": "2026-10-07T14:15:17+00:00",
+     "buyer_id": 0,
+     "buyer_nickname": "REDACTED",
+     "seller_id": 413658225,
+     "total_amount": 56899.0,
+     "paid_amount": 61598.09,
+     "currency_id": "ARS",
+     "shipping_id": 48196279296,
+     "tags": [
+      "order_has_discount",
+      "catalog",
+      "paid",
+      "not_delivered"
+     ],
+     "raw_order": {
+      "id": 2000018847750422,
+      "tags": [
+       "order_has_discount",
+       "catalog",
+       "paid",
+       "not_delivered"
+      ],
+      "buyer": {
+       "id": 0,
+       "nickname": "REDACTED",
+       "last_name": "REDACTED",
+       "first_name": "REDACTED",
+       "billing_info": {
+        "id": "895674873823059521"
+       }
+      },
+      "taxes": {
+       "id": null,
+       "amount": null,
+       "currency_id": null
+      },
+      "seller": {
+       "id": 413658225
+      },
+      "status": "paid",
+      "context": {
+       "site": "MLA",
+       "flows": [
+        "catalog"
+       ],
+       "channel": "marketplace"
+      },
+      "pack_id": null,
+      "feedback": {
+       "buyer": null,
+       "seller": null
+      },
+      "payments": [
+       {
+        "id": 182876823486,
+        "reason": "Router Mercusys Mr50g Ac1900 Wireless 6 Antenas",
+        "status": "approved",
+        "card_id": 9542566756,
+        "site_id": "MLA",
+        "order_id": 2000018847750422,
+        "payer_id": 131867437,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "5",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T10:13:39.000-04:00",
+        "installments": 1,
+        "payment_type": "credit_card",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 0.0,
+        "date_approved": "2026-10-07T10:13:41.000-04:00",
+        "shipping_cost": 4699.09,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "naranja",
+        "total_paid_amount": 61598.09,
+        "authorization_code": "544898",
+        "date_last_modified": "2026-10-07T10:13:41.000-04:00",
+        "installment_amount": 61598.09,
+        "transaction_amount": 56899.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0.0
+       }
+      ],
+      "shipping": {
+       "id": 48196279296
+      },
+      "fulfilled": null,
+      "mediations": [],
+      "buying_mode": "buy_equals_pay",
+      "currency_id": "ARS",
+      "date_closed": "2026-10-07T10:13:41.000-04:00",
+      "order_items": [
+       {
+        "item": {
+         "id": "MLA2078837482",
+         "title": "Router Mercusys Mr50g Ac1900 Wireless 6 Antenas",
+         "warranty": "Garantía de fábrica: 6 meses",
+         "condition": "new",
+         "attributes": [
+          {
+           "id": "ITEM_CONDITION",
+           "values": [
+            {
+             "id": "2230284"
+            }
+           ]
+          }
+         ],
+         "net_weight": null,
+         "seller_sku": "6957939000493",
+         "category_id": "MLA430901",
+         "global_price": null,
+         "release_date": null,
+         "variation_id": null,
+         "user_product_id": "MLAU3175230996",
+         "seller_custom_field": "2885",
+         "variation_attributes": [
+          {
+           "id": "COLOR",
+           "name": "Color",
+           "value_id": "52049",
+           "value_name": "Negro"
+          }
+         ]
+        },
+        "stock": null,
+        "bundle": null,
+        "quantity": 1,
+        "sale_fee": 8819.34,
+        "compat_id": null,
+        "discounts": null,
+        "element_id": null,
+        "unit_price": 56899.0,
+        "currency_id": "ARS",
+        "gross_price": 77983.0,
+        "kit_instance_id": null,
+        "listing_type_id": "gold_special",
+        "picked_quantity": null,
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "manufacturing_days": null,
+        "requested_quantity": {
+         "value": 1,
+         "measure": "unit"
+        }
+       }
+      ],
+      "paid_amount": 61598.09,
+      "static_tags": [],
+      "date_created": "2026-10-07T10:13:38.000-04:00",
+      "last_updated": "2026-10-07T10:15:17.000-04:00",
+      "total_amount": 56899.0,
+      "cancel_detail": null,
+      "order_request": {
+       "change": null,
+       "return": null
+      },
+      "shipping_cost": null,
+      "status_detail": null,
+      "related_orders": null,
+      "manufacturing_ending_date": null
+     },
+     "ingest_error": null,
+     "first_seen_at": "2026-10-07T14:13:44.998352+00:00",
+     "last_synced_at": "2026-10-07T14:15:20.82952+00:00",
+     "payment_status": "approved",
+     "covered_by_marketplace": null,
+     "payments_synced_at": "2026-10-07T14:15:20.838784+00:00",
+     "has_no_shipping_tag": false,
+     "total_gauss": 837.4,
+     "total_gauss_at": "2026-10-07T14:15:20.932301+00:00",
+     "total_gauss_stale": false,
+     "total_gauss_provisional": false,
+     "payments_recheck_at": "2026-10-07T15:13:45.027919+00:00",
+     "payments_recheck_attempts": 0
+    }
+   ],
+   "items": [
+    {
+     "id": 178263,
+     "order_id": 2000018847750422,
+     "item_id": "MLA2078837482",
+     "variation_id": null,
+     "seller_sku": "6957939000493",
+     "title": "Router Mercusys Mr50g Ac1900 Wireless 6 Antenas",
+     "quantity": 1,
+     "unit_price": 56899.0,
+     "full_unit_price": null,
+     "sale_fee": 8819.34,
+     "listing_type_id": "gold_special",
+     "raw_item": {
+      "item": {
+       "id": "MLA2078837482",
+       "title": "Router Mercusys Mr50g Ac1900 Wireless 6 Antenas",
+       "warranty": "Garantía de fábrica: 6 meses",
+       "condition": "new",
+       "attributes": [
+        {
+         "id": "ITEM_CONDITION",
+         "values": [
+          {
+           "id": "2230284"
+          }
+         ]
+        }
+       ],
+       "net_weight": null,
+       "seller_sku": "6957939000493",
+       "category_id": "MLA430901",
+       "global_price": null,
+       "release_date": null,
+       "variation_id": null,
+       "user_product_id": "MLAU3175230996",
+       "seller_custom_field": "2885",
+       "variation_attributes": [
+        {
+         "id": "COLOR",
+         "name": "Color",
+         "value_id": "52049",
+         "value_name": "Negro"
+        }
+       ]
+      },
+      "stock": null,
+      "bundle": null,
+      "quantity": 1,
+      "sale_fee": 8819.34,
+      "compat_id": null,
+      "discounts": null,
+      "element_id": null,
+      "unit_price": 56899.0,
+      "currency_id": "ARS",
+      "gross_price": 77983.0,
+      "kit_instance_id": null,
+      "listing_type_id": "gold_special",
+      "picked_quantity": null,
+      "base_currency_id": null,
+      "base_exchange_rate": null,
+      "manufacturing_days": null,
+      "requested_quantity": {
+       "value": 1,
+       "measure": "unit"
+      }
+     }
+    }
+   ],
+   "payments": [
+    {
+     "payment_id": 182876823486,
+     "order_id": 2000018847750422,
+     "status": "approved",
+     "transaction_amount": 56899.0,
+     "shipping_amount": 4699.09,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 61598.09,
+     "net_received_amount": 37935.28,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-07T14:13:41+00:00",
+     "synced_at": "2026-10-07T14:15:20.82952+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018847750422",
+      "payment_id": 182876823486,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": "2026-10-07T10:13:41.000-04:00",
+      "charges_details": [
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 369.59,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-neuquen",
+        "type": "tax",
+        "amount": 184.79,
+        "refunded": 0
+       },
+       {
+        "name": "shp_cross_docking",
+        "type": "shipping",
+        "amount": 14289.09,
+        "refunded": 0
+       },
+       {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 8819.34,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 4699.09,
+      "total_paid_amount": 61598.09,
+      "transaction_amount": 56899,
+      "net_received_amount": 37935.28,
+      "transaction_amount_refunded": 0
+     }
+    }
+   ],
+   "payment_charges": [
+    {
+     "id": 477166,
+     "payment_id": 182876823486,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 369.59,
+     "refunded": 0.0
+    },
+    {
+     "id": 477167,
+     "payment_id": 182876823486,
+     "name": "tax_withholding_sirtac-neuquen",
+     "type": "tax",
+     "amount": 184.79,
+     "refunded": 0.0
+    },
+    {
+     "id": 477168,
+     "payment_id": 182876823486,
+     "name": "shp_cross_docking",
+     "type": "shipping",
+     "amount": 14289.09,
+     "refunded": 0.0
+    },
+    {
+     "id": 477169,
+     "payment_id": 182876823486,
+     "name": "meli_percentage_fee",
+     "type": "fee",
+     "amount": 8819.34,
+     "refunded": 0.0
+    }
+   ],
+   "shipments": [
+    {
+     "shipment_id": 48196279296,
+     "order_id": 2000018847750422,
+     "status": "pending",
+     "substatus": "buffered",
+     "logistic_type": "cross_docking",
+     "tracking_number": "REDACTED",
+     "tracking_method": "MEL Distribution",
+     "date_created": "2026-10-07T14:13:39.041+00:00",
+     "last_updated": "2026-10-07T14:13:45.607+00:00",
+     "receiver_address": {
+      "id": 1439536429,
+      "city": {
+       "id": "TUxBQ05FVXF1ZW4",
+       "name": "Neuquén"
+      },
+      "node": null,
+      "state": {
+       "id": "AR-Q",
+       "name": "Neuquén"
+      },
+      "types": [
+       "default_buying_address"
+      ],
+      "agency": null,
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "scoring": 1.0,
+      "version": "AR-163822dbf377bd675c0ff7f8f144894f",
+      "latitude": "REDACTED",
+      "zip_code": "REDACTED",
+      "longitude": "REDACTED",
+      "location_id": 47154921,
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": "Neuquén"
+      },
+      "receiver_name": "REDACTED",
+      "street_number": "REDACTED",
+      "receiver_phone": "REDACTED",
+      "geolocation_type": "ROOFTOP",
+      "geolocation_source": "geolocation-visits",
+      "delivery_preference": "residential",
+      "geolocation_last_updated": "2026-07-29T12:46:07.03Z"
+     },
+     "raw_shipment": {
+      "id": 48196279296,
+      "mode": "me2",
+      "tags": [],
+      "type": "forward",
+      "status": "pending",
+      "sibling": {
+       "reason": null,
+       "source": null,
+       "sibling_id": null,
+       "description": null,
+       "date_created": null,
+       "last_updated": null
+      },
+      "site_id": "MLA",
+      "comments": null,
+      "order_id": 2000018847750422,
+      "base_cost": 19410,
+      "quotation": null,
+      "sender_id": 413658225,
+      "substatus": "buffered",
+      "created_by": "receiver",
+      "order_cost": 56899,
+      "service_id": 158181,
+      "customer_id": null,
+      "items_types": [
+       "new"
+      ],
+      "receiver_id": "REDACTED",
+      "carrier_info": null,
+      "date_created": "2026-10-07T10:13:39.041-04:00",
+      "last_updated": "2026-10-07T10:13:45.607-04:00",
+      "market_place": "MELI",
+      "logistic_type": "cross_docking",
+      "application_id": null,
+      "priority_class": {
+       "id": "20"
+      },
+      "return_details": null,
+      "sender_address": {
+       "id": 1350045858,
+       "city": {
+        "id": "TUxBQkNBQjM4MDda",
+        "name": "Caballito"
+       },
+       "node": null,
+       "state": {
+        "id": "AR-C",
+        "name": "Capital Federal"
+       },
+       "types": [
+        "milkrun"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": 1.0,
+       "version": "AR-56184e41ff9b753b047d70bc5e6903fa",
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": 46039918,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": null
+       },
+       "street_number": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": "geolocation-visits",
+       "geolocation_last_updated": "2026-08-04T14:51:13.729Z"
+      },
+      "shipping_items": [
+       {
+        "id": "MLA2078837482",
+        "bundle": null,
+        "quantity": 1,
+        "domain_id": null,
+        "sender_id": 413658225,
+        "dimensions": "8.0x36.0x38.0,842.0",
+        "description": "Router Mercusys Mr50g Ac1900 Wireless 6 Antenas",
+        "user_product_id": "MLAU3175230996",
+        "item_ponderation": null,
+        "dimensions_source": {
+         "id": "MLA2078837482__1",
+         "origin": "bmp"
+        },
+        "measurable_picked_quantity": null
+       }
+      ],
+      "status_history": {
+       "date_shipped": null,
+       "date_handling": "2026-10-07T10:13:44.000-04:00",
+       "date_returned": null,
+       "date_cancelled": null,
+       "date_delivered": null,
+       "date_first_visit": null,
+       "date_not_delivered": null,
+       "date_ready_to_ship": null
+      },
+      "cost_components": {
+       "ratio": 24300.91,
+       "compensation": 0,
+       "gap_discount": 0,
+       "loyal_discount": 0,
+       "special_discount": 0
+      },
+      "shipping_option": {
+       "id": 4087310226,
+       "cost": 4699.09,
+       "name": "Express a domicilio",
+       "buffering": {
+        "date": "2026-10-08T00:00:00.000Z"
+       },
+       "list_cost": 14289.09,
+       "currency_id": "ARS",
+       "delivery_type": "estimated",
+       "pickup_promise": {
+        "to": null,
+        "from": null
+       },
+       "priority_class": {
+        "id": "20"
+       },
+       "processing_time": null,
+       "delivery_promise": "estimated",
+       "shipping_method_id": 510545,
+       "estimated_delivery_time": {
+        "date": "2026-10-09T00:00:00.000-03:00",
+        "type": "known",
+        "unit": "hour",
+        "offset": {
+         "date": null,
+         "shipping": null
+        },
+        "handling": 0,
+        "schedule": null,
+        "shipping": 24,
+        "pay_before": "2026-10-08T09:00:00.000-03:00",
+        "time_frame": {
+         "to": null,
+         "from": null
+        }
+       },
+       "estimated_delivery_final": {
+        "date": null
+       },
+       "estimated_delivery_limit": {
+        "date": null
+       },
+       "estimated_schedule_limit": {
+        "date": null
+       },
+       "desired_promised_delivery": {
+        "from": null
+       },
+       "estimated_delivery_extended": {
+        "date": null
+       }
+      },
+      "tracking_method": "MEL Distribution",
+      "tracking_number": "REDACTED",
+      "receiver_address": {
+       "id": 1439536429,
+       "city": {
+        "id": "TUxBQ05FVXF1ZW4",
+        "name": "Neuquén"
+       },
+       "node": null,
+       "state": {
+        "id": "AR-Q",
+        "name": "Neuquén"
+       },
+       "types": [
+        "default_buying_address"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": 1.0,
+       "version": "AR-163822dbf377bd675c0ff7f8f144894f",
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": 47154921,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": "Neuquén"
+       },
+       "receiver_name": "REDACTED",
+       "street_number": "REDACTED",
+       "receiver_phone": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": "geolocation-visits",
+       "delivery_preference": "residential",
+       "geolocation_last_updated": "2026-07-29T12:46:07.03Z"
+      },
+      "snapshot_packing": {
+       "pack_hash": "1",
+       "snapshot_id": "packing-4c1e99bc-e86c-4dd1-b123-0472d8cc9fbc"
+      },
+      "substatus_history": [],
+      "date_first_printed": null,
+      "return_tracking_number": null
+     },
+     "last_synced_at": "2026-10-07T14:13:51.918047+00:00",
+     "sender_cost": 9590.0,
+     "receiver_cost": 4699.09,
+     "costs_synced_at": "2026-10-07T14:13:45.342252+00:00",
+     "raw_costs": {
+      "senders": [
+       {
+        "cost": 9590,
+        "fees": [],
+        "save": 9590,
+        "charges": {
+         "charge_flex": 0
+        },
+        "user_id": 413658225,
+        "discounts": [
+         {
+          "rate": 0.5,
+          "type": "mandatory",
+          "promoted_amount": 9590
+         }
+        ],
+        "compensation": 0,
+        "compensations": []
+       }
+      ],
+      "receiver": {
+       "cost": 4699.09,
+       "fees": [],
+       "save": 14710.91,
+       "discounts": [
+        {
+         "rate": 0.76,
+         "type": "ratio",
+         "promoted_amount": 14710.91
+        }
+       ],
+       "compensation": 0,
+       "cost_details": [
+        {
+         "amount": 4699.09,
+         "sender_id": 413658225
+        }
+       ],
+       "compensations": []
+      },
+      "gross_amount": 38590,
+      "base_exchange": null
+     }
+    }
+   ]
+  }
+ },
+ "2000018846999192": {
+  "pick": {
+   "order_id": 2000018846999192,
+   "lt": "cross_docking",
+   "receiver_cost": "5373.70",
+   "pack_id": null
+  },
+  "db": {
+   "orders": [
+    {
+     "order_id": 2000018846999192,
+     "pack_id": null,
+     "status": "paid",
+     "status_detail": null,
+     "date_created": "2026-10-07T13:39:24+00:00",
+     "date_closed": "2026-10-07T13:42:25+00:00",
+     "ml_last_updated": "2026-10-07T13:44:07+00:00",
+     "buyer_id": 0,
+     "buyer_nickname": "REDACTED",
+     "seller_id": 413658225,
+     "total_amount": 37070.0,
+     "paid_amount": 42443.7,
+     "currency_id": "ARS",
+     "shipping_id": 48195928176,
+     "tags": [
+      "order_has_discount",
+      "catalog",
+      "paid",
+      "not_delivered"
+     ],
+     "raw_order": {
+      "id": 2000018846999192,
+      "tags": [
+       "order_has_discount",
+       "catalog",
+       "paid",
+       "not_delivered"
+      ],
+      "buyer": {
+       "id": 0,
+       "nickname": "REDACTED",
+       "last_name": "REDACTED",
+       "first_name": "REDACTED",
+       "billing_info": {
+        "id": "895666165959698265"
+       }
+      },
+      "taxes": {
+       "id": null,
+       "amount": null,
+       "currency_id": null
+      },
+      "seller": {
+       "id": 413658225
+      },
+      "status": "paid",
+      "context": {
+       "site": "MLA",
+       "flows": [
+        "catalog"
+       ],
+       "channel": "marketplace"
+      },
+      "pack_id": null,
+      "feedback": {
+       "buyer": null,
+       "seller": null
+      },
+      "payments": [
+       {
+        "id": 181856420937,
+        "reason": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+        "status": "rejected",
+        "card_id": 9888443522,
+        "site_id": "MLA",
+        "order_id": 2000018846999192,
+        "payer_id": 1185735747,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "5",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T09:39:25.000-04:00",
+        "installments": 1,
+        "payment_type": "credit_card",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 0.0,
+        "date_approved": null,
+        "shipping_cost": 5373.7,
+        "status_detail": "cc_rejected_insufficient_amount",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         ""
+        ],
+        "payment_method_id": "visa",
+        "total_paid_amount": 42443.7,
+        "authorization_code": null,
+        "date_last_modified": "2026-10-07T09:39:28.000-04:00",
+        "installment_amount": 42443.7,
+        "transaction_amount": 37070.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0.0
+       },
+       {
+        "id": 182870834940,
+        "reason": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+        "status": "approved",
+        "card_id": null,
+        "site_id": "MLA",
+        "order_id": 2000018846999192,
+        "payer_id": 1185735747,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "2005",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T09:42:19.000-04:00",
+        "installments": 1,
+        "payment_type": "account_money",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 0.0,
+        "date_approved": "2026-10-07T09:42:23.000-04:00",
+        "shipping_cost": 0.0,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "account_money",
+        "total_paid_amount": 5000.0,
+        "authorization_code": null,
+        "date_last_modified": "2026-10-07T09:42:23.000-04:00",
+        "installment_amount": null,
+        "transaction_amount": 5000.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0.0
+       },
+       {
+        "id": 182870775318,
+        "reason": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+        "status": "approved",
+        "card_id": 9476034940,
+        "site_id": "MLA",
+        "order_id": 2000018846999192,
+        "payer_id": 1185735747,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "5",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T09:42:19.000-04:00",
+        "installments": 1,
+        "payment_type": "credit_card",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 0.0,
+        "date_approved": "2026-10-07T09:42:23.000-04:00",
+        "shipping_cost": 5373.7,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "naranja",
+        "total_paid_amount": 37443.7,
+        "authorization_code": "181644",
+        "date_last_modified": "2026-10-07T09:42:23.000-04:00",
+        "installment_amount": 37443.7,
+        "transaction_amount": 32070.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0.0
+       }
+      ],
+      "shipping": {
+       "id": 48195928176
+      },
+      "fulfilled": null,
+      "mediations": [],
+      "buying_mode": "buy_equals_pay",
+      "currency_id": "ARS",
+      "date_closed": "2026-10-07T09:42:25.000-04:00",
+      "order_items": [
+       {
+        "item": {
+         "id": "MLA2124218203",
+         "title": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+         "warranty": "Garantía de fábrica: 6 meses",
+         "condition": "new",
+         "attributes": [
+          {
+           "id": "ITEM_CONDITION",
+           "values": [
+            {
+             "id": "2230284"
+            }
+           ]
+          }
+         ],
+         "net_weight": null,
+         "seller_sku": "010343941977",
+         "category_id": "MLA3561",
+         "global_price": null,
+         "release_date": null,
+         "variation_id": null,
+         "user_product_id": "MLAU2913063192",
+         "seller_custom_field": null,
+         "variation_attributes": [
+          {
+           "id": "INK_COLOR",
+           "name": "Color de la tinta",
+           "value_id": "52049",
+           "value_name": "Negro"
+          }
+         ]
+        },
+        "stock": null,
+        "bundle": null,
+        "quantity": 1,
+        "sale_fee": 10713.23,
+        "compat_id": null,
+        "discounts": null,
+        "element_id": null,
+        "unit_price": 37070.0,
+        "currency_id": "ARS",
+        "gross_price": 47918.0,
+        "kit_instance_id": null,
+        "listing_type_id": "gold_pro",
+        "picked_quantity": null,
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "manufacturing_days": null,
+        "requested_quantity": {
+         "value": 1,
+         "measure": "unit"
+        }
+       }
+      ],
+      "paid_amount": 42443.7,
+      "static_tags": [],
+      "date_created": "2026-10-07T09:39:24.000-04:00",
+      "last_updated": "2026-10-07T09:44:07.000-04:00",
+      "total_amount": 37070.0,
+      "cancel_detail": null,
+      "order_request": {
+       "change": null,
+       "return": null
+      },
+      "shipping_cost": null,
+      "status_detail": null,
+      "related_orders": null,
+      "manufacturing_ending_date": null
+     },
+     "ingest_error": null,
+     "first_seen_at": "2026-10-07T13:42:30.406282+00:00",
+     "last_synced_at": "2026-10-07T13:44:14.053011+00:00",
+     "payment_status": "rejected",
+     "covered_by_marketplace": null,
+     "payments_synced_at": "2026-10-07T13:44:14.086095+00:00",
+     "has_no_shipping_tag": false,
+     "total_gauss": 226.0,
+     "total_gauss_at": "2026-10-07T13:44:14.255917+00:00",
+     "total_gauss_stale": false,
+     "total_gauss_provisional": false,
+     "payments_recheck_at": "2026-10-07T14:42:31.430359+00:00",
+     "payments_recheck_attempts": 0
+    }
+   ],
+   "items": [
+    {
+     "id": 178188,
+     "order_id": 2000018846999192,
+     "item_id": "MLA2124218203",
+     "variation_id": null,
+     "seller_sku": "010343941977",
+     "title": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+     "quantity": 1,
+     "unit_price": 37070.0,
+     "full_unit_price": null,
+     "sale_fee": 10713.23,
+     "listing_type_id": "gold_pro",
+     "raw_item": {
+      "item": {
+       "id": "MLA2124218203",
+       "title": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+       "warranty": "Garantía de fábrica: 6 meses",
+       "condition": "new",
+       "attributes": [
+        {
+         "id": "ITEM_CONDITION",
+         "values": [
+          {
+           "id": "2230284"
+          }
+         ]
+        }
+       ],
+       "net_weight": null,
+       "seller_sku": "010343941977",
+       "category_id": "MLA3561",
+       "global_price": null,
+       "release_date": null,
+       "variation_id": null,
+       "user_product_id": "MLAU2913063192",
+       "seller_custom_field": null,
+       "variation_attributes": [
+        {
+         "id": "INK_COLOR",
+         "name": "Color de la tinta",
+         "value_id": "52049",
+         "value_name": "Negro"
+        }
+       ]
+      },
+      "stock": null,
+      "bundle": null,
+      "quantity": 1,
+      "sale_fee": 10713.23,
+      "compat_id": null,
+      "discounts": null,
+      "element_id": null,
+      "unit_price": 37070.0,
+      "currency_id": "ARS",
+      "gross_price": 47918.0,
+      "kit_instance_id": null,
+      "listing_type_id": "gold_pro",
+      "picked_quantity": null,
+      "base_currency_id": null,
+      "base_exchange_rate": null,
+      "manufacturing_days": null,
+      "requested_quantity": {
+       "value": 1,
+       "measure": "unit"
+      }
+     }
+    }
+   ],
+   "payments": [
+    {
+     "payment_id": 181856420937,
+     "order_id": 2000018846999192,
+     "status": "rejected",
+     "transaction_amount": 37070.0,
+     "shipping_amount": 5373.7,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 42443.7,
+     "net_received_amount": 0.0,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": null,
+     "synced_at": "2026-10-07T13:44:14.053011+00:00",
+     "raw_payload": {
+      "status": "rejected",
+      "order_id": "2000018846999192",
+      "payment_id": 181856420937,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": null,
+      "charges_details": [
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 254.66,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-santa_cruz",
+        "type": "tax",
+        "amount": 127.33,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 5373.7,
+      "total_paid_amount": 42443.7,
+      "transaction_amount": 37070,
+      "net_received_amount": 0,
+      "transaction_amount_refunded": 0
+     }
+    },
+    {
+     "payment_id": 182870834940,
+     "order_id": 2000018846999192,
+     "status": "approved",
+     "transaction_amount": 5000.0,
+     "shipping_amount": 0.0,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 5000.0,
+     "net_received_amount": 4955.0,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-07T13:42:23+00:00",
+     "synced_at": "2026-10-07T13:44:14.053011+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018846999192",
+      "payment_id": 182870834940,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": "2026-10-07T09:42:23.000-04:00",
+      "charges_details": [
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 30,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-santa_cruz",
+        "type": "tax",
+        "amount": 15,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 0,
+      "total_paid_amount": 5000,
+      "transaction_amount": 5000,
+      "net_received_amount": 4955,
+      "transaction_amount_refunded": 0
+     }
+    },
+    {
+     "payment_id": 182870775318,
+     "order_id": 2000018846999192,
+     "status": "approved",
+     "transaction_amount": 32070.0,
+     "shipping_amount": 5373.7,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 37443.7,
+     "net_received_amount": 14229.78,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-07T13:42:23+00:00",
+     "synced_at": "2026-10-07T13:44:14.053011+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018846999192",
+      "payment_id": 182870775318,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": "2026-10-07T09:42:23.000-04:00",
+      "charges_details": [
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 224.66,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-santa_cruz",
+        "type": "tax",
+        "amount": 112.33,
+        "refunded": 0
+       },
+       {
+        "name": "shp_cross_docking",
+        "type": "shipping",
+        "amount": 12163.7,
+        "refunded": 0
+       },
+       {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 5745.85,
+        "refunded": 0
+       },
+       {
+        "name": "financing_add_on_fee",
+        "type": "fee",
+        "amount": 4967.38,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 5373.7,
+      "total_paid_amount": 37443.7,
+      "transaction_amount": 32070,
+      "net_received_amount": 14229.78,
+      "transaction_amount_refunded": 0
+     }
+    }
+   ],
+   "payment_charges": [
+    {
+     "id": 476745,
+     "payment_id": 181856420937,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 254.66,
+     "refunded": 0.0
+    },
+    {
+     "id": 476746,
+     "payment_id": 181856420937,
+     "name": "tax_withholding_sirtac-santa_cruz",
+     "type": "tax",
+     "amount": 127.33,
+     "refunded": 0.0
+    },
+    {
+     "id": 476747,
+     "payment_id": 182870834940,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 30.0,
+     "refunded": 0.0
+    },
+    {
+     "id": 476748,
+     "payment_id": 182870834940,
+     "name": "tax_withholding_sirtac-santa_cruz",
+     "type": "tax",
+     "amount": 15.0,
+     "refunded": 0.0
+    },
+    {
+     "id": 476749,
+     "payment_id": 182870775318,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 224.66,
+     "refunded": 0.0
+    },
+    {
+     "id": 476750,
+     "payment_id": 182870775318,
+     "name": "tax_withholding_sirtac-santa_cruz",
+     "type": "tax",
+     "amount": 112.33,
+     "refunded": 0.0
+    },
+    {
+     "id": 476751,
+     "payment_id": 182870775318,
+     "name": "shp_cross_docking",
+     "type": "shipping",
+     "amount": 12163.7,
+     "refunded": 0.0
+    },
+    {
+     "id": 476752,
+     "payment_id": 182870775318,
+     "name": "meli_percentage_fee",
+     "type": "fee",
+     "amount": 5745.85,
+     "refunded": 0.0
+    },
+    {
+     "id": 476753,
+     "payment_id": 182870775318,
+     "name": "financing_add_on_fee",
+     "type": "fee",
+     "amount": 4967.38,
+     "refunded": 0.0
+    }
+   ],
+   "shipments": [
+    {
+     "shipment_id": 48195928176,
+     "order_id": 2000018846999192,
+     "status": "ready_to_ship",
+     "substatus": "ready_to_print",
+     "logistic_type": "cross_docking",
+     "tracking_number": "REDACTED",
+     "tracking_method": "Estándar",
+     "date_created": "2026-10-07T13:39:24.877+00:00",
+     "last_updated": "2026-10-07T13:42:30.732+00:00",
+     "receiver_address": {
+      "id": null,
+      "city": {
+       "id": null,
+       "name": "LOS ANTIGUOS"
+      },
+      "node": {
+       "node_id": null,
+       "logistic_center_id": null
+      },
+      "state": {
+       "id": "AR-Z",
+       "name": "Santa Cruz"
+      },
+      "types": [
+       "agency_address"
+      ],
+      "agency": {
+       "type": "agency",
+       "phone": "REDACTED",
+       "agency_id": "260047",
+       "carrier_id": 17501440,
+       "open_hours": "Lunes a viernes de 9:30 a 13 hs.",
+       "description": "Correo Argentino"
+      },
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "latitude": "REDACTED",
+      "zip_code": "REDACTED",
+      "longitude": "REDACTED",
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": ""
+      },
+      "receiver_name": "REDACTED",
+      "street_number": "REDACTED",
+      "receiver_phone": "REDACTED",
+      "geolocation_type": null,
+      "geolocation_source": null,
+      "delivery_preference": "business",
+      "geolocation_last_updated": null
+     },
+     "raw_shipment": {
+      "id": 48195928176,
+      "mode": "me2",
+      "tags": [],
+      "type": "forward",
+      "status": "ready_to_ship",
+      "sibling": {
+       "reason": null,
+       "source": null,
+       "sibling_id": null,
+       "description": null,
+       "date_created": null,
+       "last_updated": null
+      },
+      "site_id": "MLA",
+      "comments": null,
+      "order_id": 2000018846999192,
+      "base_cost": 15500,
+      "quotation": null,
+      "sender_id": 413658225,
+      "substatus": "ready_to_print",
+      "created_by": "receiver",
+      "order_cost": 37070,
+      "service_id": 431,
+      "customer_id": null,
+      "items_types": [
+       "new"
+      ],
+      "receiver_id": "REDACTED",
+      "carrier_info": null,
+      "date_created": "2026-10-07T09:39:24.877-04:00",
+      "last_updated": "2026-10-07T09:42:30.732-04:00",
+      "market_place": "MELI",
+      "logistic_type": "cross_docking",
+      "application_id": null,
+      "priority_class": {
+       "id": "20"
+      },
+      "return_details": null,
+      "sender_address": {
+       "id": 1350045858,
+       "city": {
+        "id": "TUxBQkNBQjM4MDda",
+        "name": "Caballito"
+       },
+       "node": null,
+       "state": {
+        "id": "AR-C",
+        "name": "Capital Federal"
+       },
+       "types": [
+        "milkrun"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": 1.0,
+       "version": "AR-56184e41ff9b753b047d70bc5e6903fa",
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": 46039918,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": null
+       },
+       "street_number": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": "geolocation-visits",
+       "geolocation_last_updated": "2026-08-04T14:51:13.729Z"
+      },
+      "shipping_items": [
+       {
+        "id": "MLA2124218203",
+        "bundle": null,
+        "quantity": 1,
+        "domain_id": null,
+        "sender_id": 413658225,
+        "dimensions": "5.0x19.0x19.0,186.0",
+        "description": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+        "user_product_id": "MLAU2913063192",
+        "item_ponderation": null,
+        "dimensions_source": {
+         "id": "MLA2124218203__1",
+         "origin": "bmp"
+        },
+        "measurable_picked_quantity": null
+       }
+      ],
+      "status_history": {
+       "date_shipped": null,
+       "date_handling": "2026-10-07T09:42:26.000-04:00",
+       "date_returned": null,
+       "date_cancelled": null,
+       "date_delivered": null,
+       "date_first_visit": null,
+       "date_not_delivered": null,
+       "date_ready_to_ship": "2026-10-07T09:42:29.151-04:00"
+      },
+      "cost_components": {
+       "ratio": 16916.3,
+       "compensation": 0,
+       "gap_discount": 0,
+       "loyal_discount": 0,
+       "special_discount": 0
+      },
+      "shipping_option": {
+       "id": 3380388991,
+       "cost": 5373.7,
+       "name": "Retiro en una sucursal",
+       "buffering": {
+        "date": null
+       },
+       "list_cost": 12163.7,
+       "currency_id": "ARS",
+       "delivery_type": "estimated",
+       "pickup_promise": {
+        "to": null,
+        "from": null
+       },
+       "priority_class": {
+        "id": "20"
+       },
+       "processing_time": null,
+       "delivery_promise": "estimated",
+       "shipping_method_id": 504345,
+       "estimated_delivery_time": {
+        "date": "2026-10-14T00:00:00.000-03:00",
+        "type": "known_frame",
+        "unit": "hour",
+        "offset": {
+         "date": "2026-10-19T00:00:00.000-03:00",
+         "shipping": 72
+        },
+        "handling": 24,
+        "schedule": null,
+        "shipping": 72,
+        "pay_before": "2026-10-08T09:00:00.000-03:00",
+        "time_frame": {
+         "to": null,
+         "from": null
+        }
+       },
+       "estimated_delivery_final": {
+        "date": null
+       },
+       "estimated_delivery_limit": {
+        "date": null
+       },
+       "estimated_schedule_limit": {
+        "date": null
+       },
+       "desired_promised_delivery": {
+        "from": null
+       },
+       "estimated_delivery_extended": {
+        "date": null
+       }
+      },
+      "tracking_method": "Estándar",
+      "tracking_number": "REDACTED",
+      "receiver_address": {
+       "id": null,
+       "city": {
+        "id": null,
+        "name": "LOS ANTIGUOS"
+       },
+       "node": {
+        "node_id": null,
+        "logistic_center_id": null
+       },
+       "state": {
+        "id": "AR-Z",
+        "name": "Santa Cruz"
+       },
+       "types": [
+        "agency_address"
+       ],
+       "agency": {
+        "type": "agency",
+        "phone": "REDACTED",
+        "agency_id": "260047",
+        "carrier_id": 17501440,
+        "open_hours": "Lunes a viernes de 9:30 a 13 hs.",
+        "description": "Correo Argentino"
+       },
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": ""
+       },
+       "receiver_name": "REDACTED",
+       "street_number": "REDACTED",
+       "receiver_phone": "REDACTED",
+       "geolocation_type": null,
+       "geolocation_source": null,
+       "delivery_preference": "business",
+       "geolocation_last_updated": null
+      },
+      "snapshot_packing": {
+       "pack_hash": "1",
+       "snapshot_id": "packing-aaddddc6-4f80-42f3-b551-2f574024f389"
+      },
+      "substatus_history": [
+       {
+        "date": "2026-10-07T09:42:29.151-04:00",
+        "status": "ready_to_ship",
+        "substatus": "ready_to_print"
+       }
+      ],
+      "date_first_printed": null,
+      "return_tracking_number": null
+     },
+     "last_synced_at": "2026-10-07T13:42:35.066462+00:00",
+     "sender_cost": 6790.0,
+     "receiver_cost": 5373.7,
+     "costs_synced_at": "2026-10-07T13:42:32.049575+00:00",
+     "raw_costs": {
+      "senders": [
+       {
+        "cost": 6790,
+        "fees": [],
+        "save": 6790,
+        "charges": {
+         "charge_flex": 0
+        },
+        "user_id": 413658225,
+        "discounts": [
+         {
+          "rate": 0.5,
+          "type": "mandatory",
+          "promoted_amount": 6790
+         }
+        ],
+        "compensation": 0,
+        "compensations": []
+       }
+      ],
+      "receiver": {
+       "cost": 5373.7,
+       "fees": [],
+       "save": 10126.3,
+       "discounts": [
+        {
+         "rate": 0.65,
+         "type": "ratio",
+         "promoted_amount": 10126.3
+        }
+       ],
+       "compensation": 0,
+       "cost_details": [
+        {
+         "amount": 5373.7,
+         "sender_id": 413658225
+        }
+       ],
+       "compensations": []
+      },
+      "gross_amount": 29080,
+      "base_exchange": null
+     }
+    }
+   ]
+  }
+ },
+ "2000018847574430": {
+  "pick": {
+   "order_id": 2000018847574430,
+   "lt": "fulfillment",
+   "receiver_cost": "3990.00",
+   "pack_id": null
+  },
+  "db": {
+   "orders": [
+    {
+     "order_id": 2000018847574430,
+     "pack_id": null,
+     "status": "paid",
+     "status_detail": null,
+     "date_created": "2026-10-07T14:05:25+00:00",
+     "date_closed": "2026-10-07T14:05:29+00:00",
+     "ml_last_updated": "2026-10-07T14:07:06+00:00",
+     "buyer_id": 0,
+     "buyer_nickname": "REDACTED",
+     "seller_id": 413658225,
+     "total_amount": 44166.0,
+     "paid_amount": 48156.0,
+     "currency_id": "ARS",
+     "shipping_id": 48195861747,
+     "tags": [
+      "order_has_discount",
+      "catalog",
+      "paid",
+      "not_delivered"
+     ],
+     "raw_order": {
+      "id": 2000018847574430,
+      "tags": [
+       "order_has_discount",
+       "catalog",
+       "paid",
+       "not_delivered"
+      ],
+      "buyer": {
+       "id": 0,
+       "nickname": "REDACTED",
+       "last_name": "REDACTED",
+       "first_name": "REDACTED",
+       "billing_info": {
+        "id": "895672509325969073"
+       }
+      },
+      "taxes": {
+       "id": null,
+       "amount": null,
+       "currency_id": null
+      },
+      "seller": {
+       "id": 413658225
+      },
+      "status": "paid",
+      "context": {
+       "site": "MLA",
+       "flows": [
+        "catalog"
+       ],
+       "channel": "marketplace"
+      },
+      "pack_id": null,
+      "feedback": {
+       "buyer": null,
+       "seller": null
+      },
+      "payments": [
+       {
+        "id": 182875392714,
+        "reason": "Extensor De Cobertura Tp-link Wi-fi Universal Ac750 Re200",
+        "status": "approved",
+        "card_id": 9607206496,
+        "site_id": "MLA",
+        "order_id": 2000018847574430,
+        "payer_id": 184575897,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "5",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T10:05:26.000-04:00",
+        "installments": 1,
+        "payment_type": "credit_card",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 1767.0,
+        "date_approved": "2026-10-07T10:05:29.000-04:00",
+        "shipping_cost": 3990.0,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "visa",
+        "total_paid_amount": 46389.0,
+        "authorization_code": "570294",
+        "date_last_modified": "2026-10-07T10:05:29.000-04:00",
+        "installment_amount": 46389.0,
+        "transaction_amount": 44166.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": "570294"
+        },
+        "transaction_amount_refunded": 0.0
+       }
+      ],
+      "shipping": {
+       "id": 48195861747
+      },
+      "fulfilled": null,
+      "mediations": [],
+      "buying_mode": "buy_equals_pay",
+      "currency_id": "ARS",
+      "date_closed": "2026-10-07T10:05:29.000-04:00",
+      "order_items": [
+       {
+        "item": {
+         "id": "MLA1173065146",
+         "title": "Extensor De Cobertura Tp-link Wi-fi Universal Ac750 Re200",
+         "warranty": "Garantía de fábrica: 1 años",
+         "condition": "new",
+         "attributes": [
+          {
+           "id": "ITEM_CONDITION",
+           "values": [
+            {
+             "id": "2230284"
+            }
+           ]
+          }
+         ],
+         "net_weight": null,
+         "seller_sku": "6935364080433",
+         "category_id": "MLA430901",
+         "global_price": null,
+         "release_date": null,
+         "variation_id": null,
+         "user_product_id": "MLAU228712304",
+         "seller_custom_field": null,
+         "variation_attributes": [
+          {
+           "id": "COLOR",
+           "name": "Color",
+           "value_id": "52055",
+           "value_name": "Blanco"
+          }
+         ]
+        },
+        "stock": {
+         "node_id": "ARBA01",
+         "store_id": null
+        },
+        "bundle": null,
+        "quantity": 1,
+        "sale_fee": 6845.73,
+        "compat_id": null,
+        "discounts": null,
+        "element_id": null,
+        "unit_price": 44166.0,
+        "currency_id": "ARS",
+        "gross_price": 64644.0,
+        "kit_instance_id": null,
+        "listing_type_id": "gold_special",
+        "picked_quantity": null,
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "manufacturing_days": null,
+        "requested_quantity": {
+         "value": 1,
+         "measure": "unit"
+        }
+       }
+      ],
+      "paid_amount": 48156.0,
+      "static_tags": [],
+      "date_created": "2026-10-07T10:05:25.000-04:00",
+      "last_updated": "2026-10-07T10:07:06.000-04:00",
+      "total_amount": 44166.0,
+      "cancel_detail": null,
+      "order_request": {
+       "change": null,
+       "return": null
+      },
+      "shipping_cost": null,
+      "status_detail": null,
+      "related_orders": null,
+      "manufacturing_ending_date": null
+     },
+     "ingest_error": null,
+     "first_seen_at": "2026-10-07T14:05:33.274418+00:00",
+     "last_synced_at": "2026-10-07T14:07:09.51785+00:00",
+     "payment_status": "approved",
+     "covered_by_marketplace": null,
+     "payments_synced_at": "2026-10-07T14:07:09.524674+00:00",
+     "has_no_shipping_tag": false,
+     "total_gauss": -1439.79,
+     "total_gauss_at": "2026-10-07T14:07:09.61439+00:00",
+     "total_gauss_stale": false,
+     "total_gauss_provisional": false,
+     "payments_recheck_at": "2026-10-07T15:05:33.399436+00:00",
+     "payments_recheck_attempts": 0
+    }
+   ],
+   "items": [
+    {
+     "id": 178243,
+     "order_id": 2000018847574430,
+     "item_id": "MLA1173065146",
+     "variation_id": null,
+     "seller_sku": "6935364080433",
+     "title": "Extensor De Cobertura Tp-link Wi-fi Universal Ac750 Re200",
+     "quantity": 1,
+     "unit_price": 44166.0,
+     "full_unit_price": null,
+     "sale_fee": 6845.73,
+     "listing_type_id": "gold_special",
+     "raw_item": {
+      "item": {
+       "id": "MLA1173065146",
+       "title": "Extensor De Cobertura Tp-link Wi-fi Universal Ac750 Re200",
+       "warranty": "Garantía de fábrica: 1 años",
+       "condition": "new",
+       "attributes": [
+        {
+         "id": "ITEM_CONDITION",
+         "values": [
+          {
+           "id": "2230284"
+          }
+         ]
+        }
+       ],
+       "net_weight": null,
+       "seller_sku": "6935364080433",
+       "category_id": "MLA430901",
+       "global_price": null,
+       "release_date": null,
+       "variation_id": null,
+       "user_product_id": "MLAU228712304",
+       "seller_custom_field": null,
+       "variation_attributes": [
+        {
+         "id": "COLOR",
+         "name": "Color",
+         "value_id": "52055",
+         "value_name": "Blanco"
+        }
+       ]
+      },
+      "stock": {
+       "node_id": "ARBA01",
+       "store_id": null
+      },
+      "bundle": null,
+      "quantity": 1,
+      "sale_fee": 6845.73,
+      "compat_id": null,
+      "discounts": null,
+      "element_id": null,
+      "unit_price": 44166.0,
+      "currency_id": "ARS",
+      "gross_price": 64644.0,
+      "kit_instance_id": null,
+      "listing_type_id": "gold_special",
+      "picked_quantity": null,
+      "base_currency_id": null,
+      "base_exchange_rate": null,
+      "manufacturing_days": null,
+      "requested_quantity": {
+       "value": 1,
+       "measure": "unit"
+      }
+     }
+    }
+   ],
+   "payments": [
+    {
+     "payment_id": 182875392714,
+     "order_id": 2000018847574430,
+     "status": "approved",
+     "transaction_amount": 44166.0,
+     "shipping_amount": 3990.0,
+     "coupon_amount": 1767.0,
+     "total_paid_amount": 46389.0,
+     "net_received_amount": 29374.52,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-07T14:05:29+00:00",
+     "synced_at": "2026-10-07T14:07:09.51785+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018847574430",
+      "payment_id": 182875392714,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 1767,
+      "date_approved": "2026-10-07T10:05:29.000-04:00",
+      "charges_details": [
+       {
+        "name": "coupon_rebate",
+        "type": "coupon",
+        "amount": 1767,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-misiones",
+        "type": "tax",
+        "amount": 144.47,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 288.94,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac_sobretasa-misiones",
+        "type": "tax",
+        "amount": 722.34,
+        "refunded": 0
+       },
+       {
+        "name": "shp_fulfillment",
+        "type": "shipping",
+        "amount": 10780,
+        "refunded": 0
+       },
+       {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 6845.73,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 3990,
+      "total_paid_amount": 46389,
+      "transaction_amount": 44166,
+      "net_received_amount": 29374.52,
+      "transaction_amount_refunded": 0
+     }
+    }
+   ],
+   "payment_charges": [
+    {
+     "id": 477083,
+     "payment_id": 182875392714,
+     "name": "coupon_rebate",
+     "type": "coupon",
+     "amount": 1767.0,
+     "refunded": 0.0
+    },
+    {
+     "id": 477084,
+     "payment_id": 182875392714,
+     "name": "tax_withholding_sirtac-misiones",
+     "type": "tax",
+     "amount": 144.47,
+     "refunded": 0.0
+    },
+    {
+     "id": 477085,
+     "payment_id": 182875392714,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 288.94,
+     "refunded": 0.0
+    },
+    {
+     "id": 477086,
+     "payment_id": 182875392714,
+     "name": "tax_withholding_sirtac_sobretasa-misiones",
+     "type": "tax",
+     "amount": 722.34,
+     "refunded": 0.0
+    },
+    {
+     "id": 477087,
+     "payment_id": 182875392714,
+     "name": "shp_fulfillment",
+     "type": "shipping",
+     "amount": 10780.0,
+     "refunded": 0.0
+    },
+    {
+     "id": 477088,
+     "payment_id": 182875392714,
+     "name": "meli_percentage_fee",
+     "type": "fee",
+     "amount": 6845.73,
+     "refunded": 0.0
+    }
+   ],
+   "shipments": [
+    {
+     "shipment_id": 48195861747,
+     "order_id": 2000018847574430,
+     "status": "ready_to_ship",
+     "substatus": "in_warehouse",
+     "logistic_type": "fulfillment",
+     "tracking_number": "REDACTED",
+     "tracking_method": "Places Pickup",
+     "date_created": "2026-10-07T14:05:25.94+00:00",
+     "last_updated": "2026-10-07T14:05:33.566+00:00",
+     "receiver_address": {
+      "id": null,
+      "city": {
+       "id": "TUxBQ0VMRDUzMjgy",
+       "name": "Eldorado"
+      },
+      "node": {
+       "node_id": "ARGN00041",
+       "logistic_center_id": null
+      },
+      "state": {
+       "id": "AR-N",
+       "name": "Misiones"
+      },
+      "types": [
+       "agency_address"
+      ],
+      "agency": {
+       "type": "place",
+       "phone": "REDACTED",
+       "agency_id": "262041265",
+       "carrier_id": 964977990,
+       "open_hours": "Lunes a viernes de 8:30 a 12:30 hs. - Lunes a viernes de 16:30 a 20:30 hs.",
+       "description": "Centro de envío - Mixtos"
+      },
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "latitude": "REDACTED",
+      "zip_code": "REDACTED",
+      "longitude": "REDACTED",
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": "Av san Martin 1263"
+      },
+      "receiver_name": "REDACTED",
+      "street_number": "REDACTED",
+      "receiver_phone": "REDACTED",
+      "geolocation_type": null,
+      "geolocation_source": null,
+      "delivery_preference": "business",
+      "geolocation_last_updated": null
+     },
+     "raw_shipment": {
+      "id": 48195861747,
+      "mode": "me2",
+      "tags": [],
+      "type": "forward",
+      "status": "ready_to_ship",
+      "sibling": {
+       "reason": null,
+       "source": null,
+       "sibling_id": null,
+       "description": null,
+       "date_created": null,
+       "last_updated": null
+      },
+      "site_id": "MLA",
+      "comments": null,
+      "order_id": 2000018847574430,
+      "base_cost": 13680,
+      "quotation": null,
+      "sender_id": 413658225,
+      "substatus": "in_warehouse",
+      "created_by": "receiver",
+      "order_cost": 44166,
+      "service_id": 323086,
+      "customer_id": null,
+      "items_types": [
+       "conveyable",
+       "new"
+      ],
+      "receiver_id": "REDACTED",
+      "carrier_info": null,
+      "date_created": "2026-10-07T10:05:25.940-04:00",
+      "last_updated": "2026-10-07T10:05:33.566-04:00",
+      "market_place": "MELI",
+      "logistic_type": "fulfillment",
+      "application_id": null,
+      "priority_class": {
+       "id": "10"
+      },
+      "return_details": null,
+      "sender_address": {
+       "id": null,
+       "city": {
+        "id": "TUxBQ0xBTWF0YW56",
+        "name": "La Matanza"
+       },
+       "node": {
+        "node_id": "ARBA01",
+        "logistic_center_id": "ARBA01"
+       },
+       "state": {
+        "id": "AR-B",
+        "name": "Buenos Aires"
+       },
+       "types": [
+        "logistic_center_ARBA01",
+        "warehouse"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": null,
+       "version": null,
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": null,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": "Villa Celina"
+       },
+       "street_number": "REDACTED",
+       "geolocation_type": null,
+       "geolocation_source": null,
+       "geolocation_last_updated": null
+      },
+      "shipping_items": [
+       {
+        "id": "MLA1173065146",
+        "bundle": null,
+        "quantity": 1,
+        "domain_id": null,
+        "sender_id": 413658225,
+        "dimensions": "9.0x11.0x16.0,180.0",
+        "description": "Extensor De Cobertura Tp-link Wi-fi Universal Ac750 Re200",
+        "user_product_id": "MLAU228712304",
+        "item_ponderation": null,
+        "dimensions_source": {
+         "id": "MLA1173065146__1",
+         "origin": "fd"
+        },
+        "measurable_picked_quantity": null
+       }
+      ],
+      "status_history": {
+       "date_shipped": null,
+       "date_handling": "2026-10-07T10:05:31.000-04:00",
+       "date_returned": null,
+       "date_cancelled": null,
+       "date_delivered": null,
+       "date_first_visit": null,
+       "date_not_delivered": null,
+       "date_ready_to_ship": "2026-10-07T10:05:31.000-04:00"
+      },
+      "cost_components": {
+       "ratio": 17395.91,
+       "compensation": 0,
+       "gap_discount": 0,
+       "loyal_discount": 0,
+       "special_discount": 0
+      },
+      "shipping_option": {
+       "id": 1044300350,
+       "cost": 3990,
+       "name": "Express a sucursal de correo",
+       "buffering": {
+        "date": null
+       },
+       "list_cost": 10780,
+       "currency_id": "ARS",
+       "delivery_type": "estimated",
+       "pickup_promise": {
+        "to": null,
+        "from": null
+       },
+       "priority_class": {
+        "id": "10"
+       },
+       "processing_time": null,
+       "delivery_promise": "estimated",
+       "shipping_method_id": 510845,
+       "estimated_delivery_time": {
+        "date": "2026-10-09T00:00:00.000-03:00",
+        "type": "known",
+        "unit": "hour",
+        "offset": {
+         "date": null,
+         "shipping": null
+        },
+        "handling": 0,
+        "schedule": null,
+        "shipping": 24,
+        "pay_before": "2026-10-08T01:15:00.000-03:00",
+        "time_frame": {
+         "to": null,
+         "from": null
+        }
+       },
+       "estimated_delivery_final": {
+        "date": null
+       },
+       "estimated_delivery_limit": {
+        "date": null
+       },
+       "estimated_schedule_limit": {
+        "date": null
+       },
+       "desired_promised_delivery": {
+        "from": null
+       },
+       "estimated_delivery_extended": {
+        "date": null
+       }
+      },
+      "tracking_method": "Places Pickup",
+      "tracking_number": "REDACTED",
+      "receiver_address": {
+       "id": null,
+       "city": {
+        "id": "TUxBQ0VMRDUzMjgy",
+        "name": "Eldorado"
+       },
+       "node": {
+        "node_id": "ARGN00041",
+        "logistic_center_id": null
+       },
+       "state": {
+        "id": "AR-N",
+        "name": "Misiones"
+       },
+       "types": [
+        "agency_address"
+       ],
+       "agency": {
+        "type": "place",
+        "phone": "REDACTED",
+        "agency_id": "262041265",
+        "carrier_id": 964977990,
+        "open_hours": "Lunes a viernes de 8:30 a 12:30 hs. - Lunes a viernes de 16:30 a 20:30 hs.",
+        "description": "Centro de envío - Mixtos"
+       },
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": "Av san Martin 1263"
+       },
+       "receiver_name": "REDACTED",
+       "street_number": "REDACTED",
+       "receiver_phone": "REDACTED",
+       "geolocation_type": null,
+       "geolocation_source": null,
+       "delivery_preference": "business",
+       "geolocation_last_updated": null
+      },
+      "snapshot_packing": {
+       "pack_hash": "1",
+       "snapshot_id": "413dcf85-a4ad-4474-b349-fa3834627d5c"
+      },
+      "substatus_history": [
+       {
+        "date": "2026-10-07T10:05:31.000-04:00",
+        "status": "ready_to_ship",
+        "substatus": "in_warehouse"
+       }
+      ],
+      "date_first_printed": null,
+      "return_tracking_number": null
+     },
+     "last_synced_at": "2026-10-07T14:05:35.252743+00:00",
+     "sender_cost": 6790.0,
+     "receiver_cost": 3990.0,
+     "costs_synced_at": "2026-10-07T14:05:33.664862+00:00",
+     "raw_costs": {
+      "senders": [
+       {
+        "cost": 6790,
+        "fees": [],
+        "save": 6790,
+        "charges": {
+         "charge_flex": 0
+        },
+        "user_id": 413658225,
+        "discounts": [
+         {
+          "rate": 0.5,
+          "type": "mandatory",
+          "promoted_amount": 6790
+         }
+        ],
+        "compensation": 0,
+        "compensations": []
+       }
+      ],
+      "receiver": {
+       "cost": 3990,
+       "fees": [],
+       "save": 9690,
+       "discounts": [
+        {
+         "rate": 0.73,
+         "type": "ratio",
+         "promoted_amount": 10605.91
+        }
+       ],
+       "compensation": 0,
+       "cost_details": [
+        {
+         "amount": 3990,
+         "sender_id": 413658225
+        }
+       ],
+       "compensations": []
+      },
+      "gross_amount": 28175.91,
+      "base_exchange": null
+     }
+    }
+   ]
+  }
+ },
+ "2000018844749424": {
+  "pick": {
+   "order_id": 2000018844749424,
+   "lt": "fulfillment",
+   "receiver_cost": "990.00",
+   "pack_id": null
+  },
+  "db": {
+   "orders": [
+    {
+     "order_id": 2000018844749424,
+     "pack_id": null,
+     "status": "paid",
+     "status_detail": null,
+     "date_created": "2026-10-07T11:36:08+00:00",
+     "date_closed": "2026-10-07T11:36:10+00:00",
+     "ml_last_updated": "2026-10-07T11:37:51+00:00",
+     "buyer_id": 0,
+     "buyer_nickname": "REDACTED",
+     "seller_id": 413658225,
+     "total_amount": 18350.0,
+     "paid_amount": 19340.0,
+     "currency_id": "ARS",
+     "shipping_id": 48194511209,
+     "tags": [
+      "order_has_discount",
+      "catalog",
+      "paid",
+      "not_delivered"
+     ],
+     "raw_order": {
+      "id": 2000018844749424,
+      "tags": [
+       "order_has_discount",
+       "catalog",
+       "paid",
+       "not_delivered"
+      ],
+      "buyer": {
+       "id": 0,
+       "nickname": "REDACTED",
+       "last_name": "REDACTED",
+       "first_name": "REDACTED",
+       "billing_info": {
+        "id": "895630983929749417"
+       }
+      },
+      "taxes": {
+       "id": null,
+       "amount": null,
+       "currency_id": null
+      },
+      "seller": {
+       "id": 413658225
+      },
+      "status": "paid",
+      "context": {
+       "site": "MLA",
+       "flows": [
+        "catalog"
+       ],
+       "channel": "marketplace"
+      },
+      "pack_id": null,
+      "feedback": {
+       "buyer": null,
+       "seller": null
+      },
+      "payments": [
+       {
+        "id": 182850918712,
+        "reason": "Switch Tp-link Tl-sf1008d Serie Litewave Para Sobremesa Con 8 Puertos A 10/100 Mbps",
+        "status": "approved",
+        "card_id": 9887991542,
+        "site_id": "MLA",
+        "order_id": 2000018844749424,
+        "payer_id": 1233949697,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "303",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T07:36:08.000-04:00",
+        "installments": 1,
+        "payment_type": "credit_card",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 0.0,
+        "date_approved": "2026-10-07T07:36:10.000-04:00",
+        "shipping_cost": 990.0,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "visa",
+        "total_paid_amount": 19340.0,
+        "authorization_code": "010376",
+        "date_last_modified": "2026-10-07T07:36:10.000-04:00",
+        "installment_amount": 19340.0,
+        "transaction_amount": 18350.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0.0
+       }
+      ],
+      "shipping": {
+       "id": 48194511209
+      },
+      "fulfilled": null,
+      "mediations": [],
+      "buying_mode": "buy_equals_pay",
+      "currency_id": "ARS",
+      "date_closed": "2026-10-07T07:36:10.000-04:00",
+      "order_items": [
+       {
+        "item": {
+         "id": "MLA1173110024",
+         "title": "Switch Tp-link Tl-sf1008d Serie Litewave Para Sobremesa Con 8 Puertos A 10/100 Mbps",
+         "warranty": "Garantía de fábrica: 1 años",
+         "condition": "new",
+         "attributes": [
+          {
+           "id": "ITEM_CONDITION",
+           "values": [
+            {
+             "id": "2230284"
+            }
+           ]
+          }
+         ],
+         "net_weight": null,
+         "seller_sku": "6935364020071",
+         "category_id": "MLA1708",
+         "global_price": null,
+         "release_date": null,
+         "variation_id": null,
+         "user_product_id": "MLAU223697004",
+         "seller_custom_field": null,
+         "variation_attributes": []
+        },
+        "stock": {
+         "node_id": "ARBA01",
+         "store_id": null
+        },
+        "bundle": null,
+        "quantity": 1,
+        "sale_fee": 5664.25,
+        "compat_id": null,
+        "discounts": null,
+        "element_id": null,
+        "unit_price": 18350.0,
+        "currency_id": "ARS",
+        "gross_price": 24000.0,
+        "kit_instance_id": null,
+        "listing_type_id": "gold_special",
+        "picked_quantity": null,
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "manufacturing_days": null,
+        "requested_quantity": {
+         "value": 1,
+         "measure": "unit"
+        }
+       }
+      ],
+      "paid_amount": 19340.0,
+      "static_tags": [],
+      "date_created": "2026-10-07T07:36:08.000-04:00",
+      "last_updated": "2026-10-07T07:37:51.000-04:00",
+      "total_amount": 18350.0,
+      "cancel_detail": null,
+      "order_request": {
+       "change": null,
+       "return": null
+      },
+      "shipping_cost": null,
+      "status_detail": null,
+      "related_orders": null,
+      "manufacturing_ending_date": null
+     },
+     "ingest_error": null,
+     "first_seen_at": "2026-10-07T11:36:16.390715+00:00",
+     "last_synced_at": "2026-10-07T11:37:53.436201+00:00",
+     "payment_status": "approved",
+     "covered_by_marketplace": null,
+     "payments_synced_at": "2026-10-07T11:37:53.454869+00:00",
+     "has_no_shipping_tag": false,
+     "total_gauss": -246.29,
+     "total_gauss_at": "2026-10-07T11:37:53.593747+00:00",
+     "total_gauss_stale": false,
+     "total_gauss_provisional": false,
+     "payments_recheck_at": "2026-10-07T12:36:16.452607+00:00",
+     "payments_recheck_attempts": 0
+    }
+   ],
+   "items": [
+    {
+     "id": 177999,
+     "order_id": 2000018844749424,
+     "item_id": "MLA1173110024",
+     "variation_id": null,
+     "seller_sku": "6935364020071",
+     "title": "Switch Tp-link Tl-sf1008d Serie Litewave Para Sobremesa Con 8 Puertos A 10/100 Mbps",
+     "quantity": 1,
+     "unit_price": 18350.0,
+     "full_unit_price": null,
+     "sale_fee": 5664.25,
+     "listing_type_id": "gold_special",
+     "raw_item": {
+      "item": {
+       "id": "MLA1173110024",
+       "title": "Switch Tp-link Tl-sf1008d Serie Litewave Para Sobremesa Con 8 Puertos A 10/100 Mbps",
+       "warranty": "Garantía de fábrica: 1 años",
+       "condition": "new",
+       "attributes": [
+        {
+         "id": "ITEM_CONDITION",
+         "values": [
+          {
+           "id": "2230284"
+          }
+         ]
+        }
+       ],
+       "net_weight": null,
+       "seller_sku": "6935364020071",
+       "category_id": "MLA1708",
+       "global_price": null,
+       "release_date": null,
+       "variation_id": null,
+       "user_product_id": "MLAU223697004",
+       "seller_custom_field": null,
+       "variation_attributes": []
+      },
+      "stock": {
+       "node_id": "ARBA01",
+       "store_id": null
+      },
+      "bundle": null,
+      "quantity": 1,
+      "sale_fee": 5664.25,
+      "compat_id": null,
+      "discounts": null,
+      "element_id": null,
+      "unit_price": 18350.0,
+      "currency_id": "ARS",
+      "gross_price": 24000.0,
+      "kit_instance_id": null,
+      "listing_type_id": "gold_special",
+      "picked_quantity": null,
+      "base_currency_id": null,
+      "base_exchange_rate": null,
+      "manufacturing_days": null,
+      "requested_quantity": {
+       "value": 1,
+       "measure": "unit"
+      }
+     }
+    }
+   ],
+   "payments": [
+    {
+     "payment_id": 182850918712,
+     "order_id": 2000018844749424,
+     "status": "approved",
+     "transaction_amount": 18350.0,
+     "shipping_amount": 990.0,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 19340.0,
+     "net_received_amount": 12511.69,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-07T11:36:10+00:00",
+     "synced_at": "2026-10-07T11:37:53.436201+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018844749424",
+      "payment_id": 182850918712,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": "2026-10-07T07:36:10.000-04:00",
+      "charges_details": [
+       {
+        "name": "tax_withholding_sirtac-rio_negro",
+        "type": "tax",
+        "amount": 58.02,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 116.04,
+        "refunded": 0
+       },
+       {
+        "name": "shp_fulfillment",
+        "type": "shipping",
+        "amount": 990,
+        "refunded": 0
+       },
+       {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 2844.25,
+        "refunded": 0
+       },
+       {
+        "name": "flat_fee",
+        "type": "fee",
+        "amount": 2820,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 990,
+      "total_paid_amount": 19340,
+      "transaction_amount": 18350,
+      "net_received_amount": 12511.69,
+      "transaction_amount_refunded": 0
+     }
+    }
+   ],
+   "payment_charges": [
+    {
+     "id": 475889,
+     "payment_id": 182850918712,
+     "name": "tax_withholding_sirtac-rio_negro",
+     "type": "tax",
+     "amount": 58.02,
+     "refunded": 0.0
+    },
+    {
+     "id": 475890,
+     "payment_id": 182850918712,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 116.04,
+     "refunded": 0.0
+    },
+    {
+     "id": 475891,
+     "payment_id": 182850918712,
+     "name": "shp_fulfillment",
+     "type": "shipping",
+     "amount": 990.0,
+     "refunded": 0.0
+    },
+    {
+     "id": 475892,
+     "payment_id": 182850918712,
+     "name": "meli_percentage_fee",
+     "type": "fee",
+     "amount": 2844.25,
+     "refunded": 0.0
+    },
+    {
+     "id": 475893,
+     "payment_id": 182850918712,
+     "name": "flat_fee",
+     "type": "fee",
+     "amount": 2820.0,
+     "refunded": 0.0
+    }
+   ],
+   "shipments": [
+    {
+     "shipment_id": 48194511209,
+     "order_id": 2000018844749424,
+     "status": "ready_to_ship",
+     "substatus": "in_warehouse",
+     "logistic_type": "fulfillment",
+     "tracking_number": "REDACTED",
+     "tracking_method": "MEL Distribution",
+     "date_created": "2026-10-07T11:36:08.241+00:00",
+     "last_updated": "2026-10-07T11:36:16.466+00:00",
+     "receiver_address": {
+      "id": 1267537733,
+      "city": {
+       "id": "QVItUkNpcG9sbGV0dGk",
+       "name": "Cipolletti"
+      },
+      "node": null,
+      "state": {
+       "id": "AR-R",
+       "name": "Río Negro"
+      },
+      "types": [
+       "default_buying_address"
+      ],
+      "agency": null,
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "scoring": 1.0,
+      "version": "AR-645251dbe110c2d80c7cfa3a5d87379f",
+      "latitude": "REDACTED",
+      "zip_code": "REDACTED",
+      "longitude": "REDACTED",
+      "location_id": 43570841,
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": null
+      },
+      "receiver_name": "REDACTED",
+      "street_number": "REDACTED",
+      "receiver_phone": "REDACTED",
+      "geolocation_type": "ROOFTOP",
+      "geolocation_source": "photo-driver",
+      "delivery_preference": "business",
+      "geolocation_last_updated": "2025-05-23T15:52:27.139Z"
+     },
+     "raw_shipment": {
+      "id": 48194511209,
+      "mode": "me2",
+      "tags": [],
+      "type": "forward",
+      "status": "ready_to_ship",
+      "sibling": {
+       "reason": null,
+       "source": null,
+       "sibling_id": null,
+       "description": null,
+       "date_created": null,
+       "last_updated": null
+      },
+      "site_id": "MLA",
+      "comments": null,
+      "order_id": 2000018844749424,
+      "base_cost": 18990,
+      "quotation": null,
+      "sender_id": 413658225,
+      "substatus": "in_warehouse",
+      "created_by": "receiver",
+      "order_cost": 18350,
+      "service_id": 158181,
+      "customer_id": null,
+      "items_types": [
+       "new",
+       "conveyable"
+      ],
+      "receiver_id": "REDACTED",
+      "carrier_info": null,
+      "date_created": "2026-10-07T07:36:08.241-04:00",
+      "last_updated": "2026-10-07T07:36:16.466-04:00",
+      "market_place": "MELI",
+      "logistic_type": "fulfillment",
+      "application_id": null,
+      "priority_class": {
+       "id": "25"
+      },
+      "return_details": null,
+      "sender_address": {
+       "id": null,
+       "city": {
+        "id": "TUxBQ0xBTWF0YW56",
+        "name": "La Matanza"
+       },
+       "node": {
+        "node_id": "ARBA01",
+        "logistic_center_id": "ARBA01"
+       },
+       "state": {
+        "id": "AR-B",
+        "name": "Buenos Aires"
+       },
+       "types": [
+        "logistic_center_ARBA01",
+        "warehouse"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": null,
+       "version": null,
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": null,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": "Villa Celina"
+       },
+       "street_number": "REDACTED",
+       "geolocation_type": null,
+       "geolocation_source": null,
+       "geolocation_last_updated": null
+      },
+      "shipping_items": [
+       {
+        "id": "MLA1173110024",
+        "bundle": null,
+        "quantity": 1,
+        "domain_id": null,
+        "sender_id": 413658225,
+        "dimensions": "15.0x28.0x19.0,440.0",
+        "description": "Switch Tp-link Tl-sf1008d Serie Litewave Para Sobremesa Con 8 Puertos A 10/100 Mbps",
+        "user_product_id": "MLAU223697004",
+        "item_ponderation": null,
+        "dimensions_source": {
+         "id": null,
+         "origin": "optimal_box"
+        },
+        "measurable_picked_quantity": null
+       }
+      ],
+      "status_history": {
+       "date_shipped": null,
+       "date_handling": "2026-10-07T07:36:13.000-04:00",
+       "date_returned": null,
+       "date_cancelled": null,
+       "date_delivered": null,
+       "date_first_visit": null,
+       "date_not_delivered": null,
+       "date_ready_to_ship": "2026-10-07T07:36:13.000-04:00"
+      },
+      "cost_components": {
+       "ratio": 0,
+       "compensation": 0,
+       "gap_discount": 0,
+       "loyal_discount": 0.95,
+       "special_discount": 0
+      },
+      "shipping_option": {
+       "id": 1729635119,
+       "cost": 990,
+       "name": "Prioritario a domicilio",
+       "buffering": {
+        "date": null
+       },
+       "list_cost": 990,
+       "currency_id": "ARS",
+       "delivery_type": "estimated",
+       "pickup_promise": {
+        "to": null,
+        "from": null
+       },
+       "priority_class": {
+        "id": "25"
+       },
+       "processing_time": null,
+       "delivery_promise": "estimated",
+       "shipping_method_id": 510445,
+       "estimated_delivery_time": {
+        "date": "2026-10-08T00:00:00.000-03:00",
+        "type": "known",
+        "unit": "hour",
+        "offset": {
+         "date": null,
+         "shipping": null
+        },
+        "handling": 0,
+        "schedule": null,
+        "shipping": 0,
+        "pay_before": "2026-10-07T22:00:00.000-03:00",
+        "time_frame": {
+         "to": null,
+         "from": null
+        }
+       },
+       "estimated_delivery_final": {
+        "date": null
+       },
+       "estimated_delivery_limit": {
+        "date": null
+       },
+       "estimated_schedule_limit": {
+        "date": null
+       },
+       "desired_promised_delivery": {
+        "from": null
+       },
+       "estimated_delivery_extended": {
+        "date": null
+       }
+      },
+      "tracking_method": "MEL Distribution",
+      "tracking_number": "REDACTED",
+      "receiver_address": {
+       "id": 1267537733,
+       "city": {
+        "id": "QVItUkNpcG9sbGV0dGk",
+        "name": "Cipolletti"
+       },
+       "node": null,
+       "state": {
+        "id": "AR-R",
+        "name": "Río Negro"
+       },
+       "types": [
+        "default_buying_address"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": 1.0,
+       "version": "AR-645251dbe110c2d80c7cfa3a5d87379f",
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": 43570841,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": null
+       },
+       "receiver_name": "REDACTED",
+       "street_number": "REDACTED",
+       "receiver_phone": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": "photo-driver",
+       "delivery_preference": "business",
+       "geolocation_last_updated": "2025-05-23T15:52:27.139Z"
+      },
+      "snapshot_packing": {
+       "pack_hash": "1",
+       "snapshot_id": "6179a9c3-7262-4661-9645-97de0d0a825b"
+      },
+      "substatus_history": [
+       {
+        "date": "2026-10-07T07:36:13.000-04:00",
+        "status": "ready_to_ship",
+        "substatus": "in_warehouse"
+       }
+      ],
+      "date_first_printed": null,
+      "return_tracking_number": null
+     },
+     "last_synced_at": "2026-10-07T11:36:19.078633+00:00",
+     "sender_cost": 0.0,
+     "receiver_cost": 990.0,
+     "costs_synced_at": "2026-10-07T11:36:16.891029+00:00",
+     "raw_costs": {
+      "senders": [
+       {
+        "cost": 0,
+        "fees": [],
+        "save": 0,
+        "charges": {
+         "charge_flex": 0
+        },
+        "user_id": 413658225,
+        "discounts": [],
+        "compensation": 0,
+        "compensations": []
+       }
+      ],
+      "receiver": {
+       "cost": 990,
+       "fees": [],
+       "save": 18000,
+       "discounts": [
+        {
+         "rate": 0.95,
+         "type": "loyal",
+         "promoted_amount": 18000
+        }
+       ],
+       "compensation": 0,
+       "cost_details": [
+        {
+         "amount": 990,
+         "sender_id": 413658225
+        }
+       ],
+       "compensations": []
+      },
+      "gross_amount": 18990,
+      "base_exchange": null
+     }
+    }
+   ]
+  }
+ },
+ "2000018846969514": {
+  "pick": {
+   "order_id": 2000018846969514,
+   "lt": "self_service",
+   "receiver_cost": "4990.00",
+   "pack_id": null
+  },
+  "db": {
+   "orders": [
+    {
+     "order_id": 2000018846969514,
+     "pack_id": null,
+     "status": "paid",
+     "status_detail": null,
+     "date_created": "2026-10-07T13:38:12+00:00",
+     "date_closed": "2026-10-07T13:38:13+00:00",
+     "ml_last_updated": "2026-10-07T13:39:50+00:00",
+     "buyer_id": 0,
+     "buyer_nickname": "REDACTED",
+     "seller_id": 413658225,
+     "total_amount": 14600.0,
+     "paid_amount": 19590.0,
+     "currency_id": "ARS",
+     "shipping_id": 48195583065,
+     "tags": [
+      "b2b",
+      "order_has_discount",
+      "catalog",
+      "paid",
+      "not_delivered"
+     ],
+     "raw_order": {
+      "id": 2000018846969514,
+      "tags": [
+       "b2b",
+       "order_has_discount",
+       "catalog",
+       "paid",
+       "not_delivered"
+      ],
+      "buyer": {
+       "id": 0,
+       "nickname": "REDACTED",
+       "last_name": "REDACTED",
+       "first_name": "REDACTED",
+       "billing_info": {
+        "id": "895665935270347616"
+       }
+      },
+      "taxes": {
+       "id": null,
+       "amount": null,
+       "currency_id": null
+      },
+      "seller": {
+       "id": 413658225
+      },
+      "status": "paid",
+      "context": {
+       "site": "MLA",
+       "flows": [
+        "catalog",
+        "b2b"
+       ],
+       "channel": "marketplace"
+      },
+      "pack_id": null,
+      "feedback": {
+       "buyer": null,
+       "seller": null
+      },
+      "payments": [
+       {
+        "id": 182870102520,
+        "reason": "Mouse Logitech M170 Inalambrico Usb - Negro",
+        "status": "approved",
+        "card_id": null,
+        "site_id": "MLA",
+        "order_id": 2000018846969514,
+        "payer_id": 78919783,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "2005",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T09:38:12.000-04:00",
+        "installments": 1,
+        "payment_type": "account_money",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 0.0,
+        "date_approved": "2026-10-07T09:38:13.000-04:00",
+        "shipping_cost": 4990.0,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "account_money",
+        "total_paid_amount": 19707.54,
+        "authorization_code": null,
+        "date_last_modified": "2026-10-07T09:38:13.000-04:00",
+        "installment_amount": null,
+        "transaction_amount": 14600.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0.0
+       }
+      ],
+      "shipping": {
+       "id": 48195583065
+      },
+      "fulfilled": null,
+      "mediations": [],
+      "buying_mode": "buy_equals_pay",
+      "currency_id": "ARS",
+      "date_closed": "2026-10-07T09:38:13.000-04:00",
+      "order_items": [
+       {
+        "item": {
+         "id": "MLA2069806678",
+         "title": "Mouse Logitech M170 Inalambrico Usb - Negro",
+         "warranty": "Garantía de fábrica: 6 meses",
+         "condition": "new",
+         "attributes": [
+          {
+           "id": "ITEM_CONDITION",
+           "values": [
+            {
+             "id": "2230284"
+            }
+           ]
+          }
+         ],
+         "net_weight": null,
+         "seller_sku": "097855124180",
+         "category_id": "MLA1714",
+         "global_price": null,
+         "release_date": null,
+         "variation_id": null,
+         "user_product_id": "MLAU3379447346",
+         "seller_custom_field": "2902",
+         "variation_attributes": [
+          {
+           "id": "COLOR",
+           "name": "Color",
+           "value_id": "52049",
+           "value_name": "Negro"
+          }
+         ]
+        },
+        "stock": {
+         "node_id": "ARP4136582251",
+         "store_id": null
+        },
+        "bundle": null,
+        "quantity": 1,
+        "sale_fee": 3593.0,
+        "compat_id": null,
+        "discounts": null,
+        "element_id": null,
+        "unit_price": 14600.0,
+        "currency_id": "ARS",
+        "gross_price": 19642.0,
+        "kit_instance_id": null,
+        "listing_type_id": "gold_special",
+        "picked_quantity": null,
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "manufacturing_days": null,
+        "requested_quantity": {
+         "value": 1,
+         "measure": "unit"
+        }
+       }
+      ],
+      "paid_amount": 19590.0,
+      "static_tags": [
+       "b2b"
+      ],
+      "date_created": "2026-10-07T09:38:12.000-04:00",
+      "last_updated": "2026-10-07T09:39:50.000-04:00",
+      "total_amount": 14600.0,
+      "cancel_detail": null,
+      "order_request": {
+       "change": null,
+       "return": null
+      },
+      "shipping_cost": null,
+      "status_detail": null,
+      "related_orders": null,
+      "manufacturing_ending_date": null
+     },
+     "ingest_error": null,
+     "first_seen_at": "2026-10-07T13:38:18.096059+00:00",
+     "last_synced_at": "2026-10-07T13:40:00.110881+00:00",
+     "payment_status": "approved",
+     "covered_by_marketplace": null,
+     "payments_synced_at": "2026-10-07T13:40:00.211749+00:00",
+     "has_no_shipping_tag": false,
+     "total_gauss": 4356.72,
+     "total_gauss_at": "2026-10-07T13:52:49.04755+00:00",
+     "total_gauss_stale": false,
+     "total_gauss_provisional": true,
+     "payments_recheck_at": "2026-10-07T14:38:19.161434+00:00",
+     "payments_recheck_attempts": 0
+    }
+   ],
+   "items": [
+    {
+     "id": 178179,
+     "order_id": 2000018846969514,
+     "item_id": "MLA2069806678",
+     "variation_id": null,
+     "seller_sku": "097855124180",
+     "title": "Mouse Logitech M170 Inalambrico Usb - Negro",
+     "quantity": 1,
+     "unit_price": 14600.0,
+     "full_unit_price": null,
+     "sale_fee": 3593.0,
+     "listing_type_id": "gold_special",
+     "raw_item": {
+      "item": {
+       "id": "MLA2069806678",
+       "title": "Mouse Logitech M170 Inalambrico Usb - Negro",
+       "warranty": "Garantía de fábrica: 6 meses",
+       "condition": "new",
+       "attributes": [
+        {
+         "id": "ITEM_CONDITION",
+         "values": [
+          {
+           "id": "2230284"
+          }
+         ]
+        }
+       ],
+       "net_weight": null,
+       "seller_sku": "097855124180",
+       "category_id": "MLA1714",
+       "global_price": null,
+       "release_date": null,
+       "variation_id": null,
+       "user_product_id": "MLAU3379447346",
+       "seller_custom_field": "2902",
+       "variation_attributes": [
+        {
+         "id": "COLOR",
+         "name": "Color",
+         "value_id": "52049",
+         "value_name": "Negro"
+        }
+       ]
+      },
+      "stock": {
+       "node_id": "ARP4136582251",
+       "store_id": null
+      },
+      "bundle": null,
+      "quantity": 1,
+      "sale_fee": 3593.0,
+      "compat_id": null,
+      "discounts": null,
+      "element_id": null,
+      "unit_price": 14600.0,
+      "currency_id": "ARS",
+      "gross_price": 19642.0,
+      "kit_instance_id": null,
+      "listing_type_id": "gold_special",
+      "picked_quantity": null,
+      "base_currency_id": null,
+      "base_exchange_rate": null,
+      "manufacturing_days": null,
+      "requested_quantity": {
+       "value": 1,
+       "measure": "unit"
+      }
+     }
+    }
+   ],
+   "payments": [
+    {
+     "payment_id": 182870102520,
+     "order_id": 2000018846969514,
+     "status": "approved",
+     "transaction_amount": 14600.0,
+     "shipping_amount": 4990.0,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 19707.54,
+     "net_received_amount": 15820.69,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-07T13:38:13+00:00",
+     "synced_at": "2026-10-07T13:40:00.110881+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018846969514",
+      "payment_id": 182870102520,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": "2026-10-07T09:38:13.000-04:00",
+      "charges_details": [
+       {
+        "name": "tax_withholding_payer-debitos_creditos",
+        "type": "tax",
+        "amount": 117.54,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 117.54,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-caba",
+        "type": "tax",
+        "amount": 58.77,
+        "refunded": 0
+       },
+       {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 2263,
+        "refunded": 0
+       },
+       {
+        "name": "flat_fee",
+        "type": "fee",
+        "amount": 1330,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 4990,
+      "total_paid_amount": 19707.54,
+      "transaction_amount": 14600,
+      "net_received_amount": 15820.69,
+      "transaction_amount_refunded": 0
+     }
+    }
+   ],
+   "payment_charges": [
+    {
+     "id": 476694,
+     "payment_id": 182870102520,
+     "name": "tax_withholding_payer-debitos_creditos",
+     "type": "tax",
+     "amount": 117.54,
+     "refunded": 0.0
+    },
+    {
+     "id": 476695,
+     "payment_id": 182870102520,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 117.54,
+     "refunded": 0.0
+    },
+    {
+     "id": 476696,
+     "payment_id": 182870102520,
+     "name": "tax_withholding_sirtac-caba",
+     "type": "tax",
+     "amount": 58.77,
+     "refunded": 0.0
+    },
+    {
+     "id": 476697,
+     "payment_id": 182870102520,
+     "name": "meli_percentage_fee",
+     "type": "fee",
+     "amount": 2263.0,
+     "refunded": 0.0
+    },
+    {
+     "id": 476698,
+     "payment_id": 182870102520,
+     "name": "flat_fee",
+     "type": "fee",
+     "amount": 1330.0,
+     "refunded": 0.0
+    }
+   ],
+   "shipments": [
+    {
+     "shipment_id": 48195583065,
+     "order_id": 2000018846969514,
+     "status": "ready_to_ship",
+     "substatus": "printed",
+     "logistic_type": "self_service",
+     "tracking_number": "REDACTED",
+     "tracking_method": "GAUSS ONLINE Super Express",
+     "date_created": "2026-10-07T13:38:12.422+00:00",
+     "last_updated": "2026-10-07T13:52:31.841+00:00",
+     "receiver_address": {
+      "id": 979374503,
+      "city": {
+       "id": "TUxBQk1PTjUxOTJa",
+       "name": "Monserrat"
+      },
+      "node": null,
+      "state": {
+       "id": "AR-C",
+       "name": "Capital Federal"
+      },
+      "types": [
+       "billing",
+       "default_return_address",
+       "default_selling_address",
+       "flex_pickup",
+       "shipping"
+      ],
+      "agency": null,
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "scoring": 1.0,
+      "version": "AR-2664bdc883cbb04e9e5542b3e63b06cb",
+      "latitude": "REDACTED",
+      "zip_code": "REDACTED",
+      "longitude": "REDACTED",
+      "location_id": 44766981,
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": null
+      },
+      "receiver_name": "REDACTED",
+      "street_number": "REDACTED",
+      "receiver_phone": "REDACTED",
+      "geolocation_type": "ROOFTOP",
+      "geolocation_source": "geolocation-visits",
+      "delivery_preference": "business",
+      "geolocation_last_updated": "2026-02-15T11:56:25.523Z"
+     },
+     "raw_shipment": {
+      "id": 48195583065,
+      "mode": "me2",
+      "tags": [],
+      "type": "forward",
+      "status": "ready_to_ship",
+      "sibling": {
+       "reason": null,
+       "source": null,
+       "sibling_id": null,
+       "description": null,
+       "date_created": null,
+       "last_updated": null
+      },
+      "site_id": "MLA",
+      "comments": null,
+      "order_id": 2000018846969514,
+      "base_cost": 4990,
+      "quotation": null,
+      "sender_id": 413658225,
+      "substatus": "printed",
+      "created_by": "receiver",
+      "order_cost": 14600,
+      "service_id": 240722,
+      "customer_id": null,
+      "items_types": [
+       "conveyable",
+       "new",
+       "unflyable"
+      ],
+      "receiver_id": "REDACTED",
+      "carrier_info": null,
+      "date_created": "2026-10-07T09:38:12.422-04:00",
+      "last_updated": "2026-10-07T09:52:31.841-04:00",
+      "market_place": "MELI",
+      "logistic_type": "self_service",
+      "application_id": null,
+      "priority_class": {
+       "id": "50"
+      },
+      "return_details": null,
+      "sender_address": {
+       "id": null,
+       "city": {
+        "id": "TUxBQkNBQjM4MDda",
+        "name": "Caballito"
+       },
+       "node": {
+        "node_id": "ARP4136582251",
+        "logistic_center_id": "ARP4136582251"
+       },
+       "state": {
+        "id": "AR-C",
+        "name": "Capital Federal"
+       },
+       "types": [
+        "logistic_center_ARP4136582251",
+        "self_service_partner"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": null,
+       "version": null,
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": null,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": null
+       },
+       "street_number": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": null,
+       "geolocation_last_updated": null
+      },
+      "shipping_items": [
+       {
+        "id": "MLA2069806678",
+        "bundle": null,
+        "quantity": 1,
+        "domain_id": null,
+        "sender_id": 413658225,
+        "dimensions": "5.0x8.0x12.0,100.0",
+        "description": "Mouse Logitech M170 Inalambrico Usb - Negro",
+        "user_product_id": "MLAU3379447346",
+        "item_ponderation": null,
+        "dimensions_source": {
+         "id": "MLA2069806678__1",
+         "origin": "fd"
+        },
+        "measurable_picked_quantity": null
+       }
+      ],
+      "status_history": {
+       "date_shipped": null,
+       "date_handling": "2026-10-07T09:38:17.000-04:00",
+       "date_returned": null,
+       "date_cancelled": null,
+       "date_delivered": null,
+       "date_first_visit": null,
+       "date_not_delivered": null,
+       "date_ready_to_ship": "2026-10-07T09:38:18.877-04:00"
+      },
+      "cost_components": {
+       "ratio": 0,
+       "compensation": 0,
+       "gap_discount": 0,
+       "loyal_discount": 0,
+       "special_discount": 0
+      },
+      "shipping_option": {
+       "id": 3035699227,
+       "cost": 4990,
+       "name": "Prioritario a domicilio",
+       "buffering": {
+        "date": null
+       },
+       "list_cost": 4990,
+       "currency_id": "ARS",
+       "delivery_type": "estimated",
+       "pickup_promise": {
+        "to": null,
+        "from": null
+       },
+       "priority_class": {
+        "id": "50"
+       },
+       "processing_time": null,
+       "delivery_promise": "estimated",
+       "shipping_method_id": 512747,
+       "estimated_delivery_time": {
+        "date": "2026-10-07T00:00:00.000-03:00",
+        "type": "known",
+        "unit": "hour",
+        "offset": {
+         "date": null,
+         "shipping": null
+        },
+        "handling": 0,
+        "schedule": null,
+        "shipping": 0,
+        "pay_before": "2026-10-07T16:00:00.000-03:00",
+        "time_frame": {
+         "to": null,
+         "from": null
+        }
+       },
+       "estimated_delivery_final": {
+        "date": "2026-10-07T00:00:00.000-03:00"
+       },
+       "estimated_delivery_limit": {
+        "date": "2026-10-07T00:00:00.000-03:00"
+       },
+       "estimated_schedule_limit": {
+        "date": null
+       },
+       "desired_promised_delivery": {
+        "from": null
+       },
+       "estimated_delivery_extended": {
+        "date": "2026-10-07T00:00:00.000-03:00"
+       }
+      },
+      "tracking_method": "GAUSS ONLINE Super Express",
+      "tracking_number": "REDACTED",
+      "receiver_address": {
+       "id": 979374503,
+       "city": {
+        "id": "TUxBQk1PTjUxOTJa",
+        "name": "Monserrat"
+       },
+       "node": null,
+       "state": {
+        "id": "AR-C",
+        "name": "Capital Federal"
+       },
+       "types": [
+        "billing",
+        "default_return_address",
+        "default_selling_address",
+        "flex_pickup",
+        "shipping"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": 1.0,
+       "version": "AR-2664bdc883cbb04e9e5542b3e63b06cb",
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": 44766981,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": null
+       },
+       "receiver_name": "REDACTED",
+       "street_number": "REDACTED",
+       "receiver_phone": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": "geolocation-visits",
+       "delivery_preference": "business",
+       "geolocation_last_updated": "2026-02-15T11:56:25.523Z"
+      },
+      "snapshot_packing": {
+       "pack_hash": "1",
+       "snapshot_id": "28e774db-c595-447d-918a-b9899093dbf3"
+      },
+      "substatus_history": [],
+      "date_first_printed": "2026-10-07T09:52:29.425-04:00",
+      "return_tracking_number": null
+     },
+     "last_synced_at": "2026-10-07T13:53:06.419909+00:00",
+     "sender_cost": 0.0,
+     "receiver_cost": 4990.0,
+     "costs_synced_at": "2026-10-07T13:38:19.744946+00:00",
+     "raw_costs": {
+      "senders": [
+       {
+        "cost": 0,
+        "fees": [],
+        "save": 0,
+        "charges": {
+         "charge_flex": 0
+        },
+        "user_id": 413658225,
+        "discounts": [],
+        "compensation": 0,
+        "compensations": []
+       }
+      ],
+      "receiver": {
+       "cost": 4990,
+       "fees": [],
+       "save": 0,
+       "discounts": [],
+       "compensation": 0,
+       "cost_details": [
+        {
+         "amount": 4990,
+         "sender_id": 413658225
+        }
+       ],
+       "compensations": []
+      },
+      "gross_amount": 4990,
+      "base_exchange": null
+     }
+    }
+   ]
+  }
+ },
+ "2000018846584294": {
+  "pick": {
+   "order_id": 2000018846584294,
+   "lt": "self_service",
+   "receiver_cost": "2216.30",
+   "pack_id": 2000015400388457
+  },
+  "db": {
+   "orders": [
+    {
+     "order_id": 2000018846584294,
+     "pack_id": 2000015400388457,
+     "status": "paid",
+     "status_detail": null,
+     "date_created": "2026-10-07T13:18:54+00:00",
+     "date_closed": "2026-10-07T13:18:57+00:00",
+     "ml_last_updated": "2026-10-07T13:20:30+00:00",
+     "buyer_id": 0,
+     "buyer_nickname": "REDACTED",
+     "seller_id": 413658225,
+     "total_amount": 105998.0,
+     "paid_amount": 105998.0,
+     "currency_id": "ARS",
+     "shipping_id": 48195392397,
+     "tags": [
+      "order_has_discount",
+      "catalog",
+      "paid",
+      "not_delivered",
+      "pack_order"
+     ],
+     "raw_order": {
+      "id": 2000018846584294,
+      "tags": [
+       "order_has_discount",
+       "catalog",
+       "paid",
+       "not_delivered",
+       "pack_order"
+      ],
+      "buyer": {
+       "id": 0,
+       "nickname": "REDACTED",
+       "last_name": "REDACTED",
+       "first_name": "REDACTED",
+       "billing_info": {
+        "id": "895661168267423761"
+       }
+      },
+      "taxes": {
+       "id": null,
+       "amount": null,
+       "currency_id": null
+      },
+      "seller": {
+       "id": 413658225
+      },
+      "status": "paid",
+      "context": {
+       "site": "MLA",
+       "flows": [
+        "catalog"
+       ],
+       "channel": "marketplace"
+      },
+      "pack_id": 2000015400388457,
+      "feedback": {
+       "buyer": null,
+       "seller": null
+      },
+      "payments": [
+       {
+        "id": 182866205126,
+        "reason": "Switch Tp-link Tl-sg108 De 8 Puertos Gigabit Para Escritorio",
+        "status": "approved",
+        "card_id": null,
+        "site_id": "MLA",
+        "order_id": 2000018846584294,
+        "payer_id": 43032987,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "2005",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-07T09:18:56.000-04:00",
+        "installments": 1,
+        "payment_type": "account_money",
+        "reference_id": null,
+        "taxes_amount": 0.0,
+        "coupon_amount": 0.0,
+        "date_approved": "2026-10-07T09:18:57.000-04:00",
+        "shipping_cost": 0.0,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "marketplace_fee": 0.0,
+        "overpaid_amount": 0.0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "account_money",
+        "total_paid_amount": 105998.0,
+        "authorization_code": null,
+        "date_last_modified": "2026-10-07T09:18:57.000-04:00",
+        "installment_amount": null,
+        "transaction_amount": 105998.0,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0.0
+       }
+      ],
+      "shipping": {
+       "id": 48195392397
+      },
+      "fulfilled": null,
+      "mediations": [],
+      "buying_mode": "buy_equals_pay",
+      "currency_id": "ARS",
+      "date_closed": "2026-10-07T09:18:57.000-04:00",
+      "order_items": [
+       {
+        "item": {
+         "id": "MLA1549873393",
+         "title": "Switch Tp-link Tl-sg108 De 8 Puertos Gigabit Para Escritorio",
+         "warranty": "Garantía de fábrica: 6 meses",
+         "condition": "new",
+         "attributes": [
+          {
+           "id": "ITEM_CONDITION",
+           "values": [
+            {
+             "id": "2230284"
+            }
+           ]
+          }
+         ],
+         "net_weight": null,
+         "seller_sku": "1210002616898",
+         "category_id": "MLA1708",
+         "global_price": null,
+         "release_date": null,
+         "variation_id": null,
+         "user_product_id": "MLAU3456537535",
+         "seller_custom_field": null,
+         "variation_attributes": []
+        },
+        "stock": {
+         "node_id": "ARP4136582251",
+         "store_id": null
+        },
+        "bundle": null,
+        "quantity": 2,
+        "sale_fee": 8214.84,
+        "compat_id": null,
+        "discounts": null,
+        "element_id": null,
+        "unit_price": 52999.0,
+        "currency_id": "ARS",
+        "gross_price": 150512.0,
+        "kit_instance_id": null,
+        "listing_type_id": "gold_special",
+        "picked_quantity": null,
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "manufacturing_days": null,
+        "requested_quantity": {
+         "value": 2,
+         "measure": "unit"
+        }
+       }
+      ],
+      "paid_amount": 105998.0,
+      "static_tags": [
+       "pack_order"
+      ],
+      "date_created": "2026-10-07T09:18:54.000-04:00",
+      "last_updated": "2026-10-07T09:20:30.000-04:00",
+      "total_amount": 105998.0,
+      "cancel_detail": null,
+      "order_request": {
+       "change": null,
+       "return": null
+      },
+      "shipping_cost": null,
+      "status_detail": null,
+      "related_orders": null,
+      "manufacturing_ending_date": null
+     },
+     "ingest_error": null,
+     "first_seen_at": "2026-10-07T13:19:03.326011+00:00",
+     "last_synced_at": "2026-10-07T13:20:34.030571+00:00",
+     "payment_status": "approved",
+     "covered_by_marketplace": null,
+     "payments_synced_at": "2026-10-07T13:20:34.621864+00:00",
+     "has_no_shipping_tag": false,
+     "total_gauss": 10041.29,
+     "total_gauss_at": "2026-10-07T14:11:58.174834+00:00",
+     "total_gauss_stale": false,
+     "total_gauss_provisional": false,
+     "payments_recheck_at": "2026-10-07T14:19:03.505421+00:00",
+     "payments_recheck_attempts": 0
+    }
+   ],
+   "items": [
+    {
+     "id": 178146,
+     "order_id": 2000018846584294,
+     "item_id": "MLA1549873393",
+     "variation_id": null,
+     "seller_sku": "1210002616898",
+     "title": "Switch Tp-link Tl-sg108 De 8 Puertos Gigabit Para Escritorio",
+     "quantity": 2,
+     "unit_price": 52999.0,
+     "full_unit_price": null,
+     "sale_fee": 8214.84,
+     "listing_type_id": "gold_special",
+     "raw_item": {
+      "item": {
+       "id": "MLA1549873393",
+       "title": "Switch Tp-link Tl-sg108 De 8 Puertos Gigabit Para Escritorio",
+       "warranty": "Garantía de fábrica: 6 meses",
+       "condition": "new",
+       "attributes": [
+        {
+         "id": "ITEM_CONDITION",
+         "values": [
+          {
+           "id": "2230284"
+          }
+         ]
+        }
+       ],
+       "net_weight": null,
+       "seller_sku": "1210002616898",
+       "category_id": "MLA1708",
+       "global_price": null,
+       "release_date": null,
+       "variation_id": null,
+       "user_product_id": "MLAU3456537535",
+       "seller_custom_field": null,
+       "variation_attributes": []
+      },
+      "stock": {
+       "node_id": "ARP4136582251",
+       "store_id": null
+      },
+      "bundle": null,
+      "quantity": 2,
+      "sale_fee": 8214.84,
+      "compat_id": null,
+      "discounts": null,
+      "element_id": null,
+      "unit_price": 52999.0,
+      "currency_id": "ARS",
+      "gross_price": 150512.0,
+      "kit_instance_id": null,
+      "listing_type_id": "gold_special",
+      "picked_quantity": null,
+      "base_currency_id": null,
+      "base_exchange_rate": null,
+      "manufacturing_days": null,
+      "requested_quantity": {
+       "value": 2,
+       "measure": "unit"
+      }
+     }
+    }
+   ],
+   "payments": [
+    {
+     "payment_id": 182866205126,
+     "order_id": 2000018846584294,
+     "status": "approved",
+     "transaction_amount": 105998.0,
+     "shipping_amount": 0.0,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 105998.0,
+     "net_received_amount": 88614.34,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-07T13:18:57+00:00",
+     "synced_at": "2026-10-07T13:20:34.030571+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018846584294",
+      "payment_id": 182866205126,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": "2026-10-07T09:18:57.000-04:00",
+      "charges_details": [
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 635.99,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-caba",
+        "type": "tax",
+        "amount": 317.99,
+        "refunded": 0
+       },
+       {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 16429.68,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 0,
+      "total_paid_amount": 105998,
+      "transaction_amount": 105998,
+      "net_received_amount": 88614.34,
+      "transaction_amount_refunded": 0
+     }
+    }
+   ],
+   "payment_charges": [
+    {
+     "id": 476523,
+     "payment_id": 182866205126,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 635.99,
+     "refunded": 0.0
+    },
+    {
+     "id": 476524,
+     "payment_id": 182866205126,
+     "name": "tax_withholding_sirtac-caba",
+     "type": "tax",
+     "amount": 317.99,
+     "refunded": 0.0
+    },
+    {
+     "id": 476525,
+     "payment_id": 182866205126,
+     "name": "meli_percentage_fee",
+     "type": "fee",
+     "amount": 16429.68,
+     "refunded": 0.0
+    }
+   ],
+   "shipments": [
+    {
+     "shipment_id": 48195392397,
+     "order_id": 2000018846584294,
+     "status": "ready_to_ship",
+     "substatus": "printed",
+     "logistic_type": "self_service",
+     "tracking_number": "REDACTED",
+     "tracking_method": null,
+     "date_created": "2026-10-07T13:18:54.343+00:00",
+     "last_updated": "2026-10-07T14:10:30.961+00:00",
+     "receiver_address": {
+      "id": 1059817018,
+      "city": {
+       "id": "TUxBQlBBUjQ1NDda",
+       "name": "Parque Avellaneda"
+      },
+      "node": null,
+      "state": {
+       "id": "AR-C",
+       "name": "Capital Federal"
+      },
+      "types": [
+       "default_buying_address"
+      ],
+      "agency": null,
+      "comment": "REDACTED",
+      "country": {
+       "id": "AR",
+       "name": "Argentina"
+      },
+      "scoring": 1.0,
+      "version": "AR-a8a32a58c7e27a11cfbb9abba5fb1fb8",
+      "latitude": "REDACTED",
+      "zip_code": "REDACTED",
+      "longitude": "REDACTED",
+      "location_id": 58061788,
+      "street_name": "REDACTED",
+      "address_line": "REDACTED",
+      "intersection": null,
+      "municipality": {
+       "id": null,
+       "name": null
+      },
+      "neighborhood": {
+       "id": null,
+       "name": null
+      },
+      "receiver_name": "REDACTED",
+      "street_number": "REDACTED",
+      "receiver_phone": "REDACTED",
+      "geolocation_type": "ROOFTOP",
+      "geolocation_source": "geolocation-visits",
+      "delivery_preference": "business",
+      "geolocation_last_updated": "2025-05-24T00:25:16.343Z"
+     },
+     "raw_shipment": {
+      "id": 48195392397,
+      "mode": "me2",
+      "tags": [
+       "turbo"
+      ],
+      "type": "forward",
+      "status": "ready_to_ship",
+      "sibling": {
+       "reason": null,
+       "source": null,
+       "sibling_id": null,
+       "description": null,
+       "date_created": null,
+       "last_updated": null
+      },
+      "site_id": "MLA",
+      "comments": null,
+      "order_id": 2000018846584294,
+      "base_cost": 8206.3,
+      "quotation": null,
+      "sender_id": 413658225,
+      "substatus": "printed",
+      "created_by": "receiver",
+      "order_cost": 105998,
+      "service_id": 3354604,
+      "customer_id": null,
+      "items_types": [
+       "new",
+       "conveyable"
+      ],
+      "receiver_id": "REDACTED",
+      "carrier_info": null,
+      "date_created": "2026-10-07T09:18:54.343-04:00",
+      "last_updated": "2026-10-07T10:10:30.961-04:00",
+      "market_place": "MELI",
+      "logistic_type": "self_service",
+      "application_id": null,
+      "priority_class": {
+       "id": "50"
+      },
+      "return_details": null,
+      "sender_address": {
+       "id": null,
+       "city": {
+        "id": "TUxBQkNBQjM4MDda",
+        "name": "Caballito"
+       },
+       "node": {
+        "node_id": "ARP4136582251",
+        "logistic_center_id": "ARP4136582251"
+       },
+       "state": {
+        "id": "AR-C",
+        "name": "Capital Federal"
+       },
+       "types": [
+        "logistic_center_ARP4136582251",
+        "self_service_partner"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": null,
+       "version": null,
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": null,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": null
+       },
+       "street_number": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": null,
+       "geolocation_last_updated": null
+      },
+      "shipping_items": [
+       {
+        "id": "MLA1549873393",
+        "bundle": null,
+        "quantity": 2,
+        "sender_id": 413658225,
+        "dimensions": "20.0x20.0x14.0,1020.0",
+        "description": "Switch Tp-link Tl-sg108 De 8 Puertos Gigabit Para Escritorio",
+        "user_product_id": "MLAU3456537535",
+        "item_ponderation": 100,
+        "dimensions_source": {
+         "id": "MLA1549873393__1",
+         "origin": "fd"
+        },
+        "measurable_picked_quantity": null
+       }
+      ],
+      "status_history": {
+       "date_shipped": null,
+       "date_handling": "2026-10-07T09:19:02.000-04:00",
+       "date_returned": null,
+       "date_cancelled": null,
+       "date_delivered": null,
+       "date_first_visit": null,
+       "date_not_delivered": null,
+       "date_ready_to_ship": "2026-10-07T09:19:03.956-04:00"
+      },
+      "cost_components": {
+       "ratio": 9554.7,
+       "compensation": 0,
+       "gap_discount": 0,
+       "loyal_discount": 0,
+       "special_discount": 0
+      },
+      "shipping_option": {
+       "id": 3652733351,
+       "cost": 2216.3,
+       "name": "Prioritario",
+       "buffering": {
+        "date": null
+       },
+       "list_cost": 7997.3,
+       "currency_id": "ARS",
+       "delivery_type": "estimated",
+       "pickup_promise": {
+        "to": null,
+        "from": null
+       },
+       "priority_class": {
+        "id": "50"
+       },
+       "processing_time": null,
+       "delivery_promise": "accurate",
+       "shipping_method_id": 515282,
+       "estimated_delivery_time": {
+        "date": "2026-10-07T12:00:00.000-03:00",
+        "type": "known_frame",
+        "unit": "hour",
+        "offset": {
+         "date": "2026-10-07T14:00:00.000-03:00",
+         "shipping": null
+        },
+        "handling": 0,
+        "schedule": null,
+        "shipping": 0,
+        "pay_before": "2026-10-07T12:00:00.000-03:00",
+        "time_frame": {
+         "to": null,
+         "from": null
+        }
+       },
+       "estimated_delivery_final": {
+        "date": "2026-10-07T12:00:00.000-03:00"
+       },
+       "estimated_delivery_limit": {
+        "date": "2026-10-07T12:00:00.000-03:00"
+       },
+       "estimated_schedule_limit": {
+        "date": null
+       },
+       "desired_promised_delivery": {
+        "from": null
+       },
+       "estimated_delivery_extended": {
+        "date": "2026-10-07T12:00:00.000-03:00"
+       }
+      },
+      "tracking_method": null,
+      "tracking_number": "REDACTED",
+      "receiver_address": {
+       "id": 1059817018,
+       "city": {
+        "id": "TUxBQlBBUjQ1NDda",
+        "name": "Parque Avellaneda"
+       },
+       "node": null,
+       "state": {
+        "id": "AR-C",
+        "name": "Capital Federal"
+       },
+       "types": [
+        "default_buying_address"
+       ],
+       "agency": null,
+       "comment": "REDACTED",
+       "country": {
+        "id": "AR",
+        "name": "Argentina"
+       },
+       "scoring": 1.0,
+       "version": "AR-a8a32a58c7e27a11cfbb9abba5fb1fb8",
+       "latitude": "REDACTED",
+       "zip_code": "REDACTED",
+       "longitude": "REDACTED",
+       "location_id": 58061788,
+       "street_name": "REDACTED",
+       "address_line": "REDACTED",
+       "intersection": null,
+       "municipality": {
+        "id": null,
+        "name": null
+       },
+       "neighborhood": {
+        "id": null,
+        "name": null
+       },
+       "receiver_name": "REDACTED",
+       "street_number": "REDACTED",
+       "receiver_phone": "REDACTED",
+       "geolocation_type": "ROOFTOP",
+       "geolocation_source": "geolocation-visits",
+       "delivery_preference": "business",
+       "geolocation_last_updated": "2025-05-24T00:25:16.343Z"
+      },
+      "snapshot_packing": {
+       "pack_hash": "1",
+       "snapshot_id": "400f0f3b-5113-445b-9c70-d82fcdf5dc6e"
+      },
+      "substatus_history": [
+       {
+        "date": "2026-10-07T09:18:58.668-04:00",
+        "status": "pending",
+        "substatus": "shipment_paid"
+       }
+      ],
+      "date_first_printed": "2026-10-07T10:10:28.907-04:00",
+      "return_tracking_number": null
+     },
+     "last_synced_at": "2026-10-07T14:10:33.65513+00:00",
+     "sender_cost": 5781.0,
+     "receiver_cost": 2216.3,
+     "costs_synced_at": "2026-10-07T13:19:03.814392+00:00",
+     "raw_costs": {
+      "senders": [
+       {
+        "cost": 5781,
+        "fees": [],
+        "save": 209,
+        "charges": {
+         "charge_flex": 390
+        },
+        "user_id": 413658225,
+        "discounts": [
+         {
+          "rate": 0.1,
+          "type": "mandatory",
+          "promoted_amount": 599
+         }
+        ],
+        "compensation": 0,
+        "compensations": []
+       }
+      ],
+      "receiver": {
+       "cost": 2216.3,
+       "fees": [],
+       "save": 3773.7,
+       "discounts": [
+        {
+         "rate": 0.63,
+         "type": "ratio",
+         "promoted_amount": 3773.7
+        }
+       ],
+       "compensation": 0,
+       "cost_details": [
+        {
+         "amount": 2216.3,
+         "sender_id": 413658225
+        }
+       ],
+       "compensations": []
+      },
+      "gross_amount": 11980,
+      "base_exchange": null
+     }
+    }
+   ]
+  }
+ },
+ "2000018814119064": {
+  "pick": {
+   "order_id": 2000018814119064,
+   "lt": "cross_docking",
+   "receiver_cost": "577.19",
+   "pack_id": 2000015369916581
+  },
+  "db": {
+   "orders": [
+    {
+     "order_id": 2000018814119064,
+     "pack_id": 2000015369916581,
+     "status": "paid",
+     "status_detail": null,
+     "date_created": "2026-10-05T23:27:30+00:00",
+     "date_closed": "2026-10-05T23:27:36+00:00",
+     "ml_last_updated": "2026-10-07T05:58:03+00:00",
+     "buyer_id": 0,
+     "buyer_nickname": "REDACTED",
+     "seller_id": 413658225,
+     "total_amount": 25750.0,
+     "paid_amount": 25750.0,
+     "currency_id": "ARS",
+     "shipping_id": 48180738458,
+     "tags": [
+      "order_has_discount",
+      "catalog",
+      "paid",
+      "not_delivered",
+      "pack_order"
+     ],
+     "raw_order": {
+      "id": 2000018814119064,
+      "tags": [
+       "order_has_discount",
+       "catalog",
+       "paid",
+       "not_delivered",
+       "pack_order"
+      ],
+      "buyer": {
+       "id": 0,
+       "nickname": "REDACTED"
+      },
+      "taxes": {
+       "id": null,
+       "amount": null,
+       "currency_id": null
+      },
+      "coupon": {
+       "id": null,
+       "amount": 0
+      },
+      "seller": {
+       "id": 413658225,
+       "nickname": "REDACTED"
+      },
+      "status": "paid",
+      "comment": "REDACTED",
+      "context": {
+       "site": "MLA",
+       "flows": [
+        "catalog"
+       ],
+       "channel": "marketplace",
+       "product_id": null,
+       "application": null
+      },
+      "pack_id": 2000015369916581,
+      "feedback": {
+       "buyer": null,
+       "seller": null
+      },
+      "payments": [
+       {
+        "id": 182595649222,
+        "reason": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+        "status": "approved",
+        "card_id": null,
+        "site_id": "MLA",
+        "order_id": 2000018814119064,
+        "payer_id": 202561492,
+        "collector": {
+         "id": 413658225
+        },
+        "coupon_id": null,
+        "issuer_id": "2005",
+        "currency_id": "ARS",
+        "status_code": null,
+        "date_created": "2026-10-05T19:27:35.000-04:00",
+        "installments": 1,
+        "payment_type": "account_money",
+        "taxes_amount": 0,
+        "coupon_amount": 0,
+        "date_approved": "2026-10-05T19:27:35.000-04:00",
+        "shipping_cost": 0,
+        "status_detail": "accredited",
+        "activation_uri": null,
+        "operation_type": "regular_payment",
+        "deferred_period": null,
+        "overpaid_amount": 0,
+        "available_actions": [
+         "refund"
+        ],
+        "payment_method_id": "account_money",
+        "total_paid_amount": 25750,
+        "authorization_code": null,
+        "date_last_modified": "2026-10-05T19:27:35.000-04:00",
+        "installment_amount": null,
+        "transaction_amount": 25750,
+        "transaction_order_id": null,
+        "atm_transfer_reference": {
+         "company_id": null,
+         "transaction_id": null
+        },
+        "transaction_amount_refunded": 0
+       }
+      ],
+      "shipping": {
+       "id": 48180738458
+      },
+      "fulfilled": null,
+      "pickup_id": null,
+      "currency_id": "ARS",
+      "date_closed": "2026-10-05T19:27:36.000-04:00",
+      "order_items": [
+       {
+        "item": {
+         "id": "MLA1468180375",
+         "title": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+         "warranty": "Garantía de fábrica: 6 meses",
+         "condition": "new",
+         "net_weight": null,
+         "seller_sku": "010343941977",
+         "category_id": "MLA3561",
+         "global_price": null,
+         "variation_id": null,
+         "seller_custom_field": null,
+         "variation_attributes": [
+          {
+           "id": "INK_COLOR",
+           "name": "Color de la tinta",
+           "value_id": "52049",
+           "value_name": "Negro"
+          }
+         ]
+        },
+        "bundle": null,
+        "quantity": 1,
+        "sale_fee": 7331.25,
+        "element_id": 2,
+        "unit_price": 25750,
+        "currency_id": "ARS",
+        "gross_price": 32641,
+        "listing_type_id": "gold_special",
+        "picked_quantity": null,
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "manufacturing_days": null,
+        "requested_quantity": {
+         "value": 1,
+         "measure": "unit"
+        }
+       }
+      ],
+      "paid_amount": 25750,
+      "static_tags": [
+       "pack_order"
+      ],
+      "date_created": "2026-10-05T19:27:30.000-04:00",
+      "last_updated": "2026-10-05T19:29:03.000-04:00",
+      "total_amount": 25750,
+      "order_request": {
+       "change": null,
+       "return": null
+      },
+      "shipping_cost": null,
+      "status_detail": null,
+      "expiration_date": "2026-11-02T19:27:36.000-04:00",
+      "date_created_ttl": null,
+      "date_last_updated": "2026-10-07T05:58:03+00:00",
+      "manufacturing_ending_date": null
+     },
+     "ingest_error": null,
+     "first_seen_at": "2026-10-05T23:27:46.000799+00:00",
+     "last_synced_at": "2026-10-07T08:00:19.289499+00:00",
+     "payment_status": "approved",
+     "covered_by_marketplace": null,
+     "payments_synced_at": "2026-10-06T07:49:21.318986+00:00",
+     "has_no_shipping_tag": false,
+     "total_gauss": 85.65,
+     "total_gauss_at": "2026-10-06T07:49:22.126184+00:00",
+     "total_gauss_stale": false,
+     "total_gauss_provisional": false,
+     "payments_recheck_at": null,
+     "payments_recheck_attempts": 0
+    }
+   ],
+   "items": [
+    {
+     "id": 171324,
+     "order_id": 2000018814119064,
+     "item_id": "MLA1468180375",
+     "variation_id": null,
+     "seller_sku": "010343941977",
+     "title": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+     "quantity": 1,
+     "unit_price": 25750.0,
+     "full_unit_price": null,
+     "sale_fee": 7331.25,
+     "listing_type_id": "gold_special",
+     "raw_item": {
+      "item": {
+       "id": "MLA1468180375",
+       "title": "Tinta Epson 544 L1110 L1210 L1250 L3110 L3150 L3160 L3210 L3250 L3251 L3260 L3560 L5190 L5290 L5590 Negro T544120",
+       "warranty": "Garantía de fábrica: 6 meses",
+       "condition": "new",
+       "net_weight": null,
+       "seller_sku": "010343941977",
+       "category_id": "MLA3561",
+       "global_price": null,
+       "variation_id": null,
+       "seller_custom_field": null,
+       "variation_attributes": [
+        {
+         "id": "INK_COLOR",
+         "name": "Color de la tinta",
+         "value_id": "52049",
+         "value_name": "Negro"
+        }
+       ]
+      },
+      "bundle": null,
+      "quantity": 1,
+      "sale_fee": 7331.25,
+      "element_id": 2,
+      "unit_price": 25750,
+      "currency_id": "ARS",
+      "gross_price": 32641,
+      "listing_type_id": "gold_special",
+      "picked_quantity": null,
+      "base_currency_id": null,
+      "base_exchange_rate": null,
+      "manufacturing_days": null,
+      "requested_quantity": {
+       "value": 1,
+       "measure": "unit"
+      }
+     }
+    }
+   ],
+   "payments": [
+    {
+     "payment_id": 182595649222,
+     "order_id": 2000018814119064,
+     "status": "approved",
+     "transaction_amount": 25750.0,
+     "shipping_amount": 0.0,
+     "coupon_amount": 0.0,
+     "total_paid_amount": 25750.0,
+     "net_received_amount": 18187.0,
+     "transaction_amount_refunded": 0.0,
+     "taxes_amount": 0.0,
+     "currency_id": "ARS",
+     "date_approved": "2026-10-05T23:27:35+00:00",
+     "synced_at": "2026-10-06T07:49:21.317335+00:00",
+     "raw_payload": {
+      "status": "approved",
+      "order_id": "2000018814119064",
+      "payment_id": 182595649222,
+      "currency_id": "ARS",
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "date_approved": "2026-10-05T19:27:35.000-04:00",
+      "charges_details": [
+       {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 154.5,
+        "refunded": 0
+       },
+       {
+        "name": "tax_withholding_sirtac-rio_negro",
+        "type": "tax",
+        "amount": 77.25,
+        "refunded": 0
+       },
+       {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 3991.25,
+        "refunded": 0
+       },
+       {
+        "name": "flat_fee",
+        "type": "fee",
+        "amount": 3340,
+        "refunded": 0
+       }
+      ],
+      "shipping_amount": 0,
+      "total_paid_amount": 25750,
+      "transaction_amount": 25750,
+      "net_received_amount": 18187,
+      "transaction_amount_refunded": 0
+     }
+    }
+   ],
+   "payment_charges": [
+    {
+     "id": 459250,
+     "payment_id": 182595649222,
+     "name": "tax_withholding_collector-debitos_creditos",
+     "type": "tax",
+     "amount": 154.5,
+     "refunded": 0.0
+    },
+    {
+     "id": 459251,
+     "payment_id": 182595649222,
+     "name": "tax_withholding_sirtac-rio_negro",
+     "type": "tax",
+     "amount": 77.25,
+     "refunded": 0.0
+    },
+    {
+     "id": 459252,
+     "payment_id": 182595649222,
+     "name": "meli_percentage_fee",
+     "type": "fee",
+     "amount": 3991.25,
+     "refunded": 0.0
+    },
+    {
+     "id": 459253,
+     "payment_id": 182595649222,
+     "name": "flat_fee",
+     "type": "fee",
+     "amount": 3340.0,
+     "refunded": 0.0
+    }
+   ],
+   "shipments": []
+  }
+ }
+}

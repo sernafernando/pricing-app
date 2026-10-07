@@ -85,6 +85,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     shipping_label,
     tax_label,
 )
+from app.services.ml_ventas_desglose.envio_comprador import EnvioCompradorOrden, envio_comprador_de_pago
 
 # ML's own IVA rate on its fees and freight -- authoritative per the
 # maintainer, not a measurement. One edit here if it ever moves.
@@ -181,6 +182,17 @@ class DescomposicionNeto:
     # per-item goods split remains exactly known regardless of what the
     # charges side did.
     base_venta_sin_iva: Optional[Decimal] = None
+    # ventas-ml-varios-base-envio: the base of the "% de varios" = the goods
+    # without IVA (`base_venta_sin_iva`) + the shipping the buyer paid + the
+    # Flex bonificación, each WITHOUT IVA. `None` exactly when
+    # `base_venta_sin_iva` is: the shipping can only add to a goods side we
+    # trust, it never makes an unresolved base look resolved. Built from the
+    # SAME resolvers that feed the informational IVA components below, never
+    # re-derived from `componentes`.
+    base_varios: Optional[Decimal] = None
+    # The shipping the buyer paid, gross / net, for the API's gross-net-IVA
+    # breakdown (IVA books). `None` = the buyer paid none (or it is unreadable).
+    envio_comprador: Optional[EnvioCompradorOrden] = None
 
 
 def _split(bruto: Decimal, divisor: Decimal) -> Tuple[Decimal, Decimal]:
@@ -342,16 +354,23 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # `order_relevant`, NOT every payment: `neto` was built from the
         # relevant ones only, so adding a rejected payment's shipping here
         # would inflate the positive side against a net that never saw it.
+        #
+        # ventas-ml-varios-base-envio: the "% de varios" base reads these SAME
+        # components (one per payment, through `envio_comprador_de_pago`), so
+        # the line and the base cannot disagree.
+        envio_bruto = Decimal("0")
+        envio_neto = Decimal("0")
         for payment in order_relevant:
-            if payment.shipping_amount is not None:
-                bruto = Decimal(str(payment.shipping_amount))
-                if bruto != 0:
-                    base, iva = _split(bruto, IVA_ML_DIVISOR)
-                    componentes.append(
-                        ComponenteIVA(
-                            concepto=CONCEPTO_ENVIO_COMPRADOR, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva
-                        )
+            bruto = envio_comprador_de_pago(payment.shipping_amount, payment.payment_id)
+            if bruto is not None:
+                base, iva = _split(bruto, IVA_ML_DIVISOR)
+                componentes.append(
+                    ComponenteIVA(
+                        concepto=CONCEPTO_ENVIO_COMPRADOR, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva
                     )
+                )
+                envio_bruto += bruto
+                envio_neto += base
             if payment.transaction_amount_refunded:
                 # A refund scales `neto` down, but nothing tells us WHICH
                 # items came back -- so the per-rate split of the goods is
@@ -451,6 +470,8 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # (`BonificacionEnvioDeduccion`), never through `neto_sin_iva`.
         # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
         # so a pack's components add up to ONE bonificación.
+        envio_comprador = EnvioCompradorOrden(bruto=envio_bruto, neto=envio_neto) if envio_bruto > 0 else None
+
         bonificacion = bonificacion_by_order.get(order_id)
         if bonificacion is not None:
             componentes.append(
@@ -498,6 +519,14 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             else None
         )
 
+        base_varios = (
+            base_venta_sin_iva
+            + (envio_comprador.neto if envio_comprador is not None else Decimal("0"))
+            + (bonificacion.neto if bonificacion is not None else Decimal("0"))
+            if base_venta_sin_iva is not None
+            else None
+        )
+
         result[order_id] = DescomposicionNeto(
             componentes=componentes,
             neto_sin_iva=neto_sin_iva,
@@ -506,6 +535,8 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             razones=razones,
             debitos_creditos_retiro=extra_debitos_creditos,
             base_venta_sin_iva=base_venta_sin_iva,
+            base_varios=base_varios,
+            envio_comprador=envio_comprador,
         )
 
     return result

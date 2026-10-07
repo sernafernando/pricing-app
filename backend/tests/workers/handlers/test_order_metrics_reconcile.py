@@ -175,6 +175,55 @@ class TestReconcileEnqueuesMissingAndStaleFormula:
 
 
 @pytest.mark.postgres
+class TestTheVariosBaseBumpSelectsRowsStoredUnderTheOldFormula:
+    """ventas-ml-varios-base-envio: the historical recompute IS the version
+    bump. A row stored under the previous formula (2: the "% de varios" over
+    the goods only, and the first Flex bonificación rule) must be picked up by
+    `order_metrics.reconcile` and recomputed by the drain."""
+
+    def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_2(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        assert CURRENT_FORMULA_VERSION == 3
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_order(conn, 500020)
+            _insert_metrics(conn, 500020, formula_version=2)
+            conn.commit()
+
+        reconcile.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        with pg_order_metrics_engine.connect() as conn:
+            row = _dirty_row(conn, 500020)
+        assert row is not None
+        assert row.reason == "reconcile"
+
+    def test_the_whole_stale_backlog_is_enqueued_in_bounded_batches(
+        self, _order_metrics_db_session, pg_order_metrics_engine, monkeypatch
+    ) -> None:
+        """Batches of `RECONCILE_BATCH_SIZE`, each in its own short block:
+        with a batch of 40 the 100 stale rows take three batches, none lost
+        and none duplicated."""
+        from app.workers.handlers import order_metrics as handlers
+
+        monkeypatch.setattr(handlers, "RECONCILE_BATCH_SIZE", 40)
+        ids = list(range(500100, 500200))
+        with pg_order_metrics_engine.connect() as conn:
+            for order_id in ids:
+                _insert_order(conn, order_id)
+                _insert_metrics(conn, order_id, formula_version=2)
+            conn.commit()
+
+        result = reconcile.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        assert result.detail == {"enqueued": 100, "batches": 3}
+        with pg_order_metrics_engine.connect() as conn:
+            queued = conn.execute(
+                text("SELECT count(*) FROM ml_order_metrics_dirty WHERE order_id BETWEEN 500100 AND 500199")
+            ).scalar()
+        assert queued == 100
+
+
+@pytest.mark.postgres
 class TestReconcileParkedOrderStaysParkedAcrossRuns:
     """PR6.T1a (design D3, D10; spec scenario 13): a parked order with no
     metrics row survives three consecutive reconcile runs still parked; a
