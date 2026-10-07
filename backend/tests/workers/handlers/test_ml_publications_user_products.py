@@ -406,7 +406,9 @@ class TestInvalidEntityIds:
         assert list(entry["resources"]) == ["family"]  # visible and retried, parked after the poison limit
 
     def test_an_interruption_before_the_bad_entry_is_reached_still_charges_it(self, env) -> None:
-        """PINNING (it holds since a failed resource stopped being pending). A 429 on the first entry ends the run; the family entry behind it was never walked but its bad id
+        """PINNING (it holds since a failed resource stopped being pending).
+
+        A 429 on the first entry ends the run; the family entry behind it was never walked but its bad id
         is a real failure: it is charged and kept, not released uncharged with its resource forgotten."""
         enable_refresh(bundle_resources=["core", "stock", "family"])
         enqueue_items(ITEM)
