@@ -16,6 +16,7 @@ min/max/suggested_discounted_price}` with amounts as decimal strings. No I/O.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from itertools import count
 from typing import Any, Callable, Mapping, Optional
@@ -90,25 +91,35 @@ _PROMOTION_AMOUNTS = (
 def promotions_entries(raw: Any) -> Optional[dict]:
     """The promotions the event rules read, by promotion key (`id`, else `type`).
 
-    ML sends one entry per key. If a key ever repeats, the twin is kept under `<key>#<n>` instead of
-    overwriting the first, so no entry is lost from the context."""
+    ML sends one entry per key. If a key ever repeats, the twins are ordered by content (never by
+    their place in the list) and kept as `<key>`, `<key>#2`, ... so no entry is lost and a reordered
+    list does not swap their identities."""
     if not isinstance(raw, list):
         return None
+    records = sorted(
+        (
+            (
+                promotion_key(entry),
+                {
+                    "id": None if entry.get("id") is None else str(entry["id"]),
+                    "type": entry.get("type"),
+                    "status": entry.get("status"),
+                    **{name: _amount_of(entry, name) for name in _PROMOTION_AMOUNTS},
+                },
+            )
+            for entry in raw
+            if isinstance(entry, Mapping)
+        ),
+        key=lambda pair: (pair[0], json.dumps(pair[1], sort_keys=True)),
+    )
     entries: dict = {}
-    for entry in raw:
-        if not isinstance(entry, Mapping):
-            continue
-        key = base = promotion_key(entry)
+    for base, record in records:
+        key = base
         for ordinal in count(2):
             if key not in entries:
                 break
             key = f"{base}#{ordinal}"
-        entries[key] = {
-            "id": None if entry.get("id") is None else str(entry["id"]),
-            "type": entry.get("type"),
-            "status": entry.get("status"),
-            **{name: _amount_of(entry, name) for name in _PROMOTION_AMOUNTS},
-        }
+        entries[key] = record
     return entries
 
 

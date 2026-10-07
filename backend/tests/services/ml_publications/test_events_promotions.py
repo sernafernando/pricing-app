@@ -285,6 +285,20 @@ class TestEntriesContext:
         statuses = sorted(e["status"] for k, e in entries.items() if e["type"] == "PRICE_DISCOUNT")
         assert statuses == ["candidate", "started"]
 
+    def test_twins_keep_their_keys_when_ml_reorders_the_list(self) -> None:
+        """Same real list with a PRICE_DISCOUNT twin, read in two orders: no key swap, so no false event."""
+        body = subresource_body("promotions", ONLY_CANDIDATES)
+        twin = copy.deepcopy(entry(body, "PRICE_DISCOUNT"))
+        twin.update(status="started", price=50000)
+        body.append(twin)
+        reordered = list(reversed(body))
+
+        assert (
+            entries_context("promotions", body, body)["entries"]["new"]
+            == (entries_context("promotions", reordered, reordered)["entries"]["new"])
+        )
+        assert derive_events(promotions_row(body, reordered)) == []
+
     def test_an_entry_that_appears_already_pending_is_not_an_event_until_it_starts(self) -> None:
         """Pinned rule (design D16): `promotion_offered` is for candidates only; pending is silent."""
         new = subresource_body("promotions", ONLY_CANDIDATES)
