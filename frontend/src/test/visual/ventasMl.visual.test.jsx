@@ -252,4 +252,18 @@ describe('Ventas ML screen (visual)', () => {
     expect(overflowingCells(document.querySelector('table'))).toEqual([]);
     screen.unmount();
   });
+
+  // Below 1280px `.tableCard` becomes a horizontal scroll container, so the
+  // sticky `<th>` pins to the CARD. A TopBar-sized `top` offset there pushed
+  // the header down over the first row (a single row was left hidden).
+  for (const width of [1000, 1279]) {
+    it(`narrow ${width}: the header never covers the first row`, async () => {
+      const screen = await renderPage({ width, height: 700, theme: 'light' });
+      const table = document.querySelector('table');
+      const header = table.querySelector('thead th').getBoundingClientRect();
+      const firstRow = table.querySelector('tbody tr').getBoundingClientRect();
+      expect(firstRow.top).toBeGreaterThanOrEqual(header.bottom - 0.5);
+      screen.unmount();
+    });
+  }
 });

@@ -540,11 +540,19 @@
 }
 
 /* Last-resort horizontal scroll, only where compression has run out of
-   room: below 1279px the percentage columns bottom out. The sticky header
-   stops working inside this scroll container -- a deliberate trade-off. */
+   room: below 1279px the percentage columns bottom out. `overflow-x: auto`
+   makes the card the sticky header's scroll container, so the TopBar offset
+   no longer applies: left at 56px the header would be pushed that far down
+   INSIDE the card, over the first rows. `top: 0` keeps it flush with the
+   card's top edge. The card never scrolls vertically (it has no fixed
+   height), so the header just rides with the page there -- the trade-off. */
 @media (max-width: 1279px) {
   .tableCard {
     overflow-x: auto;
+  }
+
+  .table thead th {
+    top: 0;
   }
 }
 
