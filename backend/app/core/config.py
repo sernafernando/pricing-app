@@ -8,7 +8,8 @@ from typing import List, Literal, Optional
 DEV_LIKE_ENVIRONMENTS: tuple[str, ...] = ("development", "testing")
 
 
-# Statuses the ML publications scan can be asked for (mirrored by `settings_store.SCAN_STATUSES`).
+# Statuses the ML publications scan can be asked for (shared by the settings_store validation and
+# scans.ALL_SCAN_STATUSES).
 SCAN_STATUS_NAMES = ("active", "paused", "closed", "under_review", "inactive", "pending")
 
 
