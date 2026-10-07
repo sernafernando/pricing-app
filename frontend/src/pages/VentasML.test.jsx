@@ -100,6 +100,7 @@ function asGroup(order) {
     total_gauss: order.total_gauss,
     total_gauss_provisional: order.total_gauss_provisional,
     retenciones_recuperables: order.retenciones_recuperables,
+    bonificacion_envio: order.bonificacion_envio,
     modo_logistico: order.modo_logistico,
     orders: [order],
   };
@@ -1174,6 +1175,39 @@ describe('The Neto column', () => {
     const row = screen.getByText('comprador1').closest('tr');
     const leaked = Array.from(row.querySelectorAll('[title]')).map((el) => el.title);
     expect(leaked.some((t) => t.includes('70,00'))).toBe(false);
+  });
+
+  it('adds the bonificación por envío to the neto tooltip so it adds up to the neto shown', async () => {
+    mockSalesList([
+      {
+        ...PAID_SALE,
+        neto: 22071.02,
+        neto_depositado: 13024.45,
+        retenciones_recuperables: 56.57,
+        bonificacion_envio: 8990,
+      },
+    ]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    const netoButton = within(row).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(netoButton).toHaveAttribute(
+      'title',
+      'MP $ 13.024,45 · SIRTAC $ 56,57 · Bonificación por envío $ 8.990,00',
+    );
+  });
+
+  it('shows the tooltip for a bonificación without SIRTAC', async () => {
+    mockSalesList([
+      { ...PAID_SALE, neto: 22014.45, neto_depositado: 13024.45, retenciones_recuperables: 0, bonificacion_envio: 8990 },
+    ]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    const netoButton = within(row).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(netoButton).toHaveAttribute('title', 'MP $ 13.024,45 · Bonificación por envío $ 8.990,00');
   });
 
   it('shows the "MP $X · SIRTAC $Y" tooltip when retenciones_recuperables > 0', async () => {

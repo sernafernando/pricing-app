@@ -54,6 +54,7 @@ import {
   mlSaleUrl,
   timeAgo,
   formatDateTime,
+  netoTooltip,
   OPERATION_STATUS_LABELS,
   GOODS_STATUS_LABELS,
 } from '../../utils/ventasMlFormat';
@@ -100,8 +101,6 @@ const DEDUCCION_LABELS = {
   costo_mercaderia: 'Costo de mercadería',
   envio_flex: 'Envío Flex',
   varios: '% de varios',
-  // ML pays the seller for the Flex shipping it delivers: income, shown as `(+)`.
-  bonificacion_envio: 'Bonificación por envío',
 };
 
 function formatAlicuota(value) {
@@ -287,6 +286,11 @@ export default function SaleDetailPanel({
   const mlUrl = mlSaleUrl({ orderId, packId: orderInfo?.pack_id });
 
   const montoOperacion = breakdown?.monto_operacion;
+  const netoComposicion = netoTooltip(
+    breakdown?.neto_depositado,
+    breakdown?.retenciones_recuperables,
+    breakdown?.bonificacion_envio,
+  );
   const gaussTone = moneyTone(cadenaTotalGauss?.total_gauss);
   const syncedAgo = timeAgo(lastSyncedAt);
 
@@ -412,7 +416,7 @@ export default function SaleDetailPanel({
                 </div>
               )}
 
-              <ul className={styles.lineList} aria-label="Cargos descontados">
+              <ul className={styles.lineList} aria-label="Cargos y bonificación del neto">
                 {lines.map((line, index) => {
                   // Index, not `concepto`: the backend sends lines as-is,
                   // unfiltered and unreordered, so two lines CAN share a
@@ -421,7 +425,20 @@ export default function SaleDetailPanel({
                   return (
                     <li key={`${index}-${line.concepto}`} className={styles.line}>
                       <span className={styles.lineSign}>{deduction.sign}</span>
-                      <span className={styles.lineConcepto}>{line.concepto}</span>
+                      <span className={styles.lineConcepto}>
+                        {line.concepto}
+                        {/* ventas-ml-bonificacion-en-neto: gross, net and IVA
+                            as SEPARATE figures (the same data can feed an IVA
+                            book later). The amount at the right is the GROSS
+                            ML pays; it is part of Neto. */}
+                        {line.importe && (
+                          <span className={styles.mutedNote}>
+                            {' '}
+                            (Bruto {formatMoney(line.importe.bruto)} · Neto {formatMoney(line.importe.neto)} · IVA{' '}
+                            {formatMoney(line.importe.iva)})
+                          </span>
+                        )}
+                      </span>
                       <span className={`${styles.lineMonto} ${deduction.tone ? styles[`money_${deduction.tone}`] : ''}`}>
                         {deduction.text}
                       </span>
@@ -457,16 +474,11 @@ export default function SaleDetailPanel({
                   {formatSignedMoney(breakdown.neto)}
                 </span>
               </div>
-              {/* ml-ventas-neto-iibb-varios R4/PR1.T10.c: explains why Neto is
-                  higher than what ML actually deposited -- only when there is
-                  a non-refunded SIRTAC to explain. */}
-              {breakdown.retenciones_recuperables > 0 && (
-                <p className={styles.netoSubLine}>
-                  {`MP ${formatMoney(breakdown.neto_depositado)} · SIRTAC ${formatMoney(
-                    breakdown.retenciones_recuperables,
-                  )}`}
-                </p>
-              )}
+              {/* ml-ventas-neto-iibb-varios R4/PR1.T10.c, ventas-ml-bonificacion-en-neto:
+                  explains what Neto is made of when it is more than the
+                  payment alone -- what ML deposited, the non-refunded SIRTAC
+                  and the Flex bonificación por envío. The parts add up to Neto. */}
+              {netoComposicion && <p className={styles.netoSubLine}>{netoComposicion}</p>}
 
               {/* ml-ventas-modo-logistico PR6 — IVA por alícuota, an inset
                   under Neto. Absent entirely when the backend did not send it. */}
@@ -487,16 +499,15 @@ export default function SaleDetailPanel({
                           <span className={styles.lineConcepto}>
                             {componente.concepto}
                             {componente.informativo && <span className={styles.mutedNote}> (informativo)</span>}
-                            {(!componente.informativo || componente.alicuota !== null) && (
+                            {!componente.informativo && (
                               <span className={styles.ivaAlicuota}> ({formatAlicuota(componente.alicuota)})</span>
                             )}
                           </span>
-                          {/* An informativo componente WITHOUT a rate (SIRTAC)
-                              shows no base/IVA split -- it carries no rate and
-                              does not count in `neto_sin_iva`. One WITH a rate
-                              (the Flex bonificación) does show it: the split is
-                              the point, the amount just is not in the sum. */}
-                          {(!componente.informativo || componente.alicuota !== null) && (
+                          {/* An informativo componente (SIRTAC) shows no
+                              base/IVA split -- it carries no rate and does not
+                              count in `neto_sin_iva`. Every other componente,
+                              the Flex bonificación included, shows its split. */}
+                          {!componente.informativo && (
                             <span className={styles.lineMonto}>
                               base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
                             </span>
@@ -557,17 +568,6 @@ export default function SaleDetailPanel({
                               exclusive shipping cost. */}
                           {linea.code === 'envio_flex' && linea.prorateado && (
                             <span className={styles.mutedNote}> (prorrateado entre las órdenes del envío)</span>
-                          )}
-                          {/* ventas-ml-bonificacion-envio-flex: gross, net and
-                              IVA as SEPARATE figures (the same data can feed an
-                              IVA book later). Only the NET is in the amount at
-                              the right; the IVA is informational. */}
-                          {linea.importe && (
-                            <span className={styles.mutedNote}>
-                              {' '}
-                              (Bruto {formatMoney(linea.importe.bruto)} · Neto {formatMoney(linea.importe.neto)} · IVA{' '}
-                              {formatMoney(linea.importe.iva)} — el IVA no suma al Total Gauss)
-                            </span>
                           )}
                         </span>
                         <span

@@ -54,8 +54,8 @@ Fuera de alcance: cambiar la regla de qué es bonificación (sigue siendo la de 
 - [x] T2 GREEN backend: neto / breakdown / IVA / cadena (la bonificación sale de `DEDUCCIONES`).
 - [x] T3 pin del Total Gauss antes == después para todos los casos capturados; base_varios una sola vez (con % de varios cargado).
 - [x] T4 API: línea con importe en el breakdown, `bonificacion_envio` en breakdown y listado; la cadena ya no la trae.
-- [ ] T5 frontend: la línea en "De dónde sale el neto"; fuera de la tarjeta Total Gauss; tooltip del neto.
-- [ ] T6 novedad.
+- [x] T5 frontend: la línea en "De dónde sale el neto"; fuera de la tarjeta Total Gauss; tooltip del neto.
+- [x] T6 novedad.
 - [ ] T7 bump `CURRENT_FORMULA_VERSION` 3 -> 4 + test de reconcile (último commit).
 - [ ] T8 lint (ruff, pnpm lint, lint:css), tests acotados, push, observaciones del GGA.
 
@@ -81,3 +81,5 @@ Fuera de alcance: cambiar la regla de qué es bonificación (sigue siendo la de 
 ## Progreso
 
 - T1-T4 (backend + API): RED observado (11 de 28 tests del archivo nuevo fallaban: neto/neto_sin_iva sin +bonificación, la deducción seguía en la cadena, `bonificacion_envio` inexistente en el breakdown); GREEN 28/28; mutación de la base de varios (bonificación x2) la rompe. Suites acotadas: 1340 passed. Commit: ver `git log`.
+
+- T5-T6 (frontend + novedad): RED observado (5 tests: línea dentro de 'De dónde sale el neto', composición del neto, tooltip del listado); GREEN: 423 tests de ventasMl/VentasML/utils, 8 de novedades/metricasMl. `pnpm run lint` y `lint:css` sin errores (2 warnings preexistentes de react-hooks fuera de este cambio).

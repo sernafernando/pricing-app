@@ -278,7 +278,11 @@ export const COLUMNS = [
             type="button"
             className={styles.netoButton}
             aria-label="Ver desglose de costos"
-            title={isRecalc ? undefined : netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
+            title={
+              isRecalc
+                ? undefined
+                : netoTooltip(order.neto_depositado, order.retenciones_recuperables, order.bonificacion_envio)
+            }
             onClick={(e) => {
               e.stopPropagation();
               ctx.openMemberPanel(e);
@@ -307,7 +311,11 @@ export const COLUMNS = [
             type="button"
             className={styles.netoButton}
             aria-label="Ver desglose de costos"
-            title={metricsState === 'ok' ? netoTooltip(group.neto_depositado, group.retenciones_recuperables) : undefined}
+            title={
+              metricsState === 'ok'
+                ? netoTooltip(group.neto_depositado, group.retenciones_recuperables, group.bonificacion_envio)
+                : undefined
+            }
             onClick={(e) => {
               e.stopPropagation();
               openGroupPanel(e);

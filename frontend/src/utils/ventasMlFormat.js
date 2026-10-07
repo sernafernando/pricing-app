@@ -52,15 +52,23 @@ export function moneyTitle(value, currencyId, metricsState) {
   return formatMoneyFull(value, currencyId);
 }
 
-export function netoTooltip(netoDepositado, retencionesRecuperables) {
-  if (!(retencionesRecuperables > 0)) return undefined;
-  return `MP $ ${new Intl.NumberFormat('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(netoDepositado))} · SIRTAC $ ${new Intl.NumberFormat('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(retencionesRecuperables))}`;
+const ARS_MONEY = new Intl.NumberFormat('es-AR', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+// What the Neto is made of, when it is more than the payment alone: what ML
+// deposited (MP), the recoverable SIRTAC added back and the Flex bonificación
+// por envío ML pays for the operation (outside the payment). The parts add up
+// to the Neto shown. `undefined` when there is nothing to explain.
+export function netoTooltip(netoDepositado, retencionesRecuperables, bonificacionEnvio) {
+  const hasSirtac = retencionesRecuperables > 0;
+  const hasBonificacion = bonificacionEnvio > 0;
+  if (!hasSirtac && !hasBonificacion) return undefined;
+  const parts = [`MP $ ${ARS_MONEY.format(Number(netoDepositado))}`];
+  if (hasSirtac) parts.push(`SIRTAC $ ${ARS_MONEY.format(Number(retencionesRecuperables))}`);
+  if (hasBonificacion) parts.push(`Bonificación por envío $ ${ARS_MONEY.format(Number(bonificacionEnvio))}`);
+  return parts.join(' · ');
 }
 
 export const OPERATION_STATUS_LABELS = {
