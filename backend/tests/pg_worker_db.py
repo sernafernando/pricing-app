@@ -16,7 +16,7 @@ from typing import Mapping
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 DEFAULT_POSTGRES_TEST_URL = "postgresql+psycopg2://postgres@localhost:5432/pricing_test"
 
@@ -69,17 +69,30 @@ def ensure_database(url: str, attempts: int = 5) -> None:
         admin.dispose()
 
 
+def server_reachable(url: str) -> bool:
+    """Whether the server in `url` accepts a connection to its `postgres` DB."""
+    admin = create_engine(make_url(url).set(database="postgres"))
+    try:
+        with admin.connect():
+            return True
+    except OperationalError:
+        return False
+    finally:
+        admin.dispose()
+
+
 def configure_environment(env: "dict[str, str]") -> str:
     """Point `POSTGRES_TEST_URL` at this worker's database (xdist only).
 
     Returns the effective URL. If the server is unreachable the URL is still
-    exported, so the postgres tests skip exactly as they do without xdist.
+    exported and nothing is created, so the postgres tests skip exactly as
+    they do without xdist. If the server IS reachable, any failure to create
+    the database propagates and aborts the run: swallowing it would turn every
+    postgres test of the worker into a silent skip behind a green job.
     """
     url = resolve_postgres_test_url(env)
     if env.get("PYTEST_XDIST_WORKER"):
         env["POSTGRES_TEST_URL"] = url
-        try:
+        if server_reachable(url):
             ensure_database(url)
-        except Exception:
-            pass
     return url

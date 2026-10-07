@@ -49,13 +49,44 @@ def test_ensure_database_creates_once_and_is_idempotent():
         pytest.skip("PostgreSQL not reachable")
     base = os.environ["POSTGRES_TEST_URL"]
     url = pg_worker_db.worker_database_url(base, "unitcheck")
-    pg_worker_db.ensure_database(url)
-    pg_worker_db.ensure_database(url)  # second call must not raise
-    eng = create_engine(url)
-    with eng.connect() as conn:
-        assert conn.execute(text("select 1")).scalar() == 1
-    eng.dispose()
     admin = create_engine(base, isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{make_url(url).database}"'))
-    admin.dispose()
+    eng = None
+    try:
+        pg_worker_db.ensure_database(url)
+        pg_worker_db.ensure_database(url)  # second call must not raise
+        eng = create_engine(url)
+        with eng.connect() as conn:
+            assert conn.execute(text("select 1")).scalar() == 1
+    finally:
+        if eng is not None:
+            eng.dispose()
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{make_url(url).database}"'))
+        admin.dispose()
+
+
+class TestConfigureEnvironment:
+    def test_unreachable_server_is_not_an_error(self, monkeypatch):
+        monkeypatch.setattr(pg_worker_db, "server_reachable", lambda url: False)
+        env = {"POSTGRES_TEST_URL": BASE, "PYTEST_XDIST_WORKER": "gw0"}
+        assert pg_worker_db.configure_environment(env).endswith("/pricing_test_gw0")
+        assert env["POSTGRES_TEST_URL"].endswith("/pricing_test_gw0")
+
+    def test_creation_failure_on_a_reachable_server_propagates(self, monkeypatch):
+        monkeypatch.setattr(pg_worker_db, "server_reachable", lambda url: True)
+
+        def boom(url):
+            raise RuntimeError("permission denied to create database")
+
+        monkeypatch.setattr(pg_worker_db, "ensure_database", boom)
+        with pytest.raises(RuntimeError):
+            pg_worker_db.configure_environment({"POSTGRES_TEST_URL": BASE, "PYTEST_XDIST_WORKER": "gw0"})
+
+    def test_no_database_work_without_xdist(self, monkeypatch):
+        def boom(url):
+            raise AssertionError("must not touch the server without xdist")
+
+        monkeypatch.setattr(pg_worker_db, "ensure_database", boom)
+        monkeypatch.setattr(pg_worker_db, "server_reachable", boom)
+        env = {"POSTGRES_TEST_URL": BASE}
+        assert pg_worker_db.configure_environment(env) == BASE
