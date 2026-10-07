@@ -146,6 +146,18 @@ class TestCompetition:
         assert one(env, "ml_item_competition", CATALOG)["status"] == "winning"
         assert queue_row(env, CATALOG) is None
 
+    def test_the_other_resources_of_a_requeued_entry_are_fetched_once_not_twice(self, env) -> None:
+        enable_refresh(bundle_resources=["core", "competition", "moderation"])
+        enqueue_items(CATALOG, resources=("competition", "moderation"))
+        transport = ScriptedTransport(responder_for())
+
+        make_handler(transport).run(context())
+
+        assert sorted(paths(transport)) == sorted(
+            ["/items/bulk", f"/items/{CATALOG}/price_to_win", f"/moderations/last_moderation/{CATALOG}-ITM"]
+        )
+        assert queue_row(env, CATALOG) is None
+
     def test_the_requeued_core_of_a_non_catalog_item_ends_the_entry_without_a_competition_row(self, env) -> None:
         enable_refresh(bundle_resources=["core", "competition"])
         enqueue_items(PLAIN, resources=("competition",))

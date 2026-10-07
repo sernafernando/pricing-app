@@ -443,16 +443,25 @@ class RefreshHandler:
         signals = bundle.item_signals([w.claim.entity_id for w in checked])
         for work in checked:
             known = signals.get(work.claim.entity_id)
-            for resource in sorted(work.pending & bundle.SIGNAL_RESOURCES):
-                if bundle.is_applicable(resource, known, explicit=work.plan.wanted[resource]):
-                    continue
-                work.done.add(resource)
-                if known is None and not work.plan.needs_core:
-                    # Named without its core and the item is not stored yet (its notification came first): whether
-                    # it applies is unknown, so its core goes first and the entry is refetched, never dropped.
-                    self._requeue_core(work)
+            undecided = [
+                r
+                for r in sorted(work.pending & bundle.SIGNAL_RESOURCES)
+                if known is None
+                and not work.plan.needs_core
+                and not bundle.is_applicable(r, known, explicit=work.plan.wanted[r])
+            ]
+            if undecided:
+                # Named without its core and the item is not stored yet (its notification came first): whether it
+                # applies is unknown, so its core goes first and the whole entry is refetched, never dropped. The
+                # entry's other resources wait for that second pass instead of being fetched twice.
+                self._requeue_core(work)
+                work.done.update(work.pending)
+                for resource in undecided:
                     self._requeued_for_core[resource] += 1
-                else:
+                continue
+            for resource in sorted(work.pending & bundle.SIGNAL_RESOURCES):
+                if not bundle.is_applicable(resource, known, explicit=work.plan.wanted[resource]):
+                    work.done.add(resource)
                     self._skipped_not_applicable[resource] += 1
 
     @staticmethod
