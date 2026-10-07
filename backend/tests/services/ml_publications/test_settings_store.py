@@ -52,6 +52,32 @@ class TestDefaults:
         assert get_setting("bundle_resources").value == ["core"]
 
 
+class TestScanNextMode:
+    """`scan.next_mode` is how an operator asks for the next scan lap to be a full backfill (design D17)."""
+
+    def test_defaults_to_rescan_from_the_env(self, settings_db) -> None:
+        got = get_setting("scan.next_mode")
+        assert (got.value, got.source) == ("rescan", "env")
+
+    def test_full_can_be_requested_and_consumed_back_to_rescan(self, settings_db) -> None:
+        set_setting("scan.next_mode", "full", updated_by="tester")
+        assert get_setting("scan.next_mode").value == "full"
+        set_setting("scan.next_mode", "rescan", updated_by="scan")
+        assert get_setting("scan.next_mode").value == "rescan"
+
+    @pytest.mark.parametrize("value", ["everything", "", True, 1, ["full"]])
+    def test_any_other_value_is_rejected_and_nothing_is_written(self, settings_db, engine, value) -> None:
+        with pytest.raises(ValueError):
+            set_setting("scan.next_mode", value, updated_by="tester")
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM ml_pub_settings")).scalar() == 0
+
+    def test_an_invalid_stored_value_falls_back_to_the_env_default(self, settings_db, engine) -> None:
+        _insert_raw(engine, "scan.next_mode", '"everything"')
+        got = get_setting("scan.next_mode")
+        assert (got.value, got.source) == ("rescan", "env")
+
+
 class TestDbOverridesEnv:
     def test_db_row_overrides_env(self, settings_db) -> None:
         set_setting("rate_per_sec", 5.0, updated_by="tester")

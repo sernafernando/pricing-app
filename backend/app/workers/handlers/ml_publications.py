@@ -22,7 +22,7 @@ from sqlalchemy import text
 from app.core import database
 from app.core.config import settings
 from app.services.ml_publications import intake as intake_core
-from app.services.ml_publications import bundle, links, queue, settings_store, store, subresource_store
+from app.services.ml_publications import bundle, links, queue, scans, settings_store, store, subresource_store
 from app.services.ml_publications.ml_http import (
     ERROR_INVALID_JSON,
     ERROR_NETWORK,
@@ -601,6 +601,82 @@ class RelinkHandler:
         return JobResult(success=True, detail=sweep.as_detail())
 
 
+SCAN_HANDLER = "ml_publications.scan"
+_SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
+ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
+
+
+class ScanHandler:
+    """`ml_publications.scan`: the daily lap over every seller status (design D17).
+
+    Scheduled by the existing worker: a daily slot plus a 30 s catch-up that stays active while the
+    persisted `worker_job_state.detail.complete` is False, so a lap that needs many runs (one run is
+    bounded by the worker deadline) keeps going without any new scheduling machinery. A pending
+    `scan.next_mode = full` makes the lap a backfill and is consumed when that lap completes.
+    """
+
+    name = SCAN_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = None
+    run_at_local: Optional[time] = time(3, 30)
+    catch_up_interval: Optional[timedelta] = timedelta(seconds=30)
+
+    def __init__(
+        self,
+        *,
+        client_factory: Optional[Callable[[Pacer], MlHttpClient]] = None,
+        pacer: Optional[Pacer] = None,
+    ) -> None:
+        self.pacer = pacer or Pacer()
+        self._client_factory = client_factory or (lambda pacer: MlHttpClient(pacer=pacer))
+        self._client: Optional[MlHttpClient] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        config = settings_store.get_settings(_SCAN_KEYS)
+        if config["scan.enabled"].value is not True:
+            return disabled_outcome()
+        if not settings.ML_USER_ID:
+            return JobResult(
+                success=False, detail={"error": ERROR_SELLER_NOT_CONFIGURED}, error=ERROR_SELLER_NOT_CONFIGURED
+            )
+        self.pacer.configure(
+            rate_per_sec=config["rate_per_sec"].value, stock_rate_per_min=config["stock_rate_per_min"].value
+        )
+        if self._client is None:
+            self._client = self._client_factory(self.pacer)
+        try:
+            result = scans.run_scan(
+                self._client,
+                seller_id=str(settings.ML_USER_ID),
+                statuses=config["scan.statuses"].value,
+                requested_mode=config["scan.next_mode"].value,
+                stale_days=settings.ML_PUB_STALE_DAYS,
+                keep_going=lambda: settings_store.get_setting("scan.enabled").value is True,
+                deadline=ctx.deadline,
+            )
+        except Exception as exc:  # noqa: BLE001 -- the worker must keep running; the lap resumes next run
+            logger.exception("scan run failed")
+            error = f"{type(exc).__name__}: {exc}"[:300]
+            self._record_failure(error)
+            return JobResult(success=False, detail=self._flush({"complete": False, "error": error}), error=error)
+        if result.complete and result.mode == scans.MODE_FULL and config["scan.next_mode"].value == scans.MODE_FULL:
+            settings_store.set_setting("scan.next_mode", scans.MODE_RESCAN, "scan")
+        return JobResult(success=result.error is None, detail=self._flush(result.as_detail()), error=result.error)
+
+    @staticmethod
+    def _record_failure(error: str) -> None:
+        try:
+            scans.record_failure(error)
+        except Exception:  # noqa: BLE001 -- observability must never fail a run
+            logger.exception("could not record the scan failure")
+
+    def _flush(self, detail: Dict[str, Any]) -> Dict[str, Any]:
+        detail = {**detail, "at": _utcnow().isoformat()}
+        _persist_detail(self.name, detail)
+        return detail
+
+
 refresh = RefreshHandler()
 intake = IntakeHandler()
 relink = RelinkHandler()
+scan = ScanHandler(pacer=refresh.pacer)  # one in-process ML budget for every call the store makes

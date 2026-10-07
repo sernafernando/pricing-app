@@ -188,3 +188,42 @@ class TestRequestJob:
 
         assert "ml_publications.refresh" in capsys.readouterr().err
         assert rows(env, "SELECT 1 FROM worker_job_state") == []
+
+
+class TestRequestScanMode:
+    """`--mode` asks the scan for a full backfill (or an explicit rescan) on its next lap (design D17)."""
+
+    def test_full_sets_the_next_mode_and_requests_the_scan(self, env, capsys) -> None:
+        assert ml_publications_request.main(["ml_publications.scan", "--mode", "full"]) == 0
+
+        (row,) = rows(env, "SELECT name, state FROM worker_job_state")
+        assert (row["name"], row["state"]) == ("ml_publications.scan", "requested")
+        (mode,) = rows(env, "SELECT value, updated_by FROM ml_pub_settings WHERE key = 'scan.next_mode'")
+        assert mode["value"] == "full" and mode["updated_by"].startswith("cli:")
+        assert "full" in capsys.readouterr().out
+
+    def test_rescan_overrides_an_earlier_full_request(self, env) -> None:
+        ml_publications_request.main(["ml_publications.scan", "--mode", "full"])
+        ml_publications_request.main(["ml_publications.scan", "--mode", "rescan"])
+
+        (mode,) = rows(env, "SELECT value FROM ml_pub_settings WHERE key = 'scan.next_mode'")
+        assert mode["value"] == "rescan"
+
+    def test_without_a_mode_the_setting_is_left_alone(self, env) -> None:
+        ml_publications_request.main(["ml_publications.scan"])
+
+        assert rows(env, "SELECT 1 FROM ml_pub_settings WHERE key = 'scan.next_mode'") == []
+        (row,) = rows(env, "SELECT state FROM worker_job_state")
+        assert row["state"] == "requested"
+
+    def test_a_mode_is_only_valid_for_the_scan_and_nothing_is_written(self, env, capsys) -> None:
+        assert ml_publications_request.main(["ml_publications.refresh", "--mode", "full"]) != 0
+
+        assert "scan" in capsys.readouterr().err
+        assert rows(env, "SELECT 1 FROM worker_job_state") == []
+        assert rows(env, "SELECT 1 FROM ml_pub_settings") == []
+
+    def test_an_unknown_mode_is_rejected(self, env) -> None:
+        with pytest.raises(SystemExit):
+            ml_publications_request.main(["ml_publications.scan", "--mode", "everything"])
+        assert rows(env, "SELECT 1 FROM worker_job_state") == []

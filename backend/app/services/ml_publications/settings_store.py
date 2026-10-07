@@ -71,6 +71,10 @@ def _str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) and v for v in value)
 
 
+def _scan_mode(value: Any) -> bool:
+    return value in ("full", "rescan") and isinstance(value, str)
+
+
 def _json_object(value: Any) -> bool:
     return isinstance(value, dict)
 
@@ -96,6 +100,7 @@ SETTING_DEFS: Dict[str, _Def] = {
     "intake.topics": _Def("ML_PUB_INTAKE_TOPICS", _json_object),
     "min_age_seconds": _Def("ML_PUB_MIN_AGE_SECONDS", _json_object),
     "scan.statuses": _Def("ML_PUB_SCAN_STATUSES", _str_list),
+    "scan.next_mode": _Def("ML_PUB_SCAN_NEXT_MODE", _scan_mode),
     "sweep.statuses": _Def("ML_PUB_SWEEP_STATUSES", _str_list),
     "rate_per_sec": _Def("ML_PUB_RATE_PER_SEC", _positive_number(20)),
     "stock_rate_per_min": _Def("ML_PUB_STOCK_RATE_PER_MIN", _int_between(1, 100)),

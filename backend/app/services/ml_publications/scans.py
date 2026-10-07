@@ -299,6 +299,24 @@ def _close_lap(statuses: Sequence[str], lap: _Lap, result: ScanResult, now: date
             run.last_error = failed or None
 
 
+def record_failure(error: str, now: Optional[datetime] = None) -> None:
+    """Note an unexpected failure on the open lap record, or leave a closed `error` record when there is none."""
+    moment = now or _utcnow()
+    with database.get_background_db() as session:
+        run = (
+            session.query(MlPubJobRun)
+            .filter(MlPubJobRun.job == JOB, MlPubJobRun.finished_at.is_(None))
+            .order_by(MlPubJobRun.started_at.desc())
+            .first()
+        )
+        if run is not None:
+            run.last_error = error[:1000]
+        else:
+            session.add(
+                MlPubJobRun(job=JOB, started_at=moment, finished_at=moment, outcome="error", last_error=error[:1000])
+            )
+
+
 # --- one status -----------------------------------------------------------------------------
 
 
