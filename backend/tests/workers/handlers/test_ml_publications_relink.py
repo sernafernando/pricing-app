@@ -504,4 +504,5 @@ class TestRegistry:
             "ml_publications.refresh",
             "ml_publications.intake",
             "ml_publications.relink",
+            "ml_publications.scan",
         ]
