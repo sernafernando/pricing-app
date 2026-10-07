@@ -330,6 +330,45 @@ class TestRefreshCorePath:
 
         assert passed == [True]
 
+    def test_the_links_flag_is_read_with_the_batch_settings_and_links_the_fetched_item(self, env) -> None:
+        from app.models.producto import ProductoERP
+
+        ProductoERP.__table__.create(bind=env)
+        with env.begin() as conn:
+            conn.execute(text("INSERT INTO productos_erp (item_id, codigo) VALUES (41, '6932391923481')"))
+        enable_refresh(links__enabled=True)
+        enqueue_items("MLA935110613")
+
+        make_handler(ScriptedTransport(bulk_responder)).run(context())
+
+        assert (
+            sql_scalar(env, "SELECT producto_item_id FROM ml_item_product_links WHERE item_id = 'MLA935110613'") == 41
+        )
+
+    def test_the_links_flag_is_passed_to_the_store_so_it_does_not_read_it_per_fetch(self, env, monkeypatch) -> None:
+        enable_refresh(links__enabled=True)
+        enqueue_items("MLA935110613")
+        passed = []
+        original = store.apply_fetch
+
+        def spy(spec, key, response, **kwargs):
+            passed.append(kwargs.get("links_enabled"))
+            return original(spec, key, response, **kwargs)
+
+        monkeypatch.setattr(store, "apply_fetch", spy)
+
+        make_handler(ScriptedTransport(bulk_responder)).run(context())
+
+        assert passed == [True]
+
+    def test_with_links_off_the_fetch_leaves_the_link_table_empty(self, env) -> None:
+        enable_refresh()
+        enqueue_items("MLA935110613")
+
+        make_handler(ScriptedTransport(bulk_responder)).run(context())
+
+        assert sql_scalar(env, "SELECT count(*) FROM ml_item_product_links") == 0
+
     def test_the_store_runs_no_settings_query_when_the_handler_passes_the_flag(self, env, monkeypatch) -> None:
         enable_refresh(events__enabled=True)
         enqueue_items("MLA935110613")

@@ -68,7 +68,7 @@ def keyed_sample(name: str) -> Any:
 
 @pytest.fixture()
 def mlpub_pg(monkeypatch):
-    """Throwaway Postgres schema holding the REAL core and sub-resource migrations' tables, with
+    """Throwaway Postgres schema holding the REAL core, sub-resource and product-link migrations' tables, with
     `get_background_db()` (what the store's primitives use) pointed at it.
 
     Yields the engine; every connection it hands out has the schema first on
@@ -103,7 +103,11 @@ def mlpub_pg(monkeypatch):
 
     versions = Path(__file__).resolve().parents[3] / "alembic" / "versions"
     migrations = []
-    for revision in ("20261006_ml_publications_core", "20261006_ml_publications_subresources"):
+    for revision in (
+        "20261006_ml_publications_core",
+        "20261006_ml_publications_subresources",
+        "20261006_ml_publications_product_links",
+    ):
         module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
         migration = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(migration)

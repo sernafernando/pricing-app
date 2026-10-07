@@ -338,3 +338,48 @@ class MlUserProductFamily(_SubResourceState, Base):
 
     family_id = Column(BigInteger, primary_key=True, autoincrement=False)
     user_products_ids = Column(ARRAY(Text))
+
+
+# --- Product links (migration 20261006_ml_publications_product_links, design D20) -------------------
+
+
+class MlItemProductLink(Base):
+    """Current link of a publication unit `(item_id, variation_id)` to one of our products.
+
+    `variation_id = 0` is the item-level unit. `producto_item_id` is `productos_erp.item_id` with NO
+    foreign key (the ERP sync rewrites that table); a vanished product is reported as dangling.
+    """
+
+    __tablename__ = "ml_item_product_links"
+    __table_args__ = (
+        Index("ix_ml_item_product_links_status_source", "match_status", "source"),
+        Index("ix_ml_item_product_links_producto", "producto_item_id"),
+        Index(
+            "ix_ml_item_product_links_manual_differs",
+            "item_id",
+            "variation_id",
+            postgresql_where=text(
+                "source <> 'sku_auto' AND suggestion_status = 'linked' "
+                "AND suggested_producto_item_id IS DISTINCT FROM producto_item_id"
+            ),
+        ),
+    )
+
+    item_id = Column(Text, primary_key=True)
+    variation_id = Column(BigInteger, primary_key=True, autoincrement=False, server_default=text("0"))
+    source = Column(Text, nullable=False)
+    match_status = Column(Text, nullable=False)
+    producto_item_id = Column(Integer)
+    matched_sku = Column(Text)
+    sku_field = Column(Text)
+    candidate_ids = Column(ARRAY(Integer))
+    suggested_producto_item_id = Column(Integer)
+    suggestion_status = Column(Text)
+    suggestion_candidates = Column(SmallInteger)
+    evaluated_sku_key = Column(Text)
+    evaluated_at = Column(_TS)
+    linked_by = Column(Integer)
+    linked_at = Column(_TS, nullable=False)
+    note = Column(Text)
+    first_seen_at = Column(_TS, nullable=False, server_default=func.now())
+    updated_at = Column(_TS, nullable=False, server_default=func.now())
