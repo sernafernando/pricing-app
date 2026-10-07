@@ -1,0 +1,339 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "calls": [
+  {
+   "name": "promotions_started_MLA2146576013",
+   "path": "/seller-promotions/items/MLA2146576013?app_version=v2",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:23:57 GMT"
+   },
+   "body": [
+    {
+     "id": "C-MLA1669550",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "started",
+     "price": 1509999,
+     "original_price": 2381471,
+     "start_date": "2026-10-01T00:00:00",
+     "finish_date": "2026-10-31T23:59:59",
+     "name": "PREMIUM OCTUBRE"
+    },
+    {
+     "type": "PRICE_DISCOUNT",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 2381471,
+     "name": "",
+     "min_discounted_price": 714441.25,
+     "max_discounted_price": 2262397.5,
+     "suggested_discounted_price": 2190953.2
+    },
+    {
+     "id": "C-MLA1664342",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 2381471,
+     "start_date": "2026-10-01T00:00:00",
+     "finish_date": "2026-10-20T23:59:59",
+     "name": "PRECYBER TP 01 AL 20 OCT",
+     "min_discounted_price": 714441.25,
+     "max_discounted_price": 2262397.5,
+     "suggested_discounted_price": 2190953.2
+    },
+    {
+     "id": "C-MLA1684530",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 2381471,
+     "start_date": "2026-10-03T00:00:00",
+     "finish_date": "2026-10-20T23:59:59",
+     "name": "PRECYBER TP 01a20-10 TO",
+     "min_discounted_price": 714441.25,
+     "max_discounted_price": 2262397.5,
+     "suggested_discounted_price": 2190953.2
+    },
+    {
+     "id": "C-MLA1692774",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 2381471,
+     "start_date": "2026-10-05T00:00:00",
+     "finish_date": "2026-10-06T23:59:59",
+     "name": "A PVP TP ROUTERS",
+     "min_discounted_price": 714441.25,
+     "max_discounted_price": 2262397.5,
+     "suggested_discounted_price": 2190953.2
+    },
+    {
+     "id": "C-MLA1692778",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 2381471,
+     "start_date": "2026-10-07T00:00:00",
+     "finish_date": "2026-10-07T23:59:59",
+     "name": "A PVP TP TAPO",
+     "min_discounted_price": 714441.25,
+     "max_discounted_price": 2262397.5,
+     "suggested_discounted_price": 2190953.2
+    },
+    {
+     "id": "C-MLA1692785",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 2381471,
+     "start_date": "2026-10-08T00:00:00",
+     "finish_date": "2026-10-08T23:59:59",
+     "name": "A PVP TP DECO",
+     "min_discounted_price": 714441.25,
+     "max_discounted_price": 2262397.5,
+     "suggested_discounted_price": 2190953.2
+    }
+   ]
+  },
+  {
+   "name": "promotions_candidate_MLA2146646463",
+   "path": "/seller-promotions/items/MLA2146646463?app_version=v2",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:00 GMT"
+   },
+   "body": [
+    {
+     "id": "C-MLA1669550",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "started",
+     "price": 1230699,
+     "original_price": 1770276,
+     "start_date": "2026-10-01T00:00:00",
+     "finish_date": "2026-10-31T23:59:59",
+     "name": "PREMIUM OCTUBRE"
+    },
+    {
+     "type": "PRICE_DISCOUNT",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 1770276,
+     "name": "",
+     "min_discounted_price": 531082.8,
+     "max_discounted_price": 1681762.1,
+     "suggested_discounted_price": 1628653.9
+    },
+    {
+     "id": "C-MLA1664342",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 1770276,
+     "start_date": "2026-10-01T00:00:00",
+     "finish_date": "2026-10-20T23:59:59",
+     "name": "PRECYBER TP 01 AL 20 OCT",
+     "min_discounted_price": 531082.8,
+     "max_discounted_price": 1681762.1,
+     "suggested_discounted_price": 1628653.9
+    },
+    {
+     "id": "C-MLA1684530",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 1770276,
+     "start_date": "2026-10-03T00:00:00",
+     "finish_date": "2026-10-20T23:59:59",
+     "name": "PRECYBER TP 01a20-10 TO",
+     "min_discounted_price": 531082.8,
+     "max_discounted_price": 1681762.1,
+     "suggested_discounted_price": 1628653.9
+    },
+    {
+     "id": "C-MLA1692774",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 1770276,
+     "start_date": "2026-10-05T00:00:00",
+     "finish_date": "2026-10-06T23:59:59",
+     "name": "A PVP TP ROUTERS",
+     "min_discounted_price": 531082.8,
+     "max_discounted_price": 1681762.1,
+     "suggested_discounted_price": 1628653.9
+    },
+    {
+     "id": "C-MLA1692778",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 1770276,
+     "start_date": "2026-10-07T00:00:00",
+     "finish_date": "2026-10-07T23:59:59",
+     "name": "A PVP TP TAPO",
+     "min_discounted_price": 531082.8,
+     "max_discounted_price": 1681762.1,
+     "suggested_discounted_price": 1628653.9
+    },
+    {
+     "id": "C-MLA1692785",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 1770276,
+     "start_date": "2026-10-08T00:00:00",
+     "finish_date": "2026-10-08T23:59:59",
+     "name": "A PVP TP DECO",
+     "min_discounted_price": 531082.8,
+     "max_discounted_price": 1681762.1,
+     "suggested_discounted_price": 1628653.9
+    }
+   ]
+  },
+  {
+   "name": "promotions_MLA874027718",
+   "path": "/seller-promotions/items/MLA874027718?app_version=v2",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:10 GMT"
+   },
+   "body": [
+    {
+     "type": "PRICE_DISCOUNT",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "name": "",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    },
+    {
+     "id": "P-MLA18067012",
+     "type": "DEAL",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "start_date": "2026-10-05T00:00:00-03:00",
+     "finish_date": "2026-10-19T00:00:00-03:00",
+     "name": "DIA DE LA MADRE OCTUBRE",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    },
+    {
+     "id": "C-MLA1664342",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "start_date": "2026-10-01T00:00:00",
+     "finish_date": "2026-10-20T23:59:59",
+     "name": "PRECYBER TP 01 AL 20 OCT",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    },
+    {
+     "id": "C-MLA1669550",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "start_date": "2026-10-01T00:00:00",
+     "finish_date": "2026-10-31T23:59:59",
+     "name": "PREMIUM OCTUBRE",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    },
+    {
+     "id": "C-MLA1684530",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "start_date": "2026-10-03T00:00:00",
+     "finish_date": "2026-10-20T23:59:59",
+     "name": "PRECYBER TP 01a20-10 TO",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    },
+    {
+     "id": "C-MLA1692774",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "start_date": "2026-10-05T00:00:00",
+     "finish_date": "2026-10-06T23:59:59",
+     "name": "A PVP TP ROUTERS",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    },
+    {
+     "id": "C-MLA1692778",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "start_date": "2026-10-07T00:00:00",
+     "finish_date": "2026-10-07T23:59:59",
+     "name": "A PVP TP TAPO",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    },
+    {
+     "id": "C-MLA1692785",
+     "type": "SELLER_CAMPAIGN",
+     "sub_type": "FLEXIBLE_PERCENTAGE",
+     "status": "candidate",
+     "price": 0,
+     "original_price": 55882,
+     "start_date": "2026-10-08T00:00:00",
+     "finish_date": "2026-10-08T23:59:59",
+     "name": "A PVP TP DECO",
+     "min_discounted_price": 11176.4,
+     "max_discounted_price": 53087.9,
+     "suggested_discounted_price": 51411.44
+    }
+   ]
+  },
+  {
+   "name": "promotions_unknown",
+   "path": "/seller-promotions/items/MLA1?app_version=v2",
+   "status": 404,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:06 GMT"
+   },
+   "body": {
+    "message": "Item with id MLA1 not found",
+    "error": "not_found",
+    "status": 404,
+    "cause": []
+   }
+  }
+ ]
+}

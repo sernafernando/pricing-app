@@ -1,10 +1,11 @@
 """ML publications store: item state, variations, change log, events and the
 operational tables of the refresh pipeline.
 
-Mirrors `alembic/versions/20261006_ml_publications_core.py`. Data comes only
+Mirrors `alembic/versions/20261006_ml_publications_core.py` and, for the sub-resource
+state tables at the end of the module, `20261006_ml_publications_subresources.py`. Data comes only
 from MercadoLibre: no column or foreign key points at a GBP/ERP table.
 
-`fillfactor = 85` on `ml_items` / `ml_item_variations` is set by the migration only
+`fillfactor = 85` on the state tables is set by the migration only
 (SQLAlchemy has no table-level `postgresql_with`); Alembic autogenerate does not compare it.
 """
 
@@ -252,3 +253,88 @@ class MlPubJobRun(Base):
     outcome = Column(Text)
     counts = Column(JSONB, nullable=False, server_default=text("'{}'"))
     last_error = Column(Text)
+
+
+# --- Sub-resource state tables (migration 20261006_ml_publications_subresources) -----------------
+# Same metadata columns as `ml_items`; typed columns fixed from the 2026-10-06 captures.
+
+
+class _SubResourceState:
+    """Shared metadata columns of a sub-resource state row (a mixin: it has no table)."""
+
+    raw = Column(JSONB)
+    raw_hash = Column(LargeBinary)
+    http_status = Column(SmallInteger)
+    error_body = Column(JSONB)
+    last_error = Column(Text)
+    first_seen_at = Column(_TS, nullable=False, server_default=func.now())
+    fetched_at = Column(_TS)
+    fetched_request_started_at = Column(_TS)
+    never_existed = Column(Boolean, nullable=False, server_default=text("false"))
+    last_checked_at = Column(_TS)
+    gone_at = Column(_TS)
+
+
+class MlItemDescription(_SubResourceState, Base):
+    __tablename__ = "ml_item_descriptions"
+
+    item_id = Column(Text, primary_key=True)
+    plain_text_length = Column(Integer)
+    ml_last_updated = Column(_TS)
+
+
+class MlItemPrices(_SubResourceState, Base):
+    __tablename__ = "ml_item_prices"
+
+    item_id = Column(Text, primary_key=True)
+    standard_amount = Column(Numeric(16, 2))
+    currency_id = Column(Text)
+    active_promotion_amount = Column(Numeric(16, 2))
+
+
+class MlItemSalePrice(_SubResourceState, Base):
+    __tablename__ = "ml_item_sale_prices"
+
+    item_id = Column(Text, primary_key=True)
+    price_id = Column(Text)
+    amount = Column(Numeric(16, 2))
+    regular_amount = Column(Numeric(16, 2))
+    currency_id = Column(Text)
+    campaign_id = Column(Text)
+    promotion_id = Column(Text)
+    promotion_type = Column(Text)
+
+
+class MlItemSellerPromotions(_SubResourceState, Base):
+    __tablename__ = "ml_item_seller_promotions"
+
+    item_id = Column(Text, primary_key=True)
+    candidate_count = Column(Integer)
+    started_count = Column(Integer)
+    started_promotion_keys = Column(ARRAY(Text))
+
+
+class MlUserProduct(_SubResourceState, Base):
+    __tablename__ = "ml_user_products"
+
+    user_product_id = Column(Text, primary_key=True)
+    family_id = Column(BigInteger)
+    name = Column(Text)
+    domain_id = Column(Text)
+    catalog_product_id = Column(Text)
+    ml_last_updated = Column(_TS)
+
+
+class MlUserProductStock(_SubResourceState, Base):
+    __tablename__ = "ml_user_product_stock"
+
+    user_product_id = Column(Text, primary_key=True)
+    total_quantity = Column(Integer)
+    ml_last_updated = Column(_TS)
+
+
+class MlUserProductFamily(_SubResourceState, Base):
+    __tablename__ = "ml_user_product_families"
+
+    family_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    user_products_ids = Column(ARRAY(Text))

@@ -177,13 +177,20 @@ from app.models.tn_image_normalizer import (
 from app.models.ml_publications import (
     MlChangeLog,
     MlItem,
+    MlItemDescription,
     MlItemEvent,
+    MlItemPrices,
+    MlItemSalePrice,
+    MlItemSellerPromotions,
     MlItemVariation,
     MlPubIntakeCursor,
     MlPubJobRun,
     MlPubRefreshQueue,
     MlPubScanState,
     MlPubSetting,
+    MlUserProduct,
+    MlUserProductFamily,
+    MlUserProductStock,
 )
 
 # Compras v2 — NCs locales
@@ -434,4 +441,11 @@ __all__ = [
     "MlPubIntakeCursor",
     "MlPubScanState",
     "MlPubJobRun",
+    "MlItemDescription",
+    "MlItemPrices",
+    "MlItemSalePrice",
+    "MlItemSellerPromotions",
+    "MlUserProduct",
+    "MlUserProductStock",
+    "MlUserProductFamily",
 ]
