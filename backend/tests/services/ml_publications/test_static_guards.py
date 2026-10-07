@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[3] / "app" / "services" / "ml_publications"
+ROUTERS = Path(__file__).resolve().parents[3] / "app" / "routers"
 DEPLOY = Path(__file__).resolve().parents[4] / "deploy"
 
 QUEUE_TABLE = "ml_pub_refresh_queue"
@@ -20,10 +21,14 @@ QUEUE_TABLE = "ml_pub_refresh_queue"
 DELETE_ALLOWED = {"queue.py": {QUEUE_TABLE}}
 
 FORBIDDEN_ERP_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "productos_erp", "ProductoERP")
-# The linking module is the single accepted reader of our product catalog (design D20); PR5L2 adds
-# its router here. Everything else about GBP and the other ERP-mirror tables stays forbidden for it.
+# The linking module is the single accepted reader of our product catalog (design D20). Its router is
+# allow-listed below as the only HTTP surface of the linking module, and it reads the catalog ONLY through
+# that module. Everything else about GBP and the other ERP-mirror tables stays forbidden for both.
 PRODUCT_CATALOG_NAMES = {"productos_erp", "ProductoERP"}
 PRODUCT_CATALOG_READERS = {"links.py"}
+# The one router allowed to use `app.services.ml_publications.links` (PR5L2).
+LINKS_ROUTERS = {"ml_publications_links.py"}
+LINKS_IMPORT = re.compile(r"app\.services\.ml_publications(?:\s+import\s+[^\n]*\blinks\b|\.links\b)")
 GBP_NAME_PATTERN = re.compile(r"GBPClient|gbp_client|wsBasicQuery")
 SCHEDULING_PATTERN = re.compile(r"crontab|OnCalendar|\.timer\b|pg_notify|\bLISTEN\b|\bNOTIFY\b")
 
@@ -71,6 +76,14 @@ def erp_violations(name: str, source: str) -> list[str]:
     return hits
 
 
+def router_sources() -> list[tuple[str, str]]:
+    return [(p.name, p.read_text(encoding="utf-8")) for p in sorted(ROUTERS.glob("*.py"))]
+
+
+def uses_links_module(source: str) -> bool:
+    return LINKS_IMPORT.search(source) is not None
+
+
 def scheduling_references(source: str) -> list[str]:
     return SCHEDULING_PATTERN.findall(source)
 
@@ -101,6 +114,12 @@ class TestScannersCatchOffenders:
         assert erp_violations("links.py", "select * from publicaciones_ml") == ["publicaciones_ml"]
         assert erp_violations("links.py", "from app.services.gbp_client import x") != []
 
+    def test_links_import_scanner_sees_both_import_spellings(self) -> None:
+        assert uses_links_module("from app.services.ml_publications import links")
+        assert uses_links_module("from app.services.ml_publications import events, links")
+        assert uses_links_module("from app.services.ml_publications.links import coverage")
+        assert not uses_links_module("from app.services.ml_publications import settings_store")
+
     def test_scheduling_scanner_flags_cron_timers_and_listen_notify(self) -> None:
         for snippet in ("crontab -e", "OnCalendar=daily", "SELECT pg_notify('a','b')", "LISTEN worker_jobs"):
             assert scheduling_references(snippet) != [], snippet
@@ -130,6 +149,15 @@ class TestPackageIsClean:
     def test_only_the_linking_module_reads_the_product_catalog(self) -> None:
         readers = {name for name, source in package_sources() if PRODUCT_CATALOG_NAMES & set(erp_references(source))}
         assert readers == PRODUCT_CATALOG_READERS
+
+    def test_the_links_router_is_the_only_router_using_the_linking_module(self) -> None:
+        users = {name for name, source in router_sources() if uses_links_module(source)}
+        assert users == LINKS_ROUTERS
+
+    def test_the_links_router_reaches_the_product_catalog_only_through_the_linking_module(self) -> None:
+        sources = dict(router_sources())
+        for name in LINKS_ROUTERS:
+            assert erp_references(sources[name]) == [], name
 
     def test_no_cron_timer_or_listen_notify_machinery(self) -> None:
         offenders = {name: found for name, source in package_sources() if (found := scheduling_references(source))}
