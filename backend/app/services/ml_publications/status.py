@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.services.ml_publications import links, queue, settings_store
+from app.services.ml_publications.admin import JOBS
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +37,6 @@ STATEMENT_TIMEOUT = "5s"
 PARKED_LIMIT = 20
 TOP_PATHS_LIMIT = 20
 
-# job name (as in the URL and the report) -> (worker handler name, the flag that turns it on)
-JOBS: Dict[str, Tuple[str, str]] = {
-    "refresh": ("ml_publications.refresh", "refresh.enabled"),
-    "intake": ("ml_publications.intake", "intake.enabled"),
-    "relink": ("ml_publications.relink", "links.enabled"),
-    "scan": ("ml_publications.scan", "scan.enabled"),
-    "missed_feeds": ("ml_publications.missed_feeds", "missed_feeds.enabled"),
-    "sweep": ("ml_publications.sweep", "sweep.enabled"),
-}
 FLAGS = tuple(key[: -len(".enabled")] for key in settings_store.SETTING_DEFS if key.endswith(".enabled"))
 LANES = (queue.LANE_MANUAL, queue.LANE_NOTIFICATION, queue.LANE_RECONCILE, queue.LANE_BACKFILL, queue.LANE_SWEEP)
 

@@ -14,10 +14,10 @@ import re
 import sys
 from typing import Optional, Sequence
 
-from app.services.ml_publications import queue, settings_store
+from app.services.ml_publications import admin, queue, settings_store
 from app.services.ml_publications.resources import BUNDLE_RESOURCE, REFRESH_RESOURCES
 
-ITEM_ID = re.compile(r"^[A-Z]{3}\d+$")
+ITEM_ID = re.compile(admin.ITEM_ID_PATTERN)
 DEFAULT_RESOURCE = BUNDLE_RESOURCE
 KNOWN_RESOURCES = REFRESH_RESOURCES  # the one canonical list, shared with the refresh handler
 

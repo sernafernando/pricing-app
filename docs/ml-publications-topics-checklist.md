@@ -313,3 +313,64 @@ Rollback: `python -m app.scripts.ml_publications_settings set missed_feeds.enabl
 `python -m app.scripts.ml_publications_settings set sweep.enabled false` (each at its own next tick; nothing stored is
 deleted, queued entries are still served by the refresh handler). To stop only the fetching of performance and visits,
 remove them from `bundle_resources`.
+
+## Admin endpoints
+
+The endpoints replace the CLIs for an operator without a shell. They live under `/api/ml-publications` and need a
+bearer token. Reading needs `ml_ops.ver`; every action needs `ml_ops.gestionar`. Merging them turns nothing on: a
+flag only changes when somebody `PUT`s it.
+
+| Endpoint | Permission | What it does |
+|----------|------------|--------------|
+| `GET /status` | `ml_ops.ver` | Read-only report, no ML call, `statement_timeout` 5 s. |
+| `GET /settings` | `ml_ops.ver` | Every setting with its effective value and source (`db`, `env`, `kill_switch`, `unreadable`). |
+| `PUT /settings/{key}` | `ml_ops.gestionar` | Writes one allow-listed setting, recorded as `updated_by = user:<username>`. Turning a flag **on** marks its handler `requested`. |
+| `POST /enqueue` | `ml_ops.gestionar` | Up to 100 items at lane 0 (`item_ids`, optional `resources`, default `["bundle"]`). |
+| `POST /jobs/{job}/request` | `ml_ops.gestionar` | Runs a handler on the worker's next pass. `job` is `refresh`, `intake`, `relink`, `scan`, `missed_feeds` or `sweep`. `scan` accepts `{"mode": "full"}` or `{"mode": "rescan"}`. |
+
+Examples (`$API` is the base URL, `$TOKEN` a bearer token):
+
+```
+curl -s -H "Authorization: Bearer $TOKEN" "$API/api/ml-publications/status"
+curl -s -H "Authorization: Bearer $TOKEN" "$API/api/ml-publications/settings"
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"value": true}' "$API/api/ml-publications/settings/refresh.enabled"
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"item_ids": ["MLA935110613", "MLA934406852"]}' "$API/api/ml-publications/enqueue"
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"mode": "full"}' "$API/api/ml-publications/jobs/scan/request"
+```
+
+### Reading the status
+
+- `jobs`: per handler `enabled`, `disabled` (the flag is off: a state, **not** a failure), `failing` (the last run is
+  newer than the last success while enabled), `requested` and `last_error`. The runtime does not persist the
+  `disabled` run outcome, so `disabled` comes from the effective flag (and from `detail.disabled` when present).
+- `queue.lanes`: `waiting`, `claimed`, `parked` and `oldest_waiting_age_seconds` per lane; `queue.parked` lists up
+  to 20 parked entries with their last error (`parked_total` is the real count).
+- `intake.stalled`: the cursor has not advanced for more than `ML_PUB_INTAKE_STALL_SECONDS` (default 600) while
+  `intake.enabled` is on. An old cursor with the flag off is not an alarm.
+- `backfill`: progress per scan status (`enumerated`, `enqueued`, `restarts`, `complete`).
+- `missed_feeds`: last completed run and its age, the last run, and `coverage_gap` (`resolved: true` once a later run
+  completed).
+- `sweep.last_run`: read **`outcome`** and `yielded_in_a_row` here; the sweep reports success to the runtime even
+  when a tick fails, so its `last_success_at` says nothing.
+- `freshness`: p50/p95/max age over `last_checked_at`, per state table. `lag_p95_seconds_24h`: fetch time minus
+  notification time over the last 24 hours (target under 300).
+- `completeness`: per resource, `missing` (stored items without a row, only meaningful when `expected` is true, that
+  is when the resource is in `bundle_resources`) and `non_2xx` by status code.
+- `counters`: stale discards, suppressed noise and ML requests per endpoint family with `requests_429`, cumulative
+  since the ML worker started.
+- `events`: counts per type (24 h and 7 d) and the age of the newest event. `links`: `enabled` and the coverage
+  report of the product links. `top_changed_paths`: the most frequent changed paths of the last 7 days (candidates
+  for the excluded-noise list).
+- `sections_failed`: a section that failed or timed out is null and named here; the rest still answers.
+
+### Notes
+
+- `POST /enqueue` is accepted while `refresh.enabled` is off, the entries wait and the answer says so
+  (`refresh_enabled: false`). `missing_from_bundle_resources` lists the named resources that `bundle_resources` does
+  not include (the refresh handler would drop them).
+- The request does not send any wake-up: the worker picks the `requested` mark up on its next pass. A request made
+  while the handler is off is kept and honored once it is on.
+- Rollback: `PUT /settings/<flag>` with `{"value": false}`, or `ML_PUB_KILL_SWITCH=1` and a restart.
