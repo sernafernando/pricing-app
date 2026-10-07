@@ -354,6 +354,41 @@ class TestInterruptions:
         assert (queued["attempts"], queued["claimed_at"], queued["resources"]) == (0, None, ["prices"])
 
 
+class TestInterruptionKeepsTheMinimumAge:
+    def test_an_entry_not_reached_before_a_429_does_not_keep_a_resource_that_is_too_recent(self, env) -> None:
+        """Synthetic fault: prices answers 429 for the first item walked."""
+        other = "MLA934406852"
+        enable_refresh(bundle_resources=["core", "description", "prices"])
+        enqueue_items(ITEM, other)
+        make_handler(ScriptedTransport(responder_with())).run(context())  # both descriptions now fresh
+
+        enqueue_items(ITEM, other)
+        limited = json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
+        make_handler(ScriptedTransport(responder_with({"prices": limited}))).run(context())
+
+        for item in (ITEM, other):
+            assert queue_row(env, item)["resources"] == ["prices"], item  # never `description` (6 h minimum)
+
+    def test_an_entry_whose_every_resource_was_too_recent_completes_instead_of_being_retried(self, env) -> None:
+        """Synthetic fault: the first item walked gets a 429 on prices; the other one has only a fresh description."""
+        other = "MLA934406852"
+        enable_refresh(bundle_resources=["core", "description"])
+        enqueue_items(ITEM, other)
+        make_handler(ScriptedTransport(responder_with())).run(context())
+        enable_refresh(bundle_resources=["core", "description", "prices"])
+        enqueue_items(ITEM)
+        with env.begin() as conn:  # `other` already has a fresh prices row: its whole bundle is too recent
+            conn.execute(text("INSERT INTO ml_item_prices (item_id, last_checked_at) VALUES (:i, now())"), {"i": other})
+        # min age for prices is 0 by default; give it one so the fresh row counts
+        enable_refresh(min_age_seconds={"description": 21600, "prices": 3600})
+        enqueue_items(other)
+        limited = json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
+
+        make_handler(ScriptedTransport(responder_with({"prices": limited}))).run(context())
+
+        assert queue_row(env, other) is None  # nothing left to do for it, whatever happened to the other entry
+
+
 class TestFailuresBeforeAnInterruption:
     def test_a_failure_then_a_429_charges_it_and_keeps_only_the_sub_resources_left_never_the_core(self, env) -> None:
         """Synthetic faults: description 500, then prices 429 (the core was already applied)."""

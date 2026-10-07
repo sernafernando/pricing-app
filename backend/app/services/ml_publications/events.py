@@ -192,6 +192,13 @@ def _side(entries: Optional[Mapping[str, Any]], kind: str) -> Optional[Mapping[s
     return entry if isinstance(entry, Mapping) else None
 
 
+def _promotion_identity(entry: Optional[Mapping[str, Any]]) -> Optional[tuple]:
+    """What makes a promotion price "changed": amount and promotion metadata, not the ML price entry id."""
+    if entry is None:
+        return None
+    return (entry.get("amount"), entry.get("promotion_id"), entry.get("promotion_type"))
+
+
 def _prices_events(row: ChangeRow) -> list[Event]:
     """Standard and promotion price changes of the marketplace channel (design D16)."""
     old, new = _entries(row)
@@ -215,7 +222,7 @@ def _prices_events(row: ChangeRow) -> list[Event]:
             )
         )
     old_promotion, new_promotion = _side(old, "promotion"), _side(new, "promotion")
-    if old_promotion != new_promotion:
+    if _promotion_identity(old_promotion) != _promotion_identity(new_promotion):
         shown = new_promotion or old_promotion or {}
         events.append(
             Event(

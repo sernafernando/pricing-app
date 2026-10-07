@@ -355,12 +355,13 @@ class RefreshHandler:
             else:
                 walking.append(work)
         due = self._due_resources(walking, config["min_age_seconds"].value, _utcnow())
-        for position, work in enumerate(walking):
+        for work in walking:  # settled up front, so an interruption never keeps a resource that is too recent
             for resource in sorted(work.plan.wanted):
                 if resource not in due[work.claim.key]:
                     self._skipped_min_age[resource] += 1
                     work.done.add(resource)
-                    continue
+        for position, work in enumerate(walking):
+            for resource in sorted(work.pending):
                 if _utcnow() >= ctx.deadline:
                     interruption: Optional[_Interruption] = _Interruption("stopped", "deadline", _utcnow())
                 else:
@@ -435,6 +436,9 @@ class RefreshHandler:
             # Failures already observed on this entry are real: charge them, keep the rest queued.
             self._finish(current, interrupted=True)
             works = works[1:]
+        for work in works:
+            if not work.pending:  # everything was skipped by minimum age: nothing left to retry
+                self._finish(work)
         self._release(works, interruption.not_before)
 
     # --- queue bookkeeping --------------------------------------------------------------

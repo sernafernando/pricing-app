@@ -115,6 +115,14 @@ class TestPromotionPrice:
         events = derive_events(prices_row(old, with_amount(old, "7", 1400000.0)))
         assert [(e.price_kind, e.old_value, e.new_value) for e in events] == [("promotion", "1509999.0", "1400000.0")]
 
+    def test_a_promotion_entry_with_a_new_price_id_but_the_same_amount_is_no_event(self) -> None:
+        """Real promotion capture with only the promotion entry's id changed (7 -> 8)."""
+        old = subresource_body("prices", WITH_PROMOTION)
+        new = copy.deepcopy(old)
+        new["prices"][1]["id"] = "8"
+        row = prices_row(old, new)
+        assert row.changes and derive_events(row) == []
+
     def test_the_prices_capture_carries_no_promotion_metadata_so_the_event_has_none(self) -> None:
         """Captured `/prices` promotion entries have no `metadata`: the ids come from sale_price instead."""
         new = subresource_body("prices", WITH_PROMOTION)
