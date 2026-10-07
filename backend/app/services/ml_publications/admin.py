@@ -35,6 +35,9 @@ JOBS: Dict[str, Tuple[str, str]] = {
     "scan": ("ml_publications.scan", "scan.enabled"),
     "missed_feeds": ("ml_publications.missed_feeds", "missed_feeds.enabled"),
     "sweep": ("ml_publications.sweep", "sweep.enabled"),
+    # one handler, two sub-jobs: each flag is its own entry so turning either on marks the handler `requested`
+    "verify": ("ml_publications.verify", "verify.enabled"),
+    "divergence": ("ml_publications.verify", "divergence.enabled"),
 }
 FLAG_HANDLER: Dict[str, str] = {flag: handler for handler, flag in JOBS.values()}
 
@@ -137,8 +140,8 @@ def resolve_job(name: str) -> Tuple[str, str]:
     raise UnknownJob(name)
 
 
-def _waiting_note(flag: str) -> str:
-    why = "ML_PUB_KILL_SWITCH está activo" if settings.ML_PUB_KILL_SWITCH else f"{flag} está apagado"
+def _waiting_note(flags: Sequence[str]) -> str:
+    why = "ML_PUB_KILL_SWITCH está activo" if settings.ML_PUB_KILL_SWITCH else f"{' y '.join(flags)} está apagado"
     return f"{why}: el pedido queda registrado y corre cuando el trabajo vuelva a estar habilitado"
 
 
@@ -158,13 +161,14 @@ def request_job(db: Session, name: str, *, mode: Optional[str], actor: str) -> D
     except Exception:
         db.rollback()
         raise
-    flag = JOBS[job][1]
-    enabled = settings_store.get_setting(flag).value is True
+    # a handler can serve several jobs (verify and divergence): it runs when ANY of its flags is on
+    flags = [flag for served_by, flag in JOBS.values() if served_by == handler]
+    enabled = any(settings_store.get_setting(flag).value is True for flag in flags)
     return {
         "job": job,
         "handler": handler,
         "requested": True,
         "mode": mode,
         "enabled": enabled,
-        "note": None if enabled else _waiting_note(flag),
+        "note": None if enabled else _waiting_note(flags),
     }

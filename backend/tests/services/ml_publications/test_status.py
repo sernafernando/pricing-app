@@ -109,6 +109,7 @@ class TestEmptyStore:
             "coverage_gap": None,
         }
         assert result["sweep"] == {"last_run": None}
+        assert result["verification"] == {"divergence": None, "snapshot": None}
         assert result["freshness"]["items"] == {
             "rows": 0,
             "checked": 0,
@@ -134,6 +135,8 @@ class TestEmptyStore:
             "scan",
             "missed_feeds",
             "sweep",
+            "verify",
+            "divergence",
         ]
         for job in result["jobs"]:
             assert (job["enabled"], job["disabled"], job["failing"]) == (False, True, False)
@@ -343,6 +346,51 @@ class TestBackfillMissedFeedsAndSweep:
         last = report(store)["sweep"]["last_run"]
 
         assert (last["outcome"], last["yielded_in_a_row"], last["enqueued"]) == ("yielded", 7, 0)
+
+
+class TestVerification:
+    """The latest divergence result and freshness snapshot, read from `ml_pub_job_runs` (spec "Admin status endpoint")."""
+
+    def test_the_latest_divergence_run_is_reported_with_its_flag_and_pairs(self, store) -> None:
+        run(
+            store,
+            "INSERT INTO ml_pub_job_runs (job, started_at, finished_at, outcome, counts) VALUES "
+            "('divergence', now() - interval '2 days', now() - interval '2 days', 'success', "
+            ' \'{"rate": 100.0, "sampled": 50, "below_target": false, "divergences": []}\'), '
+            "('divergence', now() - interval '1 day', now() - interval '1 day', 'below_target', "
+            ' \'{"rate": 97.0, "sampled": 100, "below_target": true, "target": 99.0, '
+            '   "divergence_pairs": 3, "changed_after_sampling_items": 4, '
+            '   "divergences": [{"item_id": "MLA1", "path": "status", "stored": "active", '
+            '"fresh": "paused"}]}\')',
+        )
+
+        last = report(store)["verification"]["divergence"]
+
+        assert (last["outcome"], last["rate"], last["below_target"], last["sampled"]) == (
+            "below_target",
+            97.0,
+            True,
+            100,
+        )
+        assert last["target"] == 99.0 and last["divergence_pairs"] == 3 and last["changed_after_sampling_items"] == 4
+        assert last["divergences"] == [{"item_id": "MLA1", "path": "status", "stored": "active", "fresh": "paused"}]
+
+    def test_the_latest_snapshot_is_reported_by_outcome_and_size(self, store) -> None:
+        run(
+            store,
+            "INSERT INTO ml_pub_job_runs (job, started_at, finished_at, outcome, counts, last_error) VALUES "
+            "('freshness', now(), now(), 'failed', '{}', 'internal_error: boom'), "
+            "('freshness', now() - interval '1 hour', now() - interval '1 hour', 'success', "
+            ' \'{"items": {"total": 12}}\', NULL)',
+        )
+
+        snapshot = report(store)["verification"]["snapshot"]
+
+        assert (
+            snapshot["outcome"] == "failed"
+            and snapshot["error"] == "internal_error: boom"
+            and snapshot["items"] is None
+        )
 
 
 class TestFreshnessAndCompleteness:

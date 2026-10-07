@@ -314,6 +314,52 @@ Rollback: `python -m app.scripts.ml_publications_settings set missed_feeds.enabl
 deleted, queued entries are still served by the refresh handler). To stop only the fetching of performance and visits,
 remove them from `bundle_resources`.
 
+## Verification jobs
+
+One more job of the `pricing-worker-ml` worker, `ml_publications.verify`, with two sub-jobs. Each is behind its own
+flag (default off, independent of each other and of every other flag). Neither adds a cron, a timer or a
+LISTEN/NOTIFY: the schedule is the generic worker's `run_at_local`.
+
+| Sub-job | Flag | What it does |
+|---|---|---|
+| Divergence spot-check | `divergence.enabled` | samples stored items (`ML_PUB_DIVERGENCE_SAMPLE_SIZE`, default 50, taken in turn from every status), re-fetches them from `/items/bulk` in the sweep lane (4) through the shared pacer, compares the typed columns with the stored row and records the match rate and the (item, column) pairs that differ in `ml_pub_job_runs` (`job = 'divergence'`) |
+| Freshness snapshot | `verify.enabled` | stores the freshness and completeness numbers of the status report (`job = 'freshness'`); no ML call |
+
+Schedule: daily at 05:00 local time. A check that cannot finish (deadline, 429, flag turned off, or work of a higher
+lane waiting) is a finished run with `complete: false`, not a failure: the worker runs it again 2 minutes later
+and no snapshot is taken until it finishes. A check that fails is recorded
+(`outcome = 'failed'`, `last_error`) and ends the day's slot; an operator request or tomorrow retries it. With both
+flags off the handler returns without consuming its slot, so enabling it later the same day runs it at the next pass.
+
+Reading a result:
+
+- The rate is per item: an item agrees when none of its typed columns differs, so 3 of 100 items with another `status`
+  is 97%. The target is 99%; a lower rate is `outcome = 'below_target'` and `below_target: true`.
+- A difference is **not** divergence when the Store moved since the sample was taken (the item was fetched again, or a
+  refresh of its core is pending; a parked entry, or one that only names performance or visits, does not count).
+  Those are listed in `changed_after_sampling` and left out of the rate.
+- While a long backfill (lane 3) or live work keeps a higher lane busy, the check yields and the 2 minute catch-up
+  tries again: one cheap query each time, not a loop gone wrong. It runs as soon as those lanes are empty.
+- An item ML no longer answers is `unverified` (not compared, not counted as a difference).
+- `GET /status` reports the latest run under `verification.divergence` and `verification.snapshot`.
+
+### Turning it on
+
+1. Divergence on a sample of 50, run once by hand:
+   `python -m app.scripts.ml_publications_settings set divergence.enabled true`
+   (turning a flag on marks the handler `requested`, so it runs on the next worker pass; or
+   `python -m app.scripts.ml_publications_request ml_publications.verify`).
+   Check: `SELECT outcome, counts -> 'rate' AS rate, counts -> 'sampled' AS sampled, counts -> 'divergences' AS pairs, last_error FROM ml_pub_job_runs WHERE job = 'divergence' ORDER BY id DESC LIMIT 3;`
+   Expect `outcome = 'success'`, `rate` at least 99 and about 3 calls (50 items, 20 per call, `lane` 4). A `below_target`
+   run lists the pairs: look at the columns that repeat before enabling more sub-resources.
+2. The snapshot:
+   `python -m app.scripts.ml_publications_settings set verify.enabled true`
+   Check: `SELECT outcome, counts -> 'items' FROM ml_pub_job_runs WHERE job = 'freshness' ORDER BY id DESC LIMIT 1;`
+
+Rollback: `python -m app.scripts.ml_publications_settings set divergence.enabled false` and
+`python -m app.scripts.ml_publications_settings set verify.enabled false` (a check in progress stops at its next
+batch; nothing stored is changed, the jobs only read the Store and ML).
+
 ## Admin endpoints
 
 The endpoints replace the CLIs for an operator without a shell. They live under `/api/ml-publications` and need a
@@ -326,7 +372,7 @@ flag only changes when somebody `PUT`s it.
 | `GET /settings` | `ml_ops.ver` | Every setting with its effective value and source (`db`, `env`, `kill_switch`, `unreadable`). |
 | `PUT /settings/{key}` | `ml_ops.gestionar` | Writes one allow-listed setting, recorded as `updated_by = user:<username>`. Turning a flag **on** marks its handler `requested`. |
 | `POST /enqueue` | `ml_ops.gestionar` | Up to 100 items at lane 0 (`item_ids`, optional `resources`, default `["bundle"]`). |
-| `POST /jobs/{job}/request` | `ml_ops.gestionar` | Runs a handler on the worker's next pass. `job` is `refresh`, `intake`, `relink`, `scan`, `missed_feeds` or `sweep`. `scan` accepts `{"mode": "full"}` or `{"mode": "rescan"}`. |
+| `POST /jobs/{job}/request` | `ml_ops.gestionar` | Runs a handler on the worker's next pass. `job` is `refresh`, `intake`, `relink`, `scan`, `missed_feeds`, `sweep`, `verify` or `divergence` (the last two run the same handler). `scan` accepts `{"mode": "full"}` or `{"mode": "rescan"}`. |
 
 Examples (`$API` is the base URL, `$TOKEN` a bearer token):
 
@@ -355,6 +401,8 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
   completed).
 - `sweep.last_run`: read **`outcome`** and `yielded_in_a_row` here; the sweep reports success to the runtime even
   when a tick fails, so its `last_success_at` says nothing.
+- `verification`: `divergence` (the latest spot-check: `rate`, `below_target`, `sampled`, the diverging pairs and how
+  many items changed after sampling) and `snapshot` (the latest freshness snapshot). Both are null until the jobs ran.
 - `freshness`: p50/p95/max age over `last_checked_at`, per state table. `lag_p95_seconds_24h`: fetch time minus
   notification time over the last 24 hours (target under 300).
 - `completeness`: per resource, `missing` (stored items without a row, only meaningful when `expected` is true, that

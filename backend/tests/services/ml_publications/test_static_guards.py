@@ -164,6 +164,12 @@ class TestPackageIsClean:
         readers = {name for name, source in package_sources() if PRODUCT_CATALOG_NAMES & set(erp_references(source))}
         assert readers == PRODUCT_CATALOG_READERS
 
+    def test_verification_reads_only_the_store_and_ml_never_the_product_catalog(self) -> None:
+        sources = dict(package_sources())
+        assert "verification.py" in sources and "verification.py" not in PRODUCT_CATALOG_READERS
+        assert erp_violations("verification.py", sources["verification.py"]) == []
+        assert erp_references(HANDLERS.read_text(encoding="utf-8")) == []  # nor the handler that runs it
+
     def test_the_links_router_is_the_only_router_using_the_linking_module(self) -> None:
         users = {name for name, source in router_sources() if uses_links_module(source)}
         assert users == LINKS_ROUTERS

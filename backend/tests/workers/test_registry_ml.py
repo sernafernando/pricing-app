@@ -3,7 +3,7 @@ ML worker process. The existing `REGISTRY` must stay exactly as it was."""
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import time, timedelta
 
 from app.workers import registry
 from app.workers.handlers import ml_publications
@@ -32,6 +32,7 @@ class TestMlPublicationsRegistry:
             "ml_publications.scan",
             "ml_publications.missed_feeds",
             "ml_publications.sweep",
+            "ml_publications.verify",
         ]
         assert registry.ML_PUBLICATIONS_REGISTRY[0] is ml_publications.refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[1] is ml_publications.intake
@@ -39,6 +40,7 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[3] is ml_publications.scan
         assert registry.ML_PUBLICATIONS_REGISTRY[4] is ml_publications.missed_feeds
         assert registry.ML_PUBLICATIONS_REGISTRY[5] is ml_publications.sweep
+        assert registry.ML_PUBLICATIONS_REGISTRY[6] is ml_publications.verify
 
     def test_intake_runs_every_fifteen_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[1]
@@ -50,6 +52,12 @@ class TestMlPublicationsRegistry:
         handler = registry.ML_PUBLICATIONS_REGISTRY[0]
         assert handler.interval == timedelta(seconds=5)
         assert handler.run_at_local is None
+        assert handler.channels == ()
+
+    def test_verify_runs_daily_at_five_with_a_two_minute_catch_up_and_is_not_notify_driven(self) -> None:
+        handler = registry.ML_PUBLICATIONS_REGISTRY[6]
+        assert handler.run_at_local == time(5, 0) and handler.interval is None
+        assert handler.catch_up_interval == timedelta(minutes=2)
         assert handler.channels == ()
 
 
@@ -81,5 +89,6 @@ class TestProcessIsolation:
         )
         assert self._run(code) == (
             "['ml_publications.refresh', 'ml_publications.intake', 'ml_publications.relink', "
-            "'ml_publications.scan', 'ml_publications.missed_feeds', 'ml_publications.sweep'] True"
+            "'ml_publications.scan', 'ml_publications.missed_feeds', 'ml_publications.sweep', "
+            "'ml_publications.verify'] True"
         )

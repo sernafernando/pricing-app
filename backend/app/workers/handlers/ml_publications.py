@@ -32,6 +32,7 @@ from app.services.ml_publications import (
     store,
     subresource_store,
     sweeps as sweeps_core,
+    verification,
 )
 from app.services.ml_publications.ml_http import (
     ERROR_INVALID_JSON,
@@ -1049,9 +1050,96 @@ class SweepHandler:
         return JobResult(success=True, detail=detail, error=result.error)
 
 
+VERIFY_HANDLER = "ml_publications.verify"
+_VERIFY_KEYS = (
+    "verify.enabled",
+    "divergence.enabled",
+    "bundle_resources",
+    "bulk_max_ids",
+    "rate_per_sec",
+    "stock_rate_per_min",
+)
+VERIFY_CATCH_UP = timedelta(minutes=2)
+
+
+class VerifyHandler:
+    """`ml_publications.verify`: the daily verification jobs (design D17), each under its own flag.
+
+    - `divergence.enabled`: re-fetches a sample of stored items (lane 4, shared pacer) and records the match rate.
+    - `verify.enabled`: records a freshness and completeness snapshot (no ML call).
+
+    Daily at 05:00 local. A check that could not finish (deadline, 429, live work waiting, flag turned off)
+    returns a success with `complete: False` (it did not fail, so the status report does not show it as failing),
+    which unlocks the 2 minute catch-up: the runtime runs it again `VERIFY_CATCH_UP` after; the snapshot is taken
+    only once the check finished. A check that FAILED is recorded and finishes the day's slot
+    (the failure is in `ml_pub_job_runs`; an operator request or tomorrow retries). With both flags off the handler
+    returns the disabled outcome and keeps its slot. Turning a flag on marks the handler `requested` (admin API).
+    """
+
+    name = VERIFY_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = None
+    run_at_local: Optional[time] = time(5, 0)
+    catch_up_interval: Optional[timedelta] = VERIFY_CATCH_UP
+
+    def __init__(
+        self,
+        *,
+        client_factory: Optional[Callable[[Pacer], MlHttpClient]] = None,
+        pacer: Optional[Pacer] = None,
+    ) -> None:
+        self.pacer = pacer or Pacer()
+        self._client_factory = client_factory or (lambda pacer: MlHttpClient(pacer=pacer))
+        self._client: Optional[MlHttpClient] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        config = settings_store.get_settings(_VERIFY_KEYS)
+        divergence_on = config["divergence.enabled"].value is True
+        snapshot_on = config["verify.enabled"].value is True
+        if not (divergence_on or snapshot_on):
+            return disabled_outcome()
+        detail: Dict[str, Any] = {"complete": True}
+        error: Optional[str] = None
+        if divergence_on:
+            check = self._divergence(ctx, config)
+            detail["divergence"] = check.as_detail()
+            error = check.error
+            if check.outcome in (verification.OUTCOME_INTERRUPTED, verification.OUTCOME_YIELDED):
+                # yielding to a busy higher lane (a long backfill) can last hours: each retry is one cheap query
+                detail["complete"] = False
+                return JobResult(success=True, detail=self._flush(detail))
+        if snapshot_on:
+            snapshot = verification.run_snapshot(bundle_resources=config["bundle_resources"].value)
+            detail["snapshot"] = snapshot.as_detail()
+            error = error or snapshot.error
+        if error:
+            detail["error"] = error  # `jobs[].last_error` of the status report reads it here
+        return JobResult(success=True, detail=self._flush(detail), error=error)
+
+    def _divergence(self, ctx: WorkerContext, config) -> verification.DivergenceResult:
+        self.pacer.configure(
+            rate_per_sec=config["rate_per_sec"].value, stock_rate_per_min=config["stock_rate_per_min"].value
+        )
+        if self._client is None:
+            self._client = self._client_factory(self.pacer)
+        return verification.run_divergence(
+            self._client,
+            sample_size=settings.ML_PUB_DIVERGENCE_SAMPLE_SIZE,
+            bulk_max_ids=config["bulk_max_ids"].value,
+            deadline=ctx.deadline,
+            keep_going=lambda: settings_store.get_setting("divergence.enabled").value is True,
+        )
+
+    def _flush(self, detail: Dict[str, Any]) -> Dict[str, Any]:
+        detail = {**detail, "at": _utcnow().isoformat()}
+        _persist_detail(self.name, detail)
+        return detail
+
+
 refresh = RefreshHandler()
 intake = IntakeHandler()
 relink = RelinkHandler()
 scan = ScanHandler(pacer=refresh.pacer)  # one in-process ML budget for every call the store makes
 missed_feeds = MissedFeedsHandler(pacer=refresh.pacer)
 sweep = SweepHandler()
+verify = VerifyHandler(pacer=refresh.pacer)

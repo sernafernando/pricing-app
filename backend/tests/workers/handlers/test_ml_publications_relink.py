@@ -507,4 +507,5 @@ class TestRegistry:
             "ml_publications.scan",
             "ml_publications.missed_feeds",
             "ml_publications.sweep",
+            "ml_publications.verify",
         ]
