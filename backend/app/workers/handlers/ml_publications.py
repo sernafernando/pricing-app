@@ -604,10 +604,12 @@ class RelinkHandler:
 SCAN_HANDLER = "ml_publications.scan"
 _SCAN_KEYS = ("scan.enabled", "scan.statuses", "scan.next_mode", "rate_per_sec", "stock_rate_per_min")
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
-# Engine errors that only a setup change can fix (`MlResponse.error` values of a call that was refused).
 # Consecutive failing runs (ML errors, unexpected exceptions) after which the scan stops retrying every
-# pass and waits for its daily slot; each failed run is retried on the next pass until then.
+# pass and waits for its daily slot; each failed run is retried on the next pass until then. The streak
+# lives in the process (a restart clears it) and only failing runs extend it: a run cut short by the
+# deadline or a 429 counts as a good one, so an outage that alternates 503 and 429 keeps retrying.
 UPSTREAM_ERROR_STREAK = 5
+# Engine errors that only a setup change can fix (`MlResponse.error` values of a call that was refused).
 _BLOCKED_BY_SETUP = frozenset({OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN, "unauthorized"})
 
 
@@ -668,7 +670,7 @@ class ScanHandler:
         if result.error:
             return self._failed(result.error, result.as_detail())
         self._error_streak = 0
-        return JobResult(success=result.error is None, detail=self._flush(result.as_detail()), error=result.error)
+        return JobResult(success=True, detail=self._flush(result.as_detail()))
 
     def _failed(self, error: str, detail: Optional[Dict[str, Any]] = None) -> JobResult:
         """A failed run is retried on the next pass; a streak of them means ML is down, so stop spinning."""
@@ -680,7 +682,8 @@ class ScanHandler:
         return JobResult(success=False, detail=self._flush(body), error=error)
 
     def _blocked(self, reason: str) -> JobResult:
-        """Credentials or seller missing, or the token rejected: nothing can run until an operator fixes the setup. Report a
+        """Nothing can run until something outside the scan changes: a missing seller or credentials, a
+        rejected token (setup), or a sustained ML outage (`upstream_error`). Report a
         finished run (`complete` true, `blocked` names the reason) so the 30 s catch-up does not spin
         and the handler falls back to its daily slot; the open lap, if any, resumes from its stored
         progress when the setup exists.
@@ -688,7 +691,7 @@ class ScanHandler:
         A pending operator request is consumed by this run (the runtime clears it on success); a
         `--mode full` request is not lost, since `scan.next_mode` stays, but running it now is: it
         starts at the next daily slot or on a new request once the setup is fixed."""
-        logger.error("scan blocked by setup: %s", reason)
+        logger.error("scan blocked: %s", reason)
         return JobResult(success=True, detail=self._flush({"complete": True, "blocked": reason}))
 
     @staticmethod

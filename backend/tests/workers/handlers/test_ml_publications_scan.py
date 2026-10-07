@@ -242,6 +242,14 @@ class TestSustainedUpstreamErrors:
         assert detail_of(env)["blocked"] == "upstream_error" and detail_of(env)["complete"] is True
         assert runtime._due_handlers(now + timedelta(seconds=31)) == []
 
+    def test_the_log_blames_ml_not_the_setup_when_the_streak_ends(self, env, caplog) -> None:
+        enable_scan()
+        handler = make_handler(ScriptedServerError())
+        with caplog.at_level("ERROR", logger=handlers.logger.name):
+            for _ in range(handlers.UPSTREAM_ERROR_STREAK):
+                handler.run(context())
+        assert "upstream_error" in caplog.text and "setup" not in caplog.text
+
     def test_a_good_run_resets_the_streak(self, env) -> None:
         enable_scan()
         transport = ScriptedServerError()
