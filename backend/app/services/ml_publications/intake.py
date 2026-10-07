@@ -40,6 +40,11 @@ ITEM_KIND = "item"
 BRIDGE_STATEMENT_TIMEOUT = "10s"
 ERROR_BRIDGE_UNAVAILABLE = "bridge_unavailable"
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
+# `public_offers` / `public_candidates` arrive in bursts per item (about 170 distinct items per hour on
+# 2026-10-06); a promotions-only entry waits this long after the notification so the burst collapses
+# on the queue key into one fetch (design D14: with the 300 s minimum age, about 0.05 req/s).
+PROMOTIONS_RESOURCE = "promotions"
+PROMOTIONS_DEBOUNCE = timedelta(seconds=60)
 
 # Exact production topic names and the resource strings captured for them (2026-10-06). `stock-locations`
 # and `user-products-families` are deliberately absent: the capture has no sample of either, so their
@@ -66,6 +71,11 @@ class TopicMapping:
     @property
     def core_covered(self) -> bool:
         return set(self.resources) <= _CORE_COVERED
+
+    @property
+    def debounce(self) -> Optional[timedelta]:
+        """Delay before an entry of this mapping may be claimed (promotions-only mappings)."""
+        return PROMOTIONS_DEBOUNCE if self.resources == (PROMOTIONS_RESOURCE,) else None
 
 
 def topic_mappings(setting_value: Any) -> List[TopicMapping]:
@@ -256,6 +266,7 @@ def _classify(session: Session, mapping: TopicMapping, rows: Sequence[_Row], sel
                 lane=queue.LANE_NOTIFICATION,
                 resources=mapping.resources,
                 source_received_at=row.received_at,
+                not_before=row.received_at + mapping.debounce if mapping.debounce else None,
             )
         )
     return out

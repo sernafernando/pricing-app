@@ -77,3 +77,51 @@ def test_enabling_the_price_fetchers_is_documented_with_its_gate_ages_and_rollba
     assert "## Enabling the description, prices and sale_price fetchers" in doc
     for needle in ("bundle_resources", "min_age_seconds", "description", "6 h", "reference_date", "Rollback"):
         assert needle in doc, needle
+
+
+def promotions_section(doc: str) -> str:
+    start = doc.index("## Enabling the promotions fetcher")
+    nxt = doc.find("\n## ", start + 1)
+    return doc[start : nxt if nxt != -1 else len(doc)]
+
+
+def test_enabling_promotions_is_documented_with_both_gates_the_debounce_and_the_rollback(doc) -> None:
+    section = promotions_section(doc)
+    for needle in (
+        "promotions.enabled",
+        "bundle_resources",
+        "intake.topics",
+        "`public_offers`",
+        "`public_candidates`",
+        "60 s",
+        "300 s",
+        "Rollback",
+        "ml_item_promotions",
+    ):
+        assert needle in section, needle
+
+
+def test_the_promotions_cost_note_carries_the_measured_volumes_and_the_budget_share(doc) -> None:
+    section = promotions_section(doc)
+    volumes = {row["topic"]: row["resources_last_hour"] for row in load_fixture(WEBHOOK_SAMPLES)["volume_last_hour"]}
+    assert (volumes["public_candidates"], volumes["public_offers"]) == (144, 24)
+    for needle in ("144", "24", "about 170 items per hour", "about 4k per day", "about 0.05 req/s", "2 req/s"):
+        assert needle in section, needle
+
+
+def test_the_documented_promotions_topic_map_is_accepted_by_intake(doc) -> None:
+    import json
+
+    section = promotions_section(doc)
+    blocks = re.findall(r"```json\n(.*?)\n```", section, flags=re.DOTALL)
+    assert len(blocks) == 1
+    topics = json.loads(blocks[0])
+
+    from app.services.ml_publications.intake import topic_mappings
+
+    mappings = topic_mappings(topics)
+    assert sorted((m.topic, m.resources, m.debounce is not None) for m in mappings) == [
+        ("items", ("bundle",), False),
+        ("public_candidates", ("promotions",), True),
+        ("public_offers", ("promotions",), True),
+    ]
