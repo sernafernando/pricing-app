@@ -205,6 +205,20 @@ class TestFinished:
 
         assert event.payload == {"reason": "ended"}
 
+    def test_an_entry_that_first_appears_finished_is_finished_ended_with_no_old_status(self) -> None:
+        """Pinned rule: a promotion that began and ended between two fetches leaves this event as its only trace.
+
+        Real started list vs the same list without the campaign on the old side, the campaign finished on the new side.
+        """
+        base = subresource_body("promotions", STARTED)
+        new = with_fields(base, STARTED_ID, status="finished")
+        old = without(base, STARTED_ID)
+
+        (event,) = derive_events(promotions_row(old, new))
+
+        assert (event.event_type, event.old_value, event.new_value) == ("promotion_finished", None, "finished")
+        assert event.payload == {"reason": "ended"}
+
     def test_an_entry_that_disappears_from_the_list_is_absent(self) -> None:
         """Real started list vs the same list without the started campaign on the new side."""
         old = subresource_body("promotions", STARTED)
