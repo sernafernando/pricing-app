@@ -30,8 +30,8 @@ búsqueda encuentra la venta por cualquiera de los dos SKU.
 - [x] T3 Ingesta conserva el SKU vendido en re-ingesta (RED -> GREEN, Postgres)
 - [x] T4 Búsqueda de texto libre incluye `seller_sku_vendido`
 - [x] T5 API `seller_sku_anterior` (RED -> GREEN)
-- [ ] T6 Frontend "ex SKU" fila + detalle (vitest RED -> GREEN)
-- [ ] T7 Novedad + lint + push
+- [x] T6 Frontend "ex SKU" fila + detalle (vitest RED -> GREEN)
+- [x] T7 Novedad + lint + push
 
 ## Hallazgos
 - Recuperación de SKUs ya pisados: NO es posible. `raw_item` (JSONB) se pisa en el mismo upsert; `ml_order_item_costos` no guarda SKU (solo producto_item_id de ERP); `ml_cancelled_orders.items` solo existe para canceladas y no hay tabla de payload crudo histórico de ítems. El backfill copia el SKU actual.
@@ -45,3 +45,4 @@ búsqueda encuentra la venta por cualquiera de los dos SKU.
 
 ## Mirror Engram
 topic `odd/ventas-ml-sku-ex/tasks`, proyecto pricing-app.
+- T4 RED 3 failed -> GREEN ml_sales_query 140 passed. T5 RED KeyError seller_sku_anterior -> GREEN; related suites 1167 passed. T6 RED 3 failed (vitest) -> GREEN ventasMl 146 passed; novedad 13 passed; pnpm lint 0 errors (2 preexisting warnings), lint:css clean.
