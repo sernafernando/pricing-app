@@ -1,7 +1,7 @@
 """Grant the Métricas ML board to the PRICING and VENTAS roles
 
 Revision ID: 20261006_ml_metricas_permisos_pm
-Revises: 20261006_ml_publications_core
+Revises: 20261007_ml_publicaciones_vincular_perm
 Create Date: 2026-10-06
 
 ODD `metricas-ml-scope-pm` T3: the PMs work from the PRICING and VENTAS roles
@@ -23,7 +23,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261006_ml_metricas_permisos_pm"
-down_revision: Union[str, None] = "20261006_ml_publications_core"
+down_revision: Union[str, None] = "20261007_ml_publicaciones_vincular_perm"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

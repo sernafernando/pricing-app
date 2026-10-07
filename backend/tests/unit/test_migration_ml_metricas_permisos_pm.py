@@ -17,7 +17,7 @@ from app.routers import ml_metricas
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _REVISION = "20261006_ml_metricas_permisos_pm"
-_BASE = "20261006_ml_publications_core"
+_BASE = "20261007_ml_publicaciones_vincular_perm"
 CODES = {ml_metricas.PERMISO_VER, ml_metricas.PERMISO_GANANCIA}
 
 
