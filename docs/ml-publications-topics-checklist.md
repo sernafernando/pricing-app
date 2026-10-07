@@ -326,7 +326,8 @@ LISTEN/NOTIFY: the schedule is the generic worker's `run_at_local`.
 | Freshness snapshot | `verify.enabled` | stores the freshness and completeness numbers of the status report (`job = 'freshness'`); no ML call |
 
 Schedule: daily at 05:00 local time. A check that cannot finish (deadline, 429, flag turned off, or work of a higher
-lane waiting) is retried 2 minutes later and takes no snapshot until it finishes. A check that fails is recorded
+lane waiting) is a finished run with `complete: false`, not a failure: the worker runs it again 2 minutes later
+and no snapshot is taken until it finishes. A check that fails is recorded
 (`outcome = 'failed'`, `last_error`) and ends the day's slot; an operator request or tomorrow retries it. With both
 flags off the handler returns without consuming its slot, so enabling it later the same day runs it at the next pass.
 

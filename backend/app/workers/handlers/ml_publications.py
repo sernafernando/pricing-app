@@ -1069,8 +1069,9 @@ class VerifyHandler:
     - `verify.enabled`: records a freshness and completeness snapshot (no ML call).
 
     Daily at 05:00 local. A check that could not finish (deadline, 429, live work waiting, flag turned off)
-    returns `complete: False`, which unlocks the 2 minute catch-up, and waits `VERIFY_CATCH_UP` before trying again;
-    the snapshot is taken only once the check finished. A check that FAILED is recorded and finishes the day's slot
+    returns a success with `complete: False` (it did not fail, so the status report does not show it as failing),
+    which unlocks the 2 minute catch-up: the runtime runs it again `VERIFY_CATCH_UP` after; the snapshot is taken
+    only once the check finished. A check that FAILED is recorded and finishes the day's slot
     (the failure is in `ml_pub_job_runs`; an operator request or tomorrow retries). With both flags off the handler
     returns the disabled outcome and keeps its slot. Turning a flag on marks the handler `requested` (admin API).
     """
@@ -1097,10 +1098,7 @@ class VerifyHandler:
         snapshot_on = config["verify.enabled"].value is True
         if not (divergence_on or snapshot_on):
             return disabled_outcome()
-        retry_at = _parse_moment(_read_detail(self.name).get("retry_at"))
-        if retry_at is not None and _utcnow() < retry_at:
-            return JobResult(success=False, detail={"backoff_until": retry_at.isoformat()})
-        detail: Dict[str, Any] = {"complete": True, "retry_at": None}
+        detail: Dict[str, Any] = {"complete": True}
         error: Optional[str] = None
         if divergence_on:
             check = self._divergence(ctx, config)
@@ -1108,8 +1106,7 @@ class VerifyHandler:
             error = check.error
             if check.outcome in (verification.OUTCOME_INTERRUPTED, verification.OUTCOME_YIELDED):
                 detail["complete"] = False
-                detail["retry_at"] = (_utcnow() + VERIFY_CATCH_UP).isoformat()
-                return JobResult(success=False, detail=self._flush(detail))
+                return JobResult(success=True, detail=self._flush(detail))
         if snapshot_on:
             snapshot = verification.run_snapshot(bundle_resources=config["bundle_resources"].value)
             detail["snapshot"] = snapshot.as_detail()

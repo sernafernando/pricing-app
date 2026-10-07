@@ -178,30 +178,31 @@ class TestOutcomes:
         assert result.success is True and "500" in str(result.error)
         assert runs(env)["divergence"]["outcome"] == "failed"
 
-    def test_an_interrupted_check_retries_after_the_catch_up_wait_and_runs_no_snapshot(self, env) -> None:
+    def test_an_interrupted_check_is_incomplete_not_failed_and_runs_no_snapshot(self, env) -> None:
         fresh = seed(env, {"active": 3})
         settings_store.set_setting("divergence.enabled", True, "test")
         settings_store.set_setting("verify.enabled", True, "test")
-        transport = MlTransport(fresh, status=429)
-        handler = make_handler(transport)
 
-        first = handler.run(context())
+        result = make_handler(MlTransport(fresh, status=429)).run(context())
 
-        assert first.success is False and first.detail["complete"] is False
+        # a success with `complete: False`: the runtime then unlocks the 2 minute catch-up, and the status report
+        # does not show the handler as failing because the check yielded or waited out a 429
+        assert result.success is True and result.detail["complete"] is False
+        assert result.detail["divergence"]["interruption"] == "rate_limited"
         assert runs(env) == {}
-        calls = len(transport.requests)
-        again = handler.run(context())  # inside the wait: no ML call, nothing recorded
-        assert again.success is False and "backoff_until" in again.detail
-        assert len(transport.requests) == calls
 
-    def test_the_retry_wait_is_the_catch_up_interval(self, env) -> None:
+    def test_the_catch_up_makes_an_incomplete_check_due_two_minutes_after_its_last_success(self, env) -> None:
+        handler = handlers.verify
+        last = datetime(2026, 10, 7, 9, 0, tzinfo=timezone.utc)  # 06:00 local: today's slot already ran
+        assert is_due(handler, now=last + timedelta(seconds=90), last_success_at=last, incomplete=True) is False
+        assert is_due(handler, now=last + timedelta(minutes=2), last_success_at=last, incomplete=True) is True
+        assert is_due(handler, now=last + timedelta(minutes=5), last_success_at=last, incomplete=False) is False
+
+    def test_a_finished_check_marks_the_run_complete(self, env) -> None:
         fresh = seed(env, {"active": 3})
         settings_store.set_setting("divergence.enabled", True, "test")
-        make_handler(MlTransport(fresh, status=429)).run(context())
 
-        (row,) = sql_all(env, "SELECT detail FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)
-        retry = datetime.fromisoformat(row["detail"]["retry_at"])
-        assert timedelta(seconds=60) < retry - datetime.now(timezone.utc) <= handlers.verify.catch_up_interval
+        assert make_handler(MlTransport(fresh)).run(context()).detail["complete"] is True
 
     def test_a_missing_seller_is_a_recorded_failure_not_an_exception(self, env, monkeypatch) -> None:
         fresh = seed(env, {"active": 3})

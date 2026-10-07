@@ -245,17 +245,13 @@ def _sweep(db: Session) -> Dict[str, Any]:
     return {"last_run": _run_summary(db, "sweep")}
 
 
-_LAST_COUNTS_SQL = text(
-    "SELECT started_at, finished_at, outcome, last_error, counts FROM ml_pub_job_runs "
-    "WHERE job = :job ORDER BY started_at DESC LIMIT 1"
-)
 DIVERGENCE_LISTED = 20  # pairs of the latest divergence run shown in the report
 
 
 def _verification(db: Session) -> Dict[str, Any]:
     """The latest divergence spot-check (rate, flag, diverging pairs) and freshness snapshot (outcome, size)."""
-    divergence = db.execute(_LAST_COUNTS_SQL, {"job": "divergence"}).mappings().first()
-    snapshot = db.execute(_LAST_COUNTS_SQL, {"job": "freshness"}).mappings().first()
+    divergence = db.execute(_LAST_RUN_SQL, {"job": "divergence"}).mappings().first()
+    snapshot = db.execute(_LAST_RUN_SQL, {"job": "freshness"}).mappings().first()
     if divergence is not None:
         counts = divergence["counts"] or {}
         divergence = {
