@@ -270,7 +270,7 @@ class TestBillingResourceValidation:
         client = MLWebhookClient()
         with patch("httpx.AsyncClient") as fake:
             fake.return_value.__aenter__.return_value.get = AsyncMock(
-                return_value=MagicMock(json=MagicMock(return_value={"results": []}), raise_for_status=MagicMock())
+                return_value=MagicMock(status_code=200, is_success=True, json=MagicMock(return_value={"results": []}))
             )
             assert asyncio.run(client.get_billing_details("2026-09-01", "MP")) == {"results": []}
 
