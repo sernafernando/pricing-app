@@ -500,7 +500,7 @@ class TestRegistry:
     def test_the_relink_handler_is_registered_after_refresh_and_intake(self) -> None:
         from app.workers import registry
 
-        assert [h.name for h in registry.ML_PUBLICATIONS_REGISTRY] == [
+        assert [h.name for h in registry.ML_PUBLICATIONS_REGISTRY if h.name.startswith("ml_publications.")] == [
             "ml_publications.refresh",
             "ml_publications.intake",
             "ml_publications.relink",

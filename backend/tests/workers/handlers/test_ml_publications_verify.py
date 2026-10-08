@@ -79,8 +79,9 @@ class TestWiring:
         assert handler.catch_up_interval == timedelta(minutes=2)
         assert handler.channels == ()
 
-    def test_it_is_the_last_handler_of_the_ml_worker_registry(self) -> None:
-        assert registry.ML_PUBLICATIONS_REGISTRY[-1] is handlers.verify
+    def test_it_is_the_last_ml_publications_handler_of_the_ml_worker_registry(self) -> None:
+        ours = [h for h in registry.ML_PUBLICATIONS_REGISTRY if h.name.startswith("ml_publications.")]
+        assert ours[-1] is handlers.verify
 
     def test_the_verification_module_adds_no_cron_timer_or_notify(self) -> None:
         source = Path(verification.__file__).read_text(encoding="utf-8")
