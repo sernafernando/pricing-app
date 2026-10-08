@@ -718,9 +718,14 @@ describe('the Agrupado view (P12a)', () => {
     });
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
     await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
-    await user.click(await screen.findByText(/Router TP-Link Archer AX55/));
-    await waitFor(() => expect(screen.getByText(/Router TP-Link Archer AX55/).closest('tr')).toHaveAttribute('aria-current', 'true'));
+    const leaf = (await screen.findByText(/Router TP-Link Archer AX55/)).closest('tr');
+    await user.click(leaf);
+    await waitFor(() => expect(leaf).toHaveAttribute('aria-current', 'true'));
     expect(publicacionesMlAPI.items.mock.calls.filter(([params]) => params.limit === 1)).toHaveLength(1);
+    // ... and the detail panel opens beside the tree, like it does beside the list.
+    const panel = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
+    await within(panel).findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledWith('MLA1100000001');
   });
 
   it('"Limpiar filtros" keeps the tree and the family toggle', async () => {
