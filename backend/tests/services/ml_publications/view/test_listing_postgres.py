@@ -462,6 +462,18 @@ class TestProductManagerFilter:
         conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('tp-link', NULL, 7)"))
         assert ids(run(db, pms="7")) == ["MLA1"]  # the one complete pair still applies; the broken rows are skipped
 
+    def test_a_padded_brand_or_category_is_the_same_pair_as_the_tree_node_it_sits_in(self, conn, db) -> None:
+        # " tp-link " is the `TP-LINK` node of the tree (trimmed key), so the PM who owns TP-LINK / REDES owns it too
+        seed.add_product(conn, 72, "C1", "Switch", marca=" tp-link ", categoria=" Redes")
+        seed.add_item(conn, "MLA4")
+        seed.add_link(conn, "MLA4", 72)
+        assert sorted(ids(run(db, pms="7"))) == ["MLA1", "MLA4"]
+        conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES (' Tenda ', 'redes ', 8)"))
+        seed.add_product(conn, 73, "D1", "Antena", marca="TENDA", categoria="REDES")
+        seed.add_item(conn, "MLA5")
+        seed.add_link(conn, "MLA5", 73)
+        assert ids(run(db, pms="8")) == ["MLA5"]  # a padded assignment row matches the trimmed key as well
+
     def test_a_pm_without_pairs_matches_nothing_never_everything(self, db) -> None:
         page = run(db, pms="99")
         assert (ids(page), page.total) == ([], 0)

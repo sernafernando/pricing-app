@@ -26,7 +26,6 @@ from sqlalchemy import Interval, and_, case, exists, false, func, literal, or_, 
 from sqlalchemy.orm import aliased, join as orm_join
 from sqlalchemy.sql import ColumnElement, Select
 
-from app.services.ml_daily_metrics.groups import NO_GROUP
 from app.models.ml_publications import (
     MlItem,
     MlItemEvent,
@@ -36,6 +35,7 @@ from app.models.ml_publications import (
     MlUserProductStock,
 )
 from app.models.producto import ProductoERP
+from app.services.ml_daily_metrics.groups import NO_GROUP
 
 MAX_Q_LENGTH = 100
 MAX_CSV_VALUES = 50  # a screen selects a handful; a huge IN (...) list is a mistake or abuse
@@ -109,7 +109,7 @@ class PublicationFilter:
     subcategorias: tuple[int, ...] = ()
     no_subcategoria: bool = False  # `__none__` among the subcategories: the products with no subcategory
     pms: tuple[int, ...] = ()
-    # (marca, categoria) pairs of `pms`, upper-cased; resolved against the database by `listing.resolve_pm_pairs`.
+    # (marca, categoria) pairs of `pms`, trimmed and upper-cased; resolved against the database by `listing.resolve_pm_pairs`.
     # `None` while unresolved; an empty tuple means the PMs own no pair, which matches nothing.
     pm_pairs: Optional[tuple[tuple[str, str], ...]] = None
     family_id: Optional[int] = None
@@ -505,16 +505,21 @@ def _stores(f: PublicationFilter) -> ColumnElement:
     return or_(*parts)
 
 
+def _normalized(column: Any) -> ColumnElement:
+    """A brand or category as the tree keys it (and the PM pairs are matched): trimmed and upper-cased. No index is
+    lost by this: the catalog only has plain btrees on `marca` / `categoria`, which `upper(...)` already bypassed."""
+    return func.upper(func.trim(func.coalesce(column, "")))
+
+
 def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
     """`marcas` / `categorias`: the value as the tree keys it (trimmed, upper-cased; `NO_GROUP` for none), so the
     node of a brand and the filter that lists its publications agree on which rows they mean."""
-    normalized = func.upper(func.trim(func.coalesce(column, "")))
     values = [w.strip().upper() for w in wanted if w != NO_GROUP]
     parts = []
     if values:
-        parts.append(normalized.in_(values))
+        parts.append(_normalized(column).in_(values))
     if NO_GROUP in wanted:
-        parts.append(normalized == "")
+        parts.append(_normalized(column) == "")
     return or_(*parts)
 
 
@@ -532,7 +537,7 @@ def _pm(f: PublicationFilter) -> ColumnElement:
         raise RuntimeError("`pms` must be resolved to pairs (listing.resolve_pm_pairs) before building the query")
     if not f.pm_pairs:
         return false()  # a PM that owns no (marca, categoria) pair matches nothing, never everything
-    return tuple_(func.upper(T.p.marca), func.upper(T.p.categoria)).in_(list(f.pm_pairs))
+    return tuple_(_normalized(T.p.marca), _normalized(T.p.categoria)).in_(list(f.pm_pairs))
 
 
 def _event(f: PublicationFilter) -> ColumnElement:

@@ -241,6 +241,27 @@ def pick_user(names: Iterable[str], permissions_of: Callable[[str], Iterable[str
     return None
 
 
+def begin_read_only(db: Any) -> None:
+    """Make the session's transaction read only; the database itself then refuses any write."""
+    from sqlalchemy import text
+
+    try:
+        db.execute(text("SET TRANSACTION READ ONLY"))
+    except Exception:  # not PostgreSQL: the queries of this script are SELECTs anyway
+        db.rollback()
+
+
+def read_permissions(db: Any, service: Any, user: Any) -> Iterable[str]:
+    """The permissions of `user`. A database error aborts the transaction, so on failure the session is rolled
+    back and made read only again before the error moves on: the next user starts from a clean transaction."""
+    try:
+        return service.obtener_permisos_usuario(user)
+    except Exception:
+        db.rollback()
+        begin_read_only(db)
+        raise
+
+
 def auto_config() -> Optional[AutoConfig]:
     """Mint a token for an active user with `ml_ops.ver`; pick the busiest store and a frequent title word."""
     sys.path.insert(0, os.getcwd())  # run from the backend directory with its own interpreter
@@ -256,17 +277,14 @@ def auto_config() -> Optional[AutoConfig]:
         return None
     db = SessionLocal()
     try:
-        try:
-            db.execute(text("SET TRANSACTION READ ONLY"))  # nothing here writes; the database also refuses it
-        except Exception:  # not PostgreSQL: the queries below are SELECTs anyway
-            db.rollback()
+        begin_read_only(db)  # nothing here writes; the database also refuses it
         service = PermisosService(db)
         users = {
             (u.username or u.email): u
             for u in db.query(Usuario).filter(Usuario.activo.is_(True)).order_by(Usuario.id).all()
             if (u.username or u.email)
         }
-        username = pick_user(users, lambda name: service.obtener_permisos_usuario(users[name]))
+        username = pick_user(users, lambda name: read_permissions(db, service, users[name]))
         if username is None:
             return None
         titles = [r[0] for r in db.execute(text("SELECT title FROM ml_items WHERE title IS NOT NULL LIMIT 5000"))]

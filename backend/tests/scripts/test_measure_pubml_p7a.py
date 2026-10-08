@@ -281,6 +281,34 @@ class TestZeroConfig:
         assert script.main(["--base-url", "http://127.0.0.1:1/api", "--token", "t"]) == 1
         assert "cannot open the tree" in capsys.readouterr().out
 
+    def test_a_failed_permission_read_leaves_the_session_usable_and_still_read_only(self, script) -> None:
+        """A database error while reading one user's permissions aborts the transaction: the next user (and the
+        queries after them) must start from a clean, read-only one."""
+
+        class Db:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def rollback(self) -> None:
+                self.calls.append("rollback")
+
+            def execute(self, statement) -> None:
+                self.calls.append(str(statement))
+
+        class Service:
+            def obtener_permisos_usuario(self, user):
+                if user == "broken":
+                    raise RuntimeError("current transaction is aborted")
+                return {"ml_ops.ver"}
+
+        db = Db()
+        with pytest.raises(RuntimeError):
+            script.read_permissions(db, Service(), "broken")
+        assert db.calls == ["rollback", "SET TRANSACTION READ ONLY"]
+        db.calls.clear()
+        assert script.read_permissions(db, Service(), "ok") == {"ml_ops.ver"}
+        assert db.calls == []  # nothing to repair when the read worked
+
     def test_the_app_is_imported_from_the_working_directory_and_only_when_needed(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
         assert "sys.path.insert(0, os.getcwd())" in source
