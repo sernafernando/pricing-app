@@ -40,8 +40,11 @@ _OWN = "IN ('selling_address', 'seller_warehouse')"
 def _sum_of(type_filter: str) -> str:
     """Sum of the integer `quantity` of the object entries whose `type` matches.
 
-    Same rule as the Python mapper: strings, booleans, decimals and junk entries are ignored. The type
-    filter is the only difference between the two sums.
+    Same rule as the Python mapper for every payload ML sends: strings, booleans, decimals and junk entries
+    are ignored. Two theoretical differences, neither seen in any capture: an integer of 10 or more digits
+    (the mapper adds it, here it is skipped rather than overflowing the INTEGER column) and a float-notation
+    integer such as `1e2` (jsonb normalizes it to `100`, which counts; the mapper reads a float and skips it).
+    The type filter is the only difference between the two sums.
     """
     return (
         "(SELECT COALESCE(SUM((loc->>'quantity')::integer), 0) "

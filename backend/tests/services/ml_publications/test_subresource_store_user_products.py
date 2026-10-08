@@ -161,6 +161,25 @@ class TestChange:
         assert (row["full_quantity"], row["own_quantity"], row["total_quantity"]) == (7, 2, 9)
         assert replay.kind == "unchanged" and len(logs(mlpub_pg, "stock")) == 1
 
+    def test_an_unchanged_body_fills_typed_columns_an_older_writer_left_empty(self, mlpub_pg) -> None:
+        """A row stored before the split columns existed (raw present, columns NULL) heals on the next
+        identical fetch instead of waiting for the body to change."""
+        body = subresource_body("stock", "user_product_stock_MLAU266459622")
+        apply("stock", UP, body, minutes=1)
+        with mlpub_pg.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE ml_user_product_stock SET full_quantity = NULL, own_quantity = 99 WHERE user_product_id = :k"
+                ),
+                {"k": UP},
+            )
+
+        outcome = apply("stock", UP, body, minutes=2)
+
+        row = row_of(mlpub_pg, "stock", UP)
+        assert outcome.kind == "unchanged" and logs(mlpub_pg) == []
+        assert (row["full_quantity"], row["own_quantity"], row["total_quantity"]) == (0, 26, 26)
+
     def test_a_stock_that_only_reorders_its_locations_is_unchanged(self, mlpub_pg) -> None:
         old = stock_body()
         reordered = copy.deepcopy(old)

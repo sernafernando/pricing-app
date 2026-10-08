@@ -50,12 +50,12 @@ def map_user_product_stock(raw: Mapping[str, Any]) -> dict[str, Any]:
     full: Optional[int] = None
     own: Optional[int] = None
     if isinstance(locations, list):
-        total = sum(q for q in map(_quantity, locations) if q is not None)
-        full = own = 0
+        total = full = own = 0
         for loc in locations:
             quantity = _quantity(loc)
             if quantity is None:
                 continue
+            total += quantity
             if loc.get("type") == FULL_LOCATION:
                 full += quantity
             elif loc.get("type") in OWN_LOCATIONS:
