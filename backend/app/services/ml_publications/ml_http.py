@@ -90,6 +90,13 @@ class Counters:
         return {family: dict(outcomes) for family, outcomes in self._counts.items()}
 
 
+def _checked_extra_headers(headers: Optional[Mapping[str, str]]) -> Dict[str, str]:
+    extra = dict(headers or {})
+    if any(name.lower() == "authorization" for name in extra):
+        raise ValueError("the Authorization header is managed by MlHttpClient and cannot be overridden")
+    return extra
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -154,8 +161,15 @@ class MlHttpClient:
         params: Optional[Mapping[str, Any]] = None,
         *,
         deadline: Optional[datetime] = None,
+        headers: Optional[Mapping[str, str]] = None,
     ) -> MlResponse:
-        """One paced GET. Re-reads the token once and retries once on a 401."""
+        """One paced GET. Re-reads the token once and retries once on a 401.
+
+        `headers` are extra request headers (e.g. `Api-Version`); the Authorization header is
+        owned by this client, so passing one (any case) raises `ValueError` before any call.
+        Header values are never logged.
+        """
+        extra = _checked_extra_headers(headers)
         if not settings.ML_USER_ID or not settings.ML_CLIENT_ID:
             logger.error("ML_USER_ID / ML_CLIENT_ID not set; refusing ML call %s", family)
             return self._no_call(family, OUTCOME_NOT_CONFIGURED)
@@ -164,12 +178,12 @@ class MlHttpClient:
             logger.error("no ML access token available; refusing ML call %s", family)
             return self._no_call(family, OUTCOME_NO_TOKEN)
 
-        response = self._attempt(family, path, params, token, deadline)
+        response = self._attempt(family, path, params, token, deadline, extra)
         if response.status == 401:
             token = self._bearer(refresh=True)
             if token is None:
                 return response
-            response = self._attempt(family, path, params, token, deadline)
+            response = self._attempt(family, path, params, token, deadline, extra)
         return response
 
     def _attempt(
@@ -179,12 +193,15 @@ class MlHttpClient:
         params: Optional[Mapping[str, Any]],
         token: str,
         deadline: Optional[datetime],
+        extra_headers: Optional[Mapping[str, str]] = None,
     ) -> MlResponse:
         if self.pacer.acquire(family, deadline) != GRANTED:
             return self._no_call(family, DEADLINE)
         started = self._now()
         try:
-            raw = self._http.get(path, params=params, headers={"Authorization": f"Bearer {token}"})
+            raw = self._http.get(
+                path, params=params, headers={**(extra_headers or {}), "Authorization": f"Bearer {token}"}
+            )
         except httpx.TimeoutException:
             return self._finish(MlResponse(family, 0, None, {}, started, self._now(), error=ERROR_TIMEOUT))
         except httpx.TransportError as exc:
