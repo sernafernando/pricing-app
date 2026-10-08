@@ -47,6 +47,10 @@ class TestDefaults:
         assert get_setting("rate_per_sec").value == 2.0
         assert get_setting("bundle_resources").value == ["core"]
 
+    def test_the_default_bundle_does_not_fetch_stock(self, settings_db) -> None:
+        """S74.1: the per-location stock columns are filled only once an operator adds `stock`."""
+        assert "stock" not in get_setting("bundle_resources").value
+
     def test_mutating_a_returned_default_does_not_corrupt_the_config(self, settings_db) -> None:
         get_setting("bundle_resources").value.append("prices")
         assert get_setting("bundle_resources").value == ["core"]
