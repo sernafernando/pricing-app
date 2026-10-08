@@ -12,6 +12,7 @@ what lets `delete_stale` drop the rows ML no longer reports.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Iterable, Optional
@@ -225,3 +226,18 @@ def delete_stale(db: Session, advertiser_id: int, day: date, *, fetch_started_at
             )
         )
     db.flush()
+
+
+@dataclass(frozen=True)
+class DayCheck:
+    group_cost: Decimal
+    groups: int
+
+
+def day_check(db: Session, advertiser_id: int, day: date) -> DayCheck:
+    group_cost, groups = db.execute(
+        select(func.coalesce(func.sum(MlAdsAdGroupDay.cost), 0), func.count()).where(
+            MlAdsAdGroupDay.advertiser_id == advertiser_id, MlAdsAdGroupDay.day == day
+        )
+    ).one()
+    return DayCheck(Decimal(group_cost), groups)
