@@ -22,7 +22,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Mapping, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -94,6 +94,37 @@ class MarkupResult:
     items: Mapping[str, ItemMarkup]
     stats: MarkupStats
     ads_failed: bool = False  # the Ads provider raised: the figures are the plain markup
+
+
+@dataclass(frozen=True)
+class NodeMarkup:
+    """What a node of the Agrupado tree shows of the markup (owner decision 7): the publications with ANY negative
+    variation and the range of the markups of its publications. There is no average, and no Ads sum."""
+
+    negative_count: int
+    markup_min: Optional[float]  # None when no publication of the node has a value
+    markup_max: Optional[float]
+
+
+def aggregate_nodes(items: Mapping[str, ItemMarkup], members: Iterable[tuple[str, str]]) -> dict[str, NodeMarkup]:
+    """`node key -> NodeMarkup` from the publications' markup (`compute_markups`, Ads applied when asked) and the
+    `(item_id, node key)` pairs naming the node of each publication. A publication counts as negative exactly when
+    `/items?markup_neg=true` would list it, and its units all enter the range (`value_min` / `value_max` span every
+    variation with a value). A node only of publications without a value has a null range."""
+    negative: dict[str, int] = {}
+    low: dict[str, float] = {}
+    high: dict[str, float] = {}
+    for item_id, key in members:
+        item = items.get(item_id)
+        negative.setdefault(key, 0)
+        if item is None:
+            continue
+        markup = item.markup
+        negative[key] += markup.any_negative
+        if markup.value_min is not None and markup.value_max is not None:
+            low[key] = min(low.get(key, markup.value_min), markup.value_min)
+            high[key] = max(high.get(key, markup.value_max), markup.value_max)
+    return {key: NodeMarkup(count, low.get(key), high.get(key)) for key, count in negative.items()}
 
 
 def _units(inputs: PublicationInputs) -> list[UnitInputs]:

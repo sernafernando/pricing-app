@@ -22,13 +22,18 @@ Rules worth knowing before reading the code:
   publications stops being a leaf; opening it lists those families as nodes, and the publications that share their
   family with no other publication of the product stay as `item` nodes (an MLA is not a family of one).
 * The statement count is fixed: one page query and one count of the level, whatever the number of nodes.
+* With a `MarkupQuery` (the caller may see margins) each node also carries `negative_count`, `markup_min` and
+  `markup_max` (owner decision 7: no average, no Ads sum). They are aggregated in Python from P6's
+  computation (`compute_markups`: one inputs pass and one shipping batch, Ads applied when asked) over the
+  publications of the page's nodes, which one query names (the node of each publication), so the statements stay fixed and `negative_count` equals the `/items`
+  total with `markup_neg` under the node's `params`.
 
 Postgres only (`bool_or`); its tests are `@pytest.mark.postgres`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from sqlalchemy import String, case, cast, func, literal, select
@@ -50,6 +55,7 @@ from app.services.ml_publications.view.filters import (
     encode_key,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
+from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups
 
 KIND_PRODUCT = "producto"
 KIND_FAMILY = "familia"
@@ -83,6 +89,10 @@ class Node:
     codigo: Optional[str] = None
     family_id: Optional[int] = None
     item_id: Optional[str] = None
+    # markup figures: only with a `MarkupQuery` (`ml_metricas.ver_ganancia`); `markup_min/max` None = no value
+    negative_count: Optional[int] = None
+    markup_min: Optional[float] = None
+    markup_max: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +100,7 @@ class GroupsPage:
     level: str
     nodes: list[Node]
     total: int  # nodes of the level (not publications), for paging
+    ads_failed: bool = False  # the Ads provider raised: the figures are the plain markup
 
 
 def _dimensions() -> dict[str, Dimension]:
@@ -301,6 +312,42 @@ def _families(db: Session, f: PublicationFilter, path: list[str], limit: int, of
     return GroupsPage(KIND_FAMILY, nodes, total)
 
 
+def _members(db: Session, f: PublicationFilter, path: list[str], page: GroupsPage) -> list[tuple[str, str]]:
+    """`(item_id, node key)` of every publication of the page's nodes, the key written as the node's own."""
+    dimensions = _dimensions()
+    if page.level in dimensions:
+        key = dimensions[page.level].key
+    else:
+        key = product_key() if page.level == KIND_PRODUCT else family_key()
+    raw = {_raw_key(page.level, node.key): node.key for node in page.nodes}
+    rows = db.execute(_scoped(f, path, dimensions, T.i.item_id, key.label("k")).where(key.in_(list(raw)))).all()
+    return [(item_id, raw[k]) for item_id, k in rows]
+
+
+def _with_markup(
+    db: Session, f: PublicationFilter, path: list[str], page: GroupsPage, markup: MarkupQuery
+) -> GroupsPage:
+    """The page with the markup figures of its nodes: P6's computation (`compute_markups`), aggregated per node in
+    Python. It prices the publications of the page's nodes only (a deep level is a small slice of the set)."""
+    members = _members(db, f, path, page)
+    result = compute_markups(db, markup.pricing_db, item_ids=[item_id for item_id, _key in members], ads=markup.ads)
+    figures = aggregate_nodes(result.items, members)
+    nodes = []
+    for node in page.nodes:
+        found = figures.get(node.key)
+        nodes.append(
+            replace(node, negative_count=0, markup_min=None, markup_max=None)
+            if found is None
+            else replace(
+                node,
+                negative_count=found.negative_count,
+                markup_min=found.markup_min,
+                markup_max=found.markup_max,
+            )
+        )
+    return replace(page, nodes=nodes, ads_failed=result.ads_failed)
+
+
 def list_groups(
     db: Session,
     f: PublicationFilter,
@@ -309,13 +356,19 @@ def list_groups(
     familias: bool = False,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
+    markup: Optional[MarkupQuery] = None,
 ) -> GroupsPage:
-    """The children of the node `path` names (the roots for an empty path), one page, under the filters `f`."""
+    """The children of the node `path` names (the roots for an empty path), one page, under the filters `f`.
+    `markup` (the caller may see margins) adds each node's markup figures."""
     level = level_of(path, familias)
     _check_path(path)
     f = resolve_pm_pairs(db, f)
     if level == KIND_FAMILY:
-        return _families(db, f, path, limit, offset)
-    if level == KIND_PRODUCT:
-        return _products(db, f, path, familias, limit, offset)
-    return _group_level(db, f, path, level, limit, offset)
+        page = _families(db, f, path, limit, offset)
+    elif level == KIND_PRODUCT:
+        page = _products(db, f, path, familias, limit, offset)
+    else:
+        page = _group_level(db, f, path, level, limit, offset)
+    if markup is None or not page.nodes:
+        return page
+    return _with_markup(db, f, path, page, markup)
