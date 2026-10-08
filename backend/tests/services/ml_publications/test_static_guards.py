@@ -164,6 +164,8 @@ class TestScannersCatchOffenders:
         assert erp_violations(VIEW_VARIATIONS_READER, "from app.services.gbp_client import x") != []
         assert erp_violations(VIEW_MARKUP_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
         assert erp_violations("view/markup_service.py", "ProductoERP") == ["ProductoERP"]
+        # the tree (P7a) reads the catalog only through the base select of `view/filters.py`: no fifth exception
+        assert erp_violations("view/groups.py", catalog) == ["ProductoERP"]
 
     def test_links_import_scanner_sees_both_import_spellings(self) -> None:
         assert uses_links_module("from app.services.ml_publications import links")
