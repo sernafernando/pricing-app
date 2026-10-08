@@ -206,7 +206,7 @@ def explain(session: Session, statement, analyze: bool = True) -> str:
 def page_statement(f, limit: int = 50, **sort):
     """The page SELECT of `list_items` for `f` (all row columns, default ordering)."""
     return (
-        build_base_select(f, *listing._row_columns())
+        build_base_select(f, *listing.row_columns())
         .order_by(*listing._order_by(listing.parse_sort(sort.get("orden"), sort.get("dir"))))
         .limit(limit)
     )

@@ -9,6 +9,8 @@ joins it).
 - `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree (marca >
   categoria > subcategoria > producto > [familia]), with the same filters as `/items`; the publications of a leaf node
   come from `/items` with the node's `params`.
+- `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
+  the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
   422 that names the offending query parameter. Nothing here calls Mercado Libre and nothing writes.
@@ -29,7 +31,7 @@ from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services.ml_publications import admin, settings_store
-from app.services.ml_publications.view import groups, listing, status_block, variations
+from app.services.ml_publications.view import detail, groups, listing, status_block, variations
 from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
 from app.services.ml_publications.view.filters import (
     FilterError,
@@ -45,6 +47,7 @@ from app.services.permisos_service import PermisosService
 
 PERMISO_VER = "ml_ops.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
+PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
 SLOW_QUERY_CODE = "consulta_lenta"
 
@@ -248,6 +251,126 @@ class VariationsResponse(BaseModel):
     can_see_margin: bool
     variations: list[VariationOut]
     ads: Optional[VariationsAdsOut] = None  # present only with ml_metricas.ver_ganancia
+
+
+class StockLocationOut(BaseModel):
+    type: str
+    quantity: int
+
+
+class ReplenishmentOut(BaseModel):
+    """Full replenishment of the publication's user product; `status` is `ok`, `partial` (a 206: `content_missing`
+    names what ML did not send), `not_found`, `error` or `never_fetched` (nothing stored yet: every figure is null).
+    The whole block is null when the publication is not Full."""
+
+    status: str
+    content_missing: Optional[str] = None
+    period: Optional[str] = None
+    units_30d: Optional[int] = None
+    gmv_30d: Optional[float] = None
+    currency: Optional[str] = None
+    units_7d: Optional[int] = None
+    units_14d: Optional[int] = None
+    units_21d: Optional[int] = None
+    days_out_of_stock_21d: Optional[int] = None
+    shipping_urgency: Optional[str] = None
+    total_stock: Optional[int] = None
+    minimum_distributable_stock: Optional[int] = None
+    history_through: Optional[date] = None
+    fetched_at: Optional[datetime] = None
+
+
+class DetailLinkOut(BaseModel):
+    """The link of one unit (`variation_id` 0 is the item level) and the product it points at (null when the link
+    has none or the product vanished)."""
+
+    variation_id: int
+    state: str
+    source: Optional[str] = None
+    match_status: str
+    producto_item_id: Optional[int] = None
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
+    marca: Optional[str] = None
+    matched_sku: Optional[str] = None
+    sku_field: Optional[str] = None
+    suggested_producto_item_id: Optional[int] = None
+    suggestion_status: Optional[str] = None
+    linked_at: Optional[datetime] = None
+    note: Optional[str] = None
+
+
+class DetailProductOut(BaseModel):
+    """The product of the item-level link. `precios_lista` is by pricelist id (4 classic, 17/14/13/23 = 3/6/9/12
+    installments). `costo`, `moneda_costo` and `iva` appear only with `ml_metricas.ver_ganancia`."""
+
+    item_id: int
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
+    marca: Optional[str] = None
+    categoria: Optional[str] = None
+    subcategoria_id: Optional[int] = None
+    subcategoria: Optional[str] = None
+    precios_lista: dict[str, Optional[float]]
+    costo: Optional[float] = None
+    moneda_costo: Optional[str] = None
+    iva: Optional[float] = None
+
+
+class MarkupBreakdownOut(BaseModel):
+    """How the markup of the publication's worst unit is made (`variation_id` null: the item-level unit): the price
+    and where it comes from, the list that prices it and its installments, the commission (percent and amount), the
+    shipping cost and its source, the net, the cost in pesos and the markup (percent). Only for users with
+    `ml_metricas.ver_ganancia`; null when no unit could be priced (the row's `markup.reason` says why)."""
+
+    variation_id: Optional[int] = None
+    price: float
+    price_source: str
+    pricelist_id: int
+    installments: Optional[int] = None
+    comision_pct: float
+    comision_total: float
+    costo_envio: float
+    envio_source: str
+    limpio: float
+    costo_ars: float
+    markup: float
+
+
+class FreshnessOut(BaseModel):
+    """How fresh one stored resource is: `ok`, `not_found`, `error`, `gone` (the publication itself) or
+    `never_fetched`."""
+
+    resource: str
+    state: str
+    fetched_at: Optional[datetime] = None
+    last_checked_at: Optional[datetime] = None
+    http_status: Optional[int] = None
+
+
+class ItemDetailResponse(BaseModel):
+    """`row` is the list's row for this publication; `item` holds every `ml_items` column but the body (`raw`) and its
+    hash; `extra` is the whitelisted part of the body (see `view/detail.py`). The variations are not here: they are
+    `/items/{item_id}/variations`."""
+
+    row: ItemRowOut
+    item: dict[str, Any]
+    extra: dict[str, Any]
+    sub_status: list[str]
+    tags: list[str]
+    health: Optional[float] = None
+    condition: Optional[str] = None
+    date_created: Optional[datetime] = None
+    ml_last_updated: Optional[datetime] = None
+    fetched_at: Optional[datetime] = None
+    stock_locations: Optional[list[StockLocationOut]] = None
+    stock_as_of: Optional[datetime] = None
+    replenishment: Optional[ReplenishmentOut] = None
+    links: list[DetailLinkOut]
+    product: Optional[DetailProductOut] = None
+    markup_breakdown: Optional[MarkupBreakdownOut] = None  # present only with ml_metricas.ver_ganancia
+    freshness: list[FreshnessOut]
+    can_resync: bool
 
 
 class GroupNodeOut(BaseModel):
@@ -606,3 +729,38 @@ def get_item_variations(
         if found.ads is not None:
             body["ads"]["publication"] = found.ads
     return body
+
+
+@router.get("/items/{item_id}", response_model=ItemDetailResponse, response_model_exclude_unset=True)
+def get_item_detail(
+    response: Response,
+    item_id: str = Path(..., pattern=admin.ITEM_ID_PATTERN),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission checks and the pricing tables (see `get_items`)
+) -> dict[str, Any]:
+    """The Resumen of one publication: its row, every stored field, stock per location, Full replenishment, all
+    links and the product, how fresh each resource is and whether the caller may resynchronize it. With
+    `ml_metricas.ver_ganancia`, also the product's cost, the row's markup and the breakdown of the markup."""
+    timer = Timer("detail")
+    permisos = PermisosService(auth_db)
+    can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
+    can_resync = permisos.tiene_permiso(user, PERMISO_GESTIONAR)
+    try:
+        with timer.stage("flags"):
+            events_enabled = settings_store.get_setting("events.enabled").value is True
+        markup = MarkupQuery(auth_db) if can_see_margin else None
+        with timer.stage("detail"):
+            found = detail.get_detail(db, item_id, events=events_enabled, markup=markup)
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    if found is None:
+        raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"La publicación {item_id} no existe")
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(links=len(found["links"]))
+    found["can_resync"] = can_resync
+    return found

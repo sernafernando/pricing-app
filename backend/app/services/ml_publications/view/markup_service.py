@@ -30,7 +30,14 @@ from sqlalchemy.orm import Session
 from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.ml_publications.view.ads import AdsCostProvider, ads_row, apply_ads
 from app.services.ml_publications.view.filters import MarkupFilter, PublicationFilter
-from app.services.ml_publications.view.markup import PublicationMarkup, UnitInputs, aggregate_publication, unit_markup
+from app.services.ml_publications.view.markup import (
+    PublicationMarkup,
+    UnitBreakdown,
+    UnitInputs,
+    aggregate_publication,
+    unit_breakdown,
+    unit_markup,
+)
 from app.services.ml_publications.view.markup_inputs import PublicationInputs, fetch_inputs
 from app.services.ml_publications.view.units_sold import UnitsSoldProvider
 from app.services.pricing_context import PricingContext, build_pricing_context
@@ -204,3 +211,52 @@ def compute_markups(
         ms=round((time.perf_counter() - started) * 1000, 1),
     )
     return MarkupResult(items, stats, ads_failed=ads is not None and with_ads is None)
+
+
+@dataclass(frozen=True)
+class DetailMarkup:
+    """The markup of one publication as the list computes it plus the breakdown of one of its units.
+
+    `breakdown` explains the unit that sorts the publication: the worst variation (`variation_id`), or the
+    item-level unit (`variation_id` None) when it has no variations; None when no unit has a value."""
+
+    item: ItemMarkup
+    breakdown: Optional[UnitBreakdown]
+    variation_id: Optional[int]
+
+
+def _worst_unit(
+    publication: PublicationInputs, markup: PublicationMarkup
+) -> tuple[Optional[UnitInputs], Optional[int]]:
+    """The inputs (and variation id) of the unit with the lowest value; the first of equal ones."""
+    units = (
+        [
+            (vid, own if own is not None else publication.item_unit)
+            for vid, own in zip(publication.variation_ids, publication.variation_units)
+        ]
+        if publication.variation_ids
+        else [(None, publication.item_unit)]
+    )
+    best: Optional[tuple[float, Optional[int], UnitInputs]] = None
+    for (variation_id, unit), priced in zip(units, markup.variations):
+        if priced.value is not None and (best is None or priced.value < best[0]):
+            best = (priced.value, variation_id, unit)
+    return (None, None) if best is None else (best[2], best[1])
+
+
+def compute_detail(
+    db: Session, pricing_db: Session, item_id: str, *, ctx: Optional[PricingContext] = None
+) -> Optional[DetailMarkup]:
+    """Markup and breakdown of ONE publication: the inputs (three statements), one shipping batch for its priceable
+    products and the pure functions of the list (`price_publication`, `unit_breakdown`). `None` when the publication
+    is not in the store. No Ads: the detail explains the plain markup."""
+    publication = fetch_inputs(db, item_ids=[item_id]).get(item_id)
+    if publication is None:
+        return None
+    products = _priceable_products([publication])
+    envio: Mapping[int, float] = resolver_costos_envio_batch(pricing_db, products) if products else {}
+    ctx = ctx or build_pricing_context(pricing_db)
+    markup = price_publication(ctx, publication, envio)
+    unit, variation_id = _worst_unit(publication, markup)
+    breakdown = unit_breakdown(ctx, unit, envio) if unit is not None else None
+    return DetailMarkup(ItemMarkup(markup, variation_ids=publication.variation_ids), breakdown, variation_id)

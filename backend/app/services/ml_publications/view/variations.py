@@ -43,7 +43,7 @@ class VariationsResult:
     ads_failed: bool = False
 
 
-def _link_state(match_status: Optional[str], source: Optional[str]) -> str:
+def link_state_of(match_status: Optional[str], source: Optional[str]) -> str:
     """The list's `link.state` rule, over the columns of one link row (`None` = no row)."""
     if match_status is None:
         return "no_evaluado"
@@ -133,7 +133,7 @@ def _sub_row(row: Any, margin: bool) -> dict[str, Any]:
     use_own = row.own_product_id is not None
     prefix = "own" if use_own else "base"
     product_id = row.own_product_id if use_own else row.base_product_id
-    state = _link_state(LINK_LINKED, row.own_source) if use_own else _link_state(row.base_status, row.base_source)
+    state = link_state_of(LINK_LINKED, row.own_source) if use_own else link_state_of(row.base_status, row.base_source)
     out: dict[str, Any] = {
         "variation_id": row.variation_id,
         "seller_sku": row.seller_sku,
