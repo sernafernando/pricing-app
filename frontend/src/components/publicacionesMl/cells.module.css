@@ -69,3 +69,23 @@
   color: var(--cf-text-tertiary);
   white-space: nowrap;
 }
+
+.markup {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.markup[data-negative] {
+  color: var(--tone-danger-fg);
+}
+
+/* Says what the markup sort orders by, inside the sortable header. */
+.sortHint {
+  margin-left: var(--spacing-xs);
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}

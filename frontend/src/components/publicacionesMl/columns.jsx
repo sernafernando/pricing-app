@@ -6,6 +6,8 @@ import LinkBadge from './LinkBadge';
 import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
+import MarkupCell from './MarkupCell';
+import styles from './cells.module.css';
 
 /**
  * Columns of the Publicaciones ML table (`TableShell` shape). A sortable
@@ -19,10 +21,16 @@ export const DEFAULT_DIRECTION = {
   titulo: 'asc',
   precio: 'asc',
   stock_full: 'desc',
+  // Worst variation first: the most negative markup on top.
+  markup: 'asc',
 };
 
-/** `eventsEnabled` false drops the last-event column altogether (S56.2). */
-export function buildColumns({ eventsEnabled }) {
+/**
+ * `eventsEnabled` false drops the last-event column altogether (S56.2).
+ * `canSeeMargin` (`ml_metricas.ver_ganancia`) is what lets the markup column
+ * exist at all: without it there is no column, not a column of dashes.
+ */
+export function buildColumns({ eventsEnabled, canSeeMargin = false }) {
   const columns = [
     { key: 'titulo', header: 'Publicación', width: 340, sortable: true, render: (item) => <PublicationCell item={item} /> },
     {
@@ -32,6 +40,23 @@ export function buildColumns({ eventsEnabled }) {
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
     { key: 'precio', header: 'Precio', width: 160, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
+    ...(canSeeMargin
+      ? [
+          {
+            key: 'markup',
+            header: (
+              <>
+                Markup <span className={styles.sortHint}>peor variación</span>
+              </>
+            ),
+            label: 'Markup',
+            width: 170,
+            sortable: true,
+            align: 'right',
+            render: (item) => <MarkupCell markup={item.markup} />,
+          },
+        ]
+      : []),
     { key: 'stock_full', header: 'Stock', width: 140, sortable: true, align: 'right', render: (item) => <StockCell stock={item.stock} /> },
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },
