@@ -182,14 +182,18 @@ class AutoConfig:
     small_mla: Optional[str]
 
 
-def pick_user(names: Iterable[str], permissions_of: Callable[[str], Iterable[str]]) -> Optional[str]:
-    """The first user that holds every required permission; one whose permissions cannot be read is skipped."""
+def pick_user(
+    names: Iterable[str], permissions_of: Callable[[str], Iterable[str]], failures: Optional[list[str]] = None
+) -> Optional[str]:
+    """The first user that holds every required permission; one whose permissions cannot be read is skipped (and
+    its error appended to `failures`, so the caller can say why nobody was found)."""
     for name in names:
         try:
             if REQUIRED_PERMISSIONS <= set(permissions_of(name)):
                 return name
-        except Exception:
-            continue
+        except Exception as exc:
+            if failures is not None:
+                failures.append(f"{name}: {exc}")
     return None
 
 
@@ -218,8 +222,11 @@ def auto_config() -> Optional[AutoConfig]:
             for u in db.query(Usuario).filter(Usuario.activo.is_(True)).order_by(Usuario.id).all()
             if (u.username or u.email)
         }
-        username = pick_user(users, lambda name: service.obtener_permisos_usuario(users[name]))
+        failures: list[str] = []
+        username = pick_user(users, lambda name: service.obtener_permisos_usuario(users[name]), failures)
         if username is None:
+            for failure in failures[:3]:
+                print(f"could not read the permissions of {failure}")
             return None
         counted = (
             "SELECT v.item_id FROM ml_item_variations v JOIN ml_items i ON i.item_id = v.item_id "

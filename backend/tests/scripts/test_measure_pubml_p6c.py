@@ -127,6 +127,14 @@ class TestPureHelpers:
 
         assert script.pick_user(["broken", "ok"], perms) == "ok"
 
+    def test_the_errors_of_the_skipped_users_are_reported_to_the_caller(self, script) -> None:
+        def perms(name: str):
+            raise RuntimeError("boom")
+
+        failures: list[str] = []
+        assert script.pick_user(["broken"], perms, failures) is None
+        assert failures == ["broken: boom"]
+
 
 class TestRun:
     def test_every_scenario_is_one_warmup_plus_twenty_get_requests_with_the_token(self, script, capsys) -> None:

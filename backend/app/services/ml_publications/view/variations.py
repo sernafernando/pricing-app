@@ -162,7 +162,7 @@ def _markup_out(unit: UnitMarkup) -> dict[str, Any]:
     return {"value": _round(unit.value), "reason": unit.reason}
 
 
-def _ads_out(item: ItemMarkup) -> Optional[dict[str, Any]]:
+def _publication_ads(item: ItemMarkup) -> Optional[dict[str, Any]]:
     if item.ads is None:
         return None
     return {
@@ -175,7 +175,9 @@ def _ads_out(item: ItemMarkup) -> Optional[dict[str, Any]]:
 
 def list_variations(db: Session, item_id: str, markup: Optional[MarkupQuery] = None) -> Optional[VariationsResult]:
     """The sub-rows of `item_id`, or `None` when the publication is not in the store. `markup` (its presence means
-    the caller may see margins) adds cost and markup to each sub-row, after Ads when the query carries a plan."""
+    the caller may see margins) adds cost and markup to each sub-row, after Ads when the query carries a plan.
+    A publication with no live variations has no sub-rows to price: the Ads status still says what was asked, but
+    there are no `publication` figures, and nothing is computed."""
     rows = _rows(db, item_id)
     if not rows:
         return None
@@ -192,4 +194,4 @@ def list_variations(db: Session, item_id: str, markup: Optional[MarkupQuery] = N
     for sub_row in sub_rows:
         unit = units.get(sub_row["variation_id"])
         sub_row["markup"] = _markup_out(unit) if unit is not None else {"value": None, "reason": STALE_REASON}
-    return VariationsResult(sub_rows, _ads_out(item) if item is not None else None, computed.ads_failed)
+    return VariationsResult(sub_rows, _publication_ads(item) if item is not None else None, computed.ads_failed)
