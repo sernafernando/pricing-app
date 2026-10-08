@@ -1,7 +1,7 @@
 """ml-billing-balance PR 2b: billing documents + document/legal columns on charges
 
 Revision ID: 20261011_ml_billing_documents
-Revises: 20261010_ml_user_product_stock_locations
+Revises: 20261012_merge_ads_pubml
 Create Date: 2026-10-11
 
 - `ml_billing_documents`: one row per ML document (invoice or credit note) with
@@ -20,7 +20,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20261011_ml_billing_documents"
-down_revision: Union[str, None] = "20261010_ml_user_product_stock_locations"
+down_revision: Union[str, None] = "20261012_merge_ads_pubml"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
