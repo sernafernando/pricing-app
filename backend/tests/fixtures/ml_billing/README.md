@@ -37,3 +37,13 @@ Seven complete rows, copied verbatim from
 `payer_nickname` and `state_name`), BVFV (BONUS), BPAD (BONUS), CXD, CSSTEC
 and PADS (no `items_info` and no `sales_info`). Every row carries
 `marketplace_info` and `currency_info`.
+
+## `documents_2026_09_01.json` (PR 2b)
+
+Source: the same capture, `ml.documents.BILL.results` (2 documents:
+5140824542 and 5140811928) and `ml.documents.CREDIT_NOTE.results` (5
+documents), period `2026-09-01`, requested as
+`/documents?group=ML&document_type=...`. Copied verbatim, nothing stripped:
+`amount`, `unpaid_amount`, `count_details`, `associated_document_id` and
+`files[].reference_number` (`0058A00975220`, `0001A03750426`, ...) are ML's own.
+The capture stored the response list under `results`.

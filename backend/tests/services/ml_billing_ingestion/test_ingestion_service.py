@@ -14,13 +14,18 @@ Spec coverage:
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import func
 
-from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
-from app.services.ml_billing_ingestion.ingestion_service import upsert_billing_charge
-from app.services.ml_billing_ingestion.mapper import BillingChargeDTO
+from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder, MlBillingDocument
+from app.services.ml_billing_ingestion.ingestion_service import (
+    upsert_billing_charge,
+    upsert_billing_document,
+)
+from app.services.ml_billing_ingestion.mapper import BillingChargeDTO, map_billing_document
 
 
 def _pack_dto() -> BillingChargeDTO:
@@ -121,3 +126,82 @@ class TestIdempotent:
 
         charge = db.query(MlBillingCharge).filter(MlBillingCharge.detail_id == "SHIP-1").one()
         assert charge.amount == 99999.0
+
+
+# --- ml-billing-balance PR 2b: documents (BD-1, BD-3) -----------------------
+
+_DOCUMENTS = json.loads(
+    (Path(__file__).resolve().parents[2] / "fixtures" / "ml_billing" / "documents_2026_09_01.json").read_text()
+)
+
+
+def _document_dto(document_type: str, document_id: int, **overrides):
+    raw = next(d for d in _DOCUMENTS[document_type] if d["id"] == document_id)
+    raw = {**raw, **overrides}
+    return map_billing_document(raw, "2026-09-01", "ML")
+
+
+class TestDocumentUpsert:
+    def test_bill_is_stored_with_ml_values_and_parsed_reference(self, db) -> None:
+        upsert_billing_document(db, _document_dto("BILL", 5140824542))
+        db.commit()
+
+        doc = db.query(MlBillingDocument).one()
+        assert doc.document_id == "5140824542"
+        assert doc.amount == Decimal("534258231.37")
+        assert doc.count_details == 26056
+        assert (doc.reference_number, doc.legal_point_of_sale, doc.legal_letter, doc.legal_number) == (
+            "0058A00975220",
+            58,
+            "A",
+            975220,
+        )
+        assert doc.raw["id"] == 5140824542
+
+    def test_credit_note_is_stored_though_the_referenced_invoice_is_absent(self, db) -> None:
+        upsert_billing_document(db, _document_dto("CREDIT_NOTE", 5144645696))
+        db.commit()
+
+        doc = db.query(MlBillingDocument).one()
+        assert doc.document_type == "CREDIT_NOTE"
+        assert doc.associated_document_id == "5032752366"
+        assert db.query(MlBillingDocument).filter_by(document_id="5032752366").count() == 0
+
+    def test_refetch_updates_mutable_fields_without_duplicating(self, db) -> None:
+        upsert_billing_document(db, _document_dto("BILL", 5140824542, unpaid_amount=1500.5, document_status="OPEN"))
+        db.commit()
+        upsert_billing_document(db, _document_dto("BILL", 5140824542))
+        db.commit()
+
+        assert db.query(MlBillingDocument).count() == 1
+        doc = db.query(MlBillingDocument).one()
+        assert doc.document_status == "BILLED"
+        assert doc.unpaid_amount == Decimal("0")
+
+
+class TestChargeStoresDocumentAndLegalFields:
+    def test_the_new_columns_are_written_and_updated(self, db) -> None:
+        dto = BillingChargeDTO(
+            detail_id="70000000001",
+            period_key="2026-09-01",
+            detail_type="CHARGE",
+            detail_sub_type="CVFV",
+            amount=Decimal("100.00"),
+            document_id="5140824542",
+            raw_detail={},
+            document_type="BILL",
+            legal_document_number=None,
+            legal_document_status="PROCESSING",
+        )
+        upsert_billing_charge(db, dto)
+        db.commit()
+        later = BillingChargeDTO(
+            **{**dto.__dict__, "legal_document_number": "0058A00975220", "legal_document_status": "PROCESSED"}
+        )
+        upsert_billing_charge(db, later)
+        db.commit()
+
+        charge = db.query(MlBillingCharge).one()
+        assert charge.document_type == "BILL"
+        assert charge.billing_source == "general"
+        assert (charge.legal_document_number, charge.legal_document_status) == ("0058A00975220", "PROCESSED")

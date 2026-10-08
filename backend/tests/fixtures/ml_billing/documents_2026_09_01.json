@@ -1,0 +1,167 @@
+{
+  "BILL": [
+    {
+      "id": 5140811928,
+      "user_id": 413658225,
+      "document_type": "BILL",
+      "expiration_date": "2026-09-22",
+      "associated_document_id": null,
+      "amount": 56674709.86,
+      "unpaid_amount": 0.0,
+      "document_status": "BILLED",
+      "site_id": "MLA",
+      "period": {
+        "date_from": "2026-08-17",
+        "date_to": "2026-09-17"
+      },
+      "currency_id": "ARS",
+      "count_details": 7204,
+      "files": [
+        {
+          "file_id": "3272107963",
+          "reference_number": "0001A03750426"
+        }
+      ]
+    },
+    {
+      "id": 5140824542,
+      "user_id": 413658225,
+      "document_type": "BILL",
+      "expiration_date": "2026-09-22",
+      "associated_document_id": null,
+      "amount": 534258231.37,
+      "unpaid_amount": 0.0,
+      "document_status": "BILLED",
+      "site_id": "MLA",
+      "period": {
+        "date_from": "2026-08-17",
+        "date_to": "2026-09-17"
+      },
+      "currency_id": "ARS",
+      "count_details": 26056,
+      "files": [
+        {
+          "file_id": "3272435881",
+          "reference_number": "0058A00975220"
+        }
+      ]
+    }
+  ],
+  "CREDIT_NOTE": [
+    {
+      "id": 5144645696,
+      "user_id": 413658225,
+      "document_type": "CREDIT_NOTE",
+      "expiration_date": "2026-09-22",
+      "associated_document_id": 5032752366,
+      "amount": 6254513.0,
+      "unpaid_amount": 0,
+      "document_status": "BILLED",
+      "site_id": "MLA",
+      "period": {
+        "date_from": "2026-08-17",
+        "date_to": "2026-09-17"
+      },
+      "currency_id": "ARS",
+      "count_details": 138,
+      "files": [
+        {
+          "file_id": "3272527108",
+          "reference_number": "0058A00404299"
+        }
+      ]
+    },
+    {
+      "id": 5145502415,
+      "user_id": 413658225,
+      "document_type": "CREDIT_NOTE",
+      "expiration_date": "2026-09-22",
+      "associated_document_id": 5032875113,
+      "amount": 375314.11,
+      "unpaid_amount": 0,
+      "document_status": "BILLED",
+      "site_id": "MLA",
+      "period": {
+        "date_from": "2026-08-17",
+        "date_to": "2026-09-17"
+      },
+      "currency_id": "ARS",
+      "count_details": 45,
+      "files": [
+        {
+          "file_id": "3273238703",
+          "reference_number": "0019A00180944"
+        }
+      ]
+    },
+    {
+      "id": 5148156085,
+      "user_id": 413658225,
+      "document_type": "CREDIT_NOTE",
+      "expiration_date": "2026-09-22",
+      "associated_document_id": 4928750308,
+      "amount": 89463.11,
+      "unpaid_amount": 0,
+      "document_status": "BILLED",
+      "site_id": "MLA",
+      "period": {
+        "date_from": "2026-08-18",
+        "date_to": "2026-09-17"
+      },
+      "currency_id": "ARS",
+      "count_details": 8,
+      "files": [
+        {
+          "file_id": "3272522073",
+          "reference_number": "0057A00404029"
+        }
+      ]
+    },
+    {
+      "id": 5148156162,
+      "user_id": 413658225,
+      "document_type": "CREDIT_NOTE",
+      "expiration_date": "2026-09-22",
+      "associated_document_id": 4928771528,
+      "amount": 27784.11,
+      "unpaid_amount": 0,
+      "document_status": "BILLED",
+      "site_id": "MLA",
+      "period": {
+        "date_from": "2026-08-18",
+        "date_to": "2026-09-17"
+      },
+      "currency_id": "ARS",
+      "count_details": 4,
+      "files": [
+        {
+          "file_id": "3272536719",
+          "reference_number": "0001A01269705"
+        }
+      ]
+    },
+    {
+      "id": 5224932860,
+      "user_id": 413658225,
+      "document_type": "CREDIT_NOTE",
+      "expiration_date": "2026-09-22",
+      "associated_document_id": 5032752366,
+      "amount": 8675215.0,
+      "unpaid_amount": 0,
+      "document_status": "BILLED",
+      "site_id": "MLA",
+      "period": {
+        "date_from": "2026-09-09",
+        "date_to": "2026-09-17"
+      },
+      "currency_id": "ARS",
+      "count_details": 1,
+      "files": [
+        {
+          "file_id": "3271866525",
+          "reference_number": "0058A00404295"
+        }
+      ]
+    }
+  ]
+}
