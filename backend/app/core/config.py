@@ -146,6 +146,11 @@ class Settings(BaseSettings):
     # with promos/PxQ/everything else, so this must stay opt-in per
     # environment until the sweep is proven safe in production.
     ML_BILLING_ENABLED: bool = False
+    # Kill-switch for the ML Product Ads day ingestion (ml-billing-balance, ADS-7). Default OFF:
+    # the worker handler (a later PR) makes no ML call and writes nothing until it is set at deploy.
+    # ML keeps ad history for ML_ADS_RETENTION_DAYS days, which is also the backfill window.
+    ML_ADS_ENABLED: bool = False
+    ML_ADS_RETENTION_DAYS: int = Field(default=90, ge=1, le=90)
 
     # ML publications store (ml-publicaciones-store, design D19). Runtime flags
     # live in `ml_pub_settings` (DB); the values below are only the DEFAULT used
