@@ -29,24 +29,18 @@ def add_item(conn, item_id: str, **columns: Any) -> None:
 
 
 def add_variation(conn, item_id: str, variation_id: int, **columns: Any) -> None:
+    """A variation row; `raw` (the captured JSON, as a dict) may be overridden, e.g. for `attribute_combinations`."""
     row = {
         "item_id": item_id,
         "variation_id": variation_id,
-        "raw": json.dumps({"id": variation_id}),
+        "raw": {"id": variation_id},
         "raw_hash": b"\x00",
         "fetched_at": NOW,
         **columns,
     }
-    conn.execute(
-        text(
-            "INSERT INTO ml_item_variations (item_id, variation_id, raw, raw_hash, fetched_at"
-            + "".join(f", {c}" for c in columns)
-            + ") VALUES (:item_id, :variation_id, CAST(:raw AS jsonb), :raw_hash, :fetched_at"
-            + "".join(f", :{c}" for c in columns)
-            + ")"
-        ),
-        row,
-    )
+    row["raw"] = json.dumps(row["raw"])
+    values = ", ".join("CAST(:raw AS jsonb)" if name == "raw" else f":{name}" for name in row)
+    conn.execute(text(f"INSERT INTO ml_item_variations ({', '.join(row)}) VALUES ({values})"), row)
 
 
 def add_product(

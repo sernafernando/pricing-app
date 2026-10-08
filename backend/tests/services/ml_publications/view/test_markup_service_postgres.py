@@ -135,6 +135,12 @@ class TestValues:
         got = markup_service.compute_markups(db, db, ctx=ctx, item_ids=["MLA1"]).items["MLA1"].markup
         assert got.reason == "sin_comision" and got.worst is None
 
+    def test_the_result_names_the_variation_of_each_unit(self, conn, db, envio_calls) -> None:
+        seed_catalog(conn)
+        got = markup_service.compute_markups(db, db, ctx=make_ctx(), item_ids=["MLA7", "MLA1"]).items
+        assert got["MLA7"].variation_ids == (11, 12) and len(got["MLA7"].markup.variations) == 2
+        assert got["MLA1"].variation_ids == ()  # no variations: the item-level unit is the whole publication
+
     def test_a_missing_item_is_absent(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)
         assert markup_service.compute_markups(db, db, ctx=make_ctx(), item_ids=["MLA404"]).items == {}

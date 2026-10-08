@@ -19,9 +19,12 @@ from tests.services.ml_publications.conftest import FIXTURES_DIR, SUBRESOURCE_FI
 # PR5L2 adds exactly the links router, publicaciones-ml-vista P5 adds exactly `view/filters.py` (the
 # management screen searches and filters publications by the linked product: a reader for people, not
 # ingestion from ML; see `test_static_guards.py`) and P6 adds exactly `view/markup_inputs.py` (the cost fields
-# the markup of a page or filtered set is computed from). The allowance covers the catalog only: GBP clients
+# the markup of a page or filtered set is computed from) and P6c adds exactly `view/variations.py` (the code,
+# name and brand of the product each variation sub-row is priced with). The allowance covers the catalog only: GBP clients
 # and the other ERP-mirror tables stay forbidden everywhere.
-ERP_ALLOW_LIST: frozenset[str] = frozenset({"links.py", "view/filters.py", "view/markup_inputs.py"})
+ERP_ALLOW_LIST: frozenset[str] = frozenset(
+    {"links.py", "view/filters.py", "view/markup_inputs.py", "view/variations.py"}
+)
 CATALOG_NAMES = ("productos_erp", "ProductoERP")
 CATALOG_IMPORT_TOKEN = "producto"
 
@@ -153,7 +156,7 @@ def test_package_never_imports_gbp_or_names_erp_mirror_tables():
 
 
 def test_allow_list_is_exactly_the_linking_module_and_the_view_extraction_modules():
-    assert ERP_ALLOW_LIST == frozenset({"links.py", "view/filters.py", "view/markup_inputs.py"})
+    assert ERP_ALLOW_LIST == frozenset({"links.py", "view/filters.py", "view/markup_inputs.py", "view/variations.py"})
 
 
 def test_the_promotions_resource_name_is_defined_once_and_shared():

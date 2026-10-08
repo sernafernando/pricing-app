@@ -133,6 +133,7 @@ class TestVariations:
         assert inputs.item_unit.producto_item_id == 70
         assert [u.producto_item_id if u else None for u in inputs.variation_units] == [None, 71, None]
         assert inputs.variation_units[1].costo == 7100.0
+        assert inputs.variation_ids == (11, 12, 13)  # the id of each entry of `variation_units`, same order
 
     def test_variation_units_share_the_publication_price_and_listing_inputs(self, conn, db) -> None:
         seed.add_product(conn, 71, "B", "Producto B")

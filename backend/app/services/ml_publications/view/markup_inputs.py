@@ -48,11 +48,13 @@ DEFAULT_IVA = 21.0
 @dataclass(frozen=True)
 class PublicationInputs:
     """Everything needed to price one publication: its item-level unit and one entry per live variation
-    (`None` when that variation has no link of its own; the fallback to the item-level unit is `markup`'s)."""
+    (`None` when that variation has no link of its own; the fallback to the item-level unit is `markup`'s).
+    `variation_ids` names the variation of each entry of `variation_units`, in the same order."""
 
     item_id: str
     item_unit: UnitInputs
     variation_units: tuple[Optional[UnitInputs], ...]
+    variation_ids: tuple[int, ...] = ()
 
 
 def _ids_param(ids: Sequence[str]) -> Any:
@@ -186,7 +188,7 @@ def _variation_link_rows(db: Session, ids: Sequence[str]) -> list[Any]:
     )
 
 
-def _currency(value: Any) -> Optional[str]:
+def currency_of(value: Any) -> Optional[str]:
     return getattr(value, "value", value)
 
 
@@ -230,7 +232,7 @@ def fetch_inputs(
             fallback_prices=prices,
             producto_item_id=link.producto_item_id,
             costo=_floats(link.costo),
-            moneda_costo=_currency(link.moneda_costo),
+            moneda_costo=currency_of(link.moneda_costo),
             iva=DEFAULT_IVA if link.iva is None else float(link.iva),
             envio=_floats(link.envio),
             subcategoria_id=link.subcategoria_id,
@@ -242,5 +244,7 @@ def fetch_inputs(
             unit(item, links[(item.item_id, v)]) if (item.item_id, v) in links else None
             for v in variations.get(item.item_id, ())
         ]
-        inputs[item.item_id] = PublicationInputs(item.item_id, unit(item, item), tuple(own))
+        inputs[item.item_id] = PublicationInputs(
+            item.item_id, unit(item, item), tuple(own), tuple(variations.get(item.item_id, ()))
+        )
     return inputs
