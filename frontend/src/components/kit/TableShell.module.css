@@ -1,0 +1,160 @@
+/* TableShell -- its own scroller, bounded on BOTH axes.
+
+   `overflow: auto` + `max-height` make `.scroller` the sticky context for
+   the header (`top: 0`) and the first column (`left: 0`) at ANY width. The
+   page-level TopBar offset is NOT used inside it (#1419: a horizontal
+   scroll container re-anchors `top: var(--cf-topbar-height)` and pushed the
+   header over the first row). Tokens only: no literal colours. */
+
+.scroller {
+  overflow: auto;
+  max-width: 100%;
+  max-height: calc(100vh - var(--cf-topbar-height) - var(--table-shell-offset));
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+/* Columns carry explicit widths through <colgroup>; `max-content` lets the
+   table grow wider than the scroller (horizontal scroll) instead of
+   squeezing cells to nothing. */
+.table {
+  width: 100%;
+  min-width: max-content;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-sm);
+}
+
+.headCell {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: var(--space-3);
+  text-align: left;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-card);
+  box-shadow: inset 0 -1px 0 var(--cf-border-default);
+}
+
+/* With a group row above, the leaf row pins right under it. */
+.leafRowGrouped .headCell {
+  top: var(--table-shell-group-height);
+}
+
+.groupRow .groupCell {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: var(--table-shell-group-height);
+  padding: 0 var(--space-3);
+  text-align: left;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-card);
+  box-shadow: inset 0 -1px 0 var(--cf-border-default);
+}
+
+.headCell[data-align='right'],
+.cell[data-align='right'] {
+  text-align: right;
+}
+
+.headCell[data-align='center'],
+.cell[data-align='center'] {
+  text-align: center;
+}
+
+.sortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.sortButton:hover,
+.sortButton:focus-visible {
+  color: var(--cf-text-primary);
+}
+
+.sortMark {
+  display: inline-flex;
+}
+
+.cell {
+  padding: var(--space-3);
+  vertical-align: middle;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border-bottom: 1px solid var(--cf-border-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row[data-clickable] {
+  cursor: pointer;
+}
+
+.row:hover .cell {
+  background: var(--cf-bg-hover);
+}
+
+.row[data-selected] .cell {
+  background: var(--cf-bg-hover);
+}
+
+/* Selected marker on the left edge, plus the pinned column's right divider:
+   both are inset shadows on the same cell, so they must be declared together
+   or the more specific rule would drop the divider. */
+.row[data-selected] .cell[data-pinned] {
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -1px 0 0 var(--cf-border-default);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: -2px;
+}
+
+/* The first column is pinned: opaque (above) so scrolled cells never show
+   through it, above ordinary cells, below the header corner (z-index 3). */
+.cell[data-pinned],
+.headCell[data-pinned] {
+  position: sticky;
+  left: 0;
+}
+
+.cell[data-pinned] {
+  z-index: 1;
+  /* One tree level per `--indent` step on the pinned cell, where the tree
+     label lives. */
+  padding-left: calc(var(--space-3) + var(--indent, 0) * var(--table-shell-indent));
+  box-shadow: inset -1px 0 0 var(--cf-border-default);
+}
+
+.headCell[data-pinned] {
+  z-index: 3;
+}
+
+.empty {
+  padding: var(--space-8) var(--space-3);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+}

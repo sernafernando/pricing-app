@@ -121,6 +121,27 @@
      by side, like `detalle.jpg`. */
   --ventas-sheet-width: 560px;
 
+  /* ============================================
+     KIT — SplitPanelLayout / TableShell (publicaciones-ml-vista P10b)
+     ============================================ */
+
+  /* Side-panel widths. The panel is capped at 42vw by the layout itself, so
+     at 1366px the table keeps ~58% instead of being covered. */
+  --split-panel-width-md: 460px;
+  --split-panel-width-lg: 560px;
+  --split-panel-gap: var(--spacing-lg);
+
+  /* Space the page spends ABOVE the table (header, filters, KPI strip) and
+     BELOW it (pagination). TableShell's scroller is bounded by
+     100vh - topbar - this, so both of its scroll axes exist at any width. A
+     page that stacks more chrome overrides it through TableShell's `offset`. */
+  --table-shell-offset: 240px;
+  /* One tree level of indentation, multiplied by the row's `--indent`. */
+  --table-shell-indent: 16px;
+  /* Height of the optional column-group header row; the leaf header row pins
+     right under it. */
+  --table-shell-group-height: 28px;
+
   /* Semantic tones for money and status on the Ventas ML screen (Stitch
      `docs/design/ventas-ml/*`). Light values here; dark ones further down.
      fg = text, bg = pill fill, border = pill border. */
