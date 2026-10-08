@@ -40,6 +40,7 @@ from app.services.pricing_columns import (
     PRICELIST_IDS_CLASICA_Y_CUOTAS,
     PVP_TO_WEB_PRICELIST,
 )
+from app.services.pricing_context import build_pricing_context, resolve_envio
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -976,97 +977,19 @@ def listar_productos(
 
     from app.models.oferta_ml import OfertaML
     from app.services.pricing_calculator import (
-        obtener_tipo_cambio_actual,
-        convertir_a_pesos,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        obtener_constantes_pricing,
-        GRUPO_DEFAULT,
     )
-    from app.models.comision_config import SubcategoriaGrupo
-    from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
     from datetime import date
 
     hoy = date.today()
 
-    # ── T-3: Prefetch tipo_cambio + constantes ──────────────────────────
-    tipo_cambio_usd = obtener_tipo_cambio_actual(db, "USD")
-    constantes = obtener_constantes_pricing(db)
-
-    # ── T-4: Prefetch SubcategoriaGrupo mapping ─────────────────────────
-    all_subcat_grupos = db.query(SubcategoriaGrupo).all()
-    subcat_to_grupo = {sg.subcat_id: sg.grupo_id for sg in all_subcat_grupos}
-
-    # ── T-5: Prefetch comision lookup ───────────────────────────────────
-    _pricelist_pvp_to_web = PVP_TO_WEB_PRICELIST
-    _pricelist_to_cuotas = CUOTAS_BY_PRICELIST
-
-    _active_version = (
-        db.query(ComisionVersion)
-        .filter(
-            and_(
-                ComisionVersion.fecha_desde <= hoy,
-                or_(ComisionVersion.fecha_hasta.is_(None), ComisionVersion.fecha_hasta >= hoy),
-                ComisionVersion.activo == True,
-            )
-        )
-        .first()
-    )
-    _comision_base_map: dict = {}
-    _comision_adicional_map: dict = {}
-    if _active_version:
-        for cb in db.query(ComisionBase).filter(ComisionBase.version_id == _active_version.id).all():
-            _comision_base_map[(_active_version.id, cb.grupo_id)] = float(cb.comision_base)
-        for ca in (
-            db.query(ComisionAdicionalCuota).filter(ComisionAdicionalCuota.version_id == _active_version.id).all()
-        ):
-            _comision_adicional_map[(_active_version.id, ca.cuotas)] = float(ca.adicional)
-
-    def _lookup_comision(pricelist_id: int, grupo_id: int):
-        """Pure dict lookup replacement for obtener_comision_base."""
-        resolved_pl = _pricelist_pvp_to_web.get(pricelist_id, pricelist_id)
-        if not _active_version:
-            return None
-        base = _comision_base_map.get((_active_version.id, grupo_id))
-        if base is None:
-            return None
-        if resolved_pl == 4:
-            return base
-        cuotas = _pricelist_to_cuotas.get(resolved_pl)
-        if cuotas is None:
-            return base
-        adicional = _comision_adicional_map.get((_active_version.id, cuotas), 0)
-        return base + adicional
-
-    # ── T-6: Prefetch envio_promedio_grupo (single bulk query) ─────────
-    from app.models.producto import ProductoERP as _PE_envio
-
-    unique_grupo_ids = set(subcat_to_grupo.values())
-    envio_promedio_by_grupo: dict = {gid: 0.0 for gid in unique_grupo_ids}
-    # Build reverse map: grupo_id -> [subcat_ids]
-    _grupo_to_subcats: dict = {}
-    for sc_id, g_id in subcat_to_grupo.items():
-        _grupo_to_subcats.setdefault(g_id, []).append(sc_id)
-    # All subcat_ids that belong to any grupo
-    _all_subcat_ids_envio = list(subcat_to_grupo.keys())
-    if _all_subcat_ids_envio:
-        _envio_rows = (
-            db.query(_PE_envio.subcategoria_id, func.avg(_PE_envio.envio))
-            .filter(
-                _PE_envio.subcategoria_id.in_(_all_subcat_ids_envio),
-                _PE_envio.activo == True,
-                _PE_envio.envio > 0,
-            )
-            .group_by(_PE_envio.subcategoria_id)
-            .all()
-        )
-        # Aggregate per grupo
-        _subcat_envio_avg = {sc_id: float(avg_val) for sc_id, avg_val in _envio_rows}
-        for gid, sc_list in _grupo_to_subcats.items():
-            vals = [_subcat_envio_avg[sc] for sc in sc_list if sc in _subcat_envio_avg]
-            if vals:
-                envio_promedio_by_grupo[gid] = sum(vals) / len(vals)
+    # ── T-3..T-6: Prefetch (tipo_cambio, constantes, grupos, comisiones, envio promedio) ──
+    # One shared context per request; see app/services/pricing_context.py.
+    ctx = build_pricing_context(db, hoy)
+    tipo_cambio_usd = ctx.tipo_cambio_usd
+    constantes = ctx.constantes
 
     # ── T-7: Batch-load PublicacionML + OfertaML ────────────────────────
     all_item_ids_page = [r[0].item_id for r in results]
@@ -1102,18 +1025,7 @@ def listar_productos(
     ppp_by_item = resolver_ppp_batch(db, all_item_ids_page)
     ppp_markups_by_item: dict[int, PppMarkups] = {}
 
-    def _resolve_envio(item_id: int, producto_envio: float, grupo_id: int, precio: float) -> float:
-        """Resolve costo_envio: real mlwebhook cost first, then grupo average fallback."""
-        # Real cost from mlwebhook DB (already resolved as batch)
-        real_cost = envio_real_by_item.get(item_id)
-        if real_cost is not None:
-            return real_cost
-        # ERP + grupo-average fallback (existing logic)
-        costo_envio = producto_envio or 0
-        montot3 = constantes["monto_tier3"] if constantes else 33000
-        if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
-            costo_envio = envio_promedio_by_grupo.get(grupo_id, 0.0)
-        return costo_envio
+    _resolve_envio = partial(resolve_envio, ctx, envio_real_by_item)
 
     productos = []
     for producto_erp, producto_pricing in results:
@@ -1139,7 +1051,7 @@ def listar_productos(
                 mejor_pub = pub
 
         # T-4: Resolve grupo_id once per product from prefetched map
-        grupo_id = subcat_to_grupo.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
+        grupo_id = ctx.grupo_of(producto_erp.subcategoria_id)
 
         # PPP accumulator for this product (informational only; None-safe).
         # moneda_costo/tipo_cambio_usd: the PPP source's currency matches
@@ -1165,12 +1077,10 @@ def listar_productos(
 
             # Calcular markup de la oferta
             if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                # T-3: Use prefetched tipo_cambio_usd
-                tipo_cambio = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-
-                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
-                # T-5: Use _lookup_comision instead of obtener_comision_base
-                comision_base = _lookup_comision(mejor_pub.pricelist_id, grupo_id)
+                # T-3: prefetched USD rate lives in the context
+                costo_calc = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+                # T-5: ctx.comision replaces obtener_comision_base
+                comision_base = ctx.comision(mejor_pub.pricelist_id, grupo_id)
 
                 if comision_base:
                     # T-3: Pass constantes instead of db
@@ -1205,10 +1115,8 @@ def listar_productos(
             precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
 
             # Calcular markup del rebate
-            tipo_cambio_rebate = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-
-            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_rebate)
-            comision_base_rebate = _lookup_comision(4, grupo_id)  # Lista clásica
+            costo_rebate = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+            comision_base_rebate = ctx.comision(4, grupo_id)  # Lista clásica
 
             if comision_base_rebate and precio_rebate > 0:
                 comisiones_rebate = calcular_comision_ml_total(
@@ -1240,7 +1148,7 @@ def listar_productos(
         # computing the displayed markup in-request too, or accepting the
         # staleness window explicitly.
         if producto_pricing and producto_pricing.precio_lista_ml:
-            comision_base_clasica = _lookup_comision(4, grupo_id)
+            comision_base_clasica = ctx.comision(4, grupo_id)
             if comision_base_clasica:
                 comisiones_clasica = calcular_comision_ml_total(
                     float(producto_pricing.precio_lista_ml),
@@ -1296,13 +1204,12 @@ def listar_productos(
                 (producto_pricing.precio_12_cuotas, 23, "12_cuotas"),
             ]
 
-            tipo_cambio_cuota = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-            costo_cuota = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota)
+            costo_cuota = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
 
             for precio_cuota, pricelist_id, nombre_cuota in cuotas_config:
                 if precio_cuota and float(precio_cuota) > 0:
                     try:
-                        comision_base_cuota = _lookup_comision(pricelist_id, grupo_id)
+                        comision_base_cuota = ctx.comision(pricelist_id, grupo_id)
 
                         if comision_base_cuota:
                             comisiones_cuota = calcular_comision_ml_total(
@@ -1343,9 +1250,8 @@ def listar_productos(
             # Markup PVP clásica
             if producto_pricing.precio_pvp and float(producto_pricing.precio_pvp) > 0:
                 try:
-                    tipo_cambio_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-                    costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
-                    comision_base_pvp = _lookup_comision(12, grupo_id)
+                    costo_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+                    comision_base_pvp = ctx.comision(12, grupo_id)
 
                     if comision_base_pvp:
                         pvp_precio = float(producto_pricing.precio_pvp)
@@ -1375,13 +1281,12 @@ def listar_productos(
                 (producto_pricing.precio_pvp_12_cuotas, 21, "pvp_12_cuotas"),
             ]
 
-            tipo_cambio_cuota_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-            costo_cuota_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_pvp)
+            costo_cuota_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
 
             for precio_cuota_pvp, pricelist_id_pvp, nombre_cuota_pvp in cuotas_pvp_config:
                 if precio_cuota_pvp and float(precio_cuota_pvp) > 0:
                     try:
-                        comision_base_cuota_pvp = _lookup_comision(pricelist_id_pvp, grupo_id)
+                        comision_base_cuota_pvp = ctx.comision(pricelist_id_pvp, grupo_id)
 
                         if comision_base_cuota_pvp:
                             pvp_cuota_val = float(precio_cuota_pvp)
@@ -1661,9 +1566,8 @@ def listar_productos(
 
                 if producto_erp:
                     # Use prefetched tipo_cambio + grupo + comision
-                    tipo_cambio_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-                    costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
-                    grupo_id_pvp = subcat_to_grupo.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
+                    costo_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+                    grupo_id_pvp = ctx.grupo_of(producto_erp.subcategoria_id)
 
                     pvp_configs = [
                         (producto.precio_pvp, 12, "pvp"),
@@ -1676,7 +1580,7 @@ def listar_productos(
                     for precio_pvp, pricelist_id, nombre_pvp in pvp_configs:
                         if precio_pvp and precio_pvp > 0:
                             try:
-                                comision_base_pvp = _lookup_comision(pricelist_id, grupo_id_pvp)
+                                comision_base_pvp = ctx.comision(pricelist_id, grupo_id_pvp)
 
                                 if comision_base_pvp:
                                     comisiones_pvp = calcular_comision_ml_total(
@@ -2429,6 +2333,9 @@ def listar_productos_tienda(
     hoy = date.today()
     productos = []
 
+    # ponytail: this tienda listing still carries its own copy of the pricing prefetch
+    # (the _t closures below); `build_pricing_context` is the single source. Migrate it in
+    # a follow-up PR with its own golden snapshot, or the two will diverge.
     # ── T-8/T-3: Prefetch tipo_cambio + constantes ───────────────────────
     # Ambos ya se resolvieron arriba del bloque de ordenamiento (una sola
     # lectura cada uno); acá sólo se reusan.

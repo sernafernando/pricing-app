@@ -45,17 +45,19 @@ class TestResolveEnvioFunctionSignature:
 
     def test_resolve_envio_accepts_item_id_first_arg(self):
         """
-        The module source must contain _resolve_envio(item_id calls,
-        proving the new signature was applied.
+        `_resolve_envio` is now `partial(resolve_envio, ctx, envio_real_by_item)`
+        (pricing-context lift): the bound function must take `item_id` right after
+        the two bound arguments, and the listing must bind it that way.
         """
         import inspect
         import app.api.endpoints.productos_listing as listing
+        from app.services.pricing_context import resolve_envio
 
-        src = inspect.getsource(listing)
-        # The updated call pattern must be present
-        assert "_resolve_envio(item_id" in src or "_resolve_envio(producto_erp.item_id" in src, (
-            "_resolve_envio must be called with item_id as the first argument (T-12 not applied)"
-        )
+        params = list(inspect.signature(resolve_envio).parameters)
+        assert params[:3] == ["ctx", "envio_real_by_item", "item_id"]
+        # The listing binds the very function under test (module-level import,
+        # no source-text matching to break on a reformat).
+        assert listing.resolve_envio is resolve_envio
 
     def test_resolve_envio_t_accepts_item_id_first_arg(self):
         """
