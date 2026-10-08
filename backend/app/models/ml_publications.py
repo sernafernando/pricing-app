@@ -45,6 +45,9 @@ class MlItem(Base):
         Index("ix_ml_items_seller_sku", "seller_sku"),
         Index("ix_ml_items_gone_at", "gone_at", postgresql_where=text("gone_at IS NOT NULL")),
     )
+    # `ix_ml_items_last_trigger` (default order of the Publicaciones list) exists only in migration
+    # 20261011_ml_items_last_trigger_index: `NULLS LAST` in an index is not valid SQLite, and the unit tests
+    # build their schema from this metadata on SQLite.
 
     item_id = Column(Text, primary_key=True)
     site_id = Column(Text)
