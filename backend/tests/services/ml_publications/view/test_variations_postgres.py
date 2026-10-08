@@ -242,11 +242,9 @@ class TestAds:
         self, client, rows, analyst, pricing, provide
     ) -> None:
         provide(FakeAds({"MLA11": 999.0}))
-        body = variations_of(client, analyst, restar_publicidad="true", **PERIOD).json()
-        assert body["ads"]["publication"]["state"] == "sin_costo"
-        assert by_id(variations_of(client, analyst, restar_publicidad="true", **PERIOD))[11]["markup"]["value"] == (
-            round(worst_of(70), 2)
-        )
+        response = variations_of(client, analyst, restar_publicidad="true", **PERIOD)
+        assert response.json()["ads"]["publication"]["state"] == "sin_costo"
+        assert by_id(response)[11]["markup"]["value"] == round(worst_of(70), 2)
 
     def test_the_provider_is_asked_for_this_publication_only(self, client, rows, analyst, pricing, provide) -> None:
         fake = FakeAds({})

@@ -188,7 +188,7 @@ def _variation_link_rows(db: Session, ids: Sequence[str]) -> list[Any]:
     )
 
 
-def _currency(value: Any) -> Optional[str]:
+def currency_of(value: Any) -> Optional[str]:
     return getattr(value, "value", value)
 
 
@@ -232,7 +232,7 @@ def fetch_inputs(
             fallback_prices=prices,
             producto_item_id=link.producto_item_id,
             costo=_floats(link.costo),
-            moneda_costo=_currency(link.moneda_costo),
+            moneda_costo=currency_of(link.moneda_costo),
             iva=DEFAULT_IVA if link.iva is None else float(link.iva),
             envio=_floats(link.envio),
             subcategoria_id=link.subcategoria_id,

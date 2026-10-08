@@ -28,6 +28,7 @@ from app.models.producto import ProductoERP
 from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.filters import LINK_CONFLICT, LINK_ITEM_LEVEL, LINK_LINKED, LINK_SOURCE_MANUAL
 from app.services.ml_publications.view.markup import UnitMarkup
+from app.services.ml_publications.view.markup_inputs import currency_of
 from app.services.ml_publications.view.markup_service import ItemMarkup, MarkupQuery
 
 STALE_REASON = "desactualizado"  # the variation is not among those the markup priced: it changed in between
@@ -124,10 +125,6 @@ def _attributes(raw: Any) -> list[dict[str, Any]]:
     ]
 
 
-def _currency(value: Any) -> Optional[str]:
-    return getattr(value, "value", value)
-
-
 def _round(value: Optional[float]) -> Optional[float]:
     return None if value is None else round(value, 2)
 
@@ -136,7 +133,7 @@ def _sub_row(row: Any, margin: bool) -> dict[str, Any]:
     use_own = row.own_product_id is not None
     prefix = "own" if use_own else "base"
     product_id = row.own_product_id if use_own else row.base_product_id
-    state = _link_state("linked", row.own_source) if use_own else _link_state(row.base_status, row.base_source)
+    state = _link_state(LINK_LINKED, row.own_source) if use_own else _link_state(row.base_status, row.base_source)
     out: dict[str, Any] = {
         "variation_id": row.variation_id,
         "seller_sku": row.seller_sku,
@@ -156,7 +153,7 @@ def _sub_row(row: Any, margin: bool) -> dict[str, Any]:
     if margin:
         costo = getattr(row, f"{prefix}_costo")
         out["costo"] = (
-            None if product_id is None else {"amount": costo, "currency": _currency(getattr(row, f"{prefix}_moneda"))}
+            None if product_id is None else {"amount": costo, "currency": currency_of(getattr(row, f"{prefix}_moneda"))}
         )
     return out
 
