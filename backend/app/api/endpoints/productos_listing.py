@@ -35,6 +35,7 @@ from app.services.ml_promotions_service import (
 )
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers, fetch_pxq_tiers_by_mla
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
+from app.services.pricing_context import build_pricing_context, resolve_envio
 from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
     PRICELIST_IDS_CLASICA_Y_CUOTAS,
@@ -976,13 +977,10 @@ def listar_productos(
 
     from app.models.oferta_ml import OfertaML
     from app.services.pricing_calculator import (
-        convertir_a_pesos,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        GRUPO_DEFAULT,
     )
-    from app.services.pricing_context import build_pricing_context, resolve_envio
     from datetime import date
 
     hoy = date.today()
@@ -992,7 +990,6 @@ def listar_productos(
     ctx = build_pricing_context(db, hoy)
     tipo_cambio_usd = ctx.tipo_cambio_usd
     constantes = ctx.constantes
-    subcat_to_grupo = ctx.subcat_to_grupo
     _lookup_comision = ctx.comision
 
     # ── T-7: Batch-load PublicacionML + OfertaML ────────────────────────
@@ -1055,7 +1052,7 @@ def listar_productos(
                 mejor_pub = pub
 
         # T-4: Resolve grupo_id once per product from prefetched map
-        grupo_id = subcat_to_grupo.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
+        grupo_id = ctx.grupo_of(producto_erp.subcategoria_id)
 
         # PPP accumulator for this product (informational only; None-safe).
         # moneda_costo/tipo_cambio_usd: the PPP source's currency matches
@@ -1082,9 +1079,8 @@ def listar_productos(
             # Calcular markup de la oferta
             if mejor_oferta_pvp and mejor_oferta_pvp > 0:
                 # T-3: Use prefetched tipo_cambio_usd
-                tipo_cambio = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
 
-                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio)
+                costo_calc = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
                 # T-5: Use _lookup_comision instead of obtener_comision_base
                 comision_base = _lookup_comision(mejor_pub.pricelist_id, grupo_id)
 
@@ -1121,9 +1117,8 @@ def listar_productos(
             precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
 
             # Calcular markup del rebate
-            tipo_cambio_rebate = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
 
-            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_rebate)
+            costo_rebate = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
             comision_base_rebate = _lookup_comision(4, grupo_id)  # Lista clásica
 
             if comision_base_rebate and precio_rebate > 0:
@@ -1212,8 +1207,7 @@ def listar_productos(
                 (producto_pricing.precio_12_cuotas, 23, "12_cuotas"),
             ]
 
-            tipo_cambio_cuota = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-            costo_cuota = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota)
+            costo_cuota = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
 
             for precio_cuota, pricelist_id, nombre_cuota in cuotas_config:
                 if precio_cuota and float(precio_cuota) > 0:
@@ -1259,8 +1253,7 @@ def listar_productos(
             # Markup PVP clásica
             if producto_pricing.precio_pvp and float(producto_pricing.precio_pvp) > 0:
                 try:
-                    tipo_cambio_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-                    costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
+                    costo_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
                     comision_base_pvp = _lookup_comision(12, grupo_id)
 
                     if comision_base_pvp:
@@ -1291,8 +1284,7 @@ def listar_productos(
                 (producto_pricing.precio_pvp_12_cuotas, 21, "pvp_12_cuotas"),
             ]
 
-            tipo_cambio_cuota_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-            costo_cuota_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_pvp)
+            costo_cuota_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
 
             for precio_cuota_pvp, pricelist_id_pvp, nombre_cuota_pvp in cuotas_pvp_config:
                 if precio_cuota_pvp and float(precio_cuota_pvp) > 0:
@@ -1577,9 +1569,8 @@ def listar_productos(
 
                 if producto_erp:
                     # Use prefetched tipo_cambio + grupo + comision
-                    tipo_cambio_pvp = tipo_cambio_usd if producto_erp.moneda_costo == "USD" else None
-                    costo_pvp = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_pvp)
-                    grupo_id_pvp = subcat_to_grupo.get(producto_erp.subcategoria_id, GRUPO_DEFAULT)
+                    costo_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+                    grupo_id_pvp = ctx.grupo_of(producto_erp.subcategoria_id)
 
                     pvp_configs = [
                         (producto.precio_pvp, 12, "pvp"),

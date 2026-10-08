@@ -12,13 +12,15 @@ what the closures returned. `tests/integration/test_productos_listing_golden.py`
 pins the listing output byte for byte across the move.
 
 Build it ONCE per request (about 7 statements, independent of how many rows the
-caller then prices) and pass it around; it is immutable.
+caller then prices) and pass it around; it is immutable (fields frozen, mappings
+read-only).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from types import MappingProxyType
 from typing import Mapping, Optional
 
 from sqlalchemy import and_, func, or_
@@ -49,6 +51,12 @@ class PricingContext:
     comision_base: Mapping[int, float]  # grupo_id -> base commission of the active version
     comision_adicional: Mapping[int, float]  # cuotas -> surcharge of the active version
     envio_promedio_by_grupo: Mapping[int, float]
+
+    def __post_init__(self) -> None:
+        # `frozen=True` only blocks rebinding fields; wrap the mappings so the
+        # context is read-only all the way down and safe to share between callers.
+        for name in ("subcat_to_grupo", "comision_base", "comision_adicional", "envio_promedio_by_grupo"):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
 
     def grupo_of(self, subcategoria_id) -> int:
         """Commission grupo of a subcategory; `GRUPO_DEFAULT` when unmapped."""

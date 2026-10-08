@@ -55,7 +55,9 @@ class TestResolveEnvioFunctionSignature:
 
         params = list(inspect.signature(resolve_envio).parameters)
         assert params[:3] == ["ctx", "envio_real_by_item", "item_id"]
-        assert "_resolve_envio = partial(resolve_envio, ctx, envio_real_by_item)" in inspect.getsource(listing)
+        # The listing binds the very function under test (module-level import,
+        # no source-text matching to break on a reformat).
+        assert listing.resolve_envio is resolve_envio
 
     def test_resolve_envio_t_accepts_item_id_first_arg(self):
         """

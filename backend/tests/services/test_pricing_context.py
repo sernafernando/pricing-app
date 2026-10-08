@@ -9,6 +9,7 @@ endpoint-level proof is `tests/integration/test_productos_listing_golden.py`.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import date, timedelta
 from functools import partial
 
@@ -219,5 +220,17 @@ class TestBuildPricingContext:
 
     def test_context_is_frozen(self, db) -> None:
         ctx = build_pricing_context(db, HOY)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             ctx.hoy = date(2000, 1, 1)  # type: ignore[misc]
+
+    def test_mappings_are_read_only(self) -> None:
+        ctx = _ctx()
+        for mapping in (ctx.subcat_to_grupo, ctx.comision_base, ctx.comision_adicional, ctx.envio_promedio_by_grupo):
+            with pytest.raises(TypeError):
+                mapping[1] = 0  # type: ignore[index]
+
+    def test_context_does_not_alias_the_caller_dicts(self) -> None:
+        source = {1: 12.5}
+        ctx = _ctx(comision_base=source)
+        source[1] = 99.0
+        assert ctx.comision(4, 1) == 12.5
