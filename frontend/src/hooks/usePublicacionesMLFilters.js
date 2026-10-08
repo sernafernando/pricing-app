@@ -13,9 +13,12 @@ import { useSearchParams } from 'react-router-dom';
  *    to page 1 and closes the selection, and asks the backend for fresh facet
  *    counts.
  *  - VIEW state (`pagina`, `sel`, `tab`): moves inside the same result set.
- *    The sort (`orden`, `dir`) also goes back to page 1 but needs no new facets.
+ *    The sort (`orden`, `dir`) and the page size (`limite`) also go back to
+ *    page 1 but need no new facets.
  */
 export const PAGE_SIZE = 50;
+// The backend caps `limit` at 100.
+export const PAGE_SIZES = [25, 50, 100];
 
 const CSV_KEYS = [
   'estado',
@@ -35,7 +38,7 @@ export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS];
 
 const VISTAS = ['publicacion', 'agrupado'];
 const DIRECTIONS = ['asc', 'desc'];
-const SORT_KEYS = ['orden', 'dir'];
+const SORT_KEYS = ['orden', 'dir', 'limite'];
 const VIEW_KEYS = ['pagina', 'sel', 'tab'];
 
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
@@ -51,6 +54,8 @@ function readFilters(params) {
   filters.dir = DIRECTIONS.includes(dir) ? dir : '';
   const pagina = Number.parseInt(params.get('pagina'), 10);
   filters.pagina = Number.isInteger(pagina) && pagina >= 1 ? pagina : 1;
+  const limite = Number.parseInt(params.get('limite'), 10);
+  filters.limite = PAGE_SIZES.includes(limite) ? limite : PAGE_SIZE;
   filters.sel = params.get('sel') ?? '';
   filters.tab = params.get('tab') ?? '';
   return filters;
@@ -63,7 +68,7 @@ const isEmpty = (value) => value === null || value === undefined || value === ''
  * the store chips' vocabulary (`sin_tienda`); the backend's is `none`.
  * `vista`, `sel`, `tab` and `pagina` never reach the backend as such.
  */
-export function buildItemsParams(filters, pageSize = PAGE_SIZE) {
+export function buildItemsParams(filters, pageSize = filters.limite ?? PAGE_SIZE) {
   const params = {};
   const q = filters.q.trim();
   if (q) params.q = q;

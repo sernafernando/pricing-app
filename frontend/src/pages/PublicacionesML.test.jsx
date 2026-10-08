@@ -199,6 +199,19 @@ describe('sorting and paging', () => {
   });
 });
 
+describe('page size', () => {
+  it('comes from the URL, so a reload keeps the rows per page and the page', async () => {
+    await page('/ml-publicaciones?limite=100&pagina=2');
+    expect(lastParams()).toMatchObject({ limit: 100, offset: 100 });
+  });
+
+  it('changing it asks for the first page with the new size', async () => {
+    await page('/ml-publicaciones?pagina=3');
+    await userEvent.selectOptions(screen.getByLabelText('Filas por página'), '25');
+    await waitFor(() => expect(lastParams()).toMatchObject({ limit: 25, offset: 0 }));
+  });
+});
+
 describe('columns', () => {
   it('the picker hides and shows a column', async () => {
     await page();

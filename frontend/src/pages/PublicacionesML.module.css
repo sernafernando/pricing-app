@@ -24,7 +24,7 @@
 
 .headerLeft h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: var(--font-2xl);
   font-weight: var(--font-bold);
   letter-spacing: -0.02em;
   line-height: 1.15;
@@ -33,7 +33,7 @@
 
 .description {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-sm);
   color: var(--cf-text-tertiary);
 }
 
@@ -85,7 +85,7 @@
 
 .filterLabel {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;

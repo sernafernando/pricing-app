@@ -58,6 +58,12 @@ describe('reading the URL', () => {
     });
   });
 
+  it('reads the page size from `limite`, only the sizes the backend allows', () => {
+    expect(setup('/?limite=100').result.current.hook.filters.limite).toBe(100);
+    expect(setup('/?limite=200').result.current.hook.filters.limite).toBe(PAGE_SIZE);
+    expect(setup('/').result.current.hook.filters.limite).toBe(PAGE_SIZE);
+  });
+
   it('falls back on an unknown vista, a bad dir and a bad page', () => {
     const f = setup('/?vista=otra&dir=up&pagina=-2').result.current.hook.filters;
     expect(f.vista).toBe('publicacion');
@@ -113,6 +119,15 @@ describe('writing the URL', () => {
     expect(params.get('estado')).toBe('active');
   });
 
+  it('changing the page size goes back to page 1 and survives a reload', () => {
+    const { result } = setup('/?pagina=3&estado=active');
+    act(() => result.current.hook.setFilters({ limite: 100 }));
+    const params = new URLSearchParams(result.current.search);
+    expect(params.get('limite')).toBe('100');
+    expect(params.has('pagina')).toBe(false);
+    expect(params.get('estado')).toBe('active');
+  });
+
   it('reset clears every param', () => {
     const { result } = setup('/?q=a&estado=active&pagina=2');
     act(() => result.current.hook.resetFilters());
@@ -141,7 +156,7 @@ describe('buildItemsParams', () => {
     expect(params).not.toHaveProperty('pagina');
   });
 
-  it('honours a page size', () => {
-    expect(buildItemsParams({ ...base, pagina: 2 }, 100)).toMatchObject({ limit: 100, offset: 100 });
+  it('uses the page size of the URL', () => {
+    expect(buildItemsParams({ ...base, limite: 100, pagina: 2 })).toMatchObject({ limit: 100, offset: 100 });
   });
 });

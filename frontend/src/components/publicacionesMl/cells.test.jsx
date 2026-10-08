@@ -122,6 +122,11 @@ describe('PublicationStatusPill', () => {
     expect(screen.getByText('Pausada')).toHaveAttribute('title', 'out_of_stock');
   });
 
+  it('survives a null sub-status', () => {
+    render(<PublicationStatusPill status="paused" subStatus={null} />);
+    expect(screen.getByText('Pausada')).not.toHaveAttribute('title');
+  });
+
   it('renders "—" without a status', () => {
     render(<PublicationStatusPill status={null} />);
     expect(screen.getByText('—')).toBeInTheDocument();

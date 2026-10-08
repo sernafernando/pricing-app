@@ -10,11 +10,11 @@ const STATUSES = {
 };
 
 /** `gone` (vanished from ML) wins over the last known status. */
-export default function PublicationStatusPill({ status, gone = false, subStatus = [] }) {
+export default function PublicationStatusPill({ status, gone = false, subStatus }) {
   if (gone) return <StatusPill tone="danger">Eliminada</StatusPill>;
   const known = STATUSES[status];
   if (!known) return status ? <StatusPill tone="neutral">{status}</StatusPill> : <span className={styles.empty}>—</span>;
-  const title = subStatus.length > 0 ? subStatus.join(', ') : undefined;
+  const title = subStatus?.length > 0 ? subStatus.join(', ') : undefined;
   return (
     <StatusPill tone={known.tone} title={title}>
       {known.label}

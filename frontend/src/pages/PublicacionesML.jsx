@@ -11,6 +11,7 @@ import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
   FILTER_KEYS,
   PAGE_SIZE,
+  PAGE_SIZES,
   buildItemsParams,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
@@ -28,7 +29,6 @@ import styles from './PublicacionesML.module.css';
  * Ctrl/Cmd+click opens the publication in Mercado Libre; a plain click selects
  * the row (the detail panel is mounted by a later PR).
  */
-const PAGE_SIZE_OPTIONS = [25, 50, 100]; // the backend caps `limit` at 100
 // Space the table leaves for what is above and below it (header, filters, pager).
 const TABLE_OFFSET = '380px';
 
@@ -86,10 +86,10 @@ export default function PublicacionesML() {
   const [facets, setFacets] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [reloadToken, setReloadToken] = useState(0);
   const [columnVisibility, setColumnVisibility] = useState({});
 
+  const pageSize = filters.limite;
   const latestRequest = useRef(0);
   // The filter set the current `facets` belong to. Advances only when a
   // response that carried facets is applied, so a failure asks again.
@@ -259,7 +259,7 @@ export default function PublicacionesML() {
 
       {error ? (
         <div className={styles.errorBar} role="alert">
-          <ShieldAlert size={16} />
+          <ShieldAlert size={16} aria-hidden="true" />
           <span className={styles.errorText}>{describeError(error)}</span>
           <button type="button" className="btn-tesla outline sm" onClick={() => setReloadToken((token) => token + 1)}>
             Reintentar
@@ -288,17 +288,14 @@ export default function PublicacionesML() {
               total={total}
               offset={offset}
               pageSize={pageSize}
-              pageSizeOptions={PAGE_SIZE_OPTIONS}
+              pageSizeOptions={PAGE_SIZES}
               summary={
                 <span>
                   mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} publicaciones
                 </span>
               }
               onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setFilters({ pagina: 1 });
-              }}
+              onPageSizeChange={(size) => setFilters({ limite: size === PAGE_SIZE ? '' : size })}
             />
           </div>
         </div>
