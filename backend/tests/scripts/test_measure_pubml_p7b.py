@@ -328,7 +328,8 @@ class TestZeroConfig:
         monkeypatch.delenv("PUBML_TOKEN", raising=False)
         monkeypatch.setattr(script, "auto_config", lambda: None)
         assert script.main(["--base-url", "http://127.0.0.1:1/api"]) == 2
-        assert "ml_ops.ver" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "ml_ops.ver" in out and "ml_metricas.ver_ganancia" in out  # both permissions are named
 
     def test_an_unreachable_api_is_a_clear_failure_not_a_traceback(self, script, capsys) -> None:
         assert script.main(["--base-url", "http://127.0.0.1:1/api", "--token", "t"]) == 1

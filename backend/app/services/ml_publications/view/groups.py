@@ -36,7 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
-from sqlalchemy import String, case, cast, func, literal, select
+from sqlalchemy import String, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics.groups import (
@@ -68,6 +68,7 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 100
 NO_PRODUCT_LABEL = "Sin producto"
 FAMILY_MIN_SIZE = 2  # a family of one publication is that publication, not a node
+ITEM_IDS_MAX = 5_000  # most publications priced by an id list; above it the whole filter is priced instead
 
 # /items parameter of each level (`params` of a node); the leaves are fetched with them
 PARAM_OF = {"marca": "marcas", "categoria": "categorias", "subcategoria": "subcategorias"}
@@ -315,22 +316,41 @@ def _families(db: Session, f: PublicationFilter, path: list[str], limit: int, of
 def _members(db: Session, f: PublicationFilter, path: list[str], page: GroupsPage) -> list[tuple[str, str]]:
     """`(item_id, node key)` of every publication of the page's nodes, the key written as the node's own."""
     dimensions = _dimensions()
-    if page.level in dimensions:
-        key = dimensions[page.level].key
-    else:
-        key = product_key() if page.level == KIND_PRODUCT else family_key()
+    if page.level == KIND_FAMILY:
+        return _family_members(db, f, path, dimensions, page)
+    key = dimensions[page.level].key if page.level in dimensions else product_key()
     raw = {_raw_key(page.level, node.key): node.key for node in page.nodes}
     rows = db.execute(_scoped(f, path, dimensions, T.i.item_id, key.label("k")).where(key.in_(list(raw)))).all()
     return [(item_id, raw[k]) for item_id, k in rows]
+
+
+def _family_members(
+    db: Session, f: PublicationFilter, path: list[str], dimensions: dict[str, Dimension], page: GroupsPage
+) -> list[tuple[str, str]]:
+    """The family level mixes two kinds of node: a family is keyed by its family id, but a lone publication is keyed
+    by its MLA even when it carries a family id (the rest of its family is elsewhere), so the two are looked up
+    by different columns."""
+    families = [node.key for node in page.nodes if node.kind == KIND_FAMILY]
+    items = [node.key for node in page.nodes if node.kind == KIND_ITEM]
+    fk = family_key()
+    rows = db.execute(
+        _scoped(f, path, dimensions, T.i.item_id, fk.label("k")).where(or_(fk.in_(families), T.i.item_id.in_(items)))
+    ).all()
+    lone, grouped = set(items), set(families)
+    return [(item_id, item_id if item_id in lone else k) for item_id, k in rows if item_id in lone or k in grouped]
 
 
 def _with_markup(
     db: Session, f: PublicationFilter, path: list[str], page: GroupsPage, markup: MarkupQuery
 ) -> GroupsPage:
     """The page with the markup figures of its nodes: P6's computation (`compute_markups`), aggregated per node in
-    Python. It prices the publications of the page's nodes only (a deep level is a small slice of the set)."""
+    Python. A small slice (a deep level) is priced by the ids of its publications; one over `ITEM_IDS_MAX` (the
+    roots of a big store) by the whole filter, which is the same set or a superset, never a giant id list."""
     members = _members(db, f, path, page)
-    result = compute_markups(db, markup.pricing_db, item_ids=[item_id for item_id, _key in members], ads=markup.ads)
+    if len(members) > ITEM_IDS_MAX:
+        result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
+    else:
+        result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
     figures = aggregate_nodes(result.items, members)
     nodes = []
     for node in page.nodes:

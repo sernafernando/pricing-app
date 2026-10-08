@@ -184,6 +184,24 @@ class TestEveryLevel:
         assert nodes["MLA9"].kind == "item"
         assert figures(nodes["MLA9"]) == (0, worst_of(70), worst_of(70))
 
+    def test_a_lone_publication_that_has_a_family_id_keeps_its_figures(self, conn, db, envio_calls) -> None:
+        """Its family has no other member under this product (another product holds it): it is an `item` node keyed
+        by its MLA, but the family level groups by the family id. The figures must follow the node, not the group."""
+        seed_catalog(conn)
+        for item_id, product in (("MLA10", 71), ("MLA11", 70)):
+            seed.add_item(conn, item_id, listing_type_id="gold_pro", tags=["9x_campaign"], price=90000)
+            seed.add_sale_price(conn, item_id, 100000)
+            seed.add_link(conn, item_id, product)
+        conn.execute(
+            text("UPDATE ml_items SET family_id = 777, family_name = 'Fam' WHERE item_id IN ('MLA10','MLA11')")
+        )
+        page = tree(db, "ALFA", "__none__", "3845", "71", markup=MarkupQuery(db), familias=True)
+        lone = by_key(page)["MLA10"]
+        assert lone.kind == "item" and lone.count == 1
+        assert figures(lone) == (1, worst_of(71), worst_of(71))
+        negatives = MarkupQuery(db, MarkupFilter(negative=True))
+        assert lone.negative_count == TestConsistencyWithItems.items_total(db, lone.params, negatives)
+
     def test_the_counts_of_a_level_still_add_up_with_the_figures_on(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)
         page = tree(db, markup=MarkupQuery(db))
@@ -213,6 +231,39 @@ class TestOneSetWidePass:
         envio_calls.clear()
         page = tree(db, markup=MarkupQuery(db))
         assert page.total > 20 and len(statements) == small and len(envio_calls) == 1
+
+
+class TestWhichPathPricesTheNodes:
+    """A small slice (a deep level) is priced by the ids of its publications; a slice too big for an id list is priced
+    by the whole filter. Either way the figures are the same: P6 pins that both paths give identical values."""
+
+    def spy(self, monkeypatch):
+        calls: list[dict] = []
+        real = groups.compute_markups
+
+        def spy(db, pricing_db, **kwargs):
+            calls.append(kwargs)
+            return real(db, pricing_db, **kwargs)
+
+        monkeypatch.setattr(groups, "compute_markups", spy)
+        return calls
+
+    def test_a_small_slice_is_priced_by_its_ids(self, conn, db, envio_calls, monkeypatch) -> None:
+        seed_catalog(conn)
+        calls = self.spy(monkeypatch)
+        tree(db, markup=MarkupQuery(db))
+        assert "item_ids" in calls[0] and "f" not in calls[0]
+
+    def test_a_slice_over_the_limit_is_priced_by_the_whole_filter_with_the_same_figures(
+        self, conn, db, envio_calls, monkeypatch
+    ) -> None:
+        seed_catalog(conn)
+        by_ids = {k: figures(n) for k, n in by_key(tree(db, markup=MarkupQuery(db))).items()}
+        monkeypatch.setattr(groups, "ITEM_IDS_MAX", 1)
+        calls = self.spy(monkeypatch)
+        by_filter = {k: figures(n) for k, n in by_key(tree(db, markup=MarkupQuery(db))).items()}
+        assert "f" in calls[0] and "item_ids" not in calls[0]
+        assert by_filter == by_ids
 
 
 class TestStringOrderIsLocaleIndependent:

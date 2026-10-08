@@ -291,7 +291,7 @@ def read_permissions(db: Any, service: Any, user: Any) -> Iterable[str]:
 
 
 def auto_config() -> Optional[AutoConfig]:
-    """Mint a token for an active user with `ml_ops.ver`; pick the busiest store and a frequent title word."""
+    """Mint a token for an active user with `ml_ops.ver` and `ml_metricas.ver_ganancia`; pick the busiest store and a frequent title word."""
     sys.path.insert(0, os.getcwd())  # run from the backend directory with its own interpreter
     try:
         from sqlalchemy import text
@@ -351,12 +351,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         config = auto_config()
         if config is None:
             print(
-                "No token and no active user holding ml_ops.ver could be found; "
+                "No token and no active user holding ml_ops.ver and ml_metricas.ver_ganancia could be found; "
                 "pass --token or run from the backend directory."
             )
             return 2
         token, store, term = config.token, store or config.store, term or config.term
-        print(f"minted a {TOKEN_MINUTES}-minute token for {config.username} (ml_ops.ver)")
+        print(f"minted a {TOKEN_MINUTES}-minute token for {config.username} (ml_ops.ver + ml_metricas.ver_ganancia)")
     term = term or DEFAULT_TERM
 
     def get(params: dict[str, Any]) -> dict[str, Any]:

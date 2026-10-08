@@ -2,7 +2,8 @@
 
 One entry point, `compute_markups`, for both paths:
 
-* page path: `item_ids` (the rows of the page, at most `MAX_LIMIT`): the inputs of those publications only;
+* page path: `item_ids` (the rows of a page, or the publications of a tree level's nodes): the inputs of those
+  publications only;
 * set-wide path: `f` (a PM-resolved filter): the inputs of every publication of the filtered set, for sorting
   and filtering by markup.
 
