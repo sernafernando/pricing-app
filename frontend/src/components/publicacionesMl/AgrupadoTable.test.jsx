@@ -319,6 +319,29 @@ describe('"Ver más"', () => {
   });
 });
 
+describe('a page that overlaps the last one', () => {
+  it('lists a publication once when it moved between "Ver más" requests', async () => {
+    const user = userEvent.setup();
+    const item = (n) => makeItem({ item_id: `MLA${n}`, title: `Pub ${n}` });
+    publicacionesMlAPI.items.mockImplementation(({ offset }) =>
+      Promise.resolve({
+        data: {
+          ...LEAF_ITEMS,
+          items: offset === 0 ? Array.from({ length: 100 }, (_, i) => item(i + 1)) : [item(100), item(101)],
+          total: 101,
+        },
+      }),
+    );
+    render(<Harness />);
+    await openToProducts(user);
+    await open(user, /Abrir Router Archer AX55/);
+    await screen.findByText('Pub 1');
+    await user.click(screen.getByRole('button', { name: /Ver más/ }));
+    await screen.findByText('Pub 101');
+    expect(screen.getAllByText('Pub 100')).toHaveLength(1);
+  });
+});
+
 describe('node figures', () => {
   it('shows count, negativos and the markup range with ver_ganancia', async () => {
     render(<Harness />);

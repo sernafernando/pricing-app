@@ -16,6 +16,16 @@ import { flattenTree } from './groupTree';
  */
 const ROOT = { path: [], leaf: false, node: null };
 
+/**
+ * Pages are by offset, so a row that moved between two requests can come in both:
+ * it stays once (a publication by its MLA, a node by its key).
+ */
+function appendPage(rows, page, leaf) {
+  const idOf = (row) => (leaf ? row.item_id : row.key);
+  const seen = new Set(rows.map(idOf));
+  return [...rows, ...page.filter((row) => !seen.has(idOf(row)))];
+}
+
 export default function useGroupTree({ filters, familias, canSeeMargin }) {
   const [branches, setBranches] = useState({});
   const [expanded, setExpanded] = useState(() => new Set());
@@ -24,7 +34,7 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
   // Declared before the effect that loads the roots, so that effect reads this render's values.
   useEffect(() => {
     latest.current = { filters, familias, canSeeMargin };
-  });
+  }, [filters, familias, canSeeMargin]);
 
   // What the roots are asked with: the selection, the page and the like do not restart the tree.
   const treeKey = JSON.stringify([buildGroupsParams(filters, { path: [], familias, offset: 0 }), canSeeMargin]);
@@ -48,7 +58,7 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
           : (({ nodes, total }) => ({ rows: nodes, total }))(readGroupsPage(response.data, { canSeeMargin: margin }));
         setBranches((all) => ({
           ...all,
-          [key]: { ...all[key], status: 'ready', rows: offset === 0 ? page.rows : [...all[key].rows, ...page.rows], total: page.total },
+          [key]: { ...all[key], status: 'ready', rows: offset === 0 ? page.rows : appendPage(all[key].rows, page.rows, leaf), total: page.total },
         }));
       })
       .catch((error) => {
