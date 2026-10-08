@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 
 from app.services.ml_publications.view import status_block
@@ -147,6 +148,53 @@ class TestReportCache:
         assert cache.get()["available"] is False and len(calls) == 1  # still inside the failure ttl
         clock[0] += 6
         assert cache.get()["available"] is True and len(calls) == 2
+
+    def test_a_request_during_a_rebuild_gets_the_expired_block_instead_of_waiting(self) -> None:
+        release, started = threading.Event(), threading.Event()
+        clock = [1000.0]
+        builds: list[int] = []
+
+        def build() -> dict:
+            builds.append(1)
+            if len(builds) == 2:  # the rebuild after the ttl hangs until released
+                started.set()
+                assert release.wait(5)
+                return healthy(kill_switch=True)
+            return healthy()
+
+        cache = ReportCache(build, ttl=60.0, failure_ttl=10.0, clock=lambda: clock[0])
+        assert cache.get()["kill_switch"] is False
+        clock[0] += 61
+        rebuilding = threading.Thread(target=cache.get)
+        rebuilding.start()
+        assert started.wait(5)
+        answered = []
+        waiter = threading.Thread(target=lambda: answered.append(cache.get()))
+        waiter.start()
+        waiter.join(2)
+        assert not waiter.is_alive(), "a request must not wait for the report to be rebuilt"
+        assert answered[0]["kill_switch"] is False  # the expired block, still honest about its own time
+        release.set()
+        rebuilding.join(5)
+        assert cache.get()["kill_switch"] is True and len(builds) == 2
+
+    def test_the_very_first_request_during_the_first_build_gets_a_pending_block(self) -> None:
+        release, started = threading.Event(), threading.Event()
+
+        def build() -> dict:
+            started.set()
+            assert release.wait(5)
+            return healthy()
+
+        cache = ReportCache(build, clock=lambda: 1000.0)
+        first = threading.Thread(target=cache.get)
+        first.start()
+        assert started.wait(5)
+        block = cache.get()
+        assert block["available"] is False and block["reason"] == "status_pending"
+        release.set()
+        first.join(5)
+        assert cache.get()["available"] is True
 
     def test_reset_forgets_the_cached_block(self) -> None:
         cache, calls, _ = self.make([healthy()])

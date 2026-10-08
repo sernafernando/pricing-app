@@ -164,6 +164,7 @@ def get_items(
     facets: bool = False,
     user: Usuario = Depends(require_permiso(PERMISO_VER)),
     db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
     status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
 ) -> dict[str, Any]:
     """One page of publications (one row per MLA) with the honest-state block."""
@@ -217,7 +218,7 @@ def get_items(
         "total": page.total,
         "limit": limit,
         "offset": offset,
-        "can_see_margin": PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA),
+        "can_see_margin": PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA),
         "events_enabled": events_enabled,
         "data_state": data_state,
     }

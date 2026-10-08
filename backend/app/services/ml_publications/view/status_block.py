@@ -7,8 +7,9 @@ banner instead of a silent "—".
 `build_status` is the operator report: it scans every state table (percentiles, completeness, link coverage),
 far too heavy for each page of a list that must answer in 500 ms. `ReportCache` therefore builds it at most once
 per `REPORT_TTL_SECONDS` per process, in a session of its own (the report puts its transaction in READ ONLY
-mode, which must not leak into the request's session), and a failed build is cached briefly so a broken report
-neither takes the list down nor is retried on every request.
+mode, which must not leak into the request's session), without ever holding a lock while it builds (see
+`ReportCache`), and a failed build is cached briefly so a broken report neither takes the list down nor is
+retried on every request.
 """
 
 from __future__ import annotations
@@ -50,6 +51,9 @@ _UNAVAILABLE: dict[str, Any] = {
     "kill_switch": None,
     "generated_at": None,
 }
+
+
+_PENDING: dict[str, Any] = {**_UNAVAILABLE, "reason": "status_pending"}
 
 
 def _flag_degradations(report: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -98,7 +102,11 @@ def build_block(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class ReportCache:
-    """Process-wide, time-boxed copy of the block; `build` returns a `build_status` report."""
+    """Process-wide, time-boxed copy of the block; `build` returns a `build_status` report.
+
+    One request rebuilds an expired block while every other request keeps getting the expired one (or, before
+    the very first block exists, a `status_pending` placeholder): the report is never built under the lock and
+    a slow or hung report can delay at most the request that builds it, never the whole list."""
 
     def __init__(
         self,
@@ -114,19 +122,23 @@ class ReportCache:
         self._lock = threading.Lock()
         self._block: Optional[dict[str, Any]] = None
         self._expires = 0.0
+        self._building = False
 
     def get(self) -> dict[str, Any]:
-        with self._lock:  # one builder at a time: the others wait for its result instead of repeating it
-            now = self._clock()
-            if self._block is not None and now < self._expires:
+        with self._lock:
+            if self._block is not None and self._clock() < self._expires:
                 return self._block
-            try:
-                self._block, ttl = build_block(self._build()), self._ttl
-            except Exception:  # noqa: BLE001 -- the report must never take the list down
-                logger.exception("ml publications view: the status report could not be built")
-                self._block, ttl = dict(_UNAVAILABLE), self._failure_ttl
-            self._expires = now + ttl
-            return self._block
+            if self._building:
+                return self._block if self._block is not None else dict(_PENDING)
+            self._building = True
+        try:
+            block, ttl = build_block(self._build()), self._ttl
+        except Exception:  # noqa: BLE001 -- the report must never take the list down
+            logger.exception("ml publications view: the status report could not be built")
+            block, ttl = dict(_UNAVAILABLE), self._failure_ttl
+        with self._lock:
+            self._block, self._expires, self._building = block, self._clock() + ttl, False
+        return block
 
     def reset(self) -> None:
         with self._lock:

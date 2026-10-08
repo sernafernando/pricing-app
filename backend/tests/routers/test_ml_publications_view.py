@@ -167,6 +167,20 @@ class TestContract:
         assert (body["total"], body["limit"]) == (1, 1)
         assert get(client, reader, estado="paused", limit=10).json()["total"] == 1
 
+    def test_the_margin_permission_is_checked_on_the_auth_session_not_the_store_one(
+        self, client, pg, db, reader, monkeypatch
+    ) -> None:
+        seen: list[Session] = []
+        real = ml_publications_view.PermisosService
+
+        def spy(session):
+            seen.append(session)
+            return real(session)
+
+        monkeypatch.setattr(ml_publications_view, "PermisosService", spy)
+        assert get(client, reader).status_code == 200
+        assert seen == [db]  # the application database session (`get_db`), never the store-tables seam
+
     def test_the_margin_permission_is_reported_not_applied(self, client, pg, db, rol_admin, reader) -> None:
         assert get(client, reader).json()["can_see_margin"] is False
         grant(db, rol_admin, GANANCIA)
