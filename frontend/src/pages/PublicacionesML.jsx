@@ -186,8 +186,8 @@ export default function PublicacionesML() {
   const requestedSort = filters.orden === 'markup' && !canSeeMargin ? '' : filters.orden;
   const sortKey = requestedSort || DEFAULT_SORT;
   const sort = { key: sortKey, dir: (requestedSort && filters.dir) || DEFAULT_DIRECTION[sortKey] || 'desc' };
-  const closePanel = useCallback(() => setFilters({ sel: '', tab: '' }), [setFilters]);
-  const changeTab = useCallback((tab) => setFilters({ tab }), [setFilters]);
+  const closePanel = () => setFilters({ sel: '', tab: '' });
+  const changeTab = (tab) => setFilters({ tab });
   const handleSort = (key) => {
     if (key === sort.key) setFilters({ orden: key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
     else setFilters({ orden: key, dir: DEFAULT_DIRECTION[key] ?? 'desc' });

@@ -294,7 +294,7 @@ describe('the body of the publication (the whitelisted extra)', () => {
     expect(links).toHaveLength(2);
     expect(links[0]).toHaveAttribute('href', 'https://http2.mlstatic.com/D_111-O.jpg');
     expect(links[0]).toHaveAttribute('rel', expect.stringContaining('noopener'));
-    expect(pictures).toHaveTextContent('3 imágenes');
+    expect(pictures).toHaveTextContent('2 imágenes (1 sin enlace)');
   });
 
   it('a body the store does not have reads "—" everywhere', () => {

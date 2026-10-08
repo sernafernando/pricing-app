@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useId, useRef } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -40,6 +40,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
   const canManage = tienePermiso('ml_ops.gestionar');
   const { status, detail, error, reload } = usePublicationDetail(itemId, { canSeeMargin });
   const tabRefs = useRef({});
+  const panelId = useId();
 
   const available = detail ? visibleTabs(tabs, { detail, canSeeMargin, canManage }) : [];
   const active = available.find((entry) => entry.key === tab) ?? available[0];
@@ -111,9 +112,9 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
                 }}
                 type="button"
                 role="tab"
-                id={`panel-tab-${entry.key}`}
+                id={`${panelId}-tab-${entry.key}`}
                 aria-selected={entry.key === active.key}
-                aria-controls="panel-tabpanel"
+                aria-controls={`${panelId}-tabpanel`}
                 tabIndex={entry.key === active.key ? 0 : -1}
                 className={styles.tab}
                 onClick={() => onTabChange(entry.key)}
@@ -122,7 +123,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
               </button>
             ))}
           </div>
-          <div className={styles.body} role="tabpanel" id="panel-tabpanel" aria-labelledby={`panel-tab-${active.key}`}>
+          <div className={styles.body} role="tabpanel" id={`${panelId}-tabpanel`} aria-labelledby={`${panelId}-tab-${active.key}`}>
             <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} />
           </div>
         </>

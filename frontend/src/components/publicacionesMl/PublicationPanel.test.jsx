@@ -223,6 +223,17 @@ describe('tabs', () => {
 });
 
 describe('the panel itself', () => {
+  it('two panels on one page never share the id of their tab panel', async () => {
+    render(
+      <>
+        <PublicationPanel itemId="MLA1100000001" tab="" onTabChange={vi.fn()} onClose={vi.fn()} />
+        <PublicationPanel itemId="MLA1100000002" tab="" onTabChange={vi.fn()} onClose={vi.fn()} />
+      </>,
+    );
+    const panels = await screen.findAllByRole('tabpanel');
+    expect(new Set(panels.map((panel) => panel.id)).size).toBe(2);
+  });
+
   it('"Cerrar panel" calls onClose', async () => {
     const onClose = vi.fn();
     renderPanel({ onClose });

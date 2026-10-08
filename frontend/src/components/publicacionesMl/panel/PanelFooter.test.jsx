@@ -75,6 +75,13 @@ describe('freshness', () => {
     for (const resource of resources) expect(text).not.toContain(resource);
   });
 
+  it('the tooltip writes the last check as a date, not as raw ISO', () => {
+    renderFooter();
+    const title = screen.getByText('Publicación').closest('li').getAttribute('title');
+    expect(title).toMatch(/Última verificación: \d{2}\/\d{2}\/\d{4}/);
+    expect(title).not.toContain('T09:45');
+  });
+
   it('has no list when the backend sent no freshness', () => {
     renderFooter({ raw: makeDetail({ freshness: [] }) });
     expect(screen.queryByRole('list', { name: 'Actualización de los datos' })).not.toBeInTheDocument();

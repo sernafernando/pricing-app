@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { publicacionesMlAPI } from '../../../services/api';
-import { timeAgo } from '../../../utils/ventasMlFormat';
+import { formatDateTime, timeAgo } from '../../../utils/ventasMlFormat';
 import { RESOURCE_NAMES, RESOURCE_STATE_LABELS, label } from './labels';
 import styles from './panel.module.css';
 
@@ -26,7 +26,7 @@ function Freshness({ entries }) {
       {entries.map((entry) => {
         const ago = timeAgo(entry.fetched_at);
         return (
-          <li key={entry.resource} title={entry.last_checked_at ? `Última verificación: ${entry.last_checked_at}` : undefined}>
+          <li key={entry.resource} title={entry.last_checked_at ? `Última verificación: ${formatDateTime(entry.last_checked_at)}` : undefined}>
             <span className={styles.freshnessName}>{label(RESOURCE_NAMES, entry.resource)}</span>{' '}
             <span>{ago ?? 'sin datos'}</span>
             {RESOURCE_STATE_LABELS[entry.state] && (

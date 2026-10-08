@@ -30,7 +30,10 @@ function pictureLinks(pictures) {
   const safe = pictures.filter((picture) => typeof picture.secure_url === 'string' && picture.secure_url.startsWith('https://'));
   return (
     <>
-      <span>{pictures.length === 1 ? '1 imagen' : `${pictures.length} imágenes`}</span>
+      <span>
+        {safe.length === 1 ? '1 imagen' : `${safe.length} imágenes`}
+        {safe.length < pictures.length && ` (${pictures.length - safe.length} sin enlace)`}
+      </span>
       <ul className={styles.lines}>
         {safe.map((picture, index) => (
           <li key={picture.id ?? index}>
