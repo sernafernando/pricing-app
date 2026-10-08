@@ -1,0 +1,399 @@
+{
+ "source_capture": "billing_balance_capture_20261007_123428.json.gz",
+ "source_path": "ml['details']['general_BILL']['2026-09-01']['rows']",
+ "rows": [
+  {
+   "charge_info": {
+    "legal_document_number": "0058A00975220",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T00:25:19",
+    "detail_id": 69328325197,
+    "transaction_detail": "Cargo por vender ",
+    "debited_from_operation": "YES",
+    "debited_from_operation_description": "Si",
+    "status": null,
+    "status_description": null,
+    "charge_bonified_id": null,
+    "detail_amount": 67270.0,
+    "detail_type": "CHARGE",
+    "detail_sub_type": "CVFV"
+   },
+   "discount_info": {
+    "charge_amount_without_discount": 67270.0,
+    "discount_amount": 0.0,
+    "discount_reason": null,
+    "rebate": null,
+    "applied_percentage": 15.5
+   },
+   "sales_info": [
+    {
+     "order_id": 2000017972444596,
+     "operation_id": 174228613496,
+     "sale_date_time": "2026-08-16T23:25:04",
+     "sales_channel": "Mercado Libre",
+     "payer_nickname": "INU03",
+     "state_name": "CIUDAD AUTONOMA BUENOS AIRES",
+     "transaction_amount": 434000.0,
+     "wholesale_price": "No"
+    }
+   ],
+   "shipping_info": {
+    "shipping_id": "47786772923",
+    "pack_id": "2000014567599113",
+    "receiver_shipping_cost": 0
+   },
+   "items_info": [
+    {
+     "item_id": "MLA2313959310",
+     "item_kit_id": null,
+     "item_title": "Kit De Enrutador De Malla Tp-link Deco X50 Ax3000 De 2,4/5 Ghz 3u Color Blanco",
+     "item_type": "gold_pro",
+     "item_category": "Computación > Conectividad y Redes > Routers",
+     "inventory_id": null,
+     "item_amount": 1,
+     "item_price": 434000.0,
+     "order_id": 2000017972444596,
+     "fees_added_in_publication": "Si"
+    }
+   ],
+   "document_info": {
+    "document_id": 5140824542
+   },
+   "marketplace_info": {
+    "marketplace": "CORE"
+   },
+   "currency_info": {
+    "currency_id": "ARS"
+   }
+  },
+  {
+   "charge_info": {
+    "legal_document_number": "0058A00975220",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T00:29:21",
+    "detail_id": 69328478115,
+    "transaction_detail": "Cargo por vender ",
+    "debited_from_operation": "INAPPLICABLE",
+    "debited_from_operation_description": "No aplica",
+    "status": "BONUS_ON_BILL",
+    "status_description": "Anulado en factura",
+    "charge_bonified_id": null,
+    "detail_amount": 26452.75,
+    "detail_type": "CHARGE",
+    "detail_sub_type": "CVFV"
+   },
+   "discount_info": {
+    "charge_amount_without_discount": 26452.75,
+    "discount_amount": 0.0,
+    "discount_reason": null,
+    "rebate": null,
+    "applied_percentage": 12.5
+   },
+   "sales_info": [
+    {
+     "order_id": 2000017972457454,
+     "operation_id": 173301623995,
+     "sale_date_time": "2026-08-16T23:29:07",
+     "sales_channel": "Mercado Libre",
+     "payer_nickname": "TREVORNIGHT",
+     "state_name": "Buenos Aires",
+     "transaction_amount": 211622.0,
+     "wholesale_price": "No"
+    }
+   ],
+   "shipping_info": {
+    "shipping_id": "47787060692",
+    "pack_id": null,
+    "receiver_shipping_cost": 0
+   },
+   "items_info": [
+    {
+     "item_id": "MLA1508260443",
+     "item_kit_id": null,
+     "item_title": "Monitor Asus 27  Full Hd Ips 100hz 1ms Freesync Va27ehf Color Negro",
+     "item_type": "gold_special",
+     "item_category": "Computación > Monitores y Accesorios > Monitores",
+     "inventory_id": null,
+     "item_amount": 1,
+     "item_price": 211622.0,
+     "order_id": 2000017972457454,
+     "fees_added_in_publication": "No"
+    }
+   ],
+   "document_info": {
+    "document_id": 5140824542
+   },
+   "marketplace_info": {
+    "marketplace": "CORE"
+   },
+   "currency_info": {
+    "currency_id": "ARS"
+   }
+  },
+  {
+   "charge_info": {
+    "legal_document_number": "0058A00975220",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T12:24:13",
+    "detail_id": 69348180047,
+    "transaction_detail": "Anulación del cargo por vender",
+    "debited_from_operation": "INAPPLICABLE",
+    "debited_from_operation_description": "No aplica",
+    "status": null,
+    "status_description": null,
+    "charge_bonified_id": 69346356112,
+    "detail_amount": 9769.5,
+    "detail_type": "BONUS",
+    "detail_sub_type": "BVFV"
+   },
+   "discount_info": {
+    "charge_amount_without_discount": null,
+    "discount_amount": null,
+    "discount_reason": null,
+    "rebate": null
+   },
+   "sales_info": [
+    {
+     "order_id": 2000017977526962,
+     "operation_id": 174276384790,
+     "sale_date_time": "2026-08-17T10:56:55",
+     "sales_channel": "Mercado Libre",
+     "payer_nickname": "FLORENCIAPARZANESE",
+     "state_name": "BUENOS AIRES",
+     "transaction_amount": 63029.0
+    }
+   ],
+   "shipping_info": {
+    "shipping_id": "47789566886",
+    "pack_id": "2000014572447381",
+    "receiver_shipping_cost": 0
+   },
+   "items_info": [
+    {
+     "item_id": "MLA1866368197",
+     "item_kit_id": null,
+     "item_title": "Repetidor Wi-fi Tp-link Re305 Doble Banda Ac1200 Señal Estable Y Rápida Color Blanco",
+     "item_type": "gold_special",
+     "item_category": "Celulares y Teléfonos > Telefonía IP > Routers",
+     "inventory_id": null,
+     "item_amount": 1,
+     "item_price": 63029.0,
+     "order_id": 2000017977526962,
+     "fees_added_in_publication": "No"
+    }
+   ],
+   "document_info": {
+    "document_id": 5140824542
+   },
+   "marketplace_info": {
+    "marketplace": "CORE"
+   },
+   "currency_info": {
+    "currency_id": "ARS"
+   }
+  },
+  {
+   "charge_info": {
+    "legal_document_number": "0058A00975220",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T12:38:09",
+    "detail_id": 69349103975,
+    "transaction_detail": "Anulación del cargo por campaña de publicidad de Products Ads",
+    "debited_from_operation": "INAPPLICABLE",
+    "debited_from_operation_description": "No aplica",
+    "status": null,
+    "status_description": null,
+    "charge_bonified_id": 69330830815,
+    "detail_amount": 5648.3,
+    "detail_type": "BONUS",
+    "detail_sub_type": "BPAD"
+   },
+   "discount_info": {
+    "charge_amount_without_discount": null,
+    "discount_amount": null,
+    "discount_reason": null,
+    "rebate": null
+   },
+   "sales_info": null,
+   "shipping_info": null,
+   "items_info": null,
+   "document_info": {
+    "document_id": 5140824542
+   },
+   "marketplace_info": {
+    "marketplace": "MCLICS"
+   },
+   "currency_info": {
+    "currency_id": "ARS"
+   }
+  },
+  {
+   "charge_info": {
+    "legal_document_number": "0001A03750426",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T00:50:39",
+    "detail_id": 69329025483,
+    "transaction_detail": "Cargo por envíos de Mercado Libre",
+    "debited_from_operation": "YES",
+    "debited_from_operation_description": "Si",
+    "status": null,
+    "status_description": null,
+    "charge_bonified_id": null,
+    "detail_amount": 8360.0,
+    "detail_type": "CHARGE",
+    "detail_sub_type": "CXD"
+   },
+   "discount_info": {
+    "charge_amount_without_discount": 8360.0,
+    "discount_amount": 0.0,
+    "discount_reason": "Descuento general",
+    "rebate": null
+   },
+   "sales_info": [
+    {
+     "order_id": 2000017972633104,
+     "operation_id": 173303089225,
+     "sale_date_time": "2026-08-16T23:48:30",
+     "sales_channel": "Mercado Libre",
+     "payer_nickname": "RODRIGOPOIDOMANI",
+     "state_name": "ENTRE RIOS",
+     "transaction_amount": 14420.0,
+     "wholesale_price": "No"
+    }
+   ],
+   "shipping_info": {
+    "shipping_id": "47787132192",
+    "pack_id": null,
+    "receiver_shipping_cost": 8360
+   },
+   "items_info": [
+    {
+     "item_id": "MLA2014338550",
+     "item_kit_id": null,
+     "item_title": "Tplink Receptor Usb Bluetooth Ub500 Plus",
+     "item_type": "gold_pro",
+     "item_category": "Computación > Conectividad y Redes > Placas de Red",
+     "inventory_id": null,
+     "item_amount": 1,
+     "item_price": 14420.0,
+     "order_id": 2000017972633104,
+     "fees_added_in_publication": "Si"
+    }
+   ],
+   "document_info": {
+    "document_id": 5140811928
+   },
+   "marketplace_info": {
+    "marketplace": "SHIPPING"
+   },
+   "currency_info": {
+    "currency_id": "ARS"
+   }
+  },
+  {
+   "charge_info": {
+    "legal_document_number": "0001A03750426",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T00:59:18",
+    "detail_id": 69329288727,
+    "transaction_detail": "Cargo por Envíos Flex",
+    "debited_from_operation": "INAPPLICABLE",
+    "debited_from_operation_description": "No aplica",
+    "status": "BONUS_ON_BILL",
+    "status_description": "Anulado en factura",
+    "charge_bonified_id": null,
+    "detail_amount": 360.0,
+    "detail_type": "CHARGE",
+    "detail_sub_type": "CSSTEC"
+   },
+   "discount_info": {
+    "charge_amount_without_discount": 360.0,
+    "discount_amount": 0.0,
+    "discount_reason": "Descuento general",
+    "rebate": null
+   },
+   "sales_info": [
+    {
+     "order_id": 2000017972700430,
+     "operation_id": 174230938438,
+     "sale_date_time": "2026-08-16T23:54:19",
+     "sales_channel": "Mercado Libre",
+     "payer_nickname": "AG20260805111837193",
+     "state_name": null,
+     "transaction_amount": 64990.0,
+     "wholesale_price": "No"
+    }
+   ],
+   "shipping_info": {
+    "shipping_id": "47786882039",
+    "pack_id": null,
+    "receiver_shipping_cost": 2046.47
+   },
+   "items_info": [
+    {
+     "item_id": "MLA1502524291",
+     "item_kit_id": null,
+     "item_title": "Router Tp-link Archer C64 Ac1200 4 Antenas Wi-fi Wireless Mu-mimo Color Negro",
+     "item_type": "gold_special",
+     "item_category": "Computación > Conectividad y Redes > Routers",
+     "inventory_id": null,
+     "item_amount": 1,
+     "item_price": 64990.0,
+     "order_id": 2000017972700430,
+     "fees_added_in_publication": "No"
+    }
+   ],
+   "document_info": {
+    "document_id": 5140811928
+   },
+   "marketplace_info": {
+    "marketplace": "SHIPPING"
+   },
+   "currency_info": {
+    "currency_id": "ARS"
+   }
+  },
+  {
+   "charge_info": {
+    "legal_document_number": "0058A00975220",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T02:06:14",
+    "detail_id": 69330803145,
+    "transaction_detail": "Cargo por campaña de publicidad de Product Ads",
+    "debited_from_operation": "NO",
+    "debited_from_operation_description": "No",
+    "status": "BONUS_ON_BILL",
+    "status_description": "Anulado en factura",
+    "charge_bonified_id": null,
+    "detail_amount": 186278.98,
+    "detail_type": "CHARGE",
+    "detail_sub_type": "PADS"
+   },
+   "discount_info": {
+    "charge_amount_without_discount": 186278.98,
+    "discount_amount": 0.0,
+    "discount_reason": null,
+    "rebate": null
+   },
+   "sales_info": null,
+   "shipping_info": null,
+   "items_info": null,
+   "document_info": {
+    "document_id": 5140824542
+   },
+   "marketplace_info": {
+    "marketplace": "MCLICS"
+   },
+   "currency_info": {
+    "currency_id": "ARS"
+   }
+  }
+ ]
+}
