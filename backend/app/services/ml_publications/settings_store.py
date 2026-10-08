@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 from sqlalchemy.orm import Session
 
 from app.core import database
+from app.core.ads_formulas import ADS_FORMULA_NAMES
 from app.core.config import SCAN_STATUS_NAMES, settings
 from app.models.ml_publications import MlPubSetting
 
@@ -83,7 +84,11 @@ def _sweep_status_list(value: Any) -> bool:
 
 
 def _scan_mode(value: Any) -> bool:
-    return value in ("full", "rescan") and isinstance(value, str)
+    return isinstance(value, str) and value in ("full", "rescan")
+
+
+def _ads_formula(value: Any) -> bool:
+    return isinstance(value, str) and value in ADS_FORMULA_NAMES
 
 
 def _json_object(value: Any) -> bool:
@@ -117,6 +122,7 @@ SETTING_DEFS: Dict[str, _Def] = {
     "stock_rate_per_min": _Def("ML_PUB_STOCK_RATE_PER_MIN", _int_between(1, 100)),
     "bulk_max_ids": _Def("ML_PUB_BULK_MAX_IDS", _int_between(1, 20)),
     "low_lane_min_share": _Def("ML_PUB_LOW_LANE_MIN_SHARE", _positive_number(1)),
+    "view.ads_formula": _Def("ML_PUB_VIEW_ADS_FORMULA", _ads_formula),
 }
 
 
