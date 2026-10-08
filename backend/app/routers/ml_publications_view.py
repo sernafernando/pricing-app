@@ -208,6 +208,8 @@ def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date
 def _ads_plan(provider: AdsCostProvider, status_: AdsStatus) -> Optional[AdsPlan]:
     if not status_.applied or status_.date_from is None or status_.date_to is None:
         return None
+    # The store only accepts a name of `ADS_MARKUP_FORMULAS` and reads anything else as the default
+    # (`test_settings_store.py`), so `apply_ads` never meets an unknown formula from here.
     formula = settings_store.get_setting("view.ads_formula").value
     return AdsPlan(provider, formula, status_.date_from, status_.date_to)
 

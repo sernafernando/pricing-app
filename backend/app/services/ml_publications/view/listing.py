@@ -269,7 +269,7 @@ def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarku
 def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[str]:
     """Item ids by the worst variation's markup; publications without a value last in either direction, and
     `item_id` closes every tie so paging is stable."""
-    priced = sorted((item_id for item_id, m in computed.items() if m.markup.worst is not None), key=lambda i: i)
+    priced = sorted(item_id for item_id, m in computed.items() if m.markup.worst is not None)
     priced.sort(key=lambda i: computed[i].markup.worst, reverse=descending)  # stable: ties stay by item_id
     unpriced = sorted(item_id for item_id, m in computed.items() if m.markup.worst is None)
     return priced + unpriced
