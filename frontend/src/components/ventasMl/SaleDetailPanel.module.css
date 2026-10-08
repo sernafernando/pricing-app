@@ -632,48 +632,6 @@
   background: var(--tone-danger-bg);
 }
 
-/* ── Copy buttons ── */
-
-.copyButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3px;
-  color: var(--cf-text-tertiary);
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm, 4px);
-  cursor: pointer;
-}
-
-.copyButton:hover {
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-hover);
-}
-
-.copyButtonCompact {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 2px;
-  color: var(--cf-text-tertiary);
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm, 4px);
-  cursor: pointer;
-}
-
-.copyButtonCompact:hover {
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-hover);
-}
-
-.copiedNote {
-  font-size: var(--font-xs);
-  color: var(--cf-text-tertiary);
-}
-
 /* ── Footer: sync freshness + Resincronizar ── */
 
 .footer {
