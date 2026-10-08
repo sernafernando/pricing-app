@@ -102,12 +102,23 @@ class TestRoot:
         seed_catalog(conn)
         page = tree(db)
         assert page.level == "marca" and page.total == 4
-        assert {key: (node.label, node.count, node.leaf) for key, node in by_key(page).items()} == {
-            "TP-LINK": ("TP-Link", 4, False),  # the two spellings are ONE brand; the label is the one that sorts last
-            "HIKVISION": ("Hikvision", 1, False),  # MLA10 is gone: not counted
-            "LOGITECH": ("Logitech", 1, False),
-            NO_GROUP: ("Sin marca", 3, False),  # the product with no brand (MLA8) AND the unlinked ones (MLA6, MLA7)
-        }
+        assert (
+            {key: (node.label, node.count, node.leaf) for key, node in by_key(page).items()}
+            == {
+                "TP-LINK": (
+                    "TP-Link",
+                    4,
+                    False,
+                ),  # the two spellings are ONE brand; the label is the trimmed one that sorts first byte-wise (locale-independent)
+                "HIKVISION": ("Hikvision", 1, False),  # MLA10 is gone: not counted
+                "LOGITECH": ("Logitech", 1, False),
+                NO_GROUP: (
+                    "Sin marca",
+                    3,
+                    False,
+                ),  # the product with no brand (MLA8) AND the unlinked ones (MLA6, MLA7)
+            }
+        )
 
     def test_the_active_filters_apply_including_the_store(self, conn, db) -> None:
         seed_catalog(conn)
@@ -127,7 +138,7 @@ class TestDescent:
         seed_catalog(conn)
         categories = tree(db, "TP-LINK")
         assert categories.level == "categoria"
-        assert {k: (n.label, n.count) for k, n in by_key(categories).items()} == {"REDES": ("redes ", 4)}
+        assert {k: (n.label, n.count) for k, n in by_key(categories).items()} == {"REDES": ("Redes", 4)}
         subcategories = tree(db, "TP-LINK", "REDES")
         assert subcategories.level == "subcategoria"
         assert {k: (n.label, n.count) for k, n in by_key(subcategories).items()} == {"10": ("Routers", 4)}

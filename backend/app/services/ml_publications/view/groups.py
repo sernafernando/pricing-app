@@ -157,13 +157,13 @@ def _group_level(db: Session, f: PublicationFilter, path: list[str], level: str,
     dimension = dimensions[level]
     title = title_of(level, dimension.key, dimension.label)
     rows = _scoped(f, path, dimensions, dimension.key.label("k"), title.label("t")).subquery("rows")
-    ordered = (rows.c.k == NO_GROUP, func.lower(func.max(rows.c.t)), rows.c.k)  # "Sin ..." last, then by name
+    # One key can carry spelling variants of the same name ("Redes" / "redes "): show the trimmed one, and
+    # pick it with the byte-wise "C" collation so the label does not depend on the server's locale. MIN under "C"
+    # prefers the capitalized spelling ("TP-Link" over "tp-link").
+    shown = func.min(func.trim(rows.c.t).collate("C"))
+    ordered = (rows.c.k == NO_GROUP, func.lower(shown), rows.c.k)  # "Sin ..." last, then by name
     page = db.execute(
-        select(rows.c.k, func.max(rows.c.t), func.count())
-        .group_by(rows.c.k)
-        .order_by(*ordered)
-        .limit(limit)
-        .offset(offset)
+        select(rows.c.k, shown, func.count()).group_by(rows.c.k).order_by(*ordered).limit(limit).offset(offset)
     ).all()
     total = db.execute(select(func.count(func.distinct(rows.c.k)))).scalar_one()
     nodes = []
