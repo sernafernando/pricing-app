@@ -23,6 +23,7 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -30,6 +31,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -52,9 +54,67 @@ class MlBillingCharge(Base):
     amount = Column(Numeric(14, 2), nullable=True)
     document_id = Column(String(60), nullable=True)
 
+    # ml-billing-balance PR 2b. `document_type` is the type of the document the
+    # fetch asked for (BILL / CREDIT_NOTE); the migration backfills 'BILL' for
+    # the rows swept before this column existed. `billing_source` separates the
+    # general sweep from the flex one (PR 5). The legal fields are ML's own
+    # `charge_info.legal_document_*`: while a document is still PROCESSING the
+    # number is not there yet, which is how a closed period is known to still
+    # need a re-sweep.
+    document_type = Column(String(20), nullable=True)
+    billing_source = Column(String(10), nullable=False, server_default=text("'general'"))
+    legal_document_number = Column(String(30), nullable=True)
+    legal_document_status = Column(String(30), nullable=True)
+
     raw_detail = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_ml_billing_charges_period_document_type", "period_key", "document_type"),
+        Index("ix_ml_billing_charges_document_id", "document_id"),
+    )
+
+
+class MlBillingDocument(Base):
+    """One row per ML billing document (an invoice or a credit note).
+
+    Only ML's own values are stored. Nothing derived lives here -- no stored
+    detail count, no stored sum, no complete flag, no checked-at (BD-1, BS-3):
+    whether a document is complete is a QUERY of the persisted charge rows
+    against `count_details` and `amount` (the query lands in a later PR).
+    """
+
+    __tablename__ = "ml_billing_documents"
+
+    document_id = Column(String(60), primary_key=True)
+
+    group = Column(String(5), nullable=False)
+    document_type = Column(String(20), nullable=False)
+    period_key = Column(String(10), nullable=False, index=True)
+    user_id = Column(BigInteger, nullable=True)
+
+    amount = Column(Numeric(16, 2), nullable=True)
+    unpaid_amount = Column(Numeric(16, 2), nullable=True)
+    document_status = Column(String(30), nullable=True)
+    # Stored even when the referenced document is not in this table: a credit
+    # note usually reverses an invoice from an EARLIER period.
+    associated_document_id = Column(String(60), nullable=True)
+    count_details = Column(Integer, nullable=True)
+    expiration_date = Column(Date, nullable=True)
+    currency_id = Column(String(5), nullable=True)
+    site_id = Column(String(5), nullable=True)
+
+    # Legal reference `PPPPLNNNNNNNN` as ML sends it, plus its parsed parts
+    # (NULL when the string does not have that shape).
+    reference_number = Column(String(20), nullable=True)
+    legal_point_of_sale = Column(Integer, nullable=True)
+    legal_letter = Column(String(1), nullable=True)
+    legal_number = Column(Integer, nullable=True)
+
+    files = Column(JSONB, nullable=True)
+    raw = Column(JSONB, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class MlBillingChargeOrder(Base):

@@ -273,3 +273,68 @@ class TestBillingResourceValidation:
                 return_value=MagicMock(json=MagicMock(return_value={"results": []}), raise_for_status=MagicMock())
             )
             assert asyncio.run(client.get_billing_details("2026-09-01", "MP")) == {"results": []}
+
+
+DOCUMENTS_PAYLOAD = {"results": [{"id": 5140824542, "document_type": "BILL", "count_details": 26056}], "total": 1}
+
+
+class TestGetBillingDocuments:
+    """ml-billing-balance BD-1/BS-2: documents are fetched per group and per
+    document type, exactly as the capture did
+    (`/documents?group=ML&document_type=CREDIT_NOTE`)."""
+
+    def test_sends_group_and_document_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["path"] = request.url.path
+            seen["resource"] = request.url.params["resource"]
+            return httpx.Response(200, json=DOCUMENTS_PAYLOAD)
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.get_billing_documents("2026-09-01", "ML", "CREDIT_NOTE"))
+
+        assert result == DOCUMENTS_PAYLOAD
+        assert seen["path"] == "/api/ml/billing"
+        assert seen["resource"] == (
+            "/billing/integration/periods/key/2026-09-01/documents?group=ML&document_type=CREDIT_NOTE"
+        )
+
+    def test_document_type_defaults_to_bill(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["resource"] = request.url.params["resource"]
+            return httpx.Response(200, json=DOCUMENTS_PAYLOAD)
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        asyncio.run(MLWebhookClient().get_billing_documents("2026-09-01", "ML"))
+
+        assert seen["resource"].endswith("/documents?group=ML&document_type=BILL")
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"period_key": "../../users/me", "group": "ML", "document_type": "BILL"},
+            {"period_key": "2026-09-01", "group": "ML/x?y=1", "document_type": "BILL"},
+            {"period_key": "2026-09-01", "group": "ML", "document_type": "BILL&limit=1"},
+            {"period_key": "2026-09-01", "group": "ML", "document_type": "bill"},
+            {"period_key": "2026-09-01", "group": "ML", "document_type": ""},
+        ],
+    )
+    def test_invalid_values_are_rejected_before_any_http_call(self, kwargs) -> None:
+        client = MLWebhookClient()
+        with patch("httpx.AsyncClient") as fake:
+            with pytest.raises(ValueError):
+                asyncio.run(client.get_billing_documents(**kwargs))
+            fake.assert_not_called()
+
+    def test_error_returns_none_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("timeout", request=request)
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+
+        assert asyncio.run(MLWebhookClient().get_billing_documents("2026-09-01", "ML", "BILL")) is None
