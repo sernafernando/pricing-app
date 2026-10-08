@@ -21,11 +21,21 @@ QUEUE_TABLE = "ml_pub_refresh_queue"
 DELETE_ALLOWED = {"queue.py": {QUEUE_TABLE}}
 
 FORBIDDEN_ERP_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "productos_erp", "ProductoERP")
-# The linking module is the single accepted reader of our product catalog (design D20). Its router is
-# allow-listed below as the only HTTP surface of the linking module, and it reads the catalog ONLY through
-# that module. Everything else about GBP and the other ERP-mirror tables stays forbidden for both.
+# The linking module is the accepted reader of our product catalog for INGESTION (design D20): it is the only
+# code that decides which product a publication belongs to. Its router is allow-listed below as the only HTTP
+# surface of the linking module, and it reads the catalog ONLY through that module. Everything else about GBP and
+# the other ERP-mirror tables stays forbidden for both.
+#
+# `view/filters.py` is the second, explicit exception (publicaciones-ml-vista P5). The management screen is a
+# READER for people, not ingestion from ML: it searches and filters publications by the linked product's name,
+# brand and category, which is one LEFT JOIN from the stored link to `productos_erp` inside the list query.
+# Going through `links.py` would mean a per-row lookup (N+1) or a second copy of the join. The exception covers
+# that one module (the base select every view query is built from); no other module of the view may name the
+# catalog, and the view never writes to it.
 PRODUCT_CATALOG_NAMES = {"productos_erp", "ProductoERP"}
-PRODUCT_CATALOG_READERS = {"links.py"}
+LINKING_READER = "links.py"
+VIEW_CATALOG_READER = "view/filters.py"
+PRODUCT_CATALOG_READERS = {LINKING_READER, VIEW_CATALOG_READER}
 # The one router allowed to use `app.services.ml_publications.links` (PR5L2).
 LINKS_ROUTERS = {"ml_publications_links.py"}
 LINKS_IMPORT = re.compile(r"app\.services\.ml_publications(?:\s+import\s+[^\n]*\blinks\b|\.links\b)")
@@ -122,6 +132,16 @@ class TestScannersCatchOffenders:
         assert erp_violations("links.py", "select * from publicaciones_ml") == ["publicaciones_ml"]
         assert erp_violations("links.py", "from app.services.gbp_client import x") != []
 
+    def test_the_view_exception_is_explicit_and_exactly_one_module(self) -> None:
+        catalog = "from app.models.producto import ProductoERP"
+        assert erp_violations(VIEW_CATALOG_READER, catalog) == []
+        assert erp_violations("view/listing.py", catalog) == ["ProductoERP"]
+        assert erp_violations("view/status_block.py", "select * from productos_erp") == ["productos_erp"]
+        # the exception opens the catalog only: GBP and the other ERP mirrors stay closed to the view
+        assert erp_violations(VIEW_CATALOG_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
+        assert erp_violations(VIEW_CATALOG_READER, "from app.services.gbp_client import x") != []
+        assert PRODUCT_CATALOG_READERS == {LINKING_READER, VIEW_CATALOG_READER}
+
     def test_links_import_scanner_sees_both_import_spellings(self) -> None:
         assert uses_links_module("from app.services.ml_publications import links")
         assert uses_links_module("from app.services.ml_publications import events, links")
@@ -160,7 +180,7 @@ class TestPackageIsClean:
         offenders = {name: found for name, source in package_sources() if (found := erp_violations(name, source))}
         assert offenders == {}
 
-    def test_only_the_linking_module_reads_the_product_catalog(self) -> None:
+    def test_only_the_linking_module_and_the_view_base_select_read_the_product_catalog(self) -> None:
         readers = {name for name, source in package_sources() if PRODUCT_CATALOG_NAMES & set(erp_references(source))}
         assert readers == PRODUCT_CATALOG_READERS
 
