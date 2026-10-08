@@ -71,6 +71,9 @@ export function describeTreeError(error) {
   const status = error?.response?.status;
   if (status === 503) return 'La consulta tardó demasiado. Probá con filtros más acotados o reintentá.';
   if (status === 403) return 'No tenés permiso para ver las publicaciones.';
-  if (status === 422) return 'Filtro inválido.';
+  if (status === 422) {
+    const detail = error.response.data?.error?.message;
+    return detail ? `Filtro inválido: ${detail}` : 'Filtro inválido.';
+  }
   return 'No se pudo cargar este nivel.';
 }

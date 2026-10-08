@@ -1,6 +1,6 @@
 /** The flat rows of the Agrupado tree (publicaciones-ml-vista P12a): what `TableShell` is given. */
 import { describe, it, expect } from 'vitest';
-import { branchKey, flattenTree } from './groupTree';
+import { branchKey, describeTreeError, flattenTree } from './groupTree';
 
 const node = (key, over = {}) => ({ kind: 'marca', key, label: key, count: 5, leaf: false, params: {}, ...over });
 const ready = (rows, total = rows.length, over = {}) => ({ status: 'ready', rows, total, error: null, ...over });
@@ -87,5 +87,20 @@ describe('flattenTree', () => {
 
   it('shows nothing for a root that is empty (the table says so)', () => {
     expect(flattenTree({ branches: { '': ready([]) }, expanded: new Set() })).toEqual([]);
+  });
+});
+
+describe('describeTreeError', () => {
+  const failure = (status, data = {}) => Object.assign(new Error('x'), { response: { status, data } });
+
+  it('names the backend\'s message for an invalid filter', () => {
+    expect(describeTreeError(failure(422, { error: { message: 'estado: valor inválido' } }))).toBe('Filtro inválido: estado: valor inválido');
+    expect(describeTreeError(failure(422))).toBe('Filtro inválido.');
+  });
+
+  it('tells a slow query from a missing permission from anything else', () => {
+    expect(describeTreeError(failure(503))).toMatch(/tardó demasiado/);
+    expect(describeTreeError(failure(403))).toMatch(/permiso/);
+    expect(describeTreeError(new Error('network'))).toBe('No se pudo cargar este nivel.');
   });
 });

@@ -30,6 +30,8 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
   const [branches, setBranches] = useState({});
   const [expanded, setExpanded] = useState(() => new Set());
   const generation = useRef(0);
+  // The pages being fetched (`key@offset`): a second click before the answer asks for nothing.
+  const inflight = useRef(new Set());
   const latest = useRef({ filters, familias, canSeeMargin });
   // Declared before the effect that loads the roots, so that effect reads this render's values.
   useEffect(() => {
@@ -43,6 +45,10 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
     const { filters: current, familias: withFamilies, canSeeMargin: margin } = latest.current;
     const mine = generation.current;
     const { path, leaf, node } = branch;
+    const page = `${key}@${offset}`;
+    const pending = inflight.current;
+    if (pending.has(page)) return;
+    pending.add(page);
     setBranches((all) => ({
       ...all,
       [key]: { rows: [], total: 0, ...all[key], path, leaf, node, status: offset === 0 ? 'loading' : 'more', error: null },
@@ -52,16 +58,18 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
       : publicacionesMlAPI.groups(buildGroupsParams(current, { path, familias: withFamilies, offset }));
     request
       .then((response) => {
+        pending.delete(page);
         if (mine !== generation.current) return;
-        const page = leaf
+        const loaded = leaf
           ? { rows: response.data?.items ?? [], total: response.data?.total ?? 0 }
           : (({ nodes, total }) => ({ rows: nodes, total }))(readGroupsPage(response.data, { canSeeMargin: margin }));
         setBranches((all) => ({
           ...all,
-          [key]: { ...all[key], status: 'ready', rows: offset === 0 ? page.rows : appendPage(all[key].rows, page.rows, leaf), total: page.total },
+          [key]: { ...all[key], status: 'ready', rows: offset === 0 ? loaded.rows : appendPage(all[key].rows, loaded.rows, leaf), total: loaded.total },
         }));
       })
       .catch((error) => {
+        pending.delete(page);
         if (mine !== generation.current) return;
         setBranches((all) => ({ ...all, [key]: { ...all[key], status: 'error', error } }));
       });
@@ -69,6 +77,7 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
 
   useEffect(() => {
     generation.current += 1;
+    inflight.current = new Set();
     setExpanded(new Set());
     setBranches({});
     fetchPage('', ROOT, 0);
