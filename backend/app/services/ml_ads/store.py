@@ -229,15 +229,51 @@ def delete_stale(db: Session, advertiser_id: int, day: date, *, fetch_started_at
 
 
 @dataclass(frozen=True)
+class DrillSums:
+    """Computed when a group's last `/ads` page lands; compared with ML's own group cost, never stored."""
+
+    group_cost: Decimal
+    items_cost: Decimal
+    items: int
+
+
+def drill_sums(
+    db: Session, advertiser_id: int, ad_group_id: int, day: date, *, fetch_started_at: datetime
+) -> DrillSums:
+    group_cost = db.execute(
+        select(MlAdsAdGroupDay.cost).where(
+            MlAdsAdGroupDay.advertiser_id == advertiser_id,
+            MlAdsAdGroupDay.ad_group_id == ad_group_id,
+            MlAdsAdGroupDay.day == day,
+        )
+    ).scalar_one()
+    items_cost, items = db.execute(
+        select(func.coalesce(func.sum(MlAdsItemDay.cost), 0), func.count()).where(
+            MlAdsItemDay.advertiser_id == advertiser_id,
+            MlAdsItemDay.ad_group_id == ad_group_id,
+            MlAdsItemDay.day == day,
+            # Rows of an earlier fetch are only dropped when the day closes; they must not count here.
+            MlAdsItemDay.fetched_at >= fetch_started_at,
+        )
+    ).one()
+    return DrillSums(Decimal(group_cost), Decimal(items_cost), items)
+
+
+@dataclass(frozen=True)
 class DayCheck:
     group_cost: Decimal
     groups: int
+    pending: int
+    drill_mismatches: int
 
 
 def day_check(db: Session, advertiser_id: int, day: date) -> DayCheck:
-    group_cost, groups = db.execute(
-        select(func.coalesce(func.sum(MlAdsAdGroupDay.cost), 0), func.count()).where(
-            MlAdsAdGroupDay.advertiser_id == advertiser_id, MlAdsAdGroupDay.day == day
-        )
+    group_cost, groups, pending, drill_mismatches = db.execute(
+        select(
+            func.coalesce(func.sum(MlAdsAdGroupDay.cost), 0),
+            func.count(),
+            func.count().filter(MlAdsAdGroupDay.drill_status == "pending"),
+            func.count().filter(MlAdsAdGroupDay.drill_status == "mismatch"),
+        ).where(MlAdsAdGroupDay.advertiser_id == advertiser_id, MlAdsAdGroupDay.day == day)
     ).one()
-    return DayCheck(Decimal(group_cost), groups)
+    return DayCheck(Decimal(group_cost), groups, pending, drill_mismatches)
