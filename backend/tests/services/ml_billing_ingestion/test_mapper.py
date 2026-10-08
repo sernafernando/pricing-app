@@ -9,16 +9,20 @@ Spec coverage:
   REQ-2 — the sign is decided by `detail_type`, a real field, NEVER by a
           string-prefix heuristic on `detail_sub_type` (a sub_type
           starting with "B" but `detail_type == "CHARGE"` stays POSITIVE).
-  REQ-3 (PII) — `sales_info[].payer_nickname` / `sales_info[].state_name`
-          are discarded before `raw_detail` is built; neither key/value
-          may appear anywhere in the resulting `raw_detail`.
+  REQ-3 (persist everything, spec BS-5) — `sales_info[].payer_nickname` /
+          `sales_info[].state_name`, `marketplace_info` and `currency_info`
+          are KEPT: `raw_detail` is an unmodified deep copy of the ML
+          detail. Owner decision: persist all ML data, no invented PII
+          rules.
   REQ-4 — `order_ids` is the deduped list of `items_info[].order_id`,
           coerced to `int` (BigInteger-range safe).
 """
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 from app.services.ml_billing_ingestion.mapper import BillingChargeDTO, MappingError, map_billing_detail
 
@@ -78,19 +82,69 @@ class TestSign:
         assert result.amount == 91250.0
 
 
-class TestPii:
-    def test_payer_nickname_and_state_name_are_stripped(self) -> None:
+_FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "ml_billing"
+
+
+def _captured_rows() -> list:
+    """Real rows copied verbatim from the 2026-10-07 billing capture."""
+    with open(_FIXTURES / "general_bill_2026_09_01_sample_rows.json", encoding="utf-8") as fh:
+        return json.load(fh)["rows"]
+
+
+class TestPersistEverything:
+    def test_payer_nickname_and_state_name_are_kept(self) -> None:
         raw = _raw_detail()
         result = map_billing_detail(raw, period_key="2026-09-01")
 
         assert isinstance(result, BillingChargeDTO)
-        serialized = str(result.raw_detail)
-        assert "SECRETO123" not in serialized
-        assert "payer_nickname" not in serialized
-        assert "Buenos Aires" not in serialized
-        assert "state_name" not in serialized
-        # everything else in sales_info survives
-        assert "OP1" in serialized
+        sale = result.raw_detail["sales_info"][0]
+        assert sale["payer_nickname"] == "SECRETO123"
+        assert sale["state_name"] == "Buenos Aires"
+        # and the rest of sales_info is untouched too
+        assert sale["operation_id"] == "OP1"
+
+    def test_marketplace_and_currency_info_are_kept_unmodified(self) -> None:
+        raw = _raw_detail(marketplace_info={"marketplace": "CORE"}, currency_info={"currency_id": "ARS"})
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert isinstance(result, BillingChargeDTO)
+        assert result.raw_detail["marketplace_info"] == {"marketplace": "CORE"}
+        assert result.raw_detail["currency_info"] == {"currency_id": "ARS"}
+
+    def test_a_block_ML_adds_tomorrow_is_kept_too(self) -> None:
+        """Persist ALL of it: the mapper does not keep a whitelist of blocks."""
+        raw = _raw_detail(some_future_block={"a": [1, 2, {"b": None}]})
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert isinstance(result, BillingChargeDTO)
+        assert result.raw_detail["some_future_block"] == {"a": [1, 2, {"b": None}]}
+
+    def test_raw_detail_is_a_deep_copy_not_a_reference(self) -> None:
+        raw = _raw_detail(marketplace_info={"marketplace": "CORE"})
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        raw["marketplace_info"]["marketplace"] = "MUTATED"
+        raw["sales_info"][0]["payer_nickname"] = "MUTATED"
+        assert isinstance(result, BillingChargeDTO)
+        assert result.raw_detail["marketplace_info"] == {"marketplace": "CORE"}
+        assert result.raw_detail["sales_info"][0]["payer_nickname"] == "SECRETO123"
+
+    def test_every_captured_row_is_stored_exactly_as_ML_sent_it(self) -> None:
+        rows = _captured_rows()
+        assert rows, "the capture fixture must not be empty"
+        for row in rows:
+            result = map_billing_detail(row, period_key="2026-09-01")
+            assert isinstance(result, BillingChargeDTO), row["charge_info"]["detail_id"]
+            assert result.raw_detail == row
+
+    def test_captured_row_with_payer_data_keeps_it(self) -> None:
+        with_payer = [r for r in _captured_rows() if r["sales_info"] and "payer_nickname" in r["sales_info"][0]]
+        assert with_payer, "the fixture must contain a row with payer data"
+        result = map_billing_detail(with_payer[0], period_key="2026-09-01")
+
+        assert isinstance(result, BillingChargeDTO)
+        assert result.raw_detail["sales_info"][0]["payer_nickname"] == with_payer[0]["sales_info"][0]["payer_nickname"]
+        assert result.raw_detail["sales_info"][0]["state_name"] == with_payer[0]["sales_info"][0]["state_name"]
 
 
 class TestOrderIds:
@@ -184,12 +238,12 @@ class TestNeverRaises:
             assert isinstance(result, MappingError), f"falló con {basura!r}"
 
 
-class TestErrorPathAlsoStripsPii:
-    """El happy path descarta `payer_nickname` y `state_name`. El camino de
-    ERROR guardaba el payload crudo — y `MappingError.raw_payload` existe
-    justamente para que el barrido lo loguee o lo persista."""
+class TestErrorPathKeepsThePayloadToo:
+    """`MappingError.raw_payload` exists so the sweep can log or persist what
+    ML sent. Persist-everything applies there as well: it carries the raw
+    payload, complete, so a rejected row can be diagnosed and replayed."""
 
-    def test_un_mapping_error_no_lleva_pii(self) -> None:
+    def test_un_mapping_error_lleva_el_payload_completo(self) -> None:
         raw = _raw_detail()
         raw["charge_info"]["detail_amount"] = "N/A"  # fuerza el error
         raw["sales_info"] = [{"order_id": 2000018265495500, "payer_nickname": "INU03", "state_name": "CORDOBA"}]
@@ -198,37 +252,28 @@ class TestErrorPathAlsoStripsPii:
 
         assert isinstance(result, MappingError)
         serializado = str(result.raw_payload)
-        assert "INU03" not in serializado
-        assert "CORDOBA" not in serializado
-        # y no se perdió lo que sí sirve para diagnosticar
+        assert "INU03" in serializado
+        assert "CORDOBA" in serializado
         assert "2000018265495500" in serializado
 
-    def test_las_tres_salidas_de_error_filtran_la_pii(self) -> None:
-        """El mapper tiene TRES salidas de error, no una. La primera versión
-        de este arreglo filtró solo la del `except` y dejó las dos salidas
-        tempranas devolviendo el payload crudo — con la de
-        `missing detail_id`, que es la que llega CON `sales_info` entera.
-
-        Este test recorre las tres a propósito: arreglar una instancia de un
-        patrón y dejar las hermanas es exactamente cómo vuelve el agujero.
-        """
-        pii = [{"order_id": 2000018265495500, "payer_nickname": "INU03", "state_name": "CORDOBA"}]
+    def test_las_salidas_de_error_llevan_el_payload_completo(self) -> None:
+        sales = [{"order_id": 2000018265495500, "payer_nickname": "INU03", "state_name": "CORDOBA"}]
 
         sin_detail_id = _raw_detail()
         sin_detail_id["charge_info"].pop("detail_id", None)
-        sin_detail_id["sales_info"] = pii
+        sin_detail_id["sales_info"] = sales
 
         monto_roto = _raw_detail()
         monto_roto["charge_info"]["detail_amount"] = "N/A"
-        monto_roto["sales_info"] = pii
+        monto_roto["sales_info"] = sales
 
         for nombre, raw in (("sin detail_id", sin_detail_id), ("monto no numérico", monto_roto)):
             result = map_billing_detail(raw, period_key="2026-09-01")
             assert isinstance(result, MappingError), nombre
-            serializado = str(result.raw_payload)
-            assert "INU03" not in serializado, f"PII filtrada en: {nombre}"
-            assert "CORDOBA" not in serializado, f"PII filtrada en: {nombre}"
+            assert result.raw_payload["sales_info"] == sales, nombre
 
-        # La tercera salida (raw que no es dict) no puede llevar PII porque
-        # no es un dict, pero pasa por el mismo filtro igual.
-        assert isinstance(map_billing_detail(["no soy dict"], period_key="2026-09-01"), MappingError)
+        # La tercera salida (raw que no es dict) devuelve lo que recibió.
+        basura = ["no soy dict"]
+        result = map_billing_detail(basura, period_key="2026-09-01")
+        assert isinstance(result, MappingError)
+        assert result.raw_payload == basura

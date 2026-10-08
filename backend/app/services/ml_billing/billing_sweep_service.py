@@ -69,6 +69,14 @@ logger = logging.getLogger(__name__)
 CURSOR_NAME = "billing"
 BILLING_GROUP = "ML"
 PAGE_LIMIT = 1000
+# Hard bound on pages per pass, on top of the strictly advancing cursor.
+# Only an empty page ends a pass (BS-1), so without a bound a misbehaving
+# answer would hold the lock and spend one request of the account-wide budget
+# every 15 s indefinitely. The bound derives from the FIRST page's `total`
+# (rows remaining at the start): ceil(total / PAGE_LIMIT) pages, plus this
+# margin for short pages (950-row pages measured in 2026-09) and rows that
+# ML adds to the open period while the sweep runs.
+PAGE_CAP_MARGIN = 10
 # The proxy itself throttles to 1 call/15s and returns 429 without going to
 # ML (investigation §3). Spacing our own requests at the same floor keeps
 # us under the account's 5/minute ceiling with margin, instead of relying
@@ -145,6 +153,35 @@ def _resolve_open_period_key(now: datetime, group: str) -> str:
     return derived
 
 
+def _cursor_value(cursor) -> Optional[int]:
+    """The cursor as an int, or None when it is not a usable id.
+
+    Compared numerically: ML sends `last_id` as an int, but a numeric string
+    for the same id must not read as an advance."""
+    try:
+        return int(cursor)
+    except (TypeError, ValueError):
+        return None
+
+
+def _page_cap(first_total: int) -> int:
+    return -(-first_total // PAGE_LIMIT) + PAGE_CAP_MARGIN
+
+
+def _highest_detail_id(raw_results: list) -> Optional[int]:
+    """Cursor de respaldo cuando la página no trae `last_id`: el mayor
+    `detail_id` numérico de las filas (el orden es ASC y `from_id` es
+    exclusivo). None si ninguna fila trae un id utilizable."""
+    ids: list[int] = []
+    for raw in raw_results:
+        raw_id = (raw.get("charge_info") or {}).get("detail_id") if isinstance(raw, dict) else None
+        try:
+            ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    return max(ids) if ids else None
+
+
 def _insert_stmt(db, table):
     """Same dialect pick as `ml_billing_ingestion/ingestion_service.py`."""
     dialect_name = db.bind.dialect.name if db.bind is not None else "postgresql"
@@ -207,16 +244,15 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
     try:
         with get_background_db() as db:
             from_id: int | str = 0
-            # `detail_id` distintos, NO longitud acumulada de las páginas.
-            # Medido el 2026-09-07 contra el período real, `from_id` es
-            # EXCLUSIVO (solapamiento 0 entre páginas), así que hoy los dos
-            # conteos coinciden. Contamos únicos igual: si ML lo volviera
-            # inclusivo, contar filas recibidas dispararía el corte antes
-            # de tiempo y, con orden ASC, lo que se perdería es lo MÁS
-            # RECIENTE -- el motivo mismo por el que abandonamos `offset`.
-            # Y la pasada se vería completa.
-            seen_ids: set[str] = set()
-            total: Optional[int] = None
+            # `total` es la cantidad de filas que QUEDAN después del cursor,
+            # no el tamaño del período (capturado el 2026-10-07: 33260,
+            # 32260, ... 310, 0). Por eso NO decide cuándo cortar: la regla
+            # anterior comparaba los ids vistos contra él y cortaba a mitad
+            # de camino (17.950 de 33.260 en 2026-09). El tamaño del período
+            # es el `total` de la PRIMERA página; solo se guarda como
+            # observación.
+            reported_total: Optional[int] = None
+            pages_fetched = 0
 
             while True:
                 # ALWAYS space, including before the FIRST page.
@@ -265,15 +301,12 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 # Sin fallback a `paging` a propósito: dejarlo mantendría
                 # viva la creencia que este arreglo viene a enterrar.
                 page_total = page.get("total")
-                if isinstance(page_total, int):
-                    total = page_total
+                if reported_total is None and isinstance(page_total, int):
+                    reported_total = page_total
 
                 raw_results = list(page.get("results") or [])
                 for raw in raw_results:
                     result.charges_seen += 1
-                    raw_detail_id = (raw.get("charge_info") or {}).get("detail_id")
-                    if raw_detail_id is not None:
-                        seen_ids.add(str(raw_detail_id))
                     mapped = map_billing_detail(raw, period_key)
                     if isinstance(mapped, MappingError):
                         result.charges_mapping_error += 1
@@ -284,14 +317,19 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
 
                 db.commit()
 
-                next_from_id = page.get("last_id")
-
+                # Solo una página VACÍA termina la pasada (BS-1). Una página
+                # corta (ML devolvió 950 filas con limit=1000 dos veces en
+                # 2026-09) no es el final: se sigue desde su cursor.
                 if not raw_results:
                     break
-                if total is not None and len(seen_ids) >= total:
-                    break
-                if next_from_id is None or next_from_id == from_id:
-                    # El cursor no avanzó. Sin esto la pasada cicla para
+
+                next_from_id = page.get("last_id")
+                if next_from_id is None:
+                    next_from_id = _highest_detail_id(raw_results)
+                next_value = _cursor_value(next_from_id)
+                if next_value is None or next_value <= _cursor_value(from_id):
+                    # El cursor no avanzó (o retrocedió, o no es un id).
+                    # Sin esto la pasada cicla para
                     # siempre re-escribiendo la misma página: mientras
                     # `total` fue None, lo único que terminaba un barrido
                     # era que la request fallara.
@@ -307,6 +345,20 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                     result.error = "billing pagination cursor did not advance"
                     break
                 from_id = next_from_id
+
+                pages_fetched += 1
+                if reported_total is not None and pages_fetched >= _page_cap(reported_total):
+                    logger.warning(
+                        "sync_ml_billing: la pasada superó las páginas esperadas (period=%s, group=%s, "
+                        "pages=%s, first_total=%s) -- corto para no gastar el presupuesto de requests",
+                        period_key,
+                        group,
+                        pages_fetched,
+                        reported_total,
+                    )
+                    result.stopped_early = True
+                    result.error = "billing pagination exceeded the expected number of pages"
+                    break
 
             if not result.stopped_early:
                 documents_count_details: Optional[int] = None
@@ -324,7 +376,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                         for doc in (documents.get("documents") or [])
                         if isinstance(doc, dict)
                     )
-                    if total is not None and documents_count_details != total:
+                    if reported_total is not None and documents_count_details != reported_total:
                         # OBSERVATION only -- see module docstring. Never
                         # raised, never blocks, never marks the pass as an
                         # error.
@@ -332,7 +384,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                             "sync_ml_billing: documents.count_details=%s differs from details.total=%s "
                             "(period=%s) -- known open discrepancy, recorded as observation only",
                             documents_count_details,
-                            total,
+                            reported_total,
                             period_key,
                         )
 
@@ -340,7 +392,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 _upsert_period_stat(
                     db,
                     period_key=period_key,
-                    reported_total=total,
+                    reported_total=reported_total,
                     stored_total=stored_total,
                     documents_count_details=documents_count_details,
                     # El FIN del barrido, no el inicio: `now` se capturó
