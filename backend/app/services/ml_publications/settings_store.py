@@ -120,6 +120,7 @@ SETTING_DEFS: Dict[str, _Def] = {
     "sweep.statuses": _Def("ML_PUB_SWEEP_STATUSES", _sweep_status_list),
     "rate_per_sec": _Def("ML_PUB_RATE_PER_SEC", _positive_number(20)),
     "stock_rate_per_min": _Def("ML_PUB_STOCK_RATE_PER_MIN", _int_between(1, 100)),
+    "replenishment_rate_per_min": _Def("ML_PUB_REPLENISHMENT_RATE_PER_MIN", _int_between(1, 100)),
     "bulk_max_ids": _Def("ML_PUB_BULK_MAX_IDS", _int_between(1, 20)),
     "low_lane_min_share": _Def("ML_PUB_LOW_LANE_MIN_SHARE", _positive_number(1)),
     "view.ads_formula": _Def("ML_PUB_VIEW_ADS_FORMULA", _ads_formula),

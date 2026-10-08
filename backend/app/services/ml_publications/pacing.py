@@ -6,6 +6,8 @@ budget. It combines:
 - a global gate (`rate_per_sec`, default 2/s) spending one slot per call;
 - a stock sub-gate (`stock_rate_per_min`, at most the documented 100/min) that
   `stock` calls spend IN ADDITION to the global one;
+- a replenishment sub-gate (`replenishment_rate_per_min`, default 30, at most 100/min) that
+  `replenishment` calls spend IN ADDITION to the global one;
 - a 429 cooldown honoring `Retry-After` (seconds or HTTP date) or, without a
   usable header, exponential backoff with jitter capped at 60 s;
 - AIMD: each 429 halves the effective rate for ten minutes, then the rate is
@@ -34,6 +36,9 @@ DEADLINE = "deadline"
 
 STOCK_FAMILY = "stock"
 MAX_STOCK_PER_MIN = 100  # documented ML limit for /user-products/{id}/stock
+REPLENISHMENT_FAMILY = "replenishment"
+DEFAULT_REPLENISHMENT_PER_MIN = 30  # a sweep of weekly data: slow on purpose, it must never crowd out live work
+MAX_REPLENISHMENT_PER_MIN = 100
 
 BACKOFF_CAP_SECONDS = 60.0
 # A `Retry-After` beyond this is clamped: ML retries notifications for about an hour,
@@ -95,6 +100,7 @@ class Pacer:
         *,
         rate_per_sec: float = 2.0,
         stock_rate_per_min: int = 60,
+        replenishment_rate_per_min: int = DEFAULT_REPLENISHMENT_PER_MIN,
         clock: Optional[Clock] = None,
         rng: Optional[random.Random] = None,
     ) -> None:
@@ -102,20 +108,33 @@ class Pacer:
         self._rng = rng or random.Random()
         self._global = _Gate()
         self._stock = _Gate()
+        self._replenishment = _Gate()
         self._cooldown_until = float("-inf")
         self._consecutive_429 = 0
         self._penalized = 1.0
         self._penalty_until = float("-inf")
-        self.configure(rate_per_sec=rate_per_sec, stock_rate_per_min=stock_rate_per_min)
+        self._replenishment_rate_per_min = DEFAULT_REPLENISHMENT_PER_MIN
+        self.configure(
+            rate_per_sec=rate_per_sec,
+            stock_rate_per_min=stock_rate_per_min,
+            replenishment_rate_per_min=replenishment_rate_per_min,
+        )
 
-    def configure(self, *, rate_per_sec: float, stock_rate_per_min: int) -> None:
-        """Apply (possibly runtime-changed) budgets; takes effect on the next call."""
+    def configure(
+        self, *, rate_per_sec: float, stock_rate_per_min: int, replenishment_rate_per_min: Optional[int] = None
+    ) -> None:
+        """Apply (possibly runtime-changed) budgets; takes effect on the next call. A caller that does not know
+        the replenishment budget (`None`) leaves the one already set."""
         if rate_per_sec <= 0:
             raise ValueError("rate_per_sec must be positive")
         if not 1 <= stock_rate_per_min <= MAX_STOCK_PER_MIN:
             raise ValueError(f"stock_rate_per_min must be between 1 and {MAX_STOCK_PER_MIN}")
+        if replenishment_rate_per_min is not None and not 1 <= replenishment_rate_per_min <= MAX_REPLENISHMENT_PER_MIN:
+            raise ValueError(f"replenishment_rate_per_min must be between 1 and {MAX_REPLENISHMENT_PER_MIN}")
         self._rate_per_sec = float(rate_per_sec)
         self._stock_rate_per_min = int(stock_rate_per_min)
+        if replenishment_rate_per_min is not None:
+            self._replenishment_rate_per_min = int(replenishment_rate_per_min)
 
     # --- AIMD -------------------------------------------------------------------------
 
@@ -162,6 +181,9 @@ class Pacer:
         ready_at = max(self._cooldown_until, self._global.next_at)
         if is_stock:
             ready_at = max(ready_at, self._stock.next_at)
+        is_replenishment = family == REPLENISHMENT_FAMILY
+        if is_replenishment:
+            ready_at = max(ready_at, self._replenishment.next_at)
         wait = max(0.0, ready_at - now)
         if deadline is not None and wait > (deadline - self._clock.now()).total_seconds():
             return DEADLINE
@@ -172,4 +194,6 @@ class Pacer:
         self._global.next_at = granted_at + 1.0 / (self._rate_per_sec * factor)
         if is_stock:
             self._stock.next_at = granted_at + 60.0 / (self._stock_rate_per_min * factor)
+        if is_replenishment:
+            self._replenishment.next_at = granted_at + 60.0 / (self._replenishment_rate_per_min * factor)
         return GRANTED
