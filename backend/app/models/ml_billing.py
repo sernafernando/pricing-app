@@ -30,6 +30,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -155,3 +156,45 @@ class MlBillingPeriodStat(Base):
     swept_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (UniqueConstraint("period_key", name="uq_ml_billing_period_stats_period_key"),)
+
+
+class MlBillingSweepGap(Base):
+    """A position of the billing sweep that ML refused with a bare 400 and the
+    sweep stepped over (BS-7: a poison row never halts the period).
+
+    The sweep isolates the bad row (from_id paging: its exact `detail_id`;
+    offset paging: its offset), records it here and continues. Nothing derived
+    is stored: the missing row keeps its document incomplete through the
+    per-document completeness query, and a gap only says where to look.
+    `resolved_at` is set when a later pass reads the position successfully.
+    """
+
+    __tablename__ = "ml_billing_sweep_gaps"
+
+    id = Column(Integer, primary_key=True)
+    period_key = Column(String(10), nullable=False)
+    document_type = Column(String(20), nullable=False)
+    billing_source = Column(String(10), nullable=False)
+    # 'from_id' (general /details) or 'offset' (flex /details).
+    paging = Column(String(10), nullable=False)
+    position = Column(String(30), nullable=False)
+    window = Column(Text, nullable=True)
+    http_status = Column(Integer, nullable=True)
+    error = Column(Text, nullable=True)
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    seen_count = Column(Integer, nullable=False, server_default=text("1"))
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    lap_id = Column(String(40), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "period_key",
+            "document_type",
+            "billing_source",
+            "paging",
+            "position",
+            name="uq_ml_billing_sweep_gaps_position",
+        ),
+        Index("ix_ml_billing_sweep_gaps_period_key", "period_key"),
+    )
