@@ -217,3 +217,66 @@ export const VARIATION_ITEM = makeItem({
   stock: { available: 17, full: null, own: 17, as_of: null },
   markup: { min: -4.2, max: 12.5, worst: -4.2, any_negative: true, reason: 'ok', partial: 1, ads: null },
 });
+
+/**
+ * `GET /ml-publications/view/groups` (router `ml_publications_view.py`,
+ * `GroupsResponse` / `GroupNodeOut`; P7a). A brand or category key arrives
+ * percent-escaped (`%`, `,`); `params` are the node's `/items` filters,
+ * ancestors included. `negative_count`, `markup_min` and `markup_max` are the
+ * node aggregates of P7b (only with `ver_ganancia`; not built yet when this was
+ * written, shaped after the design).
+ */
+export const makeNode = (overrides) => ({
+  kind: 'marca',
+  key: 'TP-LINK',
+  label: 'TP-LINK',
+  count: 90,
+  leaf: false,
+  params: { marcas: 'TP-LINK' },
+  ...overrides,
+});
+
+export const groupsResponse = (level, nodes, overrides = {}) => ({
+  level,
+  path: [],
+  nodes,
+  total: nodes.length,
+  limit: 100,
+  offset: 0,
+  familias: false,
+  ...overrides,
+});
+
+export const BRAND_NODES = [
+  makeNode({ negative_count: 4, markup_min: -6.5, markup_max: 38.2 }),
+  makeNode({ key: 'EPSON', label: 'EPSON', count: 60, params: { marcas: 'EPSON' }, negative_count: 0, markup_min: 8.1, markup_max: 22 }),
+  makeNode({ key: 'TP%2CLINK', label: 'TP,LINK', count: 7, params: { marcas: 'TP%2CLINK' }, negative_count: 0, markup_min: null, markup_max: null }),
+  makeNode({ key: '__none__', label: 'Sin marca', count: 25, params: { marcas: '__none__' }, negative_count: 0, markup_min: null, markup_max: null }),
+];
+
+export const PRODUCT_NODES = [
+  makeNode({
+    kind: 'producto',
+    key: '4101',
+    label: 'Router Archer AX55',
+    count: 3,
+    leaf: true,
+    params: { marcas: 'TP-LINK', categorias: 'ROUTERS', subcategorias: '55', producto: '4101' },
+    producto_item_id: 4101,
+    codigo: 'ARCHER-AX55',
+    negative_count: 1,
+    markup_min: -6.5,
+    markup_max: 30,
+  }),
+  makeNode({
+    kind: 'producto',
+    key: '__none__',
+    label: 'Sin producto',
+    count: 2,
+    leaf: true,
+    params: { marcas: 'TP-LINK', categorias: 'ROUTERS', subcategorias: '55', sin_producto: 'true' },
+    negative_count: 0,
+    markup_min: null,
+    markup_max: null,
+  }),
+];
