@@ -1,0 +1,755 @@
+{
+  "source": "GET /marketplace/fbm/user-products/{MLAU}/replenishment?country=AR, direct to api.mercadolibre.com with the store token (backend/scripts/ml_capture_replenishment.py), run on server-lenovo",
+  "captured_at": "2026-10-08T03:50:55Z",
+  "notes": [
+    "All 9 calls returned 200: no 206 and no 404 showed up.",
+    "ML does NOT require x-caller-id / x-caller-siteId on a direct call (full_1_no_caller and non_full_1_no_caller are identical to their with-caller twins).",
+    "A user product that is not in Full answers 200 with inventory_id, stock, sales, recommendation and eligibility_benefits all null (non_full_1); some non-Full products do carry stock and sales (non_full_2).",
+    "Response headers kept: date and x-content-missing only."
+  ],
+  "calls": [
+    {
+      "name": "full_1",
+      "path": "/marketplace/fbm/user-products/MLAU228712304/replenishment?country=AR",
+      "mlau": "MLAU228712304",
+      "caller_headers_sent": true,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:50 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU228712304",
+          "inventory_id": "XZXU40135",
+          "seller_sku": "6935364080433"
+        },
+        "product": {
+          "tags": [
+            "star_product",
+            "is_fulfillment"
+          ],
+          "packages_master_case": []
+        },
+        "stock": {
+          "total_stock": 184,
+          "shipping_urgency": "IN_TWO_WEEKS",
+          "minimum_distributable_stock": 35
+        },
+        "sales": {
+          "sales_totals": {
+            "period": "30DAYS",
+            "gmv": [
+              {
+                "full": 13427445.75
+              }
+            ],
+            "currency": "ARS",
+            "units_sold": [
+              {
+                "full": 311
+              }
+            ]
+          },
+          "sales_history": [
+            {
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-07",
+              "units_sold": 38,
+              "days_out_of_stock": 1,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-24",
+              "end_date": "2026-09-30",
+              "units_sold": 122,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-17",
+              "end_date": "2026-09-23",
+              "units_sold": 19,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-16",
+              "units_sold": 66,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-03",
+              "end_date": "2026-09-09",
+              "units_sold": 89,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-08-27",
+              "end_date": "2026-09-02",
+              "units_sold": 10,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            }
+          ]
+        },
+        "recommendation": {
+          "recommendation_type": "REPLENISH",
+          "suggested_quantity": {
+            "type": "exact",
+            "value": 219
+          },
+          "replenishment_deadline": "IN_TWO_WEEKS",
+          "replenishment_frequency": 4
+        },
+        "eligibility_benefits": [
+          "AGING"
+        ]
+      }
+    },
+    {
+      "name": "full_2",
+      "path": "/marketplace/fbm/user-products/MLAU245346284/replenishment?country=AR",
+      "mlau": "MLAU245346284",
+      "caller_headers_sent": true,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:50 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU245346284",
+          "inventory_id": "SMKX33471",
+          "seller_sku": "0"
+        },
+        "product": {
+          "tags": [
+            "is_fulfillment"
+          ],
+          "packages_master_case": []
+        },
+        "stock": {
+          "total_stock": 4,
+          "shipping_urgency": "NO_URGENCY",
+          "minimum_distributable_stock": 0
+        },
+        "sales": {
+          "sales_totals": {
+            "period": "30DAYS",
+            "gmv": [
+              {
+                "full": 413998.0
+              }
+            ],
+            "currency": "ARS",
+            "units_sold": [
+              {
+                "full": 2
+              }
+            ]
+          },
+          "sales_history": [
+            {
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-07",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-24",
+              "end_date": "2026-09-30",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-17",
+              "end_date": "2026-09-23",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-16",
+              "units_sold": 2,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-03",
+              "end_date": "2026-09-09",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-08-27",
+              "end_date": "2026-09-02",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            }
+          ]
+        },
+        "recommendation": {
+          "recommendation_type": "NO_REPLENISHMENT",
+          "suggested_quantity": {
+            "type": "exact",
+            "value": 0
+          },
+          "replenishment_deadline": "NOT_REPLENISHMENT_NEEDED",
+          "replenishment_frequency": 4
+        },
+        "eligibility_benefits": []
+      }
+    },
+    {
+      "name": "full_3",
+      "path": "/marketplace/fbm/user-products/MLAU3558383616/replenishment?country=AR",
+      "mlau": "MLAU3558383616",
+      "caller_headers_sent": true,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:51 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU3558383616",
+          "inventory_id": "QSDN92702",
+          "seller_sku": "0"
+        },
+        "product": {
+          "tags": [
+            "star_product",
+            "is_fulfillment"
+          ],
+          "packages_master_case": []
+        },
+        "stock": {
+          "total_stock": 32,
+          "shipping_urgency": "NEXT_WEEK",
+          "minimum_distributable_stock": 12
+        },
+        "sales": {
+          "sales_totals": {
+            "period": "30DAYS",
+            "gmv": [
+              {
+                "full": 17798562.72
+              }
+            ],
+            "currency": "ARS",
+            "units_sold": [
+              {
+                "full": 13
+              }
+            ]
+          },
+          "sales_history": [
+            {
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-07",
+              "units_sold": 5,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-24",
+              "end_date": "2026-09-30",
+              "units_sold": 1,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-17",
+              "end_date": "2026-09-23",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-16",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-03",
+              "end_date": "2026-09-09",
+              "units_sold": 15,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-08-27",
+              "end_date": "2026-09-02",
+              "units_sold": 5,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            }
+          ]
+        },
+        "recommendation": {
+          "recommendation_type": "NO_REPLENISHMENT",
+          "suggested_quantity": null,
+          "replenishment_deadline": "NEXT_WEEK",
+          "replenishment_frequency": 4
+        },
+        "eligibility_benefits": []
+      }
+    },
+    {
+      "name": "full_4",
+      "path": "/marketplace/fbm/user-products/MLAU244496622/replenishment?country=AR",
+      "mlau": "MLAU244496622",
+      "caller_headers_sent": true,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:52 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU244496622",
+          "inventory_id": "VRAQ23741",
+          "seller_sku": "6935364053413"
+        },
+        "product": {
+          "tags": [
+            "star_product",
+            "is_fulfillment"
+          ],
+          "packages_master_case": []
+        },
+        "stock": {
+          "total_stock": 46,
+          "shipping_urgency": "THIS_WEEK",
+          "minimum_distributable_stock": 35
+        },
+        "sales": {
+          "sales_totals": {
+            "period": "30DAYS",
+            "gmv": [
+              {
+                "full": 3430600.0
+              }
+            ],
+            "currency": "ARS",
+            "units_sold": [
+              {
+                "full": 88
+              }
+            ]
+          },
+          "sales_history": [
+            {
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-07",
+              "units_sold": 11,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-24",
+              "end_date": "2026-09-30",
+              "units_sold": 35,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-17",
+              "end_date": "2026-09-23",
+              "units_sold": 20,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-16",
+              "units_sold": 19,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-03",
+              "end_date": "2026-09-09",
+              "units_sold": 7,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-08-27",
+              "end_date": "2026-09-02",
+              "units_sold": 16,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            }
+          ]
+        },
+        "recommendation": {
+          "recommendation_type": "REPLENISH",
+          "suggested_quantity": {
+            "type": "exact",
+            "value": 137
+          },
+          "replenishment_deadline": "THIS_WEEK",
+          "replenishment_frequency": 4
+        },
+        "eligibility_benefits": [
+          "AGING"
+        ]
+      }
+    },
+    {
+      "name": "full_5",
+      "path": "/marketplace/fbm/user-products/MLAU4022013440/replenishment?country=AR",
+      "mlau": "MLAU4022013440",
+      "caller_headers_sent": true,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:52 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU4022013440",
+          "inventory_id": "PYDM19471",
+          "seller_sku": "6935364053406"
+        },
+        "product": {
+          "tags": [
+            "star_product",
+            "is_fulfillment"
+          ],
+          "packages_master_case": []
+        },
+        "stock": {
+          "total_stock": 12,
+          "shipping_urgency": "THIS_WEEK",
+          "minimum_distributable_stock": 25
+        },
+        "sales": {
+          "sales_totals": {
+            "period": "30DAYS",
+            "gmv": [
+              {
+                "full": 7551451.07
+              }
+            ],
+            "currency": "ARS",
+            "units_sold": [
+              {
+                "full": 77
+              }
+            ]
+          },
+          "sales_history": [
+            {
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-07",
+              "units_sold": 13,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-24",
+              "end_date": "2026-09-30",
+              "units_sold": 23,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-17",
+              "end_date": "2026-09-23",
+              "units_sold": 7,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-16",
+              "units_sold": 24,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-03",
+              "end_date": "2026-09-09",
+              "units_sold": 15,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-08-27",
+              "end_date": "2026-09-02",
+              "units_sold": 0,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            }
+          ]
+        },
+        "recommendation": {
+          "recommendation_type": "REPLENISH",
+          "suggested_quantity": {
+            "type": "exact",
+            "value": 128
+          },
+          "replenishment_deadline": "THIS_WEEK",
+          "replenishment_frequency": 4
+        },
+        "eligibility_benefits": [
+          "AGING"
+        ]
+      }
+    },
+    {
+      "name": "non_full_1",
+      "path": "/marketplace/fbm/user-products/MLAU370292923/replenishment?country=AR",
+      "mlau": "MLAU370292923",
+      "caller_headers_sent": true,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:53 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU370292923",
+          "inventory_id": null,
+          "seller_sku": "193015522459"
+        },
+        "product": {
+          "tags": [],
+          "packages_master_case": []
+        },
+        "stock": null,
+        "sales": null,
+        "recommendation": null,
+        "eligibility_benefits": null
+      }
+    },
+    {
+      "name": "non_full_2",
+      "path": "/marketplace/fbm/user-products/MLAU223697004/replenishment?country=AR",
+      "mlau": "MLAU223697004",
+      "caller_headers_sent": true,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:54 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU223697004",
+          "inventory_id": "MGQW41664",
+          "seller_sku": "1210002616331"
+        },
+        "product": {
+          "tags": [
+            "is_fulfillment"
+          ],
+          "packages_master_case": []
+        },
+        "stock": {
+          "total_stock": 120,
+          "shipping_urgency": "NO_URGENCY",
+          "minimum_distributable_stock": 0
+        },
+        "sales": {
+          "sales_totals": {
+            "period": "30DAYS",
+            "gmv": [
+              {
+                "full": 1149572.0
+              }
+            ],
+            "currency": "ARS",
+            "units_sold": [
+              {
+                "full": 63
+              }
+            ]
+          },
+          "sales_history": [
+            {
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-07",
+              "units_sold": 20,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-24",
+              "end_date": "2026-09-30",
+              "units_sold": 7,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-17",
+              "end_date": "2026-09-23",
+              "units_sold": 12,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-16",
+              "units_sold": 11,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-03",
+              "end_date": "2026-09-09",
+              "units_sold": 22,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-08-27",
+              "end_date": "2026-09-02",
+              "units_sold": 5,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            }
+          ]
+        },
+        "recommendation": {
+          "recommendation_type": "NO_REPLENISHMENT",
+          "suggested_quantity": null,
+          "replenishment_deadline": "NOT_REPLENISHMENT_NEEDED",
+          "replenishment_frequency": 4
+        },
+        "eligibility_benefits": []
+      }
+    },
+    {
+      "name": "full_1_no_caller",
+      "path": "/marketplace/fbm/user-products/MLAU228712304/replenishment?country=AR",
+      "mlau": "MLAU228712304",
+      "caller_headers_sent": false,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:54 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU228712304",
+          "inventory_id": "XZXU40135",
+          "seller_sku": "6935364080433"
+        },
+        "product": {
+          "tags": [
+            "star_product",
+            "is_fulfillment"
+          ],
+          "packages_master_case": []
+        },
+        "stock": {
+          "total_stock": 184,
+          "shipping_urgency": "IN_TWO_WEEKS",
+          "minimum_distributable_stock": 35
+        },
+        "sales": {
+          "sales_totals": {
+            "period": "30DAYS",
+            "gmv": [
+              {
+                "full": 13427445.75
+              }
+            ],
+            "currency": "ARS",
+            "units_sold": [
+              {
+                "full": 311
+              }
+            ]
+          },
+          "sales_history": [
+            {
+              "start_date": "2026-10-01",
+              "end_date": "2026-10-07",
+              "units_sold": 38,
+              "days_out_of_stock": 1,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-24",
+              "end_date": "2026-09-30",
+              "units_sold": 122,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-17",
+              "end_date": "2026-09-23",
+              "units_sold": 19,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-10",
+              "end_date": "2026-09-16",
+              "units_sold": 66,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-09-03",
+              "end_date": "2026-09-09",
+              "units_sold": 89,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            },
+            {
+              "start_date": "2026-08-27",
+              "end_date": "2026-09-02",
+              "units_sold": 10,
+              "days_out_of_stock": 0,
+              "campaigns": []
+            }
+          ]
+        },
+        "recommendation": {
+          "recommendation_type": "REPLENISH",
+          "suggested_quantity": {
+            "type": "exact",
+            "value": 219
+          },
+          "replenishment_deadline": "IN_TWO_WEEKS",
+          "replenishment_frequency": 4
+        },
+        "eligibility_benefits": [
+          "AGING"
+        ]
+      }
+    },
+    {
+      "name": "non_full_1_no_caller",
+      "path": "/marketplace/fbm/user-products/MLAU370292923/replenishment?country=AR",
+      "mlau": "MLAU370292923",
+      "caller_headers_sent": false,
+      "status": 200,
+      "headers": {
+        "date": "Thu, 08 Oct 2026 03:50:55 GMT"
+      },
+      "body": {
+        "identifiers": {
+          "user_product_id": "MLAU370292923",
+          "inventory_id": null,
+          "seller_sku": "193015522459"
+        },
+        "product": {
+          "tags": [],
+          "packages_master_case": []
+        },
+        "stock": null,
+        "sales": null,
+        "recommendation": null,
+        "eligibility_benefits": null
+      }
+    }
+  ]
+}
