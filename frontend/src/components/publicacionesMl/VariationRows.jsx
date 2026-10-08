@@ -96,8 +96,9 @@ function StateRow({ span, children }) {
  * Sub-rows of an expanded publication (`TableShell` `renderSubRows`): one row
  * per variation under the same columns as the list, so SKU/EAN and product sit
  * in the pinned column and cost, markup and stock line up with their headers.
+ * `depth` is the tree depth of the publication (0 in the list): the sub-rows sit one level under it.
  */
-export default function VariationRows({ item, columns, canSeeMargin }) {
+export default function VariationRows({ item, columns, canSeeMargin, depth = 0 }) {
   const [attempt, setAttempt] = useState(0);
   const { status, variations, error } = useVariations(item.item_id, attempt);
   const span = columns.length;
@@ -129,7 +130,12 @@ export default function VariationRows({ item, columns, canSeeMargin }) {
   return variations.map((raw) => {
     const variation = readVariation(raw, { canSeeMargin });
     return (
-      <tr key={variation.id} className={styles.row} data-negative={variation.negative ? '' : undefined}>
+      <tr
+        key={variation.id}
+        className={styles.row}
+        style={{ '--indent': depth + 1 }}
+        data-negative={variation.negative ? '' : undefined}
+      >
         {columns.map((column, index) => (
           <td
             key={column.key}

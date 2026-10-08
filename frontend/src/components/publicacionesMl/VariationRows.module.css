@@ -18,12 +18,12 @@
   text-align: right;
 }
 
-/* Same pin as the list's first column, one tree level in. */
+/* Same pin as the list's first column, one tree level in (`--indent` = the publication's depth + 1). */
 .cell[data-pinned] {
   position: sticky;
   left: 0;
   z-index: 1;
-  padding-left: calc(var(--space-3) + var(--table-shell-indent, 20px));
+  padding-left: calc(var(--space-3) + var(--indent, 1) * var(--table-shell-indent, 20px));
   box-shadow: inset -1px 0 0 var(--cf-border-default);
 }
 

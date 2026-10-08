@@ -15,6 +15,9 @@ import { useSearchParams } from 'react-router-dom';
  *  - VIEW state (`pagina`, `sel`, `tab`): moves inside the same result set.
  *    The sort (`orden`, `dir`) and the page size (`limite`) also go back to
  *    page 1 but need no new facets.
+ *    `vista` (`agrupado` = the tree) and `familias` (family nodes in the tree)
+ *    choose how the set is shown: they go back to page 1 and close the
+ *    selection too, but are not filters (no new facets).
  */
 export const PAGE_SIZE = 50;
 // The backend caps `limit` at 100.
@@ -53,6 +56,8 @@ function readFilters(params) {
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
   filters.vista = VISTAS.includes(vista) ? vista : 'publicacion';
+  // The tree's family nodes: '1' or '' (a toggle, off by default).
+  filters.familias = ['1', 'true'].includes(params.get('familias')) ? '1' : '';
   filters.orden = params.get('orden') ?? '';
   const dir = params.get('dir');
   filters.dir = DIRECTIONS.includes(dir) ? dir : '';
@@ -126,7 +131,7 @@ export function usePublicacionesMLFilters() {
           else next.set(key, Array.isArray(value) ? value.join(',') : String(value));
         }
         const changed = Object.keys(updates);
-        const touchesList = changed.some((key) => FILTER_KEYS.includes(key) || SORT_KEYS.includes(key) || key === 'vista');
+        const touchesList = changed.some((key) => FILTER_KEYS.includes(key) || SORT_KEYS.includes(key) || key === 'vista' || key === 'familias');
         if (touchesList) {
           for (const key of VIEW_KEYS) if (!changed.includes(key)) next.delete(key);
         }

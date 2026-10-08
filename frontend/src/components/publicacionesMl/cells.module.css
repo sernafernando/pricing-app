@@ -57,6 +57,11 @@
   color: var(--cf-text-primary);
 }
 
+/* A node with publications selling under cost. */
+.units[data-negative] {
+  color: var(--tone-danger-fg);
+}
+
 .code {
   font-family: var(--font-mono);
   font-size: var(--font-xs);

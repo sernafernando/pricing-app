@@ -32,8 +32,11 @@ export const DEFAULT_DIRECTION = {
  * exist at all: without it there is no column, not a column of dashes.
  * `expandedIds` / `onToggleVariations` drive the expand toggle of publications
  * with more than one variation; without `onToggleVariations` there is none.
+ * `agrupado` (the tree view) adds the node figures -- publication count and,
+ * with the margin, negatives -- and names the markup column for what a node
+ * shows (a range, not the "peor variación" sort); the page makes it unsortable.
  */
-export function buildColumns({ eventsEnabled, canSeeMargin = false, expandedIds, onToggleVariations }) {
+export function buildColumns({ eventsEnabled, canSeeMargin = false, expandedIds, onToggleVariations, agrupado = false }) {
   const columns = [
     {
       key: 'titulo',
@@ -50,6 +53,12 @@ export function buildColumns({ eventsEnabled, canSeeMargin = false, expandedIds,
           <PublicationCell item={item} />
         ),
     },
+    ...(agrupado
+      ? [
+          { key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'right', render: () => null },
+          ...(canSeeMargin ? [{ key: 'negativos', header: 'Negativos', width: 110, align: 'right', render: () => null }] : []),
+        ]
+      : []),
     {
       key: 'estado',
       header: 'Estado',
@@ -61,7 +70,9 @@ export function buildColumns({ eventsEnabled, canSeeMargin = false, expandedIds,
       ? [
           {
             key: 'markup',
-            header: (
+            header: agrupado ? (
+              'Markup'
+            ) : (
               <>
                 Markup <span className={styles.sortHint}>peor variación</span>
               </>

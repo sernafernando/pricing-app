@@ -12,11 +12,13 @@ import { publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 import {
+  BRAND_NODES,
   DATA_STATE_OK,
   FACETS,
   ITEMS,
   ITEMS_RESPONSE,
   ITEMS_RESPONSE_EVENTS_OFF,
+  groupsResponse,
   itemsResponse,
   makeItem,
   VARIATIONS_RESPONSE,
@@ -28,7 +30,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -67,6 +69,8 @@ beforeEach(() => {
   publicacionesMlAPI.items.mockReset();
   publicacionesMlAPI.variations.mockReset();
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+  publicacionesMlAPI.groups.mockReset();
+  publicacionesMlAPI.groups.mockResolvedValue({ data: groupsResponse('marca', BRAND_NODES) });
   openInMlPanel.mockReset();
   respond({ ...ITEMS_RESPONSE, facets: FACETS });
 });
@@ -557,5 +561,93 @@ describe('open rows reset with the list (publicaciones-ml-vista P11b)', () => {
     await waitFor(() => expect(lastParams().offset).toBe(0));
     expect(await screen.findByRole('button', { name: /^Ver las 3 variaciones de MLA1100000005/ })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Router Archer AX55 negro')).not.toBeInTheDocument();
+  });
+});
+
+describe('the Agrupado view (P12a)', () => {
+  const groupCalls = () => publicacionesMlAPI.groups.mock.calls.map(([params]) => params);
+  const tree = async (entry = '/ml-publicaciones?vista=agrupado') => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    await screen.findByText('EPSON');
+  };
+
+  it('shows the tree for vista=agrupado: the roots from /groups, 100 at a time, families off', async () => {
+    await tree();
+    expect(groupCalls()).toEqual([{ familias: false, limit: 100, offset: 0 }]);
+    expect(screen.getByRole('table', { name: /agrupadas/ })).toBeInTheDocument();
+    expect(screen.queryByText('MLA1100000001')).not.toBeInTheDocument();
+  });
+
+  it('asks /items only for the state and the facet counts, not for a page of rows', async () => {
+    await tree();
+    await waitFor(() => expect(publicacionesMlAPI.items).toHaveBeenCalled());
+    expect(lastParams()).toEqual({ limit: 1, offset: 0, facets: true });
+  });
+
+  it('switches view from the header, in the URL, and back', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(screen.getByRole('button', { name: 'Agrupado' }));
+    await screen.findByText('EPSON');
+    await user.click(screen.getByRole('button', { name: 'Publicaciones' }));
+    await screen.findByText('MLA1100000001');
+    expect(screen.queryByText('EPSON')).not.toBeInTheDocument();
+  });
+
+  it('keeps the filter bar: the store chips reach the tree', async () => {
+    await tree('/ml-publicaciones?vista=agrupado&tiendas=57997&estado=active');
+    expect(groupCalls()[0]).toMatchObject({ tiendas: '57997', estado: 'active' });
+    expect(screen.getByText('Tienda:')).toBeInTheDocument();
+  });
+
+  it('has the family toggle only in the tree, off by default, and it asks for families', async () => {
+    const user = userEvent.setup();
+    await page();
+    expect(screen.queryByRole('switch', { name: /familias/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Agrupado' }));
+    await screen.findByText('EPSON');
+    const toggle = screen.getByRole('switch', { name: /familias/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await user.click(toggle);
+    await waitFor(() => expect(groupCalls().at(-1).familias).toBe(true));
+    expect(screen.getByRole('switch', { name: /familias/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('reads the family toggle from the URL', async () => {
+    await tree('/ml-publicaciones?vista=agrupado&familias=1');
+    expect(groupCalls()[0].familias).toBe(true);
+  });
+
+  it('does not offer the markup filters the tree does not apply, nor send them', async () => {
+    canSeeMargin = true;
+    await tree('/ml-publicaciones?vista=agrupado&markup_neg=1&markup_min=5');
+    expect(screen.queryByText('Markup:')).not.toBeInTheDocument();
+    expect(groupCalls()[0]).not.toHaveProperty('markup_neg');
+    expect(groupCalls()[0]).not.toHaveProperty('markup_min');
+  });
+
+  it('keeps the markup filters in the list view', async () => {
+    canSeeMargin = true;
+    await page();
+    expect(screen.getByText('Markup:')).toBeInTheDocument();
+  });
+
+  it('shows the node figures only with ver_ganancia', async () => {
+    await tree();
+    expect(screen.queryByRole('columnheader', { name: /Negativos/ })).not.toBeInTheDocument();
+  });
+
+  it('clicking a publication of the tree selects it without asking /items again', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.groups.mockResolvedValue({
+      data: groupsResponse('producto', [
+        { kind: 'producto', key: '9', label: 'Router Z', count: 1, leaf: true, params: { producto: '9' } },
+      ]),
+    });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
+    await user.click(await screen.findByText(/Router TP-Link Archer AX55/));
+    await waitFor(() => expect(screen.getByText(/Router TP-Link Archer AX55/).closest('tr')).toHaveAttribute('aria-current', 'true'));
+    expect(publicacionesMlAPI.items.mock.calls.filter(([params]) => params.limit === 1)).toHaveLength(1);
   });
 });
