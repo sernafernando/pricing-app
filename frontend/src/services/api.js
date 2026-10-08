@@ -856,6 +856,11 @@ export const publicacionesMlAPI = {
   // The variations of one publication, for its expanded row. Fetched when the
   // row is opened, never with the page.
   variations: (itemId) => api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}/variations`),
+  // Everything about one publication, for the side panel (`ItemDetail`).
+  detail: (itemId) => api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}`),
+  // Asks the store to refresh publications (`ml_ops.gestionar`). The panel's
+  // "Resincronizar" sends `{ item_ids: [itemId], resources: ['bundle', 'replenishment'] }`.
+  enqueue: (body) => api.post('/ml-publications/enqueue', body),
 };
 
 export default api;

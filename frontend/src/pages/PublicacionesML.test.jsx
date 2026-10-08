@@ -17,6 +17,7 @@ import {
   FACETS,
   ITEMS,
   ITEMS_RESPONSE,
+  DETAIL_RESPONSE,
   ITEMS_RESPONSE_EVENTS_OFF,
   groupsResponse,
   itemsResponse,
@@ -30,7 +31,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -71,6 +72,10 @@ beforeEach(() => {
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   publicacionesMlAPI.groups.mockReset();
   publicacionesMlAPI.groups.mockResolvedValue({ data: groupsResponse('marca', BRAND_NODES) });
+  publicacionesMlAPI.detail.mockReset();
+  publicacionesMlAPI.detail.mockImplementation((itemId) =>
+    Promise.resolve({ data: { ...DETAIL_RESPONSE, row: ITEMS.find((item) => item.item_id === itemId) ?? ITEMS[0] } }),
+  );
   openInMlPanel.mockReset();
   respond({ ...ITEMS_RESPONSE, facets: FACETS });
 });
@@ -361,6 +366,73 @@ describe('opening a publication', () => {
     await userEvent.click(row);
     expect(openInMlPanel).not.toHaveBeenCalled();
     expect(row).toHaveAttribute('aria-current', 'true');
+  });
+});
+
+describe('the detail panel (publicaciones-ml-vista P13a.T1)', () => {
+  const panel = () => screen.queryByRole('complementary', { name: 'Detalle de la publicación' });
+
+  it('is closed until a publication is selected', async () => {
+    await page();
+    expect(panel()).not.toBeInTheDocument();
+    expect(publicacionesMlAPI.detail).not.toHaveBeenCalled();
+  });
+
+  it('a plain click opens it beside the table, which stays on screen (never an overlay)', async () => {
+    await page();
+    await userEvent.click(screen.getByText('MLA1100000001').closest('tr'));
+    const opened = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
+    await within(opened).findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledWith('MLA1100000001');
+    expect(screen.getByRole('table', { name: 'Publicaciones de Mercado Libre' })).toBeInTheDocument();
+    expect(opened.parentElement).toContainElement(screen.getByRole('table', { name: 'Publicaciones de Mercado Libre' }));
+  });
+
+  it('opens from the URL: sel and tab survive a reload', async () => {
+    await page('/ml-publicaciones?sel=MLA1100000002&tab=resumen');
+    const opened = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
+    await within(opened).findByRole('heading', { name: /Cartucho Epson 544/ });
+    expect(within(opened).getByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('selecting another row swaps the content', async () => {
+    await page();
+    await userEvent.click(screen.getByText('MLA1100000001').closest('tr'));
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    await userEvent.click(screen.getByText('MLA1100000002').closest('tr'));
+    expect(await screen.findByRole('heading', { name: /Cartucho Epson 544/ })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Router TP-Link Archer AX55/ })).not.toBeInTheDocument();
+  });
+
+  it('Escape closes it and focus goes back to the row it came from (S63.1)', async () => {
+    await page();
+    const row = screen.getByText('MLA1100000001').closest('tr');
+    await userEvent.click(row);
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(panel()).not.toBeInTheDocument());
+    expect(row).toHaveFocus();
+    expect(row).not.toHaveAttribute('aria-current');
+  });
+
+  it('the close button clears the selection', async () => {
+    await page('/ml-publicaciones?sel=MLA1100000002');
+    await userEvent.click(await screen.findByRole('button', { name: 'Cerrar panel' }));
+    await waitFor(() => expect(panel()).not.toBeInTheDocument());
+  });
+
+  it('changing a filter closes the selection', async () => {
+    await page('/ml-publicaciones?sel=MLA1100000002');
+    await screen.findByRole('heading', { name: /Cartucho Epson 544/ });
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Pausadas/ }));
+    await waitFor(() => expect(panel()).not.toBeInTheDocument());
+  });
+
+  it('the panel still opens for a publication that is not on the current page', async () => {
+    await page('/ml-publicaciones?sel=MLA9999999999');
+    expect(await screen.findByRole('complementary', { name: 'Detalle de la publicación' })).toBeInTheDocument();
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledWith('MLA9999999999');
   });
 });
 

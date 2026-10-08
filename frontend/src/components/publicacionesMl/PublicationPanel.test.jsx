@@ -1,0 +1,218 @@
+/**
+ * The detail panel's shell (publicaciones-ml-vista P13a.T1): what it asks the
+ * backend for, how it shows loading / failure, and how its tab registry decides
+ * which tabs exist. The content of each tab has its own test.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { screen, waitFor, render } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import PublicationPanel from './PublicationPanel';
+import { publicacionesMlAPI } from '../../services/api';
+import { DETAIL_RESPONSE, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
+
+vi.mock('../../services/api', () => ({
+  default: {
+    get: vi.fn(() => Promise.resolve({ data: [] })),
+    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+  },
+  publicacionesMlAPI: { detail: vi.fn(), variations: vi.fn(), enqueue: vi.fn() },
+  registerAuthFailureHandler: vi.fn(),
+}));
+
+// Everything is allowed except the margin, which each test grants on purpose.
+let canSeeMargin = false;
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({
+    permisos: [],
+    tienePermiso: (permiso) => (permiso === 'ml_metricas.ver_ganancia' ? canSeeMargin : true),
+    cargandoPermisos: false,
+  }),
+  PermisosProvider: ({ children }) => children,
+}));
+
+const httpError = (status, data = {}) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
+
+const renderPanel = (props = {}) =>
+  render(<PublicationPanel itemId="MLA1100000001" tab="" onTabChange={vi.fn()} onClose={vi.fn()} {...props} />);
+
+beforeEach(() => {
+  canSeeMargin = false;
+  publicacionesMlAPI.detail.mockReset();
+  publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_RESPONSE });
+});
+
+describe('loading the detail', () => {
+  it('asks for the detail of the selected publication, once', async () => {
+    renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(1);
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledWith('MLA1100000001');
+  });
+
+  it('shows the MLA right away, while the detail is still loading', () => {
+    publicacionesMlAPI.detail.mockReturnValue(new Promise(() => {}));
+    renderPanel();
+    expect(screen.getByRole('status', { name: 'Cargando publicación' })).toBeInTheDocument();
+    expect(screen.getByText('MLA1100000001')).toBeInTheDocument();
+  });
+
+  it('a publication without a title still has a heading', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row: ITEMS[2] }) });
+    renderPanel({ itemId: 'MLA1100000003' });
+    expect(await screen.findByRole('heading', { name: 'Sin título' })).toBeInTheDocument();
+  });
+
+  it('selecting another publication swaps the content and never shows the old one meanwhile', async () => {
+    const { rerender } = renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+
+    let resolveSecond;
+    publicacionesMlAPI.detail.mockReturnValue(new Promise((resolve) => { resolveSecond = resolve; }));
+    rerender(<PublicationPanel itemId="MLA1100000002" tab="" onTabChange={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.queryByRole('heading', { name: /Router TP-Link/ })).not.toBeInTheDocument();
+    expect(screen.getByText('MLA1100000002')).toBeInTheDocument();
+
+    resolveSecond({ data: makeDetail({ row: ITEMS[1] }) });
+    expect(await screen.findByRole('heading', { name: /Cartucho Epson 544/ })).toBeInTheDocument();
+  });
+
+  it('a late answer for the previous publication never overwrites the current one', async () => {
+    let resolveFirst;
+    publicacionesMlAPI.detail.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+    const { rerender } = renderPanel();
+    publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row: ITEMS[1] }) });
+    rerender(<PublicationPanel itemId="MLA1100000002" tab="" onTabChange={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByRole('heading', { name: /Cartucho Epson 544/ });
+    resolveFirst({ data: DETAIL_RESPONSE });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole('heading', { name: /Router TP-Link/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('failures', () => {
+  it.each([
+    [404, 'La publicación ya no existe'],
+    [422, 'El identificador de la publicación no es válido'],
+    [403, 'No tenés permiso'],
+    [503, 'La consulta tardó demasiado'],
+    [500, 'No se pudo cargar la publicación'],
+  ])('a %i says what happened', async (status, message) => {
+    publicacionesMlAPI.detail.mockRejectedValue(httpError(status));
+    renderPanel();
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+  });
+
+  it('"Reintentar" asks again and recovers', async () => {
+    publicacionesMlAPI.detail.mockRejectedValueOnce(httpError(503));
+    renderPanel();
+    await screen.findByRole('alert');
+    await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+    expect(await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ })).toBeInTheDocument();
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failure still leaves the panel closable', async () => {
+    publicacionesMlAPI.detail.mockRejectedValue(httpError(404));
+    const onClose = vi.fn();
+    renderPanel({ onClose });
+    await screen.findByRole('alert');
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar panel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('tabs', () => {
+  const tabs = [
+    { key: 'uno', label: 'Uno', isVisible: () => true, Component: () => <p>contenido uno</p> },
+    { key: 'dos', label: 'Dos', isVisible: ({ detail }) => detail.variationsCount > 0, Component: () => <p>contenido dos</p> },
+    { key: 'ganancia', label: 'Ganancia', isVisible: ({ canSeeMargin: margin }) => margin, Component: () => <p>contenido ganancia</p> },
+  ];
+
+  it('shows only the tabs the registry says exist for this data and permission', async () => {
+    renderPanel({ tabs });
+    await screen.findByRole('tab', { name: 'Uno' });
+    expect(screen.queryByRole('tab', { name: 'Dos' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Ganancia' })).not.toBeInTheDocument();
+  });
+
+  it('data and permission make more tabs appear', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row: makeItem({ ...ITEMS[0], variations_count: 3 }) }) });
+    renderPanel({ tabs });
+    expect(await screen.findByRole('tab', { name: 'Dos' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Ganancia' })).toBeInTheDocument();
+  });
+
+  it('opens on the first tab and marks it selected', async () => {
+    renderPanel({ tabs });
+    const first = await screen.findByRole('tab', { name: 'Uno' });
+    expect(first).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('contenido uno');
+  });
+
+  it('opens on the tab in the URL', async () => {
+    canSeeMargin = true;
+    renderPanel({ tabs, tab: 'ganancia' });
+    expect(await screen.findByRole('tabpanel')).toHaveTextContent('contenido ganancia');
+    expect(screen.getByRole('tab', { name: 'Ganancia' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('a tab that does not exist for this publication falls back to the first one', async () => {
+    renderPanel({ tabs, tab: 'dos' });
+    expect(await screen.findByRole('tabpanel')).toHaveTextContent('contenido uno');
+  });
+
+  it('clicking a tab reports it, so the page keeps it in the URL', async () => {
+    canSeeMargin = true;
+    const onTabChange = vi.fn();
+    renderPanel({ tabs, onTabChange });
+    await userEvent.click(await screen.findByRole('tab', { name: 'Ganancia' }));
+    expect(onTabChange).toHaveBeenCalledWith('ganancia');
+  });
+
+  it('the arrow keys move between tabs', async () => {
+    canSeeMargin = true;
+    const onTabChange = vi.fn();
+    renderPanel({ tabs, onTabChange });
+    const first = await screen.findByRole('tab', { name: 'Uno' });
+    first.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onTabChange).toHaveBeenCalledWith('ganancia');
+  });
+
+  it('the default registry has Resumen', async () => {
+    renderPanel();
+    expect(await screen.findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('the panel itself', () => {
+  it('"Cerrar panel" calls onClose', async () => {
+    const onClose = vi.fn();
+    renderPanel({ onClose });
+    await userEvent.click(await screen.findByRole('button', { name: 'Cerrar panel' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('links to the publication in Mercado Libre only when the permalink is a Mercado Libre one', async () => {
+    renderPanel();
+    const link = await screen.findByRole('link', { name: /Ver en Mercado Libre/ });
+    expect(link).toHaveAttribute('href', ITEMS[0].permalink);
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('has no link when the publication has no usable permalink', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row: makeItem({ ...ITEMS[0], permalink: 'http://evil.example/x' }) }) });
+    renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    expect(screen.queryByRole('link', { name: /Ver en Mercado Libre/ })).not.toBeInTheDocument();
+  });
+
+  it('does not refetch when only the tab changes', async () => {
+    const { rerender } = renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    rerender(<PublicationPanel itemId="MLA1100000001" tab="resumen" onTabChange={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Resumen' })).toBeInTheDocument());
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(1);
+  });
+});

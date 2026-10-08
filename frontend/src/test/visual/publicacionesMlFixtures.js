@@ -280,3 +280,78 @@ export const PRODUCT_NODES = [
     markup_max: null,
   }),
 ];
+
+/**
+ * `GET /ml-publications/view/items/{item_id}` (`ItemDetail`, P8a).
+ *
+ * Shaped after the design (§3.3, Engram #2279): P8a was not merged when the
+ * panel was written, so these fixtures follow the design, not a captured
+ * response. The panel reads the detail in ONE module
+ * (`components/publicacionesMl/panel/detailModel.js`); when P8a lands, check
+ * these keys against its router and adjust that module and this file only.
+ */
+export const REPLENISHMENT_OK = {
+  status: 'ok',
+  content_missing: null,
+  period: '30d',
+  units_30d: 42,
+  gmv_30d: 4137021.5,
+  currency: 'ARS',
+  units_7d: 9,
+  units_14d: 20,
+  units_21d: 31,
+  days_out_of_stock_21d: 2,
+  shipping_urgency: 'normal',
+  total_stock: 20,
+  fetched_at: '2026-10-08T08:00:00Z',
+};
+
+export const FRESHNESS = [
+  { resource: 'core', fetched_at: '2026-10-08T09:30:00Z', last_checked_at: '2026-10-08T09:45:00Z', state: 'ok' },
+  { resource: 'stock', fetched_at: '2026-10-08T09:30:00Z', last_checked_at: '2026-10-08T09:45:00Z', state: 'ok' },
+  { resource: 'replenishment', fetched_at: '2026-10-08T08:00:00Z', last_checked_at: '2026-10-08T09:00:00Z', state: 'ok' },
+];
+
+export const MARKUP_BREAKDOWN = {
+  price: 98500.5,
+  price_source: 'sale_price',
+  pricelist_id: 12,
+  comision_pct: 13.5,
+  comision_total: 13297.57,
+  costo_envio: 4200,
+  envio_source: 'erp',
+  limpio: 81002.93,
+  costo_ars: 64000,
+  markup: 26.5,
+};
+
+export const makeDetail = (overrides = {}) => ({
+  row: ITEMS[0],
+  sub_status: [],
+  tags: ['good_quality_picture', 'immediate_payment'],
+  health: 0.87,
+  condition: 'new',
+  date_created: '2026-03-02T13:00:00Z',
+  ml_last_updated: '2026-10-08T09:00:00Z',
+  fetched_at: '2026-10-08T09:30:00Z',
+  variations: [],
+  stock_locations: [
+    { type: 'meli_facility', quantity: 20 },
+    { type: 'selling_address', quantity: 14 },
+  ],
+  stock_as_of: '2026-10-08T09:30:00Z',
+  replenishment: REPLENISHMENT_OK,
+  links: [],
+  product: null,
+  freshness: FRESHNESS,
+  can_resync: false,
+  ...overrides,
+});
+
+export const DETAIL_RESPONSE = makeDetail();
+
+/** The same detail for a caller with `ml_metricas.ver_ganancia`: markup breakdown and product cost. */
+export const DETAIL_RESPONSE_MARGIN = makeDetail({
+  markup_breakdown: MARKUP_BREAKDOWN,
+  can_resync: true,
+});
