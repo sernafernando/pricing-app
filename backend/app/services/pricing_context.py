@@ -156,6 +156,36 @@ def build_pricing_context(db: Session, hoy: Optional[date] = None) -> PricingCon
     )
 
 
+ENVIO_REAL = "real"
+ENVIO_ERP = "erp"
+ENVIO_GRUPO_PROMEDIO = "grupo_promedio"
+
+
+def resolve_envio_source(
+    ctx: PricingContext,
+    envio_real_by_item: Mapping[int, float],
+    item_id: int,
+    producto_envio: float,
+    grupo_id: int,
+    precio: float,
+) -> tuple[float, str]:
+    """`resolve_envio` and where the figure came from: the real mlwebhook cost (`real`), the ERP cost of the
+    product (`erp`, also when it is 0 and nothing else applied) or the average of the grupo (`grupo_promedio`)."""
+    # Real cost from the mlwebhook DB (already resolved as a batch)
+    real_cost = envio_real_by_item.get(item_id)
+    if real_cost is not None:
+        return real_cost, ENVIO_REAL
+    # ERP + grupo-average fallback
+    costo_envio = producto_envio or 0
+    montot3 = ctx.constantes["monto_tier3"] if ctx.constantes else _MONTO_TIER3_FALLBACK
+    if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
+        promedio = ctx.envio_promedio_by_grupo.get(grupo_id, 0.0)
+        if promedio:
+            return promedio, ENVIO_GRUPO_PROMEDIO
+        return promedio, ENVIO_ERP
+    return costo_envio, ENVIO_ERP
+
+
 def resolve_envio(
     ctx: PricingContext,
     envio_real_by_item: Mapping[int, float],
@@ -169,13 +199,4 @@ def resolve_envio(
     Bind `ctx` and `envio_real_by_item` with `functools.partial` to get the
     `(item_id, producto_envio, grupo_id, precio)` shape the listing loop calls.
     """
-    # Real cost from the mlwebhook DB (already resolved as a batch)
-    real_cost = envio_real_by_item.get(item_id)
-    if real_cost is not None:
-        return real_cost
-    # ERP + grupo-average fallback
-    costo_envio = producto_envio or 0
-    montot3 = ctx.constantes["monto_tier3"] if ctx.constantes else _MONTO_TIER3_FALLBACK
-    if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
-        costo_envio = ctx.envio_promedio_by_grupo.get(grupo_id, 0.0)
-    return costo_envio
+    return resolve_envio_source(ctx, envio_real_by_item, item_id, producto_envio, grupo_id, precio)[0]
