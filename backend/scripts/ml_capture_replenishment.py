@@ -229,42 +229,32 @@ def _select_targets() -> List[Target]:
 
     from app.core.database import SessionLocal
 
+    # Read the Full quantity straight from the stored `raw->'locations'` (the P3 typed columns may not
+    # be deployed yet where this runs). `meli_facility` is ML's Full warehouse.
+    full_qty = (
+        "COALESCE((SELECT SUM((loc->>'quantity')::numeric) FROM jsonb_array_elements("
+        "CASE WHEN jsonb_typeof(raw->'locations') = 'array' THEN raw->'locations' ELSE '[]'::jsonb END) loc "
+        "WHERE loc->>'type' = 'meli_facility'), 0)"
+    )
     db = SessionLocal()
     try:
         full = [
             r[0]
             for r in db.execute(
                 text(
-                    "SELECT user_product_id FROM ml_user_product_stock "
-                    "WHERE full_quantity > 0 ORDER BY full_quantity DESC, user_product_id LIMIT :n"
+                    f"SELECT user_product_id FROM ml_user_product_stock WHERE {full_qty} > 0 "
+                    f"ORDER BY {full_qty} DESC, user_product_id LIMIT :n"
                 ),
                 {"n": FULL_LIMIT},
             )
         ]
-        if not full:  # P3 columns not filled yet: fall back to the items' logistic type
-            full = [
-                r[0]
-                for r in db.execute(
-                    text(
-                        "SELECT DISTINCT user_product_id FROM ml_items "
-                        "WHERE logistic_type = 'fulfillment' AND user_product_id IS NOT NULL "
-                        "ORDER BY user_product_id LIMIT :n"
-                    ),
-                    {"n": FULL_LIMIT},
-                )
-            ]
         non_full = [
             r[0]
             for r in db.execute(
                 text(
-                    "SELECT DISTINCT i.user_product_id FROM ml_items i "
-                    "WHERE i.user_product_id IS NOT NULL "
-                    "AND COALESCE(i.logistic_type, '') <> 'fulfillment' "
-                    "AND NOT EXISTS (SELECT 1 FROM ml_user_product_stock s "
-                    "                WHERE s.user_product_id = i.user_product_id AND s.full_quantity > 0) "
-                    "AND NOT EXISTS (SELECT 1 FROM ml_items f "
-                    "                WHERE f.user_product_id = i.user_product_id AND f.logistic_type = 'fulfillment') "
-                    "ORDER BY i.user_product_id LIMIT :n"
+                    f"SELECT user_product_id FROM ml_user_product_stock "
+                    f"WHERE jsonb_typeof(raw->'locations') = 'array' AND {full_qty} = 0 "
+                    "ORDER BY user_product_id LIMIT :n"
                 ),
                 {"n": NON_FULL_LIMIT},
             )
