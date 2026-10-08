@@ -33,6 +33,13 @@ on `detail_id` makes a full daily re-sweep of the open period free, and
 that subsumes the measured billing lag (median 1h, 99.5% within 24h, 100%
 within 48h) without a dedicated overlap window.
 
+Documents (PR 2b): after the details the sweep fetches the period's BILL
+documents (`group=ML&document_type=BILL`) and upserts them into
+`ml_billing_documents` with ML's own `count_details` and `amount`. Which
+documents are complete is a query (`document_completeness`), reported on the
+result and in the log, never stored; a document that is not complete is
+retried by the next run's full re-sweep of the period.
+
 `documents.count_details` (investigation §3 open discrepancy: 18,414 vs
 18,743, a 329 difference with no known explanation) is persisted as an
 OBSERVATION on `MlBillingPeriodStat` and is NEVER treated as an alarm or
@@ -44,7 +51,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -53,8 +60,9 @@ from sqlalchemy.dialects import postgresql, sqlite
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_billing import MlBillingCharge, MlBillingPeriodStat
-from app.services.ml_billing_ingestion.ingestion_service import upsert_billing_charge
-from app.services.ml_billing_ingestion.mapper import MappingError, map_billing_detail
+from app.services.ml_billing.document_completeness import document_completeness
+from app.services.ml_billing_ingestion.ingestion_service import upsert_billing_charge, upsert_billing_document
+from app.services.ml_billing_ingestion.mapper import MappingError, map_billing_detail, map_billing_document
 from app.services.ml_orders_ingestion.sweep_service import (
     ensure_cursor_row,
     release_lock_as_error,
@@ -69,6 +77,8 @@ logger = logging.getLogger(__name__)
 CURSOR_NAME = "billing"
 BILLING_GROUP = "ML"
 PAGE_LIMIT = 1000
+# The only document type this sweep fetches. CREDIT_NOTE arrives with PR 4b.
+DOCUMENT_TYPE = "BILL"
 # Hard bound on pages per pass, on top of the strictly advancing cursor.
 # Only an empty page ends a pass (BS-1), so without a bound a misbehaving
 # answer would hold the lock and spend one request of the account-wide budget
@@ -93,6 +103,11 @@ class BillingSweepResult:
     charges_mapping_error: int = 0
     stopped_early: bool = False
     error: Optional[str] = None
+    documents_upserted: int = 0
+    # Documents whose stored rows do not match ML's count/amount (BS-3). Read
+    # from a query after the upsert, never stored. The next run re-sweeps the
+    # period and so retries them.
+    incomplete_document_ids: list[str] = field(default_factory=list)
 
 
 def _derived_period_key(now: datetime) -> str:
@@ -307,7 +322,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 raw_results = list(page.get("results") or [])
                 for raw in raw_results:
                     result.charges_seen += 1
-                    mapped = map_billing_detail(raw, period_key)
+                    mapped = map_billing_detail(raw, period_key, document_type=DOCUMENT_TYPE)
                     if isinstance(mapped, MappingError):
                         result.charges_mapping_error += 1
                         logger.warning("sync_ml_billing: mapping error (period=%s): %s", period_key, mapped.reason)
@@ -369,13 +384,19 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 # still reported "complete", which is the one thing this
                 # module is not allowed to do.
                 time.sleep(REQUEST_SPACING_SECONDS)
-                documents = resolve_maybe_async(ml_webhook_client.get_billing_documents(period_key, group))
+                documents = resolve_maybe_async(
+                    ml_webhook_client.get_billing_documents(period_key, group, DOCUMENT_TYPE)
+                )
                 if documents is not None:
-                    documents_count_details = sum(
-                        int(doc.get("count_details") or 0)
-                        for doc in (documents.get("documents") or [])
+                    # The capture stored the list under `results`; the earlier
+                    # cut read `documents`. Either is accepted so a wrong
+                    # guess about the envelope cannot silently drop them all.
+                    raw_documents = [
+                        doc
+                        for doc in (documents.get("results") or documents.get("documents") or [])
                         if isinstance(doc, dict)
-                    )
+                    ]
+                    documents_count_details = sum(int(doc.get("count_details") or 0) for doc in raw_documents)
                     if reported_total is not None and documents_count_details != reported_total:
                         # OBSERVATION only -- see module docstring. Never
                         # raised, never blocks, never marks the pass as an
@@ -386,6 +407,27 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                             documents_count_details,
                             reported_total,
                             period_key,
+                        )
+                    for raw_document in raw_documents:
+                        mapped_document = map_billing_document(raw_document, period_key, group)
+                        if isinstance(mapped_document, MappingError):
+                            logger.warning(
+                                "sync_ml_billing: document mapping error (period=%s): %s",
+                                period_key,
+                                mapped_document.reason,
+                            )
+                            continue
+                        upsert_billing_document(db, mapped_document)
+                        result.documents_upserted += 1
+                    db.flush()
+                    result.incomplete_document_ids = [
+                        c.document_id for c in document_completeness(db, period_key, DOCUMENT_TYPE) if not c.complete
+                    ]
+                    if result.incomplete_document_ids:
+                        logger.warning(
+                            "sync_ml_billing: documents incomplete (period=%s): %s -- the next run re-sweeps the period",
+                            period_key,
+                            result.incomplete_document_ids,
                         )
 
                 stored_total = db.query(MlBillingCharge).filter_by(period_key=period_key).count()
