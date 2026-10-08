@@ -11,6 +11,7 @@ import json
 
 import pytest
 from sqlalchemy import event, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.services.ml_publications.view import markup_inputs
@@ -74,6 +75,13 @@ class TestItemLevelInputs:
         seed.add_item(conn, "MLA1", price=10)
         unit = markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit
         assert unit.producto_item_id is None and unit.costo is None
+
+    def test_the_table_never_pairs_a_product_with_a_status_other_than_linked(self, conn) -> None:
+        """The invariant the item-level read relies on (it does not filter `match_status`, like the list)."""
+        seed.add_product(conn, 70, "A1", "Router")
+        seed.add_item(conn, "MLA1")
+        with pytest.raises(IntegrityError):
+            seed.add_link(conn, "MLA1", 70, match_status="conflict")
 
     def test_a_conflicting_link_gives_no_product(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", price=10)

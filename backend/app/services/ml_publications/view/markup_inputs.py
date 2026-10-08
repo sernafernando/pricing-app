@@ -98,7 +98,8 @@ def _rows(db: Session, query: Any) -> list[Any]:
 def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[PublicationFilter]) -> list[Any]:
     """One row per publication: its price inputs and its ITEM-LEVEL unit (link, product, list prices). A filter is
     the list's own base select (one pass over the set, no second join to `ml_items`); explicit ids are the same
-    joins over `ml_items` keyed by the id array."""
+    joins over `ml_items` keyed by the id array. The item-level link is not filtered by `match_status`, like the
+    list's: the table's CHECK constraint makes `producto_item_id` non-null exactly when the status is `linked`."""
     pricing = aliased(ProductoPricing, name="pp")
     if f is not None:
         columns = [
