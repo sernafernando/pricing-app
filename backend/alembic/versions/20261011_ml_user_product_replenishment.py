@@ -11,7 +11,7 @@ error_body, last_error, first_seen_at, fetched_at, fetched_request_started_at, n
 last_checked_at, gone_at) and the typed columns fixed from the 2026-10-08 capture: sales windows
 (7/14/21/30 days), GMV, days out of stock, and the Full stock / shipping urgency block.
 
-Nothing writes to it yet: the fetcher, the sweep and the registration are the next PR.
+The refresh handler writes it (fetcher, sweep and registration: `replenishment` in `bundle_resources`, off by default).
 """
 
 from typing import Sequence, Union
