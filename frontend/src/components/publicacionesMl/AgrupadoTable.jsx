@@ -50,6 +50,9 @@ export default function AgrupadoTable({
     [columns, toggle, loadMore],
   );
 
+  // The page selects by MLA; the table by row, so only one row is highlighted.
+  const selectedRowId = selectedKey === undefined ? undefined : rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id;
+
   const handleRowClick = (row, event) => {
     if (row.type === 'node') toggle(row);
     else if (row.type === 'item') onSelectItem(row.item, event);
@@ -67,7 +70,7 @@ export default function AgrupadoTable({
         ) : null
       }
       onRowClick={handleRowClick}
-      selectedKey={selectedKey}
+      selectedKey={selectedRowId}
       offset={offset}
       emptyMessage={emptyMessage}
       ariaLabel="Publicaciones de Mercado Libre agrupadas"

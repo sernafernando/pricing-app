@@ -258,6 +258,16 @@ describe('leaves', () => {
     expect(publicacionesMlAPI.variations).toHaveBeenCalledWith('MLA1100000005');
   });
 
+  it('highlights one row for the selected MLA', async () => {
+    const user = userEvent.setup();
+    render(<Harness filters={{ ...FILTERS, sel: 'MLA3' }} />);
+    await openToProducts(user);
+    await open(user, /Abrir Router Archer AX55/);
+    await screen.findByText('Router C');
+    expect(rowOf('Router C')).toHaveAttribute('aria-current', 'true');
+    expect(rowOf('Router A')).not.toHaveAttribute('aria-current');
+  });
+
   it('selects a publication with a click on its row', async () => {
     const user = userEvent.setup();
     const onSelectItem = vi.fn();

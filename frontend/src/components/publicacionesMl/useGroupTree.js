@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publicacionesMlAPI } from '../../services/api';
 import { buildGroupsParams, buildLeafParams, readGroupsPage } from './groupNodes';
-import { branchKey, flattenTree } from './groupTree';
+import { flattenTree } from './groupTree';
 
 /**
  * State of the Agrupado tree (publicaciones-ml-vista P12a): which nodes are
@@ -21,7 +21,10 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const generation = useRef(0);
   const latest = useRef({ filters, familias, canSeeMargin });
-  latest.current = { filters, familias, canSeeMargin };
+  // Declared before the effect that loads the roots, so that effect reads this render's values.
+  useEffect(() => {
+    latest.current = { filters, familias, canSeeMargin };
+  });
 
   // What the roots are asked with: the selection, the page and the like do not restart the tree.
   const treeKey = JSON.stringify([buildGroupsParams(filters, { path: [], familias, offset: 0 }), canSeeMargin]);
@@ -90,5 +93,5 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
   );
 
   const rows = useMemo(() => flattenTree({ branches, expanded }), [branches, expanded]);
-  return { rows, toggle, loadMore, branchKey };
+  return { rows, toggle, loadMore };
 }

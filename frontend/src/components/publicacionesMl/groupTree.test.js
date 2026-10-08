@@ -42,9 +42,22 @@ describe('flattenTree', () => {
     });
     expect(rows.map((r) => [r.type, r.id, r.depth])).toEqual([
       ['node', 'n:P', 0],
-      ['item', 'MLA1', 1],
-      ['item', 'MLA2', 1],
+      ['item', 'i:P:MLA1', 1],
+      ['item', 'i:P:MLA2', 1],
     ]);
+  });
+
+  it('keeps a publication listed under two leaves as two rows', () => {
+    const rows = flattenTree({
+      branches: {
+        '': ready([node('P', { leaf: true }), node('Q', { leaf: true })]),
+        P: ready([{ item_id: 'MLA1' }], 1, { leaf: true }),
+        Q: ready([{ item_id: 'MLA1' }], 1, { leaf: true }),
+      },
+      expanded: new Set(['P', 'Q']),
+    });
+    const ids = rows.filter((r) => r.type === 'item').map((r) => r.id);
+    expect(new Set(ids).size).toBe(2);
   });
 
   it('adds "Ver más" while the node has more than it loaded, with what is left', () => {

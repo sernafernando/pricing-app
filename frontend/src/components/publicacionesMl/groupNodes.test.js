@@ -36,6 +36,10 @@ describe('readNode', () => {
     expect(readNode({ ...RAW_BRAND, label: null }, { canSeeMargin: false }).label).toBe('TP,LINK');
   });
 
+  it('does not break on a node with neither key nor label', () => {
+    expect(readNode({ kind: 'marca', count: 1 }, { canSeeMargin: false })).toMatchObject({ key: '', label: '' });
+  });
+
   it('flags the "Sin producto" node', () => {
     const none = readNode(
       { kind: 'producto', key: '__none__', label: 'Sin producto', count: 3, leaf: true, params: { sin_producto: 'true' } },

@@ -9,8 +9,8 @@
  *   branch: { status: 'loading'|'ready'|'more'|'error', rows, total, error }
  * `more` = the next page is loading, `error` with rows = that page failed.
  *
- * Row types: `node`, `item` (a publication, keyed by its MLA so the page's
- * selection works), `more` ("Ver más"), `state` (loading / error / empty of a
+ * Row types: `node`, `item` (a publication; its id carries the branch, so an MLA
+ * listed under two leaves is two rows), `more` ("Ver más"), `state` (loading / error / empty of a
  * branch, shown under the node that asked).
  */
 export const branchKey = (path) => path.join(',');
@@ -36,7 +36,7 @@ function pushBranch(out, branches, expanded, path, depth) {
 
   for (const row of branch.rows) {
     if (branch.leaf) {
-      out.push({ type: 'item', id: row.item_id, item: row, depth, parentKey: key });
+      out.push({ type: 'item', id: `i:${key}:${row.item_id}`, item: row, depth, parentKey: key });
       continue;
     }
     const childPath = [...path, row.key];

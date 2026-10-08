@@ -37,8 +37,8 @@ function readAggregates(raw, canSeeMargin) {
 export function readNode(raw, { canSeeMargin }) {
   return {
     kind: raw.kind,
-    key: raw.key,
-    label: raw.label || decodeKey(raw.key),
+    key: raw.key ?? '',
+    label: raw.label || decodeKey(raw.key ?? ''),
     count: raw.count ?? 0,
     leaf: raw.leaf === true,
     params: raw.params ?? {},
