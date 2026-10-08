@@ -120,7 +120,8 @@ class MarkupStatsOut(BaseModel):
 
 class AdsOut(BaseModel):
     """Whether Ads cost data exists (`available`), whether this request asked to subtract it (`requested`) and
-    whether it was (`applied`). The period the client sent is echoed either way. Only for users with `ml_metricas.ver_ganancia`."""
+    whether it was (`applied`). The period the client sent is echoed either way.
+    Only for users with `ml_metricas.ver_ganancia`."""
 
     available: bool
     reason: str
