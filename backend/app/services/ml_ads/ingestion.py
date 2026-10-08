@@ -40,8 +40,15 @@ class StepResult:
     status: str  # ledger status after the step
 
 
+def _drill_status(sums: store.DrillSums) -> str:
+    """ADS-2(b): the ads of a group must add up to ML's group cost, a cent of rounding per ad."""
+    return "done" if abs(sums.group_cost - sums.items_cost) <= CENT * max(sums.items, 1) else "mismatch"
+
+
 def _day_closes(check: store.DayCheck, summary: mapper.DaySummary) -> bool:
-    """The groups add up to ML's day total, allowing a cent of rounding per group."""
+    """ADS-4: every group drilled and exact, and the groups add up to ML's day total (a cent per group)."""
+    if check.pending or check.drill_mismatches:
+        return False
     return abs(check.group_cost - summary.cost) <= CENT * max(check.groups, 1)
 
 
@@ -113,7 +120,12 @@ class _DayRun:
             with self.session_factory() as db:
                 store.upsert_items(db, items, now=self.now())
                 if last:
-                    store.set_drill(db, self.advertiser_id, group_id, self.day, status="done", ads_offset=offset)
+                    sums = store.drill_sums(
+                        db, self.advertiser_id, group_id, self.day, fetch_started_at=self.fetch_started_at
+                    )
+                    store.set_drill(
+                        db, self.advertiser_id, group_id, self.day, status=_drill_status(sums), ads_offset=offset
+                    )
             if last:
                 return
 

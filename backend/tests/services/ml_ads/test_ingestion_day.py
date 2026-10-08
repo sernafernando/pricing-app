@@ -143,6 +143,59 @@ class TestGroupsMustAddUpToTheDayTotal:
         assert (result.outcome, _ledger(pg_ads_db).summary_cost) == ("closed", Decimal("614060.1"))
 
 
+class TestDrillMustAddUpToItsGroup:
+    def test_ads_that_do_not_add_up_to_their_group_mark_the_drill_as_mismatch(
+        self, session_factory, pg_ads_db, monkeypatch
+    ) -> None:
+        day = copy.deepcopy(gauss_day())
+        ad = next(a for a in day["ads"][953712626][0]["results"] if a["item_id"] == "MLA1150587086")
+        ad["metrics"]["cost"] = 63896.44  # 100.00 less than captured
+        result = _run(session_factory, Replay(FakeClock(), day), monkeypatch, GAUSS)
+        statuses = dict(pg_ads_db.execute(select(MlAdsAdGroupDay.ad_group_id, MlAdsAdGroupDay.drill_status)).all())
+        assert statuses[953712626] == "mismatch"
+        assert [g for g, s in statuses.items() if s == "mismatch"] == [953712626]
+        assert _item_sum(pg_ads_db, group_id=953712626) == Decimal("64592.18")
+        # The groups themselves add up to ML's total, yet the day does not close.
+        ledger = _ledger(pg_ads_db)
+        assert (result.outcome, ledger.status, ledger.closed_at) == ("mismatch", "mismatch", None)
+
+    def test_a_cent_of_rounding_per_ad_still_marks_the_drill_done(
+        self, session_factory, pg_ads_db, monkeypatch
+    ) -> None:
+        day = copy.deepcopy(gauss_day())
+        ad = next(a for a in day["ads"][953712626][0]["results"] if a["item_id"] == "MLA1150587086")
+        ad["metrics"]["cost"] = round(ad["metrics"]["cost"] + 0.01, 2)
+        result = _run(session_factory, Replay(FakeClock(), day), monkeypatch, GAUSS)
+        statuses = {s for (s,) in pg_ads_db.execute(select(MlAdsAdGroupDay.drill_status)).all()}
+        assert "mismatch" not in statuses
+        assert (result.outcome, _ledger(pg_ads_db).status) == ("closed", "closed")
+
+    def test_an_ad_ml_no_longer_reports_does_not_count_against_a_refetched_drill(
+        self, session_factory, pg_ads_db, monkeypatch
+    ) -> None:
+        clock = FakeClock()
+        assert _run(session_factory, Replay(clock, gauss_day()), monkeypatch, GAUSS).outcome == "closed"
+        # A previous fetch left an ad that ML no longer reports for this group.
+        pg_ads_db.add(
+            MlAdsItemDay(
+                advertiser_id=GAUSS,
+                ad_group_id=953712626,
+                item_id="MLA_GONE",
+                day=DAY,
+                cost=Decimal("10.00"),
+                raw={},
+                fetched_at=clock.now(),
+            )
+        )
+        pg_ads_db.flush()
+        clock.sleep(3600)
+        result = _run(session_factory, Replay(clock, gauss_day()), monkeypatch, GAUSS)
+        statuses = {s for (s,) in pg_ads_db.execute(select(MlAdsAdGroupDay.drill_status)).all()}
+        assert "mismatch" not in statuses
+        assert (result.outcome, _ledger(pg_ads_db).status) == ("closed", "closed")
+        assert _item_sum(pg_ads_db, group_id=953712626) == Decimal("64692.18")
+
+
 class TestFailedRequest:
     def test_a_request_without_an_answer_raises_and_leaves_the_day_fetching(
         self, session_factory, pg_ads_db, monkeypatch
