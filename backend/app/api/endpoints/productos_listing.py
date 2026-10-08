@@ -35,12 +35,12 @@ from app.services.ml_promotions_service import (
 )
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers, fetch_pxq_tiers_by_mla
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
-from app.services.pricing_context import build_pricing_context, resolve_envio
 from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
     PRICELIST_IDS_CLASICA_Y_CUOTAS,
     PVP_TO_WEB_PRICELIST,
 )
+from app.services.pricing_context import build_pricing_context, resolve_envio
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -1078,8 +1078,7 @@ def listar_productos(
 
             # Calcular markup de la oferta
             if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                # T-3: Use prefetched tipo_cambio_usd
-
+                # T-3: prefetched USD rate lives in the context
                 costo_calc = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
                 # T-5: Use _lookup_comision instead of obtener_comision_base
                 comision_base = _lookup_comision(mejor_pub.pricelist_id, grupo_id)
@@ -1117,7 +1116,6 @@ def listar_productos(
             precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
 
             # Calcular markup del rebate
-
             costo_rebate = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
             comision_base_rebate = _lookup_comision(4, grupo_id)  # Lista clásica
 
