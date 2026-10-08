@@ -19,3 +19,14 @@ describe('publicacionesMlAPI.items', () => {
     expect(response.data).toEqual({ items: [] });
   });
 });
+
+describe('publicacionesMlAPI.variations', () => {
+  it('GETs the variations of one publication, with the id URL-encoded', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: { variations: [] } });
+
+    await actual.publicacionesMlAPI.variations('MLA 1/2');
+
+    expect(get).toHaveBeenCalledWith('/ml-publications/view/items/MLA%201%2F2/variations');
+  });
+});

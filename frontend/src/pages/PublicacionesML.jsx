@@ -7,6 +7,7 @@ import SearchInput from '../components/SearchInput';
 import { ColumnPicker, FacetChips, Pagination, SplitPanelLayout, TableShell } from '../components/kit';
 import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
+import VariationRows from '../components/publicacionesMl/VariationRows';
 import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -93,6 +94,17 @@ export default function PublicacionesML() {
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [columnVisibility, setColumnVisibility] = useState({});
+  // Publications whose variation sub-rows are open. Their data loads on opening.
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const toggleVariations = useCallback(
+    (itemId) =>
+      setExpandedIds((current) => {
+        const next = new Set(current);
+        if (!next.delete(itemId)) next.add(itemId);
+        return next;
+      }),
+    [],
+  );
 
   const pageSize = filters.limite;
   const latestRequest = useRef(0);
@@ -126,7 +138,11 @@ export default function PublicacionesML() {
   }, [filters, filterKey, pageSize, reloadToken, canSeeMargin]);
 
   const eventsEnabled = data?.events_enabled ?? false;
-  const columns = useMemo(() => buildColumns({ eventsEnabled, canSeeMargin }), [eventsEnabled, canSeeMargin]);
+  const columns = useMemo(
+    () =>
+      buildColumns({ eventsEnabled, canSeeMargin, expandedIds, onToggleVariations: toggleVariations }),
+    [eventsEnabled, canSeeMargin, expandedIds, toggleVariations],
+  );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
   // row-less table instance carries only the visibility state both read.
@@ -296,6 +312,11 @@ export default function PublicacionesML() {
               columns={visibleColumns}
               rows={items}
               getRowKey={(item) => item.item_id}
+              renderSubRows={(item) =>
+                item.variations_count > 1 && expandedIds.has(item.item_id) ? (
+                  <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />
+                ) : null
+              }
               sort={sort}
               onSort={handleSort}
               onRowClick={handleRowClick}

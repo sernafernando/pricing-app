@@ -2,7 +2,7 @@ import { formatPct } from '../../utils/metricasMlFormat';
 import styles from './cells.module.css';
 
 /** Why the backend could not compute a markup (`view/markup.py` `REASON_*`). */
-export const MARKUP_REASONS = {
+const MARKUP_REASONS = {
   sin_vinculo: 'La publicación no está vinculada a un producto',
   sin_costo: 'El producto vinculado no tiene costo',
   sin_comision: 'No hay comisión para la lista de precios de la publicación',
@@ -16,7 +16,7 @@ const UNKNOWN_REASON = 'No se pudo calcular el markup';
  * are the server's (P6); a null range is "—" with the reason as tooltip, never
  * 0. A real 0% stays "0,0%".
  */
-export function formatMarkupRange(min, max) {
+function formatMarkupRange(min, max) {
   return min === max ? formatPct(min) : `${formatPct(min)} – ${formatPct(max)}`;
 }
 

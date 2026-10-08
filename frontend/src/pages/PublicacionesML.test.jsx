@@ -19,6 +19,8 @@ import {
   ITEMS_RESPONSE_EVENTS_OFF,
   itemsResponse,
   makeItem,
+  VARIATIONS_RESPONSE,
+  VARIATION_ITEM,
 } from '../test/visual/publicacionesMlFixtures';
 
 vi.mock('../services/api', () => ({
@@ -26,7 +28,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -63,6 +65,8 @@ beforeEach(() => {
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
   ]);
   publicacionesMlAPI.items.mockReset();
+  publicacionesMlAPI.variations.mockReset();
+  publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   openInMlPanel.mockReset();
   respond({ ...ITEMS_RESPONSE, facets: FACETS });
 });
@@ -437,5 +441,87 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
     await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_neg'));
     expect(screen.getByLabelText('Markup mínimo (%)')).toHaveValue('');
+  });
+});
+
+describe('variation sub-rows (publicaciones-ml-vista P11b.T3)', () => {
+  const ONE_VARIATION = makeItem({ ...ITEMS[0], item_id: 'MLA1100000009', variations_count: 1 });
+  const withVariations = (entry = '/ml-publicaciones') => {
+    respond({ ...ITEMS_RESPONSE, items: [VARIATION_ITEM, ONE_VARIATION, ...ITEMS] });
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    return screen.findByText('MLA1100000005');
+  };
+  const toggle = () => screen.getByRole('button', { name: /variaciones de MLA1100000005/ });
+
+  it('only a publication with more than one variation can be expanded', async () => {
+    await withVariations();
+    expect(screen.getAllByRole('button', { name: /^Ver las \d+ variaciones/ })).toHaveLength(2); // MLA...05 and the gone one with 3
+    expect(screen.queryByRole('button', { name: /variaciones de MLA1100000009/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /variaciones de MLA1100000001/ })).not.toBeInTheDocument();
+  });
+
+  it('asks for nothing until a row is expanded (lazy)', async () => {
+    await withVariations();
+    expect(publicacionesMlAPI.variations).not.toHaveBeenCalled();
+  });
+
+  it('expanding fetches that publication\'s variations and shows its sub-rows', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    expect(publicacionesMlAPI.variations).toHaveBeenCalledTimes(1);
+    expect(publicacionesMlAPI.variations).toHaveBeenCalledWith('MLA1100000005');
+    expect(await screen.findByText('Router Archer AX55 negro')).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('the sub-rows sit right under their publication', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    const rows = screen.getAllByRole('row');
+    const parent = rows.findIndex((row) => within(row).queryByText('MLA1100000005'));
+    expect(within(rows[parent + 1]).getByText('Variación 9001')).toBeInTheDocument();
+    expect(within(rows[parent + 3]).getByText('Variación 9003')).toBeInTheDocument();
+  });
+
+  it('collapsing hides them again', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    await userEvent.click(toggle());
+    expect(screen.queryByText('Router Archer AX55 negro')).not.toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('expanding does not select the row nor change the URL selection', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    expect(toggle().closest('tr')).not.toHaveAttribute('aria-current');
+  });
+
+  it('a failing fetch shows the error inside the row and the list stays', async () => {
+    publicacionesMlAPI.variations.mockRejectedValue(httpError(500));
+    await withVariations();
+    await userEvent.click(toggle());
+    expect(await screen.findByText('No se pudieron cargar las variaciones.')).toBeInTheDocument();
+    expect(screen.getByText('MLA1100000001')).toBeInTheDocument();
+  });
+
+  it('without ver_ganancia the sub-rows carry no cost nor markup', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    expect(screen.queryByText('41.000,50')).not.toBeInTheDocument();
+    expect(screen.queryByText('12,5%')).not.toBeInTheDocument();
+  });
+
+  it('with ver_ganancia they show cost and markup, the negative one highlighted', async () => {
+    canSeeMargin = true;
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    expect(screen.getByText('41.000,50')).toBeInTheDocument();
+    expect(screen.getByText('-4,2%').closest('tr')).toHaveAttribute('data-negative');
   });
 });

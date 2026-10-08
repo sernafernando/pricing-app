@@ -7,6 +7,7 @@ import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
+import VariationsToggle from './VariationsToggle';
 import styles from './cells.module.css';
 
 /**
@@ -29,10 +30,26 @@ export const DEFAULT_DIRECTION = {
  * `eventsEnabled` false drops the last-event column altogether (S56.2).
  * `canSeeMargin` (`ml_metricas.ver_ganancia`) is what lets the markup column
  * exist at all: without it there is no column, not a column of dashes.
+ * `expandedIds` / `onToggleVariations` drive the expand toggle of publications
+ * with more than one variation; without `onToggleVariations` there is none.
  */
-export function buildColumns({ eventsEnabled, canSeeMargin = false }) {
+export function buildColumns({ eventsEnabled, canSeeMargin = false, expandedIds, onToggleVariations }) {
   const columns = [
-    { key: 'titulo', header: 'Publicación', width: 340, sortable: true, render: (item) => <PublicationCell item={item} /> },
+    {
+      key: 'titulo',
+      header: 'Publicación',
+      width: 340,
+      sortable: true,
+      render: (item) =>
+        onToggleVariations && item.variations_count > 1 ? (
+          <div className={styles.withToggle}>
+            <VariationsToggle item={item} expanded={expandedIds?.has(item.item_id) ?? false} onToggle={onToggleVariations} />
+            <PublicationCell item={item} />
+          </div>
+        ) : (
+          <PublicationCell item={item} />
+        ),
+    },
     {
       key: 'estado',
       header: 'Estado',
