@@ -1,0 +1,4444 @@
+{
+  "captured_at": "2026-10-07T04:22:57.979644+00:00",
+  "cases": [
+    {
+      "item_id": "MLA1854372829",
+      "price": 455155.0,
+      "category_id": "MLA1714",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "9x_campaign",
+      "tags": [
+        "content_editable",
+        "9x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": null,
+          "value_name": "9x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": null,
+              "name": "9x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=455155.0&category_id=MLA1714&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 131539.79,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 131539.79,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 28.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=455155.0&category_id=MLA1714",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 131539.79,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 131539.79,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 28.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 70549.02,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 70549.02,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 15.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=455155.0&category_id=MLA1714&listing_type_id=gold_pro&tags=9x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 151566.61,
+            "sale_fee_details": {
+              "financing_add_on_fee": 17.8,
+              "fixed_fee": 0,
+              "gross_amount": 151566.61,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 33.3
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "097855207548",
+        "productos_matched": 1,
+        "subcategoria_id": 3845,
+        "grupo_id": 1,
+        "pricelist_id": 13,
+        "comision_pct": 33.3
+      }
+    },
+    {
+      "item_id": "MLA2290447392",
+      "price": 352651.0,
+      "category_id": "MLA14407",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": null,
+      "tags": [
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INVOICE",
+          "name": "Facturación",
+          "value_id": "6891885",
+          "value_name": "Factura A",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "6891885",
+              "name": "Factura A",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=352651.0&category_id=MLA14407&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 91336.61,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 91336.61,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 25.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=352651.0&category_id=MLA14407",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 91336.61,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 91336.61,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 25.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 44081.38,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 44081.38,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 12.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        }
+      },
+      "ours": {
+        "sku": "4711387717530",
+        "productos_matched": 1,
+        "subcategoria_id": 3841,
+        "grupo_id": 4,
+        "pricelist_id": 14,
+        "comision_pct": 25.9
+      }
+    },
+    {
+      "item_id": "MLA3510129282",
+      "price": 376710.0,
+      "category_id": "MLA1714",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": null,
+      "tags": [
+        "content_editable",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=376710.0&category_id=MLA1714&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 108869.19,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 108869.19,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 28.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=376710.0&category_id=MLA1714",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 108869.19,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 108869.19,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 28.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 58390.05,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 58390.05,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 15.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        }
+      },
+      "ours": {
+        "sku": "097855207548",
+        "productos_matched": 1,
+        "subcategoria_id": 3845,
+        "grupo_id": 1,
+        "pricelist_id": 14,
+        "comision_pct": 28.9
+      }
+    },
+    {
+      "item_id": "MLA1895508751",
+      "price": 149970.0,
+      "category_id": "MLA417835",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "3x_campaign",
+      "tags": [
+        "3x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "2 años",
+          "value_struct": {
+            "number": 2,
+            "unit": "años"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "2 años",
+              "struct": {
+                "number": 2,
+                "unit": "años"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": "10080711",
+          "value_name": "3x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "10080711",
+              "name": "3x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=149970.0&category_id=MLA417835&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 41091.78,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 41091.78,
+              "meli_percentage_fee": 14,
+              "percentage_fee": 27.4
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=149970.0&category_id=MLA417835",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 41091.78,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 41091.78,
+                "meli_percentage_fee": 14,
+                "percentage_fee": 27.4
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 20995.8,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 20995.8,
+                "meli_percentage_fee": 14,
+                "percentage_fee": 14
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=149970.0&category_id=MLA417835&listing_type_id=gold_pro&tags=3x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 34343.13,
+            "sale_fee_details": {
+              "financing_add_on_fee": 8.9,
+              "fixed_fee": 0,
+              "gross_amount": 34343.13,
+              "meli_percentage_fee": 14,
+              "percentage_fee": 22.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "4895252501599",
+        "productos_matched": 1,
+        "subcategoria_id": 3853,
+        "grupo_id": 6,
+        "pricelist_id": 17,
+        "comision_pct": 22.9
+      }
+    },
+    {
+      "item_id": "MLA1854370497",
+      "price": 376498.0,
+      "category_id": "MLA1714",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "3x_campaign",
+      "tags": [
+        "content_editable",
+        "3x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": "10080711",
+          "value_name": "3x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "10080711",
+              "name": "3x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=376498.0&category_id=MLA1714&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 108807.92,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 108807.92,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 28.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=376498.0&category_id=MLA1714",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 108807.92,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 108807.92,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 28.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 58357.19,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 58357.19,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 15.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=376498.0&category_id=MLA1714&listing_type_id=gold_pro&tags=3x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 91865.51,
+            "sale_fee_details": {
+              "financing_add_on_fee": 8.9,
+              "fixed_fee": 0,
+              "gross_amount": 91865.51,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 24.4
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "097855207548",
+        "productos_matched": 1,
+        "subcategoria_id": 3845,
+        "grupo_id": 1,
+        "pricelist_id": 17,
+        "comision_pct": 24.4
+      }
+    },
+    {
+      "item_id": "MLA1706534821",
+      "price": 842096.0,
+      "category_id": "MLA430901",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": null,
+      "tags": [
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INVOICE",
+          "name": "Facturación",
+          "value_id": "6891885",
+          "value_name": "Factura A",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "6891885",
+              "name": "Factura A",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=842096.0&category_id=MLA430901&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 243365.74,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 243365.74,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 28.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=842096.0&category_id=MLA430901",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 243365.74,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 243365.74,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 28.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 130524.88,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 130524.88,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 15.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        }
+      },
+      "ours": {
+        "sku": "4895252506501",
+        "productos_matched": 1,
+        "subcategoria_id": 3855,
+        "grupo_id": 1,
+        "pricelist_id": 14,
+        "comision_pct": 28.9
+      }
+    },
+    {
+      "item_id": "MLA1706534595",
+      "price": 769347.0,
+      "category_id": "MLA430901",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "3x_campaign",
+      "tags": [
+        "3x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INVOICE",
+          "name": "Facturación",
+          "value_id": "6891885",
+          "value_name": "Factura A",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "6891885",
+              "name": "Factura A",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": "10080711",
+          "value_name": "3x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "10080711",
+              "name": "3x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=769347.0&category_id=MLA430901&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 222341.28,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 222341.28,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 28.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=769347.0&category_id=MLA430901",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 222341.28,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 222341.28,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 28.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 119248.78,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 119248.78,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 15.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=769347.0&category_id=MLA430901&listing_type_id=gold_pro&tags=3x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 187720.66,
+            "sale_fee_details": {
+              "financing_add_on_fee": 8.9,
+              "fixed_fee": 0,
+              "gross_amount": 187720.66,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 24.4
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "4895252506501",
+        "productos_matched": 1,
+        "subcategoria_id": 3855,
+        "grupo_id": 1,
+        "pricelist_id": 17,
+        "comision_pct": 24.4
+      }
+    },
+    {
+      "item_id": "MLA2091149265",
+      "price": 61677.0,
+      "category_id": "MLA377395",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": null,
+      "tags": [
+        "good_quality_thumbnail",
+        "user_product_listing",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=61677.0&category_id=MLA377395&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 17207.88,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 17207.88,
+              "meli_percentage_fee": 14.5,
+              "percentage_fee": 27.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=61677.0&category_id=MLA377395",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 17207.88,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 17207.88,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 27.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 8943.16,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 8943.16,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 14.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        }
+      },
+      "ours": {
+        "sku": "1210002613217X4",
+        "productos_matched": 1,
+        "subcategoria_id": 3866,
+        "grupo_id": 10,
+        "pricelist_id": 14,
+        "comision_pct": 27.9
+      }
+    },
+    {
+      "item_id": "MLA3950827074",
+      "price": 74407.0,
+      "category_id": "MLA377395",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "12x_campaign",
+      "tags": [
+        "12x_campaign",
+        "user_product_listing",
+        "good_quality_thumbnail",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": null,
+          "value_name": "12x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": null,
+              "name": "12x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=74407.0&category_id=MLA377395&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 20759.56,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 20759.56,
+              "meli_percentage_fee": 14.5,
+              "percentage_fee": 27.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=74407.0&category_id=MLA377395",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 20759.56,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 20759.56,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 27.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 10789.02,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 10789.02,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 14.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=74407.0&category_id=MLA377395&listing_type_id=gold_pro&tags=12x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 26860.93,
+            "sale_fee_details": {
+              "financing_add_on_fee": 21.6,
+              "fixed_fee": 0,
+              "gross_amount": 26860.93,
+              "meli_percentage_fee": 14.5,
+              "percentage_fee": 36.1
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "1210002613217X4",
+        "productos_matched": 1,
+        "subcategoria_id": 3866,
+        "grupo_id": 10,
+        "pricelist_id": 23,
+        "comision_pct": 36.1
+      }
+    },
+    {
+      "item_id": "MLA1854372847",
+      "price": 504918.0,
+      "category_id": "MLA1714",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "12x_campaign",
+      "tags": [
+        "content_editable",
+        "12x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": null,
+          "value_name": "12x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": null,
+              "name": "12x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        },
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=504918.0&category_id=MLA1714&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 145921.3,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 145921.3,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 28.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=504918.0&category_id=MLA1714",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 145921.3,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 145921.3,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 28.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 78262.29,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 78262.29,
+                "meli_percentage_fee": 15.5,
+                "percentage_fee": 15.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=504918.0&category_id=MLA1714&listing_type_id=gold_pro&tags=12x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 187324.58,
+            "sale_fee_details": {
+              "financing_add_on_fee": 21.6,
+              "fixed_fee": 0,
+              "gross_amount": 187324.58,
+              "meli_percentage_fee": 15.5,
+              "percentage_fee": 37.1
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "097855207548",
+        "productos_matched": 1,
+        "subcategoria_id": 3845,
+        "grupo_id": 1,
+        "pricelist_id": 23,
+        "comision_pct": 37.1
+      }
+    },
+    {
+      "item_id": "MLA1814261333",
+      "price": 4580149.0,
+      "category_id": "MLA1652",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "12x_campaign",
+      "tags": [
+        "12x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": null,
+          "value_name": "12x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": null,
+              "name": "12x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        },
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=4580149.0&category_id=MLA1652&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 1186258.59,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 1186258.59,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 25.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=4580149.0&category_id=MLA1652",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 1186258.59,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 1186258.59,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 25.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 572518.62,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 572518.62,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 12.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=4580149.0&category_id=MLA1652&listing_type_id=gold_pro&tags=12x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 1561830.8,
+            "sale_fee_details": {
+              "financing_add_on_fee": 21.6,
+              "fixed_fee": 0,
+              "gross_amount": 1561830.8,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 34.1
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "4711474512574",
+        "productos_matched": 1,
+        "subcategoria_id": 3818,
+        "grupo_id": 4,
+        "pricelist_id": 23,
+        "comision_pct": 34.1
+      }
+    },
+    {
+      "item_id": "MLA3950814884",
+      "price": 64104.0,
+      "category_id": "MLA377395",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "3x_campaign",
+      "tags": [
+        "3x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": "10080711",
+          "value_name": "3x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "10080711",
+              "name": "3x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=64104.0&category_id=MLA377395&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 17885.02,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 17885.02,
+              "meli_percentage_fee": 14.5,
+              "percentage_fee": 27.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=64104.0&category_id=MLA377395",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 17885.02,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 17885.02,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 27.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 9295.08,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 9295.08,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 14.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=64104.0&category_id=MLA377395&listing_type_id=gold_pro&tags=3x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 15000.34,
+            "sale_fee_details": {
+              "financing_add_on_fee": 8.9,
+              "fixed_fee": 0,
+              "gross_amount": 15000.34,
+              "meli_percentage_fee": 14.5,
+              "percentage_fee": 23.4
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "1210002613217X4",
+        "productos_matched": 1,
+        "subcategoria_id": 3866,
+        "grupo_id": 10,
+        "pricelist_id": 17,
+        "comision_pct": 23.4
+      }
+    },
+    {
+      "item_id": "MLA3408776958",
+      "price": 3725443.0,
+      "category_id": "MLA1652",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": null,
+      "tags": [
+        "catalog_boost",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=3725443.0&category_id=MLA1652&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 964889.74,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 964889.74,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 25.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=3725443.0&category_id=MLA1652",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 964889.74,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 964889.74,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 25.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 465680.38,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 465680.38,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 12.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        }
+      },
+      "ours": {
+        "sku": "4711474512574",
+        "productos_matched": 1,
+        "subcategoria_id": 3818,
+        "grupo_id": 4,
+        "pricelist_id": 14,
+        "comision_pct": 25.9
+      }
+    },
+    {
+      "item_id": "MLA3950815282",
+      "price": 70400.0,
+      "category_id": "MLA377395",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "9x_campaign",
+      "tags": [
+        "9x_campaign",
+        "good_quality_thumbnail",
+        "user_product_listing",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": null,
+          "value_name": "9x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": null,
+              "name": "9x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=70400.0&category_id=MLA377395&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 19641.6,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 19641.6,
+              "meli_percentage_fee": 14.5,
+              "percentage_fee": 27.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=70400.0&category_id=MLA377395",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 19641.6,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 19641.6,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 27.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 10208,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 10208,
+                "meli_percentage_fee": 14.5,
+                "percentage_fee": 14.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=70400.0&category_id=MLA377395&listing_type_id=gold_pro&tags=9x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 22739.2,
+            "sale_fee_details": {
+              "financing_add_on_fee": 17.8,
+              "fixed_fee": 0,
+              "gross_amount": 22739.2,
+              "meli_percentage_fee": 14.5,
+              "percentage_fee": 32.3
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "1210002613217X4",
+        "productos_matched": 1,
+        "subcategoria_id": 3866,
+        "grupo_id": 10,
+        "pricelist_id": 13,
+        "comision_pct": 32.3
+      }
+    },
+    {
+      "item_id": "MLA3408776922",
+      "price": 3401244.0,
+      "category_id": "MLA1652",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "3x_campaign",
+      "tags": [
+        "catalog_boost",
+        "3x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": "10080711",
+          "value_name": "3x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "10080711",
+              "name": "3x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        },
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=3401244.0&category_id=MLA1652&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 880922.2,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 880922.2,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 25.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=3401244.0&category_id=MLA1652",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 880922.2,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 880922.2,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 25.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 425155.5,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 425155.5,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 12.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=3401244.0&category_id=MLA1652&listing_type_id=gold_pro&tags=3x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 727866.22,
+            "sale_fee_details": {
+              "financing_add_on_fee": 8.9,
+              "fixed_fee": 0,
+              "gross_amount": 727866.22,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 21.4
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "4711474512574",
+        "productos_matched": 1,
+        "subcategoria_id": 3818,
+        "grupo_id": 4,
+        "pricelist_id": 17,
+        "comision_pct": 21.4
+      }
+    },
+    {
+      "item_id": "MLA3409336956",
+      "price": 4123323.0,
+      "category_id": "MLA1652",
+      "listing_type_id": "gold_pro",
+      "installments_campaign": "9x_campaign",
+      "tags": [
+        "9x_campaign",
+        "immediate_payment",
+        "cart_eligible"
+      ],
+      "sale_terms": [
+        {
+          "id": "WARRANTY_TYPE",
+          "name": "Tipo de garantía",
+          "value_id": "2230279",
+          "value_name": "Garantía de fábrica",
+          "value_struct": null,
+          "values": [
+            {
+              "id": "2230279",
+              "name": "Garantía de fábrica",
+              "struct": null
+            }
+          ],
+          "value_type": "list"
+        },
+        {
+          "id": "WARRANTY_TIME",
+          "name": "Tiempo de garantía",
+          "value_id": null,
+          "value_name": "6 meses",
+          "value_struct": {
+            "number": 6,
+            "unit": "meses"
+          },
+          "values": [
+            {
+              "id": null,
+              "name": "6 meses",
+              "struct": {
+                "number": 6,
+                "unit": "meses"
+              }
+            }
+          ],
+          "value_type": "number_unit"
+        },
+        {
+          "id": "INSTALLMENTS_CAMPAIGN",
+          "name": "Campaña de cuotas",
+          "value_id": null,
+          "value_name": "9x_campaign",
+          "value_struct": null,
+          "values": [
+            {
+              "id": null,
+              "name": "9x_campaign",
+              "struct": null
+            }
+          ],
+          "value_type": "string"
+        }
+      ],
+      "ml": {
+        "by_type": {
+          "path": "/sites/MLA/listing_prices?price=4123323.0&category_id=MLA1652&listing_type_id=gold_pro",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 1067940.66,
+            "sale_fee_details": {
+              "financing_add_on_fee": 13.4,
+              "fixed_fee": 0,
+              "gross_amount": 1067940.66,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 25.9
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        },
+        "all_types": {
+          "path": "/sites/MLA/listing_prices?price=4123323.0&category_id=MLA1652",
+          "status": 200,
+          "body": [
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_pro",
+              "listing_type_name": "Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 1067940.66,
+              "sale_fee_details": {
+                "financing_add_on_fee": 13.4,
+                "fixed_fee": 0,
+                "gross_amount": 1067940.66,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 25.9
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_premium",
+              "listing_type_name": "Oro Premium",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "highest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold_special",
+              "listing_type_name": "Clásica",
+              "requires_picture": true,
+              "sale_fee_amount": 515415.38,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 515415.38,
+                "meli_percentage_fee": 12.5,
+                "percentage_fee": 12.5
+              },
+              "stop_time": "2046-10-02T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "high",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "gold",
+              "listing_type_name": "Oro",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "mid",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "silver",
+              "listing_type_name": "Plata",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "low",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "bronze",
+              "listing_type_name": "Bronce",
+              "requires_picture": false,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            },
+            {
+              "currency_id": "ARS",
+              "free_relist": false,
+              "listing_exposure": "lowest",
+              "listing_fee_amount": 0,
+              "listing_fee_details": {
+                "fixed_fee": 0,
+                "gross_amount": 0
+              },
+              "listing_type_id": "free",
+              "listing_type_name": "Gratuita",
+              "requires_picture": true,
+              "sale_fee_amount": 0,
+              "sale_fee_details": {
+                "financing_add_on_fee": 0,
+                "fixed_fee": 0,
+                "gross_amount": 0,
+                "meli_percentage_fee": 0,
+                "percentage_fee": 0
+              },
+              "stop_time": "2026-12-06T00:00:00.000-04:00"
+            }
+          ]
+        },
+        "with_tag": {
+          "path": "/sites/MLA/listing_prices?price=4123323.0&category_id=MLA1652&listing_type_id=gold_pro&tags=9x_campaign",
+          "status": 200,
+          "body": {
+            "currency_id": "ARS",
+            "free_relist": false,
+            "listing_exposure": "highest",
+            "listing_fee_amount": 0,
+            "listing_fee_details": {
+              "fixed_fee": 0,
+              "gross_amount": 0
+            },
+            "listing_type_id": "gold_pro",
+            "listing_type_name": "Premium",
+            "requires_picture": true,
+            "sale_fee_amount": 1249366.87,
+            "sale_fee_details": {
+              "financing_add_on_fee": 17.8,
+              "fixed_fee": 0,
+              "gross_amount": 1249366.87,
+              "meli_percentage_fee": 12.5,
+              "percentage_fee": 30.3
+            },
+            "stop_time": "2046-10-02T00:00:00.000-04:00"
+          }
+        }
+      },
+      "ours": {
+        "sku": "4711474512574",
+        "productos_matched": 1,
+        "subcategoria_id": 3818,
+        "grupo_id": 4,
+        "pricelist_id": 13,
+        "comision_pct": 30.3
+      }
+    }
+  ]
+}
