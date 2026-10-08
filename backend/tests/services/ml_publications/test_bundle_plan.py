@@ -26,6 +26,7 @@ class TestFetchers:
             "moderation",
             "performance",
             "visits",
+            "replenishment",
         }
 
     def test_every_fetcher_has_a_registered_resource_and_a_canonical_name(self) -> None:
@@ -46,6 +47,7 @@ class TestFetchers:
             "moderation": ("/moderations/last_moderation/MLA1-ITM", None),
             "performance": ("/item/MLA1/performance", None),
             "visits": ("/items/MLA1/visits/time_window", {"last": "30", "unit": "day"}),
+            "replenishment": ("/marketplace/fbm/user-products/MLA1/replenishment", {"country": "AR"}),
         }
 
     def test_each_fetcher_names_the_entity_whose_id_its_path_takes(self) -> None:
@@ -62,6 +64,7 @@ class TestFetchers:
             "moderation": "item",
             "performance": "item",
             "visits": "item",
+            "replenishment": "user_product",
         }
 
     def test_only_promotions_needs_a_flag_of_its_own(self) -> None:

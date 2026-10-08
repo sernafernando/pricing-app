@@ -208,6 +208,7 @@ class Settings(BaseSettings):
             "family": 86400,
             "competition": 900,
             "moderation": 3600,
+            "replenishment": 86400,
         }
     )
     ML_PUB_SCAN_STATUSES: List[str] = Field(

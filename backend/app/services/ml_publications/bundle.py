@@ -25,6 +25,7 @@ from app.services.ml_publications.resources import (
     MODERATION_RESOURCE,
     PERFORMANCE_RESOURCE,
     PROMOTIONS_RESOURCE,
+    REPLENISHMENT_RESOURCE,
     RESOURCES,
     USER_PRODUCT_KIND,
     VISITS_RESOURCE,
@@ -63,6 +64,14 @@ FETCHERS: Dict[str, SubFetcher] = {
         SubFetcher("stock", "/user-products/{id}/stock", entity=USER_PRODUCT_KIND),
         # The family the item belongs to (`/sites/MLA/user-products-families/{family_id}`).
         SubFetcher("family", "/sites/MLA/user-products-families/{id}", entity=FAMILY_KIND),
+        # Full replenishment of the user product (sweep-only). ML answers a direct call with the store token alone:
+        # the capture of 2026-10-08 showed `x-caller-id` / `x-caller-siteId` are not required, so no extra headers.
+        SubFetcher(
+            REPLENISHMENT_RESOURCE,
+            "/marketplace/fbm/user-products/{id}/replenishment",
+            {"country": "AR"},
+            entity=USER_PRODUCT_KIND,
+        ),
         # Catalog buy-box competition; only catalog listings have one (`is_applicable`).
         SubFetcher(COMPETITION_RESOURCE, "/items/{id}/price_to_win", {"version": "v2"}),
         # Last moderation; `404 {"Status": 404}` means "none" and is stored as a state (parsers/moderation.py).
@@ -76,7 +85,7 @@ FETCHERS: Dict[str, SubFetcher] = {
 # Never part of the bundle (design D12: no notification topic, too costly per sale-triggered event): an entry
 # reaches them only by naming them, which the sweeps do. Listing them in `bundle_resources` enables the named
 # request; the bundle itself skips them.
-SWEEP_ONLY: frozenset = frozenset({PERFORMANCE_RESOURCE, VISITS_RESOURCE})
+SWEEP_ONLY: frozenset = frozenset({PERFORMANCE_RESOURCE, VISITS_RESOURCE, REPLENISHMENT_RESOURCE})
 
 # Resources that need their own flag on top of being listed in `bundle_resources` (design D14: the
 # promotions endpoint is shared with the bridge's ML application, so it has a separate kill point).

@@ -74,13 +74,15 @@ def test_the_model_declares_the_state_and_typed_columns() -> None:
     assert columns["gmv_30d"].type.precision == 16 and columns["gmv_30d"].type.scale == 2
 
 
-def test_the_model_is_not_registered_for_fetching_yet() -> None:
-    """Registration (bundle, resources, store models) belongs to the fetcher PR."""
+def test_the_model_is_registered_with_the_store_by_the_fetcher_pr() -> None:
+    """P4a left the model unregistered; the fetcher PR (P4b) registers it. Fetching stays off until the
+    operator lists `replenishment` in `bundle_resources` (see test_replenishment_wiring)."""
+    from app.models.ml_publications import MlUserProductReplenishment
     from app.services.ml_publications.resources import RESOURCES
     from app.services.ml_publications.subresource_store import MODELS
 
-    assert "replenishment" not in MODELS
-    assert "replenishment" not in RESOURCES
+    assert MODELS["replenishment"] is MlUserProductReplenishment
+    assert "replenishment" in RESOURCES
 
 
 @pytest.fixture()
