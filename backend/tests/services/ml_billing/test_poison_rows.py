@@ -115,9 +115,33 @@ class TestEngine:
             "general",
             400,
         )
-        assert gap.window == f"({poison - 1}, {poison}]" and json.loads(gap.error) == _ENVELOPE
+        assert gap.window == f"(70714313970, {poison}]" and json.loads(gap.error) == _ENVELOPE
         # Exponential then binary probe, not a scan of the 5,000 ids between neighbours.
-        assert len(ml.calls) <= 2 + 2 * 13 + 1
+        assert len(ml.calls) <= 2 + 2 * 2 * 13 + 1
+
+    def test_adjacent_poison_rows_are_covered_by_the_recorded_window(self, db) -> None:
+        # The probe cannot tell where a run of consecutive poison rows starts: it
+        # only finds the last one. The window must start at the cursor so the first
+        # poison row is not lost without a pointer.
+        x, first, last = 70714313970, 70714319000, 70714319001
+        read = _read(db, _Ml(_IDS, poison=[first, last]), from_id=x, limit=1)
+        assert read.gaps == (last,) and _ids(read.page) == [70714360000]
+        [gap] = open_gaps(db, _PERIOD)
+        assert gap.position == str(last) and gap.window == f"({x}, {last}]"
+
+    def test_a_spurious_400_inside_the_probe_does_not_skip_good_rows(self, db) -> None:
+        x, poison = 70714313970, 70714319000
+        ml, spurious = _Ml(_IDS, poison=[poison]), []
+
+        def fetch(from_id, limit):
+            # A probe past the poison row would succeed, but ML answers 400 once.
+            if from_id == x + 6144 and not spurious:
+                spurious.append(from_id)
+                return _BARE_400
+            return ml(from_id, limit)
+
+        read = _read(db, fetch, from_id=x, limit=1)
+        assert spurious and read.gaps == (poison,) and _ids(read.page) == [70714319001]
 
     def test_a_whole_sweep_loses_only_the_poison_row(self, db) -> None:
         ml = _Ml(_IDS, poison=[70714319000, 70714360005])
@@ -140,7 +164,7 @@ class TestEngine:
         assert read.page is None and read.failure is None and read.from_id == 10 + POISON_PROBE_BOUND
         [gap] = open_gaps(db, _PERIOD)
         assert gap.position == str(10 + POISON_PROBE_BOUND) and gap.window == f"(10, {10 + POISON_PROBE_BOUND}]"
-        assert len(calls) <= 2 + 41
+        assert len(calls) <= 2 + 2 * 41
 
     @pytest.mark.parametrize(
         "failure",
