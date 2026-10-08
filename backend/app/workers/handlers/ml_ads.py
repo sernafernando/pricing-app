@@ -1,20 +1,21 @@
-"""`ml_ads.ingest`: the Product Ads backfill (ml-billing-balance, ADS-5, ADS-7, D3).
+"""`ml_ads.ingest`: the Product Ads backfill and daily refresh (ml-billing-balance, ADS-5 to ADS-7, D3).
 
 Scheduled by the existing worker, no cron: a daily slot at 10:30 (after ML's 10:00 GMT-3 refresh of the
 previous day) plus a 60 s catch-up that stays active while the persisted `worker_job_state.detail.complete`
 is False. A run spends at most `RUN_BUDGET` on calls, about 25% of the shared pacer, so the backfill
 (about 110 calls per advertiser-day) takes several hours without starving `ml_publications.*`.
 
-The cursor is the ledger (`services/ml_ads/schedule.py`); `detail` only carries the run summary and the
-`complete` flag, so deleting it loses no progress.
+The cursor is the ledger (`services/ml_ads/schedule.py`); `detail` only carries the run summary, the
+`complete` flag and `refreshed_for`, so deleting it loses no progress.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
@@ -61,16 +62,28 @@ class AdsHandler:
         if self._client is None:
             self._client = self._client_factory(self.pacer)
         budget_until = min(ctx.deadline, self._now() + RUN_BUDGET)
+        refreshed_for = self._refreshed_for()
         try:
-            tick = schedule.run_tick(self._session_factory, self._client, now=self._now, deadline=budget_until)
+            tick = schedule.run_tick(
+                self._session_factory, self._client, now=self._now, deadline=budget_until, refreshed_for=refreshed_for
+            )
         except Exception as exc:  # noqa: BLE001 -- the worker keeps running; the ledger resumes the next run
             logger.exception("ads run failed")
             error = f"{type(exc).__name__}: {exc}"[:300]
             # A success with `complete` False: the 60 s catch-up retries it without the runtime spinning on a failure.
-            return JobResult(success=True, detail=self._flush({"complete": False, "error": error}), error=error)
+            failed = {"complete": False, "error": error, "refreshed_for": refreshed_for and refreshed_for.isoformat()}
+            return JobResult(success=True, detail=self._flush(failed), error=error)
         if tick.stopped == BLOCKED:
             logger.error("ads blocked: missing or rejected credentials")
         return JobResult(success=True, detail=self._flush(tick.as_detail()))
+
+    def _refreshed_for(self) -> Optional[date]:
+        with self._session_factory() as db:
+            detail = db.execute(select(WorkerJobState.detail).where(WorkerJobState.name == self.name)).scalar()
+        try:
+            return date.fromisoformat(detail["refreshed_for"])
+        except (TypeError, KeyError, ValueError):
+            return None  # no detail yet, or it was deleted: the refresh is idempotent, so it just runs again
 
     def _flush(self, detail: Dict[str, Any]) -> Dict[str, Any]:
         detail = {**detail, "at": self._now().isoformat()}

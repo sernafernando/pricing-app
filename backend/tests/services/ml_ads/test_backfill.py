@@ -17,6 +17,7 @@ from app.models.ml_ads import MlAdsDayLedger
 from app.services.ml_ads import schedule, store
 from tests.services.ml_ads.replay import ADVERTISERS_RE, FakeClock, Replay, gauss_day, make_client, tplink_day
 
+TODAY = date(2026, 10, 8)
 GAUSS = 25713
 TPLINK = 714700
 
@@ -45,7 +46,7 @@ def window(monkeypatch):
 
 def _tick(session_factory, replay, monkeypatch, *, token=None, deadline=None):
     client = make_client(replay, monkeypatch, token=token)
-    return schedule.run_tick(session_factory, client, now=replay.clock.now, deadline=deadline)
+    return schedule.run_tick(session_factory, client, now=replay.clock.now, deadline=deadline, refreshed_for=TODAY)
 
 
 def _ledger(db, advertiser_id, day) -> MlAdsDayLedger:

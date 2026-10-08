@@ -70,6 +70,15 @@ def _day_closes(check: store.DayCheck, summary: mapper.DaySummary) -> bool:
     return abs(check.group_cost - summary.cost) <= CENT * max(check.groups, 1)
 
 
+# The metrics of a day's summary that ML can still change while attribution windows run (ADS-6).
+SUMMARY_FIELDS = ("cost", "direct_amount", "indirect_amount", "units_quantity", "clicks", "prints")
+
+
+def _summary_changed(stored: Optional[Mapping[str, Any]], fresh: Mapping[str, Any]) -> bool:
+    stored = stored or {}
+    return any(Decimal(str(stored.get(k) or 0)) != Decimal(str(fresh.get(k) or 0)) for k in SUMMARY_FIELDS)
+
+
 def blocking_outcome(response: MlResponse) -> Optional[str]:
     """The reason a response must end the whole run (D4): nothing can proceed, whichever day or call is next."""
     if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) or response.status == 401:
@@ -96,6 +105,19 @@ def run_ads_step(
     deadline: Optional[datetime] = None,
 ) -> StepResult:
     return _DayRun(session_factory, client, advertiser_id, day, now, deadline).execute()
+
+
+def verify_ads_day(
+    session_factory: SessionFactory,
+    client: Any,
+    advertiser_id: int,
+    day: date,
+    *,
+    now: Callable[[], datetime],
+    deadline: Optional[datetime] = None,
+) -> StepResult:
+    """ADS-6: one summary call. A figure that moved since the day closed reopens it (`refetch`)."""
+    return _DayRun(session_factory, client, advertiser_id, day, now, deadline).verify()
 
 
 def list_advertisers(
@@ -150,6 +172,20 @@ class _DayRun:
             return self._close(self._read_summary())
         except _Stop as stop:
             return self._result(stop.outcome)
+
+    def verify(self) -> StepResult:
+        try:
+            summary = self._read_summary()
+        except _Stop as stop:
+            return self._result(stop.outcome)
+        with self.session_factory() as db:
+            ledger = store.get_ledger(db, self.advertiser_id, self.day)
+            changed = _summary_changed(ledger.summary_raw, summary.raw)
+            if changed:
+                ledger.status = "refetch"
+            else:
+                ledger.verified_at = self.now()
+        return self._result("refetch" if changed else "verified")
 
     def _result(self, outcome: str) -> StepResult:
         with self.session_factory() as db:

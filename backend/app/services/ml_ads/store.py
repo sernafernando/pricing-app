@@ -13,11 +13,11 @@ what lets `delete_stale` drop the rows ML no longer reports.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Iterable, Optional
 
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -299,7 +299,7 @@ def record_failure(db: Session, advertiser_id: int, day: date, *, today: date, e
     return ledger.attempts
 
 
-# --- work selection for the scheduler (ADS-5) -------------------------------------------------
+# --- work selection for the scheduler (ADS-5, ADS-6) -------------------------------------------------
 
 OPEN_STATUSES = ("fetching", "refetch")
 
@@ -322,3 +322,55 @@ def ledgered(db: Session, first: date, last: date) -> set[tuple[int, date]]:
         )
     ).all()
     return {(advertiser_id, day) for advertiser_id, day in rows}
+
+
+def reopen_for_daily_run(db: Session, *, today: date, recent_days: int, max_laps: int) -> None:
+    """The once-a-day refresh: D-1..D-`recent_days` are refetched, and so is a mismatch that has had fewer than
+    `max_laps` retries (D4). Days that are still being fetched are left alone."""
+    recent = and_(
+        MlAdsDayLedger.day >= today - timedelta(days=recent_days), MlAdsDayLedger.status.in_(("closed", "mismatch"))
+    )
+    lapped = and_(MlAdsDayLedger.status == "mismatch", MlAdsDayLedger.mismatch_laps < max_laps)
+    db.execute(
+        update(MlAdsDayLedger)
+        .where(MlAdsDayLedger.source == SOURCE, or_(recent, lapped))
+        .values(
+            mismatch_laps=MlAdsDayLedger.mismatch_laps + case((MlAdsDayLedger.status == "mismatch", 1), else_=0),
+            status="refetch",
+        )
+    )
+    db.flush()
+
+
+def unverified(
+    db: Session, *, today: date, newest_ago: int, oldest_ago: int, since: datetime
+) -> list[tuple[int, date]]:
+    """Closed, non-final days from D-`oldest_ago` to D-`newest_ago` not closed or verified since `since`."""
+    checked = func.greatest(MlAdsDayLedger.verified_at, MlAdsDayLedger.closed_at)
+    rows = db.execute(
+        select(MlAdsDayLedger.advertiser_id, MlAdsDayLedger.day)
+        .where(
+            MlAdsDayLedger.source == SOURCE,
+            MlAdsDayLedger.status == "closed",
+            MlAdsDayLedger.final.is_(False),
+            MlAdsDayLedger.day.between(today - timedelta(days=oldest_ago), today - timedelta(days=newest_ago)),
+            checked < since,
+        )
+        .order_by(MlAdsDayLedger.day, MlAdsDayLedger.advertiser_id)
+    ).all()
+    return [(advertiser_id, day) for advertiser_id, day in rows]
+
+
+def finalize_old(db: Session, *, before: date) -> None:
+    """Closed days older than the verification window are `final`: ML no longer changes them."""
+    db.execute(
+        update(MlAdsDayLedger)
+        .where(
+            MlAdsDayLedger.source == SOURCE,
+            MlAdsDayLedger.status == "closed",
+            MlAdsDayLedger.final.is_(False),
+            MlAdsDayLedger.day < before,
+        )
+        .values(final=True)
+    )
+    db.flush()
