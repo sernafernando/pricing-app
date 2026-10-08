@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { buildMlSaleUrl, isMlPanelAvailable, openInMlPanel } from './mlSidePanel';
+import { buildMlSaleUrl, buildMlItemUrl, isMlPanelAvailable, openInMlPanel } from './mlSidePanel';
 
 afterEach(() => {
   delete document.documentElement.dataset.mlPanel;
@@ -61,5 +61,28 @@ describe('openInMlPanel', () => {
     openInMlPanel(null);
     expect(post).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildMlItemUrl', () => {
+  it('returns the permalink of an https mercadolibre.com.ar publication', () => {
+    const url = 'https://articulo.mercadolibre.com.ar/MLA-1234567890-router-_JM';
+    expect(buildMlItemUrl(url)).toBe(url);
+    expect(buildMlItemUrl('https://mercadolibre.com.ar/p/MLA1')).toBe('https://mercadolibre.com.ar/p/MLA1');
+  });
+
+  it('returns null when there is no permalink (S66.3)', () => {
+    expect(buildMlItemUrl(null)).toBeNull();
+    expect(buildMlItemUrl(undefined)).toBeNull();
+    expect(buildMlItemUrl('')).toBeNull();
+  });
+
+  it('rejects anything that is not https on mercadolibre.com.ar', () => {
+    expect(buildMlItemUrl('http://articulo.mercadolibre.com.ar/MLA-1')).toBeNull();
+    expect(buildMlItemUrl('https://articulo.mercadolibre.com.mx/MLA-1')).toBeNull();
+    expect(buildMlItemUrl('https://mercadolibre.com.ar.evil.com/MLA-1')).toBeNull();
+    expect(buildMlItemUrl('https://evilmercadolibre.com.ar/MLA-1')).toBeNull();
+    expect(buildMlItemUrl('javascript:alert(1)')).toBeNull();
+    expect(buildMlItemUrl('not a url')).toBeNull();
   });
 });
