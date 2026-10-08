@@ -63,3 +63,13 @@ The 50 rows ML never returned are not in the capture. The tests that need the
 COMPLETE documents add 36 + 14 rows synthesized in the test, whose amounts are
 exactly the difference to the document totals (966,809.54 and 116,243.45).
 That is a stand-in for the missing rows and is the only invented data here.
+
+## `captured_400_envelope.json`
+
+The bare 400 ML answers on an intermittent poison page, copied verbatim from
+`flex_billing_capture_20261007_145424.json`
+(`flex_details["2026-09-01:CREDIT_NOTE"]`, second 400 entry, `body`). It has no
+`error` field and no cause: `status`, `type: BAD_REQUEST_ERROR`, a generic
+`message` and the request `path`. The same envelope was seen for 2026-10-01
+and, on the general `/details` with `from_id` paging, in
+`billing_balance_capture_20261007_123428.json.gz`. Nothing is edited.
