@@ -37,12 +37,18 @@ FORBIDDEN_ERP_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "
 # markup service reads in ONE join from the stored links for a whole page or filtered set (a constant number of
 # statements). Through `links.py` it would be a lookup per row. The exception covers that one extraction module;
 # the pricing maths (`markup.py`, `ads.py`, `markup_service.py`) receive plain values and may not name the catalog.
+#
+# `view/variations.py` is the fourth, explicit exception (publicaciones-ml-vista P6c). The sub-rows of an expanded
+# publication show, per variation, the code, name and brand of the product it is priced with (its own link, else the
+# item-level one): one join from the stored links for the whole publication, a constant number of statements. The
+# markup and the Ads of a sub-row are NOT recomputed there: they come from `markup_service`, which stays closed.
 # No other module of the view may name the catalog, and the view never writes to it.
 PRODUCT_CATALOG_NAMES = {"productos_erp", "ProductoERP"}
 LINKING_READER = "links.py"
 VIEW_CATALOG_READER = "view/filters.py"
 VIEW_MARKUP_READER = "view/markup_inputs.py"
-PRODUCT_CATALOG_READERS = {LINKING_READER, VIEW_CATALOG_READER, VIEW_MARKUP_READER}
+VIEW_VARIATIONS_READER = "view/variations.py"
+PRODUCT_CATALOG_READERS = {LINKING_READER, VIEW_CATALOG_READER, VIEW_MARKUP_READER, VIEW_VARIATIONS_READER}
 # The one router allowed to use `app.services.ml_publications.links` (PR5L2).
 LINKS_ROUTERS = {"ml_publications_links.py"}
 LINKS_IMPORT = re.compile(r"app\.services\.ml_publications(?:\s+import\s+[^\n]*\blinks\b|\.links\b)")
@@ -147,7 +153,15 @@ class TestScannersCatchOffenders:
         # the exception opens the catalog only: GBP and the other ERP mirrors stay closed to the view
         assert erp_violations(VIEW_CATALOG_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
         assert erp_violations(VIEW_CATALOG_READER, "from app.services.gbp_client import x") != []
-        assert PRODUCT_CATALOG_READERS == {LINKING_READER, VIEW_CATALOG_READER, VIEW_MARKUP_READER}
+        assert PRODUCT_CATALOG_READERS == {
+            LINKING_READER,
+            VIEW_CATALOG_READER,
+            VIEW_MARKUP_READER,
+            VIEW_VARIATIONS_READER,
+        }
+        assert erp_violations(VIEW_VARIATIONS_READER, catalog) == []
+        assert erp_violations(VIEW_VARIATIONS_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
+        assert erp_violations(VIEW_VARIATIONS_READER, "from app.services.gbp_client import x") != []
         assert erp_violations(VIEW_MARKUP_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
         assert erp_violations("view/markup_service.py", "ProductoERP") == ["ProductoERP"]
 

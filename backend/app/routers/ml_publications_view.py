@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
@@ -25,11 +25,12 @@ from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
-from app.services.ml_publications import settings_store
-from app.services.ml_publications.view import listing, status_block
+from app.services.ml_publications import admin, settings_store
+from app.services.ml_publications.view import listing, status_block, variations
 from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
 from app.services.ml_publications.view.filters import (
     FilterError,
+    MarkupFilter,
     parse_ads_period,
     parse_filter,
     parse_markup_filter,
@@ -188,6 +189,54 @@ class ItemsResponse(BaseModel):
     facets: Optional[dict[str, Any]] = None
     markup_stats: Optional[MarkupStatsOut] = None  # present only with ml_metricas.ver_ganancia
     ads: Optional[AdsOut] = None  # present only with ml_metricas.ver_ganancia
+
+
+class VariationAttributeOut(BaseModel):
+    name: Optional[str] = None
+    value: Optional[str] = None
+
+
+class VariationLinkOut(BaseModel):
+    """The product a sub-row is priced with: its own link, else the item-level one (`inherited`)."""
+
+    state: str
+    inherited: bool
+    producto_item_id: Optional[int] = None
+    codigo: Optional[str] = None
+    descripcion: Optional[str] = None
+    marca: Optional[str] = None
+
+
+class VariationCostOut(BaseModel):
+    amount: Optional[float] = None
+    currency: Optional[str] = None
+
+
+class VariationMarkupOut(BaseModel):
+    """Markup (percent) of one variation, after Ads when applied; `value` is null with its `reason` when it cannot
+    be computed (never 0 for "unknown")."""
+
+    value: Optional[float] = None
+    reason: str
+
+
+class VariationOut(BaseModel):
+    variation_id: int
+    seller_sku: Optional[str] = None
+    user_product_id: Optional[str] = None
+    available_quantity: Optional[int] = None
+    sold_quantity: Optional[int] = None
+    attributes: list[VariationAttributeOut]
+    link: VariationLinkOut
+    costo: Optional[VariationCostOut] = None  # present only with ml_metricas.ver_ganancia
+    markup: Optional[VariationMarkupOut] = None  # present only with ml_metricas.ver_ganancia
+
+
+class VariationsResponse(BaseModel):
+    item_id: str
+    can_see_margin: bool
+    variations: list[VariationOut]
+    ads: Optional[dict[str, Any]] = None  # present only with ml_metricas.ver_ganancia
 
 
 # ── Reads (ml_ops.ver) ───────────────────────────────────────────
@@ -356,4 +405,61 @@ def get_items(
             "null_by_reason": dict(page.markup_stats.null_by_reason),
             "ms": page.markup_stats.ms,
         }
+    return body
+
+
+@router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)
+def get_item_variations(
+    response: Response,
+    item_id: str = Path(..., pattern=admin.ITEM_ID_PATTERN),
+    restar_publicidad: Optional[bool] = Query(None, description="markup after Ads cost (ver_ganancia)"),
+    ads_desde: Optional[str] = Query(None, description="first day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
+    ads_hasta: Optional[str] = Query(None, description="last day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
+    ads_provider: AdsCostProvider = Depends(get_ads_provider),
+) -> dict[str, Any]:
+    """The sub-rows of an expanded publication: per live variation its SKU, quantities, attributes and the product
+    it is priced with; with `ml_metricas.ver_ganancia`, also that product's cost and the variation's markup (the
+    Ads cost of the publication, per unit, applied the same way to every variation)."""
+    timer = Timer("variations")
+    can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
+    if not can_see_margin and restar_publicidad:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para restar la publicidad",
+        )
+    try:
+        markup, ads_status = None, None
+        if can_see_margin:
+            ads_status = _ads_status(ads_provider, bool(restar_publicidad), *parse_ads_period(ads_desde, ads_hasta))
+            markup = MarkupQuery(auth_db, MarkupFilter(), _ads_plan(ads_provider, ads_status))
+        listing.bound(db)
+        with timer.stage("variations"):
+            found = variations.list_variations(db, item_id, markup)
+    except FilterError as exc:
+        error = api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, ErrorCode.VALIDATION_ERROR, str(exc))
+        error.detail["field"] = exc.field
+        raise error from exc
+    except DBAPIError as exc:
+        if _timed_out(exc):
+            raise api_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá."
+            ) from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    if found is None:
+        raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"La publicación {item_id} no existe")
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(rows=len(found.variations))
+    body: dict[str, Any] = {"item_id": item_id, "can_see_margin": can_see_margin, "variations": found.variations}
+    if ads_status is not None:
+        if found.ads_failed:
+            ads_status = ads_status.degraded()
+        body["ads"] = _ads_out(ads_status)
+        if found.ads is not None:
+            body["ads"]["publication"] = found.ads
     return body
