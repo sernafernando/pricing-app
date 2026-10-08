@@ -11,7 +11,11 @@ billing period, re-swept whole every day. No backfill of closed periods.
 
 from __future__ import annotations
 
+import copy
+import gzip
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -128,6 +132,13 @@ def _page(results: list, total: int, offset: int = 0) -> dict:
     }
 
 
+def _end() -> dict:
+    """The empty page ML answers once the cursor is past the last row. Since
+    BS-1 it is the ONLY thing that ends a pass (`total` is what remains, not
+    a size), so every scripted sweep ends with it."""
+    return {**_page([], total=0), "last_id": 0}
+
+
 def _documents(count_details: int) -> dict:
     return {"documents": [{"count_details": count_details}]}
 
@@ -178,8 +189,8 @@ class TestLockReuse:
 class TestPagination:
     def test_pages_until_paging_total_covered(self, db) -> None:
         page1 = _page([_detail("D1"), _detail("D2")], total=3, offset=0)
-        page2 = _page([_detail("D3")], total=3, offset=2)
-        get_details = mock.AsyncMock(side_effect=[page1, page2])
+        page2 = _page([_detail("D3")], total=1, offset=2)
+        get_details = mock.AsyncMock(side_effect=[page1, page2, _end()])
         with (
             mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
             mock.patch.object(
@@ -189,15 +200,15 @@ class TestPagination:
             result = billing_sweep_service.run_billing_sweep()
 
         assert result.charges_seen == 3
-        assert get_details.call_count == 2
+        assert get_details.call_count == 3
         assert db.query(MlBillingCharge).count() == 3
 
 
 class TestSpacing:
     def test_sleeps_between_pages_with_correct_spacing(self, db) -> None:
         page1 = _page([_detail("D1")], total=2, offset=0)
-        page2 = _page([_detail("D2")], total=2, offset=1)
-        get_details = mock.AsyncMock(side_effect=[page1, page2])
+        page2 = _page([_detail("D2")], total=1, offset=1)
+        get_details = mock.AsyncMock(side_effect=[page1, page2, _end()])
         with (
             mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
             mock.patch.object(
@@ -226,8 +237,8 @@ class TestSpacing:
         Two pages therefore mean THREE waits -- one before each of the two
         detail requests, and the loop's own between them is one of those."""
         page1 = _page([_detail("D1")], total=2, offset=0)
-        page2 = _page([_detail("D2")], total=2, offset=1)
-        get_details = mock.AsyncMock(side_effect=[page1, page2])
+        page2 = _page([_detail("D2")], total=1, offset=1)
+        get_details = mock.AsyncMock(side_effect=[page1, page2, _end()])
         with (
             mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
             mock.patch.object(
@@ -259,7 +270,7 @@ class TestIdempotency:
     def test_two_passes_same_overlapping_data_do_not_duplicate(self, db) -> None:
         page = _page([_detail("D1"), _detail("D2")], total=2, offset=0)
         for _ in range(2):
-            get_details = mock.AsyncMock(return_value=page)
+            get_details = mock.AsyncMock(side_effect=[page, _end()])
             with (
                 mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
                 mock.patch.object(
@@ -276,7 +287,7 @@ class TestCompletenessStat:
     def test_documents_count_mismatch_is_observation_not_error(self, db) -> None:
         page = _page([_detail("D1")], total=1, offset=0)
         with (
-            mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(return_value=page)),
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(side_effect=[page, _end()])),
             mock.patch.object(
                 ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(999))
             ),
@@ -296,7 +307,9 @@ class TestCompletenessStat:
         page = _page([_detail("D1")], total=1, offset=0)
         for _ in range(2):
             with (
-                mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(return_value=page)),
+                mock.patch.object(
+                    ml_webhook_client, "get_billing_details", new=mock.AsyncMock(side_effect=[page, _end()])
+                ),
                 mock.patch.object(
                     ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(1))
                 ),
@@ -373,7 +386,7 @@ class TestOpenPeriodComesFromMlNotFromArithmetic:
                 {"key": "2026-09-01", "period_status": "CLOSED"},
             ]
         }
-        get_details = mock.AsyncMock(return_value=_page([_detail("D1")], total=1, offset=0))
+        get_details = mock.AsyncMock(side_effect=[_page([_detail("D1")], total=1, offset=0), _end()])
         with (
             mock.patch.object(ml_webhook_client, "get_billing_periods", new=mock.AsyncMock(return_value=periodos)),
             mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
@@ -458,14 +471,13 @@ class TestPagingShapeIsMlsShapeNotOurs:
     """
 
     def test_total_comes_from_the_top_level_not_from_paging(self, db) -> None:
-        # total=1 para que la pasada corte por total y llegue a escribir
-        # la stat. Con el bug (`paging.total`) esto daba None y la
-        # comparación de completitud no comparaba nada.
+        # Con el bug (`paging.total`) esto daba None y la comparación de
+        # completitud no comparaba nada.
         page = _page([_detail("D1")], total=1)
         assert "paging" not in page
 
         with (
-            mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(return_value=page)),
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(side_effect=[page, _end()])),
             mock.patch.object(
                 ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(1))
             ),
@@ -519,8 +531,8 @@ class TestFromIdPagination:
 
     def test_pages_with_from_id_and_sorts_by_id(self, db) -> None:
         page1 = _page([_detail("D1"), _detail("D2")], total=3)
-        page2 = _page([_detail("D3")], total=3)
-        get_details = mock.AsyncMock(side_effect=[page1, page2])
+        page2 = _page([_detail("D3")], total=1)
+        get_details = mock.AsyncMock(side_effect=[page1, page2, _end()])
 
         with (
             mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
@@ -530,7 +542,7 @@ class TestFromIdPagination:
         ):
             billing_sweep_service.run_billing_sweep()
 
-        assert get_details.await_count == 2
+        assert get_details.await_count == 3
         primera = get_details.await_args_list[0].kwargs
         segunda = get_details.await_args_list[1].kwargs
         # The cursor starts at 0 and then carries the previous page's
@@ -589,9 +601,9 @@ class TestOverlappingPagesDoNotCutTheSweepShort:
         # actually drop data -- which is the whole point.
         d1, d2, d3, d4 = _detail("D1"), _detail("D2"), _detail("D3"), _detail("D4")
         page1 = _page([d1, d2], total=4)
-        page2 = _page([d2, d3], total=4)
-        page3 = _page([d3, d4], total=4)
-        get_details = mock.AsyncMock(side_effect=[page1, page2, page3])
+        page2 = _page([d2, d3], total=2)
+        page3 = _page([d3, d4], total=1)
+        get_details = mock.AsyncMock(side_effect=[page1, page2, page3, _end()])
 
         with (
             mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
@@ -601,9 +613,10 @@ class TestOverlappingPagesDoNotCutTheSweepShort:
         ):
             result = billing_sweep_service.run_billing_sweep()
 
-        # Counting arrivals stops after page 2 (2 + 2 >= 4) and D4 never
-        # arrives. Counting distinct ids reaches the third page.
-        assert get_details.await_count == 3
+        # The old distinct-id count could still cut early on an inclusive
+        # cursor; now only the empty page ends the pass, so all three pages
+        # and the empty one are requested and D4 arrives.
+        assert get_details.await_count == 4
         assert result.error is None
         assert result.stopped_early is False
         assert db.query(MlBillingCharge).filter_by(period_key=result.period_key).count() == 4
@@ -618,7 +631,7 @@ class TestTheCompletenessCheckIsSpacedToo:
 
     def test_documents_is_requested_after_a_wait(self, db) -> None:
         page1 = _page([_detail("D1")], total=1, offset=0)
-        get_details = mock.AsyncMock(side_effect=[page1])
+        get_details = mock.AsyncMock(side_effect=[page1, _end()])
         get_documents = mock.AsyncMock(return_value=_documents(1))
         with (
             mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
@@ -631,3 +644,207 @@ class TestTheCompletenessCheckIsSpacedToo:
         assert billing_sweep_service.time.sleep.call_count >= 2, (
             "documents went out pegged to the last details page -- the proxy answers 429"
         )
+
+
+# --- BS-1: the stop rule never compares against `total` -----------------------
+#
+# Production bug (explore #2266/#2272): ML's `total` is the number of rows
+# REMAINING after the cursor, not the size of the period. The sweep compared
+# the distinct ids it had seen against it and stopped as soon as the two lines
+# crossed -- about half way. For 2026-09, ML held 33,260 BILL rows and the
+# sweep stored 17,000-odd.
+
+_FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "ml_billing"
+
+
+def _captured_pages() -> list[dict]:
+    """The 35 real pages of the 2026-09-01 BILL sweep (see fixtures README)."""
+    with gzip.open(_FIXTURES / "general_bill_2026_09_01_pages.json.gz", "rt", encoding="utf-8") as fh:
+        return json.load(fh)["pages"]
+
+
+def _captured_sample_rows() -> list[dict]:
+    with open(_FIXTURES / "general_bill_2026_09_01_sample_rows.json", encoding="utf-8") as fh:
+        return json.load(fh)["rows"]
+
+
+def _replay_responses(pages: list[dict]) -> list[dict]:
+    """ML's responses for `pages`, exactly as captured.
+
+    Envelope fields and the id of every row are the capture's. A row body is
+    the real captured row when the sample file has it, otherwise the real
+    CVFV sample with this page's real `detail_id` substituted: the paging
+    behaviour depends on ids and counts, and the 50 MB of row bodies are not
+    committed (fixtures README).
+    """
+    samples = {r["charge_info"]["detail_id"]: r for r in _captured_sample_rows()}
+    template = next(r for r in samples.values() if r["charge_info"]["detail_sub_type"] == "CVFV")
+    responses = []
+    for page in pages:
+        results = []
+        for detail_id in page["detail_ids"]:
+            row = copy.deepcopy(samples.get(detail_id) or template)
+            row["charge_info"]["detail_id"] = detail_id
+            results.append(row)
+        responses.append(
+            {
+                "results": results,
+                "total": page["total"],
+                "limit": page["limit"],
+                "offset": page["offset"],
+                "last_id": page["last_id"],
+                "errors": [],
+            }
+        )
+    return responses
+
+
+def _run_sweep(responses: list[dict], documents: dict | None = None):
+    get_details = mock.AsyncMock(side_effect=responses)
+    with (
+        mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+        mock.patch.object(
+            ml_webhook_client,
+            "get_billing_documents",
+            new=mock.AsyncMock(return_value=documents or _documents(0)),
+        ),
+    ):
+        result = billing_sweep_service.run_billing_sweep()
+    return result, get_details
+
+
+class TestSweepDoesNotStopAtFiftyOnePercent:
+    def test_captured_2026_09_pages_are_swept_to_the_last_row(self, db) -> None:
+        """BS-1 regression replay. `total` decreases 33260, 32260, ... 310, 0."""
+        pages = _captured_pages()
+        assert [p["total"] for p in pages[:3]] == [33260, 32260, 31260] and pages[-1]["total"] == 0
+        stored_in_capture = sum(p["n_results"] for p in pages)
+        assert stored_in_capture == 33210
+
+        result, get_details = _run_sweep(_replay_responses(pages))
+
+        assert db.query(MlBillingCharge).filter_by(period_key=result.period_key).count() == stored_in_capture
+        assert result.charges_seen == stored_in_capture
+        assert get_details.await_count == len(pages)
+        assert result.stopped_early is False
+        assert result.error is None
+        # `total` on later pages is what REMAINS, so only the first page's
+        # is the size of the period.
+        stat = db.query(MlBillingPeriodStat).filter_by(period_key=result.period_key).one()
+        assert stat.reported_total == 33260
+        assert stat.stored_total == stored_in_capture
+
+
+class TestShortPageIsNotTheEnd:
+    def test_a_950_row_page_asks_for_the_next_page_from_its_last_id(self) -> None:
+        captured = _captured_pages()
+        assert [i for i, p in enumerate(captured) if p["n_results"] == 950] == [16, 29]
+        # captured page 16 (950 rows) and the next one, then the real empty page
+        pages = [captured[16], captured[17], captured[-1]]
+
+        _, get_details = _run_sweep(_replay_responses(pages))
+
+        assert get_details.await_args_list[1].kwargs["from_id"] == captured[16]["last_id"]
+        assert get_details.await_args_list[2].kwargs["from_id"] == captured[17]["last_id"]
+        assert get_details.await_count == 3
+
+    def test_a_short_non_empty_page_does_not_end_the_pass(self, db) -> None:
+        """Triangulation on synthetic ids: 2 rows with limit 1000, `total`
+        that would have satisfied the old rule, and then more data."""
+        page1 = _page([_detail("D1"), _detail("D2")], total=2)
+        page2 = _page([_detail("D3")], total=1)
+        empty = _page([], total=0)
+
+        result, get_details = _run_sweep([page1, page2, empty])
+
+        assert get_details.await_count == 3
+        assert db.query(MlBillingCharge).filter_by(period_key=result.period_key).count() == 3
+
+
+class TestEmptyPageEndsThePass:
+    def test_empty_page_ends_without_error(self, db) -> None:
+        page1 = _page([_detail("D1")], total=50000)
+        empty = {**_page([], total=0), "last_id": 0}
+
+        result, get_details = _run_sweep([page1, empty])
+
+        assert get_details.await_count == 2
+        assert result.stopped_early is False
+        assert result.error is None
+        assert db.query(MlBillingPeriodStat).filter_by(period_key=result.period_key).count() == 1
+
+    def test_an_empty_first_page_ends_the_pass_too(self) -> None:
+        result, get_details = _run_sweep([_page([], total=0)])
+
+        assert get_details.await_count == 1
+        assert result.stopped_early is False
+        assert result.charges_seen == 0
+
+
+class TestCursorFallback:
+    def test_missing_last_id_falls_back_to_the_highest_detail_id_of_the_page(self) -> None:
+        page1 = _page([_detail("D2"), _detail("D1"), _detail("D3")], total=3)
+        page1.pop("last_id")
+        page2 = _page([_detail("D4")], total=1)
+        empty = _page([], total=0)
+
+        result, get_details = _run_sweep([page1, page2, empty])
+
+        second = get_details.await_args_list[1].kwargs
+        assert second["from_id"] == _DETAIL_IDS["D3"]
+        assert result.error is None
+
+    def test_a_null_last_id_falls_back_the_same_way(self) -> None:
+        page1 = _page([_detail("D1"), _detail("D2")], total=2)
+        page1["last_id"] = None
+        empty = _page([], total=0)
+
+        _, get_details = _run_sweep([page1, empty])
+
+        assert get_details.await_args_list[1].kwargs["from_id"] == _DETAIL_IDS["D2"]
+
+
+class TestAnomalyIsRecorded:
+    def test_a_cursor_that_does_not_advance_stops_with_a_recorded_anomaly(self, db, caplog) -> None:
+        page = _page([_detail("D1")], total=99999)
+        repeated = [page, page, page]
+
+        with caplog.at_level("WARNING"):
+            result, get_details = _run_sweep(repeated)
+
+        assert get_details.await_count == 2
+        assert result.stopped_early is True
+        assert result.error == "billing pagination cursor did not advance"
+        assert any("el cursor no avanzó" in r.message for r in caplog.records)
+        # a stopped pass does not claim to be complete: no period stat written
+        assert db.query(MlBillingPeriodStat).count() == 0
+
+
+class TestRerunIsIdempotent:
+    def test_second_pass_over_the_replay_leaves_counts_unchanged(self, db) -> None:
+        captured = _captured_pages()
+        pages = captured[:2] + [captured[-1]]
+        _run_sweep(_replay_responses(pages))
+        count_after_first = db.query(MlBillingCharge).count()
+        links_after_first = db.query(MlBillingChargeOrder).count()
+        assert count_after_first == 2000
+
+        second, _ = _run_sweep(_replay_responses(pages))
+
+        assert second.error is None
+        assert db.query(MlBillingCharge).count() == count_after_first
+        assert db.query(MlBillingChargeOrder).count() == links_after_first
+
+    def test_existing_rows_are_upserted_never_deleted(self, db) -> None:
+        pages = _captured_pages()
+        head = pages[:2] + [pages[-1]]
+        _run_sweep(_replay_responses(head))
+        ids_before = {r.detail_id for r in db.query(MlBillingCharge).all()}
+
+        # the next sweep sees a later slice of the period only
+        tail = pages[1:3] + [pages[-1]]
+        _run_sweep(_replay_responses(tail))
+
+        ids_after = {r.detail_id for r in db.query(MlBillingCharge).all()}
+        assert ids_before <= ids_after
+        assert len(ids_after) == len(ids_before) + 1000
