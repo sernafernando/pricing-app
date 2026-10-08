@@ -175,6 +175,8 @@ class TestDescent:
             tree(db, "TP-LINK", "REDES", "no-es-un-id")  # a subcategory key is an id
         with pytest.raises(FilterError):
             tree(db, "TP-LINK", "REDES", "10", "no-es-un-id")  # a product key is an id
+        with pytest.raises(FilterError):
+            tree(db, "TP-LINK", "REDES", "²")  # a digit by Unicode, not an id
 
 
 class TestSinProducto:

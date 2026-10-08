@@ -137,7 +137,7 @@ def _raw_key(level: str, key: str) -> str:
 def _check_path(path: list[str]) -> None:
     """Keys are ids at the subcategory and product levels (`__none__` for none)."""
     for depth, key in enumerate(path):
-        if depth in (2, 3) and key != NO_GROUP and not key.isdigit():
+        if depth in (2, 3) and key != NO_GROUP and not (key.isascii() and key.isdigit()):
             raise FilterError("path", f"{key!r} is not a {LEVELS[depth]} key")
 
 
