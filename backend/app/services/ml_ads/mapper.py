@@ -95,7 +95,7 @@ def has_activity(metrics: Mapping[str, Any]) -> bool:
 
 def map_group(advertiser_id: int, day: date, raw: Mapping[str, Any]) -> Optional[GroupFact]:
     metrics = raw.get("metrics") or {}
-    if raw.get("id") is None or not has_activity(metrics):
+    if not raw.get("id") or not has_activity(metrics):
         return None
     return GroupFact(
         advertiser_id=advertiser_id,
