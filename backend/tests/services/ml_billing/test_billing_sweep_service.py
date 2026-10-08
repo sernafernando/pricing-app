@@ -930,3 +930,136 @@ class TestRerunIsIdempotent:
         ids_after = {r.detail_id for r in db.query(MlBillingCharge).all()}
         assert ids_before <= ids_after
         assert len(ids_after) == len(ids_before) + 1000
+
+
+# --- ml-billing-balance PR 2b: documents wired into the sweep (BS-2, BS-3) ----
+
+
+def _real_bill_documents() -> list[dict]:
+    path = Path(__file__).resolve().parents[2] / "fixtures" / "ml_billing" / "documents_2026_09_01.json"
+    return json.loads(path.read_text())["BILL"]
+
+
+class TestSweepPersistsBillingDocuments:
+    def test_bill_documents_are_requested_for_the_group_and_stored(self, db) -> None:
+        from app.models.ml_billing import MlBillingDocument
+
+        get_documents = mock.AsyncMock(return_value={"results": _real_bill_documents(), "total": 2})
+        with (
+            mock.patch.object(
+                ml_webhook_client,
+                "get_billing_details",
+                new=mock.AsyncMock(side_effect=[_page([_detail("D1")], total=1), _end()]),
+            ),
+            mock.patch.object(ml_webhook_client, "get_billing_documents", new=get_documents),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        get_documents.assert_awaited_once_with(result.period_key, "ML", "BILL")
+        stored = {d.document_id: d for d in db.query(MlBillingDocument).all()}
+        assert set(stored) == {"5140824542", "5140811928"}
+        assert stored["5140824542"].count_details == 26056
+        assert stored["5140824542"].reference_number == "0058A00975220"
+        assert stored["5140811928"].reference_number == "0001A03750426"
+        assert all(d.period_key == result.period_key and d.group == "ML" for d in stored.values())
+        # The stat was NULL in prod while the code read `documents`: ML's list is under `results`.
+        stat = db.query(MlBillingPeriodStat).filter_by(period_key=result.period_key).one()
+        assert stat.documents_count_details == 26056 + 7204
+
+    def test_the_envelope_key_is_not_assumed(self, db) -> None:
+        """The capture stored the list under `results`; the pre-2b code read
+        `documents`. Either is read, so a wrong guess cannot silently drop
+        every document."""
+        from app.models.ml_billing import MlBillingDocument
+
+        with (
+            mock.patch.object(
+                ml_webhook_client,
+                "get_billing_details",
+                new=mock.AsyncMock(side_effect=[_page([_detail("D1")], total=1), _end()]),
+            ),
+            mock.patch.object(
+                ml_webhook_client,
+                "get_billing_documents",
+                new=mock.AsyncMock(return_value={"documents": _real_bill_documents()}),
+            ),
+        ):
+            billing_sweep_service.run_billing_sweep()
+
+        assert db.query(MlBillingDocument).count() == 2
+
+    def test_a_failed_documents_request_does_not_fail_the_pass(self, db) -> None:
+        from app.models.ml_billing import MlBillingDocument
+
+        with (
+            mock.patch.object(
+                ml_webhook_client,
+                "get_billing_details",
+                new=mock.AsyncMock(side_effect=[_page([_detail("D1")], total=1), _end()]),
+            ),
+            mock.patch.object(ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=None)),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        assert result.error is None
+        assert result.incomplete_document_ids == []
+        assert db.query(MlBillingDocument).count() == 0
+
+    def test_charges_are_stored_as_bill_rows(self, db) -> None:
+        with (
+            mock.patch.object(
+                ml_webhook_client,
+                "get_billing_details",
+                new=mock.AsyncMock(side_effect=[_page([_detail("D1")], total=1), _end()]),
+            ),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(1))
+            ),
+        ):
+            billing_sweep_service.run_billing_sweep()
+
+        charge = db.query(MlBillingCharge).one()
+        assert (charge.document_type, charge.billing_source) == ("BILL", "general")
+
+
+class TestIncompleteDocumentsAreRetriedOnLaterRuns:
+    """The cron re-sweeps the whole open period every run, so an incomplete
+    document is retried by construction; the result names it (and the log
+    warns) until the stored rows match ML's count and amount. Small hand-shaped
+    numbers: the real 26,056 / 7,204 figures are asserted in
+    `test_document_completeness.py`."""
+
+    _DOCUMENT = {
+        "id": "DOC1",
+        "document_type": "BILL",
+        "amount": 300.0,
+        "unpaid_amount": 0.0,
+        "document_status": "BILLED",
+        "count_details": 3,
+        "currency_id": "ARS",
+        "files": [{"file_id": "1", "reference_number": "0058A00975220"}],
+    }
+
+    def _run(self, details: list[dict]):
+        with (
+            mock.patch.object(
+                ml_webhook_client,
+                "get_billing_details",
+                new=mock.AsyncMock(side_effect=[_page(details, total=len(details)), _end()]),
+            ),
+            mock.patch.object(
+                ml_webhook_client,
+                "get_billing_documents",
+                new=mock.AsyncMock(return_value={"results": [self._DOCUMENT]}),
+            ),
+        ):
+            return billing_sweep_service.run_billing_sweep()
+
+    def test_missing_row_is_reported_then_the_next_run_closes_it(self, db) -> None:
+        first = self._run([_detail("D1"), _detail("D2")])
+        assert first.incomplete_document_ids == ["DOC1"]
+        assert first.error is None
+
+        second = self._run([_detail("D1"), _detail("D2"), _detail("D3")])
+        assert second.incomplete_document_ids == []
+        assert db.query(MlBillingCharge).count() == 3
