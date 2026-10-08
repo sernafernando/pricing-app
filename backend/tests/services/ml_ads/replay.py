@@ -1,14 +1,15 @@
 """Scripted ML Ads transport that replays the captured responses (see `tests/fixtures/ml_ads/README.md`).
 
-`Replay` answers the three endpoints of the day recipe from the fixtures and records every request.
-The fake clock advances one second per HTTP request.
+`Replay` answers the three endpoints of the day recipe from the fixtures, records every request and
+lets a test inject failures. The fake clock advances one second per HTTP request, so a `deadline`
+of N seconds allows exactly N calls.
 """
 
 from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import httpx
 
@@ -36,6 +37,9 @@ class FakeClock:
         return self.start + timedelta(seconds=self.elapsed)
 
     def sleep(self, seconds: float) -> None:
+        self.elapsed += seconds
+
+    def advance(self, seconds: float) -> None:
         self.elapsed += seconds
 
 
@@ -80,40 +84,61 @@ def tplink_day() -> dict[str, Any]:
 
 
 class Replay:
-    """httpx handler for one advertiser's `{pages, summary, ads}` day; every answer is a captured body.
+    """httpx handler. `days` maps advertiser id -> {pages, summary, ads}; every answer is a captured body.
 
     A request with no captured answer fails the test loudly instead of inventing one.
     """
 
-    def __init__(self, clock: FakeClock, day: dict[str, Any]) -> None:
+    def __init__(self, clock: FakeClock, days: dict[int, dict[str, Any]]) -> None:
         self.clock = clock
-        self.day = day
+        self.days = days
         self.requests: list[httpx.Request] = []
+        self.inject: Optional[Callable[[int, httpx.Request], Optional[httpx.Response]]] = None
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        self.clock.sleep(1.0)
-        offset = int(request.url.params.get("offset", 0))
-        if SUMMARY_RE.search(request.url.path):
-            return httpx.Response(200, json=self.day["summary"])
-        if GROUPS_RE.search(request.url.path):
-            return httpx.Response(200, json=next(p for p in self.day["pages"] if p["paging"]["offset"] == offset))
-        if match := ADS_RE.search(request.url.path):
-            pages = self.day["ads"][int(match.group(1))]
-            return httpx.Response(200, json=next(p for p in pages if p["paging"]["offset"] == offset))
+        self.clock.advance(1.0)
+        if self.inject is not None:
+            injected = self.inject(len(self.requests), request)
+            if injected is not None:
+                return injected
+        path = request.url.path
+        params = dict(request.url.params)
+        if match := SUMMARY_RE.search(path):
+            return httpx.Response(200, json=self.days[int(match.group(1))]["summary"])
+        if match := GROUPS_RE.search(path):
+            pages = self.days[int(match.group(1))]["pages"]
+            page = next(p for p in pages if p["paging"]["offset"] == int(params["offset"]))
+            return httpx.Response(200, json=page)
+        if match := ADS_RE.search(path):
+            return httpx.Response(200, json=self._ads_page(int(match.group(1)), int(params["offset"])))
         raise AssertionError(f"unexpected request {request.url}")
+
+    def _ads_page(self, group_id: int, offset: int) -> dict[str, Any]:
+        for day in self.days.values():
+            pages = day["ads"].get(group_id)
+            if pages is not None:
+                return next(p for p in pages if p["paging"]["offset"] == offset)
+        raise AssertionError(f"no captured /ads page for group {group_id}")
 
     # --- inspection -----------------------------------------------------------------------
 
     def calls(self, pattern: re.Pattern[str]) -> list[httpx.Request]:
         return [r for r in self.requests if pattern.search(r.url.path)]
 
-    def group_pages(self) -> list[int]:
-        return [int(r.url.params["offset"]) for r in self.calls(GROUPS_RE)]
+    def group_pages(self, advertiser_id: Optional[int] = None) -> list[int]:
+        return [
+            int(r.url.params["offset"])
+            for r in self.calls(GROUPS_RE)
+            if advertiser_id is None or f"/advertisers/{advertiser_id}/" in r.url.path
+        ]
 
     def ads_calls(self) -> list[tuple[int, int]]:
         """`(ad_group_id, offset)` of every `/ads` request, in order."""
         return [(int(ADS_RE.search(r.url.path).group(1)), int(r.url.params["offset"])) for r in self.calls(ADS_RE)]
+
+    def summary_calls(self) -> list[httpx.Request]:
+        return self.calls(SUMMARY_RE)
 
 
 def make_client(replay: Replay, monkeypatch, *, token: Optional[dict] = None) -> MlHttpClient:
