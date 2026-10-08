@@ -76,7 +76,10 @@ def bound(db: Session) -> None:
 
 
 def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
-    """Fill `pm_pairs` from the PMs' (marca, categoria) assignments, the same upper-cased rule as the sales query."""
+    """Fill `pm_pairs` from the PMs' (marca, categoria) assignments, the same upper-cased rule as the sales query.
+
+    Idempotent: a filter whose pairs are already resolved (or that has no `pms`) comes back as it is, with no
+    query, so the router resolves once and `list_items` / `facets` may call it again safely."""
     if not f.pms or f.pm_pairs is not None:
         return f
     rows = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(f.pms)).all()

@@ -65,6 +65,20 @@ class TestMigrationShape:
         assert "WHERE gone_at IS NULL" in source
 
 
+class TestModelMirror:
+    """Alembic autogenerate compares the model with the database: an index only in the migration would be
+    proposed for DROP. The model declares it for Postgres only (`NULLS LAST` is not valid SQLite DDL, and the
+    unit tests build their schema from this metadata on SQLite: every SQLite-backed test would fail if the index
+    were emitted there)."""
+
+    def test_the_model_declares_the_index_like_the_migration(self) -> None:
+        from app.models.ml_publications import MlItem
+
+        index = next(i for i in MlItem.__table__.indexes if i.name == "ix_ml_items_last_trigger")
+        assert [str(e) for e in index.expressions] == ["last_trigger_received_at DESC NULLS LAST", "ml_items.item_id"]
+        assert str(index.dialect_options["postgresql"]["where"]) == "gone_at IS NULL"
+
+
 def _migration():
     spec = importlib.util.spec_from_file_location("ml_items_last_trigger_index_migration", _PATH)
     module = importlib.util.module_from_spec(spec)

@@ -21,6 +21,7 @@ Exit code: 0 all scenarios under budget, 1 over budget or an HTTP error, 2 usage
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import sys
@@ -92,8 +93,6 @@ class RequestFailed(Exception):
 
 def fetch(base_url: str, token: str, params: dict[str, Any]) -> tuple[float, dict[str, float], dict[str, Any]]:
     """One GET of the list: (elapsed ms, server-side stages, JSON body)."""
-    import json
-
     url = base_url.rstrip("/") + PATH + "?" + urllib.parse.urlencode(params)
     request = urllib.request.Request(url, method="GET", headers={"Authorization": f"Bearer {token}"})
     started = time.perf_counter()
