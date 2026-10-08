@@ -27,7 +27,8 @@ from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services.ml_publications import settings_store
 from app.services.ml_publications.view import listing, status_block
-from app.services.ml_publications.view.filters import FilterError, parse_filter
+from app.services.ml_publications.view.filters import FilterError, parse_filter, parse_markup_filter
+from app.services.ml_publications.view.markup_service import MarkupQuery
 from app.services.ml_publications.view.timing import Timer
 from app.services.permisos_service import PermisosService
 
@@ -80,6 +81,25 @@ class LinkOut(BaseModel):
     marca: Optional[str] = None
 
 
+class MarkupOut(BaseModel):
+    """Markup of a publication, in percent: the range over its variations (`min == max` when they agree), the
+    worst variation (what sorting uses), whether ANY variation is negative, why it has no value (`reason`) and how
+    many variations could not be priced (`partial`). Only for users with `ml_metricas.ver_ganancia`."""
+
+    min: Optional[float] = None
+    max: Optional[float] = None
+    worst: Optional[float] = None
+    any_negative: bool
+    reason: str
+    partial: int
+
+
+class MarkupStatsOut(BaseModel):
+    computed: int
+    null_by_reason: dict[str, int]
+    ms: float
+
+
 class LastEventOut(BaseModel):
     event_type: str
     observed_at: datetime
@@ -110,6 +130,7 @@ class ItemRowOut(BaseModel):
     link: LinkOut
     last_activity_at: Optional[datetime] = None
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
+    markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
 
 
 class DataStateOut(BaseModel):
@@ -134,6 +155,7 @@ class ItemsResponse(BaseModel):
     events_enabled: bool
     data_state: DataStateOut
     facets: Optional[dict[str, Any]] = None
+    markup_stats: Optional[MarkupStatsOut] = None  # present only with ml_metricas.ver_ganancia
 
 
 # ── Reads (ml_ops.ver) ───────────────────────────────────────────
@@ -160,8 +182,14 @@ def get_items(
     stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock"),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
-    orden: Optional[str] = Query(None, description="actividad (default), precio, titulo, stock_full, actualizado"),
+    orden: Optional[str] = Query(
+        None, description="actividad (default), precio, titulo, stock_full, actualizado, markup (ver_ganancia)"
+    ),
     direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
+    markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia)"),
+    markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
+    markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
+    restar_publicidad: Optional[bool] = Query(None, description="markup after Ads cost (ver_ganancia)"),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
     facets: bool = False,
@@ -175,6 +203,15 @@ def get_items(
 ) -> dict[str, Any]:
     """One page of publications (one row per MLA) with the honest-state block."""
     timer = Timer("items")
+    can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
+    if not can_see_margin and (
+        markup_neg or restar_publicidad or markup_min is not None or markup_max is not None or orden == "markup"
+    ):
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar o filtrar por markup",
+        )
     try:
         f = parse_filter(
             q=q,
@@ -193,12 +230,19 @@ def get_items(
             evento_desde=evento_desde,
         )
         sort = listing.parse_sort(orden, direction)
+        markup = (
+            MarkupQuery(
+                auth_db, parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
+            )
+            if can_see_margin
+            else None
+        )
         with timer.stage("flags"):
             events_enabled = settings_store.get_setting("events.enabled").value is True
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)  # once: the list and the facets share the resolved pairs
         with timer.stage("list"):
-            page = listing.list_items(db, f, sort, limit, offset, events=events_enabled)
+            page = listing.list_items(db, f, sort, limit, offset, events=events_enabled, markup=markup)
         facet_counts = None
         if facets:
             with timer.stage("facets"):
@@ -224,10 +268,16 @@ def get_items(
         "total": page.total,
         "limit": limit,
         "offset": offset,
-        "can_see_margin": PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA),
+        "can_see_margin": can_see_margin,
         "events_enabled": events_enabled,
         "data_state": data_state,
     }
     if facet_counts is not None:
         body["facets"] = facet_counts
+    if page.markup_stats is not None:
+        body["markup_stats"] = {
+            "computed": page.markup_stats.computed,
+            "null_by_reason": dict(page.markup_stats.null_by_reason),
+            "ms": page.markup_stats.ms,
+        }
     return body

@@ -25,10 +25,19 @@ from typing import Mapping, Optional, Sequence
 from sqlalchemy.orm import Session
 
 from app.services.envio_real_service import resolver_costos_envio_batch
-from app.services.ml_publications.view.filters import PublicationFilter
+from app.services.ml_publications.view.filters import MarkupFilter, PublicationFilter
 from app.services.ml_publications.view.markup import PublicationMarkup, UnitInputs, aggregate_publication, unit_markup
 from app.services.ml_publications.view.markup_inputs import PublicationInputs, fetch_inputs
 from app.services.pricing_context import PricingContext, build_pricing_context
+
+
+@dataclass(frozen=True)
+class MarkupQuery:
+    """What a list request asks of the markup: the session the pricing tables are read through and the
+    `markup_*` filter. Its presence means the caller may see margins (`ml_metricas.ver_ganancia`)."""
+
+    pricing_db: Session
+    filter: MarkupFilter = MarkupFilter()
 
 
 @dataclass(frozen=True)

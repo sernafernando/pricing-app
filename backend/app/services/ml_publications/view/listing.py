@@ -13,13 +13,14 @@ its tests are `@pytest.mark.postgres`.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
-from sqlalchemy import Text, cast, func, select, text
+from sqlalchemy import ARRAY, Text, any_, cast, func, literal, select, text
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.services.ml_publications.view.markup_service import ItemMarkup, MarkupQuery, MarkupStats, compute_markups
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -37,6 +38,7 @@ from app.services.ml_publications.view.filters import (
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
+SORT_MARKUP = "markup"  # not a column: the worst variation's markup, computed in Python (see `_list_by_markup`)
 # sort key -> (expression of the first ordering column, descending by default)
 SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     SORT_ACTIVITY: (lambda: T.i.last_trigger_received_at, True),
@@ -62,16 +64,18 @@ class Sort:
 class ItemsPage:
     items: list[dict[str, Any]]
     total: int
+    markup_stats: Optional[MarkupStats] = None
 
 
 def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     key = (orden or "").strip() or SORT_ACTIVITY
-    if key not in SORT_COLUMNS:
-        raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(SORT_COLUMNS)}")
+    if key not in SORT_COLUMNS and key != SORT_MARKUP:
+        raise FilterError("orden", f"unknown value {key!r}; known: {', '.join([*SORT_COLUMNS, SORT_MARKUP])}")
     wanted = (direction or "").strip().lower()
     if wanted and wanted not in DIRECTIONS:
         raise FilterError("dir", f"unknown value {wanted!r}; known: {', '.join(DIRECTIONS)}")
-    return Sort(key, descending=(wanted == "desc") if wanted else SORT_COLUMNS[key][1])
+    default_descending = False if key == SORT_MARKUP else SORT_COLUMNS[key][1]  # markup: the worst first
+    return Sort(key, descending=(wanted == "desc") if wanted else default_descending)
 
 
 def bound(db: Session) -> None:
@@ -218,23 +222,108 @@ def _last_events(db: Session, ids: list[str]) -> dict[str, dict[str, Any]]:
     return {item_id: {"event_type": event_type, "observed_at": at} for item_id, event_type, at in rows}
 
 
-def list_items(db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, *, events: bool) -> ItemsPage:
+def _assemble(db: Session, rows: list[Any], events: bool) -> list[dict[str, Any]]:
+    """The page's row dicts: the page-level extras (variation counts, store labels, last events) in one statement
+    each, however many rows there are."""
+    ids = [row.item_id for row in rows]
+    variations = _variation_counts(db, ids)
+    labels = _store_labels(db, sorted({row.official_store_id for row in rows if row.official_store_id is not None}))
+    last_events = _last_events(db, ids) if events else None
+    return [_item(row, variations, labels, last_events) for row in rows]
+
+
+def _round(value: Optional[float]) -> Optional[float]:
+    return None if value is None else round(value, 2)
+
+
+def markup_out(item: ItemMarkup) -> dict[str, Any]:
+    """The `markup` block of a row: range, worst variation, any-negative, why it has no value and how many
+    variations are unpriced. Display values (2 decimals); sorting and filtering use the exact figures."""
+    m = item.markup
+    return {
+        "min": _round(m.value_min),
+        "max": _round(m.value_max),
+        "worst": _round(m.worst),
+        "any_negative": m.any_negative,
+        "reason": m.reason,
+        "partial": m.partial,
+    }
+
+
+def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarkup]) -> None:
+    for item in items:
+        if item["item_id"] in computed:
+            item["markup"] = markup_out(computed[item["item_id"]])
+
+
+def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[str]:
+    """Item ids by the worst variation's markup; publications without a value last in either direction, and
+    `item_id` closes every tie so paging is stable."""
+    priced = sorted((item_id for item_id, m in computed.items() if m.markup.worst is not None), key=lambda i: i)
+    priced.sort(key=lambda i: computed[i].markup.worst, reverse=descending)  # stable: ties stay by item_id
+    unpriced = sorted(item_id for item_id, m in computed.items() if m.markup.worst is None)
+    return priced + unpriced
+
+
+def _list_by_markup(
+    db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, events: bool, markup: MarkupQuery
+) -> ItemsPage:
+    """Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4): price it once, order
+    and filter in Python, then read only the page's rows (by id) from the database. A fixed number of statements."""
+    result = compute_markups(db, markup.pricing_db, f=f)
+    if sort.key == SORT_MARKUP:
+        ordered = _worst_first(result.items, sort.descending)
+    else:
+        ordered = list(db.execute(build_base_select(f, T.i.item_id).order_by(*_order_by(sort))).scalars())
+    wanted = [
+        item_id
+        for item_id in ordered
+        if item_id in result.items
+        and markup.filter.accepts(result.items[item_id].markup.worst, result.items[item_id].markup.any_negative)
+    ]
+    total = len(wanted)
+    page_ids = wanted[offset : offset + limit]
+    if not page_ids:
+        return ItemsPage([], total, result.stats)
+    rows = db.execute(build_base_select(f, *_row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text)))))
+    by_id = {row.item_id: row for row in rows}
+    items = _assemble(db, [by_id[i] for i in page_ids if i in by_id], events)
+    _attach_markup(items, result.items)
+    return ItemsPage(items, total, result.stats)
+
+
+def list_items(
+    db: Session,
+    f: PublicationFilter,
+    sort: Sort,
+    limit: int,
+    offset: int,
+    *,
+    events: bool,
+    markup: Optional[MarkupQuery] = None,
+) -> ItemsPage:
     """One page of publications. `events` is the `events.enabled` flag: the event filter needs it and the last
-    event is only read while it is on."""
+    event is only read while it is on. `markup` (the caller may see margins) adds each row's markup; sorting by
+    it or filtering on it prices the whole filtered set first."""
     if f.needs_events and not events:
         raise FilterError("evento", "requires the events flag (events.enabled) to be on")
     f = resolve_pm_pairs(db, f)
+    if markup is not None and (sort.key == SORT_MARKUP or markup.filter.active):
+        return _list_by_markup(db, f, sort, limit, offset, events, markup)
+    if sort.key == SORT_MARKUP:
+        raise FilterError("orden", "markup requires the ml_metricas.ver_ganancia permission")
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
         return ItemsPage([], total)
     rows = db.execute(
         build_base_select(f, *_row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)
     ).all()
-    ids = [row.item_id for row in rows]
-    variations = _variation_counts(db, ids)
-    labels = _store_labels(db, sorted({row.official_store_id for row in rows if row.official_store_id is not None}))
-    last_events = _last_events(db, ids) if events else None
-    return ItemsPage([_item(row, variations, labels, last_events) for row in rows], total)
+    items = _assemble(db, rows, events)
+    if markup is None:
+        return ItemsPage(items, total)
+    result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows])
+    _attach_markup(items, result.items)
+    return ItemsPage(items, total, result.stats)
 
 
 def _grouped(

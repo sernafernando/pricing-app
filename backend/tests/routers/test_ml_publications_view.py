@@ -44,6 +44,7 @@ def pg(client, request, monkeypatch):
     with engine.begin() as conn:
         conn.execute(text(WORKER_STATE_DDL))
         conn.execute(text(STORES_DDL))
+        conn.execute(text(seed.PRICING_DDL))  # the markup reads the Productos list prices of the linked product
     monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", False)
     monkeypatch.setattr(MlHttpClient, "get", lambda *args, **kwargs: pytest.fail("the view endpoints must not call ML"))
     status_block.REPORT.reset()
@@ -209,7 +210,7 @@ class TestInvalidParams:
         [
             ({"estado": "active,bogus"}, "estado"),
             ({"tiendas": "x"}, "tiendas"),
-            ({"orden": "markup"}, "orden"),
+            ({"orden": "bogus"}, "orden"),
             ({"dir": "up"}, "dir"),
             ({"q": "x" * 101}, "q"),
             ({"evento_desde": "7d"}, "evento_desde"),
