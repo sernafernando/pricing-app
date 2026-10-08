@@ -1,0 +1,16 @@
+/* Markup filter controls of the Publicaciones ML filter card. */
+
+.range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* The dense field of the forms primitive; only its width and alignment are ours. */
+.input {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+  width: 88px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

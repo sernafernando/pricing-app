@@ -69,3 +69,56 @@
   color: var(--cf-text-tertiary);
   white-space: nowrap;
 }
+
+.markup {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.markup[data-negative] {
+  color: var(--tone-danger-fg);
+}
+
+/* Says what the markup sort orders by, inside the sortable header. */
+.sortHint {
+  margin-left: var(--spacing-xs);
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+/* First column: the expand toggle, then the publication. */
+.withToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-base);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}

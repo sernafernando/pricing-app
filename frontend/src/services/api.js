@@ -851,6 +851,9 @@ export const publicacionesMlAPI = {
   // One page of publications. `params` are the query params of
   // `GET /ml-publications/view/items` (see `buildItemsParams`).
   items: (params) => api.get('/ml-publications/view/items', { params }),
+  // The variations of one publication, for its expanded row. Fetched when the
+  // row is opened, never with the page.
+  variations: (itemId) => api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}/variations`),
 };
 
 export default api;

@@ -147,3 +147,73 @@ export const ITEMS_RESPONSE_EVENTS_OFF = {
   events_enabled: false,
   items: ITEMS.map(withoutLastEvent),
 };
+
+/**
+ * `GET /ml-publications/view/items/{item_id}/variations` (router
+ * `ml_publications_view.py`, `VariationsResponse`; P6c). `costo` and `markup`
+ * exist only with `ml_metricas.ver_ganancia`; `link.inherited` says the product
+ * is the item-level one because the variation has no link of its own.
+ */
+export const makeVariation = (overrides) => ({
+  variation_id: 1,
+  seller_sku: null,
+  user_product_id: null,
+  available_quantity: 0,
+  sold_quantity: 0,
+  attributes: [],
+  link: { state: 'no_evaluado', inherited: false, producto_item_id: null, codigo: null, descripcion: null, marca: null },
+  ...overrides,
+});
+
+export const VARIATIONS = [
+  makeVariation({
+    variation_id: 9001,
+    seller_sku: 'ARCH-AX55-N',
+    user_product_id: 'MLAU100001',
+    attributes: [{ name: 'Color', value: 'Negro' }],
+    link: { state: 'auto', inherited: false, producto_item_id: 4101, codigo: 'ARCHER-AX55', descripcion: 'Router Archer AX55 negro', marca: 'TP-LINK' },
+    available_quantity: 14,
+    sold_quantity: 120,
+    costo: { amount: 41000.5, currency: 'ARS' },
+    markup: { value: 12.5, reason: 'ok' },
+  }),
+  makeVariation({
+    variation_id: 9002,
+    seller_sku: 'ARCH-AX55-B',
+    user_product_id: 'MLAU100002',
+    attributes: [{ name: 'Color', value: 'Blanco' }],
+    link: { state: 'manual', inherited: true, producto_item_id: 4102, codigo: 'ARCHER-AX55-B', descripcion: 'Router Archer AX55 blanco', marca: 'TP-LINK' },
+    available_quantity: 0,
+    sold_quantity: 40,
+    costo: { amount: 520, currency: 'USD' },
+    markup: { value: -4.2, reason: 'ok' },
+  }),
+  makeVariation({
+    variation_id: 9003,
+    seller_sku: null,
+    attributes: [{ name: 'Color', value: 'Gris' }],
+    link: { state: 'sin_producto', inherited: false, producto_item_id: null, codigo: null, descripcion: null, marca: null },
+    available_quantity: 3,
+    sold_quantity: 0,
+    costo: null,
+    markup: { value: null, reason: 'sin_vinculo' },
+  }),
+];
+
+export const VARIATIONS_RESPONSE = {
+  item_id: 'MLA1100000005',
+  can_see_margin: true,
+  variations: VARIATIONS,
+  ads: { available: false, reason: 'no_data', requested: false, applied: false, date_from: null, date_to: null },
+};
+
+/** A publication with variations and a markup range, for the expandable row. */
+export const VARIATION_ITEM = makeItem({
+  item_id: 'MLA1100000005',
+  title: 'Router TP-Link Archer AX55 por color',
+  permalink: 'https://articulo.mercadolibre.com.ar/MLA-1100000005-router-archer-_JM',
+  variations_count: 3,
+  price: { amount: 98500.5, source: 'sale_price', regular_amount: null, promotion_type: null, campaign: null, pricelist_id: 12 },
+  stock: { available: 17, full: null, own: 17, as_of: null },
+  markup: { min: -4.2, max: 12.5, worst: -4.2, any_negative: true, reason: 'ok', partial: 1, ads: null },
+});

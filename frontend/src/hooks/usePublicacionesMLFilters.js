@@ -33,7 +33,9 @@ const CSV_KEYS = [
   'stock',
   'evento',
 ];
-const TEXT_KEYS = ['q', 'familia', 'evento_desde'];
+// `markup_neg` is '1' or '' (a text key, so an inactive toggle reads as empty);
+// the three markup params only exist for users with `ml_metricas.ver_ganancia`.
+const TEXT_KEYS = ['q', 'familia', 'evento_desde', 'markup_neg', 'markup_min', 'markup_max'];
 export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS];
 
 const VISTAS = ['publicacion', 'agrupado'];
@@ -47,6 +49,8 @@ function readFilters(params) {
   const filters = {};
   for (const key of TEXT_KEYS) filters[key] = params.get(key) ?? '';
   for (const key of CSV_KEYS) filters[key] = csv(params.get(key));
+  // One reading for the switch and the request: only `1` / `true` mean on.
+  filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
   filters.vista = VISTAS.includes(vista) ? vista : 'publicacion';
   filters.orden = params.get('orden') ?? '';
@@ -67,13 +71,31 @@ const isEmpty = (value) => value === null || value === undefined || value === ''
  * The `GET /ml-publications/view/items` query for these filters. The URL keeps
  * the store chips' vocabulary (`sin_tienda`); the backend's is `none`.
  * `vista`, `sel`, `tab` and `pagina` never reach the backend as such.
+ *
+ * The markup filters and the markup sort are sent only with `canSeeMargin`
+ * (`ml_metricas.ver_ganancia`): the backend refuses them with a 403 otherwise,
+ * and a link shared by someone who has the permission must still open the list
+ * for someone who has not.
  */
-export function buildItemsParams(filters, pageSize = filters.limite ?? PAGE_SIZE) {
+export function buildItemsParams(filters, pageSize = filters.limite ?? PAGE_SIZE, { canSeeMargin = false } = {}) {
   const params = {};
   const q = filters.q.trim();
   if (q) params.q = q;
-  for (const key of ['familia', 'evento_desde', 'orden', 'dir']) {
+  for (const key of ['familia', 'evento_desde']) {
     if (filters[key]) params[key] = filters[key];
+  }
+  if (canSeeMargin || filters.orden !== 'markup') {
+    for (const key of ['orden', 'dir']) {
+      if (filters[key]) params[key] = filters[key];
+    }
+  }
+  if (canSeeMargin) {
+    if (filters.markup_neg) params.markup_neg = true;
+    for (const key of ['markup_min', 'markup_max']) {
+      // The operator may type a decimal comma; the backend reads a point.
+      const bound = filters[key].trim().replace(',', '.');
+      if (bound) params[key] = bound;
+    }
   }
   for (const key of CSV_KEYS) {
     const values = key === 'tiendas' ? filters[key].map((v) => (v === 'sin_tienda' ? 'none' : v)) : filters[key];

@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
 import { FilterX, ShieldAlert } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
+import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
 import { ColumnPicker, FacetChips, Pagination, SplitPanelLayout, TableShell } from '../components/kit';
 import StateBanner from '../components/publicacionesMl/StateBanner';
+import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
+import VariationRows from '../components/publicacionesMl/VariationRows';
 import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -81,6 +84,9 @@ function ListSkeleton() {
 export default function PublicacionesML() {
   const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters();
   const { tiendas, getLabel } = useTiendasOficiales();
+  const { tienePermiso } = usePermisos();
+  // The markup column, filters and sort exist only for this permission (S68.1).
+  const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
 
   const [data, setData] = useState(null);
   const [facets, setFacets] = useState(null);
@@ -88,6 +94,17 @@ export default function PublicacionesML() {
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [columnVisibility, setColumnVisibility] = useState({});
+  // Publications whose variation sub-rows are open. Their data loads on opening.
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const toggleVariations = useCallback(
+    (itemId) =>
+      setExpandedIds((current) => {
+        const next = new Set(current);
+        if (!next.delete(itemId)) next.add(itemId);
+        return next;
+      }),
+    [],
+  );
 
   const pageSize = filters.limite;
   const latestRequest = useRef(0);
@@ -98,7 +115,7 @@ export default function PublicacionesML() {
   useEffect(() => {
     const request = ++latestRequest.current;
     const wantFacets = filterKey !== facetsFor.current;
-    const params = buildItemsParams(filters, pageSize);
+    const params = buildItemsParams(filters, pageSize, { canSeeMargin });
     if (wantFacets) params.facets = true;
     setLoading(true);
     setError(null);
@@ -107,6 +124,8 @@ export default function PublicacionesML() {
       .then((response) => {
         if (request !== latestRequest.current) return;
         setData(response.data);
+        // A new list (page, sort, filter) starts with every row collapsed.
+        setExpandedIds(new Set());
         if (wantFacets) {
           setFacets(response.data.facets ?? null);
           facetsFor.current = filterKey;
@@ -118,15 +137,19 @@ export default function PublicacionesML() {
         setError(err);
         setLoading(false);
       });
-  }, [filters, filterKey, pageSize, reloadToken]);
+  }, [filters, filterKey, pageSize, reloadToken, canSeeMargin]);
 
   const eventsEnabled = data?.events_enabled ?? false;
-  const columns = useMemo(() => buildColumns({ eventsEnabled }), [eventsEnabled]);
+  const columns = useMemo(
+    () =>
+      buildColumns({ eventsEnabled, canSeeMargin, expandedIds, onToggleVariations: toggleVariations }),
+    [eventsEnabled, canSeeMargin, expandedIds, toggleVariations],
+  );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
   // row-less table instance carries only the visibility state both read.
   const columnDefs = useMemo(
-    () => columns.map((column) => ({ id: column.key, header: column.header, enableHiding: column.key !== 'titulo' })),
+    () => columns.map((column) => ({ id: column.key, header: column.label ?? column.header, enableHiding: column.key !== 'titulo' })),
     [columns],
   );
   const pickerTable = useReactTable({
@@ -138,8 +161,10 @@ export default function PublicacionesML() {
   });
   const visibleColumns = columns.filter((column) => columnVisibility[column.key] !== false);
 
-  const sortKey = filters.orden || DEFAULT_SORT;
-  const sort = { key: sortKey, dir: filters.dir || DEFAULT_DIRECTION[sortKey] || 'desc' };
+  // A shared link may carry the markup sort; without the permission it is the default one.
+  const requestedSort = filters.orden === 'markup' && !canSeeMargin ? '' : filters.orden;
+  const sortKey = requestedSort || DEFAULT_SORT;
+  const sort = { key: sortKey, dir: (requestedSort && filters.dir) || DEFAULT_DIRECTION[sortKey] || 'desc' };
   const handleSort = (key) => {
     if (key === sort.key) setFilters({ orden: key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
     else setFilters({ orden: key, dir: DEFAULT_DIRECTION[key] ?? 'desc' });
@@ -169,7 +194,9 @@ export default function PublicacionesML() {
 
   const csvChange = (key) => (value) => setFilters({ [key]: value ? value.split(',') : [] });
   const activeOf = (values) => values.join(',');
-  const hasActiveFilters = FILTER_KEYS.some((key) => (Array.isArray(filters[key]) ? filters[key].length > 0 : filters[key] !== ''));
+  // The markup filters are invisible (and not sent) without the permission, so they do not count either.
+  const activeKeys = canSeeMargin ? FILTER_KEYS : FILTER_KEYS.filter((key) => !key.startsWith('markup_'));
+  const hasActiveFilters = activeKeys.some((key) => (Array.isArray(filters[key]) ? filters[key].length > 0 : filters[key] !== ''));
 
   const items = data?.items ?? EMPTY_ROWS;
   const total = data?.total ?? 0;
@@ -255,6 +282,19 @@ export default function PublicacionesML() {
             />
           </div>
         </div>
+        {canSeeMargin && (
+          <div className={styles.filterBand}>
+            <div className={styles.filterGroup}>
+              <span className={styles.filterLabel}>Markup:</span>
+              <MarkupFilters
+                negative={filters.markup_neg === '1'}
+                min={filters.markup_min}
+                max={filters.markup_max}
+                onChange={setFilters}
+              />
+            </div>
+          </div>
+        )}
       </section>
 
       {error ? (
@@ -274,6 +314,11 @@ export default function PublicacionesML() {
               columns={visibleColumns}
               rows={items}
               getRowKey={(item) => item.item_id}
+              renderSubRows={(item) =>
+                item.variations_count > 1 && expandedIds.has(item.item_id) ? (
+                  <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />
+                ) : null
+              }
               sort={sort}
               onSort={handleSort}
               onRowClick={handleRowClick}

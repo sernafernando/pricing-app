@@ -18,6 +18,9 @@ import {
   ITEMS_RESPONSE,
   ITEMS_RESPONSE_EVENTS_OFF,
   itemsResponse,
+  makeItem,
+  VARIATIONS_RESPONSE,
+  VARIATION_ITEM,
 } from '../test/visual/publicacionesMlFixtures';
 
 vi.mock('../services/api', () => ({
@@ -25,7 +28,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -34,8 +37,14 @@ vi.mock('../utils/mlSidePanel', async (importOriginal) => ({
   openInMlPanel: vi.fn(),
 }));
 
+// Everything is allowed except the margin, which each test grants on purpose.
+let canSeeMargin = false;
 vi.mock('../contexts/PermisosContext', () => ({
-  usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
+  usePermisos: () => ({
+    permisos: [],
+    tienePermiso: (permiso) => (permiso === 'ml_metricas.ver_ganancia' ? canSeeMargin : true),
+    cargandoPermisos: false,
+  }),
   PermisosProvider: ({ children }) => children,
 }));
 
@@ -50,11 +59,14 @@ const page = async (entry = '/ml-publicaciones') => {
 };
 
 beforeEach(() => {
+  canSeeMargin = false;
   seedTiendasOficiales([
     { store_id: 471846, nombre: 'TP-Link', clave: null, orden: 0, activa: true },
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
   ]);
   publicacionesMlAPI.items.mockReset();
+  publicacionesMlAPI.variations.mockReset();
+  publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   openInMlPanel.mockReset();
   respond({ ...ITEMS_RESPONSE, facets: FACETS });
 });
@@ -345,5 +357,205 @@ describe('opening a publication', () => {
     await userEvent.click(row);
     expect(openInMlPanel).not.toHaveBeenCalled();
     expect(row).toHaveAttribute('aria-current', 'true');
+  });
+});
+
+describe('markup (publicaciones-ml-vista P11b.T2)', () => {
+  const MARKUP = { min: -4, max: 12, worst: -4, any_negative: true, reason: 'ok', partial: 0, ads: null };
+  const withMargin = (entry = '/ml-publicaciones') => {
+    canSeeMargin = true;
+    respond({
+      ...ITEMS_RESPONSE,
+      can_see_margin: true,
+      facets: FACETS,
+      items: [makeItem({ ...ITEMS[0], markup: MARKUP }), ...ITEMS.slice(1)],
+    });
+    return page(entry);
+  };
+
+  it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
+    await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');
+    expect(screen.queryByRole('columnheader', { name: /Markup/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /negativo/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Markup mínimo/)).not.toBeInTheDocument();
+    for (const params of calls()) {
+      expect(params).not.toHaveProperty('markup_neg');
+      expect(params).not.toHaveProperty('markup_min');
+      expect(params).not.toHaveProperty('orden');
+    }
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    expect(screen.queryByRole('checkbox', { name: 'Markup' })).not.toBeInTheDocument();
+  });
+
+  it('with ver_ganancia the column shows the range, and the sort is labelled "peor variación"', async () => {
+    await withMargin();
+    expect(screen.getByText('-4,0% – 12,0%')).toBeInTheDocument();
+    const header = screen.getByRole('columnheader', { name: /Markup/ });
+    expect(within(header).getByText('peor variación')).toBeInTheDocument();
+  });
+
+  it('clicking the header sorts by orden=markup, worst first', async () => {
+    await withMargin();
+    await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup', dir: 'asc' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup', dir: 'desc' }));
+  });
+
+  it('the picker lists the markup column under its plain name', async () => {
+    await withMargin();
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
+    expect(screen.queryByRole('columnheader', { name: /Markup/ })).not.toBeInTheDocument();
+  });
+
+  it('"Solo negativos" sends markup_neg=true and goes back to page 1', async () => {
+    await withMargin('/ml-publicaciones?pagina=3');
+    await userEvent.click(screen.getByRole('switch', { name: /negativo/i }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ markup_neg: true, offset: 0 }));
+    expect(screen.getByRole('switch', { name: /negativo/i })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(screen.getByRole('switch', { name: /negativo/i }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_neg'));
+  });
+
+  it('mínimo and máximo are sent when committed, not on every keystroke', async () => {
+    await withMargin();
+    const before = calls().length;
+    await userEvent.type(screen.getByLabelText('Markup mínimo (%)'), '-5');
+    expect(calls()).toHaveLength(before);
+    await userEvent.type(screen.getByLabelText('Markup máximo (%)'), '20{Enter}');
+    await waitFor(() => expect(lastParams()).toMatchObject({ markup_min: '-5', markup_max: '20' }));
+  });
+
+  it('clearing a bound removes the param', async () => {
+    await withMargin('/ml-publicaciones?markup_min=5');
+    expect(screen.getByLabelText('Markup mínimo (%)')).toHaveValue('5');
+    await userEvent.clear(screen.getByLabelText('Markup mínimo (%)'));
+    await userEvent.tab();
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_min'));
+  });
+
+  it('a shared link with markup_neg=true shows the switch on, as the request filters', async () => {
+    await withMargin('/ml-publicaciones?markup_neg=true');
+    expect(lastParams()).toMatchObject({ markup_neg: true });
+    expect(screen.getByRole('switch', { name: /negativo/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('typing a decimal comma that equals the bound in the URL leaves the field in the URL form', async () => {
+    await withMargin('/ml-publicaciones?markup_min=-2.5');
+    const before = calls().length;
+    const field = screen.getByLabelText('Markup mínimo (%)');
+    await userEvent.clear(field);
+    await userEvent.type(field, '-2,5');
+    await userEvent.tab();
+    expect(calls()).toHaveLength(before);
+    expect(field).toHaveValue('-2.5');
+  });
+
+  it('a markup filter counts as active: "Limpiar filtros" appears and clears it', async () => {
+    await withMargin('/ml-publicaciones?markup_neg=1');
+    expect(lastParams()).toMatchObject({ markup_neg: true });
+    await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_neg'));
+    expect(screen.getByLabelText('Markup mínimo (%)')).toHaveValue('');
+  });
+});
+
+describe('variation sub-rows (publicaciones-ml-vista P11b.T3)', () => {
+  const ONE_VARIATION = makeItem({ ...ITEMS[0], item_id: 'MLA1100000009', variations_count: 1 });
+  const withVariations = (entry = '/ml-publicaciones') => {
+    respond({ ...ITEMS_RESPONSE, items: [VARIATION_ITEM, ONE_VARIATION, ...ITEMS] });
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    return screen.findByText('MLA1100000005');
+  };
+  const toggle = () => screen.getByRole('button', { name: /variaciones de MLA1100000005/ });
+
+  it('only a publication with more than one variation can be expanded', async () => {
+    await withVariations();
+    expect(screen.getAllByRole('button', { name: /^Ver las \d+ variaciones/ })).toHaveLength(2); // MLA...05 and the gone one with 3
+    expect(screen.queryByRole('button', { name: /variaciones de MLA1100000009/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /variaciones de MLA1100000001/ })).not.toBeInTheDocument();
+  });
+
+  it('asks for nothing until a row is expanded (lazy)', async () => {
+    await withVariations();
+    expect(publicacionesMlAPI.variations).not.toHaveBeenCalled();
+  });
+
+  it('expanding fetches that publication\'s variations and shows its sub-rows', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    expect(publicacionesMlAPI.variations).toHaveBeenCalledTimes(1);
+    expect(publicacionesMlAPI.variations).toHaveBeenCalledWith('MLA1100000005');
+    expect(await screen.findByText('Router Archer AX55 negro')).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('the sub-rows sit right under their publication', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    const rows = screen.getAllByRole('row');
+    const parent = rows.findIndex((row) => within(row).queryByText('MLA1100000005'));
+    expect(within(rows[parent + 1]).getByText('Variación 9001')).toBeInTheDocument();
+    expect(within(rows[parent + 3]).getByText('Variación 9003')).toBeInTheDocument();
+  });
+
+  it('collapsing hides them again', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    await userEvent.click(toggle());
+    expect(screen.queryByText('Router Archer AX55 negro')).not.toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('expanding does not select the row nor change the URL selection', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    expect(toggle().closest('tr')).not.toHaveAttribute('aria-current');
+  });
+
+  it('a failing fetch shows the error inside the row and the list stays', async () => {
+    publicacionesMlAPI.variations.mockRejectedValue(httpError(500));
+    await withVariations();
+    await userEvent.click(toggle());
+    expect(await screen.findByText('No se pudieron cargar las variaciones.')).toBeInTheDocument();
+    expect(screen.getByText('MLA1100000001')).toBeInTheDocument();
+  });
+
+  it('without ver_ganancia the sub-rows carry no cost nor markup', async () => {
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    expect(screen.queryByText('41.000,50')).not.toBeInTheDocument();
+    expect(screen.queryByText('12,5%')).not.toBeInTheDocument();
+  });
+
+  it('with ver_ganancia they show cost and markup, the negative one highlighted', async () => {
+    canSeeMargin = true;
+    await withVariations();
+    await userEvent.click(toggle());
+    await screen.findByText('Router Archer AX55 negro');
+    expect(screen.getByText('41.000,50')).toBeInTheDocument();
+    expect(screen.getByText('-4,2%').closest('tr')).toHaveAttribute('data-negative');
+  });
+});
+
+describe('open rows reset with the list (publicaciones-ml-vista P11b)', () => {
+  it('going to another page and back shows the rows collapsed again', async () => {
+    respond({ ...ITEMS_RESPONSE, items: [VARIATION_ITEM, ...ITEMS] });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones'] });
+    await screen.findByText('MLA1100000005');
+    await userEvent.click(screen.getByRole('button', { name: /variaciones de MLA1100000005/ }));
+    await screen.findByText('Router Archer AX55 negro');
+    await userEvent.click(screen.getByRole('button', { name: 'Página 2' }));
+    await waitFor(() => expect(lastParams().offset).toBe(50));
+    await waitFor(() => expect(screen.queryByText('Router Archer AX55 negro')).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Página 1' }));
+    await waitFor(() => expect(lastParams().offset).toBe(0));
+    expect(await screen.findByRole('button', { name: /^Ver las 3 variaciones de MLA1100000005/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Router Archer AX55 negro')).not.toBeInTheDocument();
   });
 });

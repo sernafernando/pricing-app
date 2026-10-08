@@ -1,0 +1,73 @@
+/* Sub-rows of an expanded publication: the table's cells, one level in. */
+
+.row {
+  background: var(--cf-bg-app);
+}
+
+.cell {
+  padding: var(--space-2) var(--space-3);
+  vertical-align: middle;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-app);
+  border-bottom: 1px solid var(--cf-border-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell[data-align='right'] {
+  text-align: right;
+}
+
+/* Same pin as the list's first column, one tree level in. */
+.cell[data-pinned] {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding-left: calc(var(--space-3) + var(--table-shell-indent, 20px));
+  box-shadow: inset -1px 0 0 var(--cf-border-default);
+}
+
+/* A variation selling under cost: the whole row says so, not only the figure. */
+.row[data-negative] .cell {
+  background: var(--tone-danger-bg);
+}
+
+.identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.variationId {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+.attributes {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.product {
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+}
+
+.stateCell {
+  padding: var(--space-3);
+  background: var(--cf-bg-app);
+  border-bottom: 1px solid var(--cf-border-default);
+  color: var(--cf-text-secondary);
+}
+
+/* Stays in view while the table scrolls sideways. */
+.state {
+  position: sticky;
+  left: var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-sm);
+}

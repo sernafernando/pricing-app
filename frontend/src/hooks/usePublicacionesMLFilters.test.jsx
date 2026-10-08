@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { usePublicacionesMLFilters, buildItemsParams, PAGE_SIZE } from './usePublicacionesMLFilters';
+import { usePublicacionesMLFilters, buildItemsParams, FILTER_KEYS, PAGE_SIZE } from './usePublicacionesMLFilters';
 
 const setup = (url = '/') => {
   const wrapper = ({ children }) => <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>;
@@ -158,5 +158,68 @@ describe('buildItemsParams', () => {
 
   it('uses the page size of the URL', () => {
     expect(buildItemsParams({ ...base, limite: 100, pagina: 2 })).toMatchObject({ limit: 100, offset: 100 });
+  });
+});
+
+describe('markup filters (publicaciones-ml-vista P11b.T2)', () => {
+  const filtersOf = (url) => setup(url).result.current.hook.filters;
+  const base = filtersOf('/');
+
+  it('reads markup_neg, markup_min and markup_max from the URL', () => {
+    expect(filtersOf('/?markup_neg=1&markup_min=-5&markup_max=20')).toMatchObject({
+      markup_neg: '1',
+      markup_min: '-5',
+      markup_max: '20',
+    });
+    expect(base).toMatchObject({ markup_neg: '', markup_min: '', markup_max: '' });
+  });
+
+  it('reads `markup_neg` one way for the switch and the request: only 1 or true mean on', () => {
+    expect(filtersOf('/?markup_neg=true').markup_neg).toBe('1');
+    expect(filtersOf('/?markup_neg=1').markup_neg).toBe('1');
+    for (const off of ['0', 'false', 'no', '']) expect(filtersOf(`/?markup_neg=${off}`).markup_neg).toBe('');
+  });
+
+  it('writes them to the URL, goes back to page 1 and drops them when emptied', () => {
+    const { result } = setup('/?pagina=3');
+    act(() => result.current.hook.setFilters({ markup_neg: '1', markup_min: '-5' }));
+    const params = new URLSearchParams(result.current.search);
+    expect(params.get('markup_neg')).toBe('1');
+    expect(params.get('markup_min')).toBe('-5');
+    expect(params.has('pagina')).toBe(false);
+    act(() => result.current.hook.setFilters({ markup_neg: '', markup_min: '' }));
+    expect(result.current.search).toBe('');
+  });
+
+  it('counts as an active filter and as a change of the filter set', () => {
+    const { result } = setup('/');
+    const before = result.current.hook.filterKey;
+    act(() => result.current.hook.setFilters({ markup_max: '10' }));
+    expect(result.current.hook.filterKey).not.toBe(before);
+    expect(FILTER_KEYS).toEqual(expect.arrayContaining(['markup_neg', 'markup_min', 'markup_max']));
+  });
+
+  it('sends them only to a user with ver_ganancia: the backend answers 403 otherwise', () => {
+    const filters = { ...base, markup_neg: '1', markup_min: '-5', markup_max: ' 20 ', orden: 'markup', dir: 'asc' };
+    expect(buildItemsParams(filters, PAGE_SIZE, { canSeeMargin: true })).toMatchObject({
+      markup_neg: true,
+      markup_min: '-5',
+      markup_max: '20',
+      orden: 'markup',
+      dir: 'asc',
+    });
+    const without = buildItemsParams(filters, PAGE_SIZE);
+    expect(without).not.toHaveProperty('markup_neg');
+    expect(without).not.toHaveProperty('markup_min');
+    expect(without).not.toHaveProperty('markup_max');
+    // A link shared by someone with the permission must not break the list for someone without it.
+    expect(without).not.toHaveProperty('orden');
+    expect(without).not.toHaveProperty('dir');
+  });
+
+  it('accepts a decimal comma and omits a blank bound', () => {
+    const params = buildItemsParams({ ...base, markup_min: '-2,5', markup_max: '  ' }, PAGE_SIZE, { canSeeMargin: true });
+    expect(params.markup_min).toBe('-2.5');
+    expect(params).not.toHaveProperty('markup_max');
   });
 });

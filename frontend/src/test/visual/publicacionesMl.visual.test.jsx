@@ -20,14 +20,32 @@ import { MemoryRouter } from 'react-router-dom';
 import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { publicacionesMlAPI } from '../../services/api';
-import { DATA_STATE_OK, FACETS, ITEMS, ITEMS_RESPONSE } from './publicacionesMlFixtures';
+import {
+  DATA_STATE_OK,
+  FACETS,
+  ITEMS,
+  ITEMS_RESPONSE,
+  VARIATIONS_RESPONSE,
+  VARIATION_ITEM,
+} from './publicacionesMlFixtures';
+
+// The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
+let canSeeMargin = false;
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({
+    permisos: [],
+    tienePermiso: (permiso) => (permiso === 'ml_metricas.ver_ganancia' ? canSeeMargin : true),
+    cargandoPermisos: false,
+  }),
+  PermisosProvider: ({ children }) => children,
+}));
 
 vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -108,6 +126,7 @@ const THEMES = ['light', 'dark'];
 
 describe('Publicaciones ML (visual)', () => {
   beforeEach(() => {
+    canSeeMargin = false;
     publicacionesMlAPI.items.mockReset();
     publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
   });
@@ -175,6 +194,130 @@ describe('Publicaciones ML (visual)', () => {
         expect(getComputedStyle(banner).color).toBe(tokenColor('--tone-warning-fg'));
         expect(getComputedStyle(banner).backgroundColor).toBe(tokenColor('--tone-warning-bg'));
         expect(rect(banner).right).toBeLessThanOrEqual(width);
+        screen.unmount();
+      });
+    }
+  }
+});
+
+// Publicaciones with markup and an expanded row (publicaciones-ml-vista P11b.T4).
+const MARGIN_ITEMS = [
+  VARIATION_ITEM,
+  ...MANY.slice(0, 30).map((item, i) => ({
+    ...item,
+    item_id: `MLA${1100000200 + i}`,
+    markup: { min: 8.5, max: 21, worst: 8.5, any_negative: false, reason: 'ok', partial: 0, ads: null },
+  })),
+];
+const MARGIN_RESPONSE = { ...RESPONSE, can_see_margin: true, items: MARGIN_ITEMS };
+
+const renderMarginPage = async ({ width, height, theme }) => {
+  canSeeMargin = true;
+  publicacionesMlAPI.items.mockResolvedValue({ data: MARGIN_RESPONSE });
+  publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+  await page.viewport(width, height);
+  setTheme(theme);
+  document.body.style.background = 'var(--cf-bg-app)';
+  window.scrollTo(0, 0);
+  const screen = await render(
+    <MemoryRouter initialEntries={['/ml-publicaciones']}>
+      <Shell>
+        <PublicacionesML />
+      </Shell>
+    </MemoryRouter>,
+  );
+  await expect.element(screen.getByText('MLA1100000005')).toBeVisible();
+  return screen;
+};
+
+describe('Publicaciones ML with markup and an expanded row (visual)', () => {
+  beforeEach(() => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.variations.mockReset();
+  });
+
+  for (const { width, height } of VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the markup column and its filters fit, and the sort says "peor variación"`, async () => {
+        const screen = await renderMarginPage({ width, height, theme });
+        const scroller = scrollerOf();
+        const header = [...scroller.querySelectorAll('thead th')].find((th) => th.textContent.includes('Markup'));
+        expect(header).toBeDefined();
+        expect(header.textContent).toContain('peor variación');
+        expect(wrapped([header.querySelector('button')])).toEqual([]);
+        // The range sits on one line and inside its cell.
+        const ranges = [...scroller.querySelectorAll('tbody td[data-align="right"] span')].filter((el) => /%/.test(el.textContent) && !/parcial/.test(el.textContent));
+        expect(ranges.length).toBeGreaterThan(0);
+        expect(wrapped(ranges)).toEqual([]);
+        expect(overflowingCells(scroller)).toEqual([]);
+        // Filters: the new band stays inside the card.
+        const band = [...document.querySelectorAll('div[class*="filterBand"]')].find((el) => el.textContent.includes('Markup:'));
+        expect(band).toBeDefined();
+        expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
+        expect(rect(band).right).toBeLessThanOrEqual(width);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: an expanded row shows its variations under it, inside the scroller, nothing poking out`, async () => {
+        const screen = await renderMarginPage({ width, height, theme });
+        await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();
+        await expect.element(screen.getByText('Variación 9002')).toBeVisible();
+        const scroller = scrollerOf();
+        const rows = [...scroller.querySelectorAll('tbody tr')];
+        const parent = rows.findIndex((row) => row.textContent.includes('MLA1100000005'));
+        const subRows = rows.slice(parent + 1, parent + 4);
+        expect(subRows.map((row) => row.textContent.match(/Variación (\d+)/)?.[1])).toEqual(['9001', '9002', '9003']);
+        // Sub-rows are indented one level inside the pinned column, and fit their cells.
+        const parentPinned = rows[parent].querySelector('td[data-pinned]');
+        const subPinned = subRows[0].querySelector('td[data-pinned]');
+        expect(Number.parseFloat(getComputedStyle(subPinned).paddingLeft)).toBeGreaterThan(Number.parseFloat(getComputedStyle(parentPinned).paddingLeft) - 1);
+        expect(overflowingCells(scroller)).toEqual([]);
+        expect(rect(scroller).right).toBeLessThanOrEqual(width + 0.5);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        // SKU/EAN, cost and markup are on one line each.
+        const figures = subRows.flatMap((row) => [...row.querySelectorAll('td[data-align="right"] span')]).filter((el) => /^[-\d.,%]+$/.test(el.textContent.trim()));
+        expect(figures.length).toBeGreaterThan(0);
+        expect(wrapped(figures)).toEqual([]);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the negative variation is tinted with the danger tone, the others are not`, async () => {
+        const screen = await renderMarginPage({ width, height, theme });
+        await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();
+        await expect.element(screen.getByText('Variación 9002')).toBeVisible();
+        const scroller = scrollerOf();
+        const row = (id) => [...scroller.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(`Variación ${id}`));
+        const cellColor = (id) => getComputedStyle(row(id).querySelectorAll('td')[2]).backgroundColor;
+        expect(cellColor(9002)).toBe(tokenColor('--tone-danger-bg'));
+        expect(cellColor(9001)).not.toBe(tokenColor('--tone-danger-bg'));
+        const negative = [...row(9002).querySelectorAll('span')].find((el) => el.textContent === '-4,2%');
+        expect(getComputedStyle(negative).color).toBe(tokenColor('--tone-danger-fg'));
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the sub-rows' pinned cell stays on the left edge while the table scrolls sideways`, async () => {
+        const screen = await renderMarginPage({ width, height, theme });
+        await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();
+        await expect.element(screen.getByText('Variación 9002')).toBeVisible();
+        const scroller = scrollerOf();
+        scroller.scrollTo({ top: 0, left: 160 });
+        await frame();
+        const subPinned = [...scroller.querySelectorAll('tbody tr')]
+          .find((tr) => tr.textContent.includes('Variación 9001'))
+          .querySelector('td[data-pinned]');
+        expect(Math.abs(rect(subPinned).left - rect(scroller).left)).toBeLessThanOrEqual(2);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: loading and error states of an expanded row stay inside the table`, async () => {
+        const screen = await renderMarginPage({ width, height, theme });
+        publicacionesMlAPI.variations.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 500 } }));
+        await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();
+        await expect.element(screen.getByText('No se pudieron cargar las variaciones.')).toBeVisible();
+        const alert = document.querySelector('[role="alert"]');
+        expect(rect(alert).right).toBeLessThanOrEqual(rect(scrollerOf()).right + 0.5);
+        expect(getComputedStyle(alert).color).toBe(tokenColor('--cf-text-secondary'));
         screen.unmount();
       });
     }
