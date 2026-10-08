@@ -190,6 +190,11 @@ class TestPackageIsClean:
         assert erp_violations("verification.py", sources["verification.py"]) == []
         assert erp_references(HANDLERS.read_text(encoding="utf-8")) == []  # nor the handler that runs it
 
+    def test_the_view_router_reaches_the_catalog_only_through_the_view_services(self) -> None:
+        sources = dict(router_sources())
+        assert erp_references(sources["ml_publications_view.py"]) == []
+        assert not uses_links_module(sources["ml_publications_view.py"])
+
     def test_the_links_router_is_the_only_router_using_the_linking_module(self) -> None:
         users = {name for name, source in router_sources() if uses_links_module(source)}
         assert users == LINKS_ROUTERS
