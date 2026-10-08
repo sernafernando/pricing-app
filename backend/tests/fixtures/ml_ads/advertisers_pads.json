@@ -1,0 +1,23 @@
+{
+  "status": 200,
+  "path": "/advertising/advertisers",
+  "params": {
+    "product_id": "PADS"
+  },
+  "body": {
+    "advertisers": [
+      {
+        "advertiser_id": 714700,
+        "site_id": "MLA",
+        "advertiser_name": "TPLINKARGENTINA",
+        "account_name": "TPLINKARGENTINA - 2374537073"
+      },
+      {
+        "advertiser_id": 25713,
+        "site_id": "MLA",
+        "advertiser_name": "GAUSS ONLINE",
+        "account_name": "GAUSS ONLINE"
+      }
+    ]
+  }
+}

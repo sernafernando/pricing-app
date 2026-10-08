@@ -152,3 +152,9 @@ def parse_summary(body: Mapping[str, Any]) -> Optional[DaySummary]:
     if not isinstance(summary, Mapping) or "cost" not in summary:
         return None
     return DaySummary(cost=_money(summary["cost"]), raw=summary)
+
+
+def parse_advertisers(body: Mapping[str, Any]) -> list[int]:
+    """Advertiser ids of `GET /advertising/advertisers`; an entry without a numeric id is ignored."""
+    ids = (entry.get("advertiser_id") for entry in body.get("advertisers") or [] if isinstance(entry, Mapping))
+    return sorted({int(i) for i in ids if isinstance(i, int) and not isinstance(i, bool)})

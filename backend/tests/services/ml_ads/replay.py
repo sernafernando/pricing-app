@@ -23,6 +23,7 @@ START = datetime(2026, 10, 8, 13, 30, tzinfo=timezone.utc)  # 10:30 in Buenos Ai
 GROUPS_RE = re.compile(r"/advertisers/(\d+)/product_ads/ad_groups/search$")
 SUMMARY_RE = re.compile(r"/advertisers/(\d+)/product_ads/campaigns/search$")
 ADS_RE = re.compile(r"/product_ads/ad_groups/(\d+)/ads$")
+ADVERTISERS_RE = re.compile(r"/advertising/advertisers$")
 
 
 class FakeClock:
@@ -89,9 +90,16 @@ class Replay:
     A request with no captured answer fails the test loudly instead of inventing one.
     """
 
-    def __init__(self, clock: FakeClock, days: dict[int, dict[str, Any]]) -> None:
+    def __init__(
+        self, clock: FakeClock, days: dict[int, dict[str, Any]], *, advertisers: Optional[tuple[int, ...]] = None
+    ) -> None:
         self.clock = clock
         self.days = days
+        # The real advertisers answer; `advertisers` keeps whole entries of it (ids), never edits one.
+        listing = load("advertisers_pads.json")["body"]
+        if advertisers is not None:
+            listing["advertisers"] = [a for a in listing["advertisers"] if a["advertiser_id"] in advertisers]
+        self.advertisers_body = listing
         self.requests: list[httpx.Request] = []
         self.inject: Optional[Callable[[int, httpx.Request], Optional[httpx.Response]]] = None
 
@@ -104,6 +112,8 @@ class Replay:
                 return injected
         path = request.url.path
         params = dict(request.url.params)
+        if ADVERTISERS_RE.search(path):
+            return httpx.Response(200, json=self.advertisers_body)
         if match := SUMMARY_RE.search(path):
             return httpx.Response(200, json=self.days[int(match.group(1))]["summary"])
         if match := GROUPS_RE.search(path):
@@ -136,6 +146,9 @@ class Replay:
     def ads_calls(self) -> list[tuple[int, int]]:
         """`(ad_group_id, offset)` of every `/ads` request, in order."""
         return [(int(ADS_RE.search(r.url.path).group(1)), int(r.url.params["offset"])) for r in self.calls(ADS_RE)]
+
+    def calls_for_day(self, pattern: re.Pattern[str], day: Any) -> list[httpx.Request]:
+        return [r for r in self.calls(pattern) if r.url.params["date_from"] == day.isoformat()]
 
     def summary_calls(self) -> list[httpx.Request]:
         return self.calls(SUMMARY_RE)
