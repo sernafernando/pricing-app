@@ -411,6 +411,11 @@ class TestProductManagerFilter:
     def test_a_pm_filters_by_the_marca_and_categoria_pairs_it_owns(self, db) -> None:
         assert ids(run(db, pms="7")) == ["MLA1"]
 
+    def test_an_assignment_row_with_a_null_marca_or_categoria_is_ignored(self, conn, db) -> None:
+        conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES (NULL, 'redes', 7)"))
+        conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('tp-link', NULL, 7)"))
+        assert ids(run(db, pms="7")) == ["MLA1"]  # the one complete pair still applies; the broken rows are skipped
+
     def test_a_pm_without_pairs_matches_nothing_never_everything(self, db) -> None:
         page = run(db, pms="99")
         assert (ids(page), page.total) == ([], 0)

@@ -84,7 +84,8 @@ def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
     if not f.pms or f.pm_pairs is not None:
         return f
     rows = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(f.pms)).all()
-    return replace(f, pm_pairs=tuple(sorted({(marca.upper(), categoria.upper()) for marca, categoria in rows})))
+    pairs = {(marca.upper(), categoria.upper()) for marca, categoria in rows if marca and categoria}
+    return replace(f, pm_pairs=tuple(sorted(pairs)))
 
 
 def _row_columns() -> list[Any]:
