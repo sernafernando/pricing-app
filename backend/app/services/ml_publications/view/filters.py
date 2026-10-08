@@ -42,6 +42,7 @@ LISTING_VALUES = ("clasica", "premium", "catalogo", "full")
 LINK_VALUES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
 STOCK_VALUES = ("sin_stock", "full_sin_stock")
 NO_STORE = "none"
+NO_STATUS = "sin_estado"
 
 # The event types the store really writes (`services/ml_publications/events.py`); anything else is a typo.
 EVENT_TYPES = frozenset(
@@ -295,6 +296,11 @@ def price_amount() -> ColumnElement:
     return func.coalesce(T.sp.amount, T.i.price)
 
 
+def status_value() -> ColumnElement:
+    """The status axis value of a row: `gone` for a vanished item, else its ML status (`sin_estado` when none)."""
+    return case((T.i.gone_at.isnot(None), literal(STATUS_GONE)), else_=func.coalesce(T.i.status, literal(NO_STATUS)))
+
+
 def link_state() -> ColumnElement:
     return case(
         (T.l.item_id.is_(None), literal("no_evaluado")),
@@ -405,9 +411,11 @@ def _event(f: PublicationFilter) -> ColumnElement:
 
 def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnElement]:
     """The WHERE of a filter. `skip` names an axis (one of `AXES`) whose own selection is left out: a facet
-    counts the rows each of ITS values would give while every other filter still applies."""
+    counts the rows each of ITS values would give while every other filter still applies. Skipping `status` also
+    lifts the default hiding of gone items, so their count can be offered as the `gone` value."""
     where: list[ColumnElement] = [T.i.never_existed.isnot(True)]
-    where.append(_status(f) if skip != "status" else T.i.gone_at.is_(None))
+    if skip != "status":  # the status facet offers every status, `gone` included, whatever is selected
+        where.append(_status(f))
     if f.q is not None:
         where.append(_search(f.q))
     if (f.stores or f.no_store) and skip != "stores":

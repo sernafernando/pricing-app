@@ -513,7 +513,7 @@ class TestFacets:
         seed.add_item(conn, "MLA3", status="paused", official_store_id=2, logistic_type="fulfillment")
         seed.add_item(conn, "MLA4", status="closed", catalog_listing=True, available_quantity=0)
         seed.add_item(conn, "MLA5", status="active", official_store_id=1, user_product_id="MLAU5")
-        seed.add_item(conn, "MLA6", status="closed", gone_at=seed.NOW)  # gone: in no facet
+        seed.add_item(conn, "MLA6", status="closed", gone_at=seed.NOW)  # gone: only the status facet offers it
         seed.add_link(conn, "MLA1", 70)
         seed.add_link(conn, "MLA2", 71, source="manual")
         seed.add_link(conn, "MLA3", None, match_status="conflict")
@@ -522,7 +522,7 @@ class TestFacets:
     def test_every_axis_counts_the_whole_set_when_nothing_is_selected(self, db) -> None:
         facets = listing.facets(db, parse_filter())
         assert facets == {
-            "status": {"active": 3, "paused": 1, "closed": 1},
+            "status": {"active": 3, "paused": 1, "closed": 1, "gone": 1},
             "stores": {"1": 2, "2": 2, "none": 1},
             "marcas": {"TP-LINK": 1, "HIKVISION": 1},
             "listing": {"clasica": 1, "premium": 1, "catalogo": 1, "full": 1},
@@ -536,6 +536,12 @@ class TestFacets:
         assert facets["status"] == {"active": 1, "paused": 1}
         assert facets["stores"] == {"1": 2, "2": 1}
         assert facets["link"] == {"manual": 1}
+
+    def test_the_status_facet_offers_gone_even_while_gone_is_selected(self, db) -> None:
+        # selecting `gone` must not hide the other statuses' counts, nor make the gone count vanish
+        facets = listing.facets(db, parse_filter(estado="gone"))
+        assert facets["status"] == {"active": 3, "paused": 1, "closed": 1, "gone": 1}
+        assert facets["stores"] == {"none": 1}  # the other axes obey it: the one gone item has no store
 
     def test_the_store_facet_counts_only_what_the_status_filter_lets_through(self, db) -> None:
         assert listing.facets(db, parse_filter(estado="paused"))["stores"] == {"2": 1}

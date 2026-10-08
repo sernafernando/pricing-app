@@ -19,6 +19,7 @@ from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.services.ml_publications.view.filters import (
     FULFILLMENT,
+    NO_STORE,
     FilterError,
     PublicationFilter,
     T,
@@ -26,6 +27,7 @@ from app.services.ml_publications.view.filters import (
     link_state,
     listing_clauses,
     price_amount,
+    status_value,
     stock_clauses,
 )
 
@@ -42,8 +44,6 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
 DIRECTIONS = ("asc", "desc")
 FACET_AXES = ("status", "stores", "marcas", "listing", "link", "stock")
 FACET_MAX_BRANDS = 100
-NO_STATUS = "sin_estado"
-NO_STORE = "none"
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
 
@@ -250,7 +250,7 @@ def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
     own selection left out (so choosing a value never makes its siblings read zero)."""
     f = resolve_pm_pairs(db, f)
     brand = func.upper(T.p.marca)
-    by_status = _grouped(db, f, "status", func.coalesce(T.i.status, NO_STATUS))
+    by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
     by_brand = _grouped(db, f, "marcas", brand, present=True, limit=FACET_MAX_BRANDS)
     return {
