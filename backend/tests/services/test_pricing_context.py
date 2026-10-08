@@ -197,7 +197,9 @@ class TestBuildPricingContext:
         assert ctx.comision(17, 1) == 15.5
 
     def test_hoy_defaults_to_today(self, db) -> None:
-        assert build_pricing_context(db).hoy == date.today()
+        before = date.today()
+        hoy = build_pricing_context(db).hoy
+        assert before <= hoy <= date.today()  # tolerant of a run crossing midnight
 
     def test_expired_version_is_not_active(self, db) -> None:
         db.add(
@@ -225,7 +227,13 @@ class TestBuildPricingContext:
 
     def test_mappings_are_read_only(self) -> None:
         ctx = _ctx()
-        for mapping in (ctx.subcat_to_grupo, ctx.comision_base, ctx.comision_adicional, ctx.envio_promedio_by_grupo):
+        for mapping in (
+            ctx.subcat_to_grupo,
+            ctx.comision_base,
+            ctx.comision_adicional,
+            ctx.envio_promedio_by_grupo,
+            ctx.constantes,
+        ):
             with pytest.raises(TypeError):
                 mapping[1] = 0  # type: ignore[index]
 

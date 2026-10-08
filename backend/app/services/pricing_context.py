@@ -45,7 +45,7 @@ _MONTO_TIER3_FALLBACK = 33000
 class PricingContext:
     hoy: date
     tipo_cambio_usd: Optional[float]
-    constantes: Optional[dict]
+    constantes: Optional[Mapping[str, float]]
     subcat_to_grupo: Mapping[int, int]
     active_version_id: Optional[int]
     comision_base: Mapping[int, float]  # grupo_id -> base commission of the active version
@@ -57,6 +57,8 @@ class PricingContext:
         # context is read-only all the way down and safe to share between callers.
         for name in ("subcat_to_grupo", "comision_base", "comision_adicional", "envio_promedio_by_grupo"):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        if self.constantes is not None:
+            object.__setattr__(self, "constantes", MappingProxyType(dict(self.constantes)))
 
     def grupo_of(self, subcategoria_id) -> int:
         """Commission grupo of a subcategory; `GRUPO_DEFAULT` when unmapped."""

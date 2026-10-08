@@ -990,7 +990,6 @@ def listar_productos(
     ctx = build_pricing_context(db, hoy)
     tipo_cambio_usd = ctx.tipo_cambio_usd
     constantes = ctx.constantes
-    _lookup_comision = ctx.comision
 
     # ── T-7: Batch-load PublicacionML + OfertaML ────────────────────────
     all_item_ids_page = [r[0].item_id for r in results]
@@ -1080,8 +1079,8 @@ def listar_productos(
             if mejor_oferta_pvp and mejor_oferta_pvp > 0:
                 # T-3: prefetched USD rate lives in the context
                 costo_calc = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
-                # T-5: Use _lookup_comision instead of obtener_comision_base
-                comision_base = _lookup_comision(mejor_pub.pricelist_id, grupo_id)
+                # T-5: ctx.comision replaces obtener_comision_base
+                comision_base = ctx.comision(mejor_pub.pricelist_id, grupo_id)
 
                 if comision_base:
                     # T-3: Pass constantes instead of db
@@ -1117,7 +1116,7 @@ def listar_productos(
 
             # Calcular markup del rebate
             costo_rebate = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
-            comision_base_rebate = _lookup_comision(4, grupo_id)  # Lista clásica
+            comision_base_rebate = ctx.comision(4, grupo_id)  # Lista clásica
 
             if comision_base_rebate and precio_rebate > 0:
                 comisiones_rebate = calcular_comision_ml_total(
@@ -1149,7 +1148,7 @@ def listar_productos(
         # computing the displayed markup in-request too, or accepting the
         # staleness window explicitly.
         if producto_pricing and producto_pricing.precio_lista_ml:
-            comision_base_clasica = _lookup_comision(4, grupo_id)
+            comision_base_clasica = ctx.comision(4, grupo_id)
             if comision_base_clasica:
                 comisiones_clasica = calcular_comision_ml_total(
                     float(producto_pricing.precio_lista_ml),
@@ -1210,7 +1209,7 @@ def listar_productos(
             for precio_cuota, pricelist_id, nombre_cuota in cuotas_config:
                 if precio_cuota and float(precio_cuota) > 0:
                     try:
-                        comision_base_cuota = _lookup_comision(pricelist_id, grupo_id)
+                        comision_base_cuota = ctx.comision(pricelist_id, grupo_id)
 
                         if comision_base_cuota:
                             comisiones_cuota = calcular_comision_ml_total(
@@ -1252,7 +1251,7 @@ def listar_productos(
             if producto_pricing.precio_pvp and float(producto_pricing.precio_pvp) > 0:
                 try:
                     costo_pvp = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
-                    comision_base_pvp = _lookup_comision(12, grupo_id)
+                    comision_base_pvp = ctx.comision(12, grupo_id)
 
                     if comision_base_pvp:
                         pvp_precio = float(producto_pricing.precio_pvp)
@@ -1287,7 +1286,7 @@ def listar_productos(
             for precio_cuota_pvp, pricelist_id_pvp, nombre_cuota_pvp in cuotas_pvp_config:
                 if precio_cuota_pvp and float(precio_cuota_pvp) > 0:
                     try:
-                        comision_base_cuota_pvp = _lookup_comision(pricelist_id_pvp, grupo_id)
+                        comision_base_cuota_pvp = ctx.comision(pricelist_id_pvp, grupo_id)
 
                         if comision_base_cuota_pvp:
                             pvp_cuota_val = float(precio_cuota_pvp)
@@ -1581,7 +1580,7 @@ def listar_productos(
                     for precio_pvp, pricelist_id, nombre_pvp in pvp_configs:
                         if precio_pvp and precio_pvp > 0:
                             try:
-                                comision_base_pvp = _lookup_comision(pricelist_id, grupo_id_pvp)
+                                comision_base_pvp = ctx.comision(pricelist_id, grupo_id_pvp)
 
                                 if comision_base_pvp:
                                     comisiones_pvp = calcular_comision_ml_total(
@@ -2334,6 +2333,9 @@ def listar_productos_tienda(
     hoy = date.today()
     productos = []
 
+    # ponytail: this tienda listing still carries its own copy of the pricing prefetch
+    # (the _t closures below); `build_pricing_context` is the single source. Migrate it in
+    # a follow-up PR with its own golden snapshot, or the two will diverge.
     # ── T-8/T-3: Prefetch tipo_cambio + constantes ───────────────────────
     # Ambos ya se resolvieron arriba del bloque de ordenamiento (una sola
     # lectura cada uno); acá sólo se reusan.
