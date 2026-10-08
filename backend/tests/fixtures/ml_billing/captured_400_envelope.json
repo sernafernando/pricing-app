@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-10-07T14:54:23.653621523Z",
+  "status": 400,
+  "type": "BAD_REQUEST_ERROR",
+  "message": "Http status error with code 400",
+  "path": "/periods/key/2026-09-01/group/ML/flex/details"
+}
