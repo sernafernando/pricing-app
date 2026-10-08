@@ -23,9 +23,9 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     Column,
+    Date,
     DateTime,
     ForeignKey,
-    Date,
     Index,
     Integer,
     Numeric,
@@ -82,8 +82,7 @@ class MlBillingDocument(Base):
     Only ML's own values are stored. Nothing derived lives here -- no stored
     detail count, no stored sum, no complete flag, no checked-at (BD-1, BS-3):
     whether a document is complete is a QUERY of the persisted charge rows
-    against `count_details` and `amount`
-    (`app/services/ml_billing/document_completeness.py`).
+    against `count_details` and `amount` (the query lands in a later PR).
     """
 
     __tablename__ = "ml_billing_documents"
