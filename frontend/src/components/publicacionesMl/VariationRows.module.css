@@ -45,6 +45,11 @@
   color: var(--cf-text-secondary);
 }
 
+.attributes {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
 .product {
   font-size: var(--font-sm);
   overflow-wrap: anywhere;

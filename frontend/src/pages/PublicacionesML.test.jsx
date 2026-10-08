@@ -435,6 +435,23 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_min'));
   });
 
+  it('a shared link with markup_neg=true shows the switch on, as the request filters', async () => {
+    await withMargin('/ml-publicaciones?markup_neg=true');
+    expect(lastParams()).toMatchObject({ markup_neg: true });
+    expect(screen.getByRole('switch', { name: /negativo/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('typing a decimal comma that equals the bound in the URL leaves the field in the URL form', async () => {
+    await withMargin('/ml-publicaciones?markup_min=-2.5');
+    const before = calls().length;
+    const field = screen.getByLabelText('Markup mínimo (%)');
+    await userEvent.clear(field);
+    await userEvent.type(field, '-2,5');
+    await userEvent.tab();
+    expect(calls()).toHaveLength(before);
+    expect(field).toHaveValue('-2.5');
+  });
+
   it('a markup filter counts as active: "Limpiar filtros" appears and clears it', async () => {
     await withMargin('/ml-publicaciones?markup_neg=1');
     expect(lastParams()).toMatchObject({ markup_neg: true });
@@ -523,5 +540,22 @@ describe('variation sub-rows (publicaciones-ml-vista P11b.T3)', () => {
     await screen.findByText('Router Archer AX55 negro');
     expect(screen.getByText('41.000,50')).toBeInTheDocument();
     expect(screen.getByText('-4,2%').closest('tr')).toHaveAttribute('data-negative');
+  });
+});
+
+describe('open rows reset with the list (publicaciones-ml-vista P11b)', () => {
+  it('going to another page and back shows the rows collapsed again', async () => {
+    respond({ ...ITEMS_RESPONSE, items: [VARIATION_ITEM, ...ITEMS] });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones'] });
+    await screen.findByText('MLA1100000005');
+    await userEvent.click(screen.getByRole('button', { name: /variaciones de MLA1100000005/ }));
+    await screen.findByText('Router Archer AX55 negro');
+    await userEvent.click(screen.getByRole('button', { name: 'Página 2' }));
+    await waitFor(() => expect(lastParams().offset).toBe(50));
+    await waitFor(() => expect(screen.queryByText('Router Archer AX55 negro')).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Página 1' }));
+    await waitFor(() => expect(lastParams().offset).toBe(0));
+    expect(await screen.findByRole('button', { name: /^Ver las 3 variaciones de MLA1100000005/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Router Archer AX55 negro')).not.toBeInTheDocument();
   });
 });

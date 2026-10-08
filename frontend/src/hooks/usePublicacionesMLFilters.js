@@ -49,6 +49,8 @@ function readFilters(params) {
   const filters = {};
   for (const key of TEXT_KEYS) filters[key] = params.get(key) ?? '';
   for (const key of CSV_KEYS) filters[key] = csv(params.get(key));
+  // One reading for the switch and the request: only `1` / `true` mean on.
+  filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
   filters.vista = VISTAS.includes(vista) ? vista : 'publicacion';
   filters.orden = params.get('orden') ?? '';

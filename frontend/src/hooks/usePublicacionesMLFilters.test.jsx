@@ -174,6 +174,12 @@ describe('markup filters (publicaciones-ml-vista P11b.T2)', () => {
     expect(base).toMatchObject({ markup_neg: '', markup_min: '', markup_max: '' });
   });
 
+  it('reads `markup_neg` one way for the switch and the request: only 1 or true mean on', () => {
+    expect(filtersOf('/?markup_neg=true').markup_neg).toBe('1');
+    expect(filtersOf('/?markup_neg=1').markup_neg).toBe('1');
+    for (const off of ['0', 'false', 'no', '']) expect(filtersOf(`/?markup_neg=${off}`).markup_neg).toBe('');
+  });
+
   it('writes them to the URL, goes back to page 1 and drops them when emptied', () => {
     const { result } = setup('/?pagina=3');
     act(() => result.current.hook.setFilters({ markup_neg: '1', markup_min: '-5' }));

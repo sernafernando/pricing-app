@@ -46,12 +46,12 @@ describe('VariationRows', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('shows SKU, EAN, product, cost and markup of each variation', async () => {
+  it('shows SKU, attributes, product, cost and markup of each variation', async () => {
     mount();
     await screen.findByText('Router Archer AX55 negro');
     const first = rowOf('Router Archer AX55 negro');
-    expect(within(first).getByText(/ARCHER-AX55/)).toBeInTheDocument();
-    expect(within(first).getByText(/7501234567890/)).toBeInTheDocument();
+    expect(within(first).getByText('SKU ARCHER-AX55')).toBeInTheDocument();
+    expect(within(first).getByText('Color: Negro')).toBeInTheDocument();
     expect(within(first).getByText('41.000,50')).toBeInTheDocument();
     expect(within(first).getByText('12,5%')).toBeInTheDocument();
     expect(within(first).getByText('14')).toBeInTheDocument();
@@ -65,6 +65,30 @@ describe('VariationRows', () => {
     expect(rowOf('Router Archer AX55 negro')).not.toHaveAttribute('data-negative');
   });
 
+  it('falls back on the seller SKU when the variation has no product', async () => {
+    const variations = structuredClone(VARIATIONS_RESPONSE.variations);
+    variations[2].seller_sku = 'SIN-VINCULO-1';
+    publicacionesMlAPI.variations.mockResolvedValue({ data: { ...VARIATIONS_RESPONSE, variations } });
+    mount();
+    expect(await screen.findByText('SKU SIN-VINCULO-1')).toBeInTheDocument();
+  });
+
+  it('says when the product is the publication\'s own because the variation has no link', async () => {
+    mount();
+    await screen.findByText('Router Archer AX55 negro');
+    expect(within(rowOf('Router Archer AX55 blanco')).getByText('producto de la publicación')).toBeInTheDocument();
+    expect(within(rowOf('Router Archer AX55 negro')).queryByText('producto de la publicación')).not.toBeInTheDocument();
+  });
+
+  it('names the currency of a cost that is not in pesos', async () => {
+    mount();
+    await screen.findByText('Router Archer AX55 negro');
+    const usd = within(rowOf('Router Archer AX55 blanco'));
+    expect(usd.getByText('520,00')).toBeInTheDocument();
+    expect(usd.getByText('Costo USD')).toBeInTheDocument();
+    expect(within(rowOf('Router Archer AX55 negro')).getByText('Costo')).toBeInTheDocument();
+  });
+
   it('an unlinked variation says so and shows "—" with the reason, never a made-up 0', async () => {
     mount();
     await screen.findByText('Router Archer AX55 negro');
@@ -76,7 +100,7 @@ describe('VariationRows', () => {
   it('without ver_ganancia shows no cost and no markup', async () => {
     const variations = structuredClone(VARIATIONS_RESPONSE.variations);
     for (const variation of variations) {
-      delete variation.cost;
+      delete variation.costo;
       delete variation.markup;
     }
     publicacionesMlAPI.variations.mockResolvedValue({ data: { ...VARIATIONS_RESPONSE, variations } });

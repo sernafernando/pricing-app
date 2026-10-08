@@ -19,6 +19,8 @@ function BoundInput({ label, value, onCommit }) {
       return;
     }
     if (text !== value) onCommit(text);
+    // Same bound as the URL's (`-2,5` for `-2.5`): show it the way the URL has it.
+    else setDraft(value);
   };
 
   return (

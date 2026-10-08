@@ -124,6 +124,8 @@ export default function PublicacionesML() {
       .then((response) => {
         if (request !== latestRequest.current) return;
         setData(response.data);
+        // A new list (page, sort, filter) starts with every row collapsed.
+        setExpandedIds(new Set());
         if (wantFacets) {
           setFacets(response.data.facets ?? null);
           facetsFor.current = filterKey;

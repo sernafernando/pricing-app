@@ -40,6 +40,9 @@ function useVariations(itemId, attempt) {
   return state;
 }
 
+/** Pesos are the default; any other currency of the product's cost is named. */
+const costLabel = (currency) => (currency && currency !== 'ARS' ? `Costo ${currency}` : 'Costo');
+
 /** Cell of a variation under the column `key`; columns it has nothing for stay empty. */
 function VariationCell({ column, variation, canSeeMargin }) {
   switch (column.key) {
@@ -47,16 +50,14 @@ function VariationCell({ column, variation, canSeeMargin }) {
       return (
         <div className={styles.identity}>
           <span className={styles.variationId}>Variación {variation.id}</span>
-          {(variation.sku || variation.ean) && (
-            <span className={cellStyles.code}>
-              {[variation.sku && `SKU ${variation.sku}`, variation.ean && `EAN ${variation.ean}`].filter(Boolean).join(' · ')}
-            </span>
-          )}
+          {variation.attributes.length > 0 && <span className={styles.attributes}>{variation.attributes.join(' · ')}</span>}
+          {variation.sku && <span className={cellStyles.code}>SKU {variation.sku}</span>}
           {variation.linked ? (
             <span className={styles.product}>{variation.productName ?? '—'}</span>
           ) : (
             <span className={cellStyles.empty}>Sin producto vinculado</span>
           )}
+          {variation.inherited && <span className={cellStyles.note}>producto de la publicación</span>}
         </div>
       );
     case 'precio':
@@ -67,7 +68,7 @@ function VariationCell({ column, variation, canSeeMargin }) {
       ) : (
         <div className={`${cellStyles.stack} ${cellStyles.stackEnd}`}>
           <span className={cellStyles.amount}>{formatAmount(variation.cost)}</span>
-          <span className={cellStyles.note}>Costo</span>
+          <span className={cellStyles.note}>{costLabel(variation.costCurrency)}</span>
         </div>
       );
     case 'markup':
