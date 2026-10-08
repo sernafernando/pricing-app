@@ -109,6 +109,7 @@ def mlpub_pg(monkeypatch):
         "20261006_ml_publications_product_links",
         "20261007_ml_publications_quality",
         "20261010_ml_user_product_stock_locations",
+        "20261011_ml_user_product_replenishment",
     ):
         module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
         migration = importlib.util.module_from_spec(module_spec)
@@ -190,6 +191,7 @@ SUBRESOURCE_FIXTURES = {
     "performance": "performance_20261006.json",
     "moderation": "moderation_20261006.json",
     "visits": "visits_20261006.json",
+    "replenishment": "replenishment_20261008.json",
 }
 
 

@@ -176,6 +176,8 @@ class Settings(BaseSettings):
     # documents 100/min for /user-products/{id}/stock; stay below it).
     ML_PUB_RATE_PER_SEC: float = Field(default=2.0, gt=0, le=20)
     ML_PUB_STOCK_RATE_PER_MIN: int = Field(default=60, ge=1, le=100)
+    # Sub-budget of the replenishment sweep (weekly data, no topic), on top of the global rate.
+    ML_PUB_REPLENISHMENT_RATE_PER_MIN: int = Field(default=30, ge=1, le=100)
     # `/items/bulk` accepts at most 20 ids per call.
     ML_PUB_BULK_MAX_IDS: int = Field(default=20, ge=1, le=20)
     # Queue: claim lease (ten times the 30 s handler deadline) and poison limit.
@@ -208,6 +210,7 @@ class Settings(BaseSettings):
             "family": 86400,
             "competition": 900,
             "moderation": 3600,
+            "replenishment": 86400,
         }
     )
     ML_PUB_SCAN_STATUSES: List[str] = Field(

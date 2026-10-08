@@ -35,6 +35,7 @@ from app.models.ml_publications import (
     MlItemVisits,
     MlUserProduct,
     MlUserProductFamily,
+    MlUserProductReplenishment,
     MlUserProductStock,
 )
 from app.services.ml_publications.canonical import canonical_hash
@@ -72,6 +73,7 @@ MODELS: dict[str, Any] = {
     "performance": MlItemPerformance,
     "moderation": MlItemModeration,
     "visits": MlItemVisits,
+    "replenishment": MlUserProductReplenishment,
 }
 
 ITEM_KEY = "item_id"
@@ -177,6 +179,15 @@ def apply_subresource(
         return _apply_state(db, spec, row, parsed.body, response, counters, events_enabled)
 
 
+def _map(spec: ResourceSpec, body: Mapping[str, Any], response: MlResponse) -> dict[str, Any]:
+    """The typed columns of a 2xx body. A resource that declares `response_headers` also gets those headers
+    (and the HTTP status): replenishment marks a 206 `partial` from them."""
+    if not spec.response_headers:
+        return spec.mapper(body)
+    headers = {name: response.headers[name] for name in spec.response_headers if name in response.headers}
+    return spec.mapper(body, headers, status=response.status)
+
+
 def _apply_state(
     db,
     spec: ResourceSpec,
@@ -188,7 +199,7 @@ def _apply_state(
 ) -> ApplyOutcome:
     """A 2xx body: first sighting, unchanged, noise-only, change or restore."""
     entity_id = str(getattr(row, _key_column(spec)))
-    typed = spec.mapper(body)
+    typed = _map(spec, body, response)
     new_hash = canonical_hash(body, spec)
     if row.raw is None:
         _write_state(row, typed, body, new_hash, response)

@@ -1,11 +1,15 @@
-"""Sweeps of the resources with no notification topic: performance and visits (design D17).
+"""Sweeps of the resources with no notification topic: performance, visits and replenishment (design D17).
 
-Every tick (the handler runs every 10 minutes) takes, per resource, the K items whose state is oldest
+Every tick (the handler runs every 10 minutes) takes, per resource, the K entities whose state is oldest
 (`last_checked_at`, never-checked first) among the eligible ones and enqueues them in the sweep lane with the
-resource NAMED (`{performance}` / `{visits}`: they are `bundle.SWEEP_ONLY`, so only a named request fetches
-them). K = ceil(eligible / 144): 144 ticks a day cover every eligible item once a day. The sweep makes no ML
-call and spends no budget of its own: the refresh handler fetches what it enqueued, under the shared pacer
-and the lane order.
+resource NAMED (`{performance}` / `{visits}` / `{replenishment}`: they are `bundle.SWEEP_ONLY`, so only a named
+request fetches them). K = ceil(eligible / 144): 144 ticks a day cover every eligible entity once a day. The sweep
+makes no ML call and spends no budget of its own: the refresh handler fetches what it enqueued, under the shared
+pacer (replenishment also under its own sub-gate) and the lane order.
+
+Performance and visits are ITEM-keyed. Replenishment is USER-PRODUCT-keyed: its eligible set is the DISTINCT user
+product of the stored fulfillment (Full) items with a sweep status, not gone, and its entries are of kind
+`user_product`. An item with no user product is simply not eligible (nothing to fetch, no error).
 
 Eligible: status in `sweep.statuses` (never `closed`), not gone, never-existed excluded, no parked queue entry; a performance state
 stored as `applicable = false` (a catalog product item answers "not supported") only after
@@ -32,7 +36,13 @@ from app.core import database
 from app.core.config import SCAN_STATUS_NAMES
 from app.models.ml_publications import MlPubJobRun
 from app.services.ml_publications import queue
-from app.services.ml_publications.resources import ITEM_KIND, PERFORMANCE_RESOURCE, VISITS_RESOURCE
+from app.services.ml_publications.resources import (
+    ITEM_KIND,
+    PERFORMANCE_RESOURCE,
+    REPLENISHMENT_RESOURCE,
+    USER_PRODUCT_KIND,
+    VISITS_RESOURCE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,28 +62,55 @@ OUTCOME_NO_RESOURCES = "no_resources"
 OUTCOME_FAILED = "failed"
 
 # Resource name -> its state table. Fixed identifiers: never built from input.
-_TABLES: Mapping[str, str] = {PERFORMANCE_RESOURCE: "ml_item_performance", VISITS_RESOURCE: "ml_item_visits"}
+_TABLES: Mapping[str, str] = {
+    PERFORMANCE_RESOURCE: "ml_item_performance",
+    VISITS_RESOURCE: "ml_item_visits",
+    REPLENISHMENT_RESOURCE: "ml_user_product_replenishment",
+}
 SWEEP_RESOURCES = tuple(_TABLES)
+# Resources keyed by user product; every other swept resource is keyed by item.
+_USER_PRODUCT_RESOURCES = frozenset({REPLENISHMENT_RESOURCE})
 
-_ELIGIBLE = """
+_STATUS_FILTER = (
+    "i.status = ANY(CAST(:statuses AS text[])) AND i.status <> 'closed' "
+    "AND i.gone_at IS NULL AND i.never_existed IS NOT TRUE"
+)
+_ELIGIBLE = (
+    """
     FROM ml_items i
     LEFT JOIN {table} s ON s.item_id = i.item_id
-    WHERE i.status = ANY(CAST(:statuses AS text[])) AND i.status <> 'closed'
-      AND i.gone_at IS NULL AND i.never_existed IS NOT TRUE
+    WHERE """
+    + _STATUS_FILTER
+    + """
       {parked}
       {not_applicable}
 """
+)
+# Replenishment: one candidate per user product (DISTINCT over its Full items), joined to its state row.
+_ELIGIBLE_USER_PRODUCT = (
+    """
+    FROM (
+        SELECT DISTINCT i.user_product_id AS entity_id FROM ml_items i
+        WHERE i.logistic_type = 'fulfillment' AND i.user_product_id IS NOT NULL AND """
+    + _STATUS_FILTER
+    + """
+    ) e
+    LEFT JOIN {table} s ON s.user_product_id = e.entity_id
+    WHERE TRUE
+      {parked}
+"""
+)
 # A parked entry (failed past its attempts) leaves the queue only through a manual enqueue, so the sweep cannot
-# reach that item: it is not eligible, which also keeps the batch size from counting it.
+# reach that entity: it is not eligible, which also keeps the batch size from counting it.
 _NOT_PARKED = (
     "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue p "
-    "WHERE p.kind = 'item' AND p.entity_id = i.item_id AND p.parked_at IS NOT NULL)"
+    "WHERE p.kind = '{kind}' AND p.entity_id = {id} AND p.parked_at IS NOT NULL)"
 )
 # Performance only: a stored "not applicable" answer is rechecked at the long interval.
 _NOT_APPLICABLE = (
     "AND (s.applicable IS DISTINCT FROM FALSE OR s.last_checked_at IS NULL OR s.last_checked_at < :recheck_before)"
 )
-_NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind = 'item' AND q.entity_id = i.item_id)"
+_NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind = '{kind}' AND q.entity_id = {id})"
 
 # Lanes are ordered by priority number (`queue`: manual 0, notification 1, ...): `lane <= LANE_NOTIFICATION` is the
 # live work the sweep yields to. `not_before` is NOT NULL (default now()), so every entry is compared.
@@ -147,10 +184,23 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _kind_of(resource: str) -> str:
+    return USER_PRODUCT_KIND if resource in _USER_PRODUCT_RESOURCES else ITEM_KIND
+
+
+def _id_of(resource: str) -> str:
+    """SQL expression of the id a swept entity is enqueued by."""
+    return "e.entity_id" if resource in _USER_PRODUCT_RESOURCES else "i.item_id"
+
+
 def _eligible_sql(resource: str) -> str:
+    kind, entity = _kind_of(resource), _id_of(resource)
+    parked = _NOT_PARKED.format(kind=kind, id=entity)
+    if resource in _USER_PRODUCT_RESOURCES:
+        return _ELIGIBLE_USER_PRODUCT.format(table=_TABLES[resource], parked=parked)
     return _ELIGIBLE.format(
         table=_TABLES[resource],
-        parked=_NOT_PARKED,
+        parked=parked,
         not_applicable=_NOT_APPLICABLE if resource == PERFORMANCE_RESOURCE else "",
     )
 
@@ -177,8 +227,9 @@ def _tick(
             ids = (
                 session.execute(
                     text(
-                        f"SELECT i.item_id {_eligible_sql(resource)} {_NOT_QUEUED} "
-                        "ORDER BY s.last_checked_at ASC NULLS FIRST, i.item_id LIMIT :k"
+                        f"SELECT {_id_of(resource)} {_eligible_sql(resource)} "
+                        f"{_NOT_QUEUED.format(kind=_kind_of(resource), id=_id_of(resource))} "
+                        f"ORDER BY s.last_checked_at ASC NULLS FIRST, {_id_of(resource)} LIMIT :k"
                     ),
                     {**params, "k": tick.batch},
                 )
@@ -186,7 +237,8 @@ def _tick(
                 .all()
             )
             tick.selected = len(ids)
-            entries += [queue.EnqueueEntry(ITEM_KIND, i, queue.LANE_SWEEP, resources=(resource,)) for i in ids]
+            kind = _kind_of(resource)
+            entries += [queue.EnqueueEntry(kind, i, queue.LANE_SWEEP, resources=(resource,)) for i in ids]
         queue.enqueue(entries, session=session)
         result.enqueued = len(entries)
     return None

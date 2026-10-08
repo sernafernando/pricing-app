@@ -29,6 +29,7 @@ def test_one_fixture_file_per_endpoint():
         "performance",
         "moderation",
         "visits",
+        "replenishment",
     }
     for name in SUBRESOURCE_FIXTURES.values():
         assert (FIXTURES_DIR / name).exists(), name

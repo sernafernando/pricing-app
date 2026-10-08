@@ -81,6 +81,7 @@ _SETTING_KEYS = (
     "bulk_max_ids",
     "rate_per_sec",
     "stock_rate_per_min",
+    "replenishment_rate_per_min",
     "low_lane_min_share",
 )
 # Every kind of entry the refresh handler claims: an item (core, sub-resources, and through its row the user
@@ -237,7 +238,9 @@ class RefreshHandler:
 
     def _apply_budget(self, config: Dict[str, settings_store.Setting]) -> None:
         self.pacer.configure(
-            rate_per_sec=config["rate_per_sec"].value, stock_rate_per_min=config["stock_rate_per_min"].value
+            rate_per_sec=config["rate_per_sec"].value,
+            stock_rate_per_min=config["stock_rate_per_min"].value,
+            replenishment_rate_per_min=config["replenishment_rate_per_min"].value,
         )
 
     def _lane_fairness(self, share: float) -> queue.LaneFairness:

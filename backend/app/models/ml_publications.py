@@ -349,7 +349,7 @@ class MlUserProductStock(_SubResourceState, Base):
 
 
 class MlUserProductReplenishment(_SubResourceState, Base):
-    """Full replenishment of a user product (migration 20261011). Written by the fetcher of the next PR.
+    """Full replenishment of a user product (migration 20261011). Written by the refresh handler once `replenishment` is in `bundle_resources`.
 
     `partial` / `content_missing` come from a 206 and its `x-content-missing` header; the sales windows are
     NULL while the weekly history is shorter than the window (port of the reference app's `parseReplenishment`).

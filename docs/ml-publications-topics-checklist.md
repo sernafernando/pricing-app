@@ -233,6 +233,60 @@ Order to turn it on, one resource at a time, watching its counters in `worker_jo
 Rollback: remove the names from `bundle_resources` (and the topic from `intake.topics`); nothing already stored is
 deleted, and the migration `20261007_ml_publications_quality` downgrades by dropping its four tables.
 
+## Enabling replenishment
+
+The refresh handler ships the Full replenishment fetcher dark. It makes no ML call until `replenishment` is listed in
+`bundle_resources` (default `["core"]`); a name that is not listed is dropped uncharged and counted in
+`skipped_disabled`. Rows go to `ml_user_product_replenishment` (migration `20261011`, keyed by user product id); there
+is no consumer yet (the list view reads it in a later PR).
+
+- Endpoint: `GET /marketplace/fbm/user-products/{MLAU}/replenishment?country=AR`, one call per user product. The
+  store sends only its own token: the capture of 2026-10-08 proved ML answers 200 without `x-caller-id` /
+  `x-caller-siteId` (the reference app gets them from ml-webhook), so the request carries no extra headers.
+- Sweep-only (weekly data, no notification topic): listing it in `bundle_resources` allows a NAMED request; a `bundle`
+  entry skips it. Two things name it. The sweep (see "Missed feeds and sweeps" below) selects the distinct user
+  products of the stored items with `logistic_type = 'fulfillment'`, K = ceil(eligible / 144) per tick, and enqueues
+  entries of kind `user_product`. The panel's Resincronizar names it on an item entry, which reaches the user product
+  through the stored item row. A named request bypasses the minimum age (`min_age_seconds.replenishment`, 86400 s,
+  which only an unnamed fetch would honor).
+- Answers: 200 is stored typed. A 206 is a partial answer, stored as ok with `partial` set to true and the
+  `x-content-missing` header in `content_missing` (the only response header kept; no 206 showed up in the capture). A
+  user product outside Full answers 200 with `sales: null`, which is valid and stored with null figures. A 403, 429 or
+  5xx keeps the previous data, stores the status and error body, and the queue entry shows `replenishment: HTTP 403`
+  in `last_error`. A 404 marks the row gone and keeps the last raw.
+- The weekly history is diffed by `start_date` through the nested path `sales.sales_history`: a refetch logs the week
+  that changed, not the whole array. No events are raised, only change-log rows.
+- An item with no user product skips it (`skipped_not_applicable`, not a failure).
+- Pacing: its own sub-gate on top of the global one, `ML_PUB_REPLENISHMENT_RATE_PER_MIN` (setting
+  `replenishment_rate_per_min`, default 30, at most 100 requests per minute), so a sweep of weekly data never crowds out
+  live work. A 429 goes through the shared cooldown (`Retry-After`) and halves the shared rate for ten minutes.
+
+Live check (the operator, after the PR is merged and deployed; nothing here is run by the PR):
+
+1. Check the migration: `alembic heads` shows one head and `\d ml_user_product_replenishment` exists.
+2. Enqueue one user product by name, with the refresh handler on and `replenishment` listed:
+   `python -m app.scripts.ml_publications_settings set bundle_resources '["core","replenishment"]'` (keep the names that
+   are already listed) then enqueue an item of a Full listing with `resources` `["bundle","replenishment"]` through
+   `POST /api/ml-publications/enqueue` (the answer lists `missing_from_bundle_resources` if the name is not enabled).
+3. Read it: `SELECT user_product_id, http_status, partial, content_missing, units_30d, units_7d, units_21d,
+   days_out_of_stock_21d, history_through, last_error FROM ml_user_product_replenishment ORDER BY fetched_at DESC LIMIT 5;`
+   Expect `http_status = 200`, `partial = false`, `units_7d` equal to `units_sold` of the newest week in
+   `raw -> 'sales' -> 'sales_history'`, and `history_through` within the last week. Repeat for a user product that is not
+   in Full: `http_status = 200`, all figures null, `last_error` null.
+4. Watch the counters in `worker_job_state.detail` (`ml_publications.refresh`): `endpoints.replenishment` has no
+   `4xx`/`429` after the first calls, `subresources.replenishment` shows `first_seen` then `unchanged`, and
+   `skipped_not_applicable` counts items with no user product.
+5. Turn the sweep on for it: add `replenishment` to `bundle_resources` (it is already there from step 2) and let
+   `sweep.enabled` run. Check `SELECT counts -> 'resources' -> 'replenishment' FROM ml_pub_job_runs WHERE job = 'sweep'
+   ORDER BY id DESC LIMIT 3;` (`eligible`, `batch`, `selected`) and that `ml_pub_refresh_queue` holds `kind =
+   'user_product'` entries in the sweep lane.
+6. If a 206 ever shows up, read `content_missing` and confirm `partial = true`; this is the first real sample, so commit
+   it as a fixture before relying on it.
+
+Rollback: remove `replenishment` from `bundle_resources` (no deploy; the sweep stops selecting it and queued entries
+are dropped uncharged); nothing already stored is deleted. The migration `20261011_ml_user_product_replenishment`
+downgrades by dropping its table.
+
 ## Missed feeds and sweeps
 
 Two more jobs of the `pricing-worker-ml` worker, each behind its own flag (default off, independent of each other
@@ -269,6 +323,11 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
 
 ### Sweeps
 
+* `replenishment` is swept too, but by USER PRODUCT: the eligible set is the distinct user product of the stored items
+  with `logistic_type = 'fulfillment'`, a sweep status and not gone; its entries are of kind `user_product`, one call
+  each, paced by its own sub-gate (`ML_PUB_REPLENISHMENT_RATE_PER_MIN`). An item with no user product is not eligible and
+  raises no error. Its figures are in the run record under `resources.replenishment`, and K = ceil(eligible / 144) like
+  the others.
 * `performance` and `visits` have no notification topic. Eligible: status in `sweep.statuses` (default every
   non-closed status: `active`, `paused`, `under_review`, `inactive`, `pending`; `closed` is never swept and is
   rejected by the setting), not gone. A performance state stored as `not_applicable` (a catalog product item) is

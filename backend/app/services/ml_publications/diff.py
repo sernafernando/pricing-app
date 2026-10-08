@@ -73,6 +73,9 @@ ARRAY_KEYS_BY_RESOURCE: dict[str, ArrayKeys] = {
     # array stops being keyed and the engine reports it whole at `locations` (pinned by a test): the change
     # is still logged, only with less path detail. A second key field would then be added from a capture.
     "stock": {"locations": ("type",)},
+    # Replenishment: one element per week of the sales history, keyed by `start_date` under a nested object path
+    # (`canonical.child_path`), so a week that changes reads `sales.sales_history[<start>].units_sold`.
+    "replenishment": {"sales.sales_history": ("start_date",)},
 }
 
 

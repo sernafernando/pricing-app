@@ -55,6 +55,7 @@ SUBRESOURCE_KEYS = {
     "performance": ("item_id",),
     "moderation": ("item_id",),
     "visits": ("item_id",),
+    "replenishment": ("user_product_id",),
 }
 
 # Resources whose captured non-2xx answer is a state (spec "negative answers"), by registry name.
@@ -74,7 +75,9 @@ def test_promotions_diff_keys_come_from_the_shared_natural_key_table():
     assert RESOURCES["promotions"].array_keys == array_keys_for("promotions") == {"": ("id", "type")}
     assert RESOURCES["visits"].array_keys == array_keys_for("visits") == {"results": ("date",)}
     assert all(
-        dict(RESOURCES[n].array_keys) == {} for n in SUBRESOURCE_KEYS if n not in ("promotions", "stock", "visits")
+        dict(RESOURCES[n].array_keys) == {}
+        for n in SUBRESOURCE_KEYS
+        if n not in ("promotions", "stock", "visits", "replenishment")
     )
 
 

@@ -22,6 +22,11 @@ from app.services.ml_publications.parsers.performance import NEGATIVE_STATES as 
 from app.services.ml_publications.parsers.performance import map_performance, parse_performance
 from app.services.ml_publications.parsers.price_to_win import map_price_to_win, parse_price_to_win
 from app.services.ml_publications.parsers.prices import map_prices, parse_prices
+from app.services.ml_publications.parsers.replenishment import (
+    CONTENT_MISSING_HEADER,
+    map_replenishment,
+    parse_replenishment,
+)
 from app.services.ml_publications.parsers.sale_price import map_sale_price, parse_sale_price
 from app.services.ml_publications.parsers.seller_promotions import map_seller_promotions, parse_seller_promotions
 from app.services.ml_publications.parsers.user_product import map_user_product, parse_user_product
@@ -39,6 +44,9 @@ class ResourceSpec:
     array_keys: ArrayKeys = field(default_factory=dict)
     # HTTP status -> state name for declared negative answers that are states, not errors.
     negative_states: Mapping[int, str] = field(default_factory=dict)
+    # Response headers (lower case) the mapper needs besides the body: when set, the mapper is called as
+    # `mapper(body, {header: value}, status=http_status)`. Only replenishment uses it, to tell a 206 partial answer.
+    response_headers: tuple[str, ...] = ()
 
 
 # Names a queue entry may carry in `resources` (design D12): the single list read by the refresh
@@ -57,6 +65,7 @@ COMPETITION_RESOURCE = "competition"
 MODERATION_RESOURCE = "moderation"
 PERFORMANCE_RESOURCE = "performance"
 VISITS_RESOURCE = "visits"
+REPLENISHMENT_RESOURCE = "replenishment"
 REFRESH_RESOURCES: tuple[str, ...] = (
     BUNDLE_RESOURCE,
     CORE_RESOURCE,
@@ -71,6 +80,7 @@ REFRESH_RESOURCES: tuple[str, ...] = (
     MODERATION_RESOURCE,
     PERFORMANCE_RESOURCE,
     VISITS_RESOURCE,
+    REPLENISHMENT_RESOURCE,
 )
 
 RESOURCES: dict[str, ResourceSpec] = {}
@@ -175,3 +185,17 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys, _negative_states in (
             negative_states=_negative_states,
         )
     )
+
+# Full replenishment of a user product (weekly sales, days out of stock, Full stock). A 206 is a partial answer
+# whose `x-content-missing` header says what is missing; the history is keyed by week through a nested path.
+register(
+    ResourceSpec(
+        name=REPLENISHMENT_RESOURCE,
+        key_columns=("user_product_id",),
+        mapper=map_replenishment,
+        parser=parse_replenishment,
+        fixture="replenishment_20261008.json",
+        array_keys=array_keys_for(REPLENISHMENT_RESOURCE),
+        response_headers=(CONTENT_MISSING_HEADER,),
+    )
+)
