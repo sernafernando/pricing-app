@@ -39,6 +39,14 @@ function activateOnKey(event, row, onRowClick) {
   onRowClick(row);
 }
 
+const INTERACTIVE = 'button, a, input, select, textarea, label, [role="button"]';
+
+/** A click on a control hosted in a cell belongs to that control, not the row. */
+function activateOnClick(event, row, onRowClick) {
+  if (event.target.closest?.(INTERACTIVE)) return;
+  onRowClick(row);
+}
+
 /** Consecutive columns with the same `group` collapse into one spanning cell. */
 function buildGroups(columns) {
   const groups = [];
@@ -149,7 +157,7 @@ export default function TableShell({
                     data-selected={selected ? '' : undefined}
                     data-clickable={onRowClick ? '' : undefined}
                     tabIndex={onRowClick ? 0 : undefined}
-                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    onClick={onRowClick ? (e) => activateOnClick(e, row, onRowClick) : undefined}
                     onKeyDown={onRowClick ? (e) => activateOnKey(e, row, onRowClick) : undefined}
                   >
                     {columns.map((column, index) => (

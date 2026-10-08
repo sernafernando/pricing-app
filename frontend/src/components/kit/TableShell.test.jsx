@@ -196,6 +196,33 @@ describe('row interaction', () => {
     expect(onRowClick).not.toHaveBeenCalled();
   });
 
+  it('does not open the row when a click lands on a control inside a cell', async () => {
+    const onRowClick = vi.fn();
+    const inner = vi.fn();
+    const columns = [
+      { key: 'a', header: 'A', render: (r) => r.title },
+      {
+        key: 'b',
+        header: 'B',
+        render: () => (
+          <>
+            <button type="button" onClick={inner}>
+              copiar
+            </button>
+            <a href="#x">ver</a>
+          </>
+        ),
+      },
+    ];
+    renderShell({ columns, onRowClick });
+    await userEvent.click(screen.getAllByRole('button', { name: 'copiar' })[0]);
+    await userEvent.click(screen.getAllByRole('link', { name: 'ver' })[0]);
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(onRowClick).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByText('Router AX'));
+    expect(onRowClick).toHaveBeenCalledTimes(1);
+  });
+
   it('does not make rows clickable or focusable without onRowClick', () => {
     renderShell();
     const row = screen.getAllByRole('row')[1];
