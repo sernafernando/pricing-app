@@ -14,6 +14,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -336,6 +337,32 @@ class MlUserProductStock(_SubResourceState, Base):
     full_quantity = Column(Integer)
     own_quantity = Column(Integer)
     ml_last_updated = Column(_TS)
+
+
+class MlUserProductReplenishment(_SubResourceState, Base):
+    """Full replenishment of a user product (migration 20261011). Written by the fetcher of the next PR.
+
+    `partial` / `content_missing` come from a 206 and its `x-content-missing` header; the sales windows are
+    NULL while the weekly history is shorter than the window (port of the reference app's `parseReplenishment`).
+    """
+
+    __tablename__ = "ml_user_product_replenishment"
+
+    user_product_id = Column(Text, primary_key=True)
+    partial = Column(Boolean)
+    content_missing = Column(Text)
+    period = Column(Text)
+    units_30d = Column(Integer)
+    gmv_30d = Column(Numeric(16, 2))
+    currency_id = Column(Text)
+    units_7d = Column(Integer)
+    units_14d = Column(Integer)
+    units_21d = Column(Integer)
+    days_out_of_stock_21d = Column(Integer)
+    history_through = Column(Date)
+    total_stock = Column(Integer)
+    shipping_urgency = Column(Text)
+    minimum_distributable_stock = Column(Integer)
 
 
 class MlUserProductFamily(_SubResourceState, Base):
