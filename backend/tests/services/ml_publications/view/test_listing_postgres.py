@@ -619,6 +619,15 @@ class TestFacets:
         assert sorted(ids(run(db, marcas="TP-LINK"))) == ["MLA1", "MLA7"]
         assert brands["TP-LINK"] == run(db, marcas="TP-LINK").total
 
+    def test_a_brand_with_a_comma_is_offered_under_a_key_the_filter_takes_back(self, conn, db) -> None:
+        seed.add_product(conn, 74, "E1", "Parlante", marca="Audio, Video Inc")
+        seed.add_item(conn, "MLA9", status="active")
+        seed.add_link(conn, "MLA9", 74)
+        brands = listing.facets(db, parse_filter())["marcas"]
+        key = next(k for k in brands if "AUDIO" in k)
+        assert "," not in key and brands[key] == 1
+        assert ids(run(db, marcas=key)) == ["MLA9"]
+
     def test_a_product_with_a_blank_brand_is_not_offered_as_a_brand(self, conn, db) -> None:
         seed.add_product(conn, 73, "D1", "Sin marca", marca="   ")
         seed.add_item(conn, "MLA8", status="active")

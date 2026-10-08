@@ -133,6 +133,26 @@ class TestContract:
         assert checked >= 15
 
 
+class TestKeysWithSeparators:
+    def test_a_brand_with_a_comma_opens_and_its_params_fetch_exactly_its_publications(self, client, pg, reader) -> None:
+        def fill(conn) -> None:
+            seed.add_product(conn, 95, "K1", "Parlante", marca="Audio, Video Inc", categoria="Camaras, Fotos")
+            for n in (40, 41):
+                seed.add_item(conn, f"MLA{n}", title="t", status="active")
+                seed.add_link(conn, f"MLA{n}", 95)
+
+        seed_rows(pg, fill)
+        brand = get(client, reader).json()["nodes"][0]
+        assert brand["label"] == "Audio, Video Inc" and "," not in brand["key"]
+        children = get(client, reader, path=brand["key"]).json()
+        assert children["level"] == "categoria" and [(n["label"], n["count"]) for n in children["nodes"]] == [
+            ("Camaras, Fotos", 2)
+        ]
+        assert get_items(client, reader, **brand["params"]).json()["total"] == brand["count"] == 2
+        category = children["nodes"][0]
+        assert get_items(client, reader, **category["params"]).json()["total"] == 2
+
+
 class TestInvalidParams:
     @pytest.mark.parametrize(
         "params, field",

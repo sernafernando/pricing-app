@@ -303,6 +303,17 @@ def walk(db: Session, user_params: dict, familias: bool):
                 pending.append([*ancestors, node])
 
 
+def comma_catalog(conn) -> None:
+    """A brand and a category whose names hold the separators of the CSV parameters (`,`) and of the key encoding (`%`)."""
+    seed.add_product(
+        conn, 95, "K1", "Parlante", marca="Audio, Video Inc", categoria="Camaras, Fotos", subcategoria_id=10
+    )
+    seed.add_product(conn, 96, "K2", "Cable", marca="100% Pure", categoria="Cables, %2C", subcategoria_id=20)
+    for n, product in enumerate((95, 95, 96), start=40):
+        seed.add_item(conn, f"MLA{n}", title=f"Titulo {n}", status="active")
+        seed.add_link(conn, f"MLA{n}", product)
+
+
 class TestConsistencyWithItems:
     """The key test: a node's `count` IS the `/items` total with the node's filters, at every level."""
 
@@ -329,6 +340,20 @@ class TestConsistencyWithItems:
         assert brand.count == 1 and total_of(db, {"marcas": brand.key}) == 1
         category = next(n for n in tree(db, brand.key).nodes)
         assert total_of(db, {"marcas": brand.key, "categorias": category.key}) == category.count == 1
+
+    @pytest.mark.parametrize("familias", [False, True])
+    def test_a_brand_or_category_with_a_comma_or_a_percent_opens_and_counts_like_any_other(
+        self, conn, db, familias
+    ) -> None:
+        seed_catalog(conn)
+        comma_catalog(conn)
+        nodes = {node.label: node for node, _ in walk(db, {}, familias)}
+        assert {"Audio, Video Inc", "Camaras, Fotos", "100% Pure", "Cables, %2C"} <= set(nodes)
+        for node, ancestors in walk(db, {}, familias):
+            assert "," not in node.key and all("," not in v for v in node.params.values())
+            assert node.count == total_of(db, {**node.params}), (node.kind, node.key)
+        brand = nodes["Audio, Video Inc"]
+        assert brand.count == 2 and tree(db, brand.key).nodes[0].count == 2  # it opens: it is not split in two keys
 
     def test_the_children_of_a_node_add_up_to_the_node(self, conn, db) -> None:
         seed_catalog(conn)

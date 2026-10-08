@@ -509,6 +509,21 @@ def _stores(f: PublicationFilter) -> ColumnElement:
     return or_(*parts)
 
 
+_ESCAPES = {"%": "%25", ",": "%2C"}
+_ESCAPED = re.compile(r"%(25|2C)")
+
+
+def encode_key(text: str) -> str:
+    """A brand or category key as it travels in a CSV parameter: `%` and `,` percent-escaped, so a name holding a
+    comma stays ONE value. The tree and the brand facet hand out keys in this form."""
+    return "".join(_ESCAPES.get(char, char) for char in text)
+
+
+def decode_key(token: str) -> str:
+    """The inverse of `encode_key` (a single pass: `%252C` is the text `%2C`)."""
+    return _ESCAPED.sub(lambda match: chr(int(match.group(1), 16)), token)
+
+
 def normalized_text(column: Any) -> ColumnElement:
     """A brand or category as the tree keys it (and the PM pairs are matched): trimmed and upper-cased. No index is
     lost by this: the catalog only has plain btrees on `marca` / `categoria`, which `upper(...)` already bypassed."""
@@ -520,7 +535,7 @@ def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
     node of a brand and the filter that lists its publications agree on which rows they mean."""
     # upper-cased by the database too, never by Python: the two disagree on some letters (the sharp s), and the
     # tree's keys come from the database
-    values = [normalized_text(literal(w)) for w in wanted if w != NO_GROUP]
+    values = [normalized_text(literal(decode_key(w))) for w in wanted if w != NO_GROUP]
     parts = []
     if values:
         parts.append(normalized_text(column).in_(values))

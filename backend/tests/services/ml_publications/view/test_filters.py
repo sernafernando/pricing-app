@@ -15,6 +15,8 @@ from app.services.ml_publications.view.filters import (
     FilterError,
     PublicationFilter,
     SearchTerm,
+    decode_key,
+    encode_key,
     escape_like,
     normalize_q,
     parse_filter,
@@ -140,6 +142,16 @@ class TestCsvParams:
         assert caught.value.field == param and "range" in caught.value.message
         with pytest.raises(FilterError):
             parse_filter(**{param: "-9223372036854775809"})
+
+    @pytest.mark.parametrize("text", ["AUDIO, VIDEO", "100% PURE", "%2C", "A%252C", ",", "%", "PLAIN", "__none__"])
+    def test_a_key_with_a_comma_or_percent_survives_the_csv_and_decodes_to_itself(self, text: str) -> None:
+        wire = encode_key(text)
+        assert "," not in wire and decode_key(wire) == text
+        assert parse_filter(marcas=wire).marcas == (wire,) and parse_filter(categorias=wire).categorias == (wire,)
+
+    def test_encoding_a_plain_key_changes_nothing(self) -> None:
+        assert encode_key("TP-LINK") == "TP-LINK" and decode_key("TP-LINK") == "TP-LINK"
+        assert encode_key("A,B") == "A%2CB" and encode_key("5%") == "5%25"
 
     def test_pms_are_numeric_user_ids(self) -> None:
         assert parse_filter(pms="7,9").pms == (7, 9)

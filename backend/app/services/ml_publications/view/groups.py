@@ -41,7 +41,14 @@ from app.services.ml_daily_metrics.groups import (
     dimension_of,
     title_of,
 )
-from app.services.ml_publications.view.filters import T, PublicationFilter, FilterError, build_base_select
+from app.services.ml_publications.view.filters import (
+    FilterError,
+    PublicationFilter,
+    T,
+    build_base_select,
+    decode_key,
+    encode_key,
+)
 from app.services.ml_publications.view.listing import resolve_pm_pairs
 
 KIND_PRODUCT = "producto"
@@ -115,6 +122,18 @@ def level_of(path: list[str], familias: bool) -> str:
     return (*LEVELS, KIND_FAMILY)[len(path)]
 
 
+TEXT_LEVELS = ("marca", "categoria")  # the levels whose keys are free text, and so travel percent-escaped
+
+
+def _wire_key(level: str, key: str) -> str:
+    """The key of a node as the client sees it: a brand or category with a comma is escaped so it stays one CSV value."""
+    return encode_key(key) if level in TEXT_LEVELS else key
+
+
+def _raw_key(level: str, key: str) -> str:
+    return decode_key(key) if level in TEXT_LEVELS else key
+
+
 def _check_path(path: list[str]) -> None:
     """Keys are ids at the subcategory and product levels (`__none__` for none)."""
     for depth, key in enumerate(path):
@@ -130,7 +149,7 @@ def _scoped(f: PublicationFilter, path: list[str], dimensions: dict[str, Dimensi
         for target, onclause in dimension.joins:
             query = query.join(target, onclause, isouter=True)
     keys = [dimensions[name].key for name in GROUP_LEVELS] + [product_key()]
-    return query.where(*(keys[depth] == key for depth, key in enumerate(path)))
+    return query.where(*(keys[depth] == _raw_key(LEVELS[depth], key) for depth, key in enumerate(path)))
 
 
 def _group_level(db: Session, f: PublicationFilter, path: list[str], level: str, limit: int, offset: int) -> GroupsPage:
@@ -147,7 +166,10 @@ def _group_level(db: Session, f: PublicationFilter, path: list[str], level: str,
         .offset(offset)
     ).all()
     total = db.execute(select(func.count(func.distinct(rows.c.k)))).scalar_one()
-    nodes = [Node(level, key, label, count, False, _params(path, level, key)) for key, label, count in page]
+    nodes = []
+    for raw, label, count in page:
+        key = _wire_key(level, raw)
+        nodes.append(Node(level, key, label, count, False, _params(path, level, key)))
     return GroupsPage(level, nodes, total)
 
 

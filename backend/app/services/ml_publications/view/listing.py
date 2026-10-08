@@ -30,6 +30,7 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     link_state,
     listing_clauses,
+    encode_key,
     normalized_text,
     price_amount,
     status_value,
@@ -370,7 +371,7 @@ def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
     return {
         "status": by_status,
         "stores": by_store,
-        "marcas": by_brand,
+        "marcas": {encode_key(name): count for name, count in by_brand.items()},
         "listing": _flags(db, f, "listing", listing_clauses()),
         "link": _grouped(db, f, "link", link_state()),
         "stock": _flags(db, f, "stock", stock_clauses()),
