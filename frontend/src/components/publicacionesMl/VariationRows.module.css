@@ -62,10 +62,10 @@
   color: var(--cf-text-secondary);
 }
 
-/* Stays in view while the table scrolls sideways. */
+/* Stays in view while the table scrolls sideways, one level under its publication like the variations' rows. */
 .state {
   position: sticky;
-  left: var(--space-3);
+  left: calc(var(--space-3) + var(--indent, 0) * var(--table-shell-indent, 16px));
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);

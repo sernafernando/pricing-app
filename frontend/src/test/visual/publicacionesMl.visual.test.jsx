@@ -454,6 +454,21 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
       screen.unmount();
     });
 
+    it(`${width}x${height} ${theme}: the loading or error row of a leaf's variations is indented under its publication`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      await openToLeaf(screen);
+      publicacionesMlAPI.variations.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 500 } }));
+      await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();
+      await expect.element(screen.getByText('No se pudieron cargar las variaciones.')).toBeVisible();
+      const scroller = scrollerOf();
+      // The parent's toggle starts at its depth; the state starts one level in, like the variations' own rows.
+      const toggle = rowWith(scroller, 'Router TP-Link Archer AX55 por color').querySelector('td[data-pinned] button');
+      const step = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--table-shell-indent'));
+      const alertLeft = rect(document.querySelector('tbody [role="alert"]')).left;
+      expect(Math.abs(alertLeft - (rect(toggle).left + step))).toBeLessThanOrEqual(2);
+      screen.unmount();
+    });
+
     it(`${width}x${height} ${theme}: "Ver más" and "Sin producto" sit inside the table, in view of the scroller`, async () => {
       const screen = await renderTree({ width, height, theme });
       const scroller = scrollerOf();

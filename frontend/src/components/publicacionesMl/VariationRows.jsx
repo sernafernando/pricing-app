@@ -82,11 +82,13 @@ function VariationCell({ column, variation, canSeeMargin }) {
 }
 
 /** One full-width row for the loading / error / empty states. */
-function StateRow({ span, children }) {
+function StateRow({ span, depth, children }) {
   return (
     <tr className={styles.row}>
       <td colSpan={span} className={styles.stateCell}>
-        <div className={styles.state}>{children}</div>
+        <div className={styles.state} style={{ '--indent': depth + 1 }}>
+          {children}
+        </div>
       </td>
     </tr>
   );
@@ -105,14 +107,14 @@ export default function VariationRows({ item, columns, canSeeMargin, depth = 0 }
 
   if (status === 'loading') {
     return (
-      <StateRow span={span}>
+      <StateRow span={span} depth={depth}>
         <span role="status">Cargando variaciones…</span>
       </StateRow>
     );
   }
   if (status === 'error') {
     return (
-      <StateRow span={span}>
+      <StateRow span={span} depth={depth}>
         <span role="alert">{describeError(error)}</span>
         <button type="button" className="btn-tesla outline sm" onClick={() => setAttempt((n) => n + 1)}>
           Reintentar
@@ -122,7 +124,7 @@ export default function VariationRows({ item, columns, canSeeMargin, depth = 0 }
   }
   if (variations.length === 0) {
     return (
-      <StateRow span={span}>
+      <StateRow span={span} depth={depth}>
         <span>Esta publicación no tiene variaciones</span>
       </StateRow>
     );
