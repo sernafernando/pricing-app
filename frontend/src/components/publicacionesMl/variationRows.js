@@ -9,6 +9,9 @@
  * figure (null `value` with its `reason` when it cannot be computed); it is
  * shaped like the list's range so the same cell renders both.
  */
+/** Pesos are the default; any other currency of the product's cost is named. */
+export const costLabel = (currency) => (currency && currency !== 'ARS' ? `Costo ${currency}` : 'Costo');
+
 export function readVariation(raw, { canSeeMargin }) {
   const link = raw.link ?? {};
   const linked = link.codigo != null || link.descripcion != null;
@@ -26,6 +29,7 @@ export function readVariation(raw, { canSeeMargin }) {
     // Priced with the publication's product because the variation has none of its own.
     inherited: linked && link.inherited === true,
     available: raw.available_quantity ?? null,
+    sold: raw.sold_quantity ?? null,
     cost: cost?.amount ?? null,
     costCurrency: cost?.currency ?? null,
     markup: hasMarkup

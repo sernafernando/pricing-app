@@ -187,3 +187,45 @@
   font-size: var(--font-sm);
   color: var(--cf-text-secondary);
 }
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+/* A variation selling under cost: the whole card says so, not only the figure. */
+.card[data-negative] {
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.cardHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cardTitle {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.productName {
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+}

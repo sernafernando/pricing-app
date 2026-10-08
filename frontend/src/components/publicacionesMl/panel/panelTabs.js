@@ -1,4 +1,6 @@
+import FullTab from './FullTab';
 import ResumenTab from './ResumenTab';
+import VariacionesTab from './VariacionesTab';
 
 /**
  * The panel's tab registry. A tab is
@@ -11,7 +13,11 @@ import ResumenTab from './ResumenTab';
  * Eventos, Historial, Producto vinculado and Promociones (later PRs) are one
  * entry each here -- the panel itself does not change.
  */
-export const PANEL_TABS = [{ key: 'resumen', label: 'Resumen', isVisible: () => true, Component: ResumenTab }];
+export const PANEL_TABS = [
+  { key: 'resumen', label: 'Resumen', isVisible: () => true, Component: ResumenTab },
+  { key: 'variaciones', label: 'Variaciones', isVisible: ({ detail }) => detail.variationsCount > 0, Component: VariacionesTab },
+  { key: 'full', label: 'Full', isVisible: ({ detail }) => detail.isFull || detail.replenishment != null, Component: FullTab },
+];
 
 export function visibleTabs(tabs, context) {
   return tabs.filter((tab) => tab.isVisible(context));

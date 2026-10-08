@@ -184,6 +184,26 @@ describe('tabs', () => {
     renderPanel();
     expect(await screen.findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
   });
+
+  it('the default registry shows Full for a Full publication and Variaciones for one with variations', async () => {
+    publicacionesMlAPI.variations.mockResolvedValue({ data: { variations: [] } });
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: makeDetail({ row: makeItem({ ...ITEMS[0], is_full: true, variations_count: 2 }) }),
+    });
+    renderPanel();
+    expect(await screen.findByRole('tab', { name: 'Full' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Variaciones' })).toBeInTheDocument();
+  });
+
+  it('the default registry hides both for a plain publication', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: makeDetail({ row: makeItem({ ...ITEMS[1], is_full: false, variations_count: 0 }), replenishment: null }),
+    });
+    renderPanel();
+    await screen.findByRole('tab', { name: 'Resumen' });
+    expect(screen.queryByRole('tab', { name: 'Full' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Variaciones' })).not.toBeInTheDocument();
+  });
 });
 
 describe('the panel itself', () => {

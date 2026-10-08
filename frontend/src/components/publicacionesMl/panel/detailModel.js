@@ -71,3 +71,16 @@ export function readDetail(raw, { canSeeMargin = false } = {}) {
     canResync: raw.can_resync === true,
   };
 }
+
+/**
+ * Whether the list's honest-state block says the replenishment report is not
+ * collected (flag off, or `replenishment` missing from `bundle_resources`).
+ * P8a may name it differently: this is the one place to adjust.
+ */
+export function replenishmentDisabled(dataState) {
+  return (dataState?.degradations ?? []).some(
+    (entry) =>
+      (entry.code === 'resource_not_collected' && entry.resource === 'replenishment') ||
+      (entry.code === 'flag_disabled' && entry.flag === 'replenishment'),
+  );
+}
