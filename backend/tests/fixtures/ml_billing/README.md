@@ -47,3 +47,19 @@ documents), period `2026-09-01`, requested as
 `amount`, `unpaid_amount`, `count_details`, `associated_document_id` and
 `files[].reference_number` (`0058A00975220`, `0001A03750426`, ...) are ML's own.
 The capture stored the response list under `results`.
+
+## `general_bill_2026_09_01_document_rows.json.gz` (PR 2b)
+
+A projection, not a copy, of `ml.details.general_BILL["2026-09-01"].rows`: for
+each of the 33,210 real rows only `[detail_id, document_info.document_id,
+charge_info.detail_type, charge_info.detail_amount]`, in capture order. It is
+the "silent row loss" data set of the capture: 26,020 rows for document
+5140824542 and 7,190 for 5140811928, i.e. 36 and 14 rows short of the
+documents' `count_details` (26,056 / 7,204). With the mapper's sign rule
+(`BONUS` negated) the rows sum to 533,291,421.83 and 56,558,466.41, against
+the documents' 534,258,231.37 and 56,674,709.86.
+
+The 50 rows ML never returned are not in the capture. The tests that need the
+COMPLETE documents add 36 + 14 rows synthesized in the test, whose amounts are
+exactly the difference to the document totals (966,809.54 and 116,243.45).
+That is a stand-in for the missing rows and is the only invented data here.
