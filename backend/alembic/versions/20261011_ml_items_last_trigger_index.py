@@ -14,6 +14,10 @@ a short `lock_timeout` so it gives up instead of queueing behind a long transact
 behind itself. A build that fails midway leaves the index INVALID, and `IF NOT EXISTS` would then skip it: it
 is dropped first so the build starts clean.
 
+`SET lock_timeout` is session-level, so (as for every CONCURRENTLY index migration of this repo, e.g.
+`20261009_om_dirty_priority_index`) alembic must connect to Postgres directly, not through PgBouncer in
+transaction mode, where the SET, the CREATE and the RESET could land on different server connections.
+
 Revision ID: 20261011_ml_items_last_trigger_index
 Revises: 20261010_ml_user_product_stock_locations
 """

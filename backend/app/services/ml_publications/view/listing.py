@@ -5,6 +5,9 @@ page-level extra (variation counts, last event, store labels), however many rows
 Reads run under `SET LOCAL statement_timeout` (PgBouncer in transaction mode: LOCAL only, never session state).
 
 Every ordering ends with `item_id`, so paging never repeats or skips a row (spec SRT-2).
+
+Postgres only (`DISTINCT ON` for the last event of each item, `FILTER` for the facet counters, `SET LOCAL`);
+its tests are `@pytest.mark.postgres`.
 """
 
 from __future__ import annotations
