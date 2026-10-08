@@ -30,7 +30,7 @@ from app.services.ml_publications.view.filters import LINK_CONFLICT, LINK_ITEM_L
 from app.services.ml_publications.view.markup import UnitMarkup
 from app.services.ml_publications.view.markup_service import ItemMarkup, MarkupQuery
 
-STALE_REASON = "desactualizado"  # the variations changed between the data statement and the markup's
+STALE_REASON = "desactualizado"  # the variation is not among those the markup priced: it changed in between
 
 
 @dataclass(frozen=True)
@@ -188,10 +188,11 @@ def list_variations(db: Session, item_id: str, markup: Optional[MarkupQuery] = N
         return VariationsResult(sub_rows)
     computed = markup_service.compute_markups(db, markup.pricing_db, item_ids=[item_id], ads=markup.ads)
     item = computed.items.get(item_id)
+    # Matched by variation id, never by position: a variation may have been replaced between the two reads.
     units: Mapping[int, UnitMarkup] = {}
-    if item is not None and len(item.markup.variations) == len(live):
-        units = {row.variation_id: unit for row, unit in zip(live, item.markup.variations)}
+    if item is not None and len(item.variation_ids) == len(item.markup.variations):
+        units = dict(zip(item.variation_ids, item.markup.variations))
     for sub_row in sub_rows:
         unit = units.get(sub_row["variation_id"])
         sub_row["markup"] = _markup_out(unit) if unit is not None else {"value": None, "reason": STALE_REASON}
-    return VariationsResult(sub_rows, _ads_out(item) if item is not None and units else None, computed.ads_failed)
+    return VariationsResult(sub_rows, _ads_out(item) if item is not None else None, computed.ads_failed)

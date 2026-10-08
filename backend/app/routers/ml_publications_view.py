@@ -232,11 +232,18 @@ class VariationOut(BaseModel):
     markup: Optional[VariationMarkupOut] = None  # present only with ml_metricas.ver_ganancia
 
 
+class VariationsAdsOut(AdsOut):
+    """The list's `ads` block plus, when Ads was applied, the publication's own figures: one cost spread per unit,
+    the same on every sub-row."""
+
+    publication: Optional[AdsRowOut] = None
+
+
 class VariationsResponse(BaseModel):
     item_id: str
     can_see_margin: bool
     variations: list[VariationOut]
-    ads: Optional[dict[str, Any]] = None  # present only with ml_metricas.ver_ganancia
+    ads: Optional[VariationsAdsOut] = None  # present only with ml_metricas.ver_ganancia
 
 
 # ── Reads (ml_ops.ver) ───────────────────────────────────────────

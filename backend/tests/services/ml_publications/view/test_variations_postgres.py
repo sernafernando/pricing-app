@@ -10,6 +10,8 @@ not the maths (P2) and not the Ads formulas (P6).
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from sqlalchemy import event
 
@@ -273,21 +275,23 @@ class TestAds:
 
 
 class TestRace:
-    def test_a_variation_set_that_changed_between_statements_never_misattributes_a_markup(
+    def test_a_variation_replaced_between_statements_never_gets_the_markup_of_another(
         self, client, rows, analyst, pricing, monkeypatch
     ) -> None:
+        """Variation 13 went away and a 15 appeared after the sub-rows were read: same count, other id."""
         real = markup_service.compute_markups
 
-        def shorter(*args, **kwargs):
+        def replaced(*args, **kwargs):
             result = real(*args, **kwargs)
             item = result.items["MLA10"]
-            trimmed = type(item.markup)(item.markup.variations[:-1], None, None, None, False, 0, item.markup.reason)
-            return markup_service.MarkupResult({"MLA10": markup_service.ItemMarkup(trimmed)}, result.stats)
+            shifted = dataclasses.replace(item, variation_ids=(11, 12, 15))
+            return dataclasses.replace(result, items={"MLA10": shifted})
 
-        monkeypatch.setattr(variations.markup_service, "compute_markups", shorter)
+        monkeypatch.setattr(variations.markup_service, "compute_markups", replaced)
         got = by_id(variations_of(client, analyst))
-        assert {v["markup"]["reason"] for v in got.values()} == {"desactualizado"}
-        assert {v["markup"]["value"] for v in got.values()} == {None}
+        assert got[13]["markup"] == {"value": None, "reason": "desactualizado"}
+        assert got[11]["markup"]["value"] == round(worst_of(70), 2)
+        assert got[12]["markup"]["value"] == round(worst_of(71), 2)
 
 
 class TestStatements:

@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Mapping, Optional, Sequence
 
@@ -81,8 +81,12 @@ class AdsView:
 
 @dataclass(frozen=True)
 class ItemMarkup:
+    """`markup.variations[n]` is the unit of variation `variation_ids[n]` (both empty when the publication has no
+    variations: the item-level unit is then the whole publication)."""
+
     markup: PublicationMarkup
     ads: Optional[AdsView] = None
+    variation_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -160,6 +164,7 @@ def compute_markups(
     plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
     with_ads = _with_ads(pricing_db, ads, plain, item_ids) if ads is not None else None
     items = with_ads or {item_id: ItemMarkup(markup) for item_id, markup in plain.items()}
+    items = {item_id: replace(item, variation_ids=inputs[item_id].variation_ids) for item_id, item in items.items()}
     unpriced = Counter(m.markup.reason for m in items.values() if m.markup.worst is None)
     stats = MarkupStats(
         computed=len(items) - sum(unpriced.values()),
