@@ -13,7 +13,7 @@ joins it).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -27,8 +27,14 @@ from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services.ml_publications import settings_store
 from app.services.ml_publications.view import listing, status_block
-from app.services.ml_publications.view.filters import FilterError, parse_filter, parse_markup_filter
-from app.services.ml_publications.view.markup_service import MarkupQuery
+from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
+from app.services.ml_publications.view.filters import (
+    FilterError,
+    parse_ads_period,
+    parse_filter,
+    parse_markup_filter,
+)
+from app.services.ml_publications.view.markup_service import AdsPlan, MarkupQuery
 from app.services.ml_publications.view.timing import Timer
 from app.services.permisos_service import PermisosService
 
@@ -81,10 +87,21 @@ class LinkOut(BaseModel):
     marca: Optional[str] = None
 
 
+class AdsRowOut(BaseModel):
+    """Ads of one publication over the request's period: `state` is `ok`, `sin_costo` (nothing to subtract) or
+    `ads_sin_ventas` (cost but no units sold: the amount is shown, there is no per-unit cost to apply)."""
+
+    state: str
+    amount: Optional[float] = None
+    units: int
+    per_unit: Optional[float] = None
+
+
 class MarkupOut(BaseModel):
     """Markup of a publication, in percent: the range over its variations (`min == max` when they agree), the
     worst variation (what sorting uses), whether ANY variation is negative, why it has no value (`reason`) and how
-    many variations could not be priced (`partial`). Only for users with `ml_metricas.ver_ganancia`."""
+    many variations could not be priced (`partial`). With Ads applied, the figures already include it and `ads`
+    says how. Only for users with `ml_metricas.ver_ganancia`."""
 
     min: Optional[float] = None
     max: Optional[float] = None
@@ -92,12 +109,25 @@ class MarkupOut(BaseModel):
     any_negative: bool
     reason: str
     partial: int
+    ads: Optional[AdsRowOut] = None
 
 
 class MarkupStatsOut(BaseModel):
     computed: int
     null_by_reason: dict[str, int]
     ms: float
+
+
+class AdsOut(BaseModel):
+    """Whether Ads cost data exists (`available`), whether this request asked to subtract it (`requested`) and
+    whether it was (`applied`, with the period). Only for users with `ml_metricas.ver_ganancia`."""
+
+    available: bool
+    reason: str
+    requested: bool
+    applied: bool
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
 
 
 class LastEventOut(BaseModel):
@@ -156,6 +186,7 @@ class ItemsResponse(BaseModel):
     data_state: DataStateOut
     facets: Optional[dict[str, Any]] = None
     markup_stats: Optional[MarkupStatsOut] = None  # present only with ml_metricas.ver_ganancia
+    ads: Optional[AdsOut] = None  # present only with ml_metricas.ver_ganancia
 
 
 # ── Reads (ml_ops.ver) ───────────────────────────────────────────
@@ -163,6 +194,34 @@ class ItemsResponse(BaseModel):
 
 def _timed_out(exc: DBAPIError) -> bool:
     return getattr(exc.orig, "pgcode", None) == QUERY_CANCELED
+
+
+def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:
+    """Whether Ads can and will be applied to this request. Subtracting Ads needs the period, but only when there
+    is Ads data to subtract: while the provider is unavailable the request is ignored and reported."""
+    status_ = resolve_ads(provider, requested=requested, date_from=first, date_to=last)
+    if status_.available and status_.requested and not status_.applied:
+        raise FilterError("ads_desde", "restar_publicidad needs ads_desde and ads_hasta")
+    return status_
+
+
+def _ads_plan(provider: AdsCostProvider, status_: AdsStatus) -> Optional[AdsPlan]:
+    if not status_.applied or status_.date_from is None or status_.date_to is None:
+        return None
+    formula = settings_store.get_setting("view.ads_formula").value
+    return AdsPlan(provider, formula, status_.date_from, status_.date_to)
+
+
+def _ads_out(status_: AdsStatus) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "available": status_.available,
+        "reason": status_.reason,
+        "requested": status_.requested,
+        "applied": status_.applied,
+    }
+    if status_.applied:
+        out["date_from"], out["date_to"] = status_.date_from, status_.date_to
+    return out
 
 
 @router.get("/items", response_model=ItemsResponse, response_model_exclude_unset=True)
@@ -190,6 +249,8 @@ def get_items(
     markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
     markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
     restar_publicidad: Optional[bool] = Query(None, description="markup after Ads cost (ver_ganancia)"),
+    ads_desde: Optional[str] = Query(None, description="first day of the Ads period, YYYY-MM-DD"),
+    ads_hasta: Optional[str] = Query(None, description="last day of the Ads period, YYYY-MM-DD"),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
     facets: bool = False,
@@ -200,6 +261,7 @@ def get_items(
     # and it works after the `rollback()` below because a new transaction begins on first use.
     auth_db: Session = Depends(get_db),
     status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
+    ads_provider: AdsCostProvider = Depends(get_ads_provider),
 ) -> dict[str, Any]:
     """One page of publications (one row per MLA) with the honest-state block."""
     timer = Timer("items")
@@ -230,13 +292,11 @@ def get_items(
             evento_desde=evento_desde,
         )
         sort = listing.parse_sort(orden, direction)
-        markup = (
-            MarkupQuery(
-                auth_db, parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
-            )
-            if can_see_margin
-            else None
-        )
+        markup, ads_status = None, None
+        if can_see_margin:
+            markup_filter = parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
+            ads_status = _ads_status(ads_provider, bool(restar_publicidad), *parse_ads_period(ads_desde, ads_hasta))
+            markup = MarkupQuery(auth_db, markup_filter, _ads_plan(ads_provider, ads_status))
         with timer.stage("flags"):
             events_enabled = settings_store.get_setting("events.enabled").value is True
         listing.bound(db)
@@ -263,6 +323,8 @@ def get_items(
         data_state = status_provider()
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(rows=len(page.items), total=page.total)
+    if ads_status is not None and page.ads_failed:
+        ads_status = ads_status.degraded()
     body: dict[str, Any] = {
         "items": page.items,
         "total": page.total,
@@ -274,6 +336,8 @@ def get_items(
     }
     if facet_counts is not None:
         body["facets"] = facet_counts
+    if ads_status is not None:
+        body["ads"] = _ads_out(ads_status)
     if page.markup_stats is not None:
         body["markup_stats"] = {
             "computed": page.markup_stats.computed,

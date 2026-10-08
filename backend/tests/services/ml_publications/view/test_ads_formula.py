@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from app.services.ml_publications.view.ads import (
@@ -14,6 +16,7 @@ from app.services.ml_publications.view.ads import (
     ads_row,
     apply_ads,
     get_ads_provider,
+    resolve_ads,
 )
 from app.services.ml_publications.view.markup import REASON_OK, UnitMarkup, aggregate_publication
 
@@ -117,7 +120,57 @@ class TestProvider:
         provider = get_ads_provider()
         assert isinstance(provider, UnavailableAdsProvider)
         assert provider.availability() is AdsAvailability.UNAVAILABLE
-        assert provider.amounts(["MLA1"]) == {}
+        assert provider.amounts(["MLA1"], date(2026, 9, 1), date(2026, 9, 30)) == {}
+        assert provider.amounts(None, date(2026, 9, 1), date(2026, 9, 30)) == {}
+
+
+class TestResolveAds:
+    D1, D2 = date(2026, 9, 1), date(2026, 9, 30)
+
+    class Provider:
+        def __init__(self, availability=AdsAvailability.AVAILABLE, boom=False) -> None:
+            self._availability, self._boom = availability, boom
+
+        def availability(self):
+            if self._boom:
+                raise RuntimeError("down")
+            return self._availability
+
+    def test_an_unavailable_provider_is_reported_and_never_applied(self) -> None:
+        status = resolve_ads(
+            self.Provider(AdsAvailability.UNAVAILABLE), requested=True, date_from=self.D1, date_to=self.D2
+        )
+        assert (status.available, status.reason, status.requested, status.applied) == (
+            False,
+            "provider_missing",
+            True,
+            False,
+        )
+
+    def test_an_available_provider_is_applied_only_when_asked_for_with_a_period(self) -> None:
+        provider = self.Provider()
+        applied = resolve_ads(provider, requested=True, date_from=self.D1, date_to=self.D2)
+        assert (applied.available, applied.applied, applied.date_from, applied.date_to) == (
+            True,
+            True,
+            self.D1,
+            self.D2,
+        )
+        assert resolve_ads(provider, requested=False, date_from=self.D1, date_to=self.D2).applied is False
+        assert resolve_ads(provider, requested=True, date_from=None, date_to=None).applied is False
+
+    def test_a_provider_that_raises_is_a_provider_that_is_not_there(self) -> None:
+        status = resolve_ads(self.Provider(boom=True), requested=True, date_from=self.D1, date_to=self.D2)
+        assert (status.available, status.reason, status.applied) == (False, "provider_error", False)
+
+    def test_degrading_after_the_fact_keeps_what_was_asked(self) -> None:
+        status = resolve_ads(self.Provider(), requested=True, date_from=self.D1, date_to=self.D2).degraded()
+        assert (status.available, status.reason, status.requested, status.applied) == (
+            False,
+            "provider_error",
+            True,
+            False,
+        )
 
 
 def test_every_allowed_formula_name_has_an_implementation_and_vice_versa() -> None:

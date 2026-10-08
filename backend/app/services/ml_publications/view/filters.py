@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import Interval, and_, case, exists, false, func, literal, or_, select, tuple_
@@ -291,6 +291,26 @@ def parse_markup_filter(
     if minimum is not None and maximum is not None and minimum > maximum:
         raise FilterError("markup_min", "must not be greater than markup_max")
     return MarkupFilter(bool(markup_neg), minimum, maximum)
+
+
+def _day(field: str, raw: Optional[str]) -> Optional[date]:
+    token = (raw or "").strip()
+    if not token:
+        return None
+    try:
+        return date.fromisoformat(token)
+    except ValueError:
+        raise FilterError(field, f"{token!r} is not a date (YYYY-MM-DD)") from None
+
+
+def parse_ads_period(ads_desde: Optional[str], ads_hasta: Optional[str]) -> tuple[Optional[date], Optional[date]]:
+    """The period whose Ads cost is spread over the units sold in it: both ends or neither, first <= last."""
+    first, last = _day("ads_desde", ads_desde), _day("ads_hasta", ads_hasta)
+    if (first is None) != (last is None):
+        raise FilterError("ads_hasta" if last is None else "ads_desde", "give both ads_desde and ads_hasta")
+    if first is not None and last is not None and first > last:
+        raise FilterError("ads_desde", "must not be after ads_hasta")
+    return first, last
 
 
 # --- the base select ----------------------------------------------------------------------------------------

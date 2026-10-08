@@ -65,6 +65,7 @@ class ItemsPage:
     items: list[dict[str, Any]]
     total: int
     markup_stats: Optional[MarkupStats] = None
+    ads_failed: bool = False  # the Ads provider raised while pricing this page: the figures are the plain markup
 
 
 def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
@@ -240,7 +241,7 @@ def markup_out(item: ItemMarkup) -> dict[str, Any]:
     """The `markup` block of a row: range, worst variation, any-negative, why it has no value and how many
     variations are unpriced. Display values (2 decimals); sorting and filtering use the exact figures."""
     m = item.markup
-    return {
+    out: dict[str, Any] = {
         "min": _round(m.value_min),
         "max": _round(m.value_max),
         "worst": _round(m.worst),
@@ -248,6 +249,14 @@ def markup_out(item: ItemMarkup) -> dict[str, Any]:
         "reason": m.reason,
         "partial": m.partial,
     }
+    if item.ads is not None:
+        out["ads"] = {
+            "state": item.ads.state,
+            "amount": item.ads.amount,
+            "units": item.ads.units,
+            "per_unit": item.ads.per_unit,
+        }
+    return out
 
 
 def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarkup]) -> None:
@@ -270,7 +279,7 @@ def _list_by_markup(
 ) -> ItemsPage:
     """Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4): price it once, order
     and filter in Python, then read only the page's rows (by id) from the database. A fixed number of statements."""
-    result = compute_markups(db, markup.pricing_db, f=f)
+    result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
     if sort.key == SORT_MARKUP:
         ordered = _worst_first(result.items, sort.descending)
     else:
@@ -284,12 +293,12 @@ def _list_by_markup(
     total = len(wanted)
     page_ids = wanted[offset : offset + limit]
     if not page_ids:
-        return ItemsPage([], total, result.stats)
+        return ItemsPage([], total, result.stats, result.ads_failed)
     rows = db.execute(build_base_select(f, *_row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text)))))
     by_id = {row.item_id: row for row in rows}
     items = _assemble(db, [by_id[i] for i in page_ids if i in by_id], events)
     _attach_markup(items, result.items)
-    return ItemsPage(items, total, result.stats)
+    return ItemsPage(items, total, result.stats, result.ads_failed)
 
 
 def list_items(
@@ -314,16 +323,16 @@ def list_items(
         raise FilterError("orden", "markup requires the ml_metricas.ver_ganancia permission")
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
-        return ItemsPage([], total)
+        return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
     rows = db.execute(
         build_base_select(f, *_row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)
     ).all()
     items = _assemble(db, rows, events)
     if markup is None:
         return ItemsPage(items, total)
-    result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows])
+    result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
     _attach_markup(items, result.items)
-    return ItemsPage(items, total, result.stats)
+    return ItemsPage(items, total, result.stats, result.ads_failed)
 
 
 def _grouped(
