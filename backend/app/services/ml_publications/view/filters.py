@@ -306,6 +306,8 @@ def status_value() -> ColumnElement:
 
 
 def link_state() -> ColumnElement:
+    # ponytail: only the item-level link (variation 0) is read, so an item whose links are all per variation
+    # reads `no_evaluado`; the variation sub-rows (P6c) are where those links show up
     return case(
         (T.l.item_id.is_(None), literal("no_evaluado")),
         (T.l.match_status == LINK_CONFLICT, literal("conflicto")),
@@ -363,6 +365,8 @@ def _search(term: SearchTerm) -> ColumnElement:
             same(T.p.codigo),
             _variation_sku(same),
         )
+    # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
+    # on production is unverified (`scripts/measure_pubml_p5.py --database-url` reports it)
     pattern = f"%{escape_like(term.value)}%"
 
     def contains(column: Any) -> ColumnElement:

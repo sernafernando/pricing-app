@@ -54,6 +54,9 @@ def get_status_provider() -> Callable[[], dict[str, Any]]:
 
 
 class PriceOut(BaseModel):
+    """Amounts are display values (`Numeric(16, 2)`, exact as a float); the markup is computed on the server (P6),
+    never by the screen from these numbers."""
+
     amount: Optional[float] = None
     source: Optional[str] = None
     regular_amount: Optional[float] = None
