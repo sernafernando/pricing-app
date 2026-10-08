@@ -36,7 +36,7 @@ function activateOnKey(event, row, onRowClick) {
   if (event.target !== event.currentTarget) return;
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
-  onRowClick(row);
+  onRowClick(row, event);
 }
 
 const INTERACTIVE = 'button, a, input, select, textarea, label, [role="button"]';
@@ -44,7 +44,7 @@ const INTERACTIVE = 'button, a, input, select, textarea, label, [role="button"]'
 /** A click on a control hosted in a cell belongs to that control, not the row. */
 function activateOnClick(event, row, onRowClick) {
   if (event.target.closest?.(INTERACTIVE)) return;
-  onRowClick(row);
+  onRowClick(row, event);
 }
 
 /** Consecutive columns with the same `group` collapse into one spanning cell. */
@@ -67,7 +67,8 @@ function buildGroups(columns) {
  * @param {(key: string) => void} [props.onSort]
  * @param {(row: object) => number} [props.getRowDepth] Tree depth, default 0.
  * @param {(row: object) => import('react').ReactNode} [props.renderSubRows]
- * @param {(row: object) => void} [props.onRowClick]
+ * @param {(row: object, event: import('react').SyntheticEvent) => void} [props.onRowClick] The event lets a page
+ *   tell a plain click from Ctrl/Cmd+click.
  * @param {string|number} [props.selectedKey]
  * @param {string} [props.offset] CSS length reserved around the table.
  * @param {string} [props.emptyMessage]

@@ -1,0 +1,157 @@
+/* Publicaciones ML -- page layout. Same visual language as Métricas ML:
+   tokens only, one filter card in bands. The table and the (future) detail
+   panel are the kit's `TableShell` / `SplitPanelLayout`. */
+
+.container {
+  padding: var(--spacing-lg);
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.headerLeft {
+  display: flex;
+  flex: 1 1 360px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.headerLeft h1 {
+  margin: 0;
+  font-size: var(--font-2xl);
+  font-weight: var(--font-bold);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--cf-text-primary);
+}
+
+.description {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.headerActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+/* ── Filter card ── */
+
+.filterCard {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.filterBand {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--spacing-lg);
+  padding: var(--space-3) var(--spacing-md);
+}
+
+.filterBand + .filterBand {
+  border-top: 1px solid var(--ventas-divider);
+}
+
+.searchSlot {
+  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 420px;
+}
+
+.filterGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filterLabel {
+  flex-shrink: 0;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+/* ── Errors ── */
+
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+}
+
+.errorText {
+  flex: 1 1 auto;
+}
+
+/* ── Table area ── */
+
+.listArea[aria-busy='true'] {
+  opacity: 0.6;
+  transition: opacity 120ms ease-out;
+}
+
+.pager {
+  margin-top: var(--spacing-md);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.skeletonRow {
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-hover);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonRow {
+    animation: none;
+  }
+}

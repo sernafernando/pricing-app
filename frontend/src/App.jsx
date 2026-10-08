@@ -53,6 +53,7 @@ const MLQuestions = lazy(() => import('./pages/MLQuestions'));
 const DivergenciasML = lazy(() => import('./pages/DivergenciasML'));
 const VentasML = lazy(() => import('./pages/VentasML'));
 const MetricasML = lazy(() => import('./pages/MetricasML'));
+const PublicacionesML = lazy(() => import('./pages/PublicacionesML'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
 const Traza = lazy(() => import('./pages/Traza'));
 const FreeShippingAlerts = lazy(() => import('./pages/FreeShippingAlerts'));
@@ -148,6 +149,8 @@ const protectedRoutes = [
   { path: '/ml-preguntas', component: MLQuestions, permiso: 'ml_bot.ver' },
   { path: '/ml-ventas-divergencias', component: DivergenciasML, permiso: 'ml_ops.ver' },
   { path: '/ml-ventas-listado', component: VentasML, permiso: 'ml_ops.ver' },
+  // Hidden until go-live: reachable by URL only (no Sidebar item, SmartRedirect entry or novedad yet).
+  { path: '/ml-publicaciones', component: PublicacionesML, permiso: 'ml_ops.ver' },
   { path: '/consultas/ranking', component: ConsultasRanking, permisos: ['consultas.ver_ranking', 'consultas.ver_mi_ranking'] },
   { path: '/traza', component: Traza, permiso: 'traza.ver' },
   { path: '/free-shipping-alerts', component: FreeShippingAlerts, permiso: 'alertas.ver_free_shipping' },

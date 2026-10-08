@@ -4,7 +4,7 @@
  * scroller" is proved in real Chromium by `src/test/visual/kit.visual.test.jsx`.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TableShell from './TableShell';
 
@@ -166,7 +166,16 @@ describe('row interaction', () => {
     expect(rows[2]).toHaveAttribute('data-selected');
     expect(rows[1]).not.toHaveAttribute('aria-current');
     await userEvent.click(screen.getByText('Router AX'));
-    expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
+    expect(onRowClick).toHaveBeenCalledWith(ROWS[0], expect.objectContaining({ type: 'click' }));
+  });
+
+  it('hands the click event over, so a page can tell Ctrl/Cmd+click from a plain click', async () => {
+    const onRowClick = vi.fn();
+    renderShell({ onRowClick });
+    fireEvent.click(screen.getByText('Router AX'), { ctrlKey: true });
+    expect(onRowClick.mock.calls.at(-1)[1].ctrlKey).toBe(true);
+    await userEvent.click(screen.getByText('Router AX'));
+    expect(onRowClick.mock.calls.at(-1)[1].ctrlKey).toBe(false);
   });
 
   it('never uses aria-selected (invalid on a plain table row)', () => {
@@ -181,7 +190,7 @@ describe('row interaction', () => {
     expect(row).toHaveAttribute('tabindex', '0');
     row.focus();
     await userEvent.keyboard('{Enter}');
-    expect(onRowClick).toHaveBeenLastCalledWith(ROWS[0]);
+    expect(onRowClick).toHaveBeenLastCalledWith(ROWS[0], expect.objectContaining({ type: 'keydown' }));
     await userEvent.keyboard(' ');
     expect(onRowClick).toHaveBeenCalledTimes(2);
   });

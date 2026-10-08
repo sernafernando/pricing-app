@@ -77,4 +77,10 @@ describe('Pagination', () => {
     expect(screen.getByText('Mostrando 1–50 de 471 productos')).toBeInTheDocument();
     expect(screen.queryByText(/ventas/)).not.toBeInTheDocument();
   });
+
+  it('offers the page sizes the screen allows when it passes its own list', () => {
+    setup({ pageSizeOptions: [25, 50, 100] });
+    const options = screen.getAllByRole('option').map((o) => Number(o.textContent));
+    expect(options).toEqual([25, 50, 100]);
+  });
 });

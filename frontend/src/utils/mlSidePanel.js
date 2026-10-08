@@ -14,6 +14,26 @@ export function buildMlSaleUrl(packId, orderId) {
   return `https://vendedores.mercadolibre.com.ar/ventas/${id}/detalle`;
 }
 
+const ML_HOST = 'mercadolibre.com.ar';
+
+/**
+ * A publication's own permalink, only when it is an https URL on
+ * mercadolibre.com.ar (or one of its subdomains, e.g. `articulo.`). The
+ * permalink comes from ML's payload; anything else (other host, other
+ * scheme, garbage) is not handed to the side panel or to `window.open`.
+ */
+export function buildMlItemUrl(permalink) {
+  if (!permalink) return null;
+  let url;
+  try {
+    url = new URL(permalink);
+  } catch {
+    return null;
+  }
+  const hostOk = url.hostname === ML_HOST || url.hostname.endsWith(`.${ML_HOST}`);
+  return url.protocol === 'https:' && hostOk ? permalink : null;
+}
+
 export function isMlPanelAvailable() {
   return document.documentElement.dataset.mlPanel === '1';
 }

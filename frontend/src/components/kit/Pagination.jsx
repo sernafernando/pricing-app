@@ -5,9 +5,10 @@ import styles from './Pagination.module.css';
  * Numbered pager + rows-per-page selector for the Ventas ML list.
  * Controlled: the page owns `offset`/`pageSize` (they drive the request).
  * `summary` replaces the "mostrando a-b de N ventas" line for a screen that
- * counts something else (Métricas ML counts products).
+ * counts something else (Métricas ML counts products). `pageSizeOptions`
+ * narrows the selector for a backend with a lower cap (Publicaciones ML: 100).
  */
-export default function Pagination({ total, offset, pageSize, onOffsetChange, onPageSizeChange, summary }) {
+export default function Pagination({ total, offset, pageSize, onOffsetChange, onPageSizeChange, summary, pageSizeOptions = PAGE_SIZE_OPTIONS }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.floor(offset / pageSize) + 1;
   const rangeFrom = total === 0 ? 0 : offset + 1;
@@ -61,7 +62,7 @@ export default function Pagination({ total, offset, pageSize, onOffsetChange, on
       <label className={styles.size}>
         Filas por página
         <select value={pageSize} onChange={(e) => onPageSizeChange(Number(e.target.value))}>
-          {PAGE_SIZE_OPTIONS.map((n) => (
+          {pageSizeOptions.map((n) => (
             <option key={n} value={n}>
               {n}
             </option>
