@@ -240,10 +240,11 @@ def _grouped(
     db: Session, f: PublicationFilter, axis: str, key: Any, *, present: bool = False, limit: Optional[int] = None
 ) -> dict:
     """`key -> rows` over the base select without `axis`' own selection, biggest first. `present` drops NULL keys."""
-    query = build_base_select(f, key, func.count().label("n"), skip=axis)
+    count = func.count()
+    query = build_base_select(f, key, count.label("n"), skip=axis)
     if present:
         query = query.where(key.isnot(None))
-    query = query.group_by(key).order_by(text("n DESC"), key)
+    query = query.group_by(key).order_by(count.desc(), key)
     rows = db.execute(query.limit(limit) if limit else query)
     return {name: count for name, count in rows}
 
