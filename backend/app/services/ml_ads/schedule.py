@@ -56,8 +56,7 @@ def run_tick(
     today = now().astimezone(LOCAL_TZ).date()
     result = TickResult()
 
-    advertisers, outcome = ingestion.list_advertisers(client, deadline=deadline, now=now)
-    result.calls += 0 if outcome in (ingestion.DEADLINE_HIT, ingestion.BLOCKED) else 1
+    advertisers, outcome, result.calls = ingestion.list_advertisers(client, deadline=deadline, now=now)
     if outcome is not None:
         return _stopped(result, outcome)
 
@@ -87,7 +86,8 @@ def _next_day(
     first = today - timedelta(days=settings.ML_ADS_RETENTION_DAYS)
     with session_factory() as db:
         for unit in store.open_units(db):
-            if unit not in skipped:
+            # A day of an advertiser ML no longer lists would fail on every run.
+            if unit[0] in advertisers and unit not in skipped:
                 return unit
         have = store.ledgered(db, first, today - timedelta(days=1))
     window = (first + timedelta(days=n) for n in range((today - first).days))

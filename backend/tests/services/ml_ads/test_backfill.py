@@ -137,6 +137,31 @@ class TestBackfillOrder:
         tick = _tick(session_factory, replay, monkeypatch)
         assert (tick.stopped, tick.complete, tick.steps, len(replay.requests)) == ("error", False, [], 1)
 
+    def test_an_empty_advertisers_list_is_a_valid_answer_with_nothing_to_do(
+        self, session_factory, monkeypatch, window
+    ) -> None:
+        window(2)
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()}, advertisers=())
+        tick = _tick(session_factory, replay, monkeypatch)
+        assert (tick.stopped, tick.complete, tick.steps, tick.calls) == (None, True, [], 1)
+
+    def test_an_unauthorized_answer_counts_as_a_call_and_blocks(self, session_factory, monkeypatch, window) -> None:
+        window(2)
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()}, advertisers=(GAUSS,))
+        replay.inject = lambda n, request: httpx.Response(401, json={"message": "invalid token"})
+        tick = _tick(session_factory, replay, monkeypatch)
+        assert (tick.stopped, tick.complete, tick.calls) == ("blocked", True, 1)
+
+    def test_an_open_day_of_an_advertiser_ml_no_longer_lists_is_left_alone(
+        self, session_factory, pg_ads_db, monkeypatch, window
+    ) -> None:
+        window(1)
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()}, advertisers=(GAUSS,))
+        store.start_fetch(pg_ads_db, TPLINK, date(2026, 10, 7), now=replay.clock.now())
+        tick = _tick(session_factory, replay, monkeypatch)
+        assert [(s.advertiser_id, s.outcome) for s in tick.steps] == [(GAUSS, "closed")]
+        assert _ledger(pg_ads_db, TPLINK, date(2026, 10, 7)).status == "fetching"
+
     def test_a_poison_day_does_not_block_the_others(self, session_factory, pg_ads_db, monkeypatch, window) -> None:
         window(2)
         replay = Replay(FakeClock(), {GAUSS: gauss_day()}, advertisers=(GAUSS,))

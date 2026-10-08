@@ -100,19 +100,24 @@ def run_ads_step(
 
 def list_advertisers(
     client: Any, *, deadline: Optional[datetime], now: Callable[[], datetime]
-) -> tuple[list[int], Optional[str]]:
-    """The Product Ads advertisers and `None`, or an empty list and why the run must stop."""
+) -> tuple[list[int], Optional[str], int]:
+    """`(ids, outcome, calls)`: the Product Ads advertisers (possibly none), or why the run must stop.
+
+    A 200 with an empty list is a valid answer (nothing to ingest); only an unreadable one is an `error`.
+    """
     if deadline is not None and now() >= deadline:
-        return [], DEADLINE_HIT
+        return [], DEADLINE_HIT, 0
     request = endpoints.advertisers_request("PADS")
     response = client.get(request.family, request.path, request.params, deadline=deadline, headers=request.headers)
     if response.error == DEADLINE:
-        return [], DEADLINE_HIT
+        return [], DEADLINE_HIT, 0
+    # A refused call (no token) sends nothing; a 401 does go out.
+    calls = 0 if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) else 1
     if outcome := blocking_outcome(response):
-        return [], outcome
-    ok = 200 <= response.status < 300 and response.error is None and isinstance(response.body, Mapping)
-    ids = mapper.parse_advertisers(response.body) if ok else []
-    return ids, (None if ids else ERROR)
+        return [], outcome, calls
+    if 200 <= response.status < 300 and response.error is None and isinstance(response.body, Mapping):
+        return mapper.parse_advertisers(response.body), None, calls
+    return [], ERROR, calls
 
 
 class _DayRun:
