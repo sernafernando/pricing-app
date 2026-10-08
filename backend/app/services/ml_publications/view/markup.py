@@ -35,6 +35,7 @@ REASON_SIN_VINCULO = "sin_vinculo"
 REASON_SIN_COSTO = "sin_costo"
 REASON_SIN_COMISION = "sin_comision"
 REASON_SIN_PRECIO = "sin_precio"
+REASON_ADS_SIN_VENTAS = "ads_sin_ventas"  # Ads cost but no units sold: no per-unit cost to apply
 
 SOURCE_SALE_PRICE = "sale_price"
 SOURCE_ITEM_PRICE = "item_price"
@@ -127,3 +128,59 @@ def unit_markup(ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, flo
     # `calcular_markup` zero-cost branch cannot be reached.
     value = calcular_markup(limpio, costo_ars) * 100
     return UnitMarkup(value, REASON_OK, limpio, costo_ars, price, source, pricelist_id)
+
+
+@dataclass(frozen=True)
+class PublicationMarkup:
+    """Markup of a whole publication: one resolved `UnitMarkup` per variation plus the summary.
+
+    `worst` (the lowest value) drives sorting and `any_negative` drives the negative filter
+    (addendum decision 5). `partial` counts variations without a value when at least one has one.
+    """
+
+    variations: tuple[UnitMarkup, ...]
+    value_min: Optional[float]
+    value_max: Optional[float]
+    worst: Optional[float]
+    any_negative: bool
+    partial: int
+    reason: str
+
+    @property
+    def is_range(self) -> bool:
+        return self.value_min is not None and self.value_min != self.value_max
+
+
+def summarize(variations: Sequence[UnitMarkup]) -> PublicationMarkup:
+    """Range, worst and any-negative over the variations that have a value."""
+    values = [v.value for v in variations if v.value is not None]
+    if not values:
+        concrete = [v.reason for v in variations if v.reason != REASON_SIN_VINCULO]
+        return PublicationMarkup(
+            tuple(variations), None, None, None, False, 0, concrete[0] if concrete else REASON_SIN_VINCULO
+        )
+    return PublicationMarkup(
+        tuple(variations),
+        min(values),
+        max(values),
+        min(values),
+        any(v < 0 for v in values),
+        len(variations) - len(values),
+        REASON_OK,
+    )
+
+
+def aggregate_publication(
+    item_unit: Optional[UnitMarkup], variation_units: Sequence[Optional[UnitMarkup]]
+) -> PublicationMarkup:
+    """Aggregate the variations of one publication.
+
+    `item_unit` is the item-level unit (variation 0) and `variation_units` one entry per variation
+    (`None` when that variation has no link of its own). A variation without its own unit falls
+    back to the item-level one, else it is `sin_vinculo`. With no variations the item-level unit is
+    the whole publication.
+    """
+    unlinked = _unusable(REASON_SIN_VINCULO)
+    if not variation_units:
+        return summarize([item_unit or unlinked])
+    return summarize([own or item_unit or unlinked for own in variation_units])

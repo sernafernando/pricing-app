@@ -2,6 +2,8 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Literal, Optional
 
+from app.core.ads_formulas import ADS_FORMULA_NAMES, DEFAULT_ADS_FORMULA
+
 # Environments where testing affordances (docs, testing-only endpoints) are
 # allowed. CI runs ENVIRONMENT=testing (.github/workflows/ci.yml), local dev
 # runs ENVIRONMENT=development (backend/.env). Production is never in here.
@@ -177,6 +179,8 @@ class Settings(BaseSettings):
     # Share of claim batches that favour the LOW-priority lanes so backfill and
     # sweeps are never starved by live traffic.
     ML_PUB_LOW_LANE_MIN_SHARE: float = Field(default=0.1, gt=0, le=1)
+    # Formula that applies the Ads cost per unit to the publication markup (view/ads.py).
+    ML_PUB_VIEW_ADS_FORMULA: Literal[ADS_FORMULA_NAMES] = DEFAULT_ADS_FORMULA  # type: ignore[valid-type]
     # Sub-resources the refresh handler may fetch; only the item core by default.
     ML_PUB_BUNDLE_RESOURCES: List[str] = Field(default_factory=lambda: ["core"])
     # Intake topic map; only `items` is read by default (design D13).

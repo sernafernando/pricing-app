@@ -252,6 +252,21 @@ class TestFailClosed:
         assert (got.value, got.source) == (2.0, "env")
 
 
+class TestViewAdsFormula:
+    def test_defaults_to_costo_extra(self, settings_db) -> None:
+        got = get_setting("view.ads_formula")
+        assert (got.value, got.source) == ("costo_extra", "env")
+
+    def test_override_is_read_from_the_database(self, settings_db) -> None:
+        set_setting("view.ads_formula", "resta_limpio", updated_by="tester")
+        got = get_setting("view.ads_formula")
+        assert (got.value, got.source) == ("resta_limpio", "db")
+
+    def test_an_unknown_formula_is_rejected_on_write(self, settings_db) -> None:
+        with pytest.raises(ValueError):
+            set_setting("view.ads_formula", "nope", updated_by="tester")
+
+
 class TestInvalidValues:
     @pytest.mark.parametrize(
         ("key", "literal", "expected"),
@@ -261,6 +276,7 @@ class TestInvalidValues:
             ("bundle_resources", "7", ["core"]),
             ("bulk_max_ids", "21", 20),
             ("stock_rate_per_min", "0", 60),
+            ("view.ads_formula", '"nope"', "costo_extra"),
         ],
     )
     def test_invalid_db_value_falls_back_to_env_and_is_logged(

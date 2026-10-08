@@ -52,6 +52,7 @@ def test_numeric_tunables_have_documented_defaults(clean_settings) -> None:
     assert s.ML_PUB_LEASE_SECONDS == 300
     assert s.ML_PUB_MAX_ATTEMPTS == 8
     assert s.ML_PUB_LOW_LANE_MIN_SHARE == 0.1
+    assert s.ML_PUB_VIEW_ADS_FORMULA == "costo_extra"
 
 
 def test_bundle_resources_default_is_core_only(clean_settings) -> None:
@@ -73,5 +74,11 @@ def test_env_overrides_a_default(monkeypatch, clean_settings) -> None:
 
 def test_bulk_max_ids_is_capped_at_the_ml_hard_limit(monkeypatch, clean_settings) -> None:
     monkeypatch.setenv("ML_PUB_BULK_MAX_IDS", "21")
+    with pytest.raises(ValueError):
+        clean_settings()
+
+
+def test_an_unknown_ads_formula_fails_at_startup(monkeypatch, clean_settings) -> None:
+    monkeypatch.setenv("ML_PUB_VIEW_ADS_FORMULA", "nope")
     with pytest.raises(ValueError):
         clean_settings()
