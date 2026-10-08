@@ -8,7 +8,7 @@ import { screen, waitFor, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
 import { publicacionesMlAPI } from '../../services/api';
-import { DETAIL_RESPONSE, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
+import { DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
   default: {
@@ -21,10 +21,15 @@ vi.mock('../../services/api', () => ({
 
 // Everything is allowed except the margin, which each test grants on purpose.
 let canSeeMargin = false;
+let canManage = true;
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: (permiso) => (permiso === 'ml_metricas.ver_ganancia' ? canSeeMargin : true),
+    tienePermiso: (permiso) => {
+      if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
+      if (permiso === 'ml_ops.gestionar') return canManage;
+      return true;
+    },
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -37,6 +42,7 @@ const renderPanel = (props = {}) =>
 
 beforeEach(() => {
   canSeeMargin = false;
+  canManage = true;
   publicacionesMlAPI.detail.mockReset();
   publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_RESPONSE });
 });
@@ -234,5 +240,33 @@ describe('the panel itself', () => {
     rerender(<PublicationPanel itemId="MLA1100000001" tab="resumen" onTabChange={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Resumen' })).toBeInTheDocument());
     expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the footer', () => {
+  it('shows the freshness of the data', async () => {
+    renderPanel();
+    expect(await screen.findByRole('list', { name: 'Actualización de los datos' })).toBeInTheDocument();
+  });
+
+  it('offers "Resincronizar" when the caller may manage the store and the detail allows it', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_RESPONSE_MARGIN });
+    renderPanel();
+    expect(await screen.findByRole('button', { name: 'Resincronizar' })).toBeInTheDocument();
+  });
+
+  it('hides it without ml_ops.gestionar even when the detail allows it (S60.2)', async () => {
+    canManage = false;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_RESPONSE_MARGIN });
+    renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    expect(screen.queryByRole('button', { name: 'Resincronizar' })).not.toBeInTheDocument();
+  });
+
+  it('is not there while loading or after a failure', async () => {
+    publicacionesMlAPI.detail.mockRejectedValue(httpError(500));
+    renderPanel();
+    await screen.findByRole('alert');
+    expect(screen.queryByRole('button', { name: 'Resincronizar' })).not.toBeInTheDocument();
   });
 });

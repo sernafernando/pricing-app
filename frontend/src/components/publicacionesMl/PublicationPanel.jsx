@@ -4,6 +4,7 @@ import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { buildMlItemUrl } from '../../utils/mlSidePanel';
 import PublicationStatusPill from './PublicationStatusPill';
+import PanelFooter from './panel/PanelFooter';
 import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { usePublicationDetail } from './panel/usePublicationDetail';
 import styles from './panel/panel.module.css';
@@ -127,6 +128,8 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
           </div>
         </>
       )}
+
+      {status === 'ready' && <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} />}
     </div>
   );
 }
