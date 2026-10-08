@@ -159,6 +159,7 @@ class ActivityCursorRejected(Exception):
 
 _BILLING_GROUPS = frozenset({"ML", "MP"})
 _PERIOD_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_BILLING_DOCUMENT_TYPES = frozenset({"BILL", "CREDIT_NOTE"})
 _FROM_ID_RE = re.compile(r"^\d{1,20}$")
 
 
@@ -196,6 +197,14 @@ def _validate_period_key(period_key: str) -> str:
     if not isinstance(period_key, str) or not _PERIOD_KEY_RE.match(period_key):
         raise ValueError(f"period_key inválido: {period_key!r} (esperado YYYY-MM-DD)")
     return period_key
+
+
+def _validate_billing_document_type(document_type: str) -> str:
+    """`document_type` goes into the query string the proxy forwards to ML.
+    Closed set, raised BEFORE any HTTP call, like `group` and `period_key`."""
+    if document_type not in _BILLING_DOCUMENT_TYPES:
+        raise ValueError(f"document_type de facturación inválido: {document_type!r} (esperado BILL o CREDIT_NOTE)")
+    return document_type
 
 
 class MLWebhookClient:
@@ -661,36 +670,31 @@ class MLWebhookClient:
             )
             return None
 
-    async def get_billing_documents(self, period_key: str, group: str) -> Optional[Dict]:
-        """Lista los documentos de un período de facturación vía el proxy
-        `billing`. Usado como chequeo de completitud (OBSERVACIÓN, nunca
-        alarma -- investigación §3: `documents.count_details` sumado no
-        coincide con `total` del detalle por una diferencia sin
-        explicar, así que nunca puede bloquear el barrido).
+    async def get_billing_documents(self, period_key: str, group: str, document_type: str = "BILL") -> Optional[Dict]:
+        """Lists the billing documents of a period through the `billing` proxy.
+
+        The request carries `group` and `document_type` as the real captures
+        did (`/documents?group=ML&document_type=CREDIT_NOTE`). Each document's
+        own `count_details` and `amount` are the reference the per-document
+        completeness query compares the persisted detail rows against (BS-3);
+        they are never compared with the details `total`, which is the rows
+        REMAINING after the cursor.
 
         Args:
-            period_key: Clave del período (ej: "2026-09-01").
-            group: `"ML"` o `"MP"`.
-
-        OJO -- ESTE RECURSO NO ESTÁ SCOPEADO POR GRUPO. El path de ML no
-        lleva `group`, así que el conteo abarca TODOS los grupos del
-        período. `group` se sigue validando (llega de un llamador que lo
-        deriva, y validar barato es mejor que confiar) pero NO cambia la
-        respuesta.
-
-        Consecuencia directa: `count_details` NO es comparable contra el
-        `total` de los detalles de un solo grupo. Esa comparación no
-        puede cerrar por construcción, y es candidata a explicar la
-        discrepancia de 329 que la investigación dejó abierta (18.414 de
-        `documents` contra 18.743 del detalle de `group=ML`). Por eso el
-        barrido lo guarda como OBSERVACIÓN y nunca como alarma.
+            period_key: Period key (e.g. "2026-09-01").
+            group: `"ML"` or `"MP"`.
+            document_type: `"BILL"` (default, the pre-2b behaviour) or
+                `"CREDIT_NOTE"`.
 
         Returns:
-            Dict crudo `{documents: [...]}`, o None si hay error/timeout.
+            The raw dict, or None on error/timeout.
         """
         group = _validate_billing_group(group)
         period_key = _validate_period_key(period_key)
-        resource = f"/billing/integration/periods/key/{period_key}/documents?document_type=BILL"
+        document_type = _validate_billing_document_type(document_type)
+        resource = (
+            f"/billing/integration/periods/key/{period_key}/documents?group={group}&document_type={document_type}"
+        )
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(f"{self.base_url}/api/ml/billing", params={"resource": resource})
@@ -698,7 +702,8 @@ class MLWebhookClient:
                 return response.json()
         except Exception as e:
             logger.error(
-                f"Error obteniendo documentos de facturación (period={period_key}, group={group}): {_describe_exc(e)}"
+                f"Error obteniendo documentos de facturación (period={period_key}, group={group}, "
+                f"document_type={document_type}): {_describe_exc(e)}"
             )
             return None
 
