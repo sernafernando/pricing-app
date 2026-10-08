@@ -16,9 +16,10 @@ Rules worth knowing before reading the code:
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import Interval, and_, case, exists, false, func, literal, or_, select, tuple_
@@ -240,6 +241,76 @@ def parse_filter(
         event_types=event_types,
         event_since=_event_since(evento_desde, bool(event_types)),
     )
+
+
+# --- markup filters (applied after the markup is computed, not in SQL) -------------------------------------------
+
+
+@dataclass(frozen=True)
+class MarkupFilter:
+    """`markup_neg` / `markup_min` / `markup_max` (addendum decision 5): ANY variation negative, and a range over
+    the WORST variation. A publication without a markup value matches none of them."""
+
+    negative: bool = False
+    minimum: Optional[float] = None
+    maximum: Optional[float] = None
+
+    @property
+    def active(self) -> bool:
+        return self.negative or self.minimum is not None or self.maximum is not None
+
+    def accepts(self, worst: Optional[float], any_negative: bool) -> bool:
+        if not self.active:
+            return True
+        if worst is None:
+            return False
+        if self.negative and not any_negative:
+            return False
+        if self.minimum is not None and worst < self.minimum:
+            return False
+        return self.maximum is None or worst <= self.maximum
+
+
+def _number(field: str, raw: Optional[str]) -> Optional[float]:
+    token = (raw or "").strip()
+    if not token:
+        return None
+    try:
+        value = float(token)
+    except ValueError:
+        raise FilterError(field, f"{token!r} is not a number") from None
+    if not math.isfinite(value):
+        raise FilterError(field, f"{token!r} is not a finite number")
+    return value
+
+
+def parse_markup_filter(
+    *, markup_neg: Optional[bool] = None, markup_min: Optional[str] = None, markup_max: Optional[str] = None
+) -> MarkupFilter:
+    minimum, maximum = _number("markup_min", markup_min), _number("markup_max", markup_max)
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise FilterError("markup_min", "must not be greater than markup_max")
+    return MarkupFilter(bool(markup_neg), minimum, maximum)
+
+
+def _day(field: str, raw: Optional[str]) -> Optional[date]:
+    token = (raw or "").strip()
+    if not token:
+        return None
+    try:
+        return date.fromisoformat(token)
+    except ValueError:
+        raise FilterError(field, f"{token!r} is not a date (YYYY-MM-DD)") from None
+
+
+def parse_ads_period(ads_desde: Optional[str], ads_hasta: Optional[str]) -> tuple[Optional[date], Optional[date]]:
+    """The period whose Ads cost is spread over the units sold in it: both ends or neither, first <= last."""
+    first, last = _day("ads_desde", ads_desde), _day("ads_hasta", ads_hasta)
+    if (first is None) != (last is None):
+        raise FilterError("ads_hasta" if last is None else "ads_desde", "give both ads_desde and ads_hasta")
+    if first is not None and last is not None and first > last:
+        raise FilterError("ads_desde", "must not be after ads_hasta")
+    return first, last
 
 
 # --- the base select ----------------------------------------------------------------------------------------

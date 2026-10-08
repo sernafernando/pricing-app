@@ -72,6 +72,34 @@ def add_product(
     )
 
 
+PRICING_DDL = (
+    "CREATE TABLE productos_pricing (id serial PRIMARY KEY, item_id integer UNIQUE, precio_lista_ml double precision, "
+    "precio_3_cuotas numeric(15,2), precio_6_cuotas numeric(15,2), precio_9_cuotas numeric(15,2), "
+    "precio_12_cuotas numeric(15,2))"
+)
+
+
+def add_cost(
+    conn,
+    item_id: int,
+    costo: Optional[float],
+    *,
+    moneda_costo: str = "ARS",
+    iva: float = 21.0,
+    envio: float = 0.0,
+) -> None:
+    """The cost fields of an already inserted product."""
+    conn.execute(
+        text("UPDATE productos_erp SET costo = :c, moneda_costo = :m, iva = :iva, envio = :e WHERE item_id = :i"),
+        {"c": costo, "m": moneda_costo, "iva": iva, "e": envio, "i": item_id},
+    )
+
+
+def add_pricing(conn, item_id: int, **prices: Any) -> None:
+    """The Productos list prices (`precio_lista_ml`, `precio_6_cuotas`, ...) of a product."""
+    _insert(conn, "productos_pricing", {"item_id": item_id, **prices})
+
+
 def add_link(
     conn,
     item_id: str,

@@ -17,7 +17,9 @@ No I/O: the provider is a Protocol; the only implementation today says "unavaila
 from __future__ import annotations
 
 import enum
+import logging
 from dataclasses import dataclass, replace
+from datetime import date
 from typing import Callable, Mapping, Optional, Protocol, Sequence
 
 from app.services.ml_publications.view.markup import (
@@ -27,6 +29,8 @@ from app.services.ml_publications.view.markup import (
     UnitMarkup,
     summarize,
 )
+
+logger = logging.getLogger(__name__)
 
 STATE_OK = "ok"
 STATE_SIN_COSTO = "sin_costo"
@@ -43,8 +47,9 @@ class AdsCostProvider(Protocol):
 
     def availability(self) -> AdsAvailability: ...
 
-    def amounts(self, mla_ids: Sequence[str]) -> Mapping[str, float]:
-        """Ads cost of the period by MLA; an MLA without Ads cost is absent."""
+    def amounts(self, mla_ids: Optional[Sequence[str]], date_from: date, date_to: date) -> Mapping[str, float]:
+        """Ads cost by MLA over the business days `[date_from, date_to]`; an MLA without Ads cost is absent.
+        `mla_ids=None` means every MLA that has cost in the period (the set-wide sort)."""
         ...
 
 
@@ -55,13 +60,52 @@ class UnavailableAdsProvider:
     def availability(self) -> AdsAvailability:
         return AdsAvailability.UNAVAILABLE
 
-    def amounts(self, mla_ids: Sequence[str]) -> Mapping[str, float]:
+    def amounts(self, mla_ids: Optional[Sequence[str]], date_from: date, date_to: date) -> Mapping[str, float]:
         return {}
 
 
 def get_ads_provider() -> AdsCostProvider:
     """FastAPI dependency; replaced when the billing provider lands."""
     return UnavailableAdsProvider()
+
+
+REASON_PROVIDER_MISSING = "provider_missing"
+REASON_PROVIDER_ERROR = "provider_error"
+REASON_OK = "ok"
+
+
+@dataclass(frozen=True)
+class AdsStatus:
+    """The `ads` block of a response: whether Ads data exists, whether this request asked for it and whether it
+    was actually applied (only when it exists, was asked for and the period is known). The period the client
+    sent is echoed whether or not Ads could be applied."""
+
+    available: bool
+    reason: str
+    requested: bool
+    applied: bool
+    date_from: Optional[date] = None
+    date_to: Optional[date] = None
+
+    def degraded(self) -> "AdsStatus":
+        """The status after the provider failed while it was being used: nothing was applied."""
+        return AdsStatus(False, REASON_PROVIDER_ERROR, self.requested, False, self.date_from, self.date_to)
+
+
+def resolve_ads(
+    provider: AdsCostProvider, *, requested: bool, date_from: Optional[date], date_to: Optional[date]
+) -> AdsStatus:
+    """Ask the provider if it can serve Ads and decide whether this request applies it. A provider that raises is
+    a provider that is not there: the answer degrades, the request never fails because of Ads."""
+    try:
+        availability = provider.availability()
+    except Exception:
+        logger.warning("ads provider availability failed", exc_info=True)
+        return AdsStatus(False, REASON_PROVIDER_ERROR, requested, False, date_from, date_to)
+    if availability is not AdsAvailability.AVAILABLE:
+        return AdsStatus(False, REASON_PROVIDER_MISSING, requested, False, date_from, date_to)
+    applied = requested and date_from is not None and date_to is not None
+    return AdsStatus(True, REASON_OK, requested, applied, date_from, date_to)
 
 
 def _costo_extra(limpio: float, costo: float, per_unit: float) -> Optional[float]:

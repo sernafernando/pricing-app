@@ -486,10 +486,20 @@ class TestSorting:
         assert ids(run(db, orden="titulo")) == ["MLA2", "MLA1"]
         assert ids(run(db, orden="precio")) == ["MLA1", "MLA2"]
 
-    @pytest.mark.parametrize("params", [{"orden": "markup"}, {"orden": "nope"}, {"dir": "sideways"}])
+    @pytest.mark.parametrize("params", [{"orden": "nope"}, {"dir": "sideways"}])
     def test_an_unknown_sort_or_direction_is_refused(self, params) -> None:
         with pytest.raises(FilterError):
             listing.parse_sort(params.get("orden"), params.get("dir"))
+
+    def test_the_markup_sort_puts_the_worst_first_by_default(self) -> None:
+        assert listing.parse_sort("markup", None) == listing.Sort("markup", descending=False)
+        assert listing.parse_sort("markup", "desc") == listing.Sort("markup", descending=True)
+
+    def test_the_markup_sort_without_the_margin_permission_is_refused_by_the_service_too(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1")
+        with pytest.raises(FilterError) as refused:
+            run(db, orden="markup")
+        assert refused.value.field == "orden"
 
 
 class TestPaging:
