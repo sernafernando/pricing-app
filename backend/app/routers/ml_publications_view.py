@@ -164,6 +164,9 @@ def get_items(
     facets: bool = False,
     user: Usuario = Depends(require_permiso(PERMISO_VER)),
     db: Session = Depends(get_view_db),
+    # The application session, for the permission check. In production it IS `db` (FastAPI caches `get_db`
+    # within a request); it is its own parameter so the permission never rides on the store-tables test seam,
+    # and it works after the `rollback()` below because a new transaction begins on first use.
     auth_db: Session = Depends(get_db),
     status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
 ) -> dict[str, Any]:

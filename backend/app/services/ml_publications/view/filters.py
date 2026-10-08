@@ -36,6 +36,7 @@ from app.models.ml_publications import (
 from app.models.producto import ProductoERP
 
 MAX_Q_LENGTH = 100
+MAX_CSV_VALUES = 50  # a screen selects a handful; a huge IN (...) list is a mistake or abuse
 
 STATUS_VALUES = ("active", "paused", "closed", "under_review", "inactive")
 STATUS_GONE = "gone"  # not an ML status: the item vanished from ML (`gone_at` set)
@@ -145,17 +146,19 @@ def escape_like(text: str) -> str:
 # --- csv params -----------------------------------------------------------------------------------------
 
 
-def _tokens(raw: Optional[str]) -> list[str]:
+def _tokens(raw: Optional[str], field: str) -> list[str]:
     seen: dict[str, None] = {}
     for token in (raw or "").split(","):
         token = token.strip()
         if token:
             seen.setdefault(token)
+    if len(seen) > MAX_CSV_VALUES:
+        raise FilterError(field, f"at most {MAX_CSV_VALUES} values")
     return list(seen)
 
 
 def _vocabulary(field: str, raw: Optional[str], allowed: tuple[str, ...] | frozenset[str]) -> tuple[str, ...]:
-    tokens = _tokens(raw)
+    tokens = _tokens(raw, field)
     unknown = [t for t in tokens if t not in allowed]
     if unknown:
         known = ", ".join(sorted(allowed))
@@ -171,16 +174,16 @@ def _integer(field: str, token: str) -> int:
 
 
 def _integers(field: str, raw: Optional[str]) -> tuple[int, ...]:
-    return tuple(_integer(field, t) for t in _tokens(raw))
+    return tuple(_integer(field, t) for t in _tokens(raw, field))
 
 
 def _store_ids(raw: Optional[str]) -> tuple[tuple[int, ...], bool]:
-    tokens = _tokens(raw)
+    tokens = _tokens(raw, "tiendas")
     return tuple(_integer("tiendas", t) for t in tokens if t != NO_STORE), NO_STORE in tokens
 
 
 def _family(raw: Optional[str]) -> Optional[int]:
-    tokens = _tokens(raw)
+    tokens = _tokens(raw, "familia")
     if not tokens:
         return None
     if len(tokens) > 1:
@@ -226,8 +229,8 @@ def parse_filter(
         status_exclude=_vocabulary("estado_excluir", estado_excluir, status_vocabulary),
         stores=stores,
         no_store=no_store,
-        marcas=tuple(_tokens(marcas)),
-        categorias=tuple(_tokens(categorias)),
+        marcas=tuple(_tokens(marcas, "marcas")),
+        categorias=tuple(_tokens(categorias, "categorias")),
         subcategorias=_integers("subcategorias", subcategorias),
         pms=_integers("pms", pms),
         family_id=_family(familia),

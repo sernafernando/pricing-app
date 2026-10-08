@@ -144,6 +144,22 @@ class TestCsvParams:
         assert caught.value.field == param
 
 
+class TestCsvSize:
+    def test_a_csv_param_takes_at_most_fifty_values(self) -> None:
+        fifty = ",".join(f"B{n}" for n in range(50))
+        assert len(parse_filter(marcas=fifty).marcas) == 50
+        with pytest.raises(FilterError) as caught:
+            parse_filter(marcas=fifty + ",B50")
+        assert caught.value.field == "marcas" and "50" in caught.value.message
+
+    @pytest.mark.parametrize("param", ["categorias", "subcategorias", "pms", "tiendas"])
+    def test_every_free_csv_param_has_the_cap(self, param: str) -> None:
+        too_many = ",".join(str(n) for n in range(51))
+        with pytest.raises(FilterError) as caught:
+            parse_filter(**{param: too_many})
+        assert caught.value.field == param
+
+
 class TestEventFilter:
     def test_every_real_event_type_is_accepted(self) -> None:
         assert "price_changed" in EVENT_TYPES and "item_restored" in EVENT_TYPES
