@@ -134,9 +134,12 @@ class TestCsvParams:
     @pytest.mark.parametrize("param", ["producto", "familia", "subcategorias", "pms", "tiendas"])
     def test_an_id_beyond_the_database_integer_range_is_a_422_not_a_server_error(self, param: str) -> None:
         assert parse_filter(**{param: "9223372036854775807"})  # the largest bigint is still an id
+        assert parse_filter(**{param: "-9223372036854775808"})  # and so is the smallest
         with pytest.raises(FilterError) as caught:
             parse_filter(**{param: "9223372036854775808"})
         assert caught.value.field == param and "range" in caught.value.message
+        with pytest.raises(FilterError):
+            parse_filter(**{param: "-9223372036854775809"})
 
     def test_pms_are_numeric_user_ids(self) -> None:
         assert parse_filter(pms="7,9").pms == (7, 9)

@@ -52,6 +52,13 @@ class TestPermission:
         response = get(client, auth_headers)
         assert response.status_code == 403 and VER in response.json()["error"]["message"]
 
+    def test_who_may_ask_is_decided_before_what_is_asked(self, client, pg, auth_headers) -> None:
+        bad = {"estado": "bogus"}  # a 422 on its own
+        assert client.get(URL, params=bad).status_code in (401, 403)
+        assert get(client, auth_headers, **bad).status_code == 403
+        assert client.get(ITEMS_URL, params=bad).status_code in (401, 403)
+        assert get_items(client, auth_headers, **bad).status_code == 403
+
     def test_the_router_has_exactly_the_groups_read_added(self) -> None:
         paths = {r.path for r in ml_publications_view.router.routes if "/groups" in r.path}
         assert paths == {"/ml-publications/view/groups"}

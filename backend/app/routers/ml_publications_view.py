@@ -34,6 +34,7 @@ from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, ge
 from app.services.ml_publications.view.filters import (
     FilterError,
     MarkupFilter,
+    PublicationFilter,
     parse_ads_period,
     parse_filter,
     parse_markup_filter,
@@ -296,6 +297,49 @@ def _database_error(exc: DBAPIError) -> Optional[Exception]:
     return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá.")
 
 
+def filter_query(
+    q: Optional[str] = Query(None, description="MLA id / digits (exact), else substring of title, SKU, product"),
+    estado: Optional[str] = Query(None, description="csv of active,paused,closed,under_review,inactive,gone"),
+    estado_excluir: Optional[str] = None,
+    tiendas: Optional[str] = Query(None, description="csv of official_store_id, or `none`"),
+    marcas: Optional[str] = Query(None, description="csv of brands; `__none__` = no brand"),
+    categorias: Optional[str] = Query(None, description="csv of categories; `__none__` = no category"),
+    subcategorias: Optional[str] = Query(None, description="csv of subcategory ids; `__none__` = none"),
+    pms: Optional[str] = None,
+    familia: Optional[str] = None,
+    producto: Optional[str] = Query(None, description="one product id (the publications of a tree node)"),
+    sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
+    tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
+    vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
+    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock"),
+    evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
+    evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
+) -> PublicationFilter:
+    """The filters every read of the screen shares (`/items` and `/groups`): one declaration, so a filter added here
+    reaches both. A value outside its vocabulary is a 422 naming the parameter."""
+    try:
+        return parse_filter(
+            q=q,
+            estado=estado,
+            estado_excluir=estado_excluir,
+            tiendas=tiendas,
+            marcas=marcas,
+            categorias=categorias,
+            subcategorias=subcategorias,
+            pms=pms,
+            familia=familia,
+            producto=producto,
+            sin_producto=sin_producto,
+            tipo=tipo,
+            vinculo=vinculo,
+            stock=stock,
+            evento=evento,
+            evento_desde=evento_desde,
+        )
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+
+
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:
     """Whether Ads can and will be applied to this request. Subtracting Ads needs the period, but only when there
     is Ads data to subtract: while the provider is unavailable the request is ignored and reported."""
@@ -329,22 +373,8 @@ def _ads_out(status_: AdsStatus) -> dict[str, Any]:
 @router.get("/items", response_model=ItemsResponse, response_model_exclude_unset=True)
 def get_items(
     response: Response,
-    q: Optional[str] = Query(None, description="MLA id / digits (exact), else substring of title, SKU, product"),
-    estado: Optional[str] = Query(None, description="csv of active,paused,closed,under_review,inactive,gone"),
-    estado_excluir: Optional[str] = None,
-    tiendas: Optional[str] = Query(None, description="csv of official_store_id, or `none`"),
-    marcas: Optional[str] = None,
-    categorias: Optional[str] = None,
-    subcategorias: Optional[str] = None,
-    pms: Optional[str] = None,
-    familia: Optional[str] = None,
-    producto: Optional[str] = Query(None, description="one product id (a tree node's publications)"),
-    sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
-    tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
-    vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
-    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock"),
-    evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
-    evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
     orden: Optional[str] = Query(
         None, description="actividad (default), precio, titulo, stock_full, actualizado, markup (ver_ganancia)"
     ),
@@ -362,7 +392,6 @@ def get_items(
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
     facets: bool = False,
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
     db: Session = Depends(get_view_db),
     # The application session, for the permission check. In production it IS `db` (FastAPI caches `get_db`
     # within a request); it is its own parameter so the permission never rides on the store-tables test seam,
@@ -388,24 +417,6 @@ def get_items(
             f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar o filtrar por markup",
         )
     try:
-        f = parse_filter(
-            q=q,
-            estado=estado,
-            estado_excluir=estado_excluir,
-            tiendas=tiendas,
-            marcas=marcas,
-            categorias=categorias,
-            subcategorias=subcategorias,
-            pms=pms,
-            familia=familia,
-            producto=producto,
-            sin_producto=sin_producto,
-            tipo=tipo,
-            vinculo=vinculo,
-            stock=stock,
-            evento=evento,
-            evento_desde=evento_desde,
-        )
         sort = listing.parse_sort(orden, direction)
         markup, ads_status = None, None
         if can_see_margin:
@@ -476,27 +487,12 @@ def _node_out(node: groups.Node) -> dict[str, Any]:
 @router.get("/groups", response_model=GroupsResponse, response_model_exclude_unset=True)
 def get_groups(
     response: Response,
-    q: Optional[str] = Query(None, description="MLA id / digits (exact), else substring of title, SKU, product"),
-    estado: Optional[str] = Query(None, description="csv of active,paused,closed,under_review,inactive,gone"),
-    estado_excluir: Optional[str] = None,
-    tiendas: Optional[str] = Query(None, description="csv of official_store_id, or `none`; a filter, not a level"),
-    marcas: Optional[str] = None,
-    categorias: Optional[str] = None,
-    subcategorias: Optional[str] = None,
-    pms: Optional[str] = None,
-    familia: Optional[str] = None,
-    producto: Optional[str] = None,
-    sin_producto: Optional[bool] = None,
-    tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
-    vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
-    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock"),
-    evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
-    evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
     path: Optional[str] = Query(None, description="csv of the keys of the opened node, root first; empty = roots"),
     familias: bool = Query(False, description="family nodes between a product and its publications"),
     limit: int = Query(groups.DEFAULT_LIMIT, ge=1, le=groups.MAX_LIMIT),
     offset: int = Query(0, ge=0),
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
     db: Session = Depends(get_view_db),
 ) -> dict[str, Any]:
     """The children of one node of the Agrupado tree, a page of them, with their publication counts. The counts
@@ -504,24 +500,6 @@ def get_groups(
     timer = Timer("groups")
     keys = [key.strip() for key in (path or "").split(",") if key.strip()]
     try:
-        f = parse_filter(
-            q=q,
-            estado=estado,
-            estado_excluir=estado_excluir,
-            tiendas=tiendas,
-            marcas=marcas,
-            categorias=categorias,
-            subcategorias=subcategorias,
-            pms=pms,
-            familia=familia,
-            producto=producto,
-            sin_producto=sin_producto,
-            tipo=tipo,
-            vinculo=vinculo,
-            stock=stock,
-            evento=evento,
-            evento_desde=evento_desde,
-        )
         if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)

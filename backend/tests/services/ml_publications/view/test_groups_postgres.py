@@ -223,6 +223,20 @@ class TestFamilies:
             None,
         )
 
+    def test_an_mla_is_labelled_with_its_title_even_when_its_family_has_a_name(self, conn, db) -> None:
+        seed.add_product(conn, 90, "F1", "Producto F", marca="Zeta", categoria="Z", subcategoria_id=1)
+        seed.add_item(
+            conn, "MLA30", title="Titulo propio", family_id=902, family_name="Nombre de familia", status="active"
+        )
+        seed.add_link(conn, "MLA30", 90)
+        seed.add_item(conn, "MLA31", title="Otro", family_id=903, family_name=None, status="active")
+        seed.add_item(conn, "MLA32", title="Hermano", family_id=903, family_name=None, status="active")
+        seed.add_link(conn, "MLA31", 90)
+        seed.add_link(conn, "MLA32", 90)
+        nodes = {n.key: n for n in tree(db, "ZETA", "Z", "1", "90", familias=True).nodes}
+        assert nodes["MLA30"].label == "Titulo propio" and nodes["MLA30"].kind == "item"
+        assert (nodes["903"].kind, nodes["903"].label, nodes["903"].count) == ("familia", "Familia 903", 2)
+
     def test_a_family_shared_with_another_product_is_split_by_product(self, conn, db) -> None:
         seed_catalog(conn)
         # MLA7 (unlinked) is in family 900 too, but under "Sin producto", not under product 70
@@ -305,6 +319,16 @@ class TestConsistencyWithItems:
             assert node.count == total_of(db, {**user_params, **hand_written}), (node.kind, node.key, user_params)
             checked += 1
         assert checked >= 8  # the walk really visited the tree (a vacuous loop would pass trivially)
+
+    def test_a_name_that_python_and_postgres_upper_case_differently_still_round_trips(self, conn, db) -> None:
+        # Postgres keeps the sharp s (C.UTF-8) where Python would write SS: the filter must not upper-case in Python
+        seed.add_product(conn, 80, "S1", "Masa", marca="Maßstab", categoria="Straße")
+        seed.add_item(conn, "MLA20", title="Masa", status="active")
+        seed.add_link(conn, "MLA20", 80)
+        brand = next(n for n in tree(db).nodes if n.label == "Maßstab")
+        assert brand.count == 1 and total_of(db, {"marcas": brand.key}) == 1
+        category = next(n for n in tree(db, brand.key).nodes)
+        assert total_of(db, {"marcas": brand.key, "categorias": category.key}) == category.count == 1
 
     def test_the_children_of_a_node_add_up_to_the_node(self, conn, db) -> None:
         seed_catalog(conn)

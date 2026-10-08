@@ -240,7 +240,14 @@ def _families(db: Session, f: PublicationFilter, path: list[str], limit: int, of
         T.i.title.label("title"),
     ).subquery("rows")
     members = func.count()
-    label = func.coalesce(func.max(rows.c.family_name), func.min(rows.c.title), func.min(rows.c.item_id))
+    # a family is named by its family name; a lone publication by its own title, whatever its family is called
+    label = case(
+        (
+            members >= FAMILY_MIN_SIZE,
+            func.coalesce(func.max(rows.c.family_name), literal("Familia ") + rows.c.fk),
+        ),
+        else_=func.coalesce(func.min(rows.c.title), func.min(rows.c.item_id)),
+    )
     page = db.execute(
         select(rows.c.fk, members, func.min(rows.c.item_id), label)
         .group_by(rows.c.fk)
@@ -256,7 +263,7 @@ def _families(db: Session, f: PublicationFilter, path: list[str], limit: int, of
                 Node(
                     KIND_FAMILY,
                     key,
-                    name or f"Familia {key}",
+                    name,
                     count,
                     True,
                     _params(path, KIND_FAMILY, key),
@@ -265,9 +272,7 @@ def _families(db: Session, f: PublicationFilter, path: list[str], limit: int, of
             )
         else:
             nodes.append(
-                Node(
-                    KIND_ITEM, item_id, name or item_id, count, True, _params(path, KIND_ITEM, item_id), item_id=item_id
-                )
+                Node(KIND_ITEM, item_id, name, count, True, _params(path, KIND_ITEM, item_id), item_id=item_id)
             )
     return GroupsPage(KIND_FAMILY, nodes, total)
 

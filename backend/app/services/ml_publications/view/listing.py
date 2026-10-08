@@ -92,8 +92,12 @@ def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
     query, so the router resolves once and `list_items` / `facets` may call it again safely."""
     if not f.pms or f.pm_pairs is not None:
         return f
-    rows = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(f.pms)).all()
-    pairs = {(marca.strip().upper(), categoria.strip().upper()) for marca, categoria in rows if marca and categoria}
+    rows = (
+        db.query(normalized_text(MarcaPM.marca), normalized_text(MarcaPM.categoria))
+        .filter(MarcaPM.usuario_id.in_(f.pms), MarcaPM.marca.isnot(None), MarcaPM.categoria.isnot(None))
+        .all()
+    )
+    pairs = {(marca, categoria) for marca, categoria in rows if marca and categoria}
     return replace(f, pm_pairs=tuple(sorted(pairs)))
 
 

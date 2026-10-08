@@ -38,7 +38,7 @@ from app.models.producto import ProductoERP
 from app.services.ml_daily_metrics.groups import NO_GROUP
 
 MAX_Q_LENGTH = 100
-MAX_ID = 2**63 - 1  # the largest id the database can hold (bigint): anything above is a mistake, not a miss
+MIN_ID, MAX_ID = -(2**63), 2**63 - 1  # what the database can hold (bigint): anything beyond is a mistake, not a miss
 MAX_CSV_VALUES = 50  # a screen selects a handful; a huge IN (...) list is a mistake or abuse
 
 STATUS_VALUES = ("active", "paused", "closed", "under_review", "inactive")
@@ -110,7 +110,7 @@ class PublicationFilter:
     subcategorias: tuple[int, ...] = ()
     no_subcategoria: bool = False  # `__none__` among the subcategories: the products with no subcategory
     pms: tuple[int, ...] = ()
-    # (marca, categoria) pairs of `pms`, trimmed and upper-cased; resolved against the database by `listing.resolve_pm_pairs`.
+    # (marca, categoria) pairs of `pms`, trimmed and upper-cased (by the database); resolved against the database by `listing.resolve_pm_pairs`.
     # `None` while unresolved; an empty tuple means the PMs own no pair, which matches nothing.
     pm_pairs: Optional[tuple[tuple[str, str], ...]] = None
     family_id: Optional[int] = None
@@ -178,7 +178,7 @@ def _integer(field: str, token: str) -> int:
         value = int(token)
     except ValueError:
         raise FilterError(field, f"{token!r} is not a number") from None
-    if abs(value) > MAX_ID:
+    if not MIN_ID <= value <= MAX_ID:
         raise FilterError(field, f"{token!r} is out of range")
     return value
 
@@ -518,7 +518,9 @@ def normalized_text(column: Any) -> ColumnElement:
 def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
     """`marcas` / `categorias`: the value as the tree keys it (trimmed, upper-cased; `NO_GROUP` for none), so the
     node of a brand and the filter that lists its publications agree on which rows they mean."""
-    values = [w.strip().upper() for w in wanted if w != NO_GROUP]
+    # upper-cased by the database too, never by Python: the two disagree on some letters (the sharp s), and the
+    # tree's keys come from the database
+    values = [normalized_text(literal(w)) for w in wanted if w != NO_GROUP]
     parts = []
     if values:
         parts.append(normalized_text(column).in_(values))

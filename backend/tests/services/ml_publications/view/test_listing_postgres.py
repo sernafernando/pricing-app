@@ -474,6 +474,13 @@ class TestProductManagerFilter:
         seed.add_link(conn, "MLA5", 73)
         assert ids(run(db, pms="8")) == ["MLA5"]  # a padded assignment row matches the trimmed key as well
 
+    def test_a_name_that_python_and_postgres_upper_case_differently_still_matches_its_pair(self, conn, db) -> None:
+        conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('Maßstab', 'Straße', 9)"))
+        seed.add_product(conn, 74, "E1", "Masa", marca="Maßstab", categoria="Straße")
+        seed.add_item(conn, "MLA6")
+        seed.add_link(conn, "MLA6", 74)
+        assert ids(run(db, pms="9")) == ["MLA6"]
+
     def test_a_pm_without_pairs_matches_nothing_never_everything(self, db) -> None:
         page = run(db, pms="99")
         assert (ids(page), page.total) == ([], 0)
