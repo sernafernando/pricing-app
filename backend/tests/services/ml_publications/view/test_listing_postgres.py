@@ -393,6 +393,52 @@ class TestFilters:
         assert sorted(ids(run(db, evento="price_changed,status_paused", evento_desde="24h"))) == ["MLA1", "MLA3"]
 
 
+class TestTreeNodeFilters:
+    """P7a.T4: the filters a node of the Agrupado tree hands to `/items` for its leaves."""
+
+    @pytest.fixture(autouse=True)
+    def rows(self, conn) -> None:
+        seed.add_product(conn, 70, "A1", "Router", marca="TP-Link", categoria="Redes", subcategoria_id=5)
+        seed.add_product(conn, 71, "B1", "Camara", marca=" tp-link ", categoria="redes", subcategoria_id=6)
+        seed.add_product(conn, 72, "C1", "Sin datos")
+        seed.add_item(conn, "MLA1", family_id=900, family_name="F")
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_item(conn, "MLA2")
+        seed.add_link(conn, "MLA2", 71)
+        seed.add_item(conn, "MLA3")  # no link at all
+        seed.add_item(conn, "MLA4")
+        seed.add_link(conn, "MLA4", None, match_status="no_product")
+        seed.add_item(conn, "MLA5")
+        seed.add_link(conn, "MLA5", 72)
+
+    def test_producto_selects_the_publications_of_one_product(self, db) -> None:
+        assert ids(run(db, producto="70")) == ["MLA1"]
+        assert ids(run(db, producto="71")) == ["MLA2"]
+        assert run(db, producto="999").total == 0  # a product that exists nowhere: empty because nothing links to it
+
+    def test_sin_producto_selects_the_publications_with_no_product_whatever_the_reason(self, db) -> None:
+        assert sorted(ids(run(db, sin_producto=True))) == ["MLA3", "MLA4"]
+
+    def test_the_none_key_selects_the_rows_with_no_brand_category_or_subcategory(self, db) -> None:
+        assert sorted(ids(run(db, marcas="__none__"))) == ["MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, categorias="__none__"))) == ["MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, subcategorias="__none__"))) == ["MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, marcas="__none__,TP-LINK"))) == ["MLA1", "MLA2", "MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, subcategorias="5,__none__"))) == ["MLA1", "MLA3", "MLA4", "MLA5"]
+
+    def test_a_brand_matches_its_trimmed_upper_case_key_like_the_tree_builds_it(self, db) -> None:
+        # " tp-link " (padded, lower case) and "TP-Link" are ONE tree node, `TP-LINK`: the filter finds both
+        assert sorted(ids(run(db, marcas="TP-LINK"))) == ["MLA1", "MLA2"]
+        assert sorted(ids(run(db, categorias="REDES"))) == ["MLA1", "MLA2"]
+
+    def test_a_leaf_row_is_dict_equal_to_the_list_row(self, db) -> None:
+        full = {row["item_id"]: row for row in run(db).items}
+        leaf = run(db, producto="70", marcas="TP-LINK", categorias="REDES", subcategorias="5", familia="900")
+        assert [row for row in leaf.items] == [full["MLA1"]]
+        unlinked = run(db, sin_producto=True, marcas="__none__")
+        assert {row["item_id"]: row for row in unlinked.items} == {k: full[k] for k in ("MLA3", "MLA4")}
+
+
 class TestProductManagerFilter:
     @pytest.fixture(autouse=True)
     def rows(self, conn) -> None:

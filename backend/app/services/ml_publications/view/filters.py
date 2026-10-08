@@ -26,6 +26,7 @@ from sqlalchemy import Interval, and_, case, exists, false, func, literal, or_, 
 from sqlalchemy.orm import aliased, join as orm_join
 from sqlalchemy.sql import ColumnElement, Select
 
+from app.services.ml_daily_metrics.groups import NO_GROUP
 from app.models.ml_publications import (
     MlItem,
     MlItemEvent,
@@ -106,11 +107,15 @@ class PublicationFilter:
     marcas: tuple[str, ...] = ()
     categorias: tuple[str, ...] = ()
     subcategorias: tuple[int, ...] = ()
+    no_subcategoria: bool = False  # `__none__` among the subcategories: the products with no subcategory
     pms: tuple[int, ...] = ()
     # (marca, categoria) pairs of `pms`, upper-cased; resolved against the database by `listing.resolve_pm_pairs`.
     # `None` while unresolved; an empty tuple means the PMs own no pair, which matches nothing.
     pm_pairs: Optional[tuple[tuple[str, str], ...]] = None
     family_id: Optional[int] = None
+    # A node of the Agrupado tree (P7a): one linked product, or the publications with no product at all.
+    producto: Optional[int] = None
+    sin_producto: bool = False
     listing: tuple[str, ...] = ()
     link: tuple[str, ...] = ()
     stock: tuple[str, ...] = ()
@@ -183,6 +188,20 @@ def _store_ids(raw: Optional[str]) -> tuple[tuple[int, ...], bool]:
     return tuple(_integer("tiendas", t) for t in tokens if t != NO_STORE), NO_STORE in tokens
 
 
+def _subcategorias(raw: Optional[str]) -> tuple[tuple[int, ...], bool]:
+    tokens = _tokens(raw, "subcategorias")
+    return tuple(_integer("subcategorias", t) for t in tokens if t != NO_GROUP), NO_GROUP in tokens
+
+
+def _producto(raw: Optional[str]) -> Optional[int]:
+    tokens = _tokens(raw, "producto")
+    if not tokens:
+        return None
+    if len(tokens) > 1:
+        raise FilterError("producto", "a single product id")
+    return _integer("producto", tokens[0])
+
+
 def _family(raw: Optional[str]) -> Optional[int]:
     tokens = _tokens(raw, "familia")
     if not tokens:
@@ -214,6 +233,8 @@ def parse_filter(
     subcategorias: Optional[str] = None,
     pms: Optional[str] = None,
     familia: Optional[str] = None,
+    producto: Optional[str] = None,
+    sin_producto: Optional[bool] = None,
     tipo: Optional[str] = None,
     vinculo: Optional[str] = None,
     stock: Optional[str] = None,
@@ -224,6 +245,7 @@ def parse_filter(
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
     stores, no_store = _store_ids(tiendas)
     event_types = _vocabulary("evento", evento, EVENT_TYPES)
+    subcategorias_, no_subcategoria = _subcategorias(subcategorias)
     return PublicationFilter(
         q=normalize_q(q),
         status=_vocabulary("estado", estado, status_vocabulary),
@@ -232,9 +254,12 @@ def parse_filter(
         no_store=no_store,
         marcas=tuple(_tokens(marcas, "marcas")),
         categorias=tuple(_tokens(categorias, "categorias")),
-        subcategorias=_integers("subcategorias", subcategorias),
+        subcategorias=subcategorias_,
+        no_subcategoria=no_subcategoria,
         pms=_integers("pms", pms),
         family_id=_family(familia),
+        producto=_producto(producto),
+        sin_producto=bool(sin_producto),
         listing=_vocabulary("tipo", tipo, LISTING_VALUES),
         link=_vocabulary("vinculo", vinculo, LINK_VALUES),
         stock=_vocabulary("stock", stock, STOCK_VALUES),
@@ -480,6 +505,28 @@ def _stores(f: PublicationFilter) -> ColumnElement:
     return or_(*parts)
 
 
+def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
+    """`marcas` / `categorias`: the value as the tree keys it (trimmed, upper-cased; `NO_GROUP` for none), so the
+    node of a brand and the filter that lists its publications agree on which rows they mean."""
+    normalized = func.upper(func.trim(func.coalesce(column, "")))
+    values = [w.strip().upper() for w in wanted if w != NO_GROUP]
+    parts = []
+    if values:
+        parts.append(normalized.in_(values))
+    if NO_GROUP in wanted:
+        parts.append(normalized == "")
+    return or_(*parts)
+
+
+def _subcategorias_in(f: PublicationFilter) -> ColumnElement:
+    parts = []
+    if f.subcategorias:
+        parts.append(T.p.subcategoria_id.in_(f.subcategorias))
+    if f.no_subcategoria:
+        parts.append(T.p.subcategoria_id.is_(None))
+    return or_(*parts)
+
+
 def _pm(f: PublicationFilter) -> ColumnElement:
     if f.pm_pairs is None:
         raise RuntimeError("`pms` must be resolved to pairs (listing.resolve_pm_pairs) before building the query")
@@ -507,11 +554,15 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if (f.stores or f.no_store) and skip != "stores":
         where.append(_stores(f))
     if f.marcas and skip != "marcas":
-        where.append(func.upper(T.p.marca).in_([m.upper() for m in f.marcas]))
+        where.append(_text_in(T.p.marca, f.marcas))
     if f.categorias:
-        where.append(func.upper(T.p.categoria).in_([c.upper() for c in f.categorias]))
-    if f.subcategorias:
-        where.append(T.p.subcategoria_id.in_(f.subcategorias))
+        where.append(_text_in(T.p.categoria, f.categorias))
+    if f.subcategorias or f.no_subcategoria:
+        where.append(_subcategorias_in(f))
+    if f.producto is not None:
+        where.append(T.p.item_id == f.producto)
+    if f.sin_producto:
+        where.append(T.p.item_id.is_(None))
     if f.pms:
         where.append(_pm(f))
     if f.family_id is not None:

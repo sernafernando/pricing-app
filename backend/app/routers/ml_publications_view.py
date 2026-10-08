@@ -253,6 +253,19 @@ def _timed_out(exc: DBAPIError) -> bool:
     return getattr(exc.orig, "pgcode", None) == QUERY_CANCELED
 
 
+def _unprocessable(exc: FilterError) -> Exception:
+    error = api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, ErrorCode.VALIDATION_ERROR, str(exc))
+    error.detail["field"] = exc.field
+    return error
+
+
+def _database_error(exc: DBAPIError) -> Optional[Exception]:
+    """The 503 a query over `statement_timeout` answers; `None` for any other database error (re-raised)."""
+    if not _timed_out(exc):
+        return None
+    return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá.")
+
+
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:
     """Whether Ads can and will be applied to this request. Subtracting Ads needs the period, but only when there
     is Ads data to subtract: while the provider is unavailable the request is ignored and reported."""
@@ -295,6 +308,8 @@ def get_items(
     subcategorias: Optional[str] = None,
     pms: Optional[str] = None,
     familia: Optional[str] = None,
+    producto: Optional[str] = Query(None, description="one product id (a tree node's publications)"),
+    sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
     tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
     vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
     stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock"),
@@ -353,6 +368,8 @@ def get_items(
             subcategorias=subcategorias,
             pms=pms,
             familia=familia,
+            producto=producto,
+            sin_producto=sin_producto,
             tipo=tipo,
             vinculo=vinculo,
             stock=stock,
@@ -376,14 +393,10 @@ def get_items(
             with timer.stage("facets"):
                 facet_counts = {**listing.facets(db, f), "total": page.total}
     except FilterError as exc:
-        error = api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, ErrorCode.VALIDATION_ERROR, str(exc))
-        error.detail["field"] = exc.field
-        raise error from exc
+        raise _unprocessable(exc) from exc
     except DBAPIError as exc:
-        if _timed_out(exc):
-            raise api_error(
-                status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá."
-            ) from exc
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
@@ -447,14 +460,10 @@ def get_item_variations(
         with timer.stage("variations"):
             found = variations.list_variations(db, item_id, markup)
     except FilterError as exc:
-        error = api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, ErrorCode.VALIDATION_ERROR, str(exc))
-        error.detail["field"] = exc.field
-        raise error from exc
+        raise _unprocessable(exc) from exc
     except DBAPIError as exc:
-        if _timed_out(exc):
-            raise api_error(
-                status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá."
-            ) from exc
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written

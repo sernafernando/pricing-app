@@ -116,6 +116,21 @@ class TestCsvParams:
             parse_filter(subcategorias="x")
         assert caught.value.field == "subcategorias"
 
+    def test_the_none_key_of_a_tree_node_is_accepted_for_brand_category_and_subcategory(self) -> None:
+        f = parse_filter(marcas="__none__", categorias="Redes,__none__", subcategorias="3,__none__")
+        assert f.marcas == ("__none__",) and f.categorias == ("Redes", "__none__")
+        assert f.subcategorias == (3,) and f.no_subcategoria is True
+        assert parse_filter(subcategorias="3").no_subcategoria is False
+
+    def test_producto_is_one_product_id_and_sin_producto_a_flag(self) -> None:
+        assert parse_filter(producto="70").producto == 70
+        assert parse_filter().producto is None and parse_filter().sin_producto is False
+        assert parse_filter(sin_producto=True).sin_producto is True
+        for bad in ("x", "1,2", "__none__"):
+            with pytest.raises(FilterError) as caught:
+                parse_filter(producto=bad)
+            assert caught.value.field == "producto"
+
     def test_pms_are_numeric_user_ids(self) -> None:
         assert parse_filter(pms="7,9").pms == (7, 9)
         with pytest.raises(FilterError):
