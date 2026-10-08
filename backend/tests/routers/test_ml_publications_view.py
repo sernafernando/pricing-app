@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.main import app
+from app.models.comision_config import SubcategoriaGrupo
 from app.models.marca_pm import MarcaPM
 from app.routers import ml_publications_view
 from app.services.ml_publications import settings_store
@@ -41,6 +42,7 @@ def pg(client, request, monkeypatch):
 
     engine = request.getfixturevalue("mlpub_pg")
     ProductoERP.__table__.create(bind=engine)
+    SubcategoriaGrupo.__table__.create(bind=engine)  # the names of the subcategory nodes of the tree
     with engine.begin() as conn:
         conn.execute(text(WORKER_STATE_DDL))
         conn.execute(text(STORES_DDL))

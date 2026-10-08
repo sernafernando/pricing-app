@@ -6,6 +6,9 @@ joins it).
 
 - `GET /ml-publications/view/items` (`ml_ops.ver`): one row per MLA, filters, search, sorts, optional facets and
   the honest-state block. NO PM or sub-PM scoping: the screen is a management tool over every publication.
+- `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree (marca >
+  categoria > subcategoria > producto > [familia]), with the same filters as `/items`; the publications of a leaf node
+  come from `/items` with the node's `params`.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
   422 that names the offending query parameter. Nothing here calls Mercado Libre and nothing writes.
@@ -26,7 +29,7 @@ from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services.ml_publications import admin, settings_store
-from app.services.ml_publications.view import listing, status_block, variations
+from app.services.ml_publications.view import groups, listing, status_block, variations
 from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
 from app.services.ml_publications.view.filters import (
     FilterError,
@@ -246,6 +249,33 @@ class VariationsResponse(BaseModel):
     ads: Optional[VariationsAdsOut] = None  # present only with ml_metricas.ver_ganancia
 
 
+class GroupNodeOut(BaseModel):
+    """One node of the tree. `count` is the `/items` total with `params` (the node's filters, ancestors included, to
+    be put over the user's own); a `leaf` has publications as children. The product, family and item keys appear
+    only on the nodes they describe."""
+
+    kind: str
+    key: str
+    label: str
+    count: int
+    leaf: bool
+    params: dict[str, str]
+    producto_item_id: Optional[int] = None
+    codigo: Optional[str] = None
+    family_id: Optional[int] = None
+    item_id: Optional[str] = None
+
+
+class GroupsResponse(BaseModel):
+    level: str
+    path: list[str]
+    nodes: list[GroupNodeOut]
+    total: int
+    limit: int
+    offset: int
+    familias: bool
+
+
 # ── Reads (ml_ops.ver) ───────────────────────────────────────────
 
 
@@ -426,6 +456,96 @@ def get_items(
             "ms": page.markup_stats.ms,
         }
     return body
+
+
+def _node_out(node: groups.Node) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "kind": node.kind,
+        "key": node.key,
+        "label": node.label,
+        "count": node.count,
+        "leaf": node.leaf,
+        "params": node.params,
+    }
+    for name in ("producto_item_id", "codigo", "family_id", "item_id"):
+        if getattr(node, name) is not None:
+            out[name] = getattr(node, name)
+    return out
+
+
+@router.get("/groups", response_model=GroupsResponse, response_model_exclude_unset=True)
+def get_groups(
+    response: Response,
+    q: Optional[str] = Query(None, description="MLA id / digits (exact), else substring of title, SKU, product"),
+    estado: Optional[str] = Query(None, description="csv of active,paused,closed,under_review,inactive,gone"),
+    estado_excluir: Optional[str] = None,
+    tiendas: Optional[str] = Query(None, description="csv of official_store_id, or `none`; a filter, not a level"),
+    marcas: Optional[str] = None,
+    categorias: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    pms: Optional[str] = None,
+    familia: Optional[str] = None,
+    producto: Optional[str] = None,
+    sin_producto: Optional[bool] = None,
+    tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
+    vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
+    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock"),
+    evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
+    evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
+    path: Optional[str] = Query(None, description="csv of the keys of the opened node, root first; empty = roots"),
+    familias: bool = Query(False, description="family nodes between a product and its publications"),
+    limit: int = Query(groups.DEFAULT_LIMIT, ge=1, le=groups.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The children of one node of the Agrupado tree, a page of them, with their publication counts. The counts
+    follow the same filters as `/items` (the store included), and each node's `params` select its publications there."""
+    timer = Timer("groups")
+    keys = [key.strip() for key in (path or "").split(",") if key.strip()]
+    try:
+        f = parse_filter(
+            q=q,
+            estado=estado,
+            estado_excluir=estado_excluir,
+            tiendas=tiendas,
+            marcas=marcas,
+            categorias=categorias,
+            subcategorias=subcategorias,
+            pms=pms,
+            familia=familia,
+            producto=producto,
+            sin_producto=sin_producto,
+            tipo=tipo,
+            vinculo=vinculo,
+            stock=stock,
+            evento=evento,
+            evento_desde=evento_desde,
+        )
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        with timer.stage("groups"):
+            page = groups.list_groups(db, f, keys, familias=familias, limit=limit, offset=offset)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(level=page.level, rows=len(page.nodes), total=page.total)
+    return {
+        "level": page.level,
+        "path": keys,
+        "nodes": [_node_out(node) for node in page.nodes],
+        "total": page.total,
+        "limit": limit,
+        "offset": offset,
+        "familias": familias,
+    }
 
 
 @router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)
