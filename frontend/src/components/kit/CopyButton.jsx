@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Copy, Check } from 'lucide-react';
-import styles from './SaleDetailPanel.module.css';
+import styles from './CopyButton.module.css';
 
 /**
  * Icon button that copies `value` to the clipboard and says so ("Copiado")

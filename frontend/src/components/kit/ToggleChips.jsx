@@ -1,5 +1,5 @@
 import { EyeOff } from 'lucide-react';
-import facetStyles from '../ventasMl/FacetChips.module.css';
+import facetStyles from './FacetChips.module.css';
 import styles from './ToggleChips.module.css';
 
 const INT_FORMAT = new Intl.NumberFormat('es-AR');
