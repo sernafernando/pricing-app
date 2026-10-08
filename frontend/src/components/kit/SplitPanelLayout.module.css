@@ -1,0 +1,51 @@
+/* SplitPanelLayout -- the side panel is a grid COLUMN at every width.
+
+   There is deliberately no `@media` block and no `position: fixed` here:
+   Ventas ML's layout switches to a sheet over the table below 1600px, which
+   is exactly what this component exists NOT to do. The panel column is
+   `min(<token>, 42vw)`, so even at 1000px the table keeps its share and the
+   panel never covers a row. */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--split-panel-gap);
+}
+
+/* Both widths resolve through one custom property so the grid template
+   below is written once. */
+.grid[data-width='md'] {
+  --split-panel-width: var(--split-panel-width-md);
+}
+
+.grid[data-width='lg'] {
+  --split-panel-width: var(--split-panel-width-lg);
+}
+
+.open {
+  grid-template-columns: minmax(0, 1fr) min(var(--split-panel-width), 42vw);
+}
+
+/* `min-width: 0` lets the table's own scroller shrink inside the track
+   instead of stretching the grid past the viewport. */
+.main {
+  min-width: 0;
+}
+
+.panel {
+  position: sticky;
+  /* The TopBar is `position: fixed; top: 0` and sits above the panel, so a
+     sticky offset that ignores it parks the panel header out of sight. */
+  top: calc(var(--cf-topbar-height) + var(--spacing-lg));
+  max-height: calc(100vh - var(--cf-topbar-height) - var(--spacing-lg) * 2);
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--cf-card-shadow);
+  z-index: var(--z-sticky);
+}
