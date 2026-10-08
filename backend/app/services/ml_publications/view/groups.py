@@ -281,6 +281,8 @@ def _families(db: Session, f: PublicationFilter, path: list[str], limit: int, of
     nodes = []
     for key, count, item_id, name in page:
         if count >= FAMILY_MIN_SIZE:
+            # two or more rows share one key only when it is a family id: the fallback key (the item id) is unique and
+            # the base select never repeats a publication, so `int(key)` is safe
             nodes.append(
                 Node(
                     KIND_FAMILY,
