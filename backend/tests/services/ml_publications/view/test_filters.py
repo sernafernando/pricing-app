@@ -15,6 +15,8 @@ from app.services.ml_publications.view.filters import (
     FilterError,
     PublicationFilter,
     SearchTerm,
+    decode_key,
+    encode_key,
     escape_like,
     normalize_q,
     parse_filter,
@@ -115,6 +117,41 @@ class TestCsvParams:
         with pytest.raises(FilterError) as caught:
             parse_filter(subcategorias="x")
         assert caught.value.field == "subcategorias"
+
+    def test_the_none_key_of_a_tree_node_is_accepted_for_brand_category_and_subcategory(self) -> None:
+        f = parse_filter(marcas="__none__", categorias="Redes,__none__", subcategorias="3,__none__")
+        assert f.marcas == ("__none__",) and f.categorias == ("Redes", "__none__")
+        assert f.subcategorias == (3,) and f.no_subcategoria is True
+        assert parse_filter(subcategorias="3").no_subcategoria is False
+
+    def test_producto_is_one_product_id_and_sin_producto_a_flag(self) -> None:
+        assert parse_filter(producto="70").producto == 70
+        assert parse_filter().producto is None and parse_filter().sin_producto is False
+        assert parse_filter(sin_producto=True).sin_producto is True
+        for bad in ("x", "1,2", "__none__"):
+            with pytest.raises(FilterError) as caught:
+                parse_filter(producto=bad)
+            assert caught.value.field == "producto"
+
+    @pytest.mark.parametrize("param", ["producto", "familia", "subcategorias", "pms", "tiendas"])
+    def test_an_id_beyond_the_database_integer_range_is_a_422_not_a_server_error(self, param: str) -> None:
+        assert parse_filter(**{param: "9223372036854775807"})  # the largest bigint is still an id
+        assert parse_filter(**{param: "-9223372036854775808"})  # and so is the smallest
+        with pytest.raises(FilterError) as caught:
+            parse_filter(**{param: "9223372036854775808"})
+        assert caught.value.field == param and "range" in caught.value.message
+        with pytest.raises(FilterError):
+            parse_filter(**{param: "-9223372036854775809"})
+
+    @pytest.mark.parametrize("text", ["AUDIO, VIDEO", "100% PURE", "%2C", "A%252C", ",", "%", "PLAIN", "__none__"])
+    def test_a_key_with_a_comma_or_percent_survives_the_csv_and_decodes_to_itself(self, text: str) -> None:
+        wire = encode_key(text)
+        assert "," not in wire and decode_key(wire) == text
+        assert parse_filter(marcas=wire).marcas == (wire,) and parse_filter(categorias=wire).categorias == (wire,)
+
+    def test_encoding_a_plain_key_changes_nothing(self) -> None:
+        assert encode_key("TP-LINK") == "TP-LINK" and decode_key("TP-LINK") == "TP-LINK"
+        assert encode_key("A,B") == "A%2CB" and encode_key("5%") == "5%25"
 
     def test_pms_are_numeric_user_ids(self) -> None:
         assert parse_filter(pms="7,9").pms == (7, 9)

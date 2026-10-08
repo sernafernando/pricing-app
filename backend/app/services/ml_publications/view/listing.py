@@ -28,8 +28,10 @@ from app.services.ml_publications.view.filters import (
     PublicationFilter,
     T,
     build_base_select,
+    encode_key,
     link_state,
     listing_clauses,
+    normalized_text,
     price_amount,
     status_value,
     stock_clauses,
@@ -85,14 +87,18 @@ def bound(db: Session) -> None:
 
 
 def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
-    """Fill `pm_pairs` from the PMs' (marca, categoria) assignments, the same upper-cased rule as the sales query.
+    """Fill `pm_pairs` from the PMs' (marca, categoria) assignments, trimmed and upper-cased like the tree keys them.
 
     Idempotent: a filter whose pairs are already resolved (or that has no `pms`) comes back as it is, with no
     query, so the router resolves once and `list_items` / `facets` may call it again safely."""
     if not f.pms or f.pm_pairs is not None:
         return f
-    rows = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(f.pms)).all()
-    pairs = {(marca.upper(), categoria.upper()) for marca, categoria in rows if marca and categoria}
+    rows = (
+        db.query(normalized_text(MarcaPM.marca), normalized_text(MarcaPM.categoria))
+        .filter(MarcaPM.usuario_id.in_(f.pms), MarcaPM.marca.isnot(None), MarcaPM.categoria.isnot(None))
+        .all()
+    )
+    pairs = {(marca, categoria) for marca, categoria in rows if marca and categoria}
     return replace(f, pm_pairs=tuple(sorted(pairs)))
 
 
@@ -356,16 +362,17 @@ def _flags(db: Session, f: PublicationFilter, axis: str, clauses: dict) -> dict[
 
 def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
     """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
-    own selection left out (so choosing a value never makes its siblings read zero)."""
+    own selection left out (so choosing a value never makes its siblings read zero). The brand values are keys as
+    the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged."""
     f = resolve_pm_pairs(db, f)
-    brand = func.upper(T.p.marca)
+    brand = func.nullif(normalized_text(T.p.marca), "")  # as the tree keys a brand; none (blank) is not offered
     by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
     by_brand = _grouped(db, f, "marcas", brand, present=True, limit=FACET_MAX_BRANDS)
     return {
         "status": by_status,
         "stores": by_store,
-        "marcas": by_brand,
+        "marcas": {encode_key(name): count for name, count in by_brand.items()},
         "listing": _flags(db, f, "listing", listing_clauses()),
         "link": _grouped(db, f, "link", link_state()),
         "stock": _flags(db, f, "stock", stock_clauses()),

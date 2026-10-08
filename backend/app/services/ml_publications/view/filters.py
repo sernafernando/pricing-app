@@ -35,8 +35,10 @@ from app.models.ml_publications import (
     MlUserProductStock,
 )
 from app.models.producto import ProductoERP
+from app.services.ml_daily_metrics.groups import NO_GROUP
 
 MAX_Q_LENGTH = 100
+MIN_ID, MAX_ID = -(2**63), 2**63 - 1  # what the database can hold (bigint): anything beyond is a mistake, not a miss
 MAX_CSV_VALUES = 50  # a screen selects a handful; a huge IN (...) list is a mistake or abuse
 
 STATUS_VALUES = ("active", "paused", "closed", "under_review", "inactive")
@@ -106,11 +108,16 @@ class PublicationFilter:
     marcas: tuple[str, ...] = ()
     categorias: tuple[str, ...] = ()
     subcategorias: tuple[int, ...] = ()
+    no_subcategoria: bool = False  # `__none__` among the subcategories: the products with no subcategory
     pms: tuple[int, ...] = ()
-    # (marca, categoria) pairs of `pms`, upper-cased; resolved against the database by `listing.resolve_pm_pairs`.
+    # (marca, categoria) pairs of `pms`, trimmed and upper-cased (by the database); resolved against the database
+    # by `listing.resolve_pm_pairs`.
     # `None` while unresolved; an empty tuple means the PMs own no pair, which matches nothing.
     pm_pairs: Optional[tuple[tuple[str, str], ...]] = None
     family_id: Optional[int] = None
+    # A node of the Agrupado tree (P7a): one linked product, or the publications with no product at all.
+    producto: Optional[int] = None
+    sin_producto: bool = False
     listing: tuple[str, ...] = ()
     link: tuple[str, ...] = ()
     stock: tuple[str, ...] = ()
@@ -169,9 +176,12 @@ def _vocabulary(field: str, raw: Optional[str], allowed: tuple[str, ...] | froze
 
 def _integer(field: str, token: str) -> int:
     try:
-        return int(token)
+        value = int(token)
     except ValueError:
         raise FilterError(field, f"{token!r} is not a number") from None
+    if not MIN_ID <= value <= MAX_ID:
+        raise FilterError(field, f"{token!r} is out of range")
+    return value
 
 
 def _integers(field: str, raw: Optional[str]) -> tuple[int, ...]:
@@ -181,6 +191,20 @@ def _integers(field: str, raw: Optional[str]) -> tuple[int, ...]:
 def _store_ids(raw: Optional[str]) -> tuple[tuple[int, ...], bool]:
     tokens = _tokens(raw, "tiendas")
     return tuple(_integer("tiendas", t) for t in tokens if t != NO_STORE), NO_STORE in tokens
+
+
+def _subcategorias(raw: Optional[str]) -> tuple[tuple[int, ...], bool]:
+    tokens = _tokens(raw, "subcategorias")
+    return tuple(_integer("subcategorias", t) for t in tokens if t != NO_GROUP), NO_GROUP in tokens
+
+
+def _producto(raw: Optional[str]) -> Optional[int]:
+    tokens = _tokens(raw, "producto")
+    if not tokens:
+        return None
+    if len(tokens) > 1:
+        raise FilterError("producto", "a single product id")
+    return _integer("producto", tokens[0])
 
 
 def _family(raw: Optional[str]) -> Optional[int]:
@@ -214,6 +238,8 @@ def parse_filter(
     subcategorias: Optional[str] = None,
     pms: Optional[str] = None,
     familia: Optional[str] = None,
+    producto: Optional[str] = None,
+    sin_producto: Optional[bool] = None,
     tipo: Optional[str] = None,
     vinculo: Optional[str] = None,
     stock: Optional[str] = None,
@@ -224,6 +250,7 @@ def parse_filter(
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
     stores, no_store = _store_ids(tiendas)
     event_types = _vocabulary("evento", evento, EVENT_TYPES)
+    subcategorias_, no_subcategoria = _subcategorias(subcategorias)
     return PublicationFilter(
         q=normalize_q(q),
         status=_vocabulary("estado", estado, status_vocabulary),
@@ -232,9 +259,12 @@ def parse_filter(
         no_store=no_store,
         marcas=tuple(_tokens(marcas, "marcas")),
         categorias=tuple(_tokens(categorias, "categorias")),
-        subcategorias=_integers("subcategorias", subcategorias),
+        subcategorias=subcategorias_,
+        no_subcategoria=no_subcategoria,
         pms=_integers("pms", pms),
         family_id=_family(familia),
+        producto=_producto(producto),
+        sin_producto=bool(sin_producto),
         listing=_vocabulary("tipo", tipo, LISTING_VALUES),
         link=_vocabulary("vinculo", vinculo, LINK_VALUES),
         stock=_vocabulary("stock", stock, STOCK_VALUES),
@@ -480,12 +510,56 @@ def _stores(f: PublicationFilter) -> ColumnElement:
     return or_(*parts)
 
 
+_ESCAPES = {"%": "%25", ",": "%2C"}
+_ESCAPED = re.compile(r"%(25|2C)")
+
+
+def encode_key(text: str) -> str:
+    """A brand or category key as it travels in a CSV parameter: `%` and `,` percent-escaped, so a name holding a
+    comma stays ONE value. The tree and the brand facet hand out keys in this form."""
+    return "".join(_ESCAPES.get(char, char) for char in text)
+
+
+def decode_key(token: str) -> str:
+    """The inverse of `encode_key` (a single pass: `%252C` is the text `%2C`)."""
+    return _ESCAPED.sub(lambda match: chr(int(match.group(1), 16)), token)
+
+
+def normalized_text(column: Any) -> ColumnElement:
+    """A brand or category as the tree keys it (and the PM pairs are matched): trimmed and upper-cased. No index is
+    lost by this: the catalog only has plain btrees on `marca` / `categoria`, which `upper(...)` already bypassed."""
+    return func.upper(func.trim(func.coalesce(column, "")))
+
+
+def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
+    """`marcas` / `categorias`: the value as the tree keys it (trimmed, upper-cased; `NO_GROUP` for none), so the
+    node of a brand and the filter that lists its publications agree on which rows they mean."""
+    # upper-cased by the database too, never by Python: the two disagree on some letters (the sharp s), and the
+    # tree's keys come from the database
+    values = [normalized_text(literal(decode_key(w))) for w in wanted if w != NO_GROUP]
+    parts = []
+    if values:
+        parts.append(normalized_text(column).in_(values))
+    if NO_GROUP in wanted:
+        parts.append(normalized_text(column) == "")
+    return or_(*parts)
+
+
+def _subcategorias_in(f: PublicationFilter) -> ColumnElement:
+    parts = []
+    if f.subcategorias:
+        parts.append(T.p.subcategoria_id.in_(f.subcategorias))
+    if f.no_subcategoria:
+        parts.append(T.p.subcategoria_id.is_(None))
+    return or_(*parts)
+
+
 def _pm(f: PublicationFilter) -> ColumnElement:
     if f.pm_pairs is None:
         raise RuntimeError("`pms` must be resolved to pairs (listing.resolve_pm_pairs) before building the query")
     if not f.pm_pairs:
         return false()  # a PM that owns no (marca, categoria) pair matches nothing, never everything
-    return tuple_(func.upper(T.p.marca), func.upper(T.p.categoria)).in_(list(f.pm_pairs))
+    return tuple_(normalized_text(T.p.marca), normalized_text(T.p.categoria)).in_(list(f.pm_pairs))
 
 
 def _event(f: PublicationFilter) -> ColumnElement:
@@ -507,11 +581,15 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if (f.stores or f.no_store) and skip != "stores":
         where.append(_stores(f))
     if f.marcas and skip != "marcas":
-        where.append(func.upper(T.p.marca).in_([m.upper() for m in f.marcas]))
+        where.append(_text_in(T.p.marca, f.marcas))
     if f.categorias:
-        where.append(func.upper(T.p.categoria).in_([c.upper() for c in f.categorias]))
-    if f.subcategorias:
-        where.append(T.p.subcategoria_id.in_(f.subcategorias))
+        where.append(_text_in(T.p.categoria, f.categorias))
+    if f.subcategorias or f.no_subcategoria:
+        where.append(_subcategorias_in(f))
+    if f.producto is not None:
+        where.append(T.p.item_id == f.producto)
+    if f.sin_producto:
+        where.append(T.p.item_id.is_(None))
     if f.pms:
         where.append(_pm(f))
     if f.family_id is not None:

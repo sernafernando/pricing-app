@@ -24,7 +24,8 @@ from alembic.operations import Operations
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.services.ml_publications.view import listing, markup_inputs, markup_service
+from app.models.comision_config import SubcategoriaGrupo
+from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service
 from app.services.ml_publications.view.filters import MarkupFilter, build_base_select, parse_filter
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed as view_seed
@@ -152,6 +153,7 @@ def session(env):  # noqa: F811
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     started = time.perf_counter()
+    SubcategoriaGrupo.__table__.create(bind=env)  # the names of the subcategory nodes of the tree
     with env.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.execute(text(STORES_DDL))
         conn.execute(text(view_seed.PRICING_DDL))
@@ -357,3 +359,60 @@ class TestMarkupVolume:
             "  stage: pricing loop over the whole set",
             lambda: [markup_service.price_publication(PRICING_CTX, pub, {}) for pub in inputs.values()],
         )
+
+
+def tree(session: Session, *path: str, familias: bool = False, **params):
+    return groups.list_groups(session, parse_filter(**params), list(path), familias=familias, limit=100, offset=0)
+
+
+class TestGroupsVolume:
+    """P7a: one level of the Agrupado tree at 25k publications (budget p95 < 400 ms, proposed; production is
+    measured with `scripts/measure_pubml_p7a.py`). Timings are printed and recorded in the PR, never asserted."""
+
+    def deepest(self, session: Session) -> list[str]:
+        """The path to the biggest products level: each step opens the biggest node of the level above."""
+        path: list[str] = []
+        for _ in range(3):
+            nodes = tree(session, *path).nodes
+            path.append(max((n for n in nodes if n.key != groups.NO_GROUP), key=lambda n: n.count).key)
+        return path
+
+    def test_the_levels_add_up_to_the_list_at_volume(self, session) -> None:
+        roots = tree(session)
+        assert roots.level == "marca" and roots.total == 6  # five brands and the publications with no product
+        assert sum(n.count for n in roots.nodes) == page(session).total
+        brand = max(roots.nodes, key=lambda n: n.count)
+        assert sum(n.count for n in tree(session, brand.key).nodes) == brand.count
+
+    def test_the_statement_count_is_fixed_at_every_level(self, session) -> None:
+        recorded: list[str] = []
+
+        def record(conn, cursor, statement, *rest) -> None:
+            recorded.append(statement)
+
+        path = self.deepest(session)
+        counts = {}
+        event.listen(session.get_bind(), "before_cursor_execute", record)
+        try:
+            for depth in range(4):
+                recorded.clear()
+                tree(session, *path[:depth], familias=True)
+                counts[depth] = len(recorded)
+        finally:
+            event.remove(session.get_bind(), "before_cursor_execute", record)
+        print(f"\nstatements per level: {counts}")
+        assert set(counts.values()) == {2}
+
+    def test_timings(self, session) -> None:
+        path = self.deepest(session)
+        print(f"\n--- groups timings (service only, no HTTP), 25k publications, deepest path {path}")
+        timed("roots (brands)", lambda: tree(session))
+        timed("roots, store 2645", lambda: tree(session, tiendas="2645"))
+        timed("roots, search 'router'", lambda: tree(session, q="router"))
+        timed("categories of the biggest brand", lambda: tree(session, *path[:1]))
+        timed("subcategories", lambda: tree(session, *path[:2]))
+        timed("products (page of 100)", lambda: tree(session, *path))
+        timed("products, families on", lambda: tree(session, *path, familias=True))
+        timed("'Sin producto' products", lambda: tree(session, *[groups.NO_GROUP] * 3))
+        plan = explain(session, build_base_select(parse_filter(), listing.func.count()))
+        print("\n--- unfiltered count (what every level scans)\n" + plan)

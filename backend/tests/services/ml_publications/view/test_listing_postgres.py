@@ -393,6 +393,52 @@ class TestFilters:
         assert sorted(ids(run(db, evento="price_changed,status_paused", evento_desde="24h"))) == ["MLA1", "MLA3"]
 
 
+class TestTreeNodeFilters:
+    """P7a.T4: the filters a node of the Agrupado tree hands to `/items` for its leaves."""
+
+    @pytest.fixture(autouse=True)
+    def rows(self, conn) -> None:
+        seed.add_product(conn, 70, "A1", "Router", marca="TP-Link", categoria="Redes", subcategoria_id=5)
+        seed.add_product(conn, 71, "B1", "Camara", marca=" tp-link ", categoria="redes", subcategoria_id=6)
+        seed.add_product(conn, 72, "C1", "Sin datos")
+        seed.add_item(conn, "MLA1", family_id=900, family_name="F")
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_item(conn, "MLA2")
+        seed.add_link(conn, "MLA2", 71)
+        seed.add_item(conn, "MLA3")  # no link at all
+        seed.add_item(conn, "MLA4")
+        seed.add_link(conn, "MLA4", None, match_status="no_product")
+        seed.add_item(conn, "MLA5")
+        seed.add_link(conn, "MLA5", 72)
+
+    def test_producto_selects_the_publications_of_one_product(self, db) -> None:
+        assert ids(run(db, producto="70")) == ["MLA1"]
+        assert ids(run(db, producto="71")) == ["MLA2"]
+        assert run(db, producto="999").total == 0  # a product that exists nowhere: empty because nothing links to it
+
+    def test_sin_producto_selects_the_publications_with_no_product_whatever_the_reason(self, db) -> None:
+        assert sorted(ids(run(db, sin_producto=True))) == ["MLA3", "MLA4"]
+
+    def test_the_none_key_selects_the_rows_with_no_brand_category_or_subcategory(self, db) -> None:
+        assert sorted(ids(run(db, marcas="__none__"))) == ["MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, categorias="__none__"))) == ["MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, subcategorias="__none__"))) == ["MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, marcas="__none__,TP-LINK"))) == ["MLA1", "MLA2", "MLA3", "MLA4", "MLA5"]
+        assert sorted(ids(run(db, subcategorias="5,__none__"))) == ["MLA1", "MLA3", "MLA4", "MLA5"]
+
+    def test_a_brand_matches_its_trimmed_upper_case_key_like_the_tree_builds_it(self, db) -> None:
+        # " tp-link " (padded, lower case) and "TP-Link" are ONE tree node, `TP-LINK`: the filter finds both
+        assert sorted(ids(run(db, marcas="TP-LINK"))) == ["MLA1", "MLA2"]
+        assert sorted(ids(run(db, categorias="REDES"))) == ["MLA1", "MLA2"]
+
+    def test_a_leaf_row_is_dict_equal_to_the_list_row(self, db) -> None:
+        full = {row["item_id"]: row for row in run(db).items}
+        leaf = run(db, producto="70", marcas="TP-LINK", categorias="REDES", subcategorias="5", familia="900")
+        assert [row for row in leaf.items] == [full["MLA1"]]
+        unlinked = run(db, sin_producto=True, marcas="__none__")
+        assert {row["item_id"]: row for row in unlinked.items} == {k: full[k] for k in ("MLA3", "MLA4")}
+
+
 class TestProductManagerFilter:
     @pytest.fixture(autouse=True)
     def rows(self, conn) -> None:
@@ -415,6 +461,25 @@ class TestProductManagerFilter:
         conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES (NULL, 'redes', 7)"))
         conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('tp-link', NULL, 7)"))
         assert ids(run(db, pms="7")) == ["MLA1"]  # the one complete pair still applies; the broken rows are skipped
+
+    def test_a_padded_brand_or_category_is_the_same_pair_as_the_tree_node_it_sits_in(self, conn, db) -> None:
+        # " tp-link " is the `TP-LINK` node of the tree (trimmed key), so the PM who owns TP-LINK / REDES owns it too
+        seed.add_product(conn, 72, "C1", "Switch", marca=" tp-link ", categoria=" Redes")
+        seed.add_item(conn, "MLA4")
+        seed.add_link(conn, "MLA4", 72)
+        assert sorted(ids(run(db, pms="7"))) == ["MLA1", "MLA4"]
+        conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES (' Tenda ', 'redes ', 8)"))
+        seed.add_product(conn, 73, "D1", "Antena", marca="TENDA", categoria="REDES")
+        seed.add_item(conn, "MLA5")
+        seed.add_link(conn, "MLA5", 73)
+        assert ids(run(db, pms="8")) == ["MLA5"]  # a padded assignment row matches the trimmed key as well
+
+    def test_a_name_that_python_and_postgres_upper_case_differently_still_matches_its_pair(self, conn, db) -> None:
+        conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('Maßstab', 'Straße', 9)"))
+        seed.add_product(conn, 74, "E1", "Masa", marca="Maßstab", categoria="Straße")
+        seed.add_item(conn, "MLA6")
+        seed.add_link(conn, "MLA6", 74)
+        assert ids(run(db, pms="9")) == ["MLA6"]
 
     def test_a_pm_without_pairs_matches_nothing_never_everything(self, db) -> None:
         page = run(db, pms="99")
@@ -544,6 +609,30 @@ class TestFacets:
         seed.add_link(conn, "MLA2", 71, source="manual")
         seed.add_link(conn, "MLA3", None, match_status="conflict")
         seed.add_stock(conn, "MLAU5", full=0, own=1)
+
+    def test_a_padded_brand_is_the_same_facet_value_as_its_trimmed_spelling(self, conn, db) -> None:
+        seed.add_product(conn, 72, "C1", "Switch", marca=" tp-link ")
+        seed.add_item(conn, "MLA7", status="active")
+        seed.add_link(conn, "MLA7", 72)
+        brands = listing.facets(db, parse_filter())["marcas"]
+        assert brands == {"TP-LINK": 2, "HIKVISION": 1}  # one value, and selecting it lists both publications
+        assert sorted(ids(run(db, marcas="TP-LINK"))) == ["MLA1", "MLA7"]
+        assert brands["TP-LINK"] == run(db, marcas="TP-LINK").total
+
+    def test_a_brand_with_a_comma_is_offered_under_a_key_the_filter_takes_back(self, conn, db) -> None:
+        seed.add_product(conn, 74, "E1", "Parlante", marca="Audio, Video Inc")
+        seed.add_item(conn, "MLA9", status="active")
+        seed.add_link(conn, "MLA9", 74)
+        brands = listing.facets(db, parse_filter())["marcas"]
+        key = next(k for k in brands if "AUDIO" in k)
+        assert "," not in key and brands[key] == 1
+        assert ids(run(db, marcas=key)) == ["MLA9"]
+
+    def test_a_product_with_a_blank_brand_is_not_offered_as_a_brand(self, conn, db) -> None:
+        seed.add_product(conn, 73, "D1", "Sin marca", marca="   ")
+        seed.add_item(conn, "MLA8", status="active")
+        seed.add_link(conn, "MLA8", 73)
+        assert listing.facets(db, parse_filter())["marcas"] == {"TP-LINK": 1, "HIKVISION": 1}
 
     def test_every_axis_counts_the_whole_set_when_nothing_is_selected(self, db) -> None:
         facets = listing.facets(db, parse_filter())
