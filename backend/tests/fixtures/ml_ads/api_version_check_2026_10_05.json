@@ -1,0 +1,41 @@
+[
+ {
+  "path": "/advertising/MLA/advertisers/714700/product_ads/campaigns/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "cost",
+   "limit": 1
+  },
+  "api_version": null,
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:41"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/714700/product_ads/campaigns/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "cost",
+   "limit": 1
+  },
+  "api_version": "1",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:43"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/714700/product_ads/campaigns/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "cost",
+   "limit": 1
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:45"
+ }
+]

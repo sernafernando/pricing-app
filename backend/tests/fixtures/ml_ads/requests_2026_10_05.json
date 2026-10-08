@@ -1,0 +1,1598 @@
+[
+ {
+  "path": "/advertising/MLA/advertisers/714700/product_ads/campaigns/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "metrics_summary": "true",
+   "limit": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:23"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/714700/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:25"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/714700/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 200
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:27"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/campaigns/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "metrics_summary": "true",
+   "limit": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:30"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:32"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 200
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:34"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 400
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:37"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 600
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:39"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 800
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:41"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 1000
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:43"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 1200
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:46"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 1400
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:48"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 1600
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:50"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 1800
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:53"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 2000
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:55"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 2200
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:57"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 2400
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:16:59"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 2600
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:02"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 2800
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:04"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 3000
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:06"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 3200
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:08"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 3400
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:11"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 3600
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:13"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 3800
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:15"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 4000
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:17"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 4200
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:20"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 4400
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:22"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 4600
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:24"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 4800
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:26"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 5000
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:29"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 5200
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:31"
+ },
+ {
+  "path": "/advertising/MLA/advertisers/25713/product_ads/ad_groups/search",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 200,
+   "offset": 5400
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:33"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2897640003/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:36"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2892240102/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:38"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2892147244/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:40"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2892072735/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:42"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2891960880/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:45"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2873881725/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:47"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2806859824/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:49"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2789761936/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:51"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2694622142/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:54"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2691305164/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:56"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2638098151/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:17:58"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2601408654/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:00"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2601250418/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:02"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2504823168/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:05"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2476318039/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:07"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2439740641/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:09"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2431277898/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:11"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2410009565/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:14"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2283297080/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:16"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2275917488/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:18"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2215233200/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:20"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/2065865787/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:23"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1919506757/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:25"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1917434225/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:27"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1663685994/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:29"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1588556830/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:31"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1393798872/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:34"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1325495365/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:36"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1276251401/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:38"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1275518549/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:41"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1224501977/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:43"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/1074447758/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:45"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/996465083/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:47"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/985516160/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:50"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/985516160/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:52"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/983792210/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:54"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/977959019/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:56"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953715206/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:18:59"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953715206/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:01"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953714461/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:03"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953713973/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:05"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953713973/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:07"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953713054/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:10"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953712907/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:12"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953712907/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:14"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953712670/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:16"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953712626/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:19"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953712527/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:21"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953712200/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:23"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953676266/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:25"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953676163/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:28"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953675896/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:30"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953675896/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:32"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953675636/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:34"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953674350/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:37"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953674232/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:39"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953674232/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:41"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953674183/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:43"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953674183/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:46"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953639148/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:48"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953639148/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:50"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953636612/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:52"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953635912/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:55"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953635492/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:57"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953635388/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:19:59"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953635388/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:01"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953635315/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:04"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/953635252/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:06"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/917967655/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:08"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/870181695/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:11"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/865092189/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:13"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/864999966/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:15"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/864954545/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:17"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/747864027/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:20"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/676525565/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:22"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/676338708/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:24"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/671897501/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:26"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/671897501/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 50
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:29"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/667542959/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:31"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/652032569/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:34"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/609913830/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:36"
+ },
+ {
+  "path": "/advertising/MLA/product_ads/ad_groups/397009520/ads",
+  "params": {
+   "date_from": "2026-10-05",
+   "date_to": "2026-10-05",
+   "metrics": "clicks,prints,ctr,cpc,cost,acos,roas,cvr,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,organic_units_quantity,organic_units_amount",
+   "limit": 50,
+   "offset": 0
+  },
+  "api_version": "2",
+  "status": 200,
+  "attempt": 0,
+  "ts": "2026-10-08T11:20:38"
+ }
+]
