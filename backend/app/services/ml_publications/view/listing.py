@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.services.ml_publications.view.filters import (
+    AXES,
     FULFILLMENT,
     NO_STORE,
     FilterError,
@@ -42,7 +43,7 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "actualizado": (lambda: T.i.ml_last_updated, True),
 }
 DIRECTIONS = ("asc", "desc")
-FACET_AXES = ("status", "stores", "marcas", "listing", "link", "stock")
+FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
