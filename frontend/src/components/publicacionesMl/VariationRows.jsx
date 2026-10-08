@@ -11,6 +11,7 @@ import styles from './VariationRows.module.css';
 function describeError(error) {
   const status = error?.response?.status;
   if (status === 404) return 'La publicación ya no existe.';
+  if (status === 422) return 'El identificador de la publicación no es válido.';
   if (status === 403) return 'No tenés permiso para ver las variaciones.';
   if (status === 503) return 'La consulta tardó demasiado. Reintentá en unos segundos.';
   return 'No se pudieron cargar las variaciones.';

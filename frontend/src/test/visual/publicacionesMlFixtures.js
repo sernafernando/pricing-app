@@ -169,6 +169,7 @@ export const VARIATIONS = [
   makeVariation({
     variation_id: 9001,
     seller_sku: 'ARCH-AX55-N',
+    user_product_id: 'MLAU100001',
     attributes: [{ name: 'Color', value: 'Negro' }],
     link: { state: 'auto', inherited: false, producto_item_id: 4101, codigo: 'ARCHER-AX55', descripcion: 'Router Archer AX55 negro', marca: 'TP-LINK' },
     available_quantity: 14,
@@ -179,6 +180,7 @@ export const VARIATIONS = [
   makeVariation({
     variation_id: 9002,
     seller_sku: 'ARCH-AX55-B',
+    user_product_id: 'MLAU100002',
     attributes: [{ name: 'Color', value: 'Blanco' }],
     link: { state: 'manual', inherited: true, producto_item_id: 4102, codigo: 'ARCHER-AX55-B', descripcion: 'Router Archer AX55 blanco', marca: 'TP-LINK' },
     available_quantity: 0,
@@ -198,7 +200,12 @@ export const VARIATIONS = [
   }),
 ];
 
-export const VARIATIONS_RESPONSE = { item_id: 'MLA1100000005', variations: VARIATIONS };
+export const VARIATIONS_RESPONSE = {
+  item_id: 'MLA1100000005',
+  can_see_margin: true,
+  variations: VARIATIONS,
+  ads: { available: false, reason: 'no_data', requested: false, applied: false, date_from: null, date_to: null },
+};
 
 /** A publication with variations and a markup range, for the expandable row. */
 export const VARIATION_ITEM = makeItem({

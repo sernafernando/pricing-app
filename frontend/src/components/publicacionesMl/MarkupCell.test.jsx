@@ -55,6 +55,7 @@ describe('MarkupCell', () => {
     ['sin_costo', 'El producto vinculado no tiene costo'],
     ['sin_comision', 'No hay comisión para la lista de precios de la publicación'],
     ['sin_precio', 'La publicación no tiene precio'],
+    ['desactualizado', 'La variación cambió mientras se calculaba: recargá para ver el dato actual'],
     ['ads_sin_ventas', 'Hay costo de Ads pero no hubo unidades vendidas'],
   ])('renders "—" with the reason as tooltip for %s', (reason, text) => {
     render(<MarkupCell markup={markup({ min: null, max: null, worst: null, reason })} />);

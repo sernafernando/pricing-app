@@ -117,6 +117,31 @@ describe('VariationRows', () => {
     expect(screen.queryByText('12,5%')).not.toBeInTheDocument();
   });
 
+  it('an `ads` block with the publication figures changes nothing in the rows', async () => {
+    const ads = { available: true, reason: 'ok', requested: true, applied: true, date_from: '2026-09-01', date_to: '2026-09-30', publication: { state: 'ok', amount: 1200, units: 30, per_unit: 40 } };
+    publicacionesMlAPI.variations.mockResolvedValue({ data: { ...VARIATIONS_RESPONSE, can_see_margin: true, ads } });
+    mount();
+    expect(await screen.findByText('Router Archer AX55 negro')).toBeInTheDocument();
+    expect(screen.getAllByText('Variación', { exact: false })).toHaveLength(3);
+  });
+
+  it('an `ads` block without `publication` (no variations) is normal: the empty state shows', async () => {
+    const ads = { available: true, reason: 'ok', requested: true, applied: true };
+    publicacionesMlAPI.variations.mockResolvedValue({ data: { item_id: 'MLA1100000005', can_see_margin: true, variations: [], ads } });
+    mount();
+    expect(await screen.findByText('Esta publicación no tiene variaciones')).toBeInTheDocument();
+  });
+
+  it('a stale variation shows "—" with the stale reason, never a value', async () => {
+    const variations = structuredClone(VARIATIONS_RESPONSE.variations);
+    variations[0].markup = { value: null, reason: 'desactualizado' };
+    publicacionesMlAPI.variations.mockResolvedValue({ data: { ...VARIATIONS_RESPONSE, variations } });
+    mount();
+    await screen.findByText('Router Archer AX55 negro');
+    const cell = within(rowOf('Router Archer AX55 negro')).getByTitle(/cambió mientras se calculaba/);
+    expect(cell).toHaveTextContent('—');
+  });
+
   it('empty: says the publication has no variations', async () => {
     publicacionesMlAPI.variations.mockResolvedValue({ data: { item_id: 'MLA1100000005', variations: [] } });
     mount();
@@ -134,6 +159,7 @@ describe('VariationRows', () => {
 
   it.each([
     [404, 'La publicación ya no existe'],
+    [422, 'El identificador de la publicación no es válido'],
     [403, 'No tenés permiso para ver las variaciones'],
     [503, 'La consulta tardó demasiado'],
   ])('error %s has its own message', async (status, text) => {
