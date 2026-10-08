@@ -312,9 +312,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         result = measure(args.base_url, token, scenario)
         if index == 0 and result.warmup_ms is not None:
             status_ms = result.warmup_stages.get("status")
-            print(
-                f"cold first request: {result.warmup_ms:.1f} ms (status {'n/a' if status_ms is None else f'{status_ms} ms'})"
-            )
+            status = "n/a" if status_ms is None else f"{status_ms} ms"
+            print(f"cold first request: {result.warmup_ms:.1f} ms (status {status})")
         passed = report(result, budget_of(scenario, args.page_budget_ms, args.set_wide_budget_ms)) and passed
         if result.error:
             continue

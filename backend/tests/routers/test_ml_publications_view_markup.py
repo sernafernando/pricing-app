@@ -127,6 +127,19 @@ class TestGating:
         assert response.status_code == 403
         assert GANANCIA in response.json()["error"]["message"]
 
+    BLANK = [{"markup_min": ""}, {"markup_max": "  "}, {"markup_min": "", "markup_max": ""}]
+
+    @pytest.mark.parametrize("params", BLANK)
+    def test_blank_numbers_are_not_markup_parameters_for_the_gate(self, client, pg, reader, pricing, params) -> None:
+        seed_rows(pg, fill)
+        assert get(client, reader, **params).status_code == 200  # absent, like the filter reads them: no 403
+
+    @pytest.mark.parametrize("params", BLANK)
+    def test_blank_numbers_do_not_filter(self, client, pg, analyst, pricing, params) -> None:
+        seed_rows(pg, fill)
+        response = get(client, analyst, **params)
+        assert response.status_code == 200 and response.json()["total"] == 6
+
     def test_false_flags_are_not_markup_parameters(self, client, pg, reader, pricing) -> None:
         seed_rows(pg, fill)
         assert get(client, reader, markup_neg="false", restar_publicidad="false").status_code == 200

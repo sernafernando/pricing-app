@@ -119,7 +119,11 @@ def _with_ads(
     pricing_db: Session, plan: AdsPlan, markups: Mapping[str, PublicationMarkup], page_ids: Optional[Sequence[str]]
 ) -> Optional[dict[str, ItemMarkup]]:
     """Apply the Ads of the period to every publication; `None` when the provider failed (the caller keeps the
-    plain markup). The page path asks for the page's MLAs, the set-wide path for every MLA with cost."""
+    plain markup). The page path asks for the page's MLAs, the set-wide path for every MLA with cost.
+
+    Only the Ads provider is allowed to fail softly: it is an external source that may not exist yet. The units
+    sold are read from our own database (`UnitsSoldProvider`), so a failure there is a real error and propagates,
+    like any other query of the request."""
     try:
         amounts = plan.provider.amounts(page_ids, plan.date_from, plan.date_to)
     except Exception:

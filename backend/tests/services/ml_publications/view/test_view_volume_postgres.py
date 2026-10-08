@@ -312,9 +312,8 @@ class TestMarkupVolume:
         result = markup_page(session, orden="markup")
         assert result.total == ITEMS - ITEMS // 50  # gone items are hidden
         stats = result.markup_stats
-        print(
-            f"\nmarkup stats at 25k: computed={stats.computed} null_by_reason={dict(stats.null_by_reason)} ms={stats.ms}"
-        )
+        unpriced = dict(stats.null_by_reason)
+        print(f"\nmarkup stats at 25k: computed={stats.computed} ms={stats.ms} null_by_reason={unpriced}")
         assert stats.computed > 10_000  # the linked, priceable ones
         assert {"sin_vinculo"} <= set(stats.null_by_reason)
         worst = [row["markup"]["worst"] for row in result.items]

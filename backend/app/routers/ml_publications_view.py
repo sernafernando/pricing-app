@@ -266,9 +266,10 @@ def get_items(
     """One page of publications (one row per MLA) with the honest-state block."""
     timer = Timer("items")
     can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
-    if not can_see_margin and (
-        markup_neg or restar_publicidad or markup_min is not None or markup_max is not None or orden == "markup"
-    ):
+    asks_for_margin = bool(
+        markup_neg or restar_publicidad or (markup_min or "").strip() or (markup_max or "").strip() or orden == "markup"
+    )  # a blank number is an absent parameter, here as in `parse_markup_filter`
+    if not can_see_margin and asks_for_margin:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
             ErrorCode.INSUFFICIENT_PERMISSIONS,

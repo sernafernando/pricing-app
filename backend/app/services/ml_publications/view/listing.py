@@ -152,7 +152,8 @@ def _price(row: Any) -> dict[str, Any]:
         "regular_amount": row.regular_amount if source == "sale_price" else None,
         "promotion_type": row.promotion_type if source == "sale_price" else None,
         "campaign": row.campaign_id if source == "sale_price" else None,
-        # ponytail: pricelist_id stays null: the markup block (P6) does not expose the list that prices the row; the detail's breakdown (P8a) does
+        # ponytail: pricelist_id stays null: the list's markup block does not expose the list that prices the
+        # row; the detail's breakdown (P8a) does
         "pricelist_id": None,
     }
 
