@@ -39,6 +39,7 @@ FLAG_EFFECTS: dict[str, list[str]] = {
 RESOURCE_EFFECTS: dict[str, list[str]] = {
     "sale_price": ["price"],
     "stock": ["stock.full", "stock.own"],
+    "replenishment": ["replenishment"],
 }
 
 _UNAVAILABLE: dict[str, Any] = {

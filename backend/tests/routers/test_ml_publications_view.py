@@ -367,12 +367,12 @@ class TestHonestState:
         flags = {d["flag"] for d in state["degradations"] if d["code"] == "flag_disabled"}
         resources = {d["resource"] for d in state["degradations"] if d["code"] == "resource_not_collected"}
         assert "events" in flags
-        assert resources == {"sale_price", "stock"}
+        assert resources == {"sale_price", "stock", "replenishment"}
 
     def test_every_flag_on_and_fresh_data_is_no_degradation(self, client, pg, reader) -> None:
         for flag in ("refresh", "intake", "events", "links"):
             settings_store.set_setting(f"{flag}.enabled", True, "test")
-        settings_store.set_setting("bundle_resources", ["core", "sale_price", "stock"], "test")
+        settings_store.set_setting("bundle_resources", ["core", "sale_price", "stock", "replenishment"], "test")
         seed_rows(pg, lambda conn: seed.add_item(conn, "MLA1", last_checked_at=seed.NOW))
         with pg.begin() as conn:
             conn.execute(text("UPDATE ml_items SET last_checked_at = now()"))
