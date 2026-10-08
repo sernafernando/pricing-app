@@ -32,8 +32,8 @@ from app.models.comision_config import SubcategoriaGrupo
 from app.models.ml_publications import MlItem, MlItemProductLink, MlUserProductReplenishment
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.producto import ProductoERP, ProductoPricing
-from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view import listing, markup_service
+from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import FULFILLMENT, LINK_ITEM_LEVEL, LINK_LINKED, T, joined
 from app.services.ml_publications.view.markup_service import MarkupQuery
 from app.services.ml_publications.view.variations import link_state_of

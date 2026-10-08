@@ -25,8 +25,8 @@ from sqlalchemy.orm import Session, aliased, join as orm_join
 
 from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariation
 from app.models.producto import ProductoERP
-from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view import markup_service
+from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import LINK_CONFLICT, LINK_ITEM_LEVEL, LINK_LINKED, LINK_SOURCE_MANUAL
 from app.services.ml_publications.view.markup import UnitMarkup
 from app.services.ml_publications.view.markup_inputs import currency_of
