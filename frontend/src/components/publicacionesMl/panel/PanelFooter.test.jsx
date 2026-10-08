@@ -122,6 +122,13 @@ describe('resyncing', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('No habilitado en la sincronización: user_product');
   });
 
+  it('an empty answer is still a success, with nothing more to say', async () => {
+    publicacionesMlAPI.enqueue.mockResolvedValue({ data: null });
+    renderFooter();
+    await userEvent.click(resync());
+    expect(await screen.findByRole('status')).toHaveTextContent('Resincronización pedida');
+  });
+
   it('passes on the backend\'s note when the refresh is off', async () => {
     publicacionesMlAPI.enqueue.mockResolvedValue({
       data: { ...ENQUEUED, refresh_enabled: false, note: 'refresh.enabled está apagado: las entradas quedan en cola hasta que se encienda' },

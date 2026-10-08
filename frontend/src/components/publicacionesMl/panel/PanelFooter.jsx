@@ -63,7 +63,7 @@ export default function PanelFooter({ detail, itemId, canManage }) {
     setState({ status: 'sending', result: null, error: null });
     try {
       const response = await publicacionesMlAPI.enqueue({ item_ids: [itemId], resources: RESYNC_RESOURCES });
-      setState({ status: 'done', result: response.data, error: null });
+      setState({ status: 'done', result: response.data ?? {}, error: null });
     } catch (error) {
       setState({ status: 'error', result: null, error });
     }
@@ -82,7 +82,7 @@ export default function PanelFooter({ detail, itemId, canManage }) {
           {state.status === 'done' && (
             <div className={styles.feedback} role="status">
               <span>Resincronización pedida. Los datos se actualizan en unos minutos.</span>
-              {state.result.note && <span>{state.result.note}</span>}
+              {state.result?.note && <span>{state.result.note}</span>}
               {missing.length > 0 && (
                 <span>No habilitado en la sincronización: {missing.map((name) => label(MISSING_NAMES, name)).join(', ')}.</span>
               )}

@@ -82,6 +82,16 @@ describe('loading the detail', () => {
     expect(await screen.findByRole('heading', { name: /Cartucho Epson 544/ })).toBeInTheDocument();
   });
 
+  it('going back to a publication whose answer is still pending shows loading, not its old content', async () => {
+    const { rerender } = renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    publicacionesMlAPI.detail.mockReturnValue(new Promise(() => {}));
+    rerender(<PublicationPanel itemId="MLA1100000002" tab="" onTabChange={vi.fn()} onClose={vi.fn()} />);
+    rerender(<PublicationPanel itemId="MLA1100000001" tab="" onTabChange={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByRole('status', { name: 'Cargando publicación' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Router TP-Link Archer AX55/ })).not.toBeInTheDocument();
+  });
+
   it('a late answer for the previous publication never overwrites the current one', async () => {
     let resolveFirst;
     publicacionesMlAPI.detail.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
