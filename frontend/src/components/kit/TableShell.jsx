@@ -20,11 +20,24 @@
  * The first column is pinned.
  */
 import { Fragment } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import styles from './TableShell.module.css';
 
 const toCssWidth = (width) => (typeof width === 'number' ? `${width}px` : width);
 
 const ARIA_SORT = { asc: 'ascending', desc: 'descending' };
+
+/**
+ * Enter/Space on the ROW itself opens it. Keys typed inside a control the row
+ * hosts (input, button, link) belong to that control, so only events whose
+ * target is the row are handled.
+ */
+function activateOnKey(event, row, onRowClick) {
+  if (event.target !== event.currentTarget) return;
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  onRowClick(row);
+}
 
 /** Consecutive columns with the same `group` collapse into one spanning cell. */
 function buildGroups(columns) {
@@ -104,7 +117,7 @@ export default function TableShell({
                       {column.header}
                       {active && (
                         <span aria-hidden="true" className={styles.sortMark}>
-                          {sort.dir === 'asc' ? '▲' : '▼'}
+                          {sort.dir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                         </span>
                       )}
                     </button>
@@ -132,9 +145,12 @@ export default function TableShell({
                   <tr
                     className={styles.row}
                     style={{ '--indent': getRowDepth?.(row) ?? 0 }}
-                    aria-selected={selected || undefined}
+                    aria-current={selected || undefined}
+                    data-selected={selected ? '' : undefined}
                     data-clickable={onRowClick ? '' : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    onKeyDown={onRowClick ? (e) => activateOnKey(e, row, onRowClick) : undefined}
                   >
                     {columns.map((column, index) => (
                       <td

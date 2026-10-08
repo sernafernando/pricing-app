@@ -141,9 +141,6 @@
   /* Height of the optional column-group header row; the leaf header row pins
      right under it. */
   --table-shell-group-height: 28px;
-  /* Sub-row (variation) and pinned-cell surface: opaque so scrolled content
-     never shows through a sticky cell, themed through --cf-bg-hover. */
-  --table-shell-subrow-bg: var(--cf-bg-hover);
 
   /* Semantic tones for money and status on the Ventas ML screen (Stitch
      `docs/design/ventas-ml/*`). Light values here; dark ones further down.

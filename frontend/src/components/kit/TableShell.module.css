@@ -25,16 +25,16 @@
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13px;
+  font-size: var(--font-sm);
 }
 
 .headCell {
   position: sticky;
   top: 0;
   z-index: 2;
-  padding: 10px;
+  padding: var(--space-3);
   text-align: left;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -54,9 +54,9 @@
   top: 0;
   z-index: 2;
   height: var(--table-shell-group-height);
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   text-align: left;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   white-space: nowrap;
   color: var(--cf-text-secondary);
@@ -77,7 +77,7 @@
 .sortButton {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 0;
   font: inherit;
   letter-spacing: inherit;
@@ -94,11 +94,11 @@
 }
 
 .sortMark {
-  font-size: 9px;
+  display: inline-flex;
 }
 
 .cell {
-  padding: 10px;
+  padding: var(--space-3);
   vertical-align: middle;
   color: var(--cf-text-primary);
   background: var(--cf-bg-card);
@@ -115,9 +115,22 @@
   background: var(--cf-bg-hover);
 }
 
-.row[aria-selected='true'] .cell {
+.row[data-selected] .cell {
   background: var(--cf-bg-hover);
-  box-shadow: inset 2px 0 0 var(--cf-accent-blue);
+}
+
+/* Selected marker on the left edge, plus the pinned column's right divider:
+   both are inset shadows on the same cell, so they must be declared together
+   or the more specific rule would drop the divider. */
+.row[data-selected] .cell[data-pinned] {
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -1px 0 0 var(--cf-border-default);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: -2px;
 }
 
 /* The first column is pinned: opaque (above) so scrolled cells never show
@@ -132,7 +145,7 @@
   z-index: 1;
   /* One tree level per `--indent` step on the pinned cell, where the tree
      label lives. */
-  padding-left: calc(10px + var(--indent, 0) * var(--table-shell-indent));
+  padding-left: calc(var(--space-3) + var(--indent, 0) * var(--table-shell-indent));
   box-shadow: inset -1px 0 0 var(--cf-border-default);
 }
 
@@ -141,7 +154,7 @@
 }
 
 .empty {
-  padding: 32px 10px;
+  padding: var(--space-8) var(--space-3);
   text-align: center;
   color: var(--cf-text-tertiary);
 }

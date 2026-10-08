@@ -158,18 +158,48 @@ describe('renderSubRows', () => {
 });
 
 describe('row interaction', () => {
-  it('calls onRowClick with the row and flags the selected one', async () => {
+  it('calls onRowClick with the row and flags the selected one with aria-current', async () => {
     const onRowClick = vi.fn();
     renderShell({ onRowClick, selectedKey: 'B' });
     const rows = screen.getAllByRole('row');
-    expect(rows[2]).toHaveAttribute('aria-selected', 'true');
-    expect(rows[1]).not.toHaveAttribute('aria-selected');
+    expect(rows[2]).toHaveAttribute('aria-current', 'true');
+    expect(rows[2]).toHaveAttribute('data-selected');
+    expect(rows[1]).not.toHaveAttribute('aria-current');
     await userEvent.click(screen.getByText('Router AX'));
     expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
   });
 
-  it('does not make rows clickable without onRowClick', () => {
+  it('never uses aria-selected (invalid on a plain table row)', () => {
+    const { container } = renderShell({ onRowClick: vi.fn(), selectedKey: 'B' });
+    expect(container.querySelector('[aria-selected]')).toBeNull();
+  });
+
+  it('makes clickable rows keyboard reachable and activates them with Enter and Space', async () => {
+    const onRowClick = vi.fn();
+    renderShell({ onRowClick });
+    const row = screen.getAllByRole('row')[1];
+    expect(row).toHaveAttribute('tabindex', '0');
+    row.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onRowClick).toHaveBeenLastCalledWith(ROWS[0]);
+    await userEvent.keyboard(' ');
+    expect(onRowClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not hijack keys typed inside a control within the row', async () => {
+    const onRowClick = vi.fn();
+    const columns = [{ key: 'n', header: 'Nota', render: () => <input aria-label="nota" /> }];
+    renderShell({ columns, onRowClick });
+    await userEvent.click(screen.getAllByLabelText('nota')[0]);
+    onRowClick.mockClear();
+    await userEvent.keyboard(' {Enter}');
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it('does not make rows clickable or focusable without onRowClick', () => {
     renderShell();
-    expect(screen.getAllByRole('row')[1]).not.toHaveAttribute('data-clickable');
+    const row = screen.getAllByRole('row')[1];
+    expect(row).not.toHaveAttribute('data-clickable');
+    expect(row).not.toHaveAttribute('tabindex');
   });
 });
