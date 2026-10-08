@@ -361,18 +361,21 @@ def _search(term: SearchTerm) -> ColumnElement:
     )
 
 
-def _listing(values: tuple[str, ...]) -> ColumnElement:
-    clauses = {
+def listing_clauses() -> dict[str, ColumnElement]:
+    return {
         "clasica": T.i.listing_type_id == LISTING_CLASSIC,
         "premium": T.i.listing_type_id == LISTING_PREMIUM,
         "catalogo": T.i.catalog_listing.is_(True),
         "full": T.i.logistic_type == FULFILLMENT,
     }
-    return or_(*(clauses[v] for v in values))
 
 
-def _stock(values: tuple[str, ...]) -> ColumnElement:
-    clauses = {"sin_stock": T.i.available_quantity == 0, "full_sin_stock": T.st.full_quantity == 0}
+def stock_clauses() -> dict[str, ColumnElement]:
+    # `full_sin_stock` is a real zero: a user product without a stock row has an unknown Full stock, not none.
+    return {"sin_stock": T.i.available_quantity == 0, "full_sin_stock": T.st.full_quantity == 0}
+
+
+def _any_of(clauses: dict[str, ColumnElement], values: tuple[str, ...]) -> ColumnElement:
     return or_(*(clauses[v] for v in values))
 
 
@@ -420,11 +423,11 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if f.family_id is not None:
         where.append(T.i.family_id == f.family_id)
     if f.listing and skip != "listing":
-        where.append(_listing(f.listing))
+        where.append(_any_of(listing_clauses(), f.listing))
     if f.link and skip != "link":
         where.append(link_state().in_(f.link))
     if f.stock and skip != "stock":
-        where.append(_stock(f.stock))
+        where.append(_any_of(stock_clauses(), f.stock))
     if f.event_types:
         where.append(_event(f))
     return where

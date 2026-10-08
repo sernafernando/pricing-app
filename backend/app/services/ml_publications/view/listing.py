@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
-from sqlalchemy import func, select, text
+from sqlalchemy import Text, cast, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
@@ -24,7 +24,9 @@ from app.services.ml_publications.view.filters import (
     T,
     build_base_select,
     link_state,
+    listing_clauses,
     price_amount,
+    stock_clauses,
 )
 
 STATEMENT_TIMEOUT = "8s"
@@ -38,6 +40,10 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "actualizado": (lambda: T.i.ml_last_updated, True),
 }
 DIRECTIONS = ("asc", "desc")
+FACET_AXES = ("status", "stores", "marcas", "listing", "link", "stock")
+FACET_MAX_BRANDS = 100
+NO_STATUS = "sin_estado"
+NO_STORE = "none"
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
 
@@ -220,3 +226,38 @@ def list_items(db: Session, f: PublicationFilter, sort: Sort, limit: int, offset
     labels = _store_labels(db, sorted({row.official_store_id for row in rows if row.official_store_id is not None}))
     last_events = _last_events(db, ids) if events else None
     return ItemsPage([_item(row, variations, labels, last_events) for row in rows], total)
+
+
+def _grouped(
+    db: Session, f: PublicationFilter, axis: str, key: Any, *, present: bool = False, limit: Optional[int] = None
+) -> dict:
+    """`key -> rows` over the base select without `axis`' own selection, biggest first. `present` drops NULL keys."""
+    query = build_base_select(f, key, func.count().label("n"), skip=axis)
+    if present:
+        query = query.where(key.isnot(None))
+    query = query.group_by(key).order_by(text("n DESC"), key)
+    rows = db.execute(query.limit(limit) if limit else query)
+    return {name: count for name, count in rows}
+
+
+def _flags(db: Session, f: PublicationFilter, axis: str, clauses: dict) -> dict[str, int]:
+    counts = [func.count().filter(clause).label(name) for name, clause in clauses.items()]
+    return dict(db.execute(build_base_select(f, *counts, skip=axis)).one()._mapping)
+
+
+def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
+    """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
+    own selection left out (so choosing a value never makes its siblings read zero)."""
+    f = resolve_pm_pairs(db, f)
+    brand = func.upper(T.p.marca)
+    by_status = _grouped(db, f, "status", func.coalesce(T.i.status, NO_STATUS))
+    by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
+    by_brand = _grouped(db, f, "marcas", brand, present=True, limit=FACET_MAX_BRANDS)
+    return {
+        "status": by_status,
+        "stores": by_store,
+        "marcas": by_brand,
+        "listing": _flags(db, f, "listing", listing_clauses()),
+        "link": _grouped(db, f, "link", link_state()),
+        "stock": _flags(db, f, "stock", stock_clauses()),
+    }

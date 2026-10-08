@@ -501,3 +501,77 @@ class TestPaging:
         seed.add_item(conn, "MLAX", title="distinto")
         page = run(db, q="distinto", limit=1)
         assert ids(page) == ["MLAX"] and page.total == 1
+
+
+class TestFacets:
+    @pytest.fixture(autouse=True)
+    def rows(self, conn) -> None:
+        seed.add_product(conn, 70, "A1", "Router", marca="TP-Link")
+        seed.add_product(conn, 71, "B1", "Camara", marca="Hikvision")
+        seed.add_item(conn, "MLA1", status="active", official_store_id=1, listing_type_id="gold_special")
+        seed.add_item(conn, "MLA2", status="active", official_store_id=2, listing_type_id="gold_pro")
+        seed.add_item(conn, "MLA3", status="paused", official_store_id=2, logistic_type="fulfillment")
+        seed.add_item(conn, "MLA4", status="closed", catalog_listing=True, available_quantity=0)
+        seed.add_item(conn, "MLA5", status="active", official_store_id=1, user_product_id="MLAU5")
+        seed.add_item(conn, "MLA6", status="closed", gone_at=seed.NOW)  # gone: in no facet
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_link(conn, "MLA2", 71, source="manual")
+        seed.add_link(conn, "MLA3", None, match_status="conflict")
+        seed.add_stock(conn, "MLAU5", full=0, own=1)
+
+    def test_every_axis_counts_the_whole_set_when_nothing_is_selected(self, db) -> None:
+        facets = listing.facets(db, parse_filter())
+        assert facets == {
+            "status": {"active": 3, "paused": 1, "closed": 1},
+            "stores": {"1": 2, "2": 2, "none": 1},
+            "marcas": {"TP-LINK": 1, "HIKVISION": 1},
+            "listing": {"clasica": 1, "premium": 1, "catalogo": 1, "full": 1},
+            "link": {"auto": 1, "manual": 1, "conflicto": 1, "no_evaluado": 2},
+            "stock": {"sin_stock": 1, "full_sin_stock": 1},
+        }
+
+    def test_an_axis_ignores_its_own_selection_and_obeys_the_others(self, db) -> None:
+        facets = listing.facets(db, parse_filter(estado="active", tiendas="2"))
+        # the status facet ignores `estado` but keeps `tiendas=2`; the stores facet ignores `tiendas` but keeps `estado`
+        assert facets["status"] == {"active": 1, "paused": 1}
+        assert facets["stores"] == {"1": 2, "2": 1}
+        assert facets["link"] == {"manual": 1}
+
+    def test_the_store_facet_counts_only_what_the_status_filter_lets_through(self, db) -> None:
+        assert listing.facets(db, parse_filter(estado="paused"))["stores"] == {"2": 1}
+
+    def test_the_search_applies_to_every_axis(self, db) -> None:
+        facets = listing.facets(db, parse_filter(q="MLA1"))
+        assert facets["status"] == {"active": 1}
+        assert facets["stores"] == {"1": 1}
+        assert facets["link"] == {"auto": 1}
+
+    def test_the_brand_axis_ignores_a_brand_selection(self, db) -> None:
+        assert listing.facets(db, parse_filter(marcas="tp-link"))["marcas"] == {"TP-LINK": 1, "HIKVISION": 1}
+
+    def test_an_empty_store_answers_empty_axes_without_error(self, conn, db) -> None:
+        conn.execute(text("DELETE FROM ml_items"))
+        assert listing.facets(db, parse_filter()) == {
+            "status": {},
+            "stores": {},
+            "marcas": {},
+            "listing": {"clasica": 0, "premium": 0, "catalogo": 0, "full": 0},
+            "link": {},
+            "stock": {"sin_stock": 0, "full_sin_stock": 0},
+        }
+
+    def test_one_statement_per_axis_whatever_the_data(self, db) -> None:
+        from sqlalchemy import event
+
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, *rest) -> None:
+            statements.append(statement)
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            listing.facets(db, parse_filter())
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert len(statements) == len(listing.FACET_AXES) == 6
