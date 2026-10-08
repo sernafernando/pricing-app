@@ -1,0 +1,71 @@
+/* Cells of the Publicaciones ML table. Colours and sizes come from tokens. */
+
+.empty {
+  color: var(--cf-text-tertiary);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stackEnd {
+  align-items: flex-end;
+}
+
+.amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.regular {
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-tertiary);
+  text-decoration: line-through;
+  white-space: nowrap;
+}
+
+.note {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  align-self: flex-start;
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--tone-info-border);
+  border-radius: var(--radius-base);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.outOfStock {
+  color: var(--tone-danger-fg);
+}
+
+.units {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.when {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
