@@ -7,7 +7,7 @@ transaction and no DB session is open while a request is in flight (a stopped ru
 page in flight).
 
 `run_ads_step` always (re)fetches the day it is given; choosing WHICH day (backfill order, refresh
-policy) is the caller's job (PR 1c).
+policy) is the caller's job (`schedule.py`).
 """
 
 from __future__ import annotations
@@ -70,6 +70,13 @@ def _day_closes(check: store.DayCheck, summary: mapper.DaySummary) -> bool:
     return abs(check.group_cost - summary.cost) <= CENT * max(check.groups, 1)
 
 
+def blocking_outcome(response: MlResponse) -> Optional[str]:
+    """The reason a response must end the whole run (D4): nothing can proceed, whichever day or call is next."""
+    if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) or response.status == 401:
+        return BLOCKED
+    return RATE_LIMITED if response.status == 429 else None
+
+
 def _describe(response: MlResponse) -> str:
     return f"HTTP {response.status}" if response.status else f"transport error: {response.error}"
 
@@ -89,6 +96,28 @@ def run_ads_step(
     deadline: Optional[datetime] = None,
 ) -> StepResult:
     return _DayRun(session_factory, client, advertiser_id, day, now, deadline).execute()
+
+
+def list_advertisers(
+    client: Any, *, deadline: Optional[datetime], now: Callable[[], datetime]
+) -> tuple[list[int], Optional[str], int]:
+    """`(ids, outcome, calls)`: the Product Ads advertisers (possibly none), or why the run must stop.
+
+    A 200 with an empty list is a valid answer (nothing to ingest); only an unreadable one is an `error`.
+    """
+    if deadline is not None and now() >= deadline:
+        return [], DEADLINE_HIT, 0
+    request = endpoints.advertisers_request("PADS")
+    response = client.get(request.family, request.path, request.params, deadline=deadline, headers=request.headers)
+    if response.error == DEADLINE:
+        return [], DEADLINE_HIT, 0
+    # A refused call (no token) sends nothing; a 401 does go out.
+    calls = 0 if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) else 1
+    if outcome := blocking_outcome(response):
+        return [], outcome, calls
+    if 200 <= response.status < 300 and response.error is None and isinstance(response.body, Mapping):
+        return mapper.parse_advertisers(response.body), None, calls
+    return [], ERROR, calls
 
 
 class _DayRun:
@@ -155,10 +184,8 @@ class _DayRun:
         if response.error == DEADLINE:
             raise _Stop(DEADLINE_HIT)
         self.calls += 1
-        if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) or response.status == 401:
-            raise _Stop(BLOCKED)
-        if response.status == 429:
-            raise _Stop(RATE_LIMITED)
+        if outcome := blocking_outcome(response):
+            raise _Stop(outcome)
         if 200 <= response.status < 300 and response.error is None and isinstance(response.body, Mapping):
             return response.body
         self._fail(response)

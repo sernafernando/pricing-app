@@ -10,7 +10,7 @@ Sources (read-only, outside the repo, under `pricing-app-worktrees/ml-captures/`
 
 - `ads_fullday_capture_2026-10-05_20261008_111621.json.gz` ("full-day capture", day 2026-10-05, captured 2026-10-08)
 - `ads_probe_capture_20261007_192336.json.gz` ("probe"): kept only for the per-date series below
-- `ads_capture_20261007_214456.json` ("window capture", 2026-09-07..2026-10-06): kept only for the moved group
+- `ads_capture_20261007_214456.json` ("window capture", 2026-09-07..2026-10-06): kept only for the moved group and the advertisers list
 
 The full-day capture supersedes the probe for the day pipeline: the probe kept full group rows only for the
 72 cost-bearing groups and drilled only 5 of them, so it needed placement and synthetic pages. The full-day
@@ -24,6 +24,7 @@ capture has every page of the day and every `/ads` page of every cost-bearing gr
 | `campaigns_summary_2026_10_05.json` | full-day, `advertisers.*.campaigns_day` | `campaigns/search` with `metrics_summary`: 25713 cost 614,060.07; 714700 cost 0. |
 | `requests_2026_10_05.json` | full-day, `calls` | The 114 one-day product_ads requests really sent (path, params, `api_version`, status), all 200 on Api-Version 2: 2 summaries, 30 group pages, 82 `/ads` pages. The 3 version-check calls and the per-date calls are excluded. |
 | `api_version_check_2026_10_05.json` | full-day, `calls` (`limit=1`) | The same one-day `campaigns/search` sent with no `Api-Version` header, 1 and 2: all three answered 200. Only the request records are kept, not the bodies. |
+| `advertisers_pads.json` | window capture, `advertisers.PADS` | The real `GET /advertising/advertisers?product_id=PADS` answer (status, path, params, body): advertisers 714700 and 25713. |
 | `ads_daily_series_group_953712626.json` | probe, `top_groups[0].ads_week_daily` | A real `aggregation_type=daily` answer: a per-date series with no item identity (ADS-1). |
 | `moved_group_2678077237.json` | window capture, `pads.714700` | The revoked/moved group (advertiser 714700, original 25713) and its 30 ads page. |
 

@@ -297,3 +297,28 @@ def record_failure(db: Session, advertiser_id: int, day: date, *, today: date, e
     ledger.last_error = error[:500]
     db.flush()
     return ledger.attempts
+
+
+# --- work selection for the scheduler (ADS-5) -------------------------------------------------
+
+OPEN_STATUSES = ("fetching", "refetch")
+
+
+def open_units(db: Session) -> list[tuple[int, date]]:
+    """Days left `fetching` or marked `refetch`, as `(advertiser_id, day)`, oldest day first (it expires first)."""
+    rows = db.execute(
+        select(MlAdsDayLedger.advertiser_id, MlAdsDayLedger.day)
+        .where(MlAdsDayLedger.source == SOURCE, MlAdsDayLedger.status.in_(OPEN_STATUSES))
+        .order_by(MlAdsDayLedger.day, MlAdsDayLedger.advertiser_id)
+    ).all()
+    return [(advertiser_id, day) for advertiser_id, day in rows]
+
+
+def ledgered(db: Session, first: date, last: date) -> set[tuple[int, date]]:
+    """Every `(advertiser_id, day)` in the window that has a ledger row, whatever its status ("fetched" at all)."""
+    rows = db.execute(
+        select(MlAdsDayLedger.advertiser_id, MlAdsDayLedger.day).where(
+            MlAdsDayLedger.source == SOURCE, MlAdsDayLedger.day.between(first, last)
+        )
+    ).all()
+    return {(advertiser_id, day) for advertiser_id, day in rows}
