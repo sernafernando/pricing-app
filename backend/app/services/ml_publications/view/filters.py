@@ -110,7 +110,8 @@ class PublicationFilter:
     subcategorias: tuple[int, ...] = ()
     no_subcategoria: bool = False  # `__none__` among the subcategories: the products with no subcategory
     pms: tuple[int, ...] = ()
-    # (marca, categoria) pairs of `pms`, trimmed and upper-cased (by the database); resolved against the database by `listing.resolve_pm_pairs`.
+    # (marca, categoria) pairs of `pms`, trimmed and upper-cased (by the database); resolved against the database
+    # by `listing.resolve_pm_pairs`.
     # `None` while unresolved; an empty tuple means the PMs own no pair, which matches nothing.
     pm_pairs: Optional[tuple[tuple[str, str], ...]] = None
     family_id: Optional[int] = None

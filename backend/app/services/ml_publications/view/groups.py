@@ -126,7 +126,7 @@ TEXT_LEVELS = ("marca", "categoria")  # the levels whose keys are free text, and
 
 
 def _wire_key(level: str, key: str) -> str:
-    """The key of a node as the client sees it: a brand or category with a comma is escaped so it stays one CSV value."""
+    """The key of a node as the client sees it: a brand or category with a comma is escaped, so it stays ONE CSV value."""
     return encode_key(key) if level in TEXT_LEVELS else key
 
 

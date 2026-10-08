@@ -28,9 +28,9 @@ from app.services.ml_publications.view.filters import (
     PublicationFilter,
     T,
     build_base_select,
+    encode_key,
     link_state,
     listing_clauses,
-    encode_key,
     normalized_text,
     price_amount,
     status_value,
@@ -362,7 +362,8 @@ def _flags(db: Session, f: PublicationFilter, axis: str, clauses: dict) -> dict[
 
 def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
     """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
-    own selection left out (so choosing a value never makes its siblings read zero)."""
+    own selection left out (so choosing a value never makes its siblings read zero). The brand values are keys as
+    the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged."""
     f = resolve_pm_pairs(db, f)
     brand = func.nullif(normalized_text(T.p.marca), "")  # as the tree keys a brand; none (blank) is not offered
     by_status = _grouped(db, f, "status", status_value())
