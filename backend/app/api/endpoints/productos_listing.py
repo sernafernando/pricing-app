@@ -976,97 +976,24 @@ def listar_productos(
 
     from app.models.oferta_ml import OfertaML
     from app.services.pricing_calculator import (
-        obtener_tipo_cambio_actual,
         convertir_a_pesos,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
-        obtener_constantes_pricing,
         GRUPO_DEFAULT,
     )
-    from app.models.comision_config import SubcategoriaGrupo
-    from app.models.comision_versionada import ComisionVersion, ComisionBase, ComisionAdicionalCuota
+    from app.services.pricing_context import build_pricing_context, resolve_envio
     from datetime import date
 
     hoy = date.today()
 
-    # ── T-3: Prefetch tipo_cambio + constantes ──────────────────────────
-    tipo_cambio_usd = obtener_tipo_cambio_actual(db, "USD")
-    constantes = obtener_constantes_pricing(db)
-
-    # ── T-4: Prefetch SubcategoriaGrupo mapping ─────────────────────────
-    all_subcat_grupos = db.query(SubcategoriaGrupo).all()
-    subcat_to_grupo = {sg.subcat_id: sg.grupo_id for sg in all_subcat_grupos}
-
-    # ── T-5: Prefetch comision lookup ───────────────────────────────────
-    _pricelist_pvp_to_web = PVP_TO_WEB_PRICELIST
-    _pricelist_to_cuotas = CUOTAS_BY_PRICELIST
-
-    _active_version = (
-        db.query(ComisionVersion)
-        .filter(
-            and_(
-                ComisionVersion.fecha_desde <= hoy,
-                or_(ComisionVersion.fecha_hasta.is_(None), ComisionVersion.fecha_hasta >= hoy),
-                ComisionVersion.activo == True,
-            )
-        )
-        .first()
-    )
-    _comision_base_map: dict = {}
-    _comision_adicional_map: dict = {}
-    if _active_version:
-        for cb in db.query(ComisionBase).filter(ComisionBase.version_id == _active_version.id).all():
-            _comision_base_map[(_active_version.id, cb.grupo_id)] = float(cb.comision_base)
-        for ca in (
-            db.query(ComisionAdicionalCuota).filter(ComisionAdicionalCuota.version_id == _active_version.id).all()
-        ):
-            _comision_adicional_map[(_active_version.id, ca.cuotas)] = float(ca.adicional)
-
-    def _lookup_comision(pricelist_id: int, grupo_id: int):
-        """Pure dict lookup replacement for obtener_comision_base."""
-        resolved_pl = _pricelist_pvp_to_web.get(pricelist_id, pricelist_id)
-        if not _active_version:
-            return None
-        base = _comision_base_map.get((_active_version.id, grupo_id))
-        if base is None:
-            return None
-        if resolved_pl == 4:
-            return base
-        cuotas = _pricelist_to_cuotas.get(resolved_pl)
-        if cuotas is None:
-            return base
-        adicional = _comision_adicional_map.get((_active_version.id, cuotas), 0)
-        return base + adicional
-
-    # ── T-6: Prefetch envio_promedio_grupo (single bulk query) ─────────
-    from app.models.producto import ProductoERP as _PE_envio
-
-    unique_grupo_ids = set(subcat_to_grupo.values())
-    envio_promedio_by_grupo: dict = {gid: 0.0 for gid in unique_grupo_ids}
-    # Build reverse map: grupo_id -> [subcat_ids]
-    _grupo_to_subcats: dict = {}
-    for sc_id, g_id in subcat_to_grupo.items():
-        _grupo_to_subcats.setdefault(g_id, []).append(sc_id)
-    # All subcat_ids that belong to any grupo
-    _all_subcat_ids_envio = list(subcat_to_grupo.keys())
-    if _all_subcat_ids_envio:
-        _envio_rows = (
-            db.query(_PE_envio.subcategoria_id, func.avg(_PE_envio.envio))
-            .filter(
-                _PE_envio.subcategoria_id.in_(_all_subcat_ids_envio),
-                _PE_envio.activo == True,
-                _PE_envio.envio > 0,
-            )
-            .group_by(_PE_envio.subcategoria_id)
-            .all()
-        )
-        # Aggregate per grupo
-        _subcat_envio_avg = {sc_id: float(avg_val) for sc_id, avg_val in _envio_rows}
-        for gid, sc_list in _grupo_to_subcats.items():
-            vals = [_subcat_envio_avg[sc] for sc in sc_list if sc in _subcat_envio_avg]
-            if vals:
-                envio_promedio_by_grupo[gid] = sum(vals) / len(vals)
+    # ── T-3..T-6: Prefetch (tipo_cambio, constantes, grupos, comisiones, envio promedio) ──
+    # One shared context per request; see app/services/pricing_context.py.
+    ctx = build_pricing_context(db, hoy)
+    tipo_cambio_usd = ctx.tipo_cambio_usd
+    constantes = ctx.constantes
+    subcat_to_grupo = ctx.subcat_to_grupo
+    _lookup_comision = ctx.comision
 
     # ── T-7: Batch-load PublicacionML + OfertaML ────────────────────────
     all_item_ids_page = [r[0].item_id for r in results]
@@ -1102,18 +1029,7 @@ def listar_productos(
     ppp_by_item = resolver_ppp_batch(db, all_item_ids_page)
     ppp_markups_by_item: dict[int, PppMarkups] = {}
 
-    def _resolve_envio(item_id: int, producto_envio: float, grupo_id: int, precio: float) -> float:
-        """Resolve costo_envio: real mlwebhook cost first, then grupo average fallback."""
-        # Real cost from mlwebhook DB (already resolved as batch)
-        real_cost = envio_real_by_item.get(item_id)
-        if real_cost is not None:
-            return real_cost
-        # ERP + grupo-average fallback (existing logic)
-        costo_envio = producto_envio or 0
-        montot3 = constantes["monto_tier3"] if constantes else 33000
-        if costo_envio == 0 and precio >= montot3 and grupo_id is not None:
-            costo_envio = envio_promedio_by_grupo.get(grupo_id, 0.0)
-        return costo_envio
+    _resolve_envio = partial(resolve_envio, ctx, envio_real_by_item)
 
     productos = []
     for producto_erp, producto_pricing in results:
