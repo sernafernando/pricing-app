@@ -1,0 +1,36 @@
+/* Cells of a node of the Agrupado tree. Colours and sizes come from tokens. */
+
+.node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.nodeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nodeLabel {
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* "Sin marca" / "Sin producto": the bucket of what has none. */
+.nodeLabel[data-muted] {
+  font-weight: var(--font-medium);
+  color: var(--cf-text-secondary);
+}
+
+.state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}

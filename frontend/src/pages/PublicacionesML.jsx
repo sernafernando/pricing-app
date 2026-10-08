@@ -4,10 +4,11 @@ import { FilterX, ShieldAlert } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
-import { ColumnPicker, FacetChips, Pagination, SplitPanelLayout, TableShell } from '../components/kit';
+import { ColumnPicker, FacetChips, Pagination, SegmentedControl, SplitPanelLayout, SwitchChip, TableShell } from '../components/kit';
 import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
 import VariationRows from '../components/publicacionesMl/VariationRows';
+import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
 import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -31,6 +32,11 @@ import styles from './PublicacionesML.module.css';
  * page and selection live in the URL (`usePublicacionesMLFilters`).
  * Ctrl/Cmd+click opens the publication in Mercado Libre; a plain click selects
  * the row (the detail panel is mounted by a later PR).
+ *
+ * `vista=agrupado` swaps the list for the tree (marca > categoría > subcategoría
+ * > producto > [familia] > publicación, `AgrupadoTable`): the tree loads its own
+ * levels from `/view/groups`, so `/items` is asked only for what the screen
+ * shares (the honest-state block and the facet counts, one row).
  */
 // Space the table leaves for what is above and below it (header, filters, pager).
 const TABLE_OFFSET = '380px';
@@ -58,6 +64,11 @@ const STOCK_OPTIONS = ['sin_stock', 'full_sin_stock'];
 const STOCK_LABELS = { sin_stock: 'Sin stock', full_sin_stock: 'Full sin stock' };
 
 const EMPTY_ROWS = [];
+
+const VISTA_OPTIONS = [
+  { value: 'publicacion', label: 'Publicaciones' },
+  { value: 'agrupado', label: 'Agrupado' },
+];
 
 /** What to tell the operator when a request fails (S69.1). */
 function describeError(error) {
@@ -107,15 +118,24 @@ export default function PublicacionesML() {
   );
 
   const pageSize = filters.limite;
+  const agrupado = filters.vista === 'agrupado';
   const latestRequest = useRef(0);
   // The filter set the current `facets` belong to. Advances only when a
   // response that carried facets is applied, so a failure asks again.
   const facetsFor = useRef(null);
 
+  // What `/items` is asked with. The selection and the tab are not part of it: choosing a row asks for nothing.
+  // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts.
+  const requestKey = JSON.stringify(
+    agrupado
+      ? { ...buildItemsParams(filters, 1, { canSeeMargin: false }), offset: 0 }
+      : buildItemsParams(filters, pageSize, { canSeeMargin }),
+  );
+
   useEffect(() => {
     const request = ++latestRequest.current;
     const wantFacets = filterKey !== facetsFor.current;
-    const params = buildItemsParams(filters, pageSize, { canSeeMargin });
+    const params = JSON.parse(requestKey);
     if (wantFacets) params.facets = true;
     setLoading(true);
     setError(null);
@@ -137,13 +157,13 @@ export default function PublicacionesML() {
         setError(err);
         setLoading(false);
       });
-  }, [filters, filterKey, pageSize, reloadToken, canSeeMargin]);
+  }, [requestKey, filterKey, reloadToken]);
 
   const eventsEnabled = data?.events_enabled ?? false;
   const columns = useMemo(
     () =>
-      buildColumns({ eventsEnabled, canSeeMargin, expandedIds, onToggleVariations: toggleVariations }),
-    [eventsEnabled, canSeeMargin, expandedIds, toggleVariations],
+      buildColumns({ eventsEnabled, canSeeMargin, expandedIds, onToggleVariations: toggleVariations, agrupado }),
+    [eventsEnabled, canSeeMargin, expandedIds, toggleVariations, agrupado],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
@@ -194,8 +214,9 @@ export default function PublicacionesML() {
 
   const csvChange = (key) => (value) => setFilters({ [key]: value ? value.split(',') : [] });
   const activeOf = (values) => values.join(',');
-  // The markup filters are invisible (and not sent) without the permission, so they do not count either.
-  const activeKeys = canSeeMargin ? FILTER_KEYS : FILTER_KEYS.filter((key) => !key.startsWith('markup_'));
+  // The markup filters are invisible (and not sent) without the permission, or in the tree, so they do not count either.
+  const showMarkupFilters = canSeeMargin && !agrupado;
+  const activeKeys = showMarkupFilters ? FILTER_KEYS : FILTER_KEYS.filter((key) => !key.startsWith('markup_'));
   const hasActiveFilters = activeKeys.some((key) => (Array.isArray(filters[key]) ? filters[key].length > 0 : filters[key] !== ''));
 
   const items = data?.items ?? EMPTY_ROWS;
@@ -229,6 +250,20 @@ export default function PublicacionesML() {
           </p>
         </div>
         <div className={styles.headerActions}>
+          <SegmentedControl
+            label="Vista"
+            options={VISTA_OPTIONS}
+            value={filters.vista}
+            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value })}
+          />
+          {agrupado && (
+            <SwitchChip
+              label="Con familias"
+              title="Agrupa las publicaciones de una misma familia dentro de cada producto"
+              checked={filters.familias === '1'}
+              onChange={(checked) => setFilters({ familias: checked ? '1' : '' })}
+            />
+          )}
           <ColumnPicker table={pickerTable} />
         </div>
       </header>
@@ -282,7 +317,7 @@ export default function PublicacionesML() {
             />
           </div>
         </div>
-        {canSeeMargin && (
+        {showMarkupFilters && (
           <div className={styles.filterBand}>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Markup:</span>
@@ -297,7 +332,7 @@ export default function PublicacionesML() {
         )}
       </section>
 
-      {error ? (
+      {error && (
         <div className={styles.errorBar} role="alert">
           <ShieldAlert size={16} aria-hidden="true" />
           <span className={styles.errorText}>{describeError(error)}</span>
@@ -305,44 +340,63 @@ export default function PublicacionesML() {
             Reintentar
           </button>
         </div>
-      ) : !data ? (
+      )}
+
+      {/* In the tree `/items` only brings the state and the facets: its failure leaves the tree (which has its own errors) on screen. */}
+      {error && !agrupado ? null : !data && !agrupado ? (
         <ListSkeleton />
       ) : (
         <div className={styles.listArea} aria-busy={loading}>
           <SplitPanelLayout open={false} onClose={() => setFilters({ sel: '', tab: '' })} panel={null}>
-            <TableShell
-              columns={visibleColumns}
-              rows={items}
-              getRowKey={(item) => item.item_id}
-              renderSubRows={(item) =>
-                item.variations_count > 1 && expandedIds.has(item.item_id) ? (
-                  <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />
-                ) : null
-              }
-              sort={sort}
-              onSort={handleSort}
-              onRowClick={handleRowClick}
-              selectedKey={filters.sel || undefined}
-              offset={TABLE_OFFSET}
-              emptyMessage={emptyMessage}
-              ariaLabel="Publicaciones de Mercado Libre"
-            />
+            {agrupado ? (
+              <AgrupadoTable
+                columns={visibleColumns}
+                filters={filters}
+                familias={filters.familias === '1'}
+                canSeeMargin={canSeeMargin}
+                expandedIds={expandedIds}
+                onSelectItem={handleRowClick}
+                selectedKey={filters.sel || undefined}
+                offset={TABLE_OFFSET}
+                emptyMessage={emptyMessage}
+              />
+            ) : (
+              <TableShell
+                columns={visibleColumns}
+                rows={items}
+                getRowKey={(item) => item.item_id}
+                renderSubRows={(item) =>
+                  item.variations_count > 1 && expandedIds.has(item.item_id) ? (
+                    <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />
+                  ) : null
+                }
+                sort={sort}
+                onSort={handleSort}
+                onRowClick={handleRowClick}
+                selectedKey={filters.sel || undefined}
+                offset={TABLE_OFFSET}
+                emptyMessage={emptyMessage}
+                ariaLabel="Publicaciones de Mercado Libre"
+              />
+            )}
           </SplitPanelLayout>
-          <div className={styles.pager}>
-            <Pagination
-              total={total}
-              offset={offset}
-              pageSize={pageSize}
-              pageSizeOptions={PAGE_SIZES}
-              summary={
-                <span>
-                  mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} publicaciones
-                </span>
-              }
-              onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}
-              onPageSizeChange={(size) => setFilters({ limite: size === PAGE_SIZE ? '' : size })}
-            />
-          </div>
+          {!agrupado && (
+            <div className={styles.pager}>
+              <Pagination
+                total={total}
+                offset={offset}
+                pageSize={pageSize}
+                pageSizeOptions={PAGE_SIZES}
+                summary={
+                  <span>
+                    mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} publicaciones
+                  </span>
+                }
+                onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}
+                onPageSizeChange={(size) => setFilters({ limite: size === PAGE_SIZE ? '' : size })}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -21,12 +21,16 @@ import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { publicacionesMlAPI } from '../../services/api';
 import {
+  BRAND_NODES,
   DATA_STATE_OK,
   FACETS,
   ITEMS,
   ITEMS_RESPONSE,
+  PRODUCT_NODES,
   VARIATIONS_RESPONSE,
   VARIATION_ITEM,
+  groupsResponse,
+  makeNode,
 } from './publicacionesMlFixtures';
 
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
@@ -45,7 +49,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -321,5 +325,175 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         screen.unmount();
       });
     }
+  }
+});
+
+// The Agrupado tree (publicaciones-ml-vista P12a.T3): brand > category > subcategory > product > MLA.
+const CATEGORY = makeNode({ kind: 'categoria', key: 'ROUTERS', label: 'ROUTERS', count: 90, params: { marcas: 'TP-LINK', categorias: 'ROUTERS' }, negative_count: 4, markup_min: -6.5, markup_max: 38.2 });
+const SUBCATEGORY = makeNode({
+  kind: 'subcategoria',
+  key: '55',
+  label: 'Routers WiFi',
+  count: 90,
+  params: { marcas: 'TP-LINK', categorias: 'ROUTERS', subcategorias: '55' },
+  negative_count: 4,
+  markup_min: -6.5,
+  markup_max: 38.2,
+});
+// 250 brands in total so "Ver más" is on screen.
+const MANY_BRANDS = [
+  ...BRAND_NODES,
+  ...Array.from({ length: 96 }, (_, i) => makeNode({ key: `MARCA${i}`, label: `MARCA ${i}`, count: 3, params: { marcas: `MARCA${i}` }, negative_count: 0, markup_min: 10, markup_max: 20 })),
+];
+const TREE = {
+  '': groupsResponse('marca', MANY_BRANDS, { total: 250 }),
+  'TP-LINK': groupsResponse('categoria', [CATEGORY]),
+  'TP-LINK,ROUTERS': groupsResponse('subcategoria', [SUBCATEGORY]),
+  'TP-LINK,ROUTERS,55': groupsResponse('producto', PRODUCT_NODES),
+};
+
+const renderTree = async ({ width, height, theme }) => {
+  canSeeMargin = true;
+  publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 3 } });
+  publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+  publicacionesMlAPI.groups.mockImplementation(({ path = '' }) => Promise.resolve({ data: TREE[path] }));
+  await page.viewport(width, height);
+  setTheme(theme);
+  document.body.style.background = 'var(--cf-bg-app)';
+  window.scrollTo(0, 0);
+  const screen = await render(
+    <MemoryRouter initialEntries={['/ml-publicaciones?vista=agrupado']}>
+      <Shell>
+        <PublicacionesML />
+      </Shell>
+    </MemoryRouter>,
+  );
+  await expect.element(screen.getByText('EPSON')).toBeVisible();
+  return screen;
+};
+
+const openNode = async (screen, name) => {
+  await screen.getByRole('button', { name }).click();
+};
+
+const openToLeaf = async (screen) => {
+  await openNode(screen, /Abrir TP-LINK/);
+  await openNode(screen, /Abrir ROUTERS/);
+  await openNode(screen, /Abrir Routers WiFi/);
+  await openNode(screen, /Abrir Router Archer AX55/);
+  await expect.element(screen.getByText('Router TP-Link Archer AX55 por color')).toBeVisible();
+};
+
+const pinnedPadding = (row) => Number.parseFloat(getComputedStyle(row.querySelector('td[data-pinned]')).paddingLeft);
+const rowWith = (scroller, text) => [...scroller.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(text));
+
+describe('Publicaciones ML Agrupado tree (visual)', () => {
+  beforeEach(() => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.variations.mockReset();
+    publicacionesMlAPI.groups.mockReset();
+  });
+
+  for (const theme of THEMES) {
+    const width = 1366;
+    const height = 768;
+
+    it(`${width}x${height} ${theme}: the tree fits the screen, the header controls included`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      const scroller = scrollerOf();
+      expect(rect(scroller).right).toBeLessThanOrEqual(width + 0.5);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+      expect(getComputedStyle(scroller).backgroundColor).toBe(tokenColor('--cf-bg-card'));
+      for (const control of document.querySelectorAll('header button, header [role="switch"]')) {
+        expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
+      }
+      // The markup filters are not offered in the tree; the store stays in the filter bar.
+      expect(document.body.textContent).not.toContain('Markup:');
+      expect(document.body.textContent).toContain('Tienda:');
+      screen.unmount();
+    });
+
+    it(`${width}x${height} ${theme}: node figures stay on one line, negatives take the danger tone, nothing pokes out`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      const scroller = scrollerOf();
+      const figures = [...scroller.querySelectorAll('tbody td[data-align="right"] span')].filter((el) => /^[-\d.,%\s–—]+$/.test(el.textContent.trim()));
+      expect(figures.length).toBeGreaterThan(0);
+      expect(wrapped(figures)).toEqual([]);
+      expect(overflowingCells(scroller)).toEqual([]);
+      const negatives = [...rowWith(scroller, 'TP-LINK').querySelectorAll('td[data-align="right"] span')].find((el) => el.textContent === '4');
+      expect(getComputedStyle(negatives).color).toBe(tokenColor('--tone-danger-fg'));
+      const clean = [...rowWith(scroller, 'EPSON').querySelectorAll('td[data-align="right"] span')].find((el) => el.textContent === '0');
+      expect(getComputedStyle(clean).color).not.toBe(tokenColor('--tone-danger-fg'));
+      screen.unmount();
+    });
+
+    it(`${width}x${height} ${theme}: each level sits deeper than its parent and the pinned cell stays on the left edge`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      await openToLeaf(screen);
+      const scroller = scrollerOf();
+      const depths = ['TP-LINK', 'ROUTERS', 'Routers WiFi', 'Router Archer AX55', 'Router TP-Link Archer AX55 por color'].map((text) =>
+        pinnedPadding(rowWith(scroller, text)),
+      );
+      for (let i = 1; i < depths.length; i += 1) expect(depths[i]).toBeGreaterThan(depths[i - 1]);
+      scroller.scrollTo({ top: 0, left: 160 });
+      await frame();
+      const pinned = rowWith(scroller, 'Router TP-Link Archer AX55 por color').querySelector('td[data-pinned]');
+      expect(Math.abs(rect(pinned).left - rect(scroller).left)).toBeLessThanOrEqual(2);
+      expect(overflowingCells(scroller)).toEqual([]);
+      screen.unmount();
+    });
+
+    it(`${width}x${height} ${theme}: a leaf publication keeps its variation sub-rows, one level deeper`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      await openToLeaf(screen);
+      await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();
+      await expect.element(screen.getByText('Variación 9002')).toBeVisible();
+      const scroller = scrollerOf();
+      expect(pinnedPadding(rowWith(scroller, 'Variación 9001'))).toBeGreaterThan(pinnedPadding(rowWith(scroller, 'Router TP-Link Archer AX55 por color')));
+      expect(overflowingCells(scroller)).toEqual([]);
+      screen.unmount();
+    });
+
+    it(`${width}x${height} ${theme}: the loading or error row of a leaf's variations is indented under its publication`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      await openToLeaf(screen);
+      publicacionesMlAPI.variations.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 500 } }));
+      await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();
+      await expect.element(screen.getByText('No se pudieron cargar las variaciones.')).toBeVisible();
+      const scroller = scrollerOf();
+      // The parent's toggle starts at its depth; the state starts one level in, like the variations' own rows.
+      const toggle = rowWith(scroller, 'Router TP-Link Archer AX55 por color').querySelector('td[data-pinned] button');
+      const step = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--table-shell-indent'));
+      const alertLeft = rect(document.querySelector('tbody [role="alert"]')).left;
+      expect(Math.abs(alertLeft - (rect(toggle).left + step))).toBeLessThanOrEqual(2);
+      screen.unmount();
+    });
+
+    it(`${width}x${height} ${theme}: "Ver más" and "Sin producto" sit inside the table, in view of the scroller`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      const scroller = scrollerOf();
+      const more = [...scroller.querySelectorAll('button')].find((button) => /Ver más/.test(button.textContent));
+      expect(more).toBeDefined();
+      more.scrollIntoView({ block: 'center' });
+      await frame();
+      expect(rect(more).right).toBeLessThanOrEqual(rect(scroller).right + 0.5);
+      expect(rect(more).left).toBeGreaterThanOrEqual(rect(scroller).left - 0.5);
+      // The label is one line (a button's own height includes its padding, so the text is measured).
+      const label = document.createRange();
+      label.selectNodeContents(more);
+      expect(label.getClientRects().length).toBe(1);
+      screen.unmount();
+    });
+
+    it(`${width}x${height} ${theme}: the error row of a level stays inside the table, with its retry`, async () => {
+      const screen = await renderTree({ width, height, theme });
+      publicacionesMlAPI.groups.mockRejectedValueOnce(Object.assign(new Error('boom'), { response: { status: 503 } }));
+      await openNode(screen, /Abrir EPSON/);
+      await expect.element(screen.getByText(/La consulta tardó demasiado/)).toBeVisible();
+      const alert = document.querySelector('tbody [role="alert"]');
+      expect(rect(alert).right).toBeLessThanOrEqual(rect(scrollerOf()).right + 0.5);
+      expect(getComputedStyle(alert).color).toBe(tokenColor('--cf-text-secondary'));
+      screen.unmount();
+    });
   }
 });
