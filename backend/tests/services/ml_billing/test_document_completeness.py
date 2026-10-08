@@ -160,6 +160,20 @@ class TestBillCompleteness:
         assert by_document[_BILL_A].stored_amount == Decimal("0.00")
         assert by_document[_BILL_A].complete is False
 
+    def test_a_document_without_expected_figures_is_never_complete(self, db) -> None:
+        """ML's `count_details` and `amount` are nullable. A missing figure is
+        unknown, not zero: a document with no stored rows must not read as
+        complete by comparing 0 against 0."""
+        db.add(
+            MlBillingDocument(document_id="9000000001", period_key=_PERIOD, group="ML", document_type="BILL", raw={})
+        )
+        db.commit()
+
+        (result,) = document_completeness(db, _PERIOD, "BILL")
+
+        assert result.stored_count == 0
+        assert result.complete is False
+
 
 class TestScope:
     def test_only_the_asked_period_and_type(self, db) -> None:

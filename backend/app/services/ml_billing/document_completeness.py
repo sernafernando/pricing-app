@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import List
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -49,7 +48,7 @@ def _cents(value) -> Decimal:
     return Decimal(str(value if value is not None else 0)).quantize(_CENT)
 
 
-def document_completeness(db: Session, period_key: str, document_type: str) -> List[DocumentCompleteness]:
+def document_completeness(db: Session, period_key: str, document_type: str) -> list[DocumentCompleteness]:
     """One entry per persisted document of `period_key` and `document_type`,
     ordered by document id. Read-only."""
     if document_type not in DOCUMENT_SIGNS:
@@ -71,7 +70,7 @@ def document_completeness(db: Session, period_key: str, document_type: str) -> L
         .order_by(MlBillingDocument.document_id)
     )
 
-    results: List[DocumentCompleteness] = []
+    results: list[DocumentCompleteness] = []
     for document_id, count_details, amount, stored_count, stored_sum in db.execute(stmt):
         expected_count = int(count_details or 0)
         expected_amount = _cents(amount)
@@ -84,7 +83,11 @@ def document_completeness(db: Session, period_key: str, document_type: str) -> L
                 expected_amount=expected_amount,
                 stored_count=int(stored_count),
                 stored_amount=stored_amount,
-                complete=stored_count == expected_count and stored_amount == expected_amount,
+                # ML's figures are nullable: a missing one is unknown, never 0.
+                complete=count_details is not None
+                and amount is not None
+                and stored_count == expected_count
+                and stored_amount == expected_amount,
             )
         )
     return results
