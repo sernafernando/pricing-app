@@ -32,6 +32,7 @@ from app.models.comision_config import SubcategoriaGrupo
 from app.models.ml_publications import MlItem, MlItemProductLink, MlUserProductReplenishment
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view import listing, markup_service
 from app.services.ml_publications.view.filters import FULFILLMENT, LINK_ITEM_LEVEL, LINK_LINKED, T, joined
 from app.services.ml_publications.view.markup_service import MarkupQuery
@@ -128,10 +129,6 @@ def bound(db: Session) -> None:
 
 def _plain(value: Any) -> Any:
     return float(value) if isinstance(value, Decimal) else value
-
-
-def _round(value: Optional[float]) -> Optional[float]:
-    return None if value is None else round(float(value), 2)
 
 
 def _pick(source: Any, keys: tuple[str, ...]) -> Optional[dict[str, Any]]:
@@ -352,7 +349,7 @@ def _product_out(row: Any, margin: bool) -> dict[str, Any]:
         "subcategoria_id": row.subcategoria_id,
         "subcategoria": row.nombre_subcategoria,
         "precios_lista": {
-            str(pricelist_id): _round(getattr(row, campo)) for pricelist_id, campo in PRICELIST_TO_CAMPO.items()
+            str(pricelist_id): round_display(getattr(row, campo)) for pricelist_id, campo in PRICELIST_TO_CAMPO.items()
         },
     }
     if margin:
@@ -424,17 +421,17 @@ def _breakdown_out(found: markup_service.DetailMarkup) -> Optional[dict[str, Any
         return None
     return {
         "variation_id": found.variation_id,
-        "price": _round(b.price),
+        "price": round_display(b.price),
         "price_source": b.price_source,
         "pricelist_id": b.pricelist_id,
         "installments": b.installments,
-        "comision_pct": _round(b.comision_pct),
-        "comision_total": _round(b.comision_total),
-        "costo_envio": _round(b.costo_envio),
+        "comision_pct": round_display(b.comision_pct),
+        "comision_total": round_display(b.comision_total),
+        "costo_envio": round_display(b.costo_envio),
         "envio_source": b.envio_source,
-        "limpio": _round(b.limpio),
-        "costo_ars": _round(b.costo_ars),
-        "markup": _round(b.markup),
+        "limpio": round_display(b.limpio),
+        "costo_ars": round_display(b.costo_ars),
+        "markup": round_display(b.markup),
     }
 
 

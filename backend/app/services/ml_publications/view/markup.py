@@ -141,7 +141,15 @@ def _evaluate(
 
     costo_ars = ctx.costo_en_pesos(inputs.costo, inputs.moneda_costo)
     comisiones = calcular_comision_ml_total(price, comision_base, inputs.iva, constantes=ctx.constantes)
-    costo_envio = resolve_envio(ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price)
+    if detail:  # the one resolution, with where the figure came from
+        costo_envio, envio_source = resolve_envio_source(
+            ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price
+        )
+    else:
+        costo_envio, envio_source = (
+            resolve_envio(ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price),
+            None,
+        )
     limpio = calcular_limpio(price, inputs.iva, costo_envio, comisiones["comision_total"], constantes=ctx.constantes)
     # costo_ars > 0 here (costo was checked and conversion only multiplies), so the
     # `calcular_markup` zero-cost branch cannot be reached.
@@ -149,7 +157,6 @@ def _evaluate(
     unit = UnitMarkup(value, REASON_OK, limpio, costo_ars, price, source, pricelist_id)
     if not detail:
         return unit, None
-    envio_source = resolve_envio_source(ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price)[1]
     breakdown = UnitBreakdown(
         price=price,
         price_source=source,

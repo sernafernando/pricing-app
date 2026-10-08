@@ -94,7 +94,6 @@ class TestDefaults:
     def test_the_scenarios_are_the_widest_publication_a_full_one_and_a_plain_one(self, script) -> None:
         scenarios = script.build_scenarios("MLA9", "MLA2", "MLA3")
         assert [s.item_id for s in scenarios] == ["MLA9", "MLA2", "MLA3"]
-        assert all(s.params == {} for s in scenarios)
 
     def test_a_publication_found_twice_is_measured_once(self, script) -> None:
         assert [s.item_id for s in script.build_scenarios("MLA9", "MLA9", "MLA9")] == ["MLA9"]

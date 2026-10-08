@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -250,18 +251,14 @@ def _assemble(db: Session, rows: list[Any], events: bool) -> list[dict[str, Any]
     return [_item(row, variations, labels, last_events) for row in rows]
 
 
-def _round(value: Optional[float]) -> Optional[float]:
-    return None if value is None else round(value, 2)
-
-
 def markup_out(item: ItemMarkup) -> dict[str, Any]:
     """The `markup` block of a row: range, worst variation, any-negative, why it has no value and how many
     variations are unpriced. Display values (2 decimals); sorting and filtering use the exact figures."""
     m = item.markup
     out: dict[str, Any] = {
-        "min": _round(m.value_min),
-        "max": _round(m.value_max),
-        "worst": _round(m.worst),
+        "min": round_display(m.value_min),
+        "max": round_display(m.value_max),
+        "worst": round_display(m.worst),
         "any_negative": m.any_negative,
         "reason": m.reason,
         "partial": m.partial,
@@ -269,9 +266,9 @@ def markup_out(item: ItemMarkup) -> dict[str, Any]:
     if item.ads is not None:
         out["ads"] = {
             "state": item.ads.state,
-            "amount": _round(item.ads.amount),
+            "amount": round_display(item.ads.amount),
             "units": item.ads.units,
-            "per_unit": _round(item.ads.per_unit),
+            "per_unit": round_display(item.ads.per_unit),
         }
     return out
 

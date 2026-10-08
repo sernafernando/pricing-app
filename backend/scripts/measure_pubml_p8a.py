@@ -69,7 +69,6 @@ PLAIN_SQL = (
 class Scenario:
     name: str
     item_id: str
-    params: dict[str, Any] = field(default_factory=dict)
 
 
 def build_scenarios(big: Optional[str], full: Optional[str], plain: Optional[str]) -> list[Scenario]:
@@ -109,9 +108,9 @@ class RequestFailed(Exception):
 
 
 def fetch(base_url: str, token: str, scenario: Scenario) -> tuple[float, dict[str, float], dict[str, Any]]:
-    """One GET of the sub-rows: (elapsed ms, server-side stages, JSON body)."""
+    """One GET of the publication detail: (elapsed ms, server-side stages, JSON body)."""
     path = PATH.format(item_id=urllib.parse.quote(scenario.item_id))
-    url = base_url.rstrip("/") + path + ("?" + urllib.parse.urlencode(scenario.params) if scenario.params else "")
+    url = base_url.rstrip("/") + path
     request = urllib.request.Request(url, method="GET", headers={"Authorization": f"Bearer {token}"})
     started = time.perf_counter()
     try:

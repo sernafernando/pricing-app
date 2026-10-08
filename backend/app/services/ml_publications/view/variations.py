@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session, aliased, join as orm_join
 
 from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariation
 from app.models.producto import ProductoERP
+from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view import markup_service
 from app.services.ml_publications.view.filters import LINK_CONFLICT, LINK_ITEM_LEVEL, LINK_LINKED, LINK_SOURCE_MANUAL
 from app.services.ml_publications.view.markup import UnitMarkup
@@ -125,10 +126,6 @@ def _attributes(raw: Any) -> list[dict[str, Any]]:
     ]
 
 
-def _round(value: Optional[float]) -> Optional[float]:
-    return None if value is None else round(value, 2)
-
-
 def _sub_row(row: Any, margin: bool) -> dict[str, Any]:
     use_own = row.own_product_id is not None
     prefix = "own" if use_own else "base"
@@ -159,7 +156,7 @@ def _sub_row(row: Any, margin: bool) -> dict[str, Any]:
 
 
 def _markup_out(unit: UnitMarkup) -> dict[str, Any]:
-    return {"value": _round(unit.value), "reason": unit.reason}
+    return {"value": round_display(unit.value), "reason": unit.reason}
 
 
 def _publication_ads(item: ItemMarkup) -> Optional[dict[str, Any]]:
@@ -167,9 +164,9 @@ def _publication_ads(item: ItemMarkup) -> Optional[dict[str, Any]]:
         return None
     return {
         "state": item.ads.state,
-        "amount": _round(item.ads.amount),
+        "amount": round_display(item.ads.amount),
         "units": item.ads.units,
-        "per_unit": _round(item.ads.per_unit),
+        "per_unit": round_display(item.ads.per_unit),
     }
 
 
