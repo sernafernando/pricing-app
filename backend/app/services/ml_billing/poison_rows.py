@@ -27,6 +27,8 @@ Only a BARE 400 is narrowed down. A 429, a 5xx, a timeout or a 400 that names a
 cause stops the read without a gap: the caller retries it later. The probe stops
 at `POISON_PROBE_BOUND`; reaching it with only 400s records the whole window
 `(X, X+bound]` and resumes there, so a 400 that is not about a row never loops.
+That gap's position is a bound, not a row, so it never closes by itself: it
+stays open for a person to look at.
 
 `fetch(from_id, limit) -> BillingFetch` is injected, so the pacing between
 requests (15 s per call) belongs to the caller and tests never sleep. The
@@ -87,6 +89,8 @@ def read_page_skipping_poison(
     while result.is_bare_400 and size > 1:
         size //= 2
         result = fetch(from_id, size)
+        if size == 1 and result.is_bare_400:  # a phantom gap needs this last verdict to be real
+            result = fetch(from_id, size)
     if result.ok:
         return PageRead(from_id=from_id, page=result.body)
     if not result.is_bare_400:
@@ -163,6 +167,7 @@ def resolve_recovered_gaps(
     Returns how many were resolved. The caller commits."""
     returned = {str(detail_id) for detail_id in detail_ids}
     resolved = 0
+    # Open gaps per period are few; each resolve is one targeted write.
     for gap in open_gaps(db, period_key, document_type):
         if gap.paging != _PAGING or gap.billing_source != _SOURCE or gap.position not in returned:
             continue

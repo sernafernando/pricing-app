@@ -119,6 +119,11 @@ class TestEngine:
         # Exponential then binary probe, not a scan of the 5,000 ids between neighbours.
         assert len(ml.calls) <= 2 + 2 * 2 * 13 + 1
 
+    def test_a_spurious_400_at_limit_one_does_not_record_a_phantom_gap(self, db) -> None:
+        ml = _Ml(_IDS, flaky_first=3)  # limit 2, its retry and the first limit-1 call
+        read = _read(db, ml, limit=2)
+        assert _ids(read.page) == _IDS[:1] and read.gaps == () and open_gaps(db, _PERIOD) == []
+
     def test_adjacent_poison_rows_are_covered_by_the_recorded_window(self, db) -> None:
         # The probe cannot tell where a run of consecutive poison rows starts: it
         # only finds the last one. The window must start at the cursor so the first
