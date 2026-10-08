@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
 
@@ -63,6 +65,38 @@ class BillingChargeDTO:
     document_id: Optional[str]
     order_ids: List[int] = field(default_factory=list)
     raw_detail: Dict[str, Any] = field(default_factory=dict)
+    # The type of the document the fetch asked for (the detail itself does not
+    # say), and ML's own legal fields from `charge_info`. The number is
+    # absent while the legal document is still PROCESSING.
+    document_type: Optional[str] = None
+    legal_document_number: Optional[str] = None
+    legal_document_status: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class BillingDocumentDTO:
+    """One ML billing document with ML's own values only. Nothing derived:
+    the stored detail count and sum are computed by query (BD-1, BS-3)."""
+
+    document_id: str
+    group: str
+    document_type: str
+    period_key: str
+    user_id: Optional[int]
+    amount: Optional[Decimal]
+    unpaid_amount: Optional[Decimal]
+    document_status: Optional[str]
+    associated_document_id: Optional[str]
+    count_details: Optional[int]
+    expiration_date: Optional[date]
+    currency_id: Optional[str]
+    site_id: Optional[str]
+    reference_number: Optional[str]
+    legal_point_of_sale: Optional[int]
+    legal_letter: Optional[str]
+    legal_number: Optional[int]
+    files: List[Any]
+    raw: Dict[str, Any]
 
 
 def _as_dict(value: Any, field_name: str) -> Dict[str, Any]:
@@ -99,7 +133,9 @@ def _dedup_order_ids(items_info: List[Any]) -> List[int]:
     return result
 
 
-def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[BillingChargeDTO, MappingError]:
+def map_billing_detail(
+    raw: Dict[str, Any], period_key: Optional[str], document_type: str = "BILL"
+) -> Union[BillingChargeDTO, MappingError]:
     """Maps one raw ML billing detail (from `get_billing_details`'s
     `results[]`) into a `BillingChargeDTO`.
 
@@ -109,6 +145,8 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
             discount_info, document_info}` (investigation §1/§6).
         period_key: The billing period this detail was fetched from, or
             None if unknown to the caller.
+        document_type: The document type the fetch asked for (`BILL`, the
+            only one fetched before PR 2b, or `CREDIT_NOTE`).
 
     Returns:
         A `BillingChargeDTO`, or a `MappingError` if the payload is
@@ -164,6 +202,9 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
             document_id=document_id,
             order_ids=order_ids,
             raw_detail=raw_detail,
+            document_type=document_type,
+            legal_document_number=charge_info.get("legal_document_number"),
+            legal_document_status=charge_info.get("legal_document_status"),
         )
     # `ArithmeticError` está acá por `decimal.InvalidOperation`, que es lo
     # que levanta `Decimal(str(...))` con un `detail_amount` como "N/A" o
@@ -177,4 +218,83 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
         logger.warning(f"Error mapeando detalle de facturación: {e}")
         # El payload va completo también por el camino de error: es lo que
         # el barrido loguea o persiste para diagnosticar la fila.
+        return MappingError(str(e), raw)
+
+
+# `PPPPLNNNNNNNN`: point of sale (4 digits), letter, number (8 digits), e.g.
+# `0058A00975220` -> (58, "A", 975220).
+_LEGAL_REFERENCE_RE = re.compile(r"^(\d{4})([A-Z])(\d{8})$")
+
+
+def parse_legal_reference(reference: Any) -> tuple[Optional[int], Optional[str], Optional[int]]:
+    """Splits a legal reference into (point of sale, letter, number).
+
+    A string that does not have the shape yields `(None, None, None)`; the
+    caller keeps the original string. Never raises (BD-2)."""
+    if not isinstance(reference, str):
+        return (None, None, None)
+    match = _LEGAL_REFERENCE_RE.match(reference)
+    if match is None:
+        return (None, None, None)
+    return (int(match.group(1)), match.group(2), int(match.group(3)))
+
+
+def _optional_str(value: Any) -> Optional[str]:
+    return None if value is None else str(value)
+
+
+def _optional_money(value: Any) -> Optional[Decimal]:
+    # `Decimal(str(...))`, never float: same money rule as the charge amount.
+    return None if value is None else Decimal(str(value))
+
+
+def map_billing_document(raw: Dict[str, Any], period_key: str, group: str) -> Union[BillingDocumentDTO, MappingError]:
+    """Maps one element of ML's `/documents` list into a `BillingDocumentDTO`.
+
+    Fail-closed like `map_billing_detail`: never raises, returns a
+    `MappingError` for a payload it cannot trust."""
+    if not isinstance(raw, dict):
+        return MappingError(f"documento no es un dict: {type(raw).__name__}", raw)
+
+    try:
+        document_id = raw.get("id")
+        if document_id is None or document_id == "":
+            return MappingError("missing document id", raw)
+        if not raw.get("document_type"):
+            return MappingError("missing document_type", raw)
+
+        files = raw.get("files")
+        files = _as_list(files, "files")
+        first_file = files[0] if files and isinstance(files[0], dict) else {}
+        reference_number = first_file.get("reference_number")
+        point_of_sale, letter, number = parse_legal_reference(reference_number)
+
+        expiration = raw.get("expiration_date")
+        expiration_date = date.fromisoformat(str(expiration)[:10]) if expiration else None
+        count_details = raw.get("count_details")
+        user_id = raw.get("user_id")
+
+        return BillingDocumentDTO(
+            document_id=str(document_id),
+            group=group,
+            document_type=str(raw["document_type"]),
+            period_key=period_key,
+            user_id=None if user_id is None else int(user_id),
+            amount=_optional_money(raw.get("amount")),
+            unpaid_amount=_optional_money(raw.get("unpaid_amount")),
+            document_status=raw.get("document_status"),
+            associated_document_id=_optional_str(raw.get("associated_document_id")),
+            count_details=None if count_details is None else int(count_details),
+            expiration_date=expiration_date,
+            currency_id=raw.get("currency_id"),
+            site_id=raw.get("site_id"),
+            reference_number=_optional_str(reference_number),
+            legal_point_of_sale=point_of_sale,
+            legal_letter=letter,
+            legal_number=number,
+            files=copy.deepcopy(files),
+            raw=copy.deepcopy(raw),
+        )
+    except (TypeError, ValueError, ArithmeticError, AttributeError) as e:
+        logger.warning(f"Error mapeando documento de facturación: {e}")
         return MappingError(str(e), raw)
