@@ -412,3 +412,92 @@ class TestInvalidFilters:
                 db, parse_filter(evento="price_changed"), listing.parse_sort(None, None), 50, 0, events=False
             )
         assert caught.value.field == "evento"
+
+
+class TestSorting:
+    def test_the_default_is_recent_activity_newest_first_with_events_off(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1", last_trigger_received_at=seed.hours_ago(5))
+        seed.add_item(conn, "MLA2", last_trigger_received_at=seed.hours_ago(1))
+        seed.add_item(conn, "MLA3", last_trigger_received_at=seed.hours_ago(3))
+        page = run(db, events=False)
+        assert ids(page) == ["MLA2", "MLA3", "MLA1"]
+        assert all("last_event" not in row for row in page.items)
+
+    @pytest.mark.parametrize(
+        "direction, expected", [("desc", ["MLA2", "MLA1", "MLA3"]), ("asc", ["MLA1", "MLA2", "MLA3"])]
+    )
+    def test_an_item_without_activity_is_last_in_either_direction(self, conn, db, direction, expected) -> None:
+        seed.add_item(conn, "MLA1", last_trigger_received_at=seed.hours_ago(5))
+        seed.add_item(conn, "MLA2", last_trigger_received_at=seed.hours_ago(1))
+        seed.add_item(conn, "MLA3")
+        assert ids(run(db, orden="actividad", dir=direction)) == expected
+
+    def test_price_orders_by_the_ml_price_sale_price_first_nulls_last(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1", price=500)
+        seed.add_item(conn, "MLA2", price=1000)
+        seed.add_sale_price(conn, "MLA2", 300)  # the sale price wins: 300, not 1000
+        seed.add_item(conn, "MLA3", price=700)
+        seed.add_item(conn, "MLA4")
+        assert ids(run(db, orden="precio", dir="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+        assert ids(run(db, orden="precio", dir="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+
+    def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1", title="banana")
+        seed.add_item(conn, "MLA2", title="Apple")
+        seed.add_item(conn, "MLA3", title="cherry")
+        seed.add_item(conn, "MLA4")
+        assert ids(run(db, orden="titulo", dir="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+        assert ids(run(db, orden="titulo", dir="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+
+    def test_full_stock_puts_unknown_last_and_a_real_zero_before_it(self, conn, db) -> None:
+        for item_id, up, full in (("MLA1", "MLAU1", 5), ("MLA2", "MLAU2", 0), ("MLA3", "MLAU3", 9)):
+            seed.add_item(conn, item_id, user_product_id=up)
+            seed.add_stock(conn, up, full=full, own=0)
+        seed.add_item(conn, "MLA4", user_product_id="MLAU4")  # no stock row: unknown
+        assert ids(run(db, orden="stock_full", dir="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+        assert ids(run(db, orden="stock_full", dir="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+
+    def test_updated_orders_by_the_ml_last_update_newest_first_by_default(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1", ml_last_updated=seed.hours_ago(9))
+        seed.add_item(conn, "MLA2", ml_last_updated=seed.hours_ago(2))
+        seed.add_item(conn, "MLA3")
+        assert ids(run(db, orden="actualizado")) == ["MLA2", "MLA1", "MLA3"]
+        assert ids(run(db, orden="actualizado", dir="asc")) == ["MLA1", "MLA2", "MLA3"]
+
+    def test_text_and_price_sorts_default_to_ascending(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1", title="b", price=2)
+        seed.add_item(conn, "MLA2", title="a", price=9)
+        assert ids(run(db, orden="titulo")) == ["MLA2", "MLA1"]
+        assert ids(run(db, orden="precio")) == ["MLA1", "MLA2"]
+
+    @pytest.mark.parametrize("params", [{"orden": "markup"}, {"orden": "nope"}, {"dir": "sideways"}])
+    def test_an_unknown_sort_or_direction_is_refused(self, params) -> None:
+        with pytest.raises(FilterError):
+            listing.parse_sort(params.get("orden"), params.get("dir"))
+
+
+class TestPaging:
+    @pytest.fixture()
+    def many(self, conn) -> None:
+        for n in range(120):  # one shared activity time: the tie is broken by item_id only
+            seed.add_item(conn, f"MLA{n:04d}", title="igual", last_trigger_received_at=seed.NOW)
+
+    @pytest.mark.parametrize("orden", ["actividad", "titulo", "precio", "stock_full", "actualizado"])
+    def test_equal_keys_page_without_repeats_or_skips(self, many, db, orden) -> None:
+        pages = [ids(run(db, orden=orden, limit=50, offset=offset)) for offset in (0, 50, 100)]
+        assert [len(p) for p in pages] == [50, 50, 20]
+        flat = [item_id for page in pages for item_id in page]
+        assert flat == sorted(flat) and len(set(flat)) == 120
+
+    def test_the_last_page_holds_the_rest_and_the_total_is_the_filtered_set(self, many, db) -> None:
+        page = run(db, limit=50, offset=100)
+        assert len(page.items) == 20 and page.total == 120
+
+    def test_a_page_beyond_the_end_is_empty_with_the_total_intact(self, many, db) -> None:
+        page = run(db, limit=50, offset=99 * 50)
+        assert page.items == [] and page.total == 120
+
+    def test_the_total_follows_the_filter_not_the_page(self, conn, many, db) -> None:
+        seed.add_item(conn, "MLAX", title="distinto")
+        page = run(db, q="distinto", limit=1)
+        assert ids(page) == ["MLAX"] and page.total == 1

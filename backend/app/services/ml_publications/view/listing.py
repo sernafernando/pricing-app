@@ -24,10 +24,20 @@ from app.services.ml_publications.view.filters import (
     T,
     build_base_select,
     link_state,
+    price_amount,
 )
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
+# sort key -> (expression of the first ordering column, descending by default)
+SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
+    SORT_ACTIVITY: (lambda: T.i.last_trigger_received_at, True),
+    "precio": (price_amount, False),
+    "titulo": (lambda: func.lower(T.i.title), False),
+    "stock_full": (lambda: T.st.full_quantity, True),
+    "actualizado": (lambda: T.i.ml_last_updated, True),
+}
+DIRECTIONS = ("asc", "desc")
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
 
@@ -45,10 +55,13 @@ class ItemsPage:
 
 
 def parse_sort(orden: Optional[str], dir: Optional[str]) -> Sort:
-    key = (orden or SORT_ACTIVITY).strip()
-    if key != SORT_ACTIVITY:
-        raise FilterError("orden", f"unknown value {key!r}; known: {SORT_ACTIVITY}")
-    return Sort(key, descending=True)
+    key = (orden or "").strip() or SORT_ACTIVITY
+    if key not in SORT_COLUMNS:
+        raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(SORT_COLUMNS)}")
+    direction = (dir or "").strip().lower()
+    if direction and direction not in DIRECTIONS:
+        raise FilterError("dir", f"unknown value {direction!r}; known: {', '.join(DIRECTIONS)}")
+    return Sort(key, descending=(direction == "desc") if direction else SORT_COLUMNS[key][1])
 
 
 def bound(db: Session) -> None:
@@ -101,8 +114,9 @@ def _row_columns() -> list[Any]:
 
 
 def _order_by(sort: Sort) -> list[Any]:
-    activity = T.i.last_trigger_received_at
-    primary = activity.desc() if sort.descending else activity.asc()
+    """The sort key (missing values last in either direction), then `item_id`, which makes the order total."""
+    expression = SORT_COLUMNS[sort.key][0]()
+    primary = expression.desc() if sort.descending else expression.asc()
     return [primary.nulls_last(), T.i.item_id]
 
 
