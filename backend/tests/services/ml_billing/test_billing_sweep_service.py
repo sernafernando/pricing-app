@@ -820,6 +820,88 @@ class TestAnomalyIsRecorded:
         assert db.query(MlBillingPeriodStat).count() == 0
 
 
+class TestCursorMustStrictlyAdvance:
+    """The old `total` rule also bounded the loop. Now that only an empty page
+    ends the pass, a cursor that wanders must not hold the lock and burn the
+    account-wide request budget forever."""
+
+    def test_a_cursor_that_goes_backwards_stops_the_pass(self, db) -> None:
+        up = _page([_detail("D3")], total=5)
+        back = _page([_detail("D1")], total=4)  # last_id D1 < D3
+        responses = [up, back, up, back, up, back]
+
+        result, get_details = _run_sweep(responses)
+
+        assert get_details.await_count == 2
+        assert result.stopped_early is True
+        assert result.error == "billing pagination cursor did not advance"
+
+    def test_a_cursor_that_alternates_between_two_values_stops(self) -> None:
+        a = _page([_detail("D2")], total=9)
+        b = _page([_detail("D3")], total=9)
+        c = _page([_detail("D2")], total=9)
+
+        result, get_details = _run_sweep([a, b, c, b, c, b])
+
+        assert get_details.await_count == 3
+        assert result.stopped_early is True
+
+    def test_the_same_id_as_a_string_is_not_an_advance(self) -> None:
+        page1 = _page([_detail("D1")], total=3)
+        page2 = _page([_detail("D1")], total=3)
+        page2["last_id"] = str(_DETAIL_IDS["D1"])  # "70714313961" vs 70714313961
+
+        result, get_details = _run_sweep([page1, page2, page2])
+
+        assert get_details.await_count == 2
+        assert result.stopped_early is True
+
+    def test_a_cursor_that_is_not_a_number_stops_the_pass(self) -> None:
+        page1 = _page([_detail("D1")], total=3)
+        page2 = _page([_detail("D2")], total=3)
+        page2["last_id"] = "not-an-id"
+
+        result, get_details = _run_sweep([page1, page2, page2])
+
+        assert get_details.await_count == 2
+        assert result.stopped_early is True
+        assert result.error == "billing pagination cursor did not advance"
+
+
+class TestPageCap:
+    def test_endless_advancing_pages_stop_at_the_cap_derived_from_the_first_total(self, db) -> None:
+        """First page says 2,000 rows remain (2 pages of 1,000). ML then keeps
+        answering non-empty, advancing pages forever."""
+        calls = {"n": 0}
+
+        async def _endless(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] > 500:
+                raise RuntimeError("the sweep has no page cap")
+            base = 70_000_000_000 + calls["n"] * 10
+            return _page([_detail(str(base))], total=2000 if calls["n"] == 1 else 1000)
+
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=_endless),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(0))
+            ),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        assert result.stopped_early is True
+        assert result.error == "billing pagination exceeded the expected number of pages"
+        expected_cap = 2 + billing_sweep_service.PAGE_CAP_MARGIN
+        assert calls["n"] == expected_cap
+
+    def test_the_real_replay_stays_far_below_the_cap(self) -> None:
+        """35 real pages for a period of 33,260 rows: the cap leaves room for
+        short pages and rows that arrive while sweeping."""
+        pages = _captured_pages()
+        cap = billing_sweep_service._page_cap(pages[0]["total"])
+        assert len(pages) <= cap
+
+
 class TestRerunIsIdempotent:
     def test_second_pass_over_the_replay_leaves_counts_unchanged(self, db) -> None:
         captured = _captured_pages()

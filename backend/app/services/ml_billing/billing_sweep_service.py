@@ -69,6 +69,14 @@ logger = logging.getLogger(__name__)
 CURSOR_NAME = "billing"
 BILLING_GROUP = "ML"
 PAGE_LIMIT = 1000
+# Hard bound on pages per pass, on top of the strictly advancing cursor.
+# Only an empty page ends a pass (BS-1), so without a bound a misbehaving
+# answer would hold the lock and spend one request of the account-wide budget
+# every 15 s indefinitely. The bound derives from the FIRST page's `total`
+# (rows remaining at the start): ceil(total / PAGE_LIMIT) pages, plus this
+# margin for short pages (950-row pages measured in 2026-09) and rows that
+# ML adds to the open period while the sweep runs.
+PAGE_CAP_MARGIN = 10
 # The proxy itself throttles to 1 call/15s and returns 429 without going to
 # ML (investigation §3). Spacing our own requests at the same floor keeps
 # us under the account's 5/minute ceiling with margin, instead of relying
@@ -143,6 +151,21 @@ def _resolve_open_period_key(now: datetime, group: str) -> str:
 
     logger.warning(f"sync_ml_billing: ML no marcó ningún período como OPEN, uso el derivado {derived}")
     return derived
+
+
+def _cursor_value(cursor) -> Optional[int]:
+    """The cursor as an int, or None when it is not a usable id.
+
+    Compared numerically: ML sends `last_id` as an int, but a numeric string
+    for the same id must not read as an advance."""
+    try:
+        return int(cursor)
+    except (TypeError, ValueError):
+        return None
+
+
+def _page_cap(first_total: int) -> int:
+    return -(-first_total // PAGE_LIMIT) + PAGE_CAP_MARGIN
 
 
 def _highest_detail_id(raw_results: list) -> Optional[int]:
@@ -229,6 +252,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
             # es el `total` de la PRIMERA página; solo se guarda como
             # observación.
             reported_total: Optional[int] = None
+            pages_fetched = 0
 
             while True:
                 # ALWAYS space, including before the FIRST page.
@@ -302,8 +326,10 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 next_from_id = page.get("last_id")
                 if next_from_id is None:
                     next_from_id = _highest_detail_id(raw_results)
-                if next_from_id is None or next_from_id == from_id:
-                    # El cursor no avanzó. Sin esto la pasada cicla para
+                next_value = _cursor_value(next_from_id)
+                if next_value is None or next_value <= _cursor_value(from_id):
+                    # El cursor no avanzó (o retrocedió, o no es un id).
+                    # Sin esto la pasada cicla para
                     # siempre re-escribiendo la misma página: mientras
                     # `total` fue None, lo único que terminaba un barrido
                     # era que la request fallara.
@@ -319,6 +345,20 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                     result.error = "billing pagination cursor did not advance"
                     break
                 from_id = next_from_id
+
+                pages_fetched += 1
+                if reported_total is not None and pages_fetched >= _page_cap(reported_total):
+                    logger.warning(
+                        "sync_ml_billing: la pasada superó las páginas esperadas (period=%s, group=%s, "
+                        "pages=%s, first_total=%s) -- corto para no gastar el presupuesto de requests",
+                        period_key,
+                        group,
+                        pages_fetched,
+                        reported_total,
+                    )
+                    result.stopped_early = True
+                    result.error = "billing pagination exceeded the expected number of pages"
+                    break
 
             if not result.stopped_early:
                 documents_count_details: Optional[int] = None
