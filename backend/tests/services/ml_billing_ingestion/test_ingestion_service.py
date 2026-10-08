@@ -14,13 +14,18 @@ Spec coverage:
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import func
 
-from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
-from app.services.ml_billing_ingestion.ingestion_service import upsert_billing_charge
-from app.services.ml_billing_ingestion.mapper import BillingChargeDTO
+from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder, MlBillingDocument
+from app.services.ml_billing_ingestion.ingestion_service import (
+    upsert_billing_charge,
+    upsert_billing_document,
+)
+from app.services.ml_billing_ingestion.mapper import BillingChargeDTO, map_billing_document
 
 
 def _pack_dto() -> BillingChargeDTO:
@@ -124,13 +129,6 @@ class TestIdempotent:
 
 
 # --- ml-billing-balance PR 2b: documents (BD-1, BD-3) -----------------------
-
-import json  # noqa: E402
-from pathlib import Path  # noqa: E402
-
-from app.models.ml_billing import MlBillingDocument  # noqa: E402
-from app.services.ml_billing_ingestion.ingestion_service import upsert_billing_document  # noqa: E402
-from app.services.ml_billing_ingestion.mapper import map_billing_document  # noqa: E402
 
 _DOCUMENTS = json.loads(
     (Path(__file__).resolve().parents[2] / "fixtures" / "ml_billing" / "documents_2026_09_01.json").read_text()
