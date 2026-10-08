@@ -147,9 +147,6 @@ class Replay:
         """`(ad_group_id, offset)` of every `/ads` request, in order."""
         return [(int(ADS_RE.search(r.url.path).group(1)), int(r.url.params["offset"])) for r in self.calls(ADS_RE)]
 
-    def calls_for_day(self, pattern: re.Pattern[str], day: Any) -> list[httpx.Request]:
-        return [r for r in self.calls(pattern) if r.url.params["date_from"] == day.isoformat()]
-
     def summary_calls(self) -> list[httpx.Request]:
         return self.calls(SUMMARY_RE)
 
