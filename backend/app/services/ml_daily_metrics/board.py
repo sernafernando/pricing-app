@@ -27,6 +27,9 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
      publication data (newest `mlp_id` wins) and product data, joined --
      never loaded whole into Python. The universe: every publication the
      ERP mirror knows plus every pair ever sold.
+   When `BoardFilter.mla_source` is set, a third table, `MLA_SET_TABLE`, is
+   materialized FIRST (same savepoint) and both tables above are restricted
+   to its MLAs; absent, no statement changes.
 2. Every statement after that reads the small temp tables: the KPI totals
    and their daily series, the chip counts (MATERIALIZED CTEs, each with its
    own axis cleared), the page (`ORDER BY` + `LIMIT/OFFSET`), and the page's
@@ -70,11 +73,11 @@ from sqlalchemy import (
     any_,
     case,
     cast,
+    column,
     false,
     func,
     literal,
     or_,
-    column,
     select,
     table,
     text,
@@ -171,6 +174,9 @@ LISTING_TYPES = {"gold_special": "clasica", "gold_pro": "premium"}
 # behind, success or failure), and a commit in between is refused loudly.
 PAIRS_TABLE = "board_pair_agg"
 LINES_TABLE = "board_lines"
+# The optional MLA restriction (`BoardFilter.mla_source`): one column of
+# distinct MLAs, materialized in the same savepoint as the two tables above.
+MLA_SET_TABLE = "board_mla_set"
 # The cursors whose completed passes keep the sales fresh (same as Ventas ML's
 # sync-status): the windowed sweep and the event-driven activity drain.
 FRESHNESS_CURSORS = ("sweep", "ml_activity")
@@ -244,6 +250,24 @@ class BoardFilter:
     solo_con_ventas: bool = False
     sort: str = "gross"
     sort_desc: bool = True
+    # Optional restriction to a set of MLAs: a one-column SELECT of MLA ids (a
+    # caller's own query, e.g. Publicaciones' filtered set). Materialized as the
+    # request's `board_mla_set` temp table, INSIDE the board's savepoint, so it
+    # lives and dies with the request. `None` (the default) changes NOTHING; an
+    # empty set selects NOTHING (never "everything"). A query, not a value:
+    # out of equality and hashing, like the rest of the filter's identity.
+    mla_source: Optional[Any] = field(default=None, compare=False, hash=False)
+
+
+def mla_set_query(source: Any) -> Any:
+    """The distinct, non-null MLAs of `source` (exactly one column), as the
+    SELECT that `board_mla_set` is created from."""
+    columns = list(source.selected_columns)
+    if len(columns) != 1:
+        raise ValueError(f"mla_source must select exactly one column, got {len(columns)}")
+    sub = source.subquery("mla_source")
+    only = list(sub.c)[0]
+    return select(only.label("mla")).where(only.isnot(None)).distinct()
 
 
 def previous_period(f: BoardFilter) -> Tuple[date, date]:
@@ -475,6 +499,8 @@ class Board:
         self.series_from = f.date_to - timedelta(days=SERIES_DAYS - 1)
         self.since_24h = self.now - timedelta(hours=24)
         self.pm_pairs = _resolve_pm_pairs(db, f.pms) if f.pms else None
+        # Set by `__enter__` when the filter restricts the MLAs.
+        self.mla_set: Optional[Any] = None
 
     # ── dialect helpers ──
 
@@ -541,23 +567,33 @@ class Board:
         first = min(f.date_from, self.window_from["30d"], self.series_from)
         return [day_bounds(first, f.date_to), day_bounds(self.prev_from, self.prev_to), (self.since_24h, None)]
 
+    def _in_mla_set(self, query: Any, mla_column: Any) -> Any:
+        """Restrict `query` to the request's MLA set -- a no-op (the very same
+        query object) when the filter carries no `mla_source`."""
+        if self.mla_set is None:
+            return query
+        return query.where(mla_column.in_(select(self.mla_set.c.mla)))
+
     def _lines_source(self):
         """The base summed per (product, MLA, business day) over `_ranges`:
         what every period/window total, the KPI series and the 90-day
         sparklines read. `u24` is the part accredited in the last 24h -- a
         SUBSET of the day's units by construction."""
         lines = sale_lines(sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id)
-        return select(
-            lines.c.product,
+        return self._in_mla_set(
+            select(
+                lines.c.product,
+                lines.c.mla,
+                lines.c.day,
+                func.sum(lines.c.qty).label("units"),
+                func.sum(lines.c.gross).label("gross"),
+                func.sum(lines.c.tg).label("tg"),
+                func.sum(lines.c.mtg).label("mtg"),
+                func.sum(lines.c.mcosto).label("mcosto"),
+                func.sum(case((lines.c.group_date >= self.since_24h, lines.c.qty), else_=0)).label("u24"),
+                func.max(lines.c.group_date).label("last_at"),
+            ),
             lines.c.mla,
-            lines.c.day,
-            func.sum(lines.c.qty).label("units"),
-            func.sum(lines.c.gross).label("gross"),
-            func.sum(lines.c.tg).label("tg"),
-            func.sum(lines.c.mtg).label("mtg"),
-            func.sum(lines.c.mcosto).label("mcosto"),
-            func.sum(case((lines.c.group_date >= self.since_24h, lines.c.qty), else_=0)).label("u24"),
-            func.max(lines.c.group_date).label("last_at"),
         ).group_by(lines.c.product, lines.c.mla, lines.c.day)
 
     def _agg(self):
@@ -600,7 +636,8 @@ class Board:
         published = select(M.item_id, M.mlp_publicationID).where(M.item_id.isnot(None), M.mlp_publicationID.isnot(None))
         if self.product_item_id is not None:
             published = published.where(M.item_id == self.product_item_id)
-        pairs = union(select(last.c.product, last.c.mla), published).subquery("pairs")
+        published = self._in_mla_set(published, M.mlp_publicationID)
+        pairs = union(self._in_mla_set(select(last.c.product, last.c.mla), last.c.mla), published).subquery("pairs")
         pub = self._pub(select(pairs.c.mla) if self.product_item_id is not None else None)
         sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
         # The group view (and opening a node) reads each pair's key and label
@@ -639,9 +676,9 @@ class Board:
                 last.c.last_at,
                 business_date(last.c.last_at, self.sqlite).label("last_day"),
                 *(
-                    column
+                    sql_column
                     for level, dimension in enumerate(dimensions)
-                    for column in (
+                    for sql_column in (
                         dimension.key.label(grouping.key_column(level)),
                         dimension.label.label(grouping.label_column(level)),
                     )
@@ -684,6 +721,10 @@ class Board:
         self._savepoint = self.db.begin_nested()
         if not self.db.in_transaction() or not self._savepoint.is_active:
             raise RuntimeError("Board needs an open transaction: its temp tables must not outlive it")
+        if self.f.mla_source is not None:
+            # First: the lines and the pairs read it. Same savepoint, so it is
+            # rolled back with them and never reaches another pooled client.
+            self.mla_set = self._materialize(MLA_SET_TABLE, mla_set_query(self.f.mla_source))
         self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()})
         self.t = self._materialize(PAIRS_TABLE, self._pair_source())
         return self
