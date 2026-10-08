@@ -26,6 +26,9 @@ from app.services.ml_ads.mapper import DaySummary, GroupFact, ItemFact
 
 SOURCE = "product_ads"
 UNFINISHED = "fetching"
+# `groups_offset` is the offset of the next `ad_groups/search` page; this value says every page was read,
+# so a resumed day goes straight to the drill instead of asking ML for a page past the end.
+GROUPS_DONE = -1
 
 
 def get_ledger(db: Session, advertiser_id: int, day: date) -> Optional[MlAdsDayLedger]:
@@ -277,3 +280,20 @@ def day_check(db: Session, advertiser_id: int, day: date) -> DayCheck:
         ).where(MlAdsAdGroupDay.advertiser_id == advertiser_id, MlAdsAdGroupDay.day == day)
     ).one()
     return DayCheck(Decimal(group_cost), groups, pending, drill_mismatches)
+
+
+def attempts_exhausted(db: Session, advertiser_id: int, day: date, *, today: date, limit: int) -> bool:
+    ledger = get_ledger(db, advertiser_id, day)
+    return ledger is not None and ledger.attempts_day == today and ledger.attempts >= limit
+
+
+def record_failure(db: Session, advertiser_id: int, day: date, *, today: date, error: str) -> int:
+    """Count one failed attempt for the local day `today` (the counter restarts on a new local day)."""
+    ledger = get_ledger(db, advertiser_id, day)
+    if ledger.attempts_day != today:
+        ledger.attempts = 0
+        ledger.attempts_day = today
+    ledger.attempts += 1
+    ledger.last_error = error[:500]
+    db.flush()
+    return ledger.attempts

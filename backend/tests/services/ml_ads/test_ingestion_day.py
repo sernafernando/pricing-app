@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
+import httpx
 import pytest
 from sqlalchemy import func, select
 
@@ -44,9 +45,9 @@ def session_factory(pg_ads_db):
     return factory
 
 
-def _run(session_factory, replay, monkeypatch, advertiser_id):
-    client = make_client(replay, monkeypatch)
-    return ingestion.run_ads_step(session_factory, client, advertiser_id, DAY, now=replay.clock.now)
+def _run(session_factory, replay, monkeypatch, advertiser_id, *, day=DAY, token=None, **kwargs):
+    client = make_client(replay, monkeypatch, token=token)
+    return ingestion.run_ads_step(session_factory, client, advertiser_id, day, now=replay.clock.now, **kwargs)
 
 
 def _item_sum(db, group_id=None) -> Decimal:
@@ -63,7 +64,7 @@ def _ledger(db, advertiser_id=GAUSS) -> MlAdsDayLedger:
 class TestGaussDayCloses:
     @pytest.fixture()
     def run(self, session_factory, pg_ads_db, monkeypatch):
-        replay = Replay(FakeClock(), gauss_day())
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
         return replay, _run(session_factory, replay, monkeypatch, GAUSS)
 
     def test_day_closes_against_the_summary(self, run, pg_ads_db) -> None:
@@ -113,7 +114,7 @@ class TestGaussDayCloses:
 
 class TestZeroSpendDay:
     def test_714700_closes_with_no_facts(self, session_factory, pg_ads_db, monkeypatch) -> None:
-        replay = Replay(FakeClock(), tplink_day())
+        replay = Replay(FakeClock(), {TPLINK: tplink_day()})
         result = _run(session_factory, replay, monkeypatch, TPLINK)
         ledger = _ledger(pg_ads_db, TPLINK)
         assert (result.outcome, ledger.status, ledger.summary_cost) == ("closed", "closed", Decimal("0.0"))
@@ -130,7 +131,7 @@ class TestGroupsMustAddUpToTheDayTotal:
         dropped = max(cost_bearing(day).values(), key=lambda g: g["metrics"]["cost"])
         for page in day["pages"]:
             page["results"] = [g for g in page["results"] if g["id"] != dropped["id"]]
-        result = _run(session_factory, Replay(FakeClock(), day), monkeypatch, GAUSS)
+        result = _run(session_factory, Replay(FakeClock(), {GAUSS: day}), monkeypatch, GAUSS)
         ledger = _ledger(pg_ads_db)
         assert (result.outcome, ledger.status, ledger.closed_at) == ("mismatch", "mismatch", None)
         # ML's figure is stored as received, so the gap stays visible.
@@ -139,7 +140,7 @@ class TestGroupsMustAddUpToTheDayTotal:
     def test_a_few_cents_of_rounding_still_close(self, session_factory, pg_ads_db, monkeypatch) -> None:
         day = copy.deepcopy(gauss_day())
         day["summary"]["metrics_summary"]["cost"] = 614060.10
-        result = _run(session_factory, Replay(FakeClock(), day), monkeypatch, GAUSS)
+        result = _run(session_factory, Replay(FakeClock(), {GAUSS: day}), monkeypatch, GAUSS)
         assert (result.outcome, _ledger(pg_ads_db).summary_cost) == ("closed", Decimal("614060.1"))
 
 
@@ -150,7 +151,7 @@ class TestDrillMustAddUpToItsGroup:
         day = copy.deepcopy(gauss_day())
         ad = next(a for a in day["ads"][953712626][0]["results"] if a["item_id"] == "MLA1150587086")
         ad["metrics"]["cost"] = 63896.44  # 100.00 less than captured
-        result = _run(session_factory, Replay(FakeClock(), day), monkeypatch, GAUSS)
+        result = _run(session_factory, Replay(FakeClock(), {GAUSS: day}), monkeypatch, GAUSS)
         statuses = dict(pg_ads_db.execute(select(MlAdsAdGroupDay.ad_group_id, MlAdsAdGroupDay.drill_status)).all())
         assert statuses[953712626] == "mismatch"
         assert [g for g, s in statuses.items() if s == "mismatch"] == [953712626]
@@ -165,7 +166,7 @@ class TestDrillMustAddUpToItsGroup:
         day = copy.deepcopy(gauss_day())
         ad = next(a for a in day["ads"][953712626][0]["results"] if a["item_id"] == "MLA1150587086")
         ad["metrics"]["cost"] = round(ad["metrics"]["cost"] + 0.01, 2)
-        result = _run(session_factory, Replay(FakeClock(), day), monkeypatch, GAUSS)
+        result = _run(session_factory, Replay(FakeClock(), {GAUSS: day}), monkeypatch, GAUSS)
         statuses = {s for (s,) in pg_ads_db.execute(select(MlAdsAdGroupDay.drill_status)).all()}
         assert "mismatch" not in statuses
         assert (result.outcome, _ledger(pg_ads_db).status) == ("closed", "closed")
@@ -174,7 +175,7 @@ class TestDrillMustAddUpToItsGroup:
         self, session_factory, pg_ads_db, monkeypatch
     ) -> None:
         clock = FakeClock()
-        assert _run(session_factory, Replay(clock, gauss_day()), monkeypatch, GAUSS).outcome == "closed"
+        assert _run(session_factory, Replay(clock, {GAUSS: gauss_day()}), monkeypatch, GAUSS).outcome == "closed"
         # A previous fetch left an ad that ML no longer reports for this group.
         pg_ads_db.add(
             MlAdsItemDay(
@@ -189,19 +190,124 @@ class TestDrillMustAddUpToItsGroup:
         )
         pg_ads_db.flush()
         clock.sleep(3600)
-        result = _run(session_factory, Replay(clock, gauss_day()), monkeypatch, GAUSS)
+        result = _run(session_factory, Replay(clock, {GAUSS: gauss_day()}), monkeypatch, GAUSS)
         statuses = {s for (s,) in pg_ads_db.execute(select(MlAdsAdGroupDay.drill_status)).all()}
         assert "mismatch" not in statuses
         assert (result.outcome, _ledger(pg_ads_db).status) == ("closed", "closed")
         assert _item_sum(pg_ads_db, group_id=953712626) == Decimal("64692.18")
 
 
-class TestFailedRequest:
-    def test_a_request_without_an_answer_raises_and_leaves_the_day_fetching(
+class TestResumableInsideADay:
+    def test_deadline_mid_groups_keeps_the_offset_and_resumes_there(
         self, session_factory, pg_ads_db, monkeypatch
     ) -> None:
-        replay = Replay(FakeClock(), gauss_day())
-        client = make_client(replay, monkeypatch, token={})  # no token: no request leaves
-        with pytest.raises(ingestion.AdsRequestError, match="transport error"):
-            ingestion.run_ads_step(session_factory, client, GAUSS, DAY, now=replay.clock.now)
-        assert (_ledger(pg_ads_db).status, replay.requests) == ("fetching", [])
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
+        first = _run(session_factory, replay, monkeypatch, GAUSS, deadline=replay.clock.now() + timedelta(seconds=5))
+        ledger = _ledger(pg_ads_db)
+        assert (first.outcome, ledger.status, ledger.groups_offset) == ("deadline", "fetching", 1000)
+        assert replay.group_pages() == [0, 200, 400, 600, 800]
+
+        already = len(replay.requests)
+        second = _run(session_factory, replay, monkeypatch, GAUSS)
+        assert replay.group_pages()[5] == 1000 and replay.group_pages()[5:] == list(range(1000, 5600, 200))
+        assert second.outcome == "closed" and len(replay.requests) > already
+        assert _item_sum(pg_ads_db) == Decimal("614060.07")
+
+    def test_deadline_mid_drill_resumes_the_half_read_group_and_skips_done_ones(
+        self, session_factory, pg_ads_db, monkeypatch
+    ) -> None:
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
+        ids = sorted(cost_bearing(gauss_day()))
+        # 28 group pages, every `/ads` page of the groups before 953635388, then the FIRST page of the 57-ad group.
+        before = ids[: ids.index(953635388)]
+        calls_before_stop = 28 + sum(len(gauss_day()["ads"][g]) for g in before) + 1
+        first = _run(
+            session_factory,
+            replay,
+            monkeypatch,
+            GAUSS,
+            deadline=replay.clock.now() + timedelta(seconds=calls_before_stop),
+        )
+        assert first.outcome == "deadline"
+        half = pg_ads_db.get(MlAdsAdGroupDay, (GAUSS, 953635388, DAY))
+        assert (half.drill_status, half.ads_offset) == ("pending", 50)
+        done_before = {g for g, _ in replay.ads_calls()} - {953635388}
+        assert len(done_before) == ids.index(953635388)
+
+        already = len(replay.requests)
+        second = _run(session_factory, replay, monkeypatch, GAUSS)
+        resumed = [
+            (int(r.url.path.split("/")[-2]), int(r.url.params["offset"]))
+            for r in replay.requests[already:]
+            if r.url.path.endswith("/ads")
+        ]
+        assert resumed[0] == (953635388, 50)
+        assert not done_before & {g for g, _ in resumed}
+        assert {g for g, _ in resumed} | done_before == set(ids)
+        assert (second.outcome, _item_sum(pg_ads_db, group_id=953635388)) == ("closed", Decimal("31770.10"))
+
+    def test_429_stops_the_run_with_the_day_still_fetching(self, session_factory, pg_ads_db, monkeypatch) -> None:
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
+        replay.inject = lambda n, request: httpx.Response(429, headers={"retry-after": "60"}) if n == 40 else None
+        result = _run(session_factory, replay, monkeypatch, GAUSS)
+        ledger = _ledger(pg_ads_db)
+        statuses = [s for (s,) in pg_ads_db.execute(select(MlAdsAdGroupDay.drill_status)).all()]
+        assert (result.outcome, ledger.status, ledger.closed_at) == ("rate_limited", "fetching", None)
+        assert 1 <= statuses.count("done") < 72 and statuses.count("done") + statuses.count("pending") == 72
+        assert len(replay.requests) == 40  # nothing after the 429
+
+        replay.inject = None
+        again = _run(session_factory, replay, monkeypatch, GAUSS)
+        assert (again.outcome, _item_sum(pg_ads_db)) == ("closed", Decimal("614060.07"))
+
+
+class TestFailureHandling:
+    def test_no_token_blocks_without_any_request(self, session_factory, monkeypatch) -> None:
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
+        result = _run(session_factory, replay, monkeypatch, GAUSS, token={})
+        assert (result.outcome, replay.requests) == ("blocked", [])
+
+    def test_unauthorized_blocks(self, session_factory, monkeypatch) -> None:
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
+        replay.inject = lambda n, request: httpx.Response(401, json={"message": "invalid token"})
+        assert _run(session_factory, replay, monkeypatch, GAUSS).outcome == "blocked"
+
+    def test_4xx_outside_the_retention_window_is_unavailable(self, session_factory, pg_ads_db, monkeypatch) -> None:
+        old = date(2026, 6, 1)  # 129 days before the fake "today" (2026-10-08), retention is 90
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
+        replay.inject = lambda n, request: httpx.Response(400, json={"message": "date out of range"})
+        result = _run(session_factory, replay, monkeypatch, GAUSS, day=old)
+        ledger = pg_ads_db.get(MlAdsDayLedger, ("product_ads", GAUSS, old))
+        assert (result.outcome, ledger.status) == ("unavailable", "unavailable")
+        assert "400" in ledger.last_error
+
+    def test_4xx_inside_the_window_is_an_attempt_not_a_verdict(self, session_factory, pg_ads_db, monkeypatch) -> None:
+        replay = Replay(FakeClock(), {GAUSS: gauss_day()})
+        replay.inject = lambda n, request: httpx.Response(400, json={"message": "bad request"})
+        result = _run(session_factory, replay, monkeypatch, GAUSS)
+        ledger = _ledger(pg_ads_db)
+        assert (result.outcome, ledger.status, ledger.attempts) == ("error", "fetching", 1)
+
+    @pytest.mark.parametrize("failure", ["timeout", "503"])
+    def test_failures_count_attempts_and_stop_after_five_per_local_day(
+        self, failure, session_factory, pg_ads_db, monkeypatch
+    ) -> None:
+        def inject(n, request):
+            if failure == "timeout":
+                raise httpx.ReadTimeout("slow")
+            return httpx.Response(503)
+
+        clock = FakeClock()
+        replay = Replay(clock, {GAUSS: gauss_day()})
+        replay.inject = inject
+        outcomes = [_run(session_factory, replay, monkeypatch, GAUSS).outcome for _ in range(5)]
+        assert outcomes == ["error"] * 5
+        assert _ledger(pg_ads_db).attempts == 5 and _ledger(pg_ads_db).last_error
+
+        sent = len(replay.requests)
+        assert _run(session_factory, replay, monkeypatch, GAUSS).outcome == "attempts_exhausted"
+        assert len(replay.requests) == sent
+
+        clock.advance(24 * 3600)  # next local day: the budget is renewed
+        assert _run(session_factory, replay, monkeypatch, GAUSS).outcome == "error"
+        assert (len(replay.requests) > sent, _ledger(pg_ads_db).attempts) == (True, 1)
