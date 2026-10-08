@@ -844,4 +844,13 @@ export const horasExtrasApi = {
     api.get('/rrhh/horas-extras/exportar', { params, responseType: 'blob' }),
 };
 
+// =============================================================================
+// Publicaciones ML (publicaciones-ml-vista): management screen reads
+// =============================================================================
+export const publicacionesMlAPI = {
+  // One page of publications. `params` are the query params of
+  // `GET /ml-publications/view/items` (see `buildItemsParams`).
+  items: (params) => api.get('/ml-publications/view/items', { params }),
+};
+
 export default api;
