@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
-from app.services.ml_publications.view.markup_service import ItemMarkup, MarkupQuery, MarkupStats, compute_markups
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -35,6 +34,7 @@ from app.services.ml_publications.view.filters import (
     status_value,
     stock_clauses,
 )
+from app.services.ml_publications.view.markup_service import ItemMarkup, MarkupQuery, MarkupStats, compute_markups
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
@@ -253,9 +253,9 @@ def markup_out(item: ItemMarkup) -> dict[str, Any]:
     if item.ads is not None:
         out["ads"] = {
             "state": item.ads.state,
-            "amount": item.ads.amount,
+            "amount": _round(item.ads.amount),
             "units": item.ads.units,
-            "per_unit": item.ads.per_unit,
+            "per_unit": _round(item.ads.per_unit),
         }
     return out
 

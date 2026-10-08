@@ -267,8 +267,12 @@ def get_items(
     timer = Timer("items")
     can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
     asks_for_margin = bool(
-        markup_neg or restar_publicidad or (markup_min or "").strip() or (markup_max or "").strip() or orden == "markup"
-    )  # a blank number is an absent parameter, here as in `parse_markup_filter`
+        markup_neg
+        or restar_publicidad
+        or (markup_min or "").strip()
+        or (markup_max or "").strip()
+        or (orden or "").strip() == "markup"
+    )  # blank values are absent parameters and the sort name is trimmed, here as in the parsers
     if not can_see_margin and asks_for_margin:
         raise api_error(
             status.HTTP_403_FORBIDDEN,

@@ -127,6 +127,12 @@ class TestGating:
         assert response.status_code == 403
         assert GANANCIA in response.json()["error"]["message"]
 
+    def test_the_sort_name_is_read_trimmed_for_the_gate_as_the_sort_parser_reads_it(
+        self, client, pg, reader, pricing
+    ) -> None:
+        seed_rows(pg, fill)
+        assert get(client, reader, orden=" markup ").status_code == 403
+
     BLANK = [{"markup_min": ""}, {"markup_max": "  "}, {"markup_min": "", "markup_max": ""}]
 
     @pytest.mark.parametrize("params", BLANK)

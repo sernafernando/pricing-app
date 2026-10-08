@@ -260,6 +260,17 @@ class TestAdsApplied:
             (None, date(2026, 9, 1), date(2026, 9, 30)),
         ]
 
+    def test_money_figures_are_rounded_to_cents_for_display_but_the_markup_uses_the_exact_per_unit(
+        self, client, pg, analyst, pricing, provide, db
+    ) -> None:
+        seed_rows(pg, fill)
+        sell(db, "MLA1", 3, 1001)
+        provide(FakeAds({"MLA1": 100.0}))  # 33.333... per unit
+        row = row_of(get(client, analyst, restar_publicidad="true", **PERIOD), "MLA1")
+        assert row["markup"]["ads"] == {"state": "ok", "amount": 100.0, "units": 3, "per_unit": 33.33}
+        limpio = unit_markup(make_ctx(), make_inputs(producto_item_id=70, costo=COST[70]), {}).limpio
+        assert row["markup"]["worst"] == round((limpio / (COST[70] + 100.0 / 3) - 1) * 100, 2)
+
     def test_the_resta_limpio_formula_is_used_when_configured(self, client, pg, analyst, pricing, provide, db) -> None:
         provide(self.seed_ads(pg, db))
         settings_store.set_setting("view.ads_formula", "resta_limpio", "test")
