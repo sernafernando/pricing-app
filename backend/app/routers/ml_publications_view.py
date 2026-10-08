@@ -265,6 +265,10 @@ class GroupNodeOut(BaseModel):
     codigo: Optional[str] = None
     family_id: Optional[int] = None
     item_id: Optional[str] = None
+    # present only with ml_metricas.ver_ganancia (owner decision 7: no average, no Ads sum on a node)
+    negative_count: Optional[int] = None  # publications with ANY negative variation (= /items markup_neg total)
+    markup_min: Optional[float] = None  # lowest unit markup of the node; null when no publication has a value
+    markup_max: Optional[float] = None
 
 
 class GroupsResponse(BaseModel):
@@ -275,6 +279,7 @@ class GroupsResponse(BaseModel):
     limit: int
     offset: int
     familias: bool
+    ads: Optional[AdsOut] = None  # present only with ml_metricas.ver_ganancia
 
 
 # ── Reads (ml_ops.ver) ───────────────────────────────────────────
@@ -481,6 +486,10 @@ def _node_out(node: groups.Node) -> dict[str, Any]:
     for name in ("producto_item_id", "codigo", "family_id", "item_id"):
         if getattr(node, name) is not None:
             out[name] = getattr(node, name)
+    if node.negative_count is not None:  # the figures travel together, and only for a caller who may see margins
+        out["negative_count"] = node.negative_count
+        out["markup_min"] = None if node.markup_min is None else round(node.markup_min, 2)
+        out["markup_max"] = None if node.markup_max is None else round(node.markup_max, 2)
     return out
 
 
@@ -493,18 +502,35 @@ def get_groups(
     familias: bool = Query(False, description="family nodes between a product and its publications"),
     limit: int = Query(groups.DEFAULT_LIMIT, ge=1, le=groups.MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    restar_publicidad: Optional[bool] = Query(None, description="node markup after Ads cost (ver_ganancia)"),
+    ads_desde: Optional[str] = Query(None, description="first day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
+    ads_hasta: Optional[str] = Query(None, description="last day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
     db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission check and the pricing tables (see `get_items`)
+    ads_provider: AdsCostProvider = Depends(get_ads_provider),
 ) -> dict[str, Any]:
     """The children of one node of the Agrupado tree, a page of them, with their publication counts. The counts
-    follow the same filters as `/items` (the store included), and each node's `params` select its publications there."""
+    follow the same filters as `/items` (the store included), and each node's `params` select its publications there.
+    With `ml_metricas.ver_ganancia`, also each node's `negative_count` and `markup_min`/`markup_max` (no average)."""
     timer = Timer("groups")
+    can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
+    if not can_see_margin and restar_publicidad:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para restar la publicidad",
+        )
     keys = [key.strip() for key in (path or "").split(",") if key.strip()]
     try:
+        markup, ads_status = None, None
+        if can_see_margin:
+            ads_status = _ads_status(ads_provider, bool(restar_publicidad), *parse_ads_period(ads_desde, ads_hasta))
+            markup = MarkupQuery(auth_db, MarkupFilter(), _ads_plan(ads_provider, ads_status))
         if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         with timer.stage("groups"):
-            page = groups.list_groups(db, f, keys, familias=familias, limit=limit, offset=offset)
+            page = groups.list_groups(db, f, keys, familias=familias, limit=limit, offset=offset, markup=markup)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -515,7 +541,7 @@ def get_groups(
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(level=page.level, rows=len(page.nodes), total=page.total)
-    return {
+    body: dict[str, Any] = {
         "level": page.level,
         "path": keys,
         "nodes": [_node_out(node) for node in page.nodes],
@@ -524,6 +550,9 @@ def get_groups(
         "offset": offset,
         "familias": familias,
     }
+    if ads_status is not None:
+        body["ads"] = _ads_out(ads_status.degraded() if page.ads_failed else ads_status)
+    return body
 
 
 @router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)
