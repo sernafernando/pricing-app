@@ -2,7 +2,7 @@ import { formatPct } from '../../../utils/metricasMlFormat';
 import PublicationStatusPill from '../PublicationStatusPill';
 import { MARKUP_REASONS, UNKNOWN_REASON } from '../markupReasons';
 import cellStyles from '../cells.module.css';
-import { amount, date, orNull } from './format';
+import { amount, count, date, orNull } from './format';
 import { Field, Fields, Section } from './PanelParts';
 import {
   CONDITION_LABELS,
@@ -33,7 +33,7 @@ function PublicationSection({ detail }) {
         <Field label="Logística">{label(LOGISTIC_TYPE_LABELS, row.logistic_type)}</Field>
         <Field label="Tienda">{store}</Field>
         <Field label="Marca">{orNull(row.ml_brand)}</Field>
-        <Field label="Familia">{row.family_name ?? (row.family_id == null ? null : String(row.family_id))}</Field>
+        <Field label="Familia">{row.family_name ?? count(row.family_id)}</Field>
         <Field label="Producto de usuario">{orNull(row.user_product_id)}</Field>
         <Field label="Variaciones">{row.variations_count > 0 ? row.variations_count : null}</Field>
         <Field label="Salud">{detail.health == null ? null : formatPct(detail.health * 100)}</Field>
@@ -76,12 +76,12 @@ function StockSection({ detail }) {
   return (
     <Section title="Stock">
       <Fields>
-        <Field label="Disponible">{stock.available == null ? null : String(stock.available)}</Field>
-        <Field label="Full">{stock.full == null ? null : String(stock.full)}</Field>
-        <Field label="Propio">{stock.own == null ? null : String(stock.own)}</Field>
+        <Field label="Disponible">{count(stock.available)}</Field>
+        <Field label="Full">{count(stock.full)}</Field>
+        <Field label="Propio">{count(stock.own)}</Field>
         {(detail.stockLocations ?? []).map((place) => (
           <Field key={place.type} label={label(STOCK_LOCATION_LABELS, place.type)}>
-            {String(place.quantity)}
+            {count(place.quantity)}
           </Field>
         ))}
         <Field label="Actualizado">{date(detail.stockAsOf ?? stock.as_of)}</Field>
@@ -116,7 +116,7 @@ function MarkupSection({ breakdown, reason }) {
       <Fields>
         <Field label="Precio">{amount(breakdown.price)}</Field>
         <Field label="Origen del precio">{label(PRICE_SOURCE_LABELS, breakdown.price_source)}</Field>
-        <Field label="Lista de precios">{breakdown.pricelist_id == null ? null : String(breakdown.pricelist_id)}</Field>
+        <Field label="Lista de precios">{count(breakdown.pricelist_id)}</Field>
         <Field label="Comisión">{breakdown.comision_pct == null ? null : formatPct(breakdown.comision_pct)}</Field>
         <Field label="Comisión total">{amount(breakdown.comision_total)}</Field>
         <Field label="Costo de envío">{amount(breakdown.costo_envio)}</Field>

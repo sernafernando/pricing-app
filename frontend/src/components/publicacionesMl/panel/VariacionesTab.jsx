@@ -3,11 +3,9 @@ import MarkupCell from '../MarkupCell';
 import { costLabel, readVariation } from '../variationRows';
 import { describeVariationsError, useVariations } from '../useVariations';
 import cellStyles from '../cells.module.css';
-import { amount } from './format';
+import { amount, count } from './format';
 import { Field, Fields, Section } from './PanelParts';
 import styles from './panel.module.css';
-
-const count = (value) => (value == null ? null : String(value));
 
 function VariationCard({ variation, canSeeMargin }) {
   return (

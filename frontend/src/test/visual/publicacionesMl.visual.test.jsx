@@ -628,11 +628,9 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     screen.unmount();
   });
 
-  it('1366x768 dark: the Full tab badges a partial report with the info tone', async () => {
+  it('1366x768 dark: the Full tab shows a complete report without the partial badge, its figures on one line', async () => {
     const screen = await renderWithPanel({ width: 1366, height: 768, theme: 'dark', tab: 'full' });
-    publicacionesMlAPI.detail.mockClear();
     await expect.element(screen.getByText('Últimos 30 días')).toBeVisible();
-    // The fixture's report is complete: no badge, and the figures sit on one line.
     expect(screen.getByText('Datos parciales').elements()).toHaveLength(0);
     const panel = panelOf();
     const figures = [...panel.querySelectorAll('dd')].filter((el) => /^[\d.,]+( ARS)?$/.test(el.textContent.trim()));

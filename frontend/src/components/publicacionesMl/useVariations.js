@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { publicacionesMlAPI } from '../../services/api';
+import { describeLoadError } from './loadErrors';
 
 /** What to tell the operator when the variations cannot be loaded. */
 export function describeVariationsError(error) {
-  const status = error?.response?.status;
-  if (status === 404) return 'La publicación ya no existe.';
-  if (status === 422) return 'El identificador de la publicación no es válido.';
-  if (status === 403) return 'No tenés permiso para ver las variaciones.';
-  if (status === 503) return 'La consulta tardó demasiado. Reintentá en unos segundos.';
-  return 'No se pudieron cargar las variaciones.';
+  return describeLoadError(error, {
+    notFound: 'La publicación ya no existe.',
+    forbidden: 'No tenés permiso para ver las variaciones.',
+    fallback: 'No se pudieron cargar las variaciones.',
+  });
 }
 
 /**

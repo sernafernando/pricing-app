@@ -1,10 +1,8 @@
-import { date, amount, orNull } from './format';
+import { amount, count, date, orNull } from './format';
 import { replenishmentDisabled } from './detailModel';
 import { Field, Fields, Section } from './PanelParts';
 import cellStyles from '../cells.module.css';
 import styles from './panel.module.css';
-
-const count = (value) => (value == null ? null : String(value));
 
 const STATUS_MESSAGES = {
   not_found: 'Mercado Libre no tiene datos de reposición para esta publicación.',
