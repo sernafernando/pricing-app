@@ -120,7 +120,7 @@ class MarkupStatsOut(BaseModel):
 
 class AdsOut(BaseModel):
     """Whether Ads cost data exists (`available`), whether this request asked to subtract it (`requested`) and
-    whether it was (`applied`, with the period). Only for users with `ml_metricas.ver_ganancia`."""
+    whether it was (`applied`). The period the client sent is echoed either way. Only for users with `ml_metricas.ver_ganancia`."""
 
     available: bool
     reason: str
@@ -221,7 +221,7 @@ def _ads_out(status_: AdsStatus) -> dict[str, Any]:
         "requested": status_.requested,
         "applied": status_.applied,
     }
-    if status_.applied:
+    if status_.date_from is not None and status_.date_to is not None:
         out["date_from"], out["date_to"] = status_.date_from, status_.date_to
     return out
 
@@ -251,8 +251,12 @@ def get_items(
     markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
     markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
     restar_publicidad: Optional[bool] = Query(None, description="markup after Ads cost (ver_ganancia)"),
-    ads_desde: Optional[str] = Query(None, description="first day of the Ads period, YYYY-MM-DD"),
-    ads_hasta: Optional[str] = Query(None, description="last day of the Ads period, YYYY-MM-DD"),
+    ads_desde: Optional[str] = Query(
+        None, description="first day of the Ads period, YYYY-MM-DD (ver_ganancia; ignored without it)"
+    ),
+    ads_hasta: Optional[str] = Query(
+        None, description="last day of the Ads period, YYYY-MM-DD (ver_ganancia; ignored without it)"
+    ),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
     facets: bool = False,

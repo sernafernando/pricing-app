@@ -77,7 +77,8 @@ REASON_OK = "ok"
 @dataclass(frozen=True)
 class AdsStatus:
     """The `ads` block of a response: whether Ads data exists, whether this request asked for it and whether it
-    was actually applied (only when it exists, was asked for and the period is known)."""
+    was actually applied (only when it exists, was asked for and the period is known). The period the client
+    sent is echoed whether or not Ads could be applied."""
 
     available: bool
     reason: str
@@ -88,7 +89,7 @@ class AdsStatus:
 
     def degraded(self) -> "AdsStatus":
         """The status after the provider failed while it was being used: nothing was applied."""
-        return AdsStatus(False, REASON_PROVIDER_ERROR, self.requested, False)
+        return AdsStatus(False, REASON_PROVIDER_ERROR, self.requested, False, self.date_from, self.date_to)
 
 
 def resolve_ads(
@@ -100,12 +101,11 @@ def resolve_ads(
         availability = provider.availability()
     except Exception:
         logger.warning("ads provider availability failed", exc_info=True)
-        return AdsStatus(False, REASON_PROVIDER_ERROR, requested, False)
+        return AdsStatus(False, REASON_PROVIDER_ERROR, requested, False, date_from, date_to)
     if availability is not AdsAvailability.AVAILABLE:
-        return AdsStatus(False, REASON_PROVIDER_MISSING, requested, False)
-    if requested and date_from is not None and date_to is not None:
-        return AdsStatus(True, REASON_OK, True, True, date_from, date_to)
-    return AdsStatus(True, REASON_OK, requested, False)
+        return AdsStatus(False, REASON_PROVIDER_MISSING, requested, False, date_from, date_to)
+    applied = requested and date_from is not None and date_to is not None
+    return AdsStatus(True, REASON_OK, requested, applied, date_from, date_to)
 
 
 def _costo_extra(limpio: float, costo: float, per_unit: float) -> Optional[float]:

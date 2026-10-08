@@ -122,6 +122,8 @@ class TestAdsBlockWhileUnavailable:
             "reason": "provider_missing",
             "requested": True,
             "applied": False,
+            "date_from": "2026-09-01",  # the period the client sent is echoed even when nothing was applied
+            "date_to": "2026-09-30",
         }
         assert asked.json()["items"] == plain.json()["items"]
 
@@ -140,6 +142,7 @@ class TestAdsBlockWhileUnavailable:
         assert response.json()["ads"]["available"] is False
         assert response.json()["ads"]["reason"] == "provider_error"
         assert response.json()["ads"]["applied"] is False
+        assert response.json()["ads"]["date_from"] == "2026-09-01"  # what the client asked for is still echoed
         assert ids(response)[:2] == ["MLA2", "MLA4"]  # the plain markup order: Ads simply is not there
 
     def test_a_provider_that_raises_on_a_page_request_degrades_too(self, client, pg, analyst, pricing, provide) -> None:
@@ -219,7 +222,14 @@ class TestAdsApplied:
         fake = self.seed_ads(pg, db)
         provide(fake)
         body = get(client, analyst, **PERIOD).json()
-        assert body["ads"] == {"available": True, "reason": "ok", "requested": False, "applied": False}
+        assert body["ads"] == {
+            "available": True,
+            "reason": "ok",
+            "requested": False,
+            "applied": False,
+            "date_from": "2026-09-01",
+            "date_to": "2026-09-30",
+        }
         assert "ads" not in row_of(get(client, analyst), "MLA1")["markup"]
         assert fake.calls == []
 

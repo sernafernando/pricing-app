@@ -165,6 +165,7 @@ class TestResolveAds:
 
     def test_degrading_after_the_fact_keeps_what_was_asked(self) -> None:
         status = resolve_ads(self.Provider(), requested=True, date_from=self.D1, date_to=self.D2).degraded()
+        assert (status.date_from, status.date_to) == (self.D1, self.D2)
         assert (status.available, status.reason, status.requested, status.applied) == (
             False,
             "provider_error",
