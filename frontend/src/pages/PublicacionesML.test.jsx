@@ -18,6 +18,7 @@ import {
   ITEMS_RESPONSE,
   ITEMS_RESPONSE_EVENTS_OFF,
   itemsResponse,
+  makeItem,
 } from '../test/visual/publicacionesMlFixtures';
 
 vi.mock('../services/api', () => ({
@@ -34,8 +35,14 @@ vi.mock('../utils/mlSidePanel', async (importOriginal) => ({
   openInMlPanel: vi.fn(),
 }));
 
+// Everything is allowed except the margin, which each test grants on purpose.
+let canSeeMargin = false;
 vi.mock('../contexts/PermisosContext', () => ({
-  usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
+  usePermisos: () => ({
+    permisos: [],
+    tienePermiso: (permiso) => (permiso === 'ml_metricas.ver_ganancia' ? canSeeMargin : true),
+    cargandoPermisos: false,
+  }),
   PermisosProvider: ({ children }) => children,
 }));
 
@@ -50,6 +57,7 @@ const page = async (entry = '/ml-publicaciones') => {
 };
 
 beforeEach(() => {
+  canSeeMargin = false;
   seedTiendasOficiales([
     { store_id: 471846, nombre: 'TP-Link', clave: null, orden: 0, activa: true },
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
@@ -345,5 +353,89 @@ describe('opening a publication', () => {
     await userEvent.click(row);
     expect(openInMlPanel).not.toHaveBeenCalled();
     expect(row).toHaveAttribute('aria-current', 'true');
+  });
+});
+
+describe('markup (publicaciones-ml-vista P11b.T2)', () => {
+  const MARKUP = { min: -4, max: 12, worst: -4, any_negative: true, reason: 'ok', partial: 0, ads: null };
+  const withMargin = (entry = '/ml-publicaciones') => {
+    canSeeMargin = true;
+    respond({
+      ...ITEMS_RESPONSE,
+      can_see_margin: true,
+      facets: FACETS,
+      items: [makeItem({ ...ITEMS[0], markup: MARKUP }), ...ITEMS.slice(1)],
+    });
+    return page(entry);
+  };
+
+  it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
+    await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');
+    expect(screen.queryByRole('columnheader', { name: /Markup/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /negativo/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Markup mínimo/)).not.toBeInTheDocument();
+    for (const params of calls()) {
+      expect(params).not.toHaveProperty('markup_neg');
+      expect(params).not.toHaveProperty('markup_min');
+      expect(params).not.toHaveProperty('orden');
+    }
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    expect(screen.queryByRole('checkbox', { name: 'Markup' })).not.toBeInTheDocument();
+  });
+
+  it('with ver_ganancia the column shows the range, and the sort is labelled "peor variación"', async () => {
+    await withMargin();
+    expect(screen.getByText('-4,0% – 12,0%')).toBeInTheDocument();
+    const header = screen.getByRole('columnheader', { name: /Markup/ });
+    expect(within(header).getByText('peor variación')).toBeInTheDocument();
+  });
+
+  it('clicking the header sorts by orden=markup, worst first', async () => {
+    await withMargin();
+    await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup', dir: 'asc' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup', dir: 'desc' }));
+  });
+
+  it('the picker lists the markup column under its plain name', async () => {
+    await withMargin();
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
+    expect(screen.queryByRole('columnheader', { name: /Markup/ })).not.toBeInTheDocument();
+  });
+
+  it('"Solo negativos" sends markup_neg=true and goes back to page 1', async () => {
+    await withMargin('/ml-publicaciones?pagina=3');
+    await userEvent.click(screen.getByRole('switch', { name: /negativo/i }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ markup_neg: true, offset: 0 }));
+    expect(screen.getByRole('switch', { name: /negativo/i })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(screen.getByRole('switch', { name: /negativo/i }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_neg'));
+  });
+
+  it('mínimo and máximo are sent when committed, not on every keystroke', async () => {
+    await withMargin();
+    const before = calls().length;
+    await userEvent.type(screen.getByLabelText('Markup mínimo (%)'), '-5');
+    expect(calls()).toHaveLength(before);
+    await userEvent.type(screen.getByLabelText('Markup máximo (%)'), '20{Enter}');
+    await waitFor(() => expect(lastParams()).toMatchObject({ markup_min: '-5', markup_max: '20' }));
+  });
+
+  it('clearing a bound removes the param', async () => {
+    await withMargin('/ml-publicaciones?markup_min=5');
+    expect(screen.getByLabelText('Markup mínimo (%)')).toHaveValue('5');
+    await userEvent.clear(screen.getByLabelText('Markup mínimo (%)'));
+    await userEvent.tab();
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_min'));
+  });
+
+  it('a markup filter counts as active: "Limpiar filtros" appears and clears it', async () => {
+    await withMargin('/ml-publicaciones?markup_neg=1');
+    expect(lastParams()).toMatchObject({ markup_neg: true });
+    await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('markup_neg'));
+    expect(screen.getByLabelText('Markup mínimo (%)')).toHaveValue('');
   });
 });

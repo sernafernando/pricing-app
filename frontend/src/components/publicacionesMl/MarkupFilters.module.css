@@ -1,0 +1,27 @@
+/* Markup filter controls of the Publicaciones ML filter card. */
+
+.range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* Compound selector: it has to beat the global `input[type="text"]` rule of theme.css. */
+.range .input {
+  width: 88px;
+  height: 30px;
+  padding: 0 var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.range .input:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
