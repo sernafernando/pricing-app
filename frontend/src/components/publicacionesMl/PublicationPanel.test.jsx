@@ -106,6 +106,12 @@ describe('loading the detail', () => {
 });
 
 describe('failures', () => {
+  it('an empty 200 body does not break the panel', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: null });
+    renderPanel();
+    expect(await screen.findByRole('heading', { name: 'Sin título' })).toBeInTheDocument();
+  });
+
   it.each([
     [404, 'La publicación ya no existe'],
     [422, 'El identificador de la publicación no es válido'],

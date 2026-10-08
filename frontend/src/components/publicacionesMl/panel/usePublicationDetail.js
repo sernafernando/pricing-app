@@ -21,7 +21,7 @@ export function usePublicationDetail(itemId, { canSeeMargin }) {
     publicacionesMlAPI
       .detail(itemId)
       .then((response) => {
-        if (current) setState({ itemId, raw: response.data, error: null });
+        if (current) setState({ itemId, raw: response.data ?? {}, error: null });
       })
       .catch((error) => {
         if (current) setState({ itemId, raw: null, error });
