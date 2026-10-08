@@ -60,14 +60,14 @@ class ItemsPage:
     total: int
 
 
-def parse_sort(orden: Optional[str], dir: Optional[str]) -> Sort:
+def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     key = (orden or "").strip() or SORT_ACTIVITY
     if key not in SORT_COLUMNS:
         raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(SORT_COLUMNS)}")
-    direction = (dir or "").strip().lower()
-    if direction and direction not in DIRECTIONS:
-        raise FilterError("dir", f"unknown value {direction!r}; known: {', '.join(DIRECTIONS)}")
-    return Sort(key, descending=(direction == "desc") if direction else SORT_COLUMNS[key][1])
+    wanted = (direction or "").strip().lower()
+    if wanted and wanted not in DIRECTIONS:
+        raise FilterError("dir", f"unknown value {wanted!r}; known: {', '.join(DIRECTIONS)}")
+    return Sort(key, descending=(wanted == "desc") if wanted else SORT_COLUMNS[key][1])
 
 
 def bound(db: Session) -> None:

@@ -76,6 +76,11 @@ class TestCsvParams:
     def test_gone_is_a_status_token_of_its_own(self) -> None:
         assert parse_filter(estado="gone").status == ("gone",)
 
+    def test_no_status_is_a_status_token_of_its_own(self) -> None:
+        # the status facet offers `sin_estado` for items ML sent without a status: the filter must take it back
+        assert parse_filter(estado="sin_estado,active").status == ("sin_estado", "active")
+        assert parse_filter(estado_excluir="sin_estado").status_exclude == ("sin_estado",)
+
     def test_status_exclude_has_the_same_vocabulary(self) -> None:
         assert parse_filter(estado_excluir="closed,inactive").status_exclude == ("closed", "inactive")
 

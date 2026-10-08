@@ -43,8 +43,10 @@ def db(env, conn):  # noqa: F811
         session.close()
 
 
-def run(db: Session, *, limit: int = 50, offset: int = 0, events: bool = True, orden=None, dir=None, **params):
-    return listing.list_items(db, parse_filter(**params), listing.parse_sort(orden, dir), limit, offset, events=events)
+def run(db: Session, *, limit: int = 50, offset: int = 0, events: bool = True, orden=None, direction=None, **params):
+    return listing.list_items(
+        db, parse_filter(**params), listing.parse_sort(orden, direction), limit, offset, events=events
+    )
 
 
 def ids(page) -> list[str]:
@@ -245,6 +247,15 @@ class TestGone:
         assert rows["MLA2"]["gone"] is True and rows["MLA2"]["gone_at"] == seed.NOW
         assert rows["MLA1"]["gone"] is False and rows["MLA1"]["gone_at"] is None
 
+    def test_items_without_a_status_are_selected_and_excluded_by_their_own_token(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1", status="active")
+        seed.add_item(conn, "MLA2", status=None)
+        seed.add_item(conn, "MLA3", status="closed")
+        assert ids(run(db, estado="sin_estado")) == ["MLA2"]
+        assert sorted(ids(run(db, estado="sin_estado,closed"))) == ["MLA2", "MLA3"]
+        assert sorted(ids(run(db, estado_excluir="sin_estado"))) == ["MLA1", "MLA3"]
+        assert sorted(ids(run(db, estado_excluir="sin_estado,closed"))) == ["MLA1"]
+
     def test_a_status_filter_on_its_own_does_not_bring_gone_items_back(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", status="closed")
         seed.add_item(conn, "MLA2", status="closed", gone_at=seed.NOW)
@@ -430,7 +441,7 @@ class TestSorting:
         seed.add_item(conn, "MLA1", last_trigger_received_at=seed.hours_ago(5))
         seed.add_item(conn, "MLA2", last_trigger_received_at=seed.hours_ago(1))
         seed.add_item(conn, "MLA3")
-        assert ids(run(db, orden="actividad", dir=direction)) == expected
+        assert ids(run(db, orden="actividad", direction=direction)) == expected
 
     def test_price_orders_by_the_ml_price_sale_price_first_nulls_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", price=500)
@@ -438,31 +449,31 @@ class TestSorting:
         seed.add_sale_price(conn, "MLA2", 300)  # the sale price wins: 300, not 1000
         seed.add_item(conn, "MLA3", price=700)
         seed.add_item(conn, "MLA4")
-        assert ids(run(db, orden="precio", dir="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
-        assert ids(run(db, orden="precio", dir="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+        assert ids(run(db, orden="precio", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+        assert ids(run(db, orden="precio", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
 
     def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="banana")
         seed.add_item(conn, "MLA2", title="Apple")
         seed.add_item(conn, "MLA3", title="cherry")
         seed.add_item(conn, "MLA4")
-        assert ids(run(db, orden="titulo", dir="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
-        assert ids(run(db, orden="titulo", dir="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+        assert ids(run(db, orden="titulo", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+        assert ids(run(db, orden="titulo", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
 
     def test_full_stock_puts_unknown_last_and_a_real_zero_before_it(self, conn, db) -> None:
         for item_id, up, full in (("MLA1", "MLAU1", 5), ("MLA2", "MLAU2", 0), ("MLA3", "MLAU3", 9)):
             seed.add_item(conn, item_id, user_product_id=up)
             seed.add_stock(conn, up, full=full, own=0)
         seed.add_item(conn, "MLA4", user_product_id="MLAU4")  # no stock row: unknown
-        assert ids(run(db, orden="stock_full", dir="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
-        assert ids(run(db, orden="stock_full", dir="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+        assert ids(run(db, orden="stock_full", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+        assert ids(run(db, orden="stock_full", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
 
     def test_updated_orders_by_the_ml_last_update_newest_first_by_default(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", ml_last_updated=seed.hours_ago(9))
         seed.add_item(conn, "MLA2", ml_last_updated=seed.hours_ago(2))
         seed.add_item(conn, "MLA3")
         assert ids(run(db, orden="actualizado")) == ["MLA2", "MLA1", "MLA3"]
-        assert ids(run(db, orden="actualizado", dir="asc")) == ["MLA1", "MLA2", "MLA3"]
+        assert ids(run(db, orden="actualizado", direction="asc")) == ["MLA1", "MLA2", "MLA3"]
 
     def test_text_and_price_sorts_default_to_ascending(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="b", price=2)
@@ -536,6 +547,13 @@ class TestFacets:
         assert facets["status"] == {"active": 1, "paused": 1}
         assert facets["stores"] == {"1": 2, "2": 1}
         assert facets["link"] == {"manual": 1}
+
+    def test_every_status_the_facet_offers_can_be_selected_and_gives_its_count(self, conn, db) -> None:
+        seed.add_item(conn, "MLA7", status=None)  # the facet calls it `sin_estado`
+        offered = listing.facets(db, parse_filter())["status"]
+        assert set(offered) == {"active", "paused", "closed", "gone", "sin_estado"}
+        for value, count in offered.items():
+            assert run(db, estado=value).total == count, value
 
     def test_the_status_facet_offers_gone_even_while_gone_is_selected(self, db) -> None:
         # selecting `gone` must not hide the other statuses' counts, nor make the gone count vanish

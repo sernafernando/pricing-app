@@ -123,6 +123,7 @@ class ReportCache:
         self._block: Optional[dict[str, Any]] = None
         self._expires = 0.0
         self._building = False
+        self._generation = 0
 
     def get(self) -> dict[str, Any]:
         with self._lock:
@@ -131,18 +132,21 @@ class ReportCache:
             if self._building:
                 return self._block if self._block is not None else dict(_PENDING)
             self._building = True
+            generation = self._generation
         try:
             block, ttl = build_block(self._build()), self._ttl
         except Exception:  # noqa: BLE001 -- the report must never take the list down
             logger.exception("ml publications view: the status report could not be built")
             block, ttl = dict(_UNAVAILABLE), self._failure_ttl
         with self._lock:
-            self._block, self._expires, self._building = block, self._clock() + ttl, False
+            if generation == self._generation:  # a reset while it was building made this result obsolete
+                self._block, self._expires, self._building = block, self._clock() + ttl, False
         return block
 
     def reset(self) -> None:
         with self._lock:
-            self._block, self._expires = None, 0.0
+            self._block, self._expires, self._building = None, 0.0, False
+            self._generation += 1
 
 
 def _build_report() -> Mapping[str, Any]:

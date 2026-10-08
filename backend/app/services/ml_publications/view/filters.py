@@ -9,8 +9,9 @@ Rules worth knowing before reading the code:
 * `q` has three shapes (`normalize_q`): an MLA id and a digits-only string are EXACT keys; anything else is a
   case-insensitive substring search. Digits-only is an exact key because it is an MLA number, a seller SKU or an
   EAN, and exact keys use the indexes.
-* `gone` is a status token of its own: an item whose `gone_at` is set is listed only when asked for with
-  `estado=gone`, and then it is flagged (spec LST-5).
+* `gone` and `sin_estado` are status tokens of our own: an item whose `gone_at` is set is listed only when asked
+  for with `estado=gone` (and then it is flagged, spec LST-5); `sin_estado` selects items ML sent without a
+  status. The status facet offers exactly these values, so every one of them can be selected back.
 """
 
 from __future__ import annotations
@@ -216,7 +217,7 @@ def parse_filter(
     evento_desde: Optional[str] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
-    status_vocabulary = (*STATUS_VALUES, STATUS_GONE)
+    status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
     stores, no_store = _store_ids(tiendas)
     event_types = _vocabulary("evento", evento, EVENT_TYPES)
     return PublicationFilter(
@@ -312,15 +313,22 @@ def link_state() -> ColumnElement:
 
 
 def _status(f: PublicationFilter) -> ColumnElement:
-    wanted = [s for s in f.status if s != STATUS_GONE]
-    parts = []
+    """`estado` / `estado_excluir`: ML statuses plus two tokens of ours, `gone` (vanished from ML) and
+    `sin_estado` (no status). Gone items are shown only when `gone` is asked for."""
+    wanted = [s for s in f.status if s not in (STATUS_GONE, NO_STATUS)]
+    live = []
     if wanted:
-        parts.append(and_(T.i.gone_at.is_(None), T.i.status.in_(wanted)))
+        live.append(T.i.status.in_(wanted))
+    if NO_STATUS in f.status:
+        live.append(T.i.status.is_(None))
+    parts = [and_(T.i.gone_at.is_(None), or_(*live))] if live else []
     if STATUS_GONE in f.status:
         parts.append(T.i.gone_at.isnot(None))
     clause = or_(*parts) if parts else T.i.gone_at.is_(None)
-    excluded = [s for s in f.status_exclude if s != STATUS_GONE]
-    if excluded:
+    excluded = [s for s in f.status_exclude if s not in (STATUS_GONE, NO_STATUS)]
+    if NO_STATUS in f.status_exclude:
+        clause = and_(clause, T.i.status.isnot(None))
+    if excluded:  # a NULL status is not one of the excluded values: it stays unless `sin_estado` is excluded too
         clause = and_(clause, or_(T.i.status.is_(None), T.i.status.notin_(excluded)))
     if STATUS_GONE in f.status_exclude:
         clause = and_(clause, T.i.gone_at.is_(None))

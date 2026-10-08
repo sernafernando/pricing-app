@@ -158,7 +158,7 @@ def get_items(
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
     orden: Optional[str] = Query(None, description="actividad (default), precio, titulo, stock_full, actualizado"),
-    dir: Optional[str] = Query(None, description="asc or desc"),
+    direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
     facets: bool = False,
@@ -186,7 +186,7 @@ def get_items(
             evento=evento,
             evento_desde=evento_desde,
         )
-        sort = listing.parse_sort(orden, dir)
+        sort = listing.parse_sort(orden, direction)
         with timer.stage("flags"):
             events_enabled = settings_store.get_setting("events.enabled").value is True
         listing.bound(db)

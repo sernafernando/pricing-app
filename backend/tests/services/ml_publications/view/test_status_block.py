@@ -178,6 +178,28 @@ class TestReportCache:
         rebuilding.join(5)
         assert cache.get()["kill_switch"] is True and len(builds) == 2
 
+    def test_a_reset_during_a_build_discards_that_build(self) -> None:
+        release, started = threading.Event(), threading.Event()
+        builds: list[int] = []
+
+        def build() -> dict:
+            builds.append(1)
+            if len(builds) == 1:
+                started.set()
+                assert release.wait(5)
+                return healthy(kill_switch=True)  # the report the reset made obsolete
+            return healthy()
+
+        cache = ReportCache(build, clock=lambda: 1000.0)
+        building = threading.Thread(target=cache.get)
+        building.start()
+        assert started.wait(5)
+        cache.reset()
+        release.set()
+        building.join(5)
+        block = cache.get()  # not the discarded build: a new one runs
+        assert block["kill_switch"] is False and len(builds) == 2
+
     def test_the_very_first_request_during_the_first_build_gets_a_pending_block(self) -> None:
         release, started = threading.Event(), threading.Event()
 
