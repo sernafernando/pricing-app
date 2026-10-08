@@ -73,3 +73,12 @@ The bare 400 ML answers on an intermittent poison page, copied verbatim from
 `message` and the request `path`. The same envelope was seen for 2026-10-01
 and, on the general `/details` with `from_id` paging, in
 `billing_balance_capture_20261007_123428.json.gz`. Nothing is edited.
+
+## `captured_flex_offset_pages.json` (PR 4a-iv)
+
+Source: `flex_billing_capture_20261007_150559.json`, `flex/details`,
+`document_type=CREDIT_NOTE`, period `2026-10-01`, offset paging, `limit=500`.
+Per page, ML's own `offset`, `limit` and `total` plus the real `n_results`, and
+the first 12 real `detail_id`s of page 0. It proves the offset shape: pages are
+contiguous (`offset` 0, 500, ... 3000), the last one is partial (325) and
+`total` drifts while the sweep runs (3324 -> 3325).
