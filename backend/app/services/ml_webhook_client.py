@@ -207,6 +207,38 @@ def _validate_billing_document_type(document_type: str) -> str:
     return document_type
 
 
+@dataclass(frozen=True)
+class BillingFetch:
+    """Outcome of one billing request with its status kept (PR 4a-iii).
+
+    `status` is None when no response arrived (timeout, connection error).
+    """
+
+    status: Optional[int]
+    body: Optional[dict]
+    error: Optional[str]
+
+    @property
+    def ok(self) -> bool:
+        return self.status == 200 and self.body is not None
+
+    @property
+    def is_bare_400(self) -> bool:
+        """ML's poison-row answer: 400, `type: BAD_REQUEST_ERROR` and no cause.
+
+        A 400 that names an `error`/`cause` is a request ML rejected for a
+        reason (a bug of ours), and is never skipped as a poison row.
+        """
+        body = self.body
+        return (
+            self.status == 400
+            and isinstance(body, dict)
+            and body.get("type") == "BAD_REQUEST_ERROR"
+            and "error" not in body
+            and "cause" not in body
+        )
+
+
 class MLWebhookClient:
     """Cliente para el servicio ml-webhook que consulta la API de MercadoLibre"""
 
@@ -648,27 +680,53 @@ class MLWebhookClient:
         Returns:
             Dict crudo `{results: [...], total, limit, offset, last_id}`,
             o None si hay error/timeout. `total` y `last_id` vienen en el
-            NIVEL SUPERIOR; ML no manda ningún objeto `paging`.
+            NIVEL SUPERIOR; ML no manda ningún objeto `paging`. Quien necesite
+            distinguir un 400 de un 429 usa `fetch_billing_details`.
+        """
+        fetch = await self.fetch_billing_details(period_key, group, "BILL", limit, from_id)
+        return fetch.body if fetch.ok else None
+
+    async def fetch_billing_details(
+        self, period_key: str, group: str, document_type: str, limit: int, from_id: int | str
+    ) -> BillingFetch:
+        """Same request as `get_billing_details`, but the outcome keeps its status.
+
+        A bare 400 (a poison row), a 429 (proxy throttle) and a timeout call
+        for different moves, and `None` hides which one happened. Never
+        raises on the network: only the arguments raise `ValueError`, before
+        any request, like every billing method.
         """
         group = _validate_billing_group(group)
         period_key = _validate_period_key(period_key)
+        document_type = _validate_billing_document_type(document_type)
         limit = int(limit)
         from_id = _validate_from_id(from_id)
         resource = (
             f"/billing/integration/periods/key/{period_key}/group/{group}/details"
-            f"?document_type=BILL&limit={limit}&from_id={from_id}&sort_by=ID&order_by=ASC"
+            f"?document_type={document_type}&limit={limit}&from_id={from_id}&sort_by=ID&order_by=ASC"
         )
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(f"{self.base_url}/api/ml/billing", params={"resource": resource})
-                response.raise_for_status()
-                return response.json()
         except Exception as e:
+            error = _describe_exc(e)
             logger.error(
-                f"Error obteniendo detalle de facturación (period={period_key}, group={group}, "
-                f"from_id={from_id}): {_describe_exc(e)}"
+                f"Error obteniendo detalle de facturación (period={period_key}, group={group}, from_id={from_id}): {error}"
             )
-            return None
+            return BillingFetch(status=None, body=None, error=error)
+
+        try:
+            parsed = response.json()
+        except ValueError:
+            parsed = None
+        body = parsed if isinstance(parsed, dict) else None
+        if response.is_success:
+            return BillingFetch(status=response.status_code, body=body, error=None)
+        logger.warning(
+            f"Detalle de facturación rechazado (period={period_key}, group={group}, from_id={from_id}, "
+            f"limit={limit}): HTTP {response.status_code}"
+        )
+        return BillingFetch(status=response.status_code, body=body, error=f"HTTP {response.status_code}")
 
     async def get_billing_documents(self, period_key: str, group: str, document_type: str = "BILL") -> Optional[Dict]:
         """Lists the billing documents of a period through the `billing` proxy.
