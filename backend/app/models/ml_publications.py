@@ -45,6 +45,15 @@ class MlItem(Base):
         Index("ix_ml_items_seller_custom_field", "seller_custom_field"),
         Index("ix_ml_items_seller_sku", "seller_sku"),
         Index("ix_ml_items_gone_at", "gone_at", postgresql_where=text("gone_at IS NOT NULL")),
+        # Default order of the Publicaciones list (migration 20261011_ml_items_last_trigger_index). Declared so
+        # that autogenerate does not propose to drop it, but emitted on Postgres only: `NULLS LAST` in an index
+        # is not valid SQLite, and the unit tests build their schema from this metadata on SQLite.
+        Index(
+            "ix_ml_items_last_trigger",
+            text("last_trigger_received_at DESC NULLS LAST"),
+            "item_id",
+            postgresql_where=text("gone_at IS NULL"),
+        ).ddl_if(dialect="postgresql"),
     )
 
     item_id = Column(Text, primary_key=True)
