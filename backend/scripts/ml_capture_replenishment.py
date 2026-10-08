@@ -287,26 +287,44 @@ def _items_from_recent_sales() -> Dict[str, List[str]]:
     return {"full": full, "non_full": non_full}
 
 
-def _user_products_of(client: httpx.Client, token: str, item_ids: Sequence[str], limit: int) -> List[str]:
-    """`user_product_id` of the given MLAs via `/items/bulk` (GET, attributes only). Paced like the captures."""
-    found: List[str] = []
-    for i in range(0, len(item_ids), 20):
-        chunk = ",".join(item_ids[i : i + 20])
-        response = client.get(
-            "/items/bulk",
-            params={"ids": chunk, "attributes": "id,user_product_id"},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        time.sleep(MIN_INTERVAL_SECONDS)
-        if response.status_code != 200:
-            continue
-        for element in response.json():
-            body = element.get("body") if isinstance(element, dict) else None
-            upid = (body or {}).get("user_product_id")
+def extract_user_product_ids(
+    bodies: Sequence[Mapping[str, Any]], limit: int = 1_000, found: Optional[List[str]] = None
+) -> List[str]:
+    """MLAUs of item bodies: the item-level `user_product_id`, else each variation's. Appends to `found`."""
+    found = [] if found is None else found
+    for body in bodies:
+        candidates = [body.get("user_product_id")] + [v.get("user_product_id") for v in body.get("variations") or []]
+        for upid in candidates:
             if upid and upid not in found:
                 found.append(upid)
             if len(found) >= limit:
                 return found
+    return found
+
+
+def _user_products_of(client: httpx.Client, token: str, item_ids: Sequence[str], limit: int) -> List[str]:
+    """User product ids (MLAU) of the given MLAs via `/items/bulk` (GET, full body). The id lives on the
+    item (`user_product_id`) or, for items with variations, on each variation."""
+    found: List[str] = []
+    for i in range(0, len(item_ids), 20):
+        response = client.get(
+            "/items/bulk",
+            params={"ids": ",".join(item_ids[i : i + 20])},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        time.sleep(MIN_INTERVAL_SECONDS)
+        if response.status_code != 200:
+            print(f"  /items/bulk -> {response.status_code}")
+            continue
+        bodies = [e.get("body") for e in response.json() if isinstance(e, dict) and isinstance(e.get("body"), dict)]
+        with_variations = sum(1 for b in bodies if b.get("variations"))
+        item_level = sum(1 for b in bodies if b.get("user_product_id"))
+        print(
+            f"  /items/bulk: {len(bodies)} bodies, {item_level} with item user_product_id, {with_variations} with variations"
+        )
+        extract_user_product_ids(bodies, limit=limit, found=found)
+        if len(found) >= limit:
+            return found
     return found
 
 
@@ -333,6 +351,9 @@ def main() -> int:
     with httpx.Client(base_url=BASE_URL, timeout=httpx.Timeout(15.0, connect=5.0), follow_redirects=False) as client:
         if targets is None:
             items = _items_from_recent_sales()
+            print(
+                f"  recent sales: {len(items['full'])} Full MLAs, {len(items['non_full'])} other MLAs; e.g. {items['full'][:3]}"
+            )
             full = _user_products_of(client, token_data["access_token"], items["full"], FULL_LIMIT)
             non_full = [
                 u

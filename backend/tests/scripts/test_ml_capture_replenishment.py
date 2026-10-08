@@ -297,3 +297,25 @@ class TestTargetSelection:
     def test_without_non_full_it_still_captures_the_full_ones(self):
         targets = cap.build_targets(full=["F1"], non_full=[])
         assert {t.case for t in targets} == {"full_1", "full_1_no_caller"}
+
+
+class TestUserProductIdsOfItems:
+    """The fallback maps items to their MLAU: item level first, then each variation."""
+
+    def test_item_level_and_variation_level_ids_are_collected_without_duplicates(self):
+        bodies = [
+            {"id": "MLA1", "user_product_id": "MLAU1"},
+            {"id": "MLA2", "variations": [{"user_product_id": "MLAU2"}, {"user_product_id": "MLAU3"}]},
+            {"id": "MLA3", "user_product_id": "MLAU1", "variations": [{"user_product_id": None}]},
+            {"id": "MLA4"},
+        ]
+        assert cap.extract_user_product_ids(bodies) == ["MLAU1", "MLAU2", "MLAU3"]
+
+    def test_the_limit_stops_the_collection(self):
+        bodies = [{"user_product_id": f"MLAU{i}"} for i in range(10)]
+        assert cap.extract_user_product_ids(bodies, limit=3) == ["MLAU0", "MLAU1", "MLAU2"]
+
+    def test_already_found_ids_are_not_repeated(self):
+        found = ["MLAU1"]
+        cap.extract_user_product_ids([{"user_product_id": "MLAU1"}, {"user_product_id": "MLAU2"}], found=found)
+        assert found == ["MLAU1", "MLAU2"]
