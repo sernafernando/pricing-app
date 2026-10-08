@@ -47,7 +47,7 @@ describe('freshness', () => {
   it('says how long ago each resource was updated', () => {
     renderFooter();
     const freshness = screen.getByRole('list', { name: 'Actualización de los datos' });
-    expect(freshness).toHaveTextContent('Datos');
+    expect(freshness).toHaveTextContent('Publicación');
     expect(freshness).toHaveTextContent('hace 30 min');
     expect(freshness).toHaveTextContent('Reposición');
     expect(freshness).toHaveTextContent('hace 2 h');
@@ -59,9 +59,20 @@ describe('freshness', () => {
     expect(screen.getByRole('list', { name: 'Actualización de los datos' })).toHaveTextContent('sin datos');
   });
 
-  it('a resource in a state other than ok shows the state', () => {
-    renderFooter({ raw: makeDetail({ freshness: [{ ...FRESHNESS[1], state: 'error' }] }) });
-    expect(screen.getByRole('list', { name: 'Actualización de los datos' })).toHaveTextContent('error');
+  it.each([
+    ['error', 'error'],
+    ['not_found', 'no existe'],
+    ['gone', 'eliminada'],
+  ])('a resource in the state %s says so', (state, text) => {
+    renderFooter({ raw: makeDetail({ freshness: [{ ...FRESHNESS[1], state }] }) });
+    expect(screen.getByRole('list', { name: 'Actualización de los datos' })).toHaveTextContent(text);
+  });
+
+  it('names every resource the backend reports in Spanish', () => {
+    const resources = ['items', 'description', 'prices', 'sale_price', 'promotions', 'competition', 'moderation', 'performance', 'visits', 'user_product', 'stock', 'family', 'replenishment'];
+    renderFooter({ raw: makeDetail({ freshness: resources.map((resource) => ({ ...FRESHNESS[1], resource })) }) });
+    const text = screen.getByRole('list', { name: 'Actualización de los datos' }).textContent;
+    for (const resource of resources) expect(text).not.toContain(resource);
   });
 
   it('has no list when the backend sent no freshness', () => {

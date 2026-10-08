@@ -11,7 +11,9 @@ import { readDetail } from './detailModel';
 import {
   DETAIL_RESPONSE,
   DETAIL_RESPONSE_MARGIN,
+  EXTRA_FIELDS,
   ITEMS,
+  ITEM_COLUMNS,
   makeDetail,
   makeItem,
 } from '../../../test/visual/publicacionesMlFixtures';
@@ -169,6 +171,8 @@ describe('the markup breakdown (ver_ganancia only)', () => {
     renderTab(DETAIL_RESPONSE_MARGIN, { canSeeMargin: true });
     expect(valueOf('Markup', 'Precio')).toHaveTextContent('98.500,50');
     expect(valueOf('Markup', 'Origen del precio')).toHaveTextContent('Precio de oferta');
+    expect(valueOf('Markup', 'Unidad calculada')).toHaveTextContent('La publicación');
+    expect(valueOf('Markup', 'Cuotas')).toHaveTextContent('6');
     expect(valueOf('Markup', 'Lista de precios')).toHaveTextContent('12');
     expect(valueOf('Markup', 'Comisión')).toHaveTextContent('13,5%');
     expect(valueOf('Markup', 'Comisión total')).toHaveTextContent('13.297,57');
@@ -194,5 +198,121 @@ describe('the markup breakdown (ver_ganancia only)', () => {
     renderTab(DETAIL_RESPONSE_MARGIN, { canSeeMargin: false });
     expect(screen.queryByRole('region', { name: 'Markup' })).not.toBeInTheDocument();
     expect(screen.queryByText('Precio limpio')).not.toBeInTheDocument();
+  });
+});
+
+describe('the data of Mercado Libre (every ml_items column worth reading)', () => {
+  const NAME = 'Datos de Mercado Libre';
+
+  it('names the category, domain, seller, catalog product and currency', () => {
+    renderTab();
+    expect(valueOf(NAME, 'Categoría')).toHaveTextContent('MLA1648');
+    expect(valueOf(NAME, 'Dominio')).toHaveTextContent('MLA-ROUTERS');
+    expect(valueOf(NAME, 'Vendedor')).toHaveTextContent('123456789');
+    expect(valueOf(NAME, 'Producto de catálogo')).toHaveTextContent('MLA19000001');
+    expect(valueOf(NAME, 'Modo de compra')).toHaveTextContent('buy_it_now');
+    expect(valueOf(NAME, 'Moneda')).toHaveTextContent('ARS');
+  });
+
+  it('shows the seller\'s own codes, the base price and the quantities', () => {
+    renderTab();
+    expect(valueOf(NAME, 'SKU del vendedor')).toHaveTextContent('AX55-SKU');
+    expect(valueOf(NAME, 'Campo personalizado')).toHaveTextContent('ARCHER-AX55');
+    expect(valueOf(NAME, 'Precio base')).toHaveTextContent('112.000,00');
+    expect(valueOf(NAME, 'Cantidad inicial')).toHaveTextContent('200');
+    expect(valueOf(NAME, 'Vendidas')).toHaveTextContent('120');
+    expect(valueOf(NAME, 'Inventario')).toHaveTextContent('ABCD1234');
+  });
+
+  it('shows the shipping mode, free shipping and the publication dates', () => {
+    renderTab();
+    expect(valueOf(NAME, 'Modo de envío')).toHaveTextContent('me2');
+    expect(valueOf(NAME, 'Envío gratis')).toHaveTextContent('Sí');
+    expect(valueOf(NAME, 'Inicio').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    expect(valueOf(NAME, 'Finalizada')).toHaveTextContent('—');
+  });
+
+  it('shows the last error only when there is one', () => {
+    renderTab(makeDetail({ item: { ...ITEM_COLUMNS, last_error: 'HTTP 500' } }));
+    expect(valueOf(NAME, 'Último error')).toHaveTextContent('HTTP 500');
+  });
+
+  it('a column the store does not have reads "—", and a real false reads "No", never blank', () => {
+    renderTab(makeDetail({ item: { ...ITEM_COLUMNS, category_id: null, seller_sku: null, free_shipping: false, initial_quantity: 0 } }));
+    expect(valueOf(NAME, 'Categoría')).toHaveTextContent('—');
+    expect(valueOf(NAME, 'SKU del vendedor')).toHaveTextContent('—');
+    expect(valueOf(NAME, 'Envío gratis')).toHaveTextContent('No');
+    expect(valueOf(NAME, 'Cantidad inicial')).toHaveTextContent('0');
+  });
+
+  it('tolerates a detail without the item block', () => {
+    renderTab(makeDetail({ item: undefined, extra: undefined }));
+    expect(valueOf(NAME, 'Categoría')).toHaveTextContent('—');
+  });
+});
+
+describe('the body of the publication (the whitelisted extra)', () => {
+  const NAME = 'Características';
+
+  it('shows the warranty, the options and the channels', () => {
+    renderTab();
+    expect(valueOf(NAME, 'Garantía')).toHaveTextContent('Garantía del vendedor: 6 meses');
+    expect(valueOf(NAME, 'Republicación automática')).toHaveTextContent('No');
+    expect(valueOf(NAME, 'Acepta Mercado Pago')).toHaveTextContent('Sí');
+    expect(valueOf(NAME, 'Entrega internacional')).toHaveTextContent('none');
+    expect(valueOf(NAME, 'Canales')).toHaveTextContent('marketplace');
+    expect(valueOf(NAME, 'Canales')).toHaveTextContent('mshops');
+    expect(valueOf(NAME, 'Ofertas')).toHaveTextContent('MLA12345');
+  });
+
+  it('shows the shipping and the seller address', () => {
+    renderTab();
+    expect(valueOf(NAME, 'Retiro en persona')).toHaveTextContent('No');
+    expect(valueOf(NAME, 'Retiro en tienda')).toHaveTextContent('No');
+    expect(valueOf(NAME, 'Etiquetas de envío')).toHaveTextContent('self_service_in');
+    expect(valueOf(NAME, 'Ciudad')).toHaveTextContent('Palermo');
+    expect(valueOf(NAME, 'Provincia')).toHaveTextContent('Capital Federal');
+  });
+
+  it('lists the sale terms, the attributes and the item relations', () => {
+    renderTab();
+    expect(valueOf(NAME, 'Condiciones de venta')).toHaveTextContent('Tiempo de garantía: 6 meses');
+    expect(valueOf(NAME, 'Condiciones de venta')).toHaveTextContent('Cuotas: 6x_campaign');
+    expect(valueOf(NAME, 'Atributos')).toHaveTextContent('Marca: TP-Link');
+    expect(valueOf(NAME, 'Atributos')).toHaveTextContent('Modelo: Archer AX55');
+    expect(valueOf(NAME, 'Relaciones')).toHaveTextContent('MLA1100000009');
+  });
+
+  it('links every picture, and only over https', () => {
+    renderTab(
+      makeDetail({
+        extra: { ...EXTRA_FIELDS, pictures: [...EXTRA_FIELDS.pictures, { id: '3-MLA', secure_url: 'javascript:alert(1)', size: null, max_size: null }] },
+      }),
+    );
+    const pictures = valueOf(NAME, 'Imágenes');
+    const links = within(pictures).getAllByRole('link');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute('href', 'https://http2.mlstatic.com/D_111-O.jpg');
+    expect(links[0]).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(pictures).toHaveTextContent('3 imágenes');
+  });
+
+  it('a body the store does not have reads "—" everywhere', () => {
+    const empty = Object.fromEntries(Object.keys(EXTRA_FIELDS).map((key) => [key, null]));
+    renderTab(makeDetail({ extra: empty }));
+    for (const label of ['Garantía', 'Republicación automática', 'Acepta Mercado Pago', 'Canales', 'Ofertas', 'Retiro en persona', 'Etiquetas de envío', 'Ciudad', 'Provincia', 'Condiciones de venta', 'Atributos', 'Imágenes', 'Relaciones']) {
+      expect(valueOf(NAME, label)).toHaveTextContent('—');
+    }
+  });
+
+  it('an empty list is "—" too, not an empty cell', () => {
+    renderTab(makeDetail({ extra: { ...EXTRA_FIELDS, channels: [], attributes: [] } }));
+    expect(valueOf(NAME, 'Canales')).toHaveTextContent('—');
+    expect(valueOf(NAME, 'Atributos')).toHaveTextContent('—');
+  });
+
+  it('differential pricing is shown as what it is, whatever its shape', () => {
+    renderTab(makeDetail({ extra: { ...EXTRA_FIELDS, differential_pricing: { id: 7 } } }));
+    expect(valueOf(NAME, 'Precio diferencial')).toHaveTextContent('{"id":7}');
   });
 });

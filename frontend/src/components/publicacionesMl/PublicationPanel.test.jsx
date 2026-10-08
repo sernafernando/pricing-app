@@ -107,7 +107,7 @@ describe('loading the detail', () => {
 
 describe('failures', () => {
   it.each([
-    [404, 'No se encontró el detalle de la publicación'],
+    [404, 'La publicación ya no existe'],
     [422, 'El identificador de la publicación no es válido'],
     [403, 'No tenés permiso'],
     [503, 'La consulta tardó demasiado'],

@@ -1,4 +1,4 @@
-import { amount, count, date, orNull } from './format';
+import { amount, count, date, day, orNull } from './format';
 import { replenishmentDisabled } from './detailModel';
 import { Field, Fields, Section } from './PanelParts';
 import cellStyles from '../cells.module.css';
@@ -70,6 +70,8 @@ function ReplenishmentSection({ detail, disabled }) {
         <Field label="Días sin stock (21 días)">{count(report.daysOutOfStock21d)}</Field>
         <Field label="Urgencia de envío">{orNull(report.shippingUrgency)}</Field>
         <Field label="Stock total en Full">{count(report.totalStock)}</Field>
+        <Field label="Stock mínimo a distribuir">{count(report.minimumDistributableStock)}</Field>
+        <Field label="Ventas hasta">{day(report.historyThrough)}</Field>
         <Field label="Consultado">{date(report.fetchedAt)}</Field>
       </Fields>
     </Section>

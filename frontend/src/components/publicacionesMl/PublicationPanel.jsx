@@ -10,14 +10,10 @@ import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { usePublicationDetail } from './panel/usePublicationDetail';
 import styles from './panel/panel.module.css';
 
-/**
- * What to tell the operator when the detail cannot be loaded. A 404 does not say
- * the publication is gone: the row on the table is there, so all that is known is
- * that its detail was not found.
- */
+/** What to tell the operator when the detail cannot be loaded. */
 const describeError = (error) =>
   describeLoadError(error, {
-    notFound: 'No se encontró el detalle de la publicación.',
+    notFound: 'La publicación ya no existe.',
     forbidden: 'No tenés permiso para ver esta publicación.',
     fallback: 'No se pudo cargar la publicación.',
   });

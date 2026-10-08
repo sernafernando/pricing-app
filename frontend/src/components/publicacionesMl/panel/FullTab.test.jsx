@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import FullTab from './FullTab';
 import { readDetail } from './detailModel';
-import { DATA_STATE_OK, DETAIL_RESPONSE, ITEMS, REPLENISHMENT_OK, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
+import { DATA_STATE_OK, DETAIL_RESPONSE, ITEMS, REPLENISHMENT_EMPTY, REPLENISHMENT_OK, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
 
 const renderTab = (raw = DETAIL_RESPONSE, dataState = DATA_STATE_OK) => {
   const detail = readDetail(raw);
@@ -42,6 +42,8 @@ describe('the replenishment report', () => {
     expect(valueOf('Reposición', 'Días sin stock (21 días)')).toHaveTextContent('2');
     expect(valueOf('Reposición', 'Urgencia de envío')).toHaveTextContent('normal');
     expect(valueOf('Reposición', 'Stock total en Full')).toHaveTextContent('20');
+    expect(valueOf('Reposición', 'Stock mínimo a distribuir')).toHaveTextContent('4');
+    expect(valueOf('Reposición', 'Ventas hasta')).toHaveTextContent('05/10/2026');
     expect(valueOf('Reposición', 'Consultado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 
@@ -71,6 +73,14 @@ describe('the replenishment report', () => {
     expect(valueOf('Reposición', 'Últimos 30 días')).toHaveTextContent('—');
     expect(valueOf('Reposición', 'GMV 30 días')).toHaveTextContent('—');
     expect(within(section('Reposición')).queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it('the first answer not yet received (every figure null) says so, with dashes', () => {
+    renderTab(makeDetail({ replenishment: REPLENISHMENT_EMPTY }));
+    expect(within(section('Reposición')).getByText(/Todavía no se consultó la reposición/)).toBeInTheDocument();
+    expect(valueOf('Reposición', 'Ventas hasta')).toHaveTextContent('—');
+    expect(valueOf('Reposición', 'Stock mínimo a distribuir')).toHaveTextContent('—');
+    expect(valueOf('Reposición', 'Consultado')).toHaveTextContent('—');
   });
 
   it('a real 0 days out of stock is shown as 0', () => {

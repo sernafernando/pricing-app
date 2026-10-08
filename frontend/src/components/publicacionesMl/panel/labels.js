@@ -31,3 +31,22 @@ export const LINK_STATE_LABELS = {
 };
 
 export const label = (labels, code) => (code == null ? null : (labels[code] ?? code));
+
+export const RESOURCE_NAMES = {
+  items: 'Publicación',
+  description: 'Descripción',
+  prices: 'Precios',
+  sale_price: 'Precio de oferta',
+  promotions: 'Promociones',
+  competition: 'Competencia',
+  moderation: 'Moderación',
+  performance: 'Rendimiento',
+  visits: 'Visitas',
+  user_product: 'Producto de usuario',
+  stock: 'Stock',
+  family: 'Familia',
+  replenishment: 'Reposición',
+};
+
+// `ok` and `never_fetched` need no word: the first is the normal case, the second reads "sin datos".
+export const RESOURCE_STATE_LABELS = { error: 'error', not_found: 'no existe', gone: 'eliminada' };

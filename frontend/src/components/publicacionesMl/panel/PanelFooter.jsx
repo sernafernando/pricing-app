@@ -2,18 +2,12 @@ import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { publicacionesMlAPI } from '../../../services/api';
 import { timeAgo } from '../../../utils/ventasMlFormat';
-import { label } from './labels';
+import { RESOURCE_NAMES, RESOURCE_STATE_LABELS, label } from './labels';
 import styles from './panel.module.css';
 
 // What a resync asks for: the item's own data plus the Full replenishment report.
 const RESYNC_RESOURCES = ['bundle', 'replenishment'];
 
-const RESOURCE_NAMES = {
-  core: 'Datos',
-  sale_price: 'Precio de oferta',
-  stock: 'Stock',
-  replenishment: 'Reposición',
-};
 // The resources the store may not collect, in the words of the message about them.
 const MISSING_NAMES = { replenishment: 'reposición de Full', stock: 'stock', sale_price: 'precio de oferta' };
 
@@ -35,7 +29,9 @@ function Freshness({ entries }) {
           <li key={entry.resource} title={entry.last_checked_at ? `Última verificación: ${entry.last_checked_at}` : undefined}>
             <span className={styles.freshnessName}>{label(RESOURCE_NAMES, entry.resource)}</span>{' '}
             <span>{ago ?? 'sin datos'}</span>
-            {entry.state && entry.state !== 'ok' && <span className={styles.freshnessState}> ({entry.state})</span>}
+            {RESOURCE_STATE_LABELS[entry.state] && (
+              <span className={styles.freshnessState}> ({RESOURCE_STATE_LABELS[entry.state]})</span>
+            )}
           </li>
         );
       })}

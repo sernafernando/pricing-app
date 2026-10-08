@@ -2,10 +2,9 @@
  * The one place that reads `GET /ml-publications/view/items/{item_id}`
  * (`ItemDetail`, P8a), so the panel's tabs depend only on what this returns.
  *
- * The shape follows the design (§3.3, Engram #2279): P8a was still being built
- * when the panel was written. If the router differs, this module and the
- * fixtures (`test/visual/publicacionesMlFixtures.js`) are the only places to
- * change.
+ * The shape is the router's `ItemDetailResponse` (P8a, `ml_publications_view.py`
+ * and `view/detail.py`). If it changes, this module and the fixtures
+ * (`test/visual/publicacionesMlFixtures.js`) are the only places to adjust.
  *
  * Every nullable stays `null` here -- the tabs show "—", never 0. The markup
  * breakdown and the product's cost exist only for users with
@@ -29,6 +28,8 @@ function readReplenishment(raw) {
     daysOutOfStock21d: raw.days_out_of_stock_21d ?? null,
     shippingUrgency: raw.shipping_urgency ?? null,
     totalStock: raw.total_stock ?? null,
+    minimumDistributableStock: raw.minimum_distributable_stock ?? null,
+    historyThrough: raw.history_through ?? null,
     fetchedAt: raw.fetched_at ?? null,
   };
 }
@@ -52,6 +53,9 @@ export function readDetail(raw, { canSeeMargin = false } = {}) {
   return {
     itemId: row.item_id ?? null,
     row,
+    // Every `ml_items` column but the body, and the whitelisted part of the body.
+    item: raw.item ?? {},
+    extra: raw.extra ?? {},
     variationsCount: row.variations_count ?? 0,
     isFull: row.is_full === true,
     subStatus: raw.sub_status ?? [],

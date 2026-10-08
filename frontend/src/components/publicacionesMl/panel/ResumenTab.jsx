@@ -3,6 +3,7 @@ import PublicationStatusPill from '../PublicationStatusPill';
 import { MARKUP_REASONS, UNKNOWN_REASON } from '../markupReasons';
 import cellStyles from '../cells.module.css';
 import { amount, count, date, orNull } from './format';
+import { BodySection, MercadoLibreSection } from './ResumenMl';
 import { Field, Fields, Section } from './PanelParts';
 import {
   CONDITION_LABELS,
@@ -116,6 +117,10 @@ function MarkupSection({ breakdown, reason }) {
       <Fields>
         <Field label="Precio">{amount(breakdown.price)}</Field>
         <Field label="Origen del precio">{label(PRICE_SOURCE_LABELS, breakdown.price_source)}</Field>
+        <Field label="Unidad calculada">
+          {breakdown.variation_id == null ? 'La publicación' : `Variación ${breakdown.variation_id}`}
+        </Field>
+        <Field label="Cuotas">{count(breakdown.installments)}</Field>
         <Field label="Lista de precios">{count(breakdown.pricelist_id)}</Field>
         <Field label="Comisión">{breakdown.comision_pct == null ? null : formatPct(breakdown.comision_pct)}</Field>
         <Field label="Comisión total">{amount(breakdown.comision_total)}</Field>
@@ -144,6 +149,8 @@ export default function ResumenTab({ detail, canSeeMargin }) {
       <PriceSection price={row.price} />
       <StockSection detail={detail} />
       <LinkSection link={row.link} />
+      <MercadoLibreSection item={detail.item} />
+      <BodySection extra={detail.extra} />
       {canSeeMargin && <MarkupSection breakdown={detail.markupBreakdown} reason={row.markup?.reason} />}
     </>
   );
