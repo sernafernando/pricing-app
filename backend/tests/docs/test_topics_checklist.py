@@ -205,3 +205,41 @@ def test_the_documented_competition_topic_map_is_accepted_by_intake(doc) -> None
         ("catalog_item_competition_status", ("competition",)),
         ("items", ("bundle",)),
     ]
+
+
+def replenishment_section(doc: str) -> str:
+    start = doc.index("## Enabling replenishment")
+    nxt = doc.find("\n## ", start + 1)
+    return doc[start : nxt if nxt != -1 else len(doc)]
+
+
+def test_enabling_replenishment_is_documented_with_gate_budget_sweep_live_check_and_rollback(doc) -> None:
+    section = " ".join(replenishment_section(doc).split())
+    for needle in (
+        "bundle_resources",
+        "`replenishment`",
+        "GET /marketplace/fbm/user-products/{MLAU}/replenishment?country=AR",
+        "x-caller-id",
+        "x-content-missing",
+        "`partial`",
+        "206",
+        "sales: null",
+        "ML_PUB_REPLENISHMENT_RATE_PER_MIN",
+        "30",
+        "100 requests per minute",
+        "86400",
+        "kind `user_product`",
+        "logistic_type = 'fulfillment'",
+        "144",
+        "skipped_not_applicable",
+        "Live check",
+        "ml_user_product_replenishment",
+        "Rollback",
+    ):
+        assert needle in section, needle
+
+
+def test_the_sweeps_section_lists_replenishment_beside_performance_and_visits(doc) -> None:
+    start = doc.index("### Sweeps")
+    section = doc[start : doc.index("### Turning it on", start)]
+    assert "`replenishment`" in section and "user product" in section
