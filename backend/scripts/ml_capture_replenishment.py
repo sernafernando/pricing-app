@@ -264,6 +264,52 @@ def _select_targets() -> List[Target]:
     return build_targets(full, non_full)
 
 
+def _items_from_recent_sales() -> Dict[str, List[str]]:
+    """Fallback when no stock with locations is stored yet: the MLAs of recent sales, split by the
+    shipment's logistic type (`fulfillment` = Full). Read-only."""
+    from sqlalchemy import text
+
+    from app.core.database import SessionLocal
+
+    sql = (
+        "SELECT oi.item_id FROM ml_order_items_ops oi "
+        "JOIN ml_orders_ops o ON o.order_id = oi.order_id "
+        "JOIN ml_shipments_ops s ON s.shipment_id = o.shipping_id "
+        "WHERE s.logistic_type {op} 'fulfillment' AND oi.item_id IS NOT NULL "
+        "GROUP BY oi.item_id ORDER BY max(o.date_created) DESC LIMIT :n"
+    )
+    db = SessionLocal()
+    try:
+        full = [r[0] for r in db.execute(text(sql.format(op="=")), {"n": 20})]
+        non_full = [r[0] for r in db.execute(text(sql.format(op="<>")), {"n": 10})]
+    finally:
+        db.close()
+    return {"full": full, "non_full": non_full}
+
+
+def _user_products_of(client: httpx.Client, token: str, item_ids: Sequence[str], limit: int) -> List[str]:
+    """`user_product_id` of the given MLAs via `/items/bulk` (GET, attributes only). Paced like the captures."""
+    found: List[str] = []
+    for i in range(0, len(item_ids), 20):
+        chunk = ",".join(item_ids[i : i + 20])
+        response = client.get(
+            "/items/bulk",
+            params={"ids": chunk, "attributes": "id,user_product_id"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        time.sleep(MIN_INTERVAL_SECONDS)
+        if response.status_code != 200:
+            continue
+        for element in response.json():
+            body = element.get("body") if isinstance(element, dict) else None
+            upid = (body or {}).get("user_product_id")
+            if upid and upid not in found:
+                found.append(upid)
+            if len(found) >= limit:
+                return found
+    return found
+
+
 def main() -> int:
     sys.path.insert(0, os.getcwd())
     from app.core.config import settings
@@ -279,12 +325,24 @@ def main() -> int:
         return 2
 
     try:
-        targets = _select_targets()
+        targets: Optional[List[Target]] = _select_targets()
     except NothingToCapture as exc:
-        print(f"Nothing to capture: {exc}")
-        return 3
+        print(f"No stored Full stock ({exc}); falling back to recent sales by logistic type.")
+        targets = None
 
     with httpx.Client(base_url=BASE_URL, timeout=httpx.Timeout(15.0, connect=5.0), follow_redirects=False) as client:
+        if targets is None:
+            items = _items_from_recent_sales()
+            full = _user_products_of(client, token_data["access_token"], items["full"], FULL_LIMIT)
+            non_full = [
+                u
+                for u in _user_products_of(client, token_data["access_token"], items["non_full"], NON_FULL_LIMIT + 3)
+                if u not in full
+            ][:NON_FULL_LIMIT]
+            if not full:
+                print("Nothing to capture: no Full user product found from recent sales either")
+                return 3
+            targets = build_targets(full, non_full)
         capture = ReplenishmentCapture(client=client, token=token_data["access_token"], caller_id=str(caller_id))
         records = run_captures(capture, targets)
 
