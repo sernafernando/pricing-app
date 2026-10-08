@@ -331,6 +331,10 @@ class MlUserProductStock(_SubResourceState, Base):
 
     user_product_id = Column(Text, primary_key=True)
     total_quantity = Column(Integer)
+    # Per-location split of `raw.locations` (migration 20261010_ml_user_product_stock_locations):
+    # Full = `meli_facility`; own = `selling_address` + `seller_warehouse`. NULL until a valid list is seen.
+    full_quantity = Column(Integer)
+    own_quantity = Column(Integer)
     ml_last_updated = Column(_TS)
 
 

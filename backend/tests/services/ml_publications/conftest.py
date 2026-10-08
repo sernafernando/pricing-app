@@ -108,6 +108,7 @@ def mlpub_pg(monkeypatch):
         "20261006_ml_publications_subresources",
         "20261006_ml_publications_product_links",
         "20261007_ml_publications_quality",
+        "20261010_ml_user_product_stock_locations",
     ):
         module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
         migration = importlib.util.module_from_spec(module_spec)

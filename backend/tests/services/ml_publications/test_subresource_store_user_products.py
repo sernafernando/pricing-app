@@ -100,6 +100,13 @@ class TestFirstSighting:
         assert row_of(mlpub_pg, "stock", UP)["total_quantity"] == 2  # 2 + 0
         assert row_of(mlpub_pg, "stock", other)["total_quantity"] == 26  # 26 + 0
 
+    def test_the_stock_split_is_stored_in_its_own_columns(self, mlpub_pg) -> None:
+        """Real captured stock (selling_address 26, meli_facility 0): own and Full land in typed columns."""
+        apply("stock", UP, subresource_body("stock", "user_product_stock_MLAU266459622"), minutes=1)
+
+        row = row_of(mlpub_pg, "stock", UP)
+        assert (row["own_quantity"], row["full_quantity"], row["total_quantity"]) == (26, 0, 26)
+
     def test_a_family_is_keyed_by_its_bigint_id_given_as_text_and_lists_its_user_products(self, mlpub_pg) -> None:
         body = family_body()
         apply("family", FAMILY, body, minutes=1)
@@ -139,6 +146,39 @@ class TestChange:
         assert entry["entity_id"] == UP and entry["item_id"] is None
         assert entry["changed_paths"] == ["locations[selling_address].quantity"]
         assert row_of(mlpub_pg, "stock", UP)["total_quantity"] == 5
+
+    def test_a_full_stock_change_updates_the_split_columns_idempotently(self, mlpub_pg) -> None:
+        """Real stock with the meli_facility quantity 0 -> 7: the columns follow; a replay changes nothing."""
+        old = stock_body()
+        new = copy.deepcopy(old)
+        next(loc for loc in new["locations"] if loc["type"] == "meli_facility")["quantity"] = 7
+        apply("stock", UP, old, minutes=1)
+
+        apply("stock", UP, new, minutes=2)
+        replay = apply("stock", UP, new, minutes=3)
+
+        row = row_of(mlpub_pg, "stock", UP)
+        assert (row["full_quantity"], row["own_quantity"], row["total_quantity"]) == (7, 2, 9)
+        assert replay.kind == "unchanged" and len(logs(mlpub_pg, "stock")) == 1
+
+    def test_an_unchanged_body_fills_typed_columns_an_older_writer_left_empty(self, mlpub_pg) -> None:
+        """A row stored before the split columns existed (raw present, columns NULL) heals on the next
+        identical fetch instead of waiting for the body to change."""
+        body = subresource_body("stock", "user_product_stock_MLAU266459622")
+        apply("stock", UP, body, minutes=1)
+        with mlpub_pg.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE ml_user_product_stock SET full_quantity = NULL, own_quantity = 99 WHERE user_product_id = :k"
+                ),
+                {"k": UP},
+            )
+
+        outcome = apply("stock", UP, body, minutes=2)
+
+        row = row_of(mlpub_pg, "stock", UP)
+        assert outcome.kind == "unchanged" and logs(mlpub_pg) == []
+        assert (row["full_quantity"], row["own_quantity"], row["total_quantity"]) == (0, 26, 26)
 
     def test_a_stock_that_only_reorders_its_locations_is_unchanged(self, mlpub_pg) -> None:
         old = stock_body()

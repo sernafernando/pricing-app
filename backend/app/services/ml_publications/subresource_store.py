@@ -198,6 +198,7 @@ def _apply_state(
 
     restoring = row.gone_at is not None
     if not restoring and bytes(row.raw_hash) == new_hash:
+        _heal_typed(row, typed)
         _checked(row, response)
         row.fetched_request_started_at = _later(row.fetched_request_started_at, response.request_started_at)
         _mark_ok(row, response)
@@ -231,6 +232,18 @@ def _apply_state(
         change_log_id=entry.id,
         events=_emit_events(db, entry, events_enabled),
     )
+
+
+def _heal_typed(row: Any, typed: dict[str, Any]) -> None:
+    """Write the typed columns the mapper derives from a body whose hash did not change.
+
+    A column added after a row was stored (or written by an older deploy that did not know it) would
+    otherwise stay NULL or stale until the body changes: the hash only covers `raw`. The mapper is a pure
+    function of the body, so for a row already in sync this assigns nothing.
+    """
+    for column, value in typed.items():
+        if getattr(row, column) != value:
+            setattr(row, column, value)
 
 
 def _not_found(db, spec: ResourceSpec, row: Any, response: MlResponse, events_enabled: bool) -> ApplyOutcome:

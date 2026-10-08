@@ -75,6 +75,8 @@ def test_stock_total_is_the_sum_of_location_quantities():
     assert [loc["quantity"] for loc in body["locations"]] == [26, 0]
     assert map_user_product_stock(body) == {
         "total_quantity": 26,
+        "full_quantity": 0,
+        "own_quantity": 26,
         "ml_last_updated": datetime(2026, 10, 2, 20, 51, 26, tzinfo=timezone.utc),
     }
 
