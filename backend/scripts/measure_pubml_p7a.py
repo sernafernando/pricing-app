@@ -297,6 +297,7 @@ def auto_config() -> Optional[AutoConfig]:
     finally:
         db.rollback()
         db.close()
+    # `sub` is the username or the email: the API looks the user up by either (app/api/deps.py)
     token = create_access_token({"sub": username}, expires_delta=timedelta(minutes=TOKEN_MINUTES))
     return AutoConfig(token, username, None if store is None else str(store), frequent_word(titles, DEFAULT_TERM))
 

@@ -30,6 +30,7 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     link_state,
     listing_clauses,
+    normalized_text,
     price_amount,
     status_value,
     stock_clauses,
@@ -358,7 +359,7 @@ def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
     """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
     own selection left out (so choosing a value never makes its siblings read zero)."""
     f = resolve_pm_pairs(db, f)
-    brand = func.upper(T.p.marca)
+    brand = func.nullif(normalized_text(T.p.marca), "")  # as the tree keys a brand; none (blank) is not offered
     by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
     by_brand = _grouped(db, f, "marcas", brand, present=True, limit=FACET_MAX_BRANDS)

@@ -603,6 +603,21 @@ class TestFacets:
         seed.add_link(conn, "MLA3", None, match_status="conflict")
         seed.add_stock(conn, "MLAU5", full=0, own=1)
 
+    def test_a_padded_brand_is_the_same_facet_value_as_its_trimmed_spelling(self, conn, db) -> None:
+        seed.add_product(conn, 72, "C1", "Switch", marca=" tp-link ")
+        seed.add_item(conn, "MLA7", status="active")
+        seed.add_link(conn, "MLA7", 72)
+        brands = listing.facets(db, parse_filter())["marcas"]
+        assert brands == {"TP-LINK": 2, "HIKVISION": 1}  # one value, and selecting it lists both publications
+        assert sorted(ids(run(db, marcas="TP-LINK"))) == ["MLA1", "MLA7"]
+        assert brands["TP-LINK"] == run(db, marcas="TP-LINK").total
+
+    def test_a_product_with_a_blank_brand_is_not_offered_as_a_brand(self, conn, db) -> None:
+        seed.add_product(conn, 73, "D1", "Sin marca", marca="   ")
+        seed.add_item(conn, "MLA8", status="active")
+        seed.add_link(conn, "MLA8", 73)
+        assert listing.facets(db, parse_filter())["marcas"] == {"TP-LINK": 1, "HIKVISION": 1}
+
     def test_every_axis_counts_the_whole_set_when_nothing_is_selected(self, db) -> None:
         facets = listing.facets(db, parse_filter())
         assert facets == {

@@ -38,6 +38,7 @@ from app.models.producto import ProductoERP
 from app.services.ml_daily_metrics.groups import NO_GROUP
 
 MAX_Q_LENGTH = 100
+MAX_ID = 2**63 - 1  # the largest id the database can hold (bigint): anything above is a mistake, not a miss
 MAX_CSV_VALUES = 50  # a screen selects a handful; a huge IN (...) list is a mistake or abuse
 
 STATUS_VALUES = ("active", "paused", "closed", "under_review", "inactive")
@@ -174,9 +175,12 @@ def _vocabulary(field: str, raw: Optional[str], allowed: tuple[str, ...] | froze
 
 def _integer(field: str, token: str) -> int:
     try:
-        return int(token)
+        value = int(token)
     except ValueError:
         raise FilterError(field, f"{token!r} is not a number") from None
+    if abs(value) > MAX_ID:
+        raise FilterError(field, f"{token!r} is out of range")
+    return value
 
 
 def _integers(field: str, raw: Optional[str]) -> tuple[int, ...]:
@@ -505,7 +509,7 @@ def _stores(f: PublicationFilter) -> ColumnElement:
     return or_(*parts)
 
 
-def _normalized(column: Any) -> ColumnElement:
+def normalized_text(column: Any) -> ColumnElement:
     """A brand or category as the tree keys it (and the PM pairs are matched): trimmed and upper-cased. No index is
     lost by this: the catalog only has plain btrees on `marca` / `categoria`, which `upper(...)` already bypassed."""
     return func.upper(func.trim(func.coalesce(column, "")))
@@ -517,9 +521,9 @@ def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
     values = [w.strip().upper() for w in wanted if w != NO_GROUP]
     parts = []
     if values:
-        parts.append(_normalized(column).in_(values))
+        parts.append(normalized_text(column).in_(values))
     if NO_GROUP in wanted:
-        parts.append(_normalized(column) == "")
+        parts.append(normalized_text(column) == "")
     return or_(*parts)
 
 
@@ -537,7 +541,7 @@ def _pm(f: PublicationFilter) -> ColumnElement:
         raise RuntimeError("`pms` must be resolved to pairs (listing.resolve_pm_pairs) before building the query")
     if not f.pm_pairs:
         return false()  # a PM that owns no (marca, categoria) pair matches nothing, never everything
-    return tuple_(_normalized(T.p.marca), _normalized(T.p.categoria)).in_(list(f.pm_pairs))
+    return tuple_(normalized_text(T.p.marca), normalized_text(T.p.categoria)).in_(list(f.pm_pairs))
 
 
 def _event(f: PublicationFilter) -> ColumnElement:
