@@ -285,6 +285,32 @@ class TestStatementCount:
         assert len(with_facets) - len(without) == len(listing.FACET_AXES)
 
 
+class TestProductManagerFilter:
+    def test_the_pm_pairs_are_read_once_even_with_facets(self, client, pg, reader) -> None:
+        with pg.begin() as conn:
+            conn.execute(
+                text("CREATE TABLE marcas_pm (id serial PRIMARY KEY, marca text, categoria text, usuario_id integer)")
+            )
+            conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('tp-link', 'redes', 7)"))
+            seed.add_product(conn, 70, "A1", "Router", marca="TP-Link", categoria="Redes")
+            seed.add_item(conn, "MLA1")
+            seed.add_link(conn, "MLA1", 70)
+            seed.add_item(conn, "MLA2")
+        get(client, reader)  # warm: the status block is built once
+        recorded: list[str] = []
+
+        def record(conn, cursor, statement, *rest) -> None:
+            recorded.append(statement)
+
+        event.listen(pg, "before_cursor_execute", record)
+        try:
+            body = get(client, reader, pms="7", facets="true").json()
+        finally:
+            event.remove(pg, "before_cursor_execute", record)
+        assert [i["item_id"] for i in body["items"]] == ["MLA1"] and body["facets"]["link"] == {"auto": 1}
+        assert sum("marcas_pm" in s for s in recorded) == 1
+
+
 class TestSlowQuery:
     def test_a_statement_timeout_is_a_controlled_503_and_the_connection_goes_back(
         self, client, pg, reader, monkeypatch

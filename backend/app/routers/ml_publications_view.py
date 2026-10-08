@@ -189,6 +189,7 @@ def get_items(
         with timer.stage("flags"):
             events_enabled = settings_store.get_setting("events.enabled").value is True
         listing.bound(db)
+        f = listing.resolve_pm_pairs(db, f)  # once: the list and the facets share the resolved pairs
         with timer.stage("list"):
             page = listing.list_items(db, f, sort, limit, offset, events=events_enabled)
         facet_counts = None
