@@ -178,6 +178,25 @@ class TestReportCache:
         rebuilding.join(5)
         assert cache.get()["kill_switch"] is True and len(builds) == 2
 
+    def test_a_build_that_is_cut_short_does_not_block_the_next_one(self) -> None:
+        class Cancelled(BaseException):  # what a cancelled worker raises: not an Exception
+            pass
+
+        calls: list[int] = []
+
+        def build() -> dict:
+            calls.append(1)
+            if len(calls) == 1:
+                raise Cancelled()
+            return healthy()
+
+        cache = ReportCache(build, clock=lambda: 1000.0)
+        try:
+            cache.get()
+        except Cancelled:
+            pass
+        assert cache.get()["available"] is True and len(calls) == 2  # not stuck on "someone is building"
+
     def test_a_reset_during_a_build_discards_that_build(self) -> None:
         release, started = threading.Event(), threading.Event()
         builds: list[int] = []

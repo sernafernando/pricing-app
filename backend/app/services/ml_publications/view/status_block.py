@@ -133,15 +133,23 @@ class ReportCache:
                 return self._block if self._block is not None else dict(_PENDING)
             self._building = True
             generation = self._generation
+        stored = False
         try:
-            block, ttl = build_block(self._build()), self._ttl
-        except Exception:  # noqa: BLE001 -- the report must never take the list down
-            logger.exception("ml publications view: the status report could not be built")
-            block, ttl = dict(_UNAVAILABLE), self._failure_ttl
-        with self._lock:
-            if generation == self._generation:  # a reset while it was building made this result obsolete
-                self._block, self._expires, self._building = block, self._clock() + ttl, False
-        return block
+            try:
+                block, ttl = build_block(self._build()), self._ttl
+            except Exception:  # noqa: BLE001 -- the report must never take the list down
+                logger.exception("ml publications view: the status report could not be built")
+                block, ttl = dict(_UNAVAILABLE), self._failure_ttl
+            with self._lock:
+                if generation == self._generation:  # a reset while it was building made this result obsolete
+                    self._block, self._expires, self._building = block, self._clock() + ttl, False
+                    stored = True
+            return block
+        finally:
+            if not stored:  # cut short (BaseException) or obsolete: never leave the cache waiting on a builder
+                with self._lock:
+                    if generation == self._generation:
+                        self._building = False
 
     def reset(self) -> None:
         with self._lock:
