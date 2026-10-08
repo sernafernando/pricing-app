@@ -106,3 +106,42 @@ class TestBreakdown:
         ctx = make_ctx(active_version_id=None)
         assert unit_markup(ctx, make_inputs(), {}).reason == "sin_comision"
         assert unit_breakdown(ctx, make_inputs(), {}) is None
+
+
+class TestWorstUnit:
+    """The unit the detail explains: the lowest value, paired with its own inputs and variation id."""
+
+    def publication(self, ids, units):
+        from app.services.ml_publications.view.markup_inputs import PublicationInputs
+
+        return PublicationInputs("MLA1", make_inputs(producto_item_id=1), tuple(units), tuple(ids))
+
+    def test_the_lowest_variation_with_its_own_inputs(self) -> None:
+        from app.services.ml_publications.view.markup_service import _worst_unit, price_publication
+
+        cheap, dear = make_inputs(producto_item_id=2, costo=90000.0), make_inputs(producto_item_id=3, costo=10000.0)
+        publication = self.publication([11, 12], [cheap, dear])
+        markup = price_publication(make_ctx(), publication, {})
+        unit, variation_id = _worst_unit(publication, markup)
+        assert (unit, variation_id) == (cheap, 11)
+
+    def test_a_variation_without_its_own_link_is_explained_by_the_item_level_unit(self) -> None:
+        from app.services.ml_publications.view.markup_service import _worst_unit, price_publication
+
+        publication = self.publication([11], [None])
+        unit, variation_id = _worst_unit(publication, price_publication(make_ctx(), publication, {}))
+        assert unit is publication.item_unit and variation_id == 11
+
+    def test_nothing_priced_has_no_unit(self) -> None:
+        from app.services.ml_publications.view.markup_service import _worst_unit, price_publication
+
+        publication = self.publication([], [])
+        broken = type(publication)("MLA1", make_inputs(producto_item_id=None), (), ())
+        assert _worst_unit(broken, price_publication(make_ctx(), broken, {})) == (None, None)
+
+    def test_drift_between_the_lists_is_an_error_not_a_wrong_pairing(self) -> None:
+        from app.services.ml_publications.view.markup_service import _worst_unit, price_publication
+
+        publication = self.publication([11, 12], [make_inputs(producto_item_id=2)])
+        with pytest.raises(ValueError):
+            _worst_unit(publication, price_publication(make_ctx(), publication, {}))

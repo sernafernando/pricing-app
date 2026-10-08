@@ -228,17 +228,20 @@ class DetailMarkup:
 def _worst_unit(
     publication: PublicationInputs, markup: PublicationMarkup
 ) -> tuple[Optional[UnitInputs], Optional[int]]:
-    """The inputs (and variation id) of the unit with the lowest value; the first of equal ones."""
-    units = (
-        [
-            (vid, own if own is not None else publication.item_unit)
-            for vid, own in zip(publication.variation_ids, publication.variation_units)
+    """The inputs (and variation id) of the unit with the lowest value; the first of equal ones.
+
+    `variation_ids`, `variation_units` and `markup.variations` all come from the same `PublicationInputs` in the same
+    call (`markup` is `price_publication` of it), so they pair by position; `strict` makes any drift between them an
+    error instead of a unit explained with another's figures."""
+    if publication.variation_ids:
+        units = [
+            (variation_id, own if own is not None else publication.item_unit)
+            for variation_id, own in zip(publication.variation_ids, publication.variation_units, strict=True)
         ]
-        if publication.variation_ids
-        else [(None, publication.item_unit)]
-    )
+    else:
+        units = [(None, publication.item_unit)]
     best: Optional[tuple[float, Optional[int], UnitInputs]] = None
-    for (variation_id, unit), priced in zip(units, markup.variations):
+    for (variation_id, unit), priced in zip(units, markup.variations, strict=True):
         if priced.value is not None and (best is None or priced.value < best[0]):
             best = (priced.value, variation_id, unit)
     return (None, None) if best is None else (best[2], best[1])

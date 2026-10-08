@@ -119,11 +119,6 @@ REPLENISHMENT_COLUMNS = (
 )
 
 
-def bound(db: Session) -> None:
-    """Bound the rest of the request's transaction in time (released by the commit or rollback that ends it)."""
-    db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
-
-
 # ── pure helpers ─────────────────────────────────────────────────
 
 
@@ -442,7 +437,7 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
     """The detail of `item_id`, or `None` when it is not in the store. `events` is the `events.enabled` flag.
     `markup` (its presence means the caller may see margins) adds the cost of the product, the row's markup and the
     breakdown of the worst unit. `can_resync` is the router's: it is a permission, not data."""
-    bound(db)
+    listing.bound(db, STATEMENT_TIMEOUT)
     row = db.connection().execute(_item_select(item_id, events)).first()
     if row is None:
         return None

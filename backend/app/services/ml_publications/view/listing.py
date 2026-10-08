@@ -82,9 +82,10 @@ def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     return Sort(key, descending=(wanted == "desc") if wanted else default_descending)
 
 
-def bound(db: Session) -> None:
-    """Bound the rest of the request's transaction in time (released by the commit or rollback that ends it)."""
-    db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+def bound(db: Session, timeout: Optional[str] = None) -> None:
+    """Bound the rest of the request's transaction in time (released by the commit or rollback that ends it); the
+    list's own `STATEMENT_TIMEOUT` unless the caller (the detail) names a tighter one."""
+    db.execute(text(f"SET LOCAL statement_timeout = '{timeout or STATEMENT_TIMEOUT}'"))
 
 
 def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
