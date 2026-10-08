@@ -141,7 +141,17 @@ export function usePublicacionesMLFilters() {
     [setSearchParams],
   );
 
-  const resetFilters = useCallback(() => setSearchParams(new URLSearchParams()), [setSearchParams]);
+  // Clears the filters, the sort and the page; the view (`vista`, `familias`) is how the operator looks at
+  // the result, not a filter, so it stays.
+  const resetFilters = useCallback(
+    () =>
+      setSearchParams((prev) => {
+        const next = new URLSearchParams();
+        for (const key of ['vista', 'familias']) if (prev.has(key)) next.set(key, prev.get(key));
+        return next;
+      }),
+    [setSearchParams],
+  );
 
   return { filters, filterKey, setFilters, resetFilters };
 }

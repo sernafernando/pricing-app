@@ -332,7 +332,7 @@ export default function PublicacionesML() {
         )}
       </section>
 
-      {error ? (
+      {error && (
         <div className={styles.errorBar} role="alert">
           <ShieldAlert size={16} aria-hidden="true" />
           <span className={styles.errorText}>{describeError(error)}</span>
@@ -340,7 +340,10 @@ export default function PublicacionesML() {
             Reintentar
           </button>
         </div>
-      ) : !data && !agrupado ? (
+      )}
+
+      {/* In the tree `/items` only brings the state and the facets: its failure leaves the tree (which has its own errors) on screen. */}
+      {error && !agrupado ? null : !data && !agrupado ? (
         <ListSkeleton />
       ) : (
         <div className={styles.listArea} aria-busy={loading}>
@@ -355,7 +358,7 @@ export default function PublicacionesML() {
                 onSelectItem={handleRowClick}
                 selectedKey={filters.sel || undefined}
                 offset={TABLE_OFFSET}
-                emptyMessage={hasActiveFilters ? 'Ninguna publicación coincide con los filtros' : 'No hay publicaciones'}
+                emptyMessage={emptyMessage}
               />
             ) : (
               <TableShell

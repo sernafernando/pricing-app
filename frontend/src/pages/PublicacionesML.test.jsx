@@ -650,4 +650,31 @@ describe('the Agrupado view (P12a)', () => {
     await waitFor(() => expect(screen.getByText(/Router TP-Link Archer AX55/).closest('tr')).toHaveAttribute('aria-current', 'true'));
     expect(publicacionesMlAPI.items.mock.calls.filter(([params]) => params.limit === 1)).toHaveLength(1);
   });
+
+  it('"Limpiar filtros" keeps the tree and the family toggle', async () => {
+    const user = userEvent.setup();
+    await tree('/ml-publicaciones?vista=agrupado&familias=1&tiendas=57997');
+    await user.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+    await waitFor(() => expect(groupCalls().at(-1)).not.toHaveProperty('tiendas'));
+    expect(groupCalls().at(-1).familias).toBe(true);
+    expect(screen.getByRole('table', { name: /agrupadas/ })).toBeInTheDocument();
+  });
+
+  it('keeps the tree on screen when /items fails, and says so above it', async () => {
+    const user = userEvent.setup();
+    await tree();
+    // A later /items failure (the facets of a changed filter) must not take the tree away.
+    publicacionesMlAPI.items.mockRejectedValueOnce(httpError(503));
+    await user.click(screen.getByRole('button', { name: /Pausadas/ }));
+    expect(await screen.findByText(/La consulta tardó demasiado/)).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: /agrupadas/ })).toBeInTheDocument();
+    expect(screen.getByText('EPSON')).toBeInTheDocument();
+  });
+
+  it('says the store is empty, like the list', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: FACETS, data_state: { ...DATA_STATE_OK, store_empty: true } });
+    publicacionesMlAPI.groups.mockResolvedValue({ data: groupsResponse('marca', []) });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    expect(await screen.findByText('Todavía no hay publicaciones sincronizadas')).toBeInTheDocument();
+  });
 });
