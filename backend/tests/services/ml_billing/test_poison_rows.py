@@ -208,12 +208,33 @@ class TestGapLifecycle:
         later = datetime(2026, 10, 9, tzinfo=timezone.utc)
         # Another row of the page does not resolve it; the poison row itself does.
         assert (
-            resolve_recovered_gaps(db, period_key=_PERIOD, document_type="BILL", detail_ids=[70714319001], now=later)
+            resolve_recovered_gaps(
+                db, period_key=_PERIOD, document_type="BILL", detail_ids=[70714319001], read_from_id=0, now=later
+            )
             == 0
         )
         assert open_gaps(db, _PERIOD)
-        assert resolve_recovered_gaps(db, period_key=_PERIOD, document_type="BILL", detail_ids=[poison], now=later) == 1
+        assert (
+            resolve_recovered_gaps(
+                db, period_key=_PERIOD, document_type="BILL", detail_ids=[poison], read_from_id=0, now=later
+            )
+            == 1
+        )
         assert open_gaps(db, _PERIOD) == []
+
+    def test_a_page_that_does_not_cover_the_window_does_not_resolve_it(self, db) -> None:
+        # P1 and P2 are not adjacent: the sparse probe skips the good row between them.
+        x, p1, good, p2 = 70714313970, 70714319000, 70714319001, 70714360000
+        ml = _Ml([*_IDS], poison=[p1, p2])
+        read = _read(db, ml, from_id=x, limit=1)
+        [gap] = open_gaps(db, _PERIOD)
+        assert read.gaps == (p2,) and good not in _ids(read.page) and gap.window == f"({x}, {p2}]"
+        later = datetime(2026, 10, 9, tzinfo=timezone.utc)
+        kw = dict(period_key=_PERIOD, document_type="BILL", detail_ids=[p2], now=later)
+        # A page that starts inside the window (so it misses `good`) leaves it open.
+        assert resolve_recovered_gaps(db, read_from_id=p1, **kw) == 0 and open_gaps(db, _PERIOD)
+        # A page that starts at the window start holds every row of the window.
+        assert resolve_recovered_gaps(db, read_from_id=x, **kw) == 1
 
     def test_a_missing_row_keeps_the_document_incomplete(self, db) -> None:
         db.add(
@@ -255,7 +276,9 @@ class TestGapLifecycle:
                 amount=10,
             )
         )
-        resolve_recovered_gaps(db, period_key=_PERIOD, document_type="BILL", detail_ids=[70714319000], now=_NOW)
+        resolve_recovered_gaps(
+            db, period_key=_PERIOD, document_type="BILL", detail_ids=[70714319000], read_from_id=0, now=_NOW
+        )
         db.commit()
         [doc] = document_completeness(db, _PERIOD, "BILL")
         assert doc.complete and open_gaps(db, _PERIOD) == []

@@ -16,9 +16,12 @@ at `from_id=X, limit=1` that still fails the poison row is the next one after
    spurious 400 cannot move the bracket past good rows;
 4. record the gap at `X+s*` and resume at `from_id=X+s*`.
 
-The window recorded is `(X, X+s*]`, not just the last id: when several poison
-rows are consecutive the probe only sees the last of them (every `s` before it
-fails), so the window is the honest statement of what was stepped over.
+The window recorded is `(X, X+s*]`, not just the last id. The probe only proves
+that the row at `X+s*` is poison; when there are several poison rows, a sparse
+probe can jump over good rows between them, so the window is the honest
+statement of what was stepped over. For the same reason a gap closes only when
+a page that STARTS at or before the window start returns the position: such a
+page is contiguous and ascending, so it holds the whole window.
 
 Only a BARE 400 is narrowed down. A 429, a 5xx, a timeout or a 400 that names a
 cause stops the read without a gap: the caller retries it later. The probe stops
@@ -137,23 +140,42 @@ def read_page_skipping_poison(
     return PageRead(from_id=poison, page=hi_body, gaps=(poison,))
 
 
+def _window_start(window: Optional[str]) -> Optional[int]:
+    """`(a, b]` -> a; None for a window this engine did not write."""
+    try:
+        return int(window.strip("(]").split(",")[0])
+    except (AttributeError, ValueError):
+        return None
+
+
 def resolve_recovered_gaps(
-    db: Session, *, period_key: str, document_type: str, detail_ids: Iterable[int | str], now: datetime
+    db: Session,
+    *,
+    period_key: str,
+    document_type: str,
+    detail_ids: Iterable[int | str],
+    read_from_id: int,
+    now: datetime,
 ) -> int:
-    """Resolves the open gaps whose position is among the rows a page returned.
+    """Resolves the open gaps whose position is among the rows a page returned
+    and whose whole window that page covered (`read_from_id` <= window start).
 
     Returns how many were resolved. The caller commits."""
     returned = {str(detail_id) for detail_id in detail_ids}
     resolved = 0
     for gap in open_gaps(db, period_key, document_type):
-        if gap.paging == _PAGING and gap.billing_source == _SOURCE and gap.position in returned:
-            resolved += resolve_gap(
-                db,
-                period_key=period_key,
-                document_type=document_type,
-                billing_source=_SOURCE,
-                paging=_PAGING,
-                position=gap.position,
-                now=now,
-            )
+        if gap.paging != _PAGING or gap.billing_source != _SOURCE or gap.position not in returned:
+            continue
+        start = _window_start(gap.window)
+        if start is None or read_from_id > start:
+            continue
+        resolved += resolve_gap(
+            db,
+            period_key=period_key,
+            document_type=document_type,
+            billing_source=_SOURCE,
+            paging=_PAGING,
+            position=gap.position,
+            now=now,
+        )
     return resolved
