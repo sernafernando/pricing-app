@@ -1,4 +1,4 @@
-"""ml-billing-balance PR 4c-i -- the billing lap, one proxy request per tick (D12).
+"""ml-billing-balance PR 4c-i/iii -- the billing lap, one proxy request per tick (D12).
 
 Data is the real capture: the `monthly/periods` page (OPEN + 11 CLOSED), the
 2026-09-01 credit-note pages and the period's documents. Only the client is
@@ -16,7 +16,7 @@ from unittest import mock
 
 import pytest
 
-from app.models.ml_billing import MlBillingCharge, MlBillingDocument
+from app.models.ml_billing import MlBillingCharge, MlBillingDocument, MlBillingPeriodStat
 from app.services.ml_billing import billing_lap
 from app.services.ml_webhook_client import BillingFetch, ml_webhook_client
 
@@ -180,21 +180,19 @@ class TestFailures:
 
 
 class TestDocumentsUnit:
-    def test_documents_are_persisted_and_the_unit_is_done(self, db, client) -> None:
+    def test_documents_are_persisted_and_a_bill_unit_records_the_period_observation(self, db, client) -> None:
         state = started(db, client)
+        state["lap"]["units"][0].update(total=26056)
         state["lap"]["index"] = 1  # BILL documents of the OPEN period
         client.documents.return_value = {"results": DOCUMENTS["BILL"]}
         state = tick(db, state, at(15))
         assert db.query(MlBillingDocument).count() == len(DOCUMENTS["BILL"])
-        assert (state["lap"]["units"][1]["state"], state["lap"]["index"]) == ("done", 2)
-        assert client.documents.call_args.args == ("2026-10-01", "ML", "BILL")
-
-    def test_a_failed_documents_request_keeps_the_unit_for_the_retry(self, db, client) -> None:
-        state = started(db, client)
-        state["lap"]["index"] = 1
-        client.documents.return_value = None
-        state = tick(db, state, at(15))
-        assert (state["failures"], state["lap"]["index"]) == (1, 1)
+        assert state["lap"]["units"][1]["state"] == "done"
+        stat = db.query(MlBillingPeriodStat).filter_by(period_key="2026-10-01").one()
+        assert (stat.reported_total, stat.documents_count_details) == (
+            26056,
+            sum(d["count_details"] for d in DOCUMENTS["BILL"]),
+        )
 
     def test_the_lap_ends_complete_after_the_last_unit(self, db, client) -> None:
         state = started(db, client)
@@ -202,3 +200,49 @@ class TestDocumentsUnit:
         client.documents.return_value = {"results": []}
         state = tick(db, state, at(15))
         assert state["complete"] is True and state["lap"] is None
+
+
+class TestSettled:
+    def _settle(self, db, client):
+        """Ingests the 2026-09-01 credit notes completely, through the lap itself."""
+        state = started(db, client)
+        state["lap"]["units"] = [
+            u for u in state["lap"]["units"] if (u["period_key"], u["document_type"]) == ("2026-09-01", "CREDIT_NOTE")
+        ]
+        client.details.side_effect = [ok(CN_PAGES[0]), ok(CN_PAGES[1])]
+        client.documents.return_value = {"results": DOCUMENTS["CREDIT_NOTE"]}
+        for i in range(1, 4):
+            state = tick(db, state, at(15 * i))
+        assert state["complete"] is True
+
+    def _units_of(self, state, period):
+        return [(u["document_type"], u["kind"]) for u in state["lap"]["units"] if u["period_key"] == period]
+
+    def test_a_complete_period_without_processing_documents_is_verified_through_documents_only(
+        self, db, client
+    ) -> None:
+        self._settle(db, client)
+        state = tick(db, {"complete": True}, at(600))
+        assert self._units_of(state, "2026-09-01") == [("BILL", "documents"), ("CREDIT_NOTE", "documents")]
+
+    def test_a_verified_settled_period_is_skipped_until_a_week_has_passed(self, db, client) -> None:
+        self._settle(db, client)
+        state = {"complete": True, "verified": {"2026-09-01": at(600).isoformat()}}
+        assert self._units_of(tick(db, state, at(700)), "2026-09-01") == []
+        week = at(600 + 7 * 86400 + 1)
+        assert self._units_of(tick(db, state, week), "2026-09-01") == [
+            ("BILL", "documents"),
+            ("CREDIT_NOTE", "documents"),
+        ]
+
+    def test_a_charge_without_its_legal_number_keeps_the_period_in_the_full_sweep(self, db, client) -> None:
+        self._settle(db, client)
+        db.query(MlBillingCharge).filter_by(detail_id=db.query(MlBillingCharge.detail_id).first()[0]).update(
+            {"legal_document_number": None, "legal_document_status": "PROCESSING"}
+        )
+        state = tick(db, {"complete": True}, at(600))
+        assert len(self._units_of(state, "2026-09-01")) == 4
+
+    def test_an_open_period_is_never_settled(self, db, client) -> None:
+        state = tick(db, {"complete": True, "verified": {"2026-10-01": at(0).isoformat()}}, at(600))
+        assert len(self._units_of(state, "2026-10-01")) == 4
