@@ -105,6 +105,18 @@ export default function PublicacionesML() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // The panel asks for a reload after a write (a promotion changes price and
+  // markup). That one keeps the rows the operator has open; a user-triggered
+  // reload starts from collapsed. In the agrupado view only `/items` (state,
+  // facets) is asked again: the tree is not reloaded, so its rows keep the old
+  // figures until the tree is next opened. The follow-up reads at ~5s and ~65s
+  // only happen while the Promos tab stays open; leaving it cancels them, and
+  // the row keeps the figures of the first reload until the next one.
+  const keepExpanded = useRef(0); // number of the request that keeps the open rows
+  const reloadList = useCallback(() => {
+    keepExpanded.current = latestRequest.current + 1;
+    setReloadToken((token) => token + 1);
+  }, []);
   const [columnVisibility, setColumnVisibility] = useState({});
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
@@ -146,7 +158,8 @@ export default function PublicacionesML() {
         if (request !== latestRequest.current) return;
         setData(response.data);
         // A new list (page, sort, filter) starts with every row collapsed.
-        setExpandedIds(new Set());
+        if (keepExpanded.current !== request) setExpandedIds(new Set());
+        keepExpanded.current = 0;
         if (wantFacets) {
           setFacets(response.data.facets ?? null);
           facetsFor.current = filterKey;
@@ -155,6 +168,7 @@ export default function PublicacionesML() {
       })
       .catch((err) => {
         if (request !== latestRequest.current) return;
+        keepExpanded.current = 0;
         setError(err);
         setLoading(false);
       });
@@ -362,6 +376,7 @@ export default function PublicacionesML() {
                   tab={filters.tab}
                   onTabChange={changeTab}
                   onClose={closePanel}
+                  onListReload={reloadList}
                   dataState={data?.data_state}
                 />
               ) : null

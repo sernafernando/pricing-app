@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
-import { publicacionesMlAPI } from '../../services/api';
+import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
@@ -16,18 +16,26 @@ vi.mock('../../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   publicacionesMlAPI: { detail: vi.fn(), variations: vi.fn(), enqueue: vi.fn() },
+  promocionesAPI: {
+    getPromocionesItem: vi.fn(() => Promise.resolve({ data: { promotions: [] } })),
+    refreshItemPromociones: vi.fn(() => Promise.resolve({ data: { ok: true } })),
+    postPromocionItem: vi.fn(),
+    confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
+  },
   registerAuthFailureHandler: vi.fn(),
 }));
 
 // Everything is allowed except the margin, which each test grants on purpose.
 let canSeeMargin = false;
 let canManage = true;
+let canSeePromos = true;
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
     tienePermiso: (permiso) => {
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_ops.gestionar') return canManage;
+      if (permiso === 'promos.ver') return canSeePromos;
       return true;
     },
     cargandoPermisos: false,
@@ -43,6 +51,9 @@ const renderPanel = (props = {}) =>
 beforeEach(() => {
   canSeeMargin = false;
   canManage = true;
+  canSeePromos = true;
+  promocionesAPI.getPromocionesItem.mockClear();
+  promocionesAPI.refreshItemPromociones.mockClear();
   publicacionesMlAPI.detail.mockReset();
   publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_RESPONSE });
 });
@@ -267,6 +278,80 @@ describe('the panel itself', () => {
     rerender(<PublicationPanel itemId="MLA1100000001" tab="resumen" onTabChange={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Resumen' })).toBeInTheDocument());
     expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the Promociones tab', () => {
+  it('is offered with promos.ver and asks ML for nothing until somebody opens it (the throttle is shared)', async () => {
+    renderPanel();
+    await screen.findByRole('tab', { name: 'Promos' });
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
+    expect(promocionesAPI.getPromocionesItem).not.toHaveBeenCalled();
+  });
+
+  it('is not offered without promos.ver', async () => {
+    canSeePromos = false;
+    renderPanel();
+    await screen.findByRole('tab', { name: 'Resumen' });
+    expect(screen.queryByRole('tab', { name: 'Promos' })).not.toBeInTheDocument();
+  });
+
+  it('loads the promotions of the selected publication when it is the open tab', async () => {
+    renderPanel({ tab: 'promociones' });
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA1100000001'));
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA1100000001');
+  });
+});
+
+describe('after applying a promotion', () => {
+  it('re-reads the detail silently and asks the list to reload its row, without remounting the tab', async () => {
+    const user = userEvent.setup();
+    const onListReload = vi.fn();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [{ promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'candidate' }] } });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    renderPanel({ tab: 'promociones', onListReload });
+    await user.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(2));
+    expect(onListReload).toHaveBeenCalledTimes(1);
+    // The tab never went through "loading": its feedback is still there and so is its content.
+    expect(screen.getByText(/puede tardar en reflejarse/i)).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Cargando publicación' })).not.toBeInTheDocument();
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the tab strip', () => {
+  // jsdom has no layout: give the strip a 240px window and the open tab a place past its edge.
+  const stubLayout = () => {
+    const names = ['clientWidth', 'offsetLeft', 'offsetWidth'];
+    const originals = names.map((name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)]);
+    const define = (name, get) => Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get });
+    define('clientWidth', function width() {
+      return this.getAttribute('role') === 'tablist' ? 240 : 0;
+    });
+    define('offsetLeft', function left() {
+      return this.getAttribute('role') === 'tab' && this.textContent === 'Promos' ? 300 : 0;
+    });
+    define('offsetWidth', function width() {
+      return this.getAttribute('role') === 'tab' ? 60 : 0;
+    });
+    return () =>
+      originals.forEach(([name, descriptor]) => {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        else delete HTMLElement.prototype[name];
+      });
+  };
+
+  it('scrolls the strip sideways to the open tab, without moving anything else, so a tab past the edge is never lost', async () => {
+    const restore = stubLayout();
+    try {
+      renderPanel({ tab: 'promociones' });
+      const strip = await screen.findByRole('tablist');
+      await waitFor(() => expect(strip.scrollLeft).toBe(300 + 60 - 240));
+    } finally {
+      restore();
+    }
   });
 });
 
