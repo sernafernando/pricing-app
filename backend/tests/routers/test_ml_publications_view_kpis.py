@@ -162,7 +162,7 @@ class TestContract:
         )
         session = sessionmaker(bind=pg)()
         with board.Board(session, f, scope_pairs=None) as b:
-            expected = ml_metricas._kpis(b.kpis(), True).model_dump(mode="json")
+            expected = ml_metricas.build_kpis(b.kpis(), True).model_dump(mode="json")
         session.close()
         assert body["kpis"] == expected
         assert body["kpis"]["units"]["value"] == 5

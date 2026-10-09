@@ -1013,7 +1013,7 @@ def get_kpis(
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(mla_count=strip.mla_count)
-    figures = ml_metricas._kpis(strip.kpis, can_see_margin)
+    figures = ml_metricas.build_kpis(strip.kpis, can_see_margin)
     return {
         "period": {"date_from": first, "date_to": last, "prev_from": strip.prev_from, "prev_to": strip.prev_to},
         "kpis": figures.model_dump(exclude=None if can_see_margin else {"total_gauss", "markup"}),

@@ -416,7 +416,9 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, lea
     )
 
 
-def _kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
+def build_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
+    """The KPI strip as the API serializes it. Public: Publicaciones' strip (`/ml-publications/view/kpis`) uses
+    it too, so both screens answer the same figures; without `can_see_margin` the profit ones are null."""
     markup = board.markup_of(k.mtg, k.costo)
     markup_prev = board.markup_of(k.prev_mtg, k.prev_costo)
     return BoardKpis(
@@ -516,7 +518,7 @@ def build_board_response(
         offset=offset,
         can_see_margin=can_see_margin,
         refreshed_at=board.refreshed_at(db),
-        kpis=_kpis(kpis, can_see_margin),
+        kpis=build_kpis(kpis, can_see_margin),
         facets=_facets(facets, can_see_margin),
         rows=[_row_out(row, can_see_margin, group_view=grouped) for row in rows],
     )
