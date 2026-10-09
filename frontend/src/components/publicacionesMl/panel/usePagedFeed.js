@@ -26,7 +26,7 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
   // Refs are written in effects, never while rendering. Declared first so the fetch effect below sees the latest.
   useEffect(() => {
     fetchRef.current = fetchPage;
-  });
+  }, [fetchPage]);
 
   useEffect(() => {
     const mine = ++generation.current;
