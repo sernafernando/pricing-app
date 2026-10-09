@@ -20,7 +20,8 @@ from app.core.config import settings
 from app.main import app
 from app.services.ml_publications import settings_store
 from app.services.ml_publications.view import ads as ads_module
-from app.services.ml_publications.view.ads import AdsAvailability, UnavailableAdsProvider, get_ads_provider
+from app.services.ml_ads.read import ViewAdsProvider
+from app.services.ml_publications.view.ads import AdsAvailability, get_ads_provider
 from app.services.ml_publications.view.markup import unit_markup
 from tests.routers.test_ml_publications_view_markup import (  # noqa: F401
     COST,
@@ -96,8 +97,8 @@ def row_of(response, item_id: str) -> dict:
 
 
 class TestAdsBlockWhileUnavailable:
-    def test_the_default_provider_is_the_unavailable_one(self) -> None:
-        assert isinstance(get_ads_provider(), UnavailableAdsProvider)
+    def test_the_default_provider_is_the_billing_one(self, pg) -> None:
+        assert isinstance(get_ads_provider(pg), ViewAdsProvider)
 
     def test_the_response_says_ads_is_not_available(self, client, pg, analyst, pricing) -> None:
         seed_rows(pg, fill)
