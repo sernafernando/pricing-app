@@ -33,4 +33,4 @@ Qué tenés que saber:
 
 ## Resumen de acceso
 
-Arriba de la lista de pantallas del usuario seleccionado hay cuatro números: **Pantallas accesibles** (sobre el total), **Sin acceso**, **Condicionales** y **Overrides** agregados y quitados. Salen de la misma lista que ves abajo, así que siempre coinciden.
+Arriba de la lista de pantallas del usuario seleccionado hay cuatro números: **Pantallas accesibles** (sobre el total), **Sin acceso**, **Condicionales** y **Overrides** agregados y quitados. Cuentan todas las pantallas del usuario, sin importar la búsqueda ni los filtros que tengas aplicados.
