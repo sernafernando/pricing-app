@@ -57,8 +57,10 @@ def _upsert_charge_row(db: Session, dto: BillingChargeDTO) -> None:
         "raw_detail": dto.raw_detail,
     }
     stmt = _insert_stmt(db, MlBillingCharge.__table__).values(**values)
-    # The source is set when the row is first stored and never relabeled: a flex
-    # fetch that returned a general `detail_id` would be a collision to look at.
+    # The source is set when the row is first stored and never relabeled. The two
+    # sources' `detail_id`s are disjoint in every capture (0 overlap), so a
+    # collision is not expected; it is not detected here, only kept from
+    # silently flipping the label.
     update_cols = {k: stmt.excluded[k] for k in values if k not in ("detail_id", "billing_source")}
     stmt = stmt.on_conflict_do_update(index_elements=["detail_id"], set_=update_cols)
     db.execute(stmt)

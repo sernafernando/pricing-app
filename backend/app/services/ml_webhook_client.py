@@ -211,14 +211,13 @@ FLEX_PAGE_LIMIT = 500
 
 
 def _validate_flex_paging(limit: int, offset: int) -> tuple[int, int]:
-    """Both go into the query string. Plain ints only: `limit` 1..500 (the page
-    size ML serves for flex) and `offset` >= 0. Raised BEFORE any HTTP call."""
-    if isinstance(limit, bool) or isinstance(offset, bool):
-        raise ValueError(f"limit/offset flex inválidos: {limit!r}, {offset!r}")
-    try:
-        limit, offset = int(limit), int(offset)
-    except (TypeError, ValueError):
-        raise ValueError(f"limit/offset flex inválidos: {limit!r}, {offset!r}") from None
+    """Both go into the query string. Plain ints only (a float or a bool is
+    refused, never truncated): `limit` 1..500 (the page size ML serves for flex)
+    and `offset` >= 0. Raised BEFORE any HTTP call."""
+    for value in (limit, offset):
+        if isinstance(value, bool) or not (isinstance(value, int) or re.fullmatch(r"\d+", str(value).strip())):
+            raise ValueError(f"limit/offset flex inválidos: {limit!r}, {offset!r}")
+    limit, offset = int(limit), int(offset)
     if not 1 <= limit <= FLEX_PAGE_LIMIT or offset < 0:
         raise ValueError(f"limit/offset flex fuera de rango: {limit}, {offset}")
     return limit, offset

@@ -94,6 +94,9 @@ class TestFetchBillingFlexDetails:
             {"offset": "5;DROP"},
             {"limit": 0},
             {"limit": 501},
+            {"limit": 1.5},
+            {"offset": 2.0},
+            {"offset": True},
         ],
     )
     def test_invalid_arguments_raise_before_any_request(self, monkeypatch, bad) -> None:
