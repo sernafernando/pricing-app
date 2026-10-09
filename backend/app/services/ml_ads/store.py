@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -25,22 +25,23 @@ from app.models.ml_ads import MlAdsAdGroupDay, MlAdsDayLedger, MlAdsDisplayCampa
 from app.services.ml_ads.mapper import DaySummary, DisplayFact, GroupFact, ItemFact
 
 SOURCE = "product_ads"
+DISPLAY_SOURCE = "display"
 UNFINISHED = "fetching"
 # `groups_offset` is the offset of the next `ad_groups/search` page; this value says every page was read,
 # so a resumed day goes straight to the drill instead of asking ML for a page past the end.
 GROUPS_DONE = -1
 
 
-def get_ledger(db: Session, advertiser_id: int, day: date) -> Optional[MlAdsDayLedger]:
-    return db.get(MlAdsDayLedger, (SOURCE, advertiser_id, day))
+def get_ledger(db: Session, advertiser_id: int, day: date, *, source: str = SOURCE) -> Optional[MlAdsDayLedger]:
+    return db.get(MlAdsDayLedger, (source, advertiser_id, day))
 
 
-def start_fetch(db: Session, advertiser_id: int, day: date, *, now: datetime) -> MlAdsDayLedger:
+def start_fetch(db: Session, advertiser_id: int, day: date, *, now: datetime, source: str = SOURCE) -> MlAdsDayLedger:
     """Open the day for fetching. A day already `fetching` is resumed untouched; any other status restarts."""
-    ledger = get_ledger(db, advertiser_id, day)
+    ledger = get_ledger(db, advertiser_id, day, source=source)
     if ledger is None:
         ledger = MlAdsDayLedger(
-            source=SOURCE,
+            source=source,
             advertiser_id=advertiser_id,
             day=day,
             status="fetching",
@@ -58,20 +59,31 @@ def start_fetch(db: Session, advertiser_id: int, day: date, *, now: datetime) ->
     return ledger
 
 
-def set_groups_offset(db: Session, advertiser_id: int, day: date, offset: int) -> None:
-    ledger = get_ledger(db, advertiser_id, day)
+def set_groups_offset(db: Session, advertiser_id: int, day: date, offset: int, *, source: str = SOURCE) -> None:
+    ledger = get_ledger(db, advertiser_id, day, source=source)
     ledger.groups_offset = offset
     db.flush()
 
 
 def finish_day(
-    db: Session, advertiser_id: int, day: date, *, status: str, summary: Optional[DaySummary], now: datetime
+    db: Session,
+    advertiser_id: int,
+    day: date,
+    *,
+    status: str,
+    summary: Optional[DaySummary],
+    now: datetime,
+    source: str = SOURCE,
+    detail: Optional[Mapping[str, Any]] = None,
 ) -> MlAdsDayLedger:
-    ledger = get_ledger(db, advertiser_id, day)
+    """`detail` is for sources without an ML day total (Display): it goes to `summary_raw` as is."""
+    ledger = get_ledger(db, advertiser_id, day, source=source)
     ledger.status = status
     if summary is not None:
         ledger.summary_cost = summary.cost
         ledger.summary_raw = dict(summary.raw)
+    elif detail is not None:
+        ledger.summary_raw = dict(detail)
     ledger.closed_at = now if status == "closed" else None
     db.flush()
     return ledger
@@ -282,14 +294,16 @@ def day_check(db: Session, advertiser_id: int, day: date) -> DayCheck:
     return DayCheck(Decimal(group_cost), groups, pending, drill_mismatches)
 
 
-def attempts_exhausted(db: Session, advertiser_id: int, day: date, *, today: date, limit: int) -> bool:
-    ledger = get_ledger(db, advertiser_id, day)
+def attempts_exhausted(
+    db: Session, advertiser_id: int, day: date, *, today: date, limit: int, source: str = SOURCE
+) -> bool:
+    ledger = get_ledger(db, advertiser_id, day, source=source)
     return ledger is not None and ledger.attempts_day == today and ledger.attempts >= limit
 
 
-def record_failure(db: Session, advertiser_id: int, day: date, *, today: date, error: str) -> int:
+def record_failure(db: Session, advertiser_id: int, day: date, *, today: date, error: str, source: str = SOURCE) -> int:
     """Count one failed attempt for the local day `today` (the counter restarts on a new local day)."""
-    ledger = get_ledger(db, advertiser_id, day)
+    ledger = get_ledger(db, advertiser_id, day, source=source)
     if ledger.attempts_day != today:
         ledger.attempts = 0
         ledger.attempts_day = today
@@ -304,27 +318,27 @@ def record_failure(db: Session, advertiser_id: int, day: date, *, today: date, e
 OPEN_STATUSES = ("fetching", "refetch")
 
 
-def open_units(db: Session) -> list[tuple[int, date]]:
+def open_units(db: Session, *, source: str = SOURCE) -> list[tuple[int, date]]:
     """Days left `fetching` or marked `refetch`, as `(advertiser_id, day)`, oldest day first (it expires first)."""
     rows = db.execute(
         select(MlAdsDayLedger.advertiser_id, MlAdsDayLedger.day)
-        .where(MlAdsDayLedger.source == SOURCE, MlAdsDayLedger.status.in_(OPEN_STATUSES))
+        .where(MlAdsDayLedger.source == source, MlAdsDayLedger.status.in_(OPEN_STATUSES))
         .order_by(MlAdsDayLedger.day, MlAdsDayLedger.advertiser_id)
     ).all()
     return [(advertiser_id, day) for advertiser_id, day in rows]
 
 
-def ledgered(db: Session, first: date, last: date) -> set[tuple[int, date]]:
+def ledgered(db: Session, first: date, last: date, *, source: str = SOURCE) -> set[tuple[int, date]]:
     """Every `(advertiser_id, day)` in the window that has a ledger row, whatever its status ("fetched" at all)."""
     rows = db.execute(
         select(MlAdsDayLedger.advertiser_id, MlAdsDayLedger.day).where(
-            MlAdsDayLedger.source == SOURCE, MlAdsDayLedger.day.between(first, last)
+            MlAdsDayLedger.source == source, MlAdsDayLedger.day.between(first, last)
         )
     ).all()
     return {(advertiser_id, day) for advertiser_id, day in rows}
 
 
-def reopen_for_daily_run(db: Session, *, today: date, recent_days: int, max_laps: int) -> None:
+def reopen_for_daily_run(db: Session, *, today: date, recent_days: int, max_laps: int, source: str = SOURCE) -> None:
     """The once-a-day refresh: D-1..D-`recent_days` are refetched, and so is a mismatch that has had fewer than
     `max_laps` retries (D4). Days that are still being fetched are left alone."""
     recent = and_(
@@ -333,7 +347,7 @@ def reopen_for_daily_run(db: Session, *, today: date, recent_days: int, max_laps
     lapped = and_(MlAdsDayLedger.status == "mismatch", MlAdsDayLedger.mismatch_laps < max_laps)
     db.execute(
         update(MlAdsDayLedger)
-        .where(MlAdsDayLedger.source == SOURCE, or_(recent, lapped))
+        .where(MlAdsDayLedger.source == source, or_(recent, lapped))
         .values(
             mismatch_laps=MlAdsDayLedger.mismatch_laps + case((MlAdsDayLedger.status == "mismatch", 1), else_=0),
             status="refetch",
@@ -402,4 +416,16 @@ def upsert_display_days(db: Session, facts: Iterable[DisplayFact], *, now: datet
         for name in ("consumed_budget", "prints", "clicks", "reach", "raw", "fetched_at")
     }
     db.execute(stmt.on_conflict_do_update(index_elements=["advertiser_id", "campaign_id", "day"], set_=refreshed))
+    db.flush()
+
+
+def delete_stale_display(db: Session, advertiser_id: int, day: date, *, fetch_started_at: datetime) -> None:
+    """Drop the day's Display rows that the current fetch did not rewrite (the campaign lost its activity)."""
+    db.execute(
+        delete(MlAdsDisplayCampaignDay).where(
+            MlAdsDisplayCampaignDay.advertiser_id == advertiser_id,
+            MlAdsDisplayCampaignDay.day == day,
+            MlAdsDisplayCampaignDay.fetched_at < fetch_started_at,
+        )
+    )
     db.flush()
