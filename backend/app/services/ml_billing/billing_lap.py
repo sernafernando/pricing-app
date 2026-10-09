@@ -33,6 +33,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from sqlalchemy.orm import Session
+
 from app.models.ml_billing import MlBillingCharge
 from app.services.ml_billing.billing_sweep_service import (
     BILLING_GROUP,
@@ -68,7 +70,7 @@ def _when(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value) if value else None
 
 
-def _settled(db, period_key: str) -> bool:
+def _settled(db: Session, period_key: str) -> bool:
     documents = [c for t in DOCUMENT_TYPES for c in document_completeness(db, period_key, t)]
     if not documents or not all(c.complete for c in documents):
         return False
@@ -80,7 +82,7 @@ def _settled(db, period_key: str) -> bool:
     return unnumbered is None and not open_gaps(db, period_key)
 
 
-def _units(db, periods: list[dict], verified: dict, now: datetime) -> list[dict]:
+def _units(db: Session, periods: list[dict], verified: dict, now: datetime) -> list[dict]:
     keys = [(p["key"], p.get("period_status")) for p in periods if isinstance(p, dict) and p.get("key")]
     ordered = [k for k, status in keys if status == OPEN] + sorted((k for k, s in keys if s != OPEN), reverse=True)
     status_of = dict(keys)
@@ -109,7 +111,7 @@ def _units(db, periods: list[dict], verified: dict, now: datetime) -> list[dict]
     return units
 
 
-def run_billing_tick(db, state: dict, now: datetime) -> dict:
+def run_billing_tick(db: Session, state: dict, now: datetime) -> dict:
     """One tick: at most ONE proxy request. Returns the new state; the caller commits."""
     last, retry = _when(state.get("last_request_at")), _when(state.get("retry_at"))
     if (last is not None and now - last < SPACING) or (retry is not None and now < retry):
@@ -119,7 +121,7 @@ def run_billing_tick(db, state: dict, now: datetime) -> dict:
     return _step(db, state, now)
 
 
-def _start_lap(db, state: dict, now: datetime) -> dict:
+def _start_lap(db: Session, state: dict, now: datetime) -> dict:
     state["last_request_at"] = now.isoformat()
     payload = resolve_maybe_async(ml_webhook_client.get_billing_periods(BILLING_GROUP))
     periods = (payload or {}).get("results")
@@ -135,7 +137,7 @@ def _start_lap(db, state: dict, now: datetime) -> dict:
     return _close_lap_if_done(state, now)
 
 
-def _step(db, state: dict, now: datetime) -> dict:
+def _step(db: Session, state: dict, now: datetime) -> dict:
     unit = state["lap"]["units"][state["lap"]["index"]]
     state["last_request_at"] = now.isoformat()
     if unit["kind"] == "details":
@@ -143,7 +145,7 @@ def _step(db, state: dict, now: datetime) -> dict:
     return _documents(db, state, unit, now)
 
 
-def _details(db, state: dict, unit: dict, now: datetime) -> dict:
+def _details(db: Session, state: dict, unit: dict, now: datetime) -> dict:
     period, document_type = unit["period_key"], unit["document_type"]
     fetch = resolve_maybe_async(
         ml_webhook_client.fetch_billing_details(period, BILLING_GROUP, document_type, PAGE_LIMIT, unit["from_id"])
@@ -178,7 +180,7 @@ def _details(db, state: dict, unit: dict, now: datetime) -> dict:
     return state
 
 
-def _documents(db, state: dict, unit: dict, now: datetime) -> dict:
+def _documents(db: Session, state: dict, unit: dict, now: datetime) -> dict:
     period, document_type = unit["period_key"], unit["document_type"]
     documents = resolve_maybe_async(ml_webhook_client.get_billing_documents(period, BILLING_GROUP, document_type))
     if documents is None:
