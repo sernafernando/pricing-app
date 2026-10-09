@@ -143,6 +143,8 @@ def list_advertisers(
 
 
 class _DayRun:
+    source = store.SOURCE  # the ledger this pipeline writes; Display overrides it
+
     def __init__(
         self,
         session_factory: SessionFactory,
@@ -189,7 +191,7 @@ class _DayRun:
 
     def _result(self, outcome: str) -> StepResult:
         with self.session_factory() as db:
-            ledger = store.get_ledger(db, self.advertiser_id, self.day)
+            ledger = store.get_ledger(db, self.advertiser_id, self.day, source=self.source)
             status = ledger.status if ledger is not None else None
         return StepResult(self.advertiser_id, self.day, outcome, status, self.calls)
 
@@ -200,10 +202,10 @@ class _DayRun:
     def _open(self) -> None:
         with self.session_factory() as db:
             exhausted = store.attempts_exhausted(
-                db, self.advertiser_id, self.day, today=self._today, limit=MAX_ATTEMPTS_PER_DAY
+                db, self.advertiser_id, self.day, today=self._today, limit=MAX_ATTEMPTS_PER_DAY, source=self.source
             )
             if not exhausted:
-                ledger = store.start_fetch(db, self.advertiser_id, self.day, now=self.now())
+                ledger = store.start_fetch(db, self.advertiser_id, self.day, now=self.now(), source=self.source)
                 self.fetch_started_at = ledger.fetch_started_at
                 self.groups_offset = ledger.groups_offset
         if exhausted:
@@ -230,9 +232,19 @@ class _DayRun:
         """D4: a 4xx on a day past retention is terminal; anything else is one counted attempt."""
         terminal = 400 <= response.status < 500 and (self._today - self.day).days > settings.ML_ADS_RETENTION_DAYS
         with self.session_factory() as db:
-            store.record_failure(db, self.advertiser_id, self.day, today=self._today, error=_describe(response))
+            store.record_failure(
+                db, self.advertiser_id, self.day, today=self._today, error=_describe(response), source=self.source
+            )
             if terminal:
-                store.finish_day(db, self.advertiser_id, self.day, status="unavailable", summary=None, now=self.now())
+                store.finish_day(
+                    db,
+                    self.advertiser_id,
+                    self.day,
+                    status="unavailable",
+                    summary=None,
+                    now=self.now(),
+                    source=self.source,
+                )
         # Raised after the transaction closes: the factory rolls back on an exception.
         raise _Stop(UNAVAILABLE if terminal else ERROR)
 
@@ -296,3 +308,63 @@ class _DayRun:
             status = CLOSED if _day_closes(store.day_check(db, self.advertiser_id, self.day), summary) else MISMATCH
             store.finish_day(db, self.advertiser_id, self.day, status=status, summary=summary, now=self.now())
         return StepResult(self.advertiser_id, self.day, status, status, self.calls)
+
+
+# --- Display (account-level, ADS-9) -----------------------------------------------------------------
+
+
+def run_display_step(
+    session_factory: SessionFactory,
+    client: Any,
+    advertiser_id: int,
+    day: date,
+    *,
+    now: Callable[[], datetime],
+    deadline: Optional[datetime] = None,
+) -> StepResult:
+    """One `(advertiser, day)` of Display: the campaigns list, then one `metrics` call per campaign."""
+    return _DisplayRun(session_factory, client, advertiser_id, day, now, deadline).execute()
+
+
+class _DisplayRun(_DayRun):
+    """Display day: the ledger (`source='display'`) cursor is the INDEX of the next campaign in id order.
+
+    The list is read again on every run (one call) so a resumed day still knows its campaigns. ML answers the
+    list with no paging keys, so it is taken as one page; its length goes to the ledger so a truncation
+    would show. The day has no ML total of ours: it closes once every campaign was read.
+    """
+
+    source = store.DISPLAY_SOURCE
+
+    def execute(self) -> StepResult:
+        try:
+            self._open()
+            listing = self._call(endpoints.display_campaigns_request(self.advertiser_id, self.day))
+            campaigns = mapper.parse_display_campaigns(listing)
+            for index in range(self.groups_offset, len(campaigns)):
+                self._read_campaign(campaigns[index], next_index=index + 1)
+            return self._close_display(len(campaigns))
+        except _Stop as stop:
+            return self._result(stop.outcome)
+
+    def _read_campaign(self, campaign_id: int, *, next_index: int) -> None:
+        body = self._call(endpoints.display_metrics_request(self.advertiser_id, campaign_id, self.day))
+        facts = mapper.map_display_metrics(self.advertiser_id, campaign_id, self.day, body)
+        with self.session_factory() as db:
+            store.upsert_display_days(db, facts, now=self.now())
+            store.set_groups_offset(db, self.advertiser_id, self.day, next_index, source=self.source)
+
+    def _close_display(self, campaigns: int) -> StepResult:
+        with self.session_factory() as db:
+            store.delete_stale_display(db, self.advertiser_id, self.day, fetch_started_at=self.fetch_started_at)
+            store.finish_day(
+                db,
+                self.advertiser_id,
+                self.day,
+                status=CLOSED,
+                summary=None,
+                now=self.now(),
+                source=self.source,
+                detail={"campaigns": campaigns},
+            )
+        return StepResult(self.advertiser_id, self.day, CLOSED, CLOSED, self.calls)

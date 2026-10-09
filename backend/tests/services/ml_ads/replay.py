@@ -24,6 +24,8 @@ GROUPS_RE = re.compile(r"/advertisers/(\d+)/product_ads/ad_groups/search$")
 SUMMARY_RE = re.compile(r"/advertisers/(\d+)/product_ads/campaigns/search$")
 ADS_RE = re.compile(r"/product_ads/ad_groups/(\d+)/ads$")
 ADVERTISERS_RE = re.compile(r"/advertising/advertisers$")
+DISPLAY_CAMPAIGNS_RE = re.compile(r"/advertisers/(\d+)/display/campaigns$")
+DISPLAY_METRICS_RE = re.compile(r"/advertisers/(\d+)/display/campaigns/(\d+)/metrics$")
 
 
 class FakeClock:
@@ -84,17 +86,34 @@ def tplink_day() -> dict[str, Any]:
     }
 
 
+def gauss_display() -> dict[str, Any]:
+    """Advertiser 25713's Display answers of 2026-10-05: `campaigns` (the list body) and `metrics` (campaign id -> body)."""
+    capture = load("display_day_2026_10_05_25713.json")
+    return {
+        "campaigns": capture["campaigns"]["body"],
+        "metrics": {int(cid): response["body"] for cid, response in capture["metrics"].items()},
+    }
+
+
 class Replay:
     """httpx handler. `days` maps advertiser id -> {pages, summary, ads}; every answer is a captured body.
+
+    `display` maps advertiser id -> {campaigns, metrics}; by default only 25713 has the captured Display answers.
 
     A request with no captured answer fails the test loudly instead of inventing one.
     """
 
     def __init__(
-        self, clock: FakeClock, days: dict[int, dict[str, Any]], *, advertisers: Optional[tuple[int, ...]] = None
+        self,
+        clock: FakeClock,
+        days: dict[int, dict[str, Any]],
+        *,
+        advertisers: Optional[tuple[int, ...]] = None,
+        display: Optional[dict[int, dict[str, Any]]] = None,
     ) -> None:
         self.clock = clock
         self.days = days
+        self.display = {25713: gauss_display()} if display is None else display
         # The real advertisers answer; `advertisers` keeps whole entries of it (ids), never edits one.
         listing = load("advertisers_pads.json")["body"]
         if advertisers is not None:
@@ -114,6 +133,10 @@ class Replay:
         params = dict(request.url.params)
         if ADVERTISERS_RE.search(path):
             return httpx.Response(200, json=self.advertisers_body)
+        if match := DISPLAY_METRICS_RE.search(path):
+            return httpx.Response(200, json=self.display[int(match.group(1))]["metrics"][int(match.group(2))])
+        if match := DISPLAY_CAMPAIGNS_RE.search(path):
+            return httpx.Response(200, json=self.display[int(match.group(1))]["campaigns"])
         if match := SUMMARY_RE.search(path):
             return httpx.Response(200, json=self.days[int(match.group(1))]["summary"])
         if match := GROUPS_RE.search(path):
@@ -149,6 +172,9 @@ class Replay:
 
     def calls_for_day(self, pattern: re.Pattern[str], day: Any) -> list[httpx.Request]:
         return [r for r in self.calls(pattern) if r.url.params["date_from"] == day.isoformat()]
+
+    def display_calls(self) -> list[httpx.Request]:
+        return [r for r in self.requests if "/display/" in r.url.path]
 
     def summary_calls(self) -> list[httpx.Request]:
         return self.calls(SUMMARY_RE)
