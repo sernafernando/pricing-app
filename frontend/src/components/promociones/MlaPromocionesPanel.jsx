@@ -79,8 +79,11 @@ function formatDateRange(startDate, finishDate) {
 
 /**
  * Level 2 panel: promotions of a single MLA.
- * `onApplied(result)` (optional) is called after an apply or remove returned a
- * result, for a host that shows data the write changes (price, markup).
+ * `onApplied(result)` (optional) means "the data this write touches may have
+ * changed": it is called once an apply or remove returned a result, and again
+ * (without arguments) at the ~5s and ~65s mirror re-reads, including after a
+ * rejected write. A host that shows data the write changes (price, markup) re-reads
+ * it; the re-reads are idempotent.
  * `ignoreGlobalFilter` is for a host that is not a Productos tree (the
  * Publicaciones ML side panel): the shared type/name filter belongs to the
  * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
@@ -388,7 +391,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
                   promotion={promo}
                   onApplied={(result) => {
                     scheduleMirrorReloads();
-                    if (onApplied) onApplied(result);
+                    onAppliedRef.current?.(result);
                   }}
                   onReloadNeeded={scheduleMirrorReloads}
                 />
