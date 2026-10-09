@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import api, { marcasPmAPI } from '../services/api';
@@ -11,26 +11,41 @@ vi.mock('../services/api', () => ({
 }));
 
 const USUARIO = { id: 7, nombre: 'Ana Pérez', username: 'ana', email: 'ana@x.com', rol: 'PRICING', activo: true };
+const OTRO = { id: 8, nombre: 'Beto Gómez', username: 'beto', email: 'beto@x.com', rol: 'ADMIN', activo: true };
 
-const permisosDe = () => ({
-  usuario_id: 7,
-  rol: 'PRICING',
+// Ana lacks admin.ver_panel; Beto has it by role.
+const permisosDe = (usuarioId = 7) => ({
+  usuario_id: usuarioId,
+  rol: usuarioId === 7 ? 'PRICING' : 'ADMIN',
   permisos_detallados: {
     administracion: [{
       codigo: 'admin.ver_panel', nombre: 'Ver panel', descripcion: '', es_critico: false,
-      tiene_por_rol: false, override: null, efectivo: false, origen: 'sin_permiso',
+      tiene_por_rol: usuarioId !== 7, override: null, efectivo: usuarioId !== 7,
+      origen: usuarioId === 7 ? 'sin_permiso' : 'rol',
     }],
   },
 });
 
+function renderPanel() {
+  render(
+    <MemoryRouter>
+      <PanelPermisos />
+    </MemoryRouter>,
+  );
+}
+
+const filaAdmin = () => screen.getByText('/admin', { selector: 'code' }).closest('li');
+const concederAdmin = () => within(filaAdmin()).getByRole('button', { name: 'Conceder acceso a Admin' });
+
 beforeEach(() => {
   vi.clearAllMocks();
   api.get.mockImplementation((url) => {
-    if (url === '/usuarios') return Promise.resolve({ data: [USUARIO] });
+    if (url === '/usuarios') return Promise.resolve({ data: [USUARIO, OTRO] });
     if (url === '/permisos/catalogo') return Promise.resolve({ data: {} });
     if (url === '/roles') return Promise.resolve({ data: [] });
     if (url === '/auth/me') return Promise.resolve({ data: { id: 1, rol: 'ADMIN' } });
-    if (url === '/permisos/usuario/7') return Promise.resolve({ data: permisosDe() });
+    if (url === '/permisos/usuario/7') return Promise.resolve({ data: permisosDe(7) });
+    if (url === '/permisos/usuario/8') return Promise.resolve({ data: permisosDe(8) });
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
   api.post.mockResolvedValue({ data: {} });
@@ -63,5 +78,79 @@ describe('PanelPermisos', () => {
     // Reloaded in place: the view was not torn down, so the search survives.
     expect(screen.getByPlaceholderText(/Buscá una pantalla o permiso/)).toHaveValue('admin');
     expect(await screen.findByText('Permiso concedido')).toBeInTheDocument();
+  });
+
+  it('does not let a late reload of the previous user overwrite the newly selected one', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByText('Ana Pérez'));
+    await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+
+    // The reload that follows the override stays pending until we release it.
+    let liberarRecarga;
+    const recargaPendiente = new Promise((resolve) => { liberarRecarga = resolve; });
+    const getOriginal = api.get.getMockImplementation();
+    let llamadasAna = 0;
+    api.get.mockImplementation((url) => {
+      if (url === '/permisos/usuario/7' && ++llamadasAna === 1) return recargaPendiente;
+      return getOriginal(url);
+    });
+
+    await user.click(concederAdmin());
+    await waitFor(() => expect(llamadasAna).toBe(1));
+
+    await user.click(screen.getAllByText('Beto Gómez')[0]);
+    await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+
+    await act(async () => liberarRecarga({ data: permisosDe(7) }));
+
+    // Still Beto's permissions: Ana's late payload was dropped.
+    expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Conceder acceso a Admin' })).not.toBeInTheDocument();
+  });
+
+  describe('feedback messages', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('does not let an earlier success timer wipe a later error', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+
+      await user.click(concederAdmin());
+      expect(await screen.findByText('Permiso concedido')).toBeInTheDocument();
+
+      // One second later a second override fails.
+      await act(async () => vi.advanceTimersByTime(1000));
+      api.post.mockRejectedValueOnce({ response: { data: { detail: 'No se pudo guardar' } } });
+      await user.click(concederAdmin());
+      expect(await screen.findByText('No se pudo guardar')).toBeInTheDocument();
+
+      // Past the first success's 2 s timer: the error must still be there.
+      await act(async () => vi.advanceTimersByTime(1500));
+      expect(screen.getByText('No se pudo guardar')).toBeInTheDocument();
+    });
+
+    it('still clears a success message after 2 seconds', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+      await user.click(concederAdmin());
+      expect(await screen.findByText('Permiso concedido')).toBeInTheDocument();
+
+      await act(async () => vi.advanceTimersByTime(2100));
+      expect(screen.queryByText('Permiso concedido')).not.toBeInTheDocument();
+    });
   });
 });

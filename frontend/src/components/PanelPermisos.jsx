@@ -19,6 +19,9 @@ export default function PanelPermisos() {
   // Id of the user whose permissions are on screen: a late reload for a
   // previously selected user must not overwrite the current one.
   const usuarioSeleccionadoIdRef = useRef(null);
+  // Pending auto-clear of a success message from the permissions view: a newer
+  // message cancels it, so an old timer never wipes a later error.
+  const mensajeTimerRef = useRef(null);
 
   // Estados para crear/editar usuario
   const [mostrarFormUsuario, setMostrarFormUsuario] = useState(false);
@@ -199,9 +202,18 @@ export default function PanelPermisos() {
   };
 
   const mostrarMensajeTemporal = (nuevoMensaje) => {
+    clearTimeout(mensajeTimerRef.current);
+    mensajeTimerRef.current = null;
     setMensaje(nuevoMensaje);
-    if (nuevoMensaje.tipo === 'success') setTimeout(() => setMensaje(null), 2000);
+    if (nuevoMensaje.tipo === 'success') {
+      mensajeTimerRef.current = setTimeout(() => {
+        mensajeTimerRef.current = null;
+        setMensaje(null);
+      }, 2000);
+    }
   };
+
+  useEffect(() => () => clearTimeout(mensajeTimerRef.current), []);
 
   const iniciarEdicion = () => {
     if (!usuarioSeleccionado) return;

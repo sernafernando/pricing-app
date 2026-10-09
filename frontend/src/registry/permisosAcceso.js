@@ -205,6 +205,11 @@ export function permisosSinPantalla(permisosDetallados, catalogo) {
  * Pairs that feed `pm_scope` for one user: titular pairs (`GET /marcas-pm`, an
  * array of { usuario_id }) plus delegated sub-PM grants
  * (`GET /marcas-pm/sub-pms/conteos` -> { conteos: [{ usuario_id, total }] }).
+ * In `conteos`, `usuario_id` is the GRANTEE (`marca_sub_pm.usuario_id`, the
+ * same column pm_scope reads) and `total` is how many pairs were delegated TO
+ * that user, counted within the caller's writable pairs. Both endpoints are
+ * complete only for ADMIN/SUPERADMIN callers; `/marcas-pm` 403s for anyone
+ * else, which leaves the count unknown (null) instead of undercounting.
  * Only "zero vs. some" matters, so a pair held both ways counting twice is fine.
  * Returns null (unknown) on any unexpected shape: callers never claim
  * `condicional` without a known zero.

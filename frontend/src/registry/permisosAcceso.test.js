@@ -219,9 +219,12 @@ describe('construirVistaPorPantalla + filters + search', () => {
 });
 
 describe('contarParesEfectivos (pm_scope effective scope = titular UNION sub-PM)', () => {
+  // Real shapes: GET /marcas-pm -> MarcaPMResponse[]; GET /marcas-pm/sub-pms/conteos
+  // -> ConteosUsuarioResponse, where usuario_id is the sub-PM the pairs were delegated to.
   const pares = [
-    { marca: 'A', categoria: 'X', usuario_id: 7 },
-    { marca: 'B', categoria: 'X', usuario_id: 8 },
+    { id: 1, marca: 'A', categoria: 'X', usuario_id: 7, usuario_nombre: 'Ana', usuario_email: 'ana@x.com' },
+    { id: 2, marca: 'B', categoria: 'X', usuario_id: 8, usuario_nombre: 'Beto', usuario_email: null },
+    { id: 3, marca: 'C', categoria: 'X', usuario_id: null, usuario_nombre: null, usuario_email: null },
   ];
 
   it('adds titular pairs and delegated sub-PM grants of the user', () => {

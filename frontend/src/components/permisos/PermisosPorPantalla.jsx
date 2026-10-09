@@ -121,9 +121,11 @@ export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActu
       setEnCurso(null);
       return;
     }
-    onMensaje?.({ tipo: 'success', texto: textoOk });
+    // Success is announced only once the list shows it; a failed reload gets
+    // its own message instead (the change itself was saved).
     try {
       await onActualizado?.();
+      onMensaje?.({ tipo: 'success', texto: textoOk });
     } catch {
       onMensaje?.({ tipo: 'error', texto: 'El cambio se guardó, pero no se pudo recargar la lista de permisos' });
     } finally {
