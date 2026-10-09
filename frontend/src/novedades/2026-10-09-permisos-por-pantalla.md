@@ -30,3 +30,7 @@ Qué tenés que saber:
 - **Depende de datos:** pantallas cuyo contenido depende de las marcas y categorías asignadas.
 
 > Si una pantalla figura como **Condicional**, el permiso no alcanza: hay que asignarle pares marca/categoría al usuario. El enlace **Ir a Mis Sub-PMs** de la fila lleva a la pantalla donde se delegan.
+
+## Resumen de acceso
+
+Arriba de la lista de pantallas del usuario seleccionado hay cuatro números: **Pantallas accesibles** (sobre el total), **Sin acceso**, **Condicionales** y **Overrides** agregados y quitados. Salen de la misma lista que ves abajo, así que siempre coinciden.
