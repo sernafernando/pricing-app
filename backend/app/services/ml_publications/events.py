@@ -36,6 +36,33 @@ STATUS_EVENT_BY_VALUE = {
 }
 STATUS_EVENT_OTHER = "status_changed_other"
 
+# Every event type `derive_events` can emit (the screen's event labels and the completeness tests iterate it). A
+# test reads this module's source and fails when a rule emits a type that is not listed here, or the reverse.
+EVENT_TYPES: tuple[str, ...] = (
+    "status_paused",
+    "status_activated",
+    "status_closed",
+    "status_under_review",
+    STATUS_EVENT_OTHER,
+    "sub_status_changed",
+    "stock_depleted",
+    "stock_replenished",
+    PRICE_CHANGED,
+    "promotion_offered",
+    "promotion_activated",
+    "promotion_finished",
+    "promotion_price_changed",
+    "catalog_competition_won",
+    "catalog_competition_lost",
+    "moderation_applied",
+    "moderation_resolved",
+    "product_link_changed",
+    "item_gone",
+    "item_restored",
+    "listing_type_changed",
+    "title_changed",
+)
+
 
 @dataclass(frozen=True)
 class ChangeRow:

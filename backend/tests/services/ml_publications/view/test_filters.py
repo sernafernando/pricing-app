@@ -202,6 +202,12 @@ class TestEventFilter:
         assert "price_changed" in EVENT_TYPES and "item_restored" in EVENT_TYPES
         assert parse_filter(evento=",".join(sorted(EVENT_TYPES))).event_types == tuple(sorted(EVENT_TYPES))
 
+    def test_the_vocabulary_is_exactly_the_real_event_types(self) -> None:
+        from app.services.ml_publications.events import EVENT_TYPES as REAL
+
+        assert EVENT_TYPES == frozenset(REAL)
+        assert {"listing_type_changed", "title_changed"} <= EVENT_TYPES
+
     def test_an_invented_event_type_is_rejected(self) -> None:
         with pytest.raises(FilterError) as caught:
             parse_filter(evento="venta_registrada")

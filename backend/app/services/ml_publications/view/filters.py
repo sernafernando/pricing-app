@@ -36,6 +36,7 @@ from app.models.ml_publications import (
 )
 from app.models.producto import ProductoERP
 from app.services.ml_daily_metrics.groups import NO_GROUP
+from app.services.ml_publications.events import EVENT_TYPES as real_event_types
 
 MAX_Q_LENGTH = 100
 MIN_ID, MAX_ID = -(2**63), 2**63 - 1  # what the database can hold (bigint): anything beyond is a mistake, not a miss
@@ -49,31 +50,8 @@ STOCK_VALUES = ("sin_stock", "full_sin_stock")
 NO_STORE = "none"
 NO_STATUS = "sin_estado"
 
-# The event types the store really writes (`services/ml_publications/events.py`); anything else is a typo.
-EVENT_TYPES = frozenset(
-    {
-        "status_paused",
-        "status_activated",
-        "status_closed",
-        "status_under_review",
-        "status_changed_other",
-        "sub_status_changed",
-        "stock_depleted",
-        "stock_replenished",
-        "price_changed",
-        "promotion_offered",
-        "promotion_activated",
-        "promotion_finished",
-        "promotion_price_changed",
-        "catalog_competition_won",
-        "catalog_competition_lost",
-        "moderation_applied",
-        "moderation_resolved",
-        "product_link_changed",
-        "item_gone",
-        "item_restored",
-    }
-)
+# The event types the store really writes (`events.EVENT_TYPES`, the one list); anything else is a typo.
+EVENT_TYPES = frozenset(real_event_types)
 EVENT_SINCE = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
 _MLA = re.compile(r"MLA\d+", re.IGNORECASE)

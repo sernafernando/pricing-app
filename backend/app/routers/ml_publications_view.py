@@ -11,6 +11,10 @@ joins it).
   come from `/items` with the node's `params`.
 - `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
   the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`.
+- `GET /ml-publications/view/items/{item_id}/events` (`ml_ops.ver`): the publication's business events from
+  `ml_item_events`, newest first, keyset-paged by an opaque cursor; an empty list while `events.enabled` is off.
+- `GET /ml-publications/view/items/{item_id}/history` (`ml_ops.ver`): its `ml_change_log` rows (and those of its user
+  product and family), one entry per row with the business fields apart from the technical ones.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
   422 that names the offending query parameter. Nothing here calls Mercado Libre and nothing writes.
@@ -31,7 +35,15 @@ from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services.ml_publications import admin, settings_store
-from app.services.ml_publications.view import detail, groups, listing, status_block, variations
+from app.services.ml_publications.view import (
+    detail,
+    events_view,
+    groups,
+    history,
+    listing,
+    status_block,
+    variations,
+)
 from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
 from app.services.ml_publications.view.filters import (
     FilterError,
@@ -371,6 +383,56 @@ class ItemDetailResponse(BaseModel):
     markup_breakdown: Optional[MarkupBreakdownOut] = None  # present only with ml_metricas.ver_ganancia
     freshness: list[FreshnessOut]
     can_resync: bool
+
+
+class EventOut(BaseModel):
+    """One business event of the publication; `label` is its Spanish name (a generic one for a type without its
+    own), `old_value`/`new_value` what the rule that derived it recorded."""
+
+    id: int
+    event_type: str
+    label: str
+    observed_at: datetime
+    promotion_type: Optional[str] = None
+    price_kind: Optional[str] = None
+    old_value: Any = None
+    new_value: Any = None
+
+
+class EventsResponse(BaseModel):
+    """`enabled` false (the store writes no events) comes with an empty list: nothing is shown that was not stored."""
+
+    enabled: bool
+    events: list[EventOut]
+    next_cursor: Optional[str] = None
+
+
+class HistoryChangeOut(BaseModel):
+    """One changed field. `path` is the diff engine's (`price`, `tags[=cart_eligible]`,
+    `locations[meli_facility].quantity`); `label_key` and the Spanish `label` are set on business
+    lines only. `old`/`new` are null on the side that does not exist (a field that was added or removed)."""
+
+    path: str
+    label_key: Optional[str] = None
+    label: Optional[str] = None
+    old: Any = None
+    new: Any = None
+
+
+class HistoryEntryOut(BaseModel):
+    """One change-log row: `kind` is `change`, `restored` or `gone`; the lines are one per changed field."""
+
+    id: int
+    observed_at: datetime
+    resource_type: str
+    kind: str
+    business: list[HistoryChangeOut]
+    technical: list[HistoryChangeOut]
+
+
+class HistoryResponse(BaseModel):
+    entries: list[HistoryEntryOut]
+    next_cursor: Optional[str] = None
 
 
 class GroupNodeOut(BaseModel):
@@ -764,3 +826,71 @@ def get_item_detail(
     timer.emit(links=len(found["links"]))
     found["can_resync"] = can_resync
     return found
+
+
+def _page_cursor(cursor: Optional[str]) -> Optional[tuple[datetime, int]]:
+    return events_view.decode_cursor(cursor) if cursor else None
+
+
+@router.get("/items/{item_id}/events", response_model=EventsResponse, response_model_exclude_unset=True)
+def get_item_events(
+    response: Response,
+    item_id: str = Path(..., pattern=admin.ITEM_ID_PATTERN),
+    cursor: Optional[str] = Query(None, description="opaque position returned as next_cursor by the previous page"),
+    limit: int = Query(events_view.DEFAULT_LIMIT, ge=1, le=events_view.MAX_LIMIT),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The Eventos tab: a page of the publication's events, newest first. With `events.enabled` off, an empty list
+    (`enabled` false): the store writes no events then and none is invented."""
+    timer = Timer("events")
+    try:
+        position = _page_cursor(cursor)
+        with timer.stage("flags"):
+            events_enabled = settings_store.get_setting("events.enabled").value is True
+        with timer.stage("events"):
+            found = events_view.list_events(db, item_id, enabled=events_enabled, cursor=position, limit=limit)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    if found is None:
+        raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"La publicación {item_id} no existe")
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(rows=len(found.events))
+    return {"enabled": events_enabled, "events": found.events, "next_cursor": found.next_cursor}
+
+
+@router.get("/items/{item_id}/history", response_model=HistoryResponse, response_model_exclude_unset=True)
+def get_item_history(
+    response: Response,
+    item_id: str = Path(..., pattern=admin.ITEM_ID_PATTERN),
+    cursor: Optional[str] = Query(None, description="opaque position returned as next_cursor by the previous page"),
+    limit: int = Query(history.DEFAULT_LIMIT, ge=1, le=history.MAX_LIMIT),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The Historial tab: a page of the publication's change log, newest first, each row split into the business
+    fields and the technical ones. Independent of the events flag (it reads the log, not the events)."""
+    timer = Timer("history")
+    try:
+        position = _page_cursor(cursor)
+        with timer.stage("history"):
+            found = history.list_history(db, item_id, cursor=position, limit=limit)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    if found is None:
+        raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"La publicación {item_id} no existe")
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(rows=len(found.entries))
+    return {"entries": found.entries, "next_cursor": found.next_cursor}
