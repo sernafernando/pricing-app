@@ -384,10 +384,10 @@ class TestFilters:
         assert "MLA6" not in ids(run(db, stock="full_sin_stock"))
 
     def test_the_event_filter_matches_items_with_such_an_event_since_the_given_time(self, conn, db) -> None:
-        seed.add_event(conn, "MLA1", "price_changed", seed.hours_ago(2))
-        seed.add_event(conn, "MLA2", "price_changed", seed.hours_ago(24 * 10))
-        seed.add_event(conn, "MLA3", "status_paused", seed.hours_ago(1))
-        seed.add_event(conn, "MLA1", "price_changed", seed.hours_ago(3))  # two events, still one row
+        seed.add_event(conn, "MLA1", "price_changed", seed.real_hours_ago(2))
+        seed.add_event(conn, "MLA2", "price_changed", seed.real_hours_ago(24 * 10))
+        seed.add_event(conn, "MLA3", "status_paused", seed.real_hours_ago(1))
+        seed.add_event(conn, "MLA1", "price_changed", seed.real_hours_ago(3))  # two events, still one row
         assert sorted(ids(run(db, evento="price_changed"))) == ["MLA1", "MLA2"]
         assert ids(run(db, evento="price_changed", evento_desde="7d")) == ["MLA1"]
         assert sorted(ids(run(db, evento="price_changed,status_paused", evento_desde="24h"))) == ["MLA1", "MLA3"]
