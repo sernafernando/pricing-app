@@ -998,6 +998,39 @@ then `sudo systemctl disable --now pricing-worker-ml`.
 The scan (first backfill, rescans, pause): see
 `docs/ml-publications-scan-runbook.md`.
 
+### ML Ads ingestion (`ml_ads.ingest`)
+
+Handler of `pricing-worker-ml` (no cron). It copies ML Product Ads cost per
+advertiser and day into the `ml_ads_*` tables. Daily slot at 10:30 local time
+(after ML's 10:00 refresh), plus a 60 s catch-up while the last run was
+incomplete. A run spends at most 15 s on ML calls, so the first backfill
+(`ML_ADS_RETENTION_DAYS`, 90 days, about 110 calls per advertiser-day) takes
+hours; the ledger (`ml_ads_day_ledger`) is the cursor, so a cut or restarted
+run resumes where it stopped.
+
+- **Per local day, once:** D-1..D-3 are re-ingested (ML still moves them), and
+  mismatches get up to 3 more laps. D-4..D-14 are checked with one summary
+  call each; a day whose figures moved goes back to refetch. Older closed days
+  are marked `final` and never called again.
+- **Flag:** `ML_ADS_ENABLED` in the worker environment (default off). With it off the
+  handler makes no ML call and writes nothing. The env is read at process
+  start: after changing it run `sudo systemctl restart pricing-worker-ml`.
+  Turning it off keeps all stored data.
+- **Read the last run:** `select detail from worker_job_state where name =
+  'ml_ads.ingest';` has `complete` (false = the 60 s catch-up keeps going),
+  `stopped`, `calls`, `refreshed_for` (the local day whose refresh already
+  ran), `at` and the `steps` of that run (`advertiser_id`, `day`, `outcome`).
+  Deleting the row loses no progress; it only repeats the day's refresh.
+- **`stopped` / outcomes:** `rate_limited` is a 429; the run ends, the next
+  catch-up resumes. `blocked` is a missing token or a 401: it is logged as an
+  error, the run counts as complete and nothing retries until someone fixes
+  the ML token. `deadline` is the 15 s budget (normal during the backfill).
+  `unavailable` is a day past ML's retention that ML refuses (4xx): it is
+  closed as `unavailable` and never asked again. `mismatch` means the ads of
+  that day do not add up to ML's total; see `ml_ads_day_ledger.status`.
+  `error` / `attempts_exhausted` (5 attempts per day) skip that day for the run;
+  a new local day retries it, and `last_error` in the ledger says why.
+
 ### Heartbeat death / unexpected restarts
 
 The worker's `HeartbeatThread` (design D4 step 5) independently proves
