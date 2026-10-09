@@ -105,9 +105,9 @@ class TestFlexStorage:
         assert sources == {general.detail_id: "general", "72841878795": "flex"}
 
     def test_a_flex_fetch_never_relabels_an_existing_general_row(self, db) -> None:
-        general = _flex("bflx_599")
-        upsert_billing_charge(db, BillingChargeDTO(**{**general.__dict__, "billing_source": "general"}))
-        upsert_billing_charge(db, general)
+        flex = _flex("bflx_599")
+        upsert_billing_charge(db, BillingChargeDTO(**{**flex.__dict__, "billing_source": "general"}))
+        upsert_billing_charge(db, flex)
         db.commit()
         assert db.query(MlBillingCharge).one().billing_source == "general"
 
