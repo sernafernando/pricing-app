@@ -113,6 +113,29 @@ describe('PanelPermisos', () => {
     expect(screen.queryByText('Permiso concedido')).not.toBeInTheDocument();
   });
 
+  it('does not reload the previous user over the new one when the override finishes after the switch', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByText('Ana Pérez'));
+    await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+
+    // The override POST stays pending, so its reload starts only after the switch.
+    let liberarOverride;
+    api.post.mockReturnValueOnce(new Promise((resolve) => { liberarOverride = resolve; }));
+    await user.click(concederAdmin());
+
+    await user.click(screen.getAllByText('Beto Gómez')[0]);
+    await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+
+    await act(async () => liberarOverride({ data: {} }));
+    await act(async () => {});
+
+    // Still Beto's permissions: Ana's reload must not be applied.
+    expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Conceder acceso a Admin' })).not.toBeInTheDocument();
+  });
+
   describe('late permission responses', () => {
     // Holds the FIRST GET of the given user's permissions until released;
     // later GETs answer at once with `siguiente()`.
