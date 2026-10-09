@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useState } from 'react';
 import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
 
 /**
@@ -17,6 +17,6 @@ import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
  * on this page, and the global promo filter is ignored for the same reason.
  */
 export default function PromocionesTab({ itemId }) {
-  const promosCacheRef = useRef(new Map());
+  const [promosCacheRef] = useState(() => ({ current: new Map() }));
   return <MlaPromocionesPanel key={itemId} mla={itemId} promosCacheRef={promosCacheRef} pullOnOpen ignoreGlobalFilter />;
 }

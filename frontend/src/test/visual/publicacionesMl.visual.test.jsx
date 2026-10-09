@@ -226,8 +226,6 @@ const renderMarginPage = async ({ width, height, theme }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: MARGIN_RESPONSE });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
-  promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
-  promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
@@ -543,6 +541,8 @@ const renderWithPanel = async ({ width, height, theme, margin = false, tab = '',
   publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
   publicacionesMlAPI.history.mockResolvedValue({ data: HISTORY_RESPONSE });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+  promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+  promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
