@@ -112,6 +112,26 @@ describe('after a write', () => {
     await waitFor(() => expect(onPromoApplied).toHaveBeenCalledTimes(1));
   });
 
+  it('tells the panel again when the mirror is re-read at ~5s and ~65s, because the new price lands late', async () => {
+    const onPromoApplied = vi.fn();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [DEAL] } });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderTab('MLA1100000001', { onPromoApplied });
+      await user.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+      await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+      await waitFor(() => expect(onPromoApplied).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(onPromoApplied).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(onPromoApplied).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('tells the panel once a removal went through', async () => {
     const user = userEvent.setup();
     const onPromoApplied = vi.fn();

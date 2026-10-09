@@ -324,6 +324,8 @@ describe('after applying a promotion', () => {
 describe('the tab strip', () => {
   // jsdom has no layout: give the strip a 240px window and the open tab a place past its edge.
   const stubLayout = () => {
+    const names = ['clientWidth', 'offsetLeft', 'offsetWidth'];
+    const originals = names.map((name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)]);
     const define = (name, get) => Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get });
     define('clientWidth', function width() {
       return this.getAttribute('role') === 'tablist' ? 240 : 0;
@@ -334,7 +336,11 @@ describe('the tab strip', () => {
     define('offsetWidth', function width() {
       return this.getAttribute('role') === 'tab' ? 60 : 0;
     });
-    return () => ['clientWidth', 'offsetLeft', 'offsetWidth'].forEach((name) => delete HTMLElement.prototype[name]);
+    return () =>
+      originals.forEach(([name, descriptor]) => {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        else delete HTMLElement.prototype[name];
+      });
   };
 
   it('scrolls the strip sideways to the open tab, without moving anything else, so a tab past the edge is never lost', async () => {

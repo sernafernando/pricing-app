@@ -169,6 +169,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   // mirror at two points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s
   // (after the server's ~60s retry drains for slower SMART reconciliation).
   const reloadTimersRef = useRef([]);
+  const onAppliedRef = useRef(onApplied);
+  onAppliedRef.current = onApplied;
   const storedTypes = usePromoFilterStore((state) => state.selectedTypes);
   const storedNames = usePromoFilterStore((state) => state.selectedNames);
   // Empty selections mean "show all" to `matchesPromoFilter`.
@@ -197,10 +199,13 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
     // ones, and clear on unmount so we never call reload()
     // after the panel (and the underlying setState) is gone.
     clearReloadTimers();
-    reloadTimersRef.current = [
-      setTimeout(() => reload(), 5000),
-      setTimeout(() => reload(), 65000),
-    ];
+    // A host that shows data the write changes (price, markup) re-reads it at the
+    // same points: the new price lands in our tables as late as the mirror does.
+    const reloadAgain = () => {
+      reload();
+      onAppliedRef.current?.();
+    };
+    reloadTimersRef.current = [setTimeout(reloadAgain, 5000), setTimeout(reloadAgain, 65000)];
   }, [clearReloadTimers, reload]);
 
   // An EMPTY mirror is only "no promos" when ML agrees (incident 2026-10-05:

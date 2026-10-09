@@ -105,7 +105,16 @@ export default function PublicacionesML() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
-  const reloadList = useCallback(() => setReloadToken((token) => token + 1), []);
+  // The panel asks for a reload after a write (a promotion changes price and
+  // markup). That one keeps the rows the operator has open; a user-triggered
+  // reload starts from collapsed. In the agrupado view only `/items` (state,
+  // facets) is asked again: the tree is not reloaded, so its rows keep the old
+  // figures until the tree is next opened.
+  const keepExpanded = useRef(false);
+  const reloadList = useCallback(() => {
+    keepExpanded.current = true;
+    setReloadToken((token) => token + 1);
+  }, []);
   const [columnVisibility, setColumnVisibility] = useState({});
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
@@ -147,7 +156,8 @@ export default function PublicacionesML() {
         if (request !== latestRequest.current) return;
         setData(response.data);
         // A new list (page, sort, filter) starts with every row collapsed.
-        setExpandedIds(new Set());
+        if (!keepExpanded.current) setExpandedIds(new Set());
+        keepExpanded.current = false;
         if (wantFacets) {
           setFacets(response.data.facets ?? null);
           facetsFor.current = filterKey;
