@@ -54,8 +54,8 @@
 # business hours: auditing is exactly the kind of work that should not
 # compete with the operator using the app, nor spend ML rate limit that
 # promos, PxQ and billing need while people are working. Free slot after
-# the 04:00/04:10/04:20 nocturnal block and before the 05:17 billing
-# sweep.
+# the 04:00/04:10/04:20 nocturnal block. (The billing sweep that used
+# to run at 05:17 is the `ml_billing.sweep` worker handler now.)
 #
 # The cost of that choice, stated so it is a known trade and not a
 # surprise: an order the BRIDGE lost at 10:00 stays invisible until the
@@ -91,17 +91,6 @@
 # a ping-triggered drain is safe: the service takes the run lock for its
 # own cursor and returns without running if one is already in flight.
 27 4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.drain_ml_activity >> /var/log/pricing-app/drain_ml_activity.log 2>&1
-
-# ML Billing daily sweep (ml-ventas-desglose-costos, corte 3) - downloads
-# the OPEN billing period once a day (ML enforces a HARD 5 requests/minute
-# rate limit PER ACCOUNT on billing, shared with promos/PxQ/everything
-# else -- never per-order). A complete no-op while ML_BILLING_ENABLED is
-# False (default OFF). 05:17 AM: free slot in the nocturnal block (the
-# nearby crons sit at 02:00/02:10/02:20/03:00/03:05/03:10/03:30/04:00/
-# 04:10/04:20; the 06-21 block is for the frequent/hourly jobs above, not
-# a once-a-day sweep), and lines up with the measured billing lag
-# (median 1h, 99.5% within 24h) landing well before business hours.
-17 5 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_ml_billing >> /var/log/pricing-app/sync_ml_billing.log 2>&1
 
 # ============================================================================
 # MÉTRICAS ML - Incremental + Backup + Rebuilds

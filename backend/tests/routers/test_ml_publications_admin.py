@@ -131,8 +131,10 @@ class TestContract:
     def test_the_job_names_are_the_registered_handlers(self) -> None:
         from app.workers.registry import ML_PUBLICATIONS_REGISTRY
 
-        # `ml_ads.ingest` is gated by the ML_ADS_ENABLED env flag, not by an admin setting: it has no admin job.
-        registered = {h.name for h in ML_PUBLICATIONS_REGISTRY if h.name != "ml_ads.ingest"}
+        # `ml_ads.ingest` and `ml_billing.sweep` are gated by env flags (ML_ADS_ENABLED, ML_BILLING_ENABLED), not by an
+        # admin setting: they have no admin job.
+        env_gated = {"ml_ads.ingest", "ml_billing.sweep"}
+        registered = {h.name for h in ML_PUBLICATIONS_REGISTRY if h.name not in env_gated}
         assert {handler for handler, _ in admin.JOBS.values()} == registered
 
 

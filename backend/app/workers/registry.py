@@ -64,8 +64,9 @@ def __getattr__(name: str) -> List[JobHandler]:
     if name == "ML_PUBLICATIONS_REGISTRY":
         if _ml_publications_registry is None:
             from app.workers.handlers.ml_ads import ads
+            from app.workers.handlers.ml_billing import billing
             from app.workers.handlers.ml_publications import intake, missed_feeds, refresh, relink, scan, sweep, verify
 
-            _ml_publications_registry = [refresh, intake, relink, scan, missed_feeds, sweep, verify, ads]
+            _ml_publications_registry = [refresh, intake, relink, scan, missed_feeds, sweep, verify, ads, billing]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
