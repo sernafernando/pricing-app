@@ -181,7 +181,7 @@ class _DayRun:
         except _Stop as stop:
             return self._result(stop.outcome)
         with self.session_factory() as db:
-            ledger = store.get_ledger(db, self.advertiser_id, self.day)
+            ledger = store.get_ledger(db, self.advertiser_id, self.day, source=self.source)
             changed = _summary_changed(ledger.summary_raw, summary.raw)
             if changed:
                 ledger.status = "refetch"
@@ -298,6 +298,7 @@ class _DayRun:
                     self.day,
                     today=self._today,
                     error="campaigns/search without metrics_summary",
+                    source=self.source,
                 )
             raise _Stop(ERROR)
         return summary
@@ -332,7 +333,8 @@ class _DisplayRun(_DayRun):
     The list is read again on every run (one call) and the run continues with the campaigns above the cursor, so
     a campaign appearing or vanishing between runs never shifts the rest. ML answers the list with no paging
     keys, so it is taken as one page; its length goes to the ledger so a truncation would show. The day has no
-    ML total of ours: it closes once every campaign was read.
+    ML total of ours: it closes once every campaign was read. A campaign that vanishes from the list in the
+    middle of a resumed fetch keeps the rows that same fetch already wrote; the next refetch drops them.
     """
 
     source = store.DISPLAY_SOURCE
