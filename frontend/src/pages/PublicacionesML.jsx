@@ -7,6 +7,7 @@ import SearchInput from '../components/SearchInput';
 import { ColumnPicker, FacetChips, Pagination, SegmentedControl, SplitPanelLayout, SwitchChip, TableShell } from '../components/kit';
 import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
+import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
@@ -18,8 +19,11 @@ import {
   PAGE_SIZE,
   PAGE_SIZES,
   buildItemsParams,
+  buildKpiParams,
+  hasMarkupFilter,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
+import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import styles from './PublicacionesML.module.css';
 
@@ -99,6 +103,10 @@ export default function PublicacionesML() {
   const { tienePermiso } = usePermisos();
   // The markup column, filters and sort exist only for this permission (S68.1).
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
+  // The strip is Métricas' numbers: it needs `ml_metricas.ver`; the table does not.
+  const canSeeKpis = tienePermiso('ml_metricas.ver');
+  // The period belongs to the strip alone: it is not a filter and never reaches `/items`.
+  const [periodo, setPeriodo] = useState(30);
 
   const [data, setData] = useState(null);
   const [facets, setFacets] = useState(null);
@@ -173,6 +181,8 @@ export default function PublicacionesML() {
         setLoading(false);
       });
   }, [requestKey, filterKey, reloadToken]);
+
+  const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
 
   const eventsEnabled = data?.events_enabled ?? false;
   const columns = useMemo(
@@ -286,6 +296,15 @@ export default function PublicacionesML() {
       </header>
 
       <StateBanner dataState={data?.data_state} />
+
+      {canSeeKpis && (
+        <PublicationKpiStrip
+          state={kpis}
+          periodo={periodo}
+          onPeriodChange={setPeriodo}
+          markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+        />
+      )}
 
       <section className={styles.filterCard} aria-label="Filtros">
         <div className={styles.filterBand}>

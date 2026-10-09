@@ -21,6 +21,8 @@ import {
   ITEMS_RESPONSE_EVENTS_OFF,
   groupsResponse,
   itemsResponse,
+  KPIS_RESPONSE,
+  KPIS_RESPONSE_MARGIN,
   makeItem,
   VARIATIONS_RESPONSE,
   VARIATION_ITEM,
@@ -31,7 +33,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -42,10 +44,15 @@ vi.mock('../utils/mlSidePanel', async (importOriginal) => ({
 
 // Everything is allowed except the margin, which each test grants on purpose.
 let canSeeMargin = false;
+let canSeeKpis = true;
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: (permiso) => (permiso === 'ml_metricas.ver_ganancia' ? canSeeMargin : true),
+    tienePermiso: (permiso) => {
+      if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
+      if (permiso === 'ml_metricas.ver') return canSeeKpis;
+      return true;
+    },
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -63,6 +70,9 @@ const page = async (entry = '/ml-publicaciones') => {
 
 beforeEach(() => {
   canSeeMargin = false;
+  canSeeKpis = true;
+  publicacionesMlAPI.kpis.mockReset();
+  publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
   seedTiendasOficiales([
     { store_id: 471846, nombre: 'TP-Link', clave: null, orden: 0, activa: true },
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
@@ -753,5 +763,91 @@ describe('the Agrupado view (P12a)', () => {
     publicacionesMlAPI.groups.mockResolvedValue({ data: groupsResponse('marca', []) });
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
     expect(await screen.findByText('Todavía no hay publicaciones sincronizadas')).toBeInTheDocument();
+  });
+});
+
+describe('the KPI strip (publicaciones-ml-vista P12b)', () => {
+  const kpiCalls = () => publicacionesMlAPI.kpis.mock.calls;
+  const kpiParams = () => kpiCalls().at(-1)[0];
+  const strip = () => screen.findByRole('region', { name: 'Indicadores de las publicaciones' });
+
+  it('asks /view/kpis for the list filters and the default 30-day period, never the paging or sort', async () => {
+    await page('/ml-publicaciones?estado=active&orden=precio&dir=asc&pagina=2');
+    const region = await strip();
+    expect(kpiParams()).toEqual({ estado: 'active', periodo: 30 });
+    expect(kpiCalls()[0][1].signal).toBeInstanceOf(AbortSignal);
+    expect(within(region).getByText('Unidades vendidas')).toBeInTheDocument();
+    expect(within(region).getByText('1.240')).toBeInTheDocument();
+    expect(within(region).getByRole('button', { name: '30 días' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('renders no strip, and asks for nothing, without ml_metricas.ver; the table still renders (S34.2)', async () => {
+    canSeeKpis = false;
+    await page();
+    expect(screen.queryByRole('region', { name: 'Indicadores de las publicaciones' })).not.toBeInTheDocument();
+    expect(kpiCalls()).toHaveLength(0);
+  });
+
+  it('shows the profit tiles only with ver_ganancia', async () => {
+    await page();
+    const region = await strip();
+    expect(within(region).queryByText('Total Gauss')).not.toBeInTheDocument();
+    expect(within(region).queryByText('Markup promedio')).not.toBeInTheDocument();
+  });
+
+  it('shows Total Gauss and markup with ver_ganancia', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE_MARGIN });
+    await page();
+    const region = await strip();
+    expect(await within(region).findByText('Total Gauss')).toBeInTheDocument();
+    expect(within(region).getByText('Markup promedio')).toBeInTheDocument();
+  });
+
+  it('changing the period asks only the strip again, never the rows (S32.2)', async () => {
+    const user = userEvent.setup();
+    await page();
+    const rowCalls = calls().length;
+    await user.click(within(await strip()).getByRole('button', { name: '7 días' }));
+    await waitFor(() => expect(kpiParams().periodo).toBe(7));
+    expect(calls()).toHaveLength(rowCalls);
+  });
+
+  it('aborts the stale strip request when the filters change', async () => {
+    const user = userEvent.setup();
+    await page();
+    await strip();
+    const firstSignal = kpiCalls()[0][1].signal;
+    await user.click(screen.getByRole('button', { name: /Pausadas/ }));
+    await waitFor(() => expect(kpiParams().estado).toBe('paused'));
+    expect(firstSignal.aborted).toBe(true);
+  });
+
+  it('a slow strip (503) shows a strip-level error and leaves the table intact', async () => {
+    publicacionesMlAPI.kpis.mockRejectedValue(httpError(503));
+    await page();
+    expect(await screen.findByText(/Los KPIs tardaron demasiado/)).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Publicaciones de Mercado Libre' })).toBeInTheDocument();
+    expect(screen.getByText('MLA1100000001')).toBeInTheDocument();
+  });
+
+  it('with a markup filter, keeps the KPIs, warns they ignore it, and sends no markup param', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE_MARGIN });
+    await page('/ml-publicaciones?markup_neg=1&markup_min=5');
+    const region = await strip();
+    expect(within(region).getByText('Los KPIs no aplican el filtro de markup')).toBeInTheDocument();
+    expect(await within(region).findByText('Unidades vendidas')).toBeInTheDocument();
+    for (const [params] of kpiCalls()) {
+      expect(Object.keys(params).filter((key) => key.startsWith('markup_'))).toEqual([]);
+    }
+    expect(lastParams().markup_neg).toBe(true);
+  });
+
+  it('shows no markup notice without a markup filter', async () => {
+    canSeeMargin = true;
+    await page();
+    await strip();
+    expect(screen.queryByText(/no aplican el filtro de markup/)).not.toBeInTheDocument();
   });
 });

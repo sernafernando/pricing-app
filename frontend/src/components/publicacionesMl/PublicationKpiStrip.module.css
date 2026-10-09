@@ -1,0 +1,211 @@
+/* KPI strip of Publicaciones ML: same ticker cards as Métricas ML. Tokens only; the cards grid collapses
+   to fewer columns so a tile never squeezes its figure. */
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--spacing-md);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-base);
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: 8px 12px;
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-base);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  min-height: 84px;
+}
+
+@media (min-width: 768px) {
+  .cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .cards {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.label {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+/* Number and chip side by side when they fit; when the card is too narrow
+   the CHIP drops under the number. The number itself never wraps and is
+   never cut ("$ 84.920.450,00" whole, always). */
+.valueRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+/* Six cards at 1366 leave ~170px each: the chip goes UNDER the number on
+   every card, not just on the ones whose number happens to be long. */
+@media (max-width: 1599px) {
+  .valueRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-size: clamp(14px, 1.05vw, 20px);
+  font-weight: var(--font-bold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.of {
+  font-weight: var(--font-normal);
+  color: var(--cf-text-tertiary);
+}
+
+.money_negative,
+.markup_negative {
+  color: var(--money-negative);
+}
+
+.money_positive,
+.markup_good {
+  color: var(--money-positive);
+}
+
+.markup_low {
+  color: var(--tone-warning-fg);
+}
+
+.delta,
+.note,
+.warn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-base);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  white-space: nowrap;
+}
+
+.delta[data-tone='up'] {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
+}
+
+.delta[data-tone='down'] {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.note {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+}
+
+.warn {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.spark {
+  width: 100%;
+  height: 22px;
+}
+
+.locked {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.bar {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--tone-neutral-bg);
+}
+
+.barFill {
+  background: var(--money-headline);
+}
+
+.segGood {
+  background: var(--money-positive);
+}
+
+.segLow {
+  background: var(--tone-warning-fg);
+}
+
+.segBad {
+  background: var(--money-negative);
+}

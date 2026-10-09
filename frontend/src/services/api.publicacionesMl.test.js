@@ -52,3 +52,16 @@ describe('publicacionesMlAPI.events and history', () => {
     expect(get).toHaveBeenCalledWith('/ml-publications/view/items/MLA1/history', { params });
   });
 });
+
+describe('publicacionesMlAPI.kpis', () => {
+  it('GETs /ml-publications/view/kpis with the params and the abort signal', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: { kpis: {} } });
+    const params = { estado: 'active', periodo: 30 };
+    const { signal } = new AbortController();
+
+    await actual.publicacionesMlAPI.kpis(params, { signal });
+
+    expect(get).toHaveBeenCalledWith('/ml-publications/view/kpis', { params, signal });
+  });
+});

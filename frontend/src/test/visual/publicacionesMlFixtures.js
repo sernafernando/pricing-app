@@ -139,6 +139,30 @@ export const ITEMS_RESPONSE = {
   data_state: DATA_STATE_OK,
 };
 
+/** `GET /view/kpis` without `ver_ganancia`: the profit figures are absent, not null (`response_model_exclude_unset`). */
+export const KPIS_RESPONSE = {
+  period: { date_from: '2026-09-10', date_to: '2026-10-09', prev_from: '2026-08-11', prev_to: '2026-09-09' },
+  kpis: {
+    units: { value: 1240, delta_pct: 12.5, series: [30, 42, 38, 51, 47, 40, 44] },
+    gross: { value: 18450320.5, delta_pct: -3.2, series: [400000, 520000, 480000, 610000, 590000, 500000, 540000] },
+    rows_with_sales: { value: 88, of_total: 235 },
+    ageing: { avg_days: 41.6, up_to_30: 120, from_31_to_60: 70, over_60: 45 },
+  },
+  mla_count: 235,
+  can_see_margin: false,
+};
+
+/** The same strip with `ver_ganancia`: Total Gauss and markup ride along. */
+export const KPIS_RESPONSE_MARGIN = {
+  ...KPIS_RESPONSE,
+  kpis: {
+    ...KPIS_RESPONSE.kpis,
+    total_gauss: { value: 3120450.25, delta_pct: 4.1, series: [90000, 110000, 100000, 130000, 120000, 105000, 115000] },
+    markup: { value: 18.4, delta_pp: -1.2, series: [18, 19, 18.5, 18.2, 18.9, 18.1, 18.4] },
+  },
+  can_see_margin: true,
+};
+
 export const itemsResponse = (overrides = {}) => ({ ...ITEMS_RESPONSE, ...overrides });
 
 /** The same page with the events flag off: no `last_event` key at all. */

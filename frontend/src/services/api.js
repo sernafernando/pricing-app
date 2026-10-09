@@ -868,6 +868,8 @@ export const publicacionesMlAPI = {
   // Asks the store to refresh publications (`ml_ops.gestionar`). The panel's
   // "Resincronizar" sends `{ item_ids: [itemId], resources: ['bundle', 'replenishment'] }`.
   enqueue: (body) => api.post('/ml-publications/enqueue', body),
+  // The KPI strip over the MLAs the filters select (`ml_metricas.ver`). `config.signal` aborts a stale request.
+  kpis: (params, config) => api.get('/ml-publications/view/kpis', { params, ...config }),
 };
 
 export default api;
