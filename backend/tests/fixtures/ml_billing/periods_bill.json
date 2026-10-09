@@ -1,0 +1,181 @@
+{
+  "source_capture": "billing_balance_capture_20261007_123428.json.gz",
+  "source_path": "ml.periods.BILL.body",
+  "body": {
+    "offset": 0,
+    "limit": 12,
+    "total": 13,
+    "last_id": 0,
+    "results": [
+      {
+        "amount": 231680781.16,
+        "unpaid_amount": 8174878.52,
+        "period": {
+          "date_from": "2026-09-17",
+          "date_to": "2026-10-16"
+        },
+        "key": "2026-10-01",
+        "expiration_date": "9999-12-31",
+        "debt_expiration_date": "9999-12-31",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "OPEN"
+      },
+      {
+        "amount": 590932941.23,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-08-17",
+          "date_to": "2026-09-16"
+        },
+        "key": "2026-09-01",
+        "expiration_date": "2026-09-22",
+        "debt_expiration_date": "2026-09-22",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 448736669.37,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-07-17",
+          "date_to": "2026-08-16"
+        },
+        "key": "2026-08-01",
+        "expiration_date": "2026-08-24",
+        "debt_expiration_date": "2026-08-24",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 434954355.47,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-06-17",
+          "date_to": "2026-07-16"
+        },
+        "key": "2026-07-01",
+        "expiration_date": "2026-07-22",
+        "debt_expiration_date": "2026-07-22",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 405971772.34,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-05-17",
+          "date_to": "2026-06-16"
+        },
+        "key": "2026-06-01",
+        "expiration_date": "2026-06-22",
+        "debt_expiration_date": "2026-06-22",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 770279735.54,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-04-17",
+          "date_to": "2026-05-16"
+        },
+        "key": "2026-05-01",
+        "expiration_date": "2026-05-22",
+        "debt_expiration_date": "2026-05-22",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 401489847.12,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-03-17",
+          "date_to": "2026-04-16"
+        },
+        "key": "2026-04-01",
+        "expiration_date": "2026-04-22",
+        "debt_expiration_date": "2026-04-22",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 480956756.54,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-02-17",
+          "date_to": "2026-03-16"
+        },
+        "key": "2026-03-01",
+        "expiration_date": "2026-03-23",
+        "debt_expiration_date": "2026-03-23",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 574198990.04,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2026-01-17",
+          "date_to": "2026-02-16"
+        },
+        "key": "2026-02-01",
+        "expiration_date": "2026-02-23",
+        "debt_expiration_date": "2026-02-23",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 377828987.11,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2025-12-17",
+          "date_to": "2026-01-16"
+        },
+        "key": "2026-01-01",
+        "expiration_date": "2026-01-22",
+        "debt_expiration_date": "2026-01-22",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 347009454.4,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2025-11-17",
+          "date_to": "2025-12-16"
+        },
+        "key": "2025-12-01",
+        "expiration_date": "2025-12-22",
+        "debt_expiration_date": "2025-12-22",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      },
+      {
+        "amount": 432272546.12,
+        "unpaid_amount": 0.0,
+        "period": {
+          "date_from": "2025-10-17",
+          "date_to": "2025-11-16"
+        },
+        "key": "2025-11-01",
+        "expiration_date": "2025-11-24",
+        "debt_expiration_date": "2025-11-24",
+        "debt_expiration_date_move_reason": null,
+        "debt_expiration_date_move_reason_description": null,
+        "period_status": "CLOSED"
+      }
+    ],
+    "errors": []
+  }
+}

@@ -100,3 +100,9 @@ What the rows prove: all 196 are `detail_type=BONUS` (sub-types BVFV 100, BXD
 whole-document reversal, document 5224932860); none of the 196 `detail_id`s
 and none of the 195 `charge_bonified_id`s is among the period's 33,210 BILL
 `detail_id`s, i.e. credit notes reverse invoices of EARLIER periods.
+
+## `periods_bill.json` (PR 4c-ii)
+
+Source: the same capture, `ml.periods.BILL.body`: ML's first `monthly/periods?group=ML`
+page as sent (`limit` 12, `total` 13): the OPEN period 2026-10-01 and the 11 CLOSED
+ones 2026-09-01 .. 2025-11-01. The lap walks exactly these 12.
