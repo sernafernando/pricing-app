@@ -33,6 +33,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from app.models.ml_billing import MlBillingCharge
 from app.services.ml_billing.billing_sweep_service import (
     BILLING_GROUP,
     DOCUMENT_TYPES,
@@ -44,7 +45,6 @@ from app.services.ml_billing.billing_sweep_service import (
     persist_details_page,
     persist_documents,
 )
-from app.models.ml_billing import MlBillingCharge
 from app.services.ml_billing.document_completeness import document_completeness
 from app.services.ml_billing.sweep_gaps import open_gaps
 from app.services.ml_webhook_client import ml_webhook_client

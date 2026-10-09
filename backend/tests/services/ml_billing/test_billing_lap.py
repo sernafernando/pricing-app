@@ -194,6 +194,13 @@ class TestDocumentsUnit:
             sum(d["count_details"] for d in DOCUMENTS["BILL"]),
         )
 
+    def test_a_failed_documents_request_keeps_the_unit_for_the_retry(self, db, client) -> None:
+        state = started(db, client)
+        state["lap"]["index"] = 1
+        client.documents.return_value = None
+        state = tick(db, state, at(15))
+        assert (state["failures"], state["lap"]["index"]) == (1, 1)
+
     def test_the_lap_ends_complete_after_the_last_unit(self, db, client) -> None:
         state = started(db, client)
         state["lap"]["index"] = len(state["lap"]["units"]) - 1  # CN documents of the oldest period
