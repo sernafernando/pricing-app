@@ -247,3 +247,20 @@ class TestReportCache:
 
 def test_the_module_cache_is_a_report_cache_over_build_status() -> None:
     assert isinstance(status_block.REPORT, ReportCache)
+
+
+class TestReplenishmentIsReported:
+    def test_replenishment_not_collected_is_named_with_what_it_affects(self) -> None:
+        completeness = {
+            "sale_price": {"expected": True, "missing": 0, "non_2xx": {}},
+            "stock": {"expected": True, "missing": 0, "non_2xx": {}},
+            "replenishment": {"expected": False, "missing": 0, "non_2xx": {}},
+        }
+        block = build_block(healthy(completeness=completeness))
+        assert codes(block) == [("resource_not_collected", "replenishment")]
+        assert block["degradations"][0]["affects"] == ["replenishment"]
+
+    def test_the_status_report_tracks_the_replenishment_state_table(self) -> None:
+        from app.services.ml_publications import status
+
+        assert status.STATE_TABLES["replenishment"] == "ml_user_product_replenishment"

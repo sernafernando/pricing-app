@@ -42,13 +42,26 @@ FORBIDDEN_ERP_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "
 # publication show, per variation, the code, name and brand of the product it is priced with (its own link, else the
 # item-level one): one join from the stored links for the whole publication, a constant number of statements. The
 # markup and the Ads of a sub-row are NOT recomputed there: they come from `markup_service`, which stays closed.
+#
+# `view/detail.py` is the fifth, explicit exception (publicaciones-ml-vista P8a). The Resumen of one publication shows
+# the product of its item-level link (code, name, brand, category, subcategory, the Productos list prices and, for
+# callers who may see margins, the cost) and the code/name/brand of the product of EACH unit's link: one join from
+# the stored links for the whole publication, a constant number of statements whatever the variations. The markup
+# breakdown is NOT recomputed there: it comes from `markup_service`, which stays closed.
 # No other module of the view may name the catalog, and the view never writes to it.
 PRODUCT_CATALOG_NAMES = {"productos_erp", "ProductoERP"}
 LINKING_READER = "links.py"
 VIEW_CATALOG_READER = "view/filters.py"
 VIEW_MARKUP_READER = "view/markup_inputs.py"
 VIEW_VARIATIONS_READER = "view/variations.py"
-PRODUCT_CATALOG_READERS = {LINKING_READER, VIEW_CATALOG_READER, VIEW_MARKUP_READER, VIEW_VARIATIONS_READER}
+VIEW_DETAIL_READER = "view/detail.py"
+PRODUCT_CATALOG_READERS = {
+    LINKING_READER,
+    VIEW_CATALOG_READER,
+    VIEW_MARKUP_READER,
+    VIEW_VARIATIONS_READER,
+    VIEW_DETAIL_READER,
+}
 # The one router allowed to use `app.services.ml_publications.links` (PR5L2).
 LINKS_ROUTERS = {"ml_publications_links.py"}
 LINKS_IMPORT = re.compile(r"app\.services\.ml_publications(?:\s+import\s+[^\n]*\blinks\b|\.links\b)")
@@ -158,13 +171,17 @@ class TestScannersCatchOffenders:
             VIEW_CATALOG_READER,
             VIEW_MARKUP_READER,
             VIEW_VARIATIONS_READER,
+            VIEW_DETAIL_READER,
         }
+        assert erp_violations(VIEW_DETAIL_READER, catalog) == []
+        assert erp_violations(VIEW_DETAIL_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
+        assert erp_violations(VIEW_DETAIL_READER, "from app.services.gbp_client import x") != []
         assert erp_violations(VIEW_VARIATIONS_READER, catalog) == []
         assert erp_violations(VIEW_VARIATIONS_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
         assert erp_violations(VIEW_VARIATIONS_READER, "from app.services.gbp_client import x") != []
         assert erp_violations(VIEW_MARKUP_READER, "select * from publicaciones_ml") == ["publicaciones_ml"]
         assert erp_violations("view/markup_service.py", "ProductoERP") == ["ProductoERP"]
-        # the tree (P7a) reads the catalog only through the base select of `view/filters.py`: no fifth exception
+        # the tree (P7a) reads the catalog only through the base select of `view/filters.py`: no further exception
         assert erp_violations("view/groups.py", catalog) == ["ProductoERP"]
 
     def test_links_import_scanner_sees_both_import_spellings(self) -> None:

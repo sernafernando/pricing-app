@@ -27,8 +27,8 @@ from typing import Mapping, Optional, Sequence
 
 from app.services.ml_publications.pricelist_resolver import resolve_pricelist
 from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup
-from app.services.pricing_columns import campo_for_pricelist
-from app.services.pricing_context import PricingContext, resolve_envio
+from app.services.pricing_columns import campo_for_pricelist, cuotas_for_pricelist
+from app.services.pricing_context import PricingContext, resolve_envio, resolve_envio_source
 
 REASON_OK = "ok"
 REASON_SIN_VINCULO = "sin_vinculo"
@@ -95,39 +95,96 @@ def _pick_price(inputs: UnitInputs, pricelist_id: int) -> tuple[Optional[float],
     return None, None
 
 
+@dataclass(frozen=True)
+class UnitBreakdown:
+    """The intermediate figures of one priced unit, what `unit_markup` computed on the way to its value (the detail
+    panel shows them). `comision_pct` is the base commission of the grupo plus the installments surcharge,
+    `comision_total` the amount (commission, tier and "varios"), `limpio` the net after VAT, shipping and
+    commission; `installments` is None for the classic list."""
+
+    price: float
+    price_source: str
+    pricelist_id: int
+    installments: Optional[int]
+    comision_pct: float
+    comision_total: float
+    costo_envio: float
+    envio_source: str
+    limpio: float
+    costo_ars: float
+    markup: float
+
+
+def _evaluate(
+    ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float], *, detail: bool = False
+) -> tuple[UnitMarkup, Optional[UnitBreakdown]]:
+    """The single pipeline behind both answers: the unit's markup and, with `detail`, its breakdown (the list
+    never asks for it, so its path builds nothing extra)."""
+    if inputs.producto_item_id is None:
+        return _unusable(REASON_SIN_VINCULO), None
+    if not _positive(inputs.costo):
+        return _unusable(REASON_SIN_COSTO), None
+
+    resolution = resolve_pricelist(inputs.listing_type_id, inputs.tags, inputs.sale_terms_campaign)
+    if resolution.pricelist_id is None:
+        return _unusable(resolution.reason), None
+    pricelist_id = resolution.pricelist_id
+
+    grupo_id = ctx.grupo_of(inputs.subcategoria_id)
+    comision_base = ctx.comision(pricelist_id, grupo_id)
+    if not comision_base:
+        return _unusable(REASON_SIN_COMISION, pricelist_id=pricelist_id), None
+
+    price, source = _pick_price(inputs, pricelist_id)
+    if price is None:
+        return _unusable(REASON_SIN_PRECIO, pricelist_id=pricelist_id), None
+
+    costo_ars = ctx.costo_en_pesos(inputs.costo, inputs.moneda_costo)
+    comisiones = calcular_comision_ml_total(price, comision_base, inputs.iva, constantes=ctx.constantes)
+    if detail:  # the one resolution, with where the figure came from
+        costo_envio, envio_source = resolve_envio_source(
+            ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price
+        )
+    else:
+        costo_envio, envio_source = (
+            resolve_envio(ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price),
+            None,
+        )
+    limpio = calcular_limpio(price, inputs.iva, costo_envio, comisiones["comision_total"], constantes=ctx.constantes)
+    # costo_ars > 0 here (costo was checked and conversion only multiplies), so the
+    # `calcular_markup` zero-cost branch cannot be reached.
+    value = calcular_markup(limpio, costo_ars) * 100
+    unit = UnitMarkup(value, REASON_OK, limpio, costo_ars, price, source, pricelist_id)
+    if not detail:
+        return unit, None
+    breakdown = UnitBreakdown(
+        price=price,
+        price_source=source,
+        pricelist_id=pricelist_id,
+        installments=cuotas_for_pricelist(pricelist_id),
+        comision_pct=comision_base,
+        comision_total=comisiones["comision_total"],
+        costo_envio=costo_envio,
+        envio_source=envio_source,
+        limpio=limpio,
+        costo_ars=costo_ars,
+        markup=value,
+    )
+    return unit, breakdown
+
+
 def unit_markup(ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float]) -> UnitMarkup:
     """Markup (percent) of one publication unit.
 
     `envio` is `envio_real_by_item` (real shipping cost by the linked product's `item_id`),
     the mapping `resolve_envio` consumes.
     """
-    if inputs.producto_item_id is None:
-        return _unusable(REASON_SIN_VINCULO)
-    if not _positive(inputs.costo):
-        return _unusable(REASON_SIN_COSTO)
+    return _evaluate(ctx, inputs, envio)[0]
 
-    resolution = resolve_pricelist(inputs.listing_type_id, inputs.tags, inputs.sale_terms_campaign)
-    if resolution.pricelist_id is None:
-        return _unusable(resolution.reason)
-    pricelist_id = resolution.pricelist_id
 
-    grupo_id = ctx.grupo_of(inputs.subcategoria_id)
-    comision_base = ctx.comision(pricelist_id, grupo_id)
-    if not comision_base:
-        return _unusable(REASON_SIN_COMISION, pricelist_id=pricelist_id)
-
-    price, source = _pick_price(inputs, pricelist_id)
-    if price is None:
-        return _unusable(REASON_SIN_PRECIO, pricelist_id=pricelist_id)
-
-    costo_ars = ctx.costo_en_pesos(inputs.costo, inputs.moneda_costo)
-    comisiones = calcular_comision_ml_total(price, comision_base, inputs.iva, constantes=ctx.constantes)
-    costo_envio = resolve_envio(ctx, envio, inputs.producto_item_id, inputs.envio or 0, grupo_id, price)
-    limpio = calcular_limpio(price, inputs.iva, costo_envio, comisiones["comision_total"], constantes=ctx.constantes)
-    # costo_ars > 0 here (costo was checked and conversion only multiplies), so the
-    # `calcular_markup` zero-cost branch cannot be reached.
-    value = calcular_markup(limpio, costo_ars) * 100
-    return UnitMarkup(value, REASON_OK, limpio, costo_ars, price, source, pricelist_id)
+def unit_breakdown(ctx: PricingContext, inputs: UnitInputs, envio: Mapping[int, float]) -> Optional[UnitBreakdown]:
+    """The figures behind `unit_markup(ctx, inputs, envio)`, or None when that unit has no value."""
+    return _evaluate(ctx, inputs, envio, detail=True)[1]
 
 
 @dataclass(frozen=True)

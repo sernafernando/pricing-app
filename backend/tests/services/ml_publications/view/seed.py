@@ -164,6 +164,34 @@ def add_stock(
     )
 
 
+def add_stock_locations(
+    conn, user_product_id: str, locations: Any, *, ml_last_updated: Optional[datetime] = NOW
+) -> None:
+    """A stock row with the captured body's `locations` kept in `raw` (a list, or anything else to pin the guard)."""
+    row = {
+        "user_product_id": user_product_id,
+        "raw": json.dumps({"id": user_product_id, "locations": locations}),
+        "ml_last_updated": ml_last_updated,
+        "http_status": 200,
+    }
+    values = ", ".join("CAST(:raw AS jsonb)" if name == "raw" else f":{name}" for name in row)
+    conn.execute(text(f"INSERT INTO ml_user_product_stock ({', '.join(row)}) VALUES ({values})"), row)
+
+
+def add_replenishment(conn, user_product_id: str, **columns: Any) -> None:
+    """A replenishment state row; `http_status` defaults to the 200 of an `ok` answer."""
+    _insert(
+        conn,
+        "ml_user_product_replenishment",
+        {"user_product_id": user_product_id, "http_status": 200, "fetched_at": NOW, **columns},
+    )
+
+
+def add_state(conn, table: str, key_column: str, key: Any, **columns: Any) -> None:
+    """A row of any sub-resource state table, keyed by `key_column` (`item_id`, `user_product_id`, `family_id`)."""
+    _insert(conn, table, {key_column: key, **columns})
+
+
 def add_event(conn, item_id: str, event_type: str, observed_at: datetime) -> None:
     log_id = conn.execute(
         text(

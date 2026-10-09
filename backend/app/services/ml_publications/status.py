@@ -54,6 +54,8 @@ STATE_TABLES: Dict[str, str] = {
     "moderation": "ml_item_moderations",
     "performance": "ml_item_performance",
     "visits": "ml_item_visits",
+    # Only Full user products have a replenishment row, so it has no EXPECTED_ROW (missing stays 0).
+    "replenishment": "ml_user_product_replenishment",
 }
 # sub-resource -> (key column of its table, column of `ml_items` holding that key): an item that has the
 # column set is expected to have a row.

@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, aliased, join as orm_join
 from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariation
 from app.models.producto import ProductoERP
 from app.services.ml_publications.view import markup_service
+from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import LINK_CONFLICT, LINK_ITEM_LEVEL, LINK_LINKED, LINK_SOURCE_MANUAL
 from app.services.ml_publications.view.markup import UnitMarkup
 from app.services.ml_publications.view.markup_inputs import currency_of
@@ -43,7 +44,7 @@ class VariationsResult:
     ads_failed: bool = False
 
 
-def _link_state(match_status: Optional[str], source: Optional[str]) -> str:
+def link_state_of(match_status: Optional[str], source: Optional[str]) -> str:
     """The list's `link.state` rule, over the columns of one link row (`None` = no row)."""
     if match_status is None:
         return "no_evaluado"
@@ -125,15 +126,11 @@ def _attributes(raw: Any) -> list[dict[str, Any]]:
     ]
 
 
-def _round(value: Optional[float]) -> Optional[float]:
-    return None if value is None else round(value, 2)
-
-
 def _sub_row(row: Any, margin: bool) -> dict[str, Any]:
     use_own = row.own_product_id is not None
     prefix = "own" if use_own else "base"
     product_id = row.own_product_id if use_own else row.base_product_id
-    state = _link_state(LINK_LINKED, row.own_source) if use_own else _link_state(row.base_status, row.base_source)
+    state = link_state_of(LINK_LINKED, row.own_source) if use_own else link_state_of(row.base_status, row.base_source)
     out: dict[str, Any] = {
         "variation_id": row.variation_id,
         "seller_sku": row.seller_sku,
@@ -159,7 +156,7 @@ def _sub_row(row: Any, margin: bool) -> dict[str, Any]:
 
 
 def _markup_out(unit: UnitMarkup) -> dict[str, Any]:
-    return {"value": _round(unit.value), "reason": unit.reason}
+    return {"value": round_display(unit.value), "reason": unit.reason}
 
 
 def _publication_ads(item: ItemMarkup) -> Optional[dict[str, Any]]:
@@ -167,9 +164,9 @@ def _publication_ads(item: ItemMarkup) -> Optional[dict[str, Any]]:
         return None
     return {
         "state": item.ads.state,
-        "amount": _round(item.ads.amount),
+        "amount": round_display(item.ads.amount),
         "units": item.ads.units,
-        "per_unit": _round(item.ads.per_unit),
+        "per_unit": round_display(item.ads.per_unit),
     }
 
 

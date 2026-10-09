@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -81,9 +82,10 @@ def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     return Sort(key, descending=(wanted == "desc") if wanted else default_descending)
 
 
-def bound(db: Session) -> None:
-    """Bound the rest of the request's transaction in time (released by the commit or rollback that ends it)."""
-    db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+def bound(db: Session, timeout: Optional[str] = None) -> None:
+    """Bound the rest of the request's transaction in time (released by the commit or rollback that ends it); the
+    list's own `STATEMENT_TIMEOUT` unless the caller (the detail) names a tighter one."""
+    db.execute(text(f"SET LOCAL statement_timeout = '{timeout or STATEMENT_TIMEOUT}'"))
 
 
 def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
@@ -102,7 +104,7 @@ def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
     return replace(f, pm_pairs=tuple(sorted(pairs)))
 
 
-def _row_columns() -> list[Any]:
+def row_columns() -> list[Any]:
     i, sp, l, p, st = T.i, T.sp, T.l, T.p, T.st  # noqa: E741
     return [
         i.item_id,
@@ -206,6 +208,16 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
     return item
 
 
+def row_of(
+    row: Any, *, variations_count: int, store_label: Optional[str], last_event: Optional[dict[str, Any]], events: bool
+) -> dict[str, Any]:
+    """The row of ONE publication from the columns of `row_columns()`, exactly as the list builds it (the detail's
+    `row`); the page extras come already resolved. `last_event` only shows while `events` (the flag) is on."""
+    labels = {row.official_store_id: store_label} if store_label is not None else {}
+    last_events = {row.item_id: last_event} if events and last_event is not None else ({} if events else None)
+    return _item(row, {row.item_id: variations_count}, labels, last_events)
+
+
 def _variation_counts(db: Session, ids: list[str]) -> dict[str, int]:
     rows = db.execute(
         select(T.v.item_id, func.count()).where(T.v.item_id.in_(ids), T.v.gone_at.is_(None)).group_by(T.v.item_id)
@@ -240,18 +252,14 @@ def _assemble(db: Session, rows: list[Any], events: bool) -> list[dict[str, Any]
     return [_item(row, variations, labels, last_events) for row in rows]
 
 
-def _round(value: Optional[float]) -> Optional[float]:
-    return None if value is None else round(value, 2)
-
-
 def markup_out(item: ItemMarkup) -> dict[str, Any]:
     """The `markup` block of a row: range, worst variation, any-negative, why it has no value and how many
     variations are unpriced. Display values (2 decimals); sorting and filtering use the exact figures."""
     m = item.markup
     out: dict[str, Any] = {
-        "min": _round(m.value_min),
-        "max": _round(m.value_max),
-        "worst": _round(m.worst),
+        "min": round_display(m.value_min),
+        "max": round_display(m.value_max),
+        "worst": round_display(m.worst),
         "any_negative": m.any_negative,
         "reason": m.reason,
         "partial": m.partial,
@@ -259,9 +267,9 @@ def markup_out(item: ItemMarkup) -> dict[str, Any]:
     if item.ads is not None:
         out["ads"] = {
             "state": item.ads.state,
-            "amount": _round(item.ads.amount),
+            "amount": round_display(item.ads.amount),
             "units": item.ads.units,
-            "per_unit": _round(item.ads.per_unit),
+            "per_unit": round_display(item.ads.per_unit),
         }
     return out
 
@@ -301,7 +309,7 @@ def _list_by_markup(
     page_ids = wanted[offset : offset + limit]
     if not page_ids:
         return ItemsPage([], total, result.stats, result.ads_failed)
-    rows = db.execute(build_base_select(f, *_row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text)))))
+    rows = db.execute(build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text)))))
     by_id = {row.item_id: row for row in rows}
     items = _assemble(db, [by_id[i] for i in page_ids if i in by_id], events)
     _attach_markup(items, result.items)
@@ -331,9 +339,7 @@ def list_items(
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
-    rows = db.execute(
-        build_base_select(f, *_row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)
-    ).all()
+    rows = db.execute(build_base_select(f, *row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)).all()
     items = _assemble(db, rows, events)
     if markup is None:
         return ItemsPage(items, total)
