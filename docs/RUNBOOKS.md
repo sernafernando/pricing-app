@@ -1031,6 +1031,35 @@ run resumes where it stopped.
   `error` / `attempts_exhausted` (5 attempts per day) skip that day for the run;
   a new local day retries it, and `last_error` in the ledger says why.
 
+### ML billing sweep (`ml_billing.sweep`)
+
+Handler of `pricing-worker-ml` (no cron: the 05:17 `sync_ml_billing` crontab line is gone).
+Daily slot at 05:17 local time plus a 15 s catch-up while the lap is unfinished. Each run makes at
+most ONE proxy request (the proxy answers 429 to anything faster than one call per 15 s, and ML
+allows 5 requests/minute per account for all of billing), so a lap takes hours of ticks.
+
+- **Deploy action (owner):** the repo's `crontab_fixed.txt` is not the live crontab. Remove the
+  `app.scripts.sync_ml_billing` line from the server's crontab (`crontab -e`) and restart the
+  worker: `sudo systemctl restart pricing-worker-ml`. The script is deleted, so a leftover line
+  only logs `No module named app.scripts.sync_ml_billing` every day until it is removed.
+- **First lap after the deploy:** every unsettled period is re-swept at one request per 15 s. The
+  measured 2026-09 period is about 40 requests (about 10 minutes); the other 11 were not measured,
+  so expect up to about 2 hours if they are all that size.
+- **Flag:** `ML_BILLING_ENABLED` (read at process start). Off: no ML call, nothing written.
+- **The lap:** `monthly/periods` (the OPEN period plus the 11 closed ones of its first page), then
+  per period BILL details, BILL documents, CREDIT_NOTE details, CREDIT_NOTE documents; open first,
+  closed newest first. A closed period is skipped while SETTLED (every document complete, every
+  charge carrying its legal number, no open gap); a settled one is only re-verified through its
+  documents once a week.
+- **Read it:** `select detail from worker_job_state where name = 'ml_billing.sweep';` has
+  `complete`, `lap.index` / `lap.units` (each unit `pending|done|failed` and its `from_id`),
+  `failures`, `retry_at` and, once a lap ends, `last_lap.failed` (the units to look at).
+  Deleting the row loses no data; the next run builds a new lap and the upserts are idempotent.
+- **Failures:** a 429, timeout or 5xx waits `min(60 s * 2^(n-1), 15 min)`; five in a row on one unit
+  fail it and the lap moves on (the next lap retries it). Any other 4xx fails the unit at once: a
+  poison row halts that period's details, as the cron did, until the poison-row engine is wired.
+- **Completeness:** `document_completeness` (a query) says which documents are missing rows.
+
 ### Heartbeat death / unexpected restarts
 
 The worker's `HeartbeatThread` (design D4 step 5) independently proves
