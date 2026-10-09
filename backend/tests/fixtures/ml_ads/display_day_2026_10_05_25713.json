@@ -1,0 +1,715 @@
+{
+ "campaigns": {
+  "request": {
+   "path": "/advertising/advertisers/25713/display/campaigns",
+   "params": {
+    "date_from": "2026-10-05",
+    "date_to": "2026-10-05"
+   },
+   "api_version": "1"
+  },
+  "status": 200,
+  "body": {
+   "results": [
+    {
+     "id": 340339,
+     "name": "B110creativa",
+     "start_date": "2026-09-11T15:00:00",
+     "end_date": "2026-09-30T23:59:59",
+     "advertiser_id": 25713,
+     "type": "PROGRAMMATIC",
+     "status": "paused",
+     "site_id": "MLA",
+     "goal": "conversion"
+    },
+    {
+     "id": 335306,
+     "name": "XeroxB110",
+     "start_date": "2026-09-07T18:00:00",
+     "end_date": "2026-11-01T23:59:59",
+     "advertiser_id": 25713,
+     "type": "PROGRAMMATIC",
+     "status": "active",
+     "site_id": "MLA",
+     "goal": "conversion"
+    },
+    {
+     "id": 301232,
+     "name": "Tp-link-asus-lenovo",
+     "start_date": "2026-07-15T12:00:00",
+     "end_date": "2026-11-05T23:59:59",
+     "advertiser_id": 25713,
+     "type": "PROGRAMMATIC",
+     "status": "active",
+     "site_id": "MLA",
+     "goal": "conversion"
+    },
+    {
+     "id": 294806,
+     "name": "Tp-link-PVP",
+     "start_date": "2026-07-02T18:00:00",
+     "end_date": "2026-10-04T23:59:59",
+     "advertiser_id": 25713,
+     "type": "PROGRAMMATIC",
+     "status": "active",
+     "site_id": "MLA",
+     "goal": "conversion"
+    },
+    {
+     "id": 290925,
+     "name": "prueba",
+     "start_date": "2026-07-01T00:00:00",
+     "end_date": "2026-07-31T23:59:59",
+     "advertiser_id": 25713,
+     "type": "PROGRAMMATIC",
+     "status": "paused",
+     "site_id": "MLA",
+     "goal": "conversion"
+    },
+    {
+     "id": 281280,
+     "name": "DisplayCatalogo-Consideracion",
+     "start_date": "2026-06-04T16:00:00",
+     "end_date": "2026-08-01T23:59:59",
+     "advertiser_id": 25713,
+     "type": "PROGRAMMATIC",
+     "status": "paused",
+     "site_id": "MLA",
+     "goal": "consideration"
+    },
+    {
+     "id": 259859,
+     "name": "DisplayCatalogo",
+     "start_date": "2026-05-05T11:00:00",
+     "end_date": "2026-11-05T23:59:59",
+     "advertiser_id": 25713,
+     "type": "PROGRAMMATIC",
+     "status": "active",
+     "site_id": "MLA",
+     "goal": "conversion"
+    }
+   ]
+  }
+ },
+ "metrics": {
+  "340339": {
+   "request": {
+    "path": "/advertising/advertisers/25713/display/campaigns/340339/metrics",
+    "params": {
+     "date_from": "2026-10-05",
+     "date_to": "2026-10-05"
+    },
+    "api_version": "1"
+   },
+   "status": 200,
+   "body": {
+    "metrics": [],
+    "summary": {
+     "site_id": "MLA",
+     "currency": "ARS",
+     "prints": 0,
+     "clicks": 0,
+     "active_views": 0,
+     "completed_views": 0,
+     "reach": 0,
+     "ctr": 0.0,
+     "consumed_budget": 0.0,
+     "cpm": 0.0,
+     "cpc": 0.0,
+     "average_frequency": 0.0,
+     "event_time": {
+      "cpa_order": 0.0,
+      "cpa_ppv": 0.0,
+      "roas": 0.0,
+      "units_quantity": 0,
+      "direct_amount": 0.0,
+      "direct_item_quantity": 0,
+      "attribution_ppv": 0,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 0,
+      "attribution_checkout": 0,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "touch_point": {
+      "cpa_order": 0.0,
+      "cpa_ppv": 0.0,
+      "roas": 0.0,
+      "units_quantity": 0,
+      "direct_amount": 0.0,
+      "direct_item_quantity": 0,
+      "attribution_ppv": 0,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 0,
+      "attribution_checkout": 0,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "quartiles": null
+    }
+   }
+  },
+  "335306": {
+   "request": {
+    "path": "/advertising/advertisers/25713/display/campaigns/335306/metrics",
+    "params": {
+     "date_from": "2026-10-05",
+     "date_to": "2026-10-05"
+    },
+    "api_version": "1"
+   },
+   "status": 200,
+   "body": {
+    "metrics": [
+     {
+      "date": "2026-10-05",
+      "site_id": "MLA",
+      "currency": "ARS",
+      "prints": 12576,
+      "clicks": 21,
+      "active_views": 0,
+      "completed_views": 0,
+      "reach": 3498,
+      "ctr": 0.0,
+      "consumed_budget": 27226.79,
+      "cpm": 2164.98,
+      "cpc": 1296.51,
+      "average_frequency": 0.0,
+      "event_time": {
+       "cpa_order": 5445.36,
+       "cpa_ppv": 221.36,
+       "roas": 60.9,
+       "units_quantity": 9,
+       "direct_amount": 1658026.88,
+       "direct_item_quantity": 5,
+       "attribution_ppv": 123,
+       "attribution_add_to_cart": 6,
+       "attribution_bookmark": 4,
+       "attribution_checkout": 7,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "touch_point": {
+       "cpa_order": 13613.39,
+       "cpa_ppv": 513.71,
+       "roas": 18.85,
+       "units_quantity": 4,
+       "direct_amount": 513299.0,
+       "direct_item_quantity": 2,
+       "attribution_ppv": 53,
+       "attribution_add_to_cart": 0,
+       "attribution_bookmark": 4,
+       "attribution_checkout": 4,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "quartiles": {
+       "q25": 0,
+       "q50": 0,
+       "q75": 0,
+       "q100": 0
+      }
+     }
+    ],
+    "summary": {
+     "site_id": "MLA",
+     "currency": "ARS",
+     "prints": 12576,
+     "clicks": 21,
+     "active_views": 0,
+     "completed_views": 0,
+     "reach": 3498,
+     "ctr": 0.0,
+     "consumed_budget": 27226.79,
+     "cpm": 2164.98,
+     "cpc": 1296.51,
+     "average_frequency": 0.0,
+     "event_time": {
+      "cpa_order": 5445.36,
+      "cpa_ppv": 221.36,
+      "roas": 60.9,
+      "units_quantity": 9,
+      "direct_amount": 1658026.88,
+      "direct_item_quantity": 5,
+      "attribution_ppv": 123,
+      "attribution_add_to_cart": 6,
+      "attribution_bookmark": 4,
+      "attribution_checkout": 7,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "touch_point": {
+      "cpa_order": 13613.39,
+      "cpa_ppv": 513.71,
+      "roas": 18.85,
+      "units_quantity": 4,
+      "direct_amount": 513299.0,
+      "direct_item_quantity": 2,
+      "attribution_ppv": 53,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 4,
+      "attribution_checkout": 4,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "quartiles": {
+      "q25": 0,
+      "q50": 0,
+      "q75": 0,
+      "q100": 0
+     }
+    }
+   }
+  },
+  "301232": {
+   "request": {
+    "path": "/advertising/advertisers/25713/display/campaigns/301232/metrics",
+    "params": {
+     "date_from": "2026-10-05",
+     "date_to": "2026-10-05"
+    },
+    "api_version": "1"
+   },
+   "status": 200,
+   "body": {
+    "metrics": [
+     {
+      "date": "2026-10-05",
+      "site_id": "MLA",
+      "currency": "ARS",
+      "prints": 10774,
+      "clicks": 32,
+      "active_views": 0,
+      "completed_views": 0,
+      "reach": 7454,
+      "ctr": 0.0,
+      "consumed_budget": 49464.21,
+      "cpm": 4591.07,
+      "cpc": 1545.76,
+      "average_frequency": 0.0,
+      "event_time": {
+       "cpa_order": 12366.05,
+       "cpa_ppv": 181.85,
+       "roas": 1.74,
+       "units_quantity": 5,
+       "direct_amount": 86030.0,
+       "direct_item_quantity": 4,
+       "attribution_ppv": 272,
+       "attribution_add_to_cart": 2,
+       "attribution_bookmark": 16,
+       "attribution_checkout": 11,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "touch_point": {
+       "cpa_order": 24732.11,
+       "cpa_ppv": 405.44,
+       "roas": 0.9,
+       "units_quantity": 2,
+       "direct_amount": 44749.0,
+       "direct_item_quantity": 2,
+       "attribution_ppv": 122,
+       "attribution_add_to_cart": 4,
+       "attribution_bookmark": 6,
+       "attribution_checkout": 7,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "quartiles": {
+       "q25": 0,
+       "q50": 0,
+       "q75": 0,
+       "q100": 0
+      }
+     }
+    ],
+    "summary": {
+     "site_id": "MLA",
+     "currency": "ARS",
+     "prints": 10774,
+     "clicks": 32,
+     "active_views": 0,
+     "completed_views": 0,
+     "reach": 7454,
+     "ctr": 0.0,
+     "consumed_budget": 49464.21,
+     "cpm": 4591.07,
+     "cpc": 1545.76,
+     "average_frequency": 0.0,
+     "event_time": {
+      "cpa_order": 12366.05,
+      "cpa_ppv": 181.85,
+      "roas": 1.74,
+      "units_quantity": 5,
+      "direct_amount": 86030.0,
+      "direct_item_quantity": 4,
+      "attribution_ppv": 272,
+      "attribution_add_to_cart": 2,
+      "attribution_bookmark": 16,
+      "attribution_checkout": 11,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "touch_point": {
+      "cpa_order": 24732.11,
+      "cpa_ppv": 405.44,
+      "roas": 0.9,
+      "units_quantity": 2,
+      "direct_amount": 44749.0,
+      "direct_item_quantity": 2,
+      "attribution_ppv": 122,
+      "attribution_add_to_cart": 4,
+      "attribution_bookmark": 6,
+      "attribution_checkout": 7,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "quartiles": {
+      "q25": 0,
+      "q50": 0,
+      "q75": 0,
+      "q100": 0
+     }
+    }
+   }
+  },
+  "294806": {
+   "request": {
+    "path": "/advertising/advertisers/25713/display/campaigns/294806/metrics",
+    "params": {
+     "date_from": "2026-10-05",
+     "date_to": "2026-10-05"
+    },
+    "api_version": "1"
+   },
+   "status": 200,
+   "body": {
+    "metrics": [
+     {
+      "date": "2026-10-05",
+      "site_id": "MLA",
+      "currency": "ARS",
+      "prints": 13,
+      "clicks": 0,
+      "active_views": 0,
+      "completed_views": 0,
+      "reach": 12,
+      "ctr": 0.0,
+      "consumed_budget": 68.67,
+      "cpm": 5282.35,
+      "cpc": 0.0,
+      "average_frequency": 0.0,
+      "event_time": {
+       "cpa_order": 6.87,
+       "cpa_ppv": 0.28,
+       "roas": 29206.73,
+       "units_quantity": 12,
+       "direct_amount": 2005642.0,
+       "direct_item_quantity": 10,
+       "attribution_ppv": 248,
+       "attribution_add_to_cart": 4,
+       "attribution_bookmark": 11,
+       "attribution_checkout": 18,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "touch_point": {
+       "cpa_order": 0.0,
+       "cpa_ppv": 68.67,
+       "roas": 0.0,
+       "units_quantity": 0,
+       "direct_amount": 0.0,
+       "direct_item_quantity": 0,
+       "attribution_ppv": 1,
+       "attribution_add_to_cart": 0,
+       "attribution_bookmark": 0,
+       "attribution_checkout": 0,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "quartiles": {
+       "q25": 0,
+       "q50": 0,
+       "q75": 0,
+       "q100": 0
+      }
+     }
+    ],
+    "summary": {
+     "site_id": "MLA",
+     "currency": "ARS",
+     "prints": 13,
+     "clicks": 0,
+     "active_views": 0,
+     "completed_views": 0,
+     "reach": 12,
+     "ctr": 0.0,
+     "consumed_budget": 68.67,
+     "cpm": 5282.35,
+     "cpc": 0.0,
+     "average_frequency": 0.0,
+     "event_time": {
+      "cpa_order": 6.87,
+      "cpa_ppv": 0.28,
+      "roas": 29206.73,
+      "units_quantity": 12,
+      "direct_amount": 2005642.0,
+      "direct_item_quantity": 10,
+      "attribution_ppv": 248,
+      "attribution_add_to_cart": 4,
+      "attribution_bookmark": 11,
+      "attribution_checkout": 18,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "touch_point": {
+      "cpa_order": 0.0,
+      "cpa_ppv": 68.67,
+      "roas": 0.0,
+      "units_quantity": 0,
+      "direct_amount": 0.0,
+      "direct_item_quantity": 0,
+      "attribution_ppv": 1,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 0,
+      "attribution_checkout": 0,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "quartiles": {
+      "q25": 0,
+      "q50": 0,
+      "q75": 0,
+      "q100": 0
+     }
+    }
+   }
+  },
+  "290925": {
+   "request": {
+    "path": "/advertising/advertisers/25713/display/campaigns/290925/metrics",
+    "params": {
+     "date_from": "2026-10-05",
+     "date_to": "2026-10-05"
+    },
+    "api_version": "1"
+   },
+   "status": 200,
+   "body": {
+    "metrics": [],
+    "summary": {
+     "site_id": "MLA",
+     "currency": "ARS",
+     "prints": 0,
+     "clicks": 0,
+     "active_views": 0,
+     "completed_views": 0,
+     "reach": 0,
+     "ctr": 0.0,
+     "consumed_budget": 0.0,
+     "cpm": 0.0,
+     "cpc": 0.0,
+     "average_frequency": 0.0,
+     "event_time": {
+      "cpa_order": 0.0,
+      "cpa_ppv": 0.0,
+      "roas": 0.0,
+      "units_quantity": 0,
+      "direct_amount": 0.0,
+      "direct_item_quantity": 0,
+      "attribution_ppv": 0,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 0,
+      "attribution_checkout": 0,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "touch_point": {
+      "cpa_order": 0.0,
+      "cpa_ppv": 0.0,
+      "roas": 0.0,
+      "units_quantity": 0,
+      "direct_amount": 0.0,
+      "direct_item_quantity": 0,
+      "attribution_ppv": 0,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 0,
+      "attribution_checkout": 0,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "quartiles": null
+    }
+   }
+  },
+  "281280": {
+   "request": {
+    "path": "/advertising/advertisers/25713/display/campaigns/281280/metrics",
+    "params": {
+     "date_from": "2026-10-05",
+     "date_to": "2026-10-05"
+    },
+    "api_version": "1"
+   },
+   "status": 200,
+   "body": {
+    "metrics": [],
+    "summary": {
+     "site_id": "MLA",
+     "currency": "ARS",
+     "prints": 0,
+     "clicks": 0,
+     "active_views": 0,
+     "completed_views": 0,
+     "reach": 0,
+     "ctr": 0.0,
+     "consumed_budget": 0.0,
+     "cpm": 0.0,
+     "cpc": 0.0,
+     "average_frequency": 0.0,
+     "event_time": {
+      "cpa_order": 0.0,
+      "cpa_ppv": 0.0,
+      "roas": 0.0,
+      "units_quantity": 0,
+      "direct_amount": 0.0,
+      "direct_item_quantity": 0,
+      "attribution_ppv": 0,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 0,
+      "attribution_checkout": 0,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "touch_point": {
+      "cpa_order": 0.0,
+      "cpa_ppv": 0.0,
+      "roas": 0.0,
+      "units_quantity": 0,
+      "direct_amount": 0.0,
+      "direct_item_quantity": 0,
+      "attribution_ppv": 0,
+      "attribution_add_to_cart": 0,
+      "attribution_bookmark": 0,
+      "attribution_checkout": 0,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "quartiles": null
+    }
+   }
+  },
+  "259859": {
+   "request": {
+    "path": "/advertising/advertisers/25713/display/campaigns/259859/metrics",
+    "params": {
+     "date_from": "2026-10-05",
+     "date_to": "2026-10-05"
+    },
+    "api_version": "1"
+   },
+   "status": 200,
+   "body": {
+    "metrics": [
+     {
+      "date": "2026-10-05",
+      "site_id": "MLA",
+      "currency": "ARS",
+      "prints": 24606,
+      "clicks": 38,
+      "active_views": 0,
+      "completed_views": 0,
+      "reach": 12636,
+      "ctr": 0.0,
+      "consumed_budget": 45179.15,
+      "cpm": 1836.1,
+      "cpc": 1188.92,
+      "average_frequency": 0.0,
+      "event_time": {
+       "cpa_order": 3227.08,
+       "cpa_ppv": 90.9,
+       "roas": 36.53,
+       "units_quantity": 14,
+       "direct_amount": 1650176.05,
+       "direct_item_quantity": 14,
+       "attribution_ppv": 497,
+       "attribution_add_to_cart": 14,
+       "attribution_bookmark": 25,
+       "attribution_checkout": 31,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "touch_point": {
+       "cpa_order": 4107.2,
+       "cpa_ppv": 285.94,
+       "roas": 54.74,
+       "units_quantity": 16,
+       "direct_amount": 2473128.04,
+       "direct_item_quantity": 11,
+       "attribution_ppv": 158,
+       "attribution_add_to_cart": 4,
+       "attribution_bookmark": 7,
+       "attribution_checkout": 17,
+       "attribution_leads": 0,
+       "cpl": 0.0
+      },
+      "quartiles": {
+       "q25": 0,
+       "q50": 0,
+       "q75": 0,
+       "q100": 0
+      }
+     }
+    ],
+    "summary": {
+     "site_id": "MLA",
+     "currency": "ARS",
+     "prints": 24606,
+     "clicks": 38,
+     "active_views": 0,
+     "completed_views": 0,
+     "reach": 12636,
+     "ctr": 0.0,
+     "consumed_budget": 45179.15,
+     "cpm": 1836.1,
+     "cpc": 1188.92,
+     "average_frequency": 0.0,
+     "event_time": {
+      "cpa_order": 3227.08,
+      "cpa_ppv": 90.9,
+      "roas": 36.53,
+      "units_quantity": 14,
+      "direct_amount": 1650176.05,
+      "direct_item_quantity": 14,
+      "attribution_ppv": 497,
+      "attribution_add_to_cart": 14,
+      "attribution_bookmark": 25,
+      "attribution_checkout": 31,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "touch_point": {
+      "cpa_order": 4107.2,
+      "cpa_ppv": 285.94,
+      "roas": 54.74,
+      "units_quantity": 16,
+      "direct_amount": 2473128.04,
+      "direct_item_quantity": 11,
+      "attribution_ppv": 158,
+      "attribution_add_to_cart": 4,
+      "attribution_bookmark": 7,
+      "attribution_checkout": 17,
+      "attribution_leads": 0,
+      "cpl": 0.0
+     },
+     "quartiles": {
+      "q25": 0,
+      "q50": 0,
+      "q75": 0,
+      "q100": 0
+     }
+    }
+   }
+  }
+ }
+}

@@ -21,8 +21,8 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.models.ml_ads import MlAdsAdGroupDay, MlAdsDayLedger, MlAdsItemDay
-from app.services.ml_ads.mapper import DaySummary, GroupFact, ItemFact
+from app.models.ml_ads import MlAdsAdGroupDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
+from app.services.ml_ads.mapper import DaySummary, DisplayFact, GroupFact, ItemFact
 
 SOURCE = "product_ads"
 UNFINISHED = "fetching"
@@ -373,4 +373,33 @@ def finalize_old(db: Session, *, before: date) -> None:
         )
         .values(final=True)
     )
+    db.flush()
+
+
+# --- Display (account-level, ADS-9) -----------------------------------------------------------------
+
+
+def upsert_display_days(db: Session, facts: Iterable[DisplayFact], *, now: datetime) -> None:
+    rows = [
+        {
+            "advertiser_id": f.advertiser_id,
+            "campaign_id": f.campaign_id,
+            "day": f.day,
+            "consumed_budget": f.consumed_budget,
+            "prints": f.prints,
+            "clicks": f.clicks,
+            "reach": f.reach,
+            "raw": dict(f.raw),
+            "fetched_at": now,
+        }
+        for f in facts
+    ]
+    if not rows:
+        return
+    stmt = pg_insert(MlAdsDisplayCampaignDay).values(rows)
+    refreshed = {
+        name: getattr(stmt.excluded, name)
+        for name in ("consumed_budget", "prints", "clicks", "reach", "raw", "fetched_at")
+    }
+    db.execute(stmt.on_conflict_do_update(index_elements=["advertiser_id", "campaign_id", "day"], set_=refreshed))
     db.flush()

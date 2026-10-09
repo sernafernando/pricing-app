@@ -26,6 +26,7 @@ capture has every page of the day and every `/ads` page of every cost-bearing gr
 | `api_version_check_2026_10_05.json` | full-day, `calls` (`limit=1`) | The same one-day `campaigns/search` sent with no `Api-Version` header, 1 and 2: all three answered 200. Only the request records are kept, not the bodies. |
 | `advertisers_pads.json` | window capture, `advertisers.PADS` | The real `GET /advertising/advertisers?product_id=PADS` answer (status, path, params, body): advertisers 714700 and 25713. |
 | `ads_daily_series_group_953712626.json` | probe, `top_groups[0].ads_week_daily` | A real `aggregation_type=daily` answer: a per-date series with no item identity (ADS-1). |
+| `display_day_2026_10_05_25713.json` | full-day, `display` + `calls` | The real Display answers of advertiser 25713 for 2026-10-05 (PR 3): the `display/campaigns` list (7 campaigns) and each campaign's one-day `metrics` response, with the request (path, params, `api_version` 1) that was sent. 4 campaigns spent (121,938.82 in all), 3 have no row for the day. |
 | `moved_group_2678077237.json` | window capture, `pads.714700` | The revoked/moved group (advertiser 714700, original 25713) and its 30 ads page. |
 
 ## Facts a replay relies on (verified against the capture)
@@ -39,5 +40,5 @@ capture has every page of the day and every `/ads` page of every cost-bearing gr
   rule (facts belong to the REPORTING advertiser) and is not part of any day replay.
 - Request headers were recorded this time (`api_version` per call), so the `Api-Version` values are captured, not assumed.
 
-Out of scope here and present in the full-day capture (for PR 3): Display and Brand Ads one-day data; Brand Ads
-cost lives in `dashboard.consumed_budget[{x,y}]`. They are not copied.
+Display is copied (PR 3-i). Brand Ads one-day data is in the full-day capture and not copied yet (PR 3-iii); its
+cost lives in `dashboard.consumed_budget[{x,y}]` (all zeros that day).

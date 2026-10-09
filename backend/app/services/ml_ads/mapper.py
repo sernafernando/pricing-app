@@ -158,3 +158,51 @@ def parse_advertisers(body: Mapping[str, Any]) -> list[int]:
     """Advertiser ids of `GET /advertising/advertisers`; an entry without a numeric id is ignored."""
     ids = (entry.get("advertiser_id") for entry in body.get("advertisers") or [] if isinstance(entry, Mapping))
     return sorted({int(i) for i in ids if isinstance(i, int) and not isinstance(i, bool)})
+
+
+# --- Display (account-level, ADS-9) -----------------------------------------------------------------
+
+DISPLAY_ACTIVITY_METRICS = ("consumed_budget", "prints", "clicks", "reach", "active_views", "completed_views")
+
+
+@dataclass(frozen=True)
+class DisplayFact:
+    """One Display campaign on one day. `consumed_budget` is stored as ML returns it (net of IVA, owner Q10)."""
+
+    advertiser_id: int
+    campaign_id: int
+    day: date
+    consumed_budget: Decimal
+    prints: int
+    clicks: int
+    reach: int
+    raw: Mapping[str, Any]
+
+
+def parse_display_campaigns(body: Mapping[str, Any]) -> list[int]:
+    """Campaign ids of `display/campaigns`, in id order (stable between runs); an entry without a numeric id is ignored."""
+    ids = (entry.get("id") for entry in body.get("results") or [] if isinstance(entry, Mapping))
+    return sorted({i for i in ids if isinstance(i, int) and not isinstance(i, bool)})
+
+
+def map_display_metrics(advertiser_id: int, campaign_id: int, day: date, body: Mapping[str, Any]) -> list[DisplayFact]:
+    """The campaign's row for `day`. A row dated otherwise is not this day's fact; no activity, no row."""
+    facts = []
+    for entry in body.get("metrics") or []:
+        if not isinstance(entry, Mapping) or entry.get("date") != day.isoformat():
+            continue
+        if not any(entry.get(name) for name in DISPLAY_ACTIVITY_METRICS):
+            continue
+        facts.append(
+            DisplayFact(
+                advertiser_id=advertiser_id,
+                campaign_id=campaign_id,
+                day=day,
+                consumed_budget=_money(entry.get("consumed_budget")),
+                prints=_count(entry.get("prints")),
+                clicks=_count(entry.get("clicks")),
+                reach=_count(entry.get("reach")),
+                raw=entry,
+            )
+        )
+    return facts
