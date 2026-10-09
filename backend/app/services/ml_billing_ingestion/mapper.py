@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 # as ML reported the raw magnitude.
 _NEGATIVE_DETAIL_TYPES = frozenset({"BONUS"})
 
+# Closed set: the source is stored on the row and decides how its order is linked.
+BILLING_SOURCES = frozenset({"general", "flex"})
+
 
 class MappingError:
     """Non-exception failure value returned by `map_billing_detail`. See
@@ -171,6 +174,8 @@ def map_billing_detail(
     # closed acá, con el mismo shape de error que el resto.
     if not isinstance(raw, dict):
         return MappingError(f"detalle no es un dict: {type(raw).__name__}", raw)
+    if billing_source not in BILLING_SOURCES:
+        return MappingError(f"billing_source desconocido: {billing_source!r}", raw)
 
     try:
         charge_info = _as_dict(raw.get("charge_info"), "charge_info")

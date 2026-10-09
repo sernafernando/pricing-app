@@ -16,7 +16,7 @@ from pathlib import Path
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
 from app.services.ml_billing.billing_sweep_service import persist_details_page
 from app.services.ml_billing_ingestion.ingestion_service import upsert_billing_charge
-from app.services.ml_billing_ingestion.mapper import BillingChargeDTO, map_billing_detail
+from app.services.ml_billing_ingestion.mapper import BillingChargeDTO, MappingError, map_billing_detail
 
 _FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "ml_billing"
 _ROWS = json.loads((_FIXTURES / "flex_rows.json").read_text())
@@ -71,6 +71,10 @@ class TestFlexMapper:
         dto = map_billing_detail(_GENERAL_ROW, "2026-09-01")
         assert dto.billing_source == "general"
         assert dto.order_ids == [int(_GENERAL_ROW["items_info"][0]["order_id"])]
+
+    def test_an_unknown_source_is_a_mapping_error(self) -> None:
+        result = map_billing_detail(_ROWS["bflx_599"]["row"], "2026-10-01", "CREDIT_NOTE", billing_source="flexx")
+        assert isinstance(result, MappingError) and "billing_source" in result.reason
 
     def test_the_general_mapper_ignores_shipping_info_orders(self) -> None:
         raw = copy.deepcopy(_ROWS["bflx_599"]["row"])
