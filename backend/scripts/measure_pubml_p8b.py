@@ -56,7 +56,8 @@ BUSIEST_SQL = {
         'GROUP BY e.item_id ORDER BY count(*) DESC, e.item_id COLLATE "C" LIMIT 1'
     ),
     "history": (
-        "SELECT c.item_id FROM ml_change_log c WHERE c.item_id IS NOT NULL AND c.observed_at >= now() - interval '30 days' "
+        "SELECT c.item_id FROM ml_change_log c "
+        "WHERE c.item_id IS NOT NULL AND c.observed_at >= now() - interval '30 days' "
         'GROUP BY c.item_id ORDER BY count(*) DESC, c.item_id COLLATE "C" LIMIT 1'
     ),
 }
@@ -307,7 +308,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("No publication could be found; pass --mla (any MLA id of the store).")
         return 2
     print(
-        f"measuring {args.base_url}/ml-publications/view/items/{{id}}/events|history: {RUNS} requests per scenario after 1 warm-up, GET only"
+        f"measuring {args.base_url}/ml-publications/view/items/{{id}}/events|history: "
+        f"{RUNS} requests per scenario after 1 warm-up, GET only"
     )
     passed = True
     for scenario in scenarios:

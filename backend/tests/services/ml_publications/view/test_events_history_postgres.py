@@ -461,6 +461,13 @@ class TestHistory:
             )
         assert ok(history_of(client, reader))["entries"] == []
 
+    def test_a_row_reachable_by_two_branches_is_listed_once(self, client, rows, pg, reader) -> None:
+        """A user product row that also carries the item's id (the store does not write it so) is not read twice."""
+        with pg.begin() as conn:
+            insert_log(conn, "stock", USER_PRODUCT, ITEM, seed.hours_ago(1), "change", [{"p": "x", "op": "add"}], {})
+        entries = ok(history_of(client, reader))["entries"]
+        assert [e["resource_type"] for e in entries] == ["stock"]
+
     def test_a_row_that_says_the_item_is_gone_is_an_entry_even_without_changes(self, client, rows, pg, reader) -> None:
         with pg.begin() as conn:
             insert_log(conn, "item", ITEM, ITEM, seed.hours_ago(1), "gone", [], {"status_old": "active"})

@@ -408,8 +408,8 @@ class EventsResponse(BaseModel):
 
 
 class HistoryChangeOut(BaseModel):
-    """One changed field. `path` is the diff engine's (`price`, `tags[=cart_eligible]`, `locations[meli_facility].quantity`);
-    `label_key` and the Spanish `label` are set on business lines only. `old`/`new` are null on the side that does not
+    """One changed field. `path` is the diff engine's (`price`, `tags[=cart_eligible]`,
+    `locations[meli_facility].quantity`); `label_key` and the Spanish `label` are set on business lines only. `old`/`new` are null on the side that does not
     exist (a field that was added or removed)."""
 
     path: str

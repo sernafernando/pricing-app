@@ -2,7 +2,8 @@
 
 One page merges the rows keyed by the item (the item itself, its sub-resources and its product links, all with
 `item_id`) with the rows of its user product (`user_product`, `stock`, `replenishment`) and its family, which belong
-to no single item and are found by `(resource_type, entity_id)`. Each branch is a keyset scan of its own index
+to no single item (the store writes them with `item_id` NULL) and are found by `(resource_type, entity_id)`; the
+`item_id IS NULL` guard keeps a row that ever carried both keys from being read by two branches. Each branch is a keyset scan of its own index
 (`ix_ml_change_log_item`, `ix_ml_change_log_entity`) bounded by the page size, so the merge reads at most
 `3 x page` rows however long the log is; the outer query orders them `observed_at DESC, id DESC`.
 
@@ -148,8 +149,8 @@ def _page_sql(after: str) -> str:
     branches = " UNION ALL ".join(
         (
             branch("item_id = :item_id"),
-            branch(f"resource_type IN ({users}) AND entity_id = :user_product_id"),
-            branch(f"resource_type = '{FAMILY_RESOURCE}' AND entity_id = :family_id"),
+            branch(f"resource_type IN ({users}) AND entity_id = :user_product_id AND item_id IS NULL"),
+            branch(f"resource_type = '{FAMILY_RESOURCE}' AND entity_id = :family_id AND item_id IS NULL"),
         )
     )
     return f"SELECT {_COLUMNS} FROM ({branches}) page ORDER BY observed_at DESC, id DESC LIMIT :row_limit"
