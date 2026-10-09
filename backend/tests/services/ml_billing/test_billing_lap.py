@@ -182,7 +182,7 @@ class TestFailures:
 class TestDocumentsUnit:
     def test_documents_are_persisted_and_a_bill_unit_records_the_period_observation(self, db, client) -> None:
         state = started(db, client)
-        state["lap"]["units"][0].update(total=26056)
+        state["lap"]["units"][0].update(total=26056, state="done")
         state["lap"]["index"] = 1  # BILL documents of the OPEN period
         client.documents.return_value = {"results": DOCUMENTS["BILL"]}
         state = tick(db, state, at(15))
@@ -238,6 +238,20 @@ class TestSettled:
         for i in range(1, 4):
             state = tick(db, state, at(15 * i))
         assert state["complete"] is True
+
+    def test_the_verification_is_only_recorded_once_every_documents_unit_of_the_period_is_done(
+        self, db, client
+    ) -> None:
+        self._settle(db, client)
+        state = tick(db, {"complete": True}, at(600))
+        state["lap"]["units"] = [u for u in state["lap"]["units"] if u["period_key"] == "2026-09-01"]
+        client.documents.side_effect = [{"results": DOCUMENTS["BILL"]}, None]
+        state = tick(db, state, at(700))
+        assert state["verified"] == {}
+        state["lap"]["units"][1]["state"] = "failed"
+        state["lap"]["index"] = 0
+        state = tick(db, state, at(800))
+        assert state["verified"] == {}
 
     def _units_of(self, state, period):
         return [(u["document_type"], u["kind"]) for u in state["lap"]["units"] if u["period_key"] == period]
