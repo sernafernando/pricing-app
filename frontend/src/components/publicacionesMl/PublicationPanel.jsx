@@ -41,16 +41,24 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
   const canViewPromos = tienePermiso('promos.ver');
   const { status, detail, error, reload } = usePublicationDetail(itemId, { canSeeMargin });
   const tabRefs = useRef({});
+  const stripRef = useRef(null);
   const panelId = useId();
 
   const available = detail ? visibleTabs(tabs, { detail, canSeeMargin, canManage, canViewPromos }) : [];
   const active = available.find((entry) => entry.key === tab) ?? available[0];
 
   // The strip scrolls sideways when the tabs outgrow a narrow panel: keep the
-  // open one in view (the URL can open a tab that sits past the edge).
+  // open one in view (the URL can open a tab that sits past the edge). Only the
+  // strip moves -- `scrollIntoView` could scroll the page or the panel as well.
   const activeKey = active?.key;
   useEffect(() => {
-    tabRefs.current[activeKey]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    const strip = stripRef.current;
+    const tabNode = tabRefs.current[activeKey];
+    if (!strip || !tabNode) return;
+    const start = tabNode.offsetLeft;
+    const end = start + tabNode.offsetWidth;
+    if (start < strip.scrollLeft) strip.scrollLeft = start;
+    else if (end > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = end - strip.clientWidth;
   }, [activeKey]);
 
   // Arrow keys / Home / End move between tabs, as a tablist does.
@@ -111,7 +119,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
 
       {status === 'ready' && active && (
         <>
-          <div className={styles.tabs} role="tablist" aria-label="Secciones de la publicación" onKeyDown={handleTabKeyDown}>
+          <div ref={stripRef} className={styles.tabs} role="tablist" aria-label="Secciones de la publicación" onKeyDown={handleTabKeyDown}>
             {available.map((entry) => (
               <button
                 key={entry.key}

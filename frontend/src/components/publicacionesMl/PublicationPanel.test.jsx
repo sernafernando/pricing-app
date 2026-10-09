@@ -303,16 +303,29 @@ describe('the Promociones tab', () => {
 });
 
 describe('the tab strip', () => {
-  it('scrolls the open tab into view, sideways only, so a tab past the edge of a narrow panel is never lost', async () => {
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
+  // jsdom has no layout: give the strip a 240px window and the open tab a place past its edge.
+  const stubLayout = () => {
+    const define = (name, get) => Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get });
+    define('clientWidth', function width() {
+      return this.getAttribute('role') === 'tablist' ? 240 : 0;
+    });
+    define('offsetLeft', function left() {
+      return this.getAttribute('role') === 'tab' && this.textContent === 'Promos' ? 300 : 0;
+    });
+    define('offsetWidth', function width() {
+      return this.getAttribute('role') === 'tab' ? 60 : 0;
+    });
+    return () => ['clientWidth', 'offsetLeft', 'offsetWidth'].forEach((name) => delete HTMLElement.prototype[name]);
+  };
+
+  it('scrolls the strip sideways to the open tab, without moving anything else, so a tab past the edge is never lost', async () => {
+    const restore = stubLayout();
     try {
       renderPanel({ tab: 'promociones' });
-      await screen.findByRole('tab', { name: 'Promos', selected: true });
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' }));
-      expect(scrollIntoView.mock.contexts.at(-1)).toBe(screen.getByRole('tab', { name: 'Promos' }));
+      const strip = await screen.findByRole('tablist');
+      await waitFor(() => expect(strip.scrollLeft).toBe(300 + 60 - 240));
     } finally {
-      delete Element.prototype.scrollIntoView;
+      restore();
     }
   });
 });
