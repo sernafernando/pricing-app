@@ -1,7 +1,7 @@
 # Admin permisos por pantalla
 
 Locator: `odd/tasks/admin-permisos-por-pantalla.md` · Engram topic `odd/admin-permisos-por-pantalla/tasks`
-Branch: `feat/admin-permisos-por-pantalla` (off origin/main 5a341031)
+Branches: PR1 `feat/admin-permisos-por-pantalla` (off origin/main 5a341031, merged as #1484); PR2 `feat/admin-permisos-usuarios-shell` (off origin/main 47b9a7a3)
 Design: Stitch project `projects/3291827526597537807` (screens "Permisos por Usuario" 789bdb8b…, "Roles y Permisos (Matriz)" 4e464fb2…), approved by owner 2026-10-09 ("muchísimo mejor que lo actual").
 
 ## Objective
@@ -29,10 +29,11 @@ Rebuild the two Admin permission tabs (`PanelPermisos.jsx` users, `PanelRoles.js
 ## Tasks
 Re-sliced so no PR ships an unused registry (forward-dependency rule): the catalog lands together with its first consumer.
 
-- [ ] T1 (PR1) Screen catalog + access helpers in `frontend/src/registry/` (screens `{path,label,section,permisos[],scope}`, full category labels, `accesoPantalla` → accede/parcial/sin_acceso/condicional + origin, drift test vs `App.jsx` protectedRoutes) AND new `PermisosPorPantalla` component replacing the permissions block inside the current `PanelPermisos.jsx` (search, filter chips, expandable rows, Conceder/Quitar/Resetear, CONDICIONAL via `GET /marcas-pm/sub-pms/conteos`) + novedad. Route: delegated writer (2+ non-trivial files).
-- [ ] T2 (PR2) Usuarios tab shell: split layout, user list with role/override chips, KPI strip, user create/edit moved to a modal, "Por pantalla | Por permiso" segmented control. Route: delegated writer.
-- [ ] T3 (PR3) Roles tab matrix (`PanelRoles.jsx` + subcomponents): loads `/roles/{id}/permisos` per role, pending-change state, sticky save bar, PUT only dirty roles, role drawer; novedad updated. Route: delegated writer.
-- [ ] T4 (PR4, owner-approved 2026-10-09) Additional roles per user, permissions-only: new table `usuarios_roles_adicionales` (Alembic migration), `PermisosService.obtener_permisos_usuario` unions the primary role + additional roles' permissions, then applies overrides. `rol_id` stays the PRIMARY role and keeps deciding identity rules (superadmin, `pm_scope` full view `rol_codigo in FULL_VIEW_CODIGOS`, UI role labels) — an additional role never grants superadmin nor full brand view. Origin in `permisos_detallados` gains "rol adicional <codigo>"; Usuarios tab lets admins assign additional roles; Roles matrix counts users by primary + additional. Separate PR (model change + migration). Route: delegated writer.
+- [x] T1 (PR1, #1484, commits 391ae625 0f8cf2ca ecb86d90 936f996c 6d504fc8; review approved x4, size:exception by owner) Screen catalog + access helpers in `frontend/src/registry/` (screens `{path,label,section,permisos[],scope}`, full category labels, `accesoPantalla` → accede/parcial/sin_acceso/condicional + origin, drift test vs `App.jsx` protectedRoutes) AND new `PermisosPorPantalla` component replacing the permissions block inside the current `PanelPermisos.jsx` (search, filter chips, expandable rows, Conceder/Quitar/Resetear, CONDICIONAL via `GET /marcas-pm/sub-pms/conteos`) + novedad. Route: delegated writer (2+ non-trivial files).
+- [ ] T2a (PR2) Usuarios tab split layout: left, searchable user list with a role chip per user and an overrides-count chip; right, the selected user's header + KPI strip (screens with access / without access / conditional / overrides added and removed) above the existing `PermisosPorPantalla`. KPI counts come from pure helpers in `permisosAcceso.js` that reuse the screen status logic (one source of truth). The overrides chip is shown only for the selected user: `GET /usuarios` carries no override data and the only per-user source is `GET /permisos/usuario/{id}` (or `/overrides`), so counting for every user would cost N requests. Existing create/edit/password/activate flows stay as they are (they move to a modal in T2b). Also the two PR1 follow-ups: (a) per-request generation token in `PanelPermisos` so a late permissions response for an older request (same or other user) never overwrites a newer one; (b) the Sidebar drift test also checks the `section` of items written across multiple lines. Novedad updated. Route: delegated writer (2+ non-trivial files).
+- [ ] T2b (PR3) User create/edit moved into a modal + "Por pantalla | Por permiso" segmented control. Route: delegated writer.
+- [ ] T4 (PR4) Roles tab matrix (`PanelRoles.jsx` + subcomponents): loads `/roles/{id}/permisos` per role, pending-change state, sticky save bar, PUT only dirty roles, role drawer; novedad updated. Route: delegated writer.
+- [ ] T5 (PR5, owner-approved 2026-10-09) Additional roles per user, permissions-only: new table `usuarios_roles_adicionales` (Alembic migration), `PermisosService.obtener_permisos_usuario` unions the primary role + additional roles' permissions, then applies overrides. `rol_id` stays the PRIMARY role and keeps deciding identity rules (superadmin, `pm_scope` full view `rol_codigo in FULL_VIEW_CODIGOS`, UI role labels) — an additional role never grants superadmin nor full brand view. Origin in `permisos_detallados` gains "rol adicional <codigo>"; Usuarios tab lets admins assign additional roles; Roles matrix counts users by primary + additional. Separate PR (model change + migration). Route: delegated writer.
 
 ## Acceptance criteria
 - Per user: every catalog screen shows access status, required permissions and origin; filters Sin acceso / Con overrides / Críticos / Depende de datos work; Conceder/Quitar/Resetear call existing override endpoints and refresh.
@@ -44,7 +45,7 @@ Re-sliced so no PR ships an unused registry (forward-dependency rule): the catal
 - `cd frontend && pnpm test <files>`; `pnpm lint`; `pnpm build`.
 
 ## Delivery
-- Forecast: PR1 ~2000 (T1 actual, incl. ~580 test + 378 CSS), PR2 ~700, PR3 ~650, PR4 ~500 authored lines → over 400; strategy `ask-on-risk`, chain = `stacked-to-main` (owner 2026-10-09). One PR per task against main; the next branch starts from main after the previous one merges. Novedad ships with PR1 (first visible change) and is updated in PR2/PR3.
+- Forecast: PR1 ~2000 (T1 actual, incl. ~580 test + 378 CSS), PR2 (T2a) ~400, PR3 (T2b) ~350, PR4 (T4) ~650, PR5 (T5) ~500 authored lines → over 400; strategy `ask-on-risk`, chain = `stacked-to-main` (owner 2026-10-09). One PR per task against main; the next branch starts from main after the previous one merges. Novedad ships with PR1 (first visible change) and is updated in PR2/PR3/PR4.
 
 ## Progress
 - 2026-10-09: design approved; branch created; exploration done.
