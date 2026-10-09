@@ -11,6 +11,8 @@ import {
   permisosSinPantalla,
   agruparPorSeccion,
   contarParesEfectivos,
+  permisoCumpleFiltro,
+  permisoCoincideBusqueda,
 } from './permisosAcceso';
 
 // Shape of GET /permisos/usuario/{id} -> permisos_detallados.
@@ -238,5 +240,49 @@ describe('contarParesEfectivos (pm_scope effective scope = titular UNION sub-PM)
   it('is unknown (null) when a response has an unexpected shape', () => {
     expect(contarParesEfectivos(null, { conteos: [] }, 7)).toBeNull();
     expect(contarParesEfectivos(pares, {}, 7)).toBeNull();
+  });
+});
+
+describe('loose permissions (no screen): filters, search and counts', () => {
+  const falta = { ...permiso('admin.sincronizar', { es_critico: true }), categoria: 'administracion' };
+  const conOverride = {
+    ...permiso('promos.escribir', { override: true, efectivo: true, origen: 'override_agregado' }),
+    categoria: 'promos',
+  };
+  const delRolSuelto = { ...delRol('pxq.ver'), categoria: 'pxq' };
+
+  it('applies each filter to a single permission', () => {
+    const pasa = (filtro) => [falta, conOverride, delRolSuelto].filter((p) => permisoCumpleFiltro(p, filtro)).map((p) => p.codigo);
+    expect(pasa('todo')).toEqual(['admin.sincronizar', 'promos.escribir', 'pxq.ver']);
+    expect(pasa('sin_acceso')).toEqual(['admin.sincronizar']);
+    expect(pasa('con_overrides')).toEqual(['promos.escribir']);
+    expect(pasa('criticos')).toEqual(['admin.sincronizar']);
+  });
+
+  it('never matches "depende de datos": a permission without a screen has no data scope', () => {
+    for (const p of [falta, conOverride, delRolSuelto]) {
+      expect(permisoCumpleFiltro(p, 'depende_de_datos')).toBe(false);
+    }
+  });
+
+  it('searches codigo, nombre, descripcion and category ignoring case and accents', () => {
+    expect(permisoCoincideBusqueda(falta, 'SINCRONIZAR')).toBe(true);
+    expect(permisoCoincideBusqueda(falta, 'nombre admin.sincronizar')).toBe(true);
+    expect(permisoCoincideBusqueda(falta, 'descripcion admin')).toBe(true);
+    // Category key only: 'administracion' is not in the codigo, nombre or descripcion.
+    expect(permisoCoincideBusqueda(falta, 'Administración')).toBe(true);
+    expect(permisoCoincideBusqueda(falta, 'traza')).toBe(false);
+    expect(permisoCoincideBusqueda(falta, '  ')).toBe(true);
+  });
+
+  it('counts every visible row: screens plus loose permissions', () => {
+    const vista = construirVistaPorPantalla(
+      { productos: [permiso('productos.ver', { es_critico: true })] },
+      { rol: 'PRICING', paresDelegados: null },
+      [CATALOGO[0]],
+    );
+    expect(contarFiltros(vista, [falta, conOverride, delRolSuelto])).toEqual({
+      todo: 4, sin_acceso: 2, con_overrides: 1, criticos: 2, depende_de_datos: 0,
+    });
   });
 });

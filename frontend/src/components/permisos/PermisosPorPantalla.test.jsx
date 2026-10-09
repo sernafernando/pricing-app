@@ -314,4 +314,40 @@ describe('PermisosPorPantalla', () => {
       expect(within(fila('/admin')).getByRole('button', { name: 'Conceder acceso a Admin' })).toBeInTheDocument();
     });
   });
+
+  describe('"Permisos sin pantalla" group', () => {
+    const sueltos = () => screen.queryByRole('region', { name: 'Permisos sin pantalla' });
+    // Rows on screen = screen rows + loose permission rows (none expanded).
+    const filasVisibles = () => screen.getAllByRole('listitem').length;
+    const conteoChip = (nombre) =>
+      Number(screen.getByRole('button', { name: new RegExp(`^${nombre}`) }).textContent.match(/(\d+)$/)[1]);
+
+    it('follows the active filter, and its rows count in the chip', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(screen.getByRole('button', { name: /^Sin acceso/ }));
+      expect(within(sueltos()).getByText('admin.sincronizar')).toBeInTheDocument();
+      expect(conteoChip('Sin acceso')).toBe(filasVisibles());
+    });
+
+    it('is hidden under "Depende de datos" by design: a loose permission has no data scope', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(screen.getByRole('button', { name: /^Depende de datos/ }));
+      expect(sueltos()).not.toBeInTheDocument();
+      expect(conteoChip('Depende de datos')).toBe(filasVisibles());
+    });
+
+    it('follows the search box', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.type(screen.getByPlaceholderText(/Buscá una pantalla o permiso/), 'sincronizar');
+      expect(within(sueltos()).getByText('admin.sincronizar')).toBeInTheDocument();
+      expect(screen.queryByText('/productos', { selector: 'code' })).not.toBeInTheDocument();
+      expect(conteoChip('Todas')).toBe(filasVisibles());
+    });
+  });
 });

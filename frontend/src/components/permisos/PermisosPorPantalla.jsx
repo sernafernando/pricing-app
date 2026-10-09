@@ -95,13 +95,13 @@ export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActu
   const detallados = permisosUsuario?.permisos_detallados || {};
   const vista = construirVistaPorPantalla(detallados, { rol, paresDelegados }, SCREENS);
   const buscadas = vista.filter((item) => coincideBusqueda(item, busqueda));
-  const conteos = contarFiltros(buscadas);
+  const sueltosBuscados = permisosSinPantalla(detallados, SCREENS).filter((p) =>
+    permisoCoincideBusqueda(p, busqueda),
+  );
+  const conteos = contarFiltros(buscadas, sueltosBuscados);
   const visibles = buscadas.filter((item) => cumpleFiltro(item, filtro || 'todo'));
   const grupos = agruparPorSeccion(visibles);
-
-  const sueltos = permisosSinPantalla(detallados, SCREENS)
-    .filter((p) => permisoCoincideBusqueda(p, busqueda))
-    .filter((p) => permisoCumpleFiltro(p, filtro || 'todo'));
+  const sueltos = sueltosBuscados.filter((p) => permisoCumpleFiltro(p, filtro || 'todo'));
 
   const alternar = (path) => {
     setExpandidas((prev) => {

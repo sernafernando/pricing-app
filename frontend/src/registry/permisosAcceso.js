@@ -175,8 +175,19 @@ export function permisoCumpleFiltro(permiso, filtro) {
   }
 }
 
-export function contarFiltros(items) {
-  return Object.fromEntries(FILTROS.map((filtro) => [filtro, items.filter((i) => cumpleFiltro(i, filtro)).length]));
+/**
+ * Chip counts = rows each filter would list: matching screens plus matching
+ * loose permissions ("Permisos sin pantalla"), so a chip never shows fewer
+ * than what it lists.
+ */
+export function contarFiltros(items, sueltos = []) {
+  return Object.fromEntries(
+    FILTROS.map((filtro) => [
+      filtro,
+      items.filter((i) => cumpleFiltro(i, filtro)).length +
+        sueltos.filter((p) => permisoCumpleFiltro(p, filtro)).length,
+    ]),
+  );
 }
 
 const ACCESIBLE = new Set([STATUS.ACCEDE, STATUS.PUBLICA]);
