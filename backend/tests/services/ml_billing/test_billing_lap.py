@@ -194,6 +194,23 @@ class TestDocumentsUnit:
             sum(d["count_details"] for d in DOCUMENTS["BILL"]),
         )
 
+    def test_a_lap_in_flight_from_before_the_verify_key_still_finishes_its_units(self, db, client) -> None:
+        state = started(db, client)
+        for unit in state["lap"]["units"]:
+            del unit["verify"]  # the shape persisted by the previous release
+        state["lap"]["index"] = 1
+        client.documents.return_value = {"results": DOCUMENTS["BILL"]}
+        state = tick(db, state, at(15))
+        assert (state["lap"]["units"][1]["state"], state["lap"]["index"]) == ("done", 2)
+
+    def test_no_period_observation_is_recorded_when_the_bill_details_failed(self, db, client) -> None:
+        state = started(db, client)
+        state["lap"]["units"][0].update(total=26056, state="failed")
+        state["lap"]["index"] = 1
+        client.documents.return_value = {"results": DOCUMENTS["BILL"]}
+        tick(db, state, at(15))
+        assert db.query(MlBillingPeriodStat).filter_by(period_key="2026-10-01").count() == 0
+
     def test_a_failed_documents_request_keeps_the_unit_for_the_retry(self, db, client) -> None:
         state = started(db, client)
         state["lap"]["index"] = 1

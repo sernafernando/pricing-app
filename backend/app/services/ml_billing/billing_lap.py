@@ -191,11 +191,11 @@ def _documents(db: Session, state: dict, unit: dict, now: datetime) -> dict:
         for u in state["lap"]["units"]
         if (u["period_key"], u["document_type"], u["kind"]) == (period, "BILL", "details")
     ]
-    if document_type == "BILL" and swept and swept[0]["total"] is not None:
+    if document_type == "BILL" and swept and swept[0]["state"] == "done" and swept[0]["total"] is not None:
         # The observation of the cron sweep (about BILL details only), kept as it was.
         stored = db.query(MlBillingCharge).filter_by(period_key=period, document_type="BILL").count()
         _upsert_period_stat(db, period, swept[0]["total"], stored, persisted.count_details, now)
-    if unit["verify"]:
+    if unit.get("verify"):
         state["verified"][period] = now.isoformat()
     return _finish(state, unit, "done", now)
 
