@@ -10,12 +10,15 @@ construction and the worker is never blocked for minutes.
 the cursor (the billing lap has no ML-side ledger). Deleting it loses no data,
 only the position: the next run builds a new lap and the upserts are idempotent.
 
-    {complete, last_request_at, retry_at, failures,
+    {complete, last_request_at, retry_at, failures, verified: {period: iso},
      lap: {id, started_at, index, units: [{period_key, document_type, kind,
-           state, from_id, total, pages}]} | None, last_lap}
+           state, from_id, total, pages, verify}]} | None, last_lap}
 
 A lap has, per period, BILL details, BILL documents, CREDIT_NOTE details and
 CREDIT_NOTE documents. Order: the open period, then the closed ones newest first.
+A closed period that is SETTLED (a query, never a stored flag: every document
+complete, every charge with its legal document number, no open gap) only gets
+its documents verified, and at most once a week (`verified`).
 
 Failures: a 429, a timeout or a 5xx keeps the cursor and sets
 `retry_at = now + min(60 s * 2^(failures-1), 15 min)`; the fifth in a row on one
@@ -30,6 +33,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from sqlalchemy.orm import Session
+
+from app.models.ml_billing import MlBillingCharge
 from app.services.ml_billing.billing_sweep_service import (
     BILLING_GROUP,
     DOCUMENT_TYPES,
@@ -37,9 +43,12 @@ from app.services.ml_billing.billing_sweep_service import (
     _cursor_value,
     _highest_detail_id,
     _page_cap,
+    _upsert_period_stat,
     persist_details_page,
     persist_documents,
 )
+from app.services.ml_billing.document_completeness import document_completeness
+from app.services.ml_billing.sweep_gaps import open_gaps
 from app.services.ml_webhook_client import ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
 
@@ -49,6 +58,7 @@ SPACING = timedelta(seconds=15)  # the proxy answers 429 to anything faster
 FAILURE_LIMIT = 5
 BACKOFF_BASE = timedelta(seconds=60)
 BACKOFF_CAP = timedelta(minutes=15)
+VERIFY_EVERY = timedelta(days=7)
 OPEN = "OPEN"
 
 
@@ -60,36 +70,58 @@ def _when(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value) if value else None
 
 
-def _units(periods: list[dict]) -> list[dict]:
+def _settled(db: Session, period_key: str) -> bool:
+    documents = [c for t in DOCUMENT_TYPES for c in document_completeness(db, period_key, t)]
+    if not documents or not all(c.complete for c in documents):
+        return False
+    unnumbered = (
+        db.query(MlBillingCharge.detail_id)
+        .filter(MlBillingCharge.period_key == period_key, MlBillingCharge.legal_document_number.is_(None))
+        .first()
+    )
+    return unnumbered is None and not open_gaps(db, period_key)
+
+
+def _units(db: Session, periods: list[dict], verified: dict, now: datetime) -> list[dict]:
     keys = [(p["key"], p.get("period_status")) for p in periods if isinstance(p, dict) and p.get("key")]
     ordered = [k for k, status in keys if status == OPEN] + sorted((k for k, s in keys if s != OPEN), reverse=True)
-    return [
-        {
-            "period_key": key,
-            "document_type": document_type,
-            "kind": kind,
-            "state": "pending",
-            "from_id": 0,
-            "total": None,
-            "pages": 0,
-        }
-        for key in ordered
-        for document_type in DOCUMENT_TYPES
-        for kind in ("details", "documents")
-    ]
+    status_of = dict(keys)
+    units: list[dict] = []
+    for key in ordered:
+        verify = status_of[key] != OPEN and _settled(db, key)
+        seen = _when(verified.get(key)) if verify else None
+        if seen is not None and now - seen < VERIFY_EVERY:
+            continue
+        for document_type in DOCUMENT_TYPES:
+            for kind in ("details", "documents"):
+                if verify and kind == "details":
+                    continue
+                units.append(
+                    {
+                        "period_key": key,
+                        "document_type": document_type,
+                        "kind": kind,
+                        "state": "pending",
+                        "from_id": 0,
+                        "total": None,
+                        "pages": 0,
+                        "verify": verify,
+                    }
+                )
+    return units
 
 
-def run_billing_tick(db, state: dict, now: datetime) -> dict:
+def run_billing_tick(db: Session, state: dict, now: datetime) -> dict:
     """One tick: at most ONE proxy request. Returns the new state; the caller commits."""
     last, retry = _when(state.get("last_request_at")), _when(state.get("retry_at"))
     if (last is not None and now - last < SPACING) or (retry is not None and now < retry):
         return state
     if state.get("complete", True) or not state.get("lap"):
-        return _start_lap(state, now)
+        return _start_lap(db, state, now)
     return _step(db, state, now)
 
 
-def _start_lap(state: dict, now: datetime) -> dict:
+def _start_lap(db: Session, state: dict, now: datetime) -> dict:
     state["last_request_at"] = now.isoformat()
     payload = resolve_maybe_async(ml_webhook_client.get_billing_periods(BILLING_GROUP))
     periods = (payload or {}).get("results")
@@ -100,12 +132,12 @@ def _start_lap(state: dict, now: datetime) -> dict:
         "id": now.isoformat(),
         "started_at": now.isoformat(),
         "index": 0,
-        "units": _units(periods),
+        "units": _units(db, periods, state.setdefault("verified", {}), now),
     }
     return _close_lap_if_done(state, now)
 
 
-def _step(db, state: dict, now: datetime) -> dict:
+def _step(db: Session, state: dict, now: datetime) -> dict:
     unit = state["lap"]["units"][state["lap"]["index"]]
     state["last_request_at"] = now.isoformat()
     if unit["kind"] == "details":
@@ -113,7 +145,7 @@ def _step(db, state: dict, now: datetime) -> dict:
     return _documents(db, state, unit, now)
 
 
-def _details(db, state: dict, unit: dict, now: datetime) -> dict:
+def _details(db: Session, state: dict, unit: dict, now: datetime) -> dict:
     period, document_type = unit["period_key"], unit["document_type"]
     fetch = resolve_maybe_async(
         ml_webhook_client.fetch_billing_details(period, BILLING_GROUP, document_type, PAGE_LIMIT, unit["from_id"])
@@ -148,12 +180,25 @@ def _details(db, state: dict, unit: dict, now: datetime) -> dict:
     return state
 
 
-def _documents(db, state: dict, unit: dict, now: datetime) -> dict:
+def _documents(db: Session, state: dict, unit: dict, now: datetime) -> dict:
     period, document_type = unit["period_key"], unit["document_type"]
     documents = resolve_maybe_async(ml_webhook_client.get_billing_documents(period, BILLING_GROUP, document_type))
     if documents is None:
         return _transport_failure(state, unit, now)
-    persist_documents(db, documents, period, BILLING_GROUP, document_type)
+    persisted = persist_documents(db, documents, period, BILLING_GROUP, document_type)
+    swept = [
+        u
+        for u in state["lap"]["units"]
+        if (u["period_key"], u["document_type"], u["kind"]) == (period, "BILL", "details")
+    ]
+    if document_type == "BILL" and swept and swept[0]["state"] == "done" and swept[0]["total"] is not None:
+        # The observation of the cron sweep (about BILL details only), kept as it was.
+        stored = db.query(MlBillingCharge).filter_by(period_key=period, document_type="BILL").count()
+        _upsert_period_stat(db, period, swept[0]["total"], stored, persisted.count_details, now)
+    unit["state"] = "done"
+    siblings = [u for u in state["lap"]["units"] if u["period_key"] == period and u.get("verify")]
+    if unit.get("verify") and all(u["state"] == "done" for u in siblings):
+        state["verified"][period] = now.isoformat()  # only when every documents unit of the period was verified
     return _finish(state, unit, "done", now)
 
 
