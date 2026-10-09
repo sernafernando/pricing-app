@@ -478,9 +478,9 @@ class TestHistory:
         same = seed.hours_ago(2)
         ids: list[int] = []
         with pg.begin() as conn:
-            for n in range(3):  # three item rows at one instant
+            for _ in range(3):  # three item rows at one instant
                 ids.append(insert_log(conn, "item", ITEM, ITEM, same, "change", [{"p": "title", "op": "replace"}], {}))
-            for n in range(2):  # and two user product rows at that same instant
+            for _ in range(2):  # and two user product rows at that same instant
                 ids.append(insert_log(conn, "stock", USER_PRODUCT, None, same, "change", [{"p": "x", "op": "add"}], {}))
             ids.append(insert_log(conn, "item", ITEM, ITEM, seed.hours_ago(9), "change", [], {}))
         seen: list[int] = []

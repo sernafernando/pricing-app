@@ -3,9 +3,9 @@
 One page merges the rows keyed by the item (the item itself, its sub-resources and its product links, all with
 `item_id`) with the rows of its user product (`user_product`, `stock`, `replenishment`) and its family, which belong
 to no single item (the store writes them with `item_id` NULL) and are found by `(resource_type, entity_id)`; the
-`item_id IS NULL` guard keeps a row that ever carried both keys from being read by two branches. Each branch is a keyset scan of its own index
-(`ix_ml_change_log_item`, `ix_ml_change_log_entity`) bounded by the page size, so the merge reads at most
-`3 x page` rows however long the log is; the outer query orders them `observed_at DESC, id DESC`.
+`item_id IS NULL` guard keeps a row that ever carried both keys from being read by two branches. Each branch is a
+keyset scan of its own index (`ix_ml_change_log_item`, `ix_ml_change_log_entity`) bounded by the page size, so the
+merge reads at most `3 x page` rows however long the log is; the outer query orders them `observed_at DESC, id DESC`.
 
 Each entry is one log row split into BUSINESS lines (what a person looks at: prices, status, stock, title, promotions,
 the product link) and TECHNICAL ones (everything else, kept for "ver todo"), one line per changed field. `split` is the
