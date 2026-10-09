@@ -946,12 +946,16 @@ def kpi_period(periodo: Optional[str], desde: Optional[str], hasta: Optional[str
             raise FilterError("periodo", f"must be one of {', '.join(map(str, KPI_PERIOD_PRESETS))}")
         days = int(periodo)
     last = _day(hasta, "hasta") or board.today_business()
-    first = _day(desde, "desde") or last - timedelta(days=days - 1)
+    given = _day(desde, "desde")
+    first = given or last - timedelta(days=days - 1)
     low, high = ml_metricas.MIN_BOARD_DATE, ml_metricas.MAX_BOARD_DATE
-    if not low <= first <= high:
-        raise FilterError("desde", f"must be between {low.isoformat()} and {high.isoformat()}")
+    bounds = f"must be between {low.isoformat()} and {high.isoformat()}"
+    if given and not low <= given <= high:
+        raise FilterError("desde", bounds)
     if not low <= last <= high:
-        raise FilterError("hasta", f"must be between {low.isoformat()} and {high.isoformat()}")
+        raise FilterError("hasta", bounds)
+    if not low <= first <= high:  # a `desde` the client never sent comes from `hasta`: that is the one at fault
+        raise FilterError("hasta", f"leaves the {days}-day period before {low.isoformat()}")
     if first > last:
         raise FilterError("desde", "is after hasta")
     if (last - first).days + 1 > ml_metricas.MAX_PERIOD_DAYS:

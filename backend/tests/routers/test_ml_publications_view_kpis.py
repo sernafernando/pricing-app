@@ -221,6 +221,8 @@ class TestPeriod:
             ({"desde": "2026-10-01", "hasta": "2026-09-01"}, "desde"),
             ({"desde": "2025-01-01", "hasta": "2026-09-01"}, "desde"),  # over a year
             ({"desde": "1999-01-01", "hasta": "2000-01-01"}, "desde"),
+            ({"hasta": "2001-01-05"}, "hasta"),  # the default length would start before the lower bound
+            ({"hasta": "2101-01-01"}, "hasta"),
             ({"comparar_con": "bogus"}, "comparar_con"),
             ({"estado": "bogus"}, "estado"),
         ],
