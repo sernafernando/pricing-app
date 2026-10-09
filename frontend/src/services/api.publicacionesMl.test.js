@@ -30,3 +30,25 @@ describe('publicacionesMlAPI.variations', () => {
     expect(get).toHaveBeenCalledWith('/ml-publications/view/items/MLA%201%2F2/variations');
   });
 });
+
+describe('publicacionesMlAPI.events and history', () => {
+  it('GETs the events of one publication with the cursor and limit as the query', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: { enabled: true, events: [] } });
+    const params = { cursor: '2026-10-08T09:30:00.000000Z|9001', limit: 50 };
+
+    await actual.publicacionesMlAPI.events('MLA 1/2', params);
+
+    expect(get).toHaveBeenCalledWith('/ml-publications/view/items/MLA%201%2F2/events', { params });
+  });
+
+  it('GETs the history of one publication with the cursor as the query', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: { entries: [] } });
+    const params = { cursor: '2026-10-08T09:30:00.000000Z|7003' };
+
+    await actual.publicacionesMlAPI.history('MLA1', params);
+
+    expect(get).toHaveBeenCalledWith('/ml-publications/view/items/MLA1/history', { params });
+  });
+});

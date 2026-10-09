@@ -858,6 +858,13 @@ export const publicacionesMlAPI = {
   variations: (itemId) => api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}/variations`),
   // Everything about one publication, for the side panel (`ItemDetail`).
   detail: (itemId) => api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}`),
+  // One page of a publication's real events, newest first (`ml_item_events`).
+  // `params`: `{ cursor, limit }`, the cursor being the opaque `next_cursor` of the previous page.
+  events: (itemId, params) =>
+    api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}/events`, { params }),
+  // One page of a publication's change history (`ml_change_log`), newest first.
+  history: (itemId, params) =>
+    api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}/history`, { params }),
   // Asks the store to refresh publications (`ml_ops.gestionar`). The panel's
   // "Resincronizar" sends `{ item_ids: [itemId], resources: ['bundle', 'replenishment'] }`.
   enqueue: (body) => api.post('/ml-publications/enqueue', body),

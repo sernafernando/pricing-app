@@ -95,8 +95,8 @@ describe('LastEventCell', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
-  it('falls back to the raw type for an event nobody labelled', () => {
-    expect(eventLabel('something_new')).toBe('something_new');
+  it('falls back to a generic Spanish label for an event nobody labelled', () => {
+    expect(eventLabel('something_new')).toBe('Evento');
   });
 });
 

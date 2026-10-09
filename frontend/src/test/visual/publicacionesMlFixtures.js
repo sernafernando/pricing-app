@@ -472,3 +472,87 @@ export const DETAIL_RESPONSE_MARGIN = makeDetail({
   markup_breakdown: MARKUP_BREAKDOWN,
   can_resync: true,
 });
+
+/**
+ * `GET /ml-publications/view/items/{id}/events` (router `EventsResponse` /
+ * `EventOut`; P8b). `label` is the backend's Spanish label; the tab labels from
+ * the type on its own. Values are the stored JSON: a price is a number, a
+ * status a string.
+ */
+export const makeEvent = (overrides = {}) => ({
+  id: 9001,
+  event_type: 'price_changed',
+  label: 'Cambio de precio',
+  observed_at: '2026-10-08T09:30:00Z',
+  promotion_type: null,
+  price_kind: 'price',
+  old_value: 55882.0,
+  new_value: 56382.0,
+  ...overrides,
+});
+
+export const EVENTS = [
+  makeEvent(),
+  makeEvent({
+    id: 9000,
+    event_type: 'status_paused',
+    label: 'Publicación pausada',
+    observed_at: '2026-10-07T18:00:00Z',
+    price_kind: null,
+    old_value: 'active',
+    new_value: 'paused',
+  }),
+  makeEvent({
+    id: 8999,
+    event_type: 'promotion_price_changed',
+    label: 'Cambio de precio de la promoción',
+    observed_at: '2026-10-06T12:00:00Z',
+    promotion_type: 'DEAL',
+    price_kind: 'promotion',
+    old_value: 49900.0,
+    new_value: 47900.0,
+  }),
+];
+
+export const EVENTS_RESPONSE = { enabled: true, events: EVENTS, next_cursor: null };
+
+/** The events flag off: nothing is written, so the list is empty (never invented). */
+export const EVENTS_DISABLED_RESPONSE = { enabled: false, events: [], next_cursor: null };
+
+/**
+ * `GET /ml-publications/view/items/{id}/history` (router `HistoryResponse` /
+ * `HistoryEntryOut`; P8b). A business line carries `label_key` and the Spanish
+ * `label`; a technical one has both null. `old`/`new` are null on the side that
+ * does not exist.
+ */
+export const HISTORY_ENTRIES = [
+  {
+    id: 7003,
+    observed_at: '2026-10-08T09:30:00Z',
+    resource_type: 'item',
+    kind: 'change',
+    business: [
+      { path: 'price', label_key: 'price', label: 'Precio', old: 55882.0, new: 56382.0 },
+      { path: 'status', label_key: 'status', label: 'Estado', old: 'active', new: 'paused' },
+    ],
+    technical: [{ path: 'last_updated', label_key: null, label: null, old: '2026-10-07T10:00:00.000Z', new: '2026-10-08T09:29:00.000Z' }],
+  },
+  {
+    id: 7002,
+    observed_at: '2026-10-07T18:00:00Z',
+    resource_type: 'stock',
+    kind: 'change',
+    business: [{ path: 'locations[meli_facility].quantity', label_key: 'stock_location', label: 'Stock por ubicación', old: 24, new: 20 }],
+    technical: [],
+  },
+  {
+    id: 7001,
+    observed_at: '2026-10-06T08:00:00Z',
+    resource_type: 'replenishment',
+    kind: 'change',
+    business: [],
+    technical: [{ path: 'units_30d', label_key: null, label: null, old: 40, new: 42 }],
+  },
+];
+
+export const HISTORY_RESPONSE = { entries: HISTORY_ENTRIES, next_cursor: null };
