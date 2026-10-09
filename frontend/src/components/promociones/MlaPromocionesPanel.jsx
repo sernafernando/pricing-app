@@ -10,6 +10,9 @@ import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
 import styles from './promociones.module.css';
 
+const NO_TYPES = [];
+const NO_NAMES = {};
+
 // A row older than this reads as stale (ML recalculates SMART/PRICE_MATCHING
 // candidates daily, so a day-old mirror row may no longer be ML's offer).
 const STALE_ROW_MS = 24 * 60 * 60 * 1000;
@@ -76,10 +79,14 @@ function formatDateRange(startDate, finishDate) {
 
 /**
  * Level 2 panel: promotions of a single MLA.
+ * `ignoreGlobalFilter` is for a host that is not a Productos tree (the
+ * Publicaciones ML side panel): the shared type/name filter belongs to the
+ * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
+ * there, with no bar to clear it, would hide promotions with no way out.
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
  * first expand — the parent conditionally mounts this component).
  */
-function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
+function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlobalFilter = false }) {
   // The pull endpoint is a READ (it reconciles our mirror from ML and never
   // writes to ML) and requires `promos.ver`. It used to require
   // `promos.escribir`, which left read-only users looking at an unrefreshed
@@ -160,8 +167,11 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
   // mirror at two points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s
   // (after the server's ~60s retry drains for slower SMART reconciliation).
   const reloadTimersRef = useRef([]);
-  const selectedTypes = usePromoFilterStore((state) => state.selectedTypes);
-  const selectedNames = usePromoFilterStore((state) => state.selectedNames);
+  const storedTypes = usePromoFilterStore((state) => state.selectedTypes);
+  const storedNames = usePromoFilterStore((state) => state.selectedNames);
+  // Empty selections mean "show all" to `matchesPromoFilter`.
+  const selectedTypes = ignoreGlobalFilter ? NO_TYPES : storedTypes;
+  const selectedNames = ignoreGlobalFilter ? NO_NAMES : storedNames;
 
   const clearReloadTimers = useCallback(() => {
     reloadTimersRef.current.forEach((timerId) => clearTimeout(timerId));

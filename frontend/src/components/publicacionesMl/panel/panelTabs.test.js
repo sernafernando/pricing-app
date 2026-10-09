@@ -26,3 +26,16 @@ describe('the registry', () => {
     expect(labels).toMatchObject({ eventos: 'Eventos', historial: 'Historial', producto: 'Producto' });
   });
 });
+
+describe('Promociones', () => {
+  const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 0, is_full: false }, replenishment: null });
+
+  it('exists only for who can read promotions, between Full and Eventos', () => {
+    expect(keysFor(raw, { canViewPromos: false })).not.toContain('promociones');
+    expect(keysFor(raw, { canViewPromos: true })).toEqual(['resumen', 'promociones', 'eventos', 'historial', 'producto']);
+  });
+
+  it('is labelled "Promos" so the strip keeps its slack', () => {
+    expect(PANEL_TABS.find((tab) => tab.key === 'promociones').label).toBe('Promos');
+  });
+});

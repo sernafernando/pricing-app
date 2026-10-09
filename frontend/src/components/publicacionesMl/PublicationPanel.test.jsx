@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
-import { publicacionesMlAPI } from '../../services/api';
+import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
@@ -16,18 +16,25 @@ vi.mock('../../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   publicacionesMlAPI: { detail: vi.fn(), variations: vi.fn(), enqueue: vi.fn() },
+  promocionesAPI: {
+    getPromocionesItem: vi.fn(() => Promise.resolve({ data: { promotions: [] } })),
+    refreshItemPromociones: vi.fn(() => Promise.resolve({ data: { ok: true } })),
+    confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
+  },
   registerAuthFailureHandler: vi.fn(),
 }));
 
 // Everything is allowed except the margin, which each test grants on purpose.
 let canSeeMargin = false;
 let canManage = true;
+let canSeePromos = true;
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
     tienePermiso: (permiso) => {
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_ops.gestionar') return canManage;
+      if (permiso === 'promos.ver') return canSeePromos;
       return true;
     },
     cargandoPermisos: false,
@@ -43,6 +50,9 @@ const renderPanel = (props = {}) =>
 beforeEach(() => {
   canSeeMargin = false;
   canManage = true;
+  canSeePromos = true;
+  promocionesAPI.getPromocionesItem.mockClear();
+  promocionesAPI.refreshItemPromociones.mockClear();
   publicacionesMlAPI.detail.mockReset();
   publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_RESPONSE });
 });
@@ -267,6 +277,43 @@ describe('the panel itself', () => {
     rerender(<PublicationPanel itemId="MLA1100000001" tab="resumen" onTabChange={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Resumen' })).toBeInTheDocument());
     expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the Promociones tab', () => {
+  it('is offered with promos.ver and asks ML for nothing until somebody opens it (the throttle is shared)', async () => {
+    renderPanel();
+    await screen.findByRole('tab', { name: 'Promos' });
+    expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
+    expect(promocionesAPI.getPromocionesItem).not.toHaveBeenCalled();
+  });
+
+  it('is not offered without promos.ver', async () => {
+    canSeePromos = false;
+    renderPanel();
+    await screen.findByRole('tab', { name: 'Resumen' });
+    expect(screen.queryByRole('tab', { name: 'Promos' })).not.toBeInTheDocument();
+  });
+
+  it('loads the promotions of the selected publication when it is the open tab', async () => {
+    renderPanel({ tab: 'promociones' });
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA1100000001'));
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA1100000001');
+  });
+});
+
+describe('the tab strip', () => {
+  it('scrolls the open tab into view, sideways only, so a tab past the edge of a narrow panel is never lost', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      renderPanel({ tab: 'promociones' });
+      await screen.findByRole('tab', { name: 'Promos', selected: true });
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' }));
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(screen.getByRole('tab', { name: 'Promos' }));
+    } finally {
+      delete Element.prototype.scrollIntoView;
+    }
   });
 });
 

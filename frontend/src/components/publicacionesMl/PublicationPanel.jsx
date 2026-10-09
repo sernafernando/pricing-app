@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -38,12 +38,20 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   const canManage = tienePermiso('ml_ops.gestionar');
+  const canViewPromos = tienePermiso('promos.ver');
   const { status, detail, error, reload } = usePublicationDetail(itemId, { canSeeMargin });
   const tabRefs = useRef({});
   const panelId = useId();
 
-  const available = detail ? visibleTabs(tabs, { detail, canSeeMargin, canManage }) : [];
+  const available = detail ? visibleTabs(tabs, { detail, canSeeMargin, canManage, canViewPromos }) : [];
   const active = available.find((entry) => entry.key === tab) ?? available[0];
+
+  // The strip scrolls sideways when the tabs outgrow a narrow panel: keep the
+  // open one in view (the URL can open a tab that sits past the edge).
+  const activeKey = active?.key;
+  useEffect(() => {
+    tabRefs.current[activeKey]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeKey]);
 
   // Arrow keys / Home / End move between tabs, as a tablist does.
   const handleTabKeyDown = (event) => {

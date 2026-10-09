@@ -19,7 +19,7 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { publicacionesMlAPI } from '../../services/api';
+import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import {
   BRAND_NODES,
   DATA_STATE_OK,
@@ -56,6 +56,7 @@ vi.mock('../../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn() },
+  promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -225,6 +226,8 @@ const renderMarginPage = async ({ width, height, theme }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: MARGIN_RESPONSE });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+  promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+  promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
@@ -504,6 +507,24 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
   }
 });
 
+// Same shape as the per-item mirror read (`GET /promociones/item/{mla}`), long names included.
+const PROMOTIONS = [
+  {
+    promotion_id: 'P1',
+    promotion_type: 'SMART',
+    name: 'Promoción inteligente con un nombre bastante largo para ver cómo corta',
+    price: 0,
+    suggested_discounted_price: 1234567,
+    original_price: 1500000,
+    nuestro_markup: 12.5,
+    application_status: null,
+    start_date: '2026-10-01T00:00:00Z',
+    finish_date: '2026-10-31T00:00:00Z',
+    payload: { seller_percentage: 30, meli_percentage: 20 },
+  },
+  { promotion_id: 'P2', promotion_type: 'DOD', name: 'Oferta del día', price: 50000, original_price: 60000, nuestro_markup: -2, application_status: 'active', payload: {} },
+];
+
 // The detail panel open beside the table (publicaciones-ml-vista P13a.T5, S61.1/S62.1).
 const SELECTED = MANY[0].item_id;
 const PANEL_VIEWPORTS = [
@@ -593,13 +614,18 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         const panel = panelOf();
         const box = rect(panel);
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        // The tab strip scrolls sideways by design when the tabs outgrow the panel, so its tabs may sit
+        // past the edge (clipped, not overflowing); the strip itself must stay inside the panel.
+        const strip = panel.querySelector('[role="tablist"]');
+        expect(rect(strip).right).toBeLessThanOrEqual(box.right + 0.5);
         for (const el of panel.querySelectorAll('*')) {
+          if (strip.contains(el)) continue;
           const r = el.getBoundingClientRect();
           if (r.width === 0) continue;
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
         const tabs = [...panel.querySelectorAll('[role="tab"]')];
-        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Eventos', 'Historial', 'Producto']);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Promos', 'Eventos', 'Historial', 'Producto']);
         // One row of tabs: they all start at the same height.
         expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
         // The footer sits inside the panel's box even though the content is taller than the panel.
@@ -668,6 +694,49 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         withCost.unmount();
       });
     }
+  }
+
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the Promociones tab lists the promotions inside the panel`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, tab: 'promociones' });
+        await expect.element(screen.getByText('Oferta del día')).toBeVisible();
+        const panel = panelOf();
+        const box = rect(panel);
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const rows = [...panel.querySelectorAll('[role="tabpanel"] li')];
+        expect(rows).toHaveLength(2);
+        for (const el of rows.flatMap((row) => [row, ...row.querySelectorAll('*')])) {
+          const r = rect(el);
+          if (r.width === 0) continue;
+          expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
+        }
+        screen.unmount();
+      });
+    }
+  }
+
+  // The strip must survive a panel too narrow for its tabs; CI fonts are wider than local ones, so force it.
+  for (const theme of THEMES) {
+    it(`1366x768 ${theme}: when the tabs outgrow the panel the strip scrolls on one line and keeps the open tab in view`, async () => {
+      const squeeze = document.createElement('style');
+      squeeze.textContent = '[data-split-panel] [role="tablist"] { max-width: 240px; }';
+      document.head.append(squeeze);
+      try {
+        const screen = await renderWithPanel({ width: 1366, height: 768, theme, tab: 'promociones' });
+        const strip = panelOf().querySelector('[role="tablist"]');
+        const tabs = [...strip.querySelectorAll('[role="tab"]')];
+        expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth + 1);
+        expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
+        const open = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true');
+        expect(open.textContent).toBe('Promos');
+        expect(rect(open).left).toBeGreaterThanOrEqual(rect(strip).left - 0.5);
+        expect(rect(open).right).toBeLessThanOrEqual(rect(strip).right + 0.5);
+        screen.unmount();
+      } finally {
+        squeeze.remove();
+      }
+    });
   }
 
   it('1366x768 light: the Variaciones tab flags the negative variation with the danger tone and fits the panel', async () => {
