@@ -91,16 +91,15 @@ export default function PanelPermisos() {
   };
 
   // Fetches a user's permissions and applies them only if no newer request
-  // started meanwhile and that user is still the selected one (a reload can
-  // start after the admin switched users). Rejects on a failed request so
-  // callers report it.
+  // started meanwhile. A reload for a user who is no longer selected (it can
+  // start after the admin switched users) is skipped; a switch during a
+  // request always starts a newer one, so the generation check covers it.
+  // Rejects on a failed request so callers report it.
   const cargarPermisos = async (usuarioId) => {
     if (usuarioSeleccionadoIdRef.current !== usuarioId) return;
     const generacion = ++cargaPermisosRef.current;
     const res = await api.get(`/permisos/usuario/${usuarioId}`);
-    if (generacion !== cargaPermisosRef.current) return;
-    if (usuarioSeleccionadoIdRef.current !== usuarioId) return;
-    setPermisosUsuario(res.data);
+    if (generacion === cargaPermisosRef.current) setPermisosUsuario(res.data);
   };
 
   const crearUsuario = async () => {
