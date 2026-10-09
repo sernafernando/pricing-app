@@ -17,9 +17,14 @@ const LOADING = { itemId: null, raw: null, error: null };
 export function usePublicationDetail(itemId, { canSeeMargin }) {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(LOADING);
+  const selected = useRef(itemId);
+  const latestRefresh = useRef(0);
 
   useEffect(() => {
     let current = true;
+    // A load (new selection or retry) supersedes every silent refresh in flight.
+    latestRefresh.current += 1;
+    selected.current = itemId;
     setState(LOADING);
     publicacionesMlAPI
       .detail(itemId)
@@ -36,13 +41,6 @@ export function usePublicationDetail(itemId, { canSeeMargin }) {
 
   const reload = () => setAttempt((n) => n + 1);
 
-  // The newest silent request wins, and a selection change cancels every older one.
-  const selected = useRef(itemId);
-  const latestRefresh = useRef(0);
-  useEffect(() => {
-    selected.current = itemId;
-    latestRefresh.current += 1;
-  }, [itemId]);
   const refresh = useCallback(() => {
     const request = ++latestRefresh.current;
     publicacionesMlAPI
@@ -53,6 +51,7 @@ export function usePublicationDetail(itemId, { canSeeMargin }) {
       })
       .catch(() => {});
   }, [itemId]);
+
   if (state.itemId !== itemId) return { status: 'loading', detail: null, error: null, reload, refresh };
   if (state.error) return { status: 'error', detail: null, error: state.error, reload, refresh };
   return { status: 'ready', detail: readDetail(state.raw, { canSeeMargin }), error: null, reload, refresh };

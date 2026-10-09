@@ -85,4 +85,17 @@ describe('refresh', () => {
     await act(async () => first.resolve({ data: withPrice(200) }));
     expect(result.current.detail.row.price).toBe(300);
   });
+
+  it('a retry (reload) that finishes first is not overwritten by an older silent refresh', async () => {
+    publicacionesMlAPI.detail.mockResolvedValueOnce({ data: withPrice(100) });
+    const { result } = renderHook(() => usePublicationDetail('MLA1', { canSeeMargin: false }));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const slow = deferred();
+    publicacionesMlAPI.detail.mockReturnValueOnce(slow.promise).mockResolvedValueOnce({ data: withPrice(400) });
+    act(() => result.current.refresh());
+    act(() => result.current.reload());
+    await waitFor(() => expect(result.current.detail?.row.price).toBe(400));
+    await act(async () => slow.resolve({ data: withPrice(150) }));
+    expect(result.current.detail.row.price).toBe(400);
+  });
 });

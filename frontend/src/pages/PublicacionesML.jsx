@@ -109,10 +109,12 @@ export default function PublicacionesML() {
   // markup). That one keeps the rows the operator has open; a user-triggered
   // reload starts from collapsed. In the agrupado view only `/items` (state,
   // facets) is asked again: the tree is not reloaded, so its rows keep the old
-  // figures until the tree is next opened.
-  const keepExpanded = useRef(false);
+  // figures until the tree is next opened. The follow-up reads at ~5s and ~65s
+  // only happen while the Promos tab stays open; leaving it cancels them, and
+  // the row keeps the figures of the first reload until the next one.
+  const keepExpanded = useRef(0); // number of the request that keeps the open rows
   const reloadList = useCallback(() => {
-    keepExpanded.current = true;
+    keepExpanded.current = latestRequest.current + 1;
     setReloadToken((token) => token + 1);
   }, []);
   const [columnVisibility, setColumnVisibility] = useState({});
@@ -156,8 +158,8 @@ export default function PublicacionesML() {
         if (request !== latestRequest.current) return;
         setData(response.data);
         // A new list (page, sort, filter) starts with every row collapsed.
-        if (!keepExpanded.current) setExpandedIds(new Set());
-        keepExpanded.current = false;
+        if (keepExpanded.current !== request) setExpandedIds(new Set());
+        keepExpanded.current = 0;
         if (wantFacets) {
           setFacets(response.data.facets ?? null);
           facetsFor.current = filterKey;
@@ -166,7 +168,7 @@ export default function PublicacionesML() {
       })
       .catch((err) => {
         if (request !== latestRequest.current) return;
-        keepExpanded.current = false;
+        keepExpanded.current = 0;
         setError(err);
         setLoading(false);
       });
