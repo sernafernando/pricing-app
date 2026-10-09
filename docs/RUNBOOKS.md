@@ -1056,8 +1056,14 @@ allows 5 requests/minute per account for all of billing), so a lap takes hours o
   `failures`, `retry_at` and, once a lap ends, `last_lap.failed` (the units to look at).
   Deleting the row loses no data; the next run builds a new lap and the upserts are idempotent.
 - **Failures:** a 429, timeout or 5xx waits `min(60 s * 2^(n-1), 15 min)`; five in a row on one unit
-  fail it and the lap moves on (the next lap retries it). Any other 4xx fails the unit at once: a
-  poison row halts that period's details, as the cron did, until the poison-row engine is wired.
+  fail it and the lap moves on (the next lap retries it). A 400 that names its cause (or any other
+  4xx) fails the unit at once.
+- **Poison rows:** a BARE 400 on a details page starts a probe kept in the unit (`unit.probe`), one
+  request per tick (about 40-70 requests, 10-18 min at the 15 s pace, per poison row). It ends by
+  recording a gap (`ml_billing_sweep_gaps`, paging `from_id`, window `(cursor, poison]`) and
+  stepping over the row; the period continues. A gap closes by itself when a later page that
+  started at or before the window returns the row; a window ending at 2^40 (a 400 that is not about
+  a row) never closes: look at it.
 - **Completeness:** `document_completeness` (a query) says which documents are missing rows.
 
 ### Heartbeat death / unexpected restarts
