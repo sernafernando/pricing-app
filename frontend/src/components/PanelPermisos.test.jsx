@@ -113,6 +113,62 @@ describe('PanelPermisos', () => {
     expect(screen.queryByText('Permiso concedido')).not.toBeInTheDocument();
   });
 
+  describe('late permission responses', () => {
+    // Holds the FIRST GET of the given user's permissions until released;
+    // later GETs answer at once with `siguiente()`.
+    function retenerPrimeraCarga(usuarioId, siguiente = () => permisosDe(usuarioId)) {
+      const getOriginal = api.get.getMockImplementation();
+      let liberar;
+      const pendiente = new Promise((resolve) => { liberar = resolve; });
+      let llamadas = 0;
+      api.get.mockImplementation((url) => {
+        if (url !== `/permisos/usuario/${usuarioId}`) return getOriginal(url);
+        llamadas += 1;
+        return llamadas === 1 ? pendiente : Promise.resolve({ data: siguiente() });
+      });
+      return (data) => act(async () => liberar({ data }));
+    }
+
+    it('does not let the first selection overwrite a later one when it answers last', async () => {
+      const user = userEvent.setup();
+      const liberarAna = retenerPrimeraCarga(7);
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(screen.getByText('Beto Gómez'));
+      await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+
+      await liberarAna(permisosDe(7));
+
+      expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Conceder acceso a Admin' })).not.toBeInTheDocument();
+    });
+
+    it('does not let an older request for the same user overwrite a newer one', async () => {
+      const user = userEvent.setup();
+      // Ana's second load already shows the access granted by an override.
+      const conOverride = () => {
+        const data = permisosDe(7);
+        Object.assign(data.permisos_detallados.administracion[0], {
+          override: true, efectivo: true, origen: 'override_agregado',
+        });
+        return data;
+      };
+      const liberarAna = retenerPrimeraCarga(7, conOverride);
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(screen.getByText('Beto Gómez'));
+      await user.click(screen.getByText('Ana Pérez'));
+      await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+
+      // The stale first answer (no access) arrives last and must be dropped.
+      await liberarAna(permisosDe(7));
+
+      expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument();
+    });
+  });
+
   describe('feedback messages', () => {
     beforeEach(() => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
