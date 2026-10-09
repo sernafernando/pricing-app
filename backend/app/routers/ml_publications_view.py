@@ -15,6 +15,9 @@ joins it).
   `ml_item_events`, newest first, keyset-paged by an opaque cursor; an empty list while `events.enabled` is off.
 - `GET /ml-publications/view/items/{item_id}/history` (`ml_ops.ver`): its `ml_change_log` rows (and those of its user
   product and family), one entry per row with the business fields apart from the technical ones.
+- `GET /ml-publications/view/kpis` (`ml_ops.ver` AND `ml_metricas.ver`): Métricas ML's KPI strip over the MLAs the same
+  filters select, for its own period (`periodo` 7/15/30/60/90 or `desde`/`hasta`, default the last 30 days) and
+  `comparar_con`. The profit figures only with `ml_metricas.ver_ganancia` (omitted otherwise). No PM scoping.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
   422 that names the offending query parameter. Nothing here calls Mercado Libre and nothing writes.
@@ -22,7 +25,7 @@ joins it).
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
@@ -34,12 +37,15 @@ from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
+from app.routers import ml_metricas
+from app.services.ml_daily_metrics import board
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
     detail,
     events_view,
     groups,
     history,
+    kpis,
     listing,
     status_block,
     variations,
@@ -59,6 +65,7 @@ from app.services.permisos_service import PermisosService
 
 PERMISO_VER = "ml_ops.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
+PERMISO_METRICAS = ml_metricas.PERMISO_VER  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
 SLOW_QUERY_CODE = "consulta_lenta"
@@ -465,6 +472,25 @@ class GroupsResponse(BaseModel):
     offset: int
     familias: bool
     ads: Optional[AdsOut] = None  # present only with ml_metricas.ver_ganancia
+
+
+class KpiStripOut(BaseModel):
+    """Métricas' KPI strip, figure for figure (`ml_metricas.BoardKpis`); the profit figures (`total_gauss`, `markup`)
+    are absent, not null, without `ml_metricas.ver_ganancia`. The Board has no Ads figures, so neither has this."""
+
+    units: ml_metricas.KpiUnits
+    gross: ml_metricas.KpiMoney
+    total_gauss: Optional[ml_metricas.KpiMoney] = None
+    markup: Optional[ml_metricas.KpiMarkup] = None
+    rows_with_sales: ml_metricas.KpiShare
+    ageing: ml_metricas.KpiAgeing
+
+
+class KpisResponse(BaseModel):
+    period: ml_metricas.BoardPeriod
+    kpis: KpiStripOut
+    mla_count: int  # the publications the filter selects: the list's `total`, not the ones that sold
+    can_see_margin: bool
 
 
 # ── Reads (ml_ops.ver) ───────────────────────────────────────────
@@ -894,3 +920,99 @@ def get_item_history(
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(rows=len(found.entries))
     return {"entries": found.entries, "next_cursor": found.next_cursor}
+
+
+KPI_PERIOD_PRESETS = (7, 15, 30, 60, 90)  # days, ending today
+KPI_DEFAULT_DAYS = 30
+
+
+def _day(value: Optional[str], field: str) -> Optional[date]:
+    if value is None or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise FilterError(field, f"invalid date (YYYY-MM-DD): {value!r}") from exc
+
+
+def kpi_period(periodo: Optional[str], desde: Optional[str], hasta: Optional[str]) -> tuple[date, date]:
+    """The strip's own period: a preset of days ending today, or `desde`/`hasta` (each defaulting like Métricas:
+    `hasta` to today, `desde` to the default length before it). The bounds are Métricas' own."""
+    days = KPI_DEFAULT_DAYS
+    if periodo is not None and periodo.strip():
+        if (desde or "").strip() or (hasta or "").strip():
+            raise FilterError("periodo", "cannot be combined with desde / hasta")
+        if not periodo.strip().isdigit() or int(periodo) not in KPI_PERIOD_PRESETS:
+            raise FilterError("periodo", f"must be one of {', '.join(map(str, KPI_PERIOD_PRESETS))}")
+        days = int(periodo)
+    last = _day(hasta, "hasta") or board.today_business()
+    first = _day(desde, "desde") or last - timedelta(days=days - 1)
+    low, high = ml_metricas.MIN_BOARD_DATE, ml_metricas.MAX_BOARD_DATE
+    if not low <= first <= high:
+        raise FilterError("desde", f"must be between {low.isoformat()} and {high.isoformat()}")
+    if not low <= last <= high:
+        raise FilterError("hasta", f"must be between {low.isoformat()} and {high.isoformat()}")
+    if first > last:
+        raise FilterError("desde", "is after hasta")
+    if (last - first).days + 1 > ml_metricas.MAX_PERIOD_DAYS:
+        raise FilterError("desde", f"the period cannot exceed {ml_metricas.MAX_PERIOD_DAYS} days")
+    return first, last
+
+
+def require_kpis_access(
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    auth_db: Session = Depends(get_db),
+) -> Usuario:
+    """The strip is Métricas' numbers, so it needs `ml_metricas.ver` on top of `ml_ops.ver` (owner decision 4).
+    A dependency declared first: who may ask is decided before anything asked is validated."""
+    if not PermisosService(auth_db).tiene_permiso(user, PERMISO_METRICAS):
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_METRICAS} para ver los KPIs",
+        )
+    return user
+
+
+@router.get("/kpis", response_model=KpisResponse, response_model_exclude_unset=True)
+def get_kpis(
+    response: Response,
+    user: Usuario = Depends(require_kpis_access),
+    f: PublicationFilter = Depends(filter_query),
+    periodo: Optional[str] = Query(None, description="7, 15, 30 (default), 60 or 90 days ending today"),
+    desde: Optional[str] = Query(None, description="first day of the period, YYYY-MM-DD (instead of periodo)"),
+    hasta: Optional[str] = Query(None, description="last day of the period, YYYY-MM-DD (default: today)"),
+    comparar_con: str = Query("periodo_anterior", description=" | ".join(board.COMPARE)),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
+) -> dict[str, Any]:
+    """Métricas ML's KPI strip over the MLAs the filters select, for its own period. The figures are the Board's own
+    (same serializer as `/ml-metricas/board`); the profit ones need `ml_metricas.ver_ganancia`."""
+    timer = Timer("kpis")
+    can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
+    try:
+        if comparar_con not in board.COMPARE:
+            raise FilterError("comparar_con", f"must be one of {', '.join(board.COMPARE)}")
+        first, last = kpi_period(periodo, desde, hasta)
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        with timer.stage("kpis"):
+            strip = kpis.compute(db, f, first, last, comparar_con)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(mla_count=strip.mla_count)
+    figures = ml_metricas._kpis(strip.kpis, can_see_margin)
+    return {
+        "period": {"date_from": first, "date_to": last, "prev_from": strip.prev_from, "prev_to": strip.prev_to},
+        "kpis": figures.model_dump(exclude=None if can_see_margin else {"total_gauss", "markup"}),
+        "mla_count": strip.mla_count,
+        "can_see_margin": can_see_margin,
+    }

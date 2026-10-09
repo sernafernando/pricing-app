@@ -221,3 +221,35 @@ def real_hours_ago(hours: float) -> datetime:
     """Relative to the real clock, for the queries that compare against the database's `now()` (the
     `evento_desde` window). Against the fixed `NOW` those windows expire a day or a week after `NOW`."""
     return datetime.now(timezone.utc) - timedelta(hours=hours)
+
+
+def create_board_tables(engine) -> None:
+    """The tables the Métricas Board reads, next to the store's, in the engine's throwaway schema (the KPI strip
+    reads both in one transaction, as production does). Tables that already exist (the products, the stores) are
+    left alone."""
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+    from app.models.ml_group_metrics import MlGroupMetrics
+    from app.models.ml_order_item_costo import MlOrderItemCosto
+    from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
+    from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
+    from app.models.ml_payments import MlPaymentOps
+    from app.models.ml_tienda_oficial import MlTiendaOficial
+    from app.models.ml_venta_deduccion import MlVentaDeduccion
+    from tests.conftest import _restore_pristine_pg_types
+
+    tables = [
+        MlOrdersOps.__table__,
+        MlOrderItemOps.__table__,
+        MlOrderItemCosto.__table__,
+        MlOrderMetrics.__table__,
+        MlOrderMetricsDirty.__table__,
+        MlGroupMetrics.__table__,
+        MercadoLibreItemPublicado.__table__,
+        MlOpsSyncCursor.__table__,
+        MlPaymentOps.__table__,
+        MlVentaDeduccion.__table__,
+        MlTiendaOficial.__table__,
+    ]
+    _restore_pristine_pg_types(tables)
+    for table in tables:
+        table.create(bind=engine, checkfirst=True)
