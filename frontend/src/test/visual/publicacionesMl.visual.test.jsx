@@ -599,7 +599,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
         const tabs = [...panel.querySelectorAll('[role="tab"]')];
-        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Eventos', 'Historial', 'Producto vinculado']);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Eventos', 'Historial', 'Producto']);
         // One row of tabs: they all start at the same height.
         expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
         // The footer sits inside the panel's box even though the content is taller than the panel.

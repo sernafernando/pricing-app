@@ -23,7 +23,7 @@ export const PANEL_TABS = [
   { key: 'full', label: 'Full', isVisible: ({ detail }) => detail.isFull || detail.replenishment != null, Component: FullTab },
   { key: 'eventos', label: 'Eventos', isVisible: () => true, Component: EventosTab },
   { key: 'historial', label: 'Historial', isVisible: () => true, Component: HistorialTab },
-  { key: 'producto', label: 'Producto vinculado', isVisible: () => true, Component: ProductoVinculadoTab },
+  { key: 'producto', label: 'Producto', isVisible: () => true, Component: ProductoVinculadoTab },
 ];
 
 export function visibleTabs(tabs, context) {

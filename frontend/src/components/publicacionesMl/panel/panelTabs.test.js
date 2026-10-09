@@ -23,6 +23,6 @@ describe('the registry', () => {
 
   it('labels them in Spanish', () => {
     const labels = Object.fromEntries(PANEL_TABS.map((tab) => [tab.key, tab.label]));
-    expect(labels).toMatchObject({ eventos: 'Eventos', historial: 'Historial', producto: 'Producto vinculado' });
+    expect(labels).toMatchObject({ eventos: 'Eventos', historial: 'Historial', producto: 'Producto' });
   });
 });
