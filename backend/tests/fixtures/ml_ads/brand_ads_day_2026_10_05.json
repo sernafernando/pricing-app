@@ -1,0 +1,396 @@
+{
+ "714700": {
+  "request": {
+   "path": "/advertising/advertisers/714700/brand_ads/campaigns/metrics",
+   "params": {
+    "date_from": "2026-10-05",
+    "date_to": "2026-10-05",
+    "aggregation_type": "daily"
+   },
+   "api_version": "1"
+  },
+  "status": 200,
+  "body": {
+   "dashboard": {
+    "prints": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "ctr": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "consumed_budget": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "leads": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "cost_per_clicks": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "clicks": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "roas": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "acos": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "cvr": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "attribution_order_amount": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "attribution_order_conversions": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ]
+   },
+   "metrics": [
+    {
+     "date": "2026-10-05",
+     "metrics": {
+      "prints": 0,
+      "clicks": 0,
+      "ctr": 0.0,
+      "cvr": 0.0,
+      "acos": 0.0,
+      "roas": 0.0,
+      "attribution_order_conversions": 0,
+      "attribution_order_amount": 0.0,
+      "consumed_budget": 0.0,
+      "cost_per_clicks": 0.0,
+      "leads": 0
+     }
+    }
+   ],
+   "summary": {
+    "prints": 0,
+    "clicks": 0,
+    "ctr": 0.0,
+    "cvr": 0.0,
+    "acos": 0.0,
+    "roas": 0.0,
+    "attribution_order_conversions": 0,
+    "attribution_order_amount": 0.0,
+    "consumed_budget": 0.0,
+    "cost_per_clicks": 0.0,
+    "leads": 0
+   },
+   "comparison": {
+    "dashboard": {
+     "prints": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "ctr": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "consumed_budget": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "leads": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "cost_per_clicks": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "clicks": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "roas": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "acos": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "cvr": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "attribution_order_amount": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "attribution_order_conversions": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ]
+    },
+    "summary": {
+     "prints": 0,
+     "ctr": 0,
+     "consumed_budget": 0,
+     "leads": 0,
+     "cost_per_clicks": 0,
+     "clicks": 0,
+     "roas": 0,
+     "acos": 0,
+     "cvr": 0,
+     "attribution_order_amount": 0,
+     "attribution_order_conversions": 0
+    }
+   },
+   "updated_at": "2026-10-08T14:10:52Z"
+  }
+ },
+ "25713": {
+  "request": {
+   "path": "/advertising/advertisers/25713/brand_ads/campaigns/metrics",
+   "params": {
+    "date_from": "2026-10-05",
+    "date_to": "2026-10-05",
+    "aggregation_type": "daily"
+   },
+   "api_version": "1"
+  },
+  "status": 200,
+  "body": {
+   "dashboard": {
+    "prints": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "ctr": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "consumed_budget": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "leads": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "cost_per_clicks": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "clicks": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ],
+    "roas": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "acos": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "cvr": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "attribution_order_amount": [
+     {
+      "x": "2026-10-05",
+      "y": 0.0
+     }
+    ],
+    "attribution_order_conversions": [
+     {
+      "x": "2026-10-05",
+      "y": 0
+     }
+    ]
+   },
+   "metrics": [
+    {
+     "date": "2026-10-05",
+     "metrics": {
+      "prints": 0,
+      "clicks": 0,
+      "ctr": 0.0,
+      "cvr": 0.0,
+      "acos": 0.0,
+      "roas": 0.0,
+      "attribution_order_conversions": 0,
+      "attribution_order_amount": 0.0,
+      "consumed_budget": 0.0,
+      "cost_per_clicks": 0.0,
+      "leads": 0
+     }
+    }
+   ],
+   "summary": {
+    "prints": 0,
+    "clicks": 0,
+    "ctr": 0.0,
+    "cvr": 0.0,
+    "acos": 0.0,
+    "roas": 0.0,
+    "attribution_order_conversions": 0,
+    "attribution_order_amount": 0.0,
+    "consumed_budget": 0.0,
+    "cost_per_clicks": 0.0,
+    "leads": 0
+   },
+   "comparison": {
+    "dashboard": {
+     "prints": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "ctr": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "consumed_budget": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "leads": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "cost_per_clicks": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "clicks": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ],
+     "roas": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "acos": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "cvr": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "attribution_order_amount": [
+      {
+       "x": "2026-10-04",
+       "y": 0.0
+      }
+     ],
+     "attribution_order_conversions": [
+      {
+       "x": "2026-10-04",
+       "y": 0
+      }
+     ]
+    },
+    "summary": {
+     "prints": 0,
+     "ctr": 0,
+     "consumed_budget": 0,
+     "leads": 0,
+     "cost_per_clicks": 0,
+     "clicks": 0,
+     "roas": 0,
+     "acos": 0,
+     "cvr": 0,
+     "attribution_order_amount": 0,
+     "attribution_order_conversions": 0
+    }
+   },
+   "updated_at": "2026-10-08T14:10:52Z"
+  }
+ }
+}

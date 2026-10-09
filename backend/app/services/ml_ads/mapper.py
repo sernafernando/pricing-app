@@ -206,3 +206,46 @@ def map_display_metrics(advertiser_id: int, campaign_id: int, day: date, body: M
             )
         )
     return facts
+
+
+# --- Brand Ads (account-level, informational, ADS-10) ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BrandFact:
+    """One advertiser's Brand Ads figures on one day. `cost` is `dashboard.consumed_budget`; it is never subtracted."""
+
+    advertiser_id: int
+    day: date
+    cost: Decimal
+    prints: int
+    clicks: int
+    raw: Mapping[str, Any]
+
+
+def _dashboard_point(body: Mapping[str, Any], metric: str, day: date) -> Any:
+    """The `y` of the `{x, y}` point of `day` in `dashboard.<metric>`; None when the series has no point for it."""
+    dashboard = body.get("dashboard")
+    series = dashboard.get(metric) if isinstance(dashboard, Mapping) else None
+    for point in series if isinstance(series, list) else []:
+        if isinstance(point, Mapping) and point.get("x") == day.isoformat():
+            return point.get("y")
+    return None
+
+
+def map_brand_day(advertiser_id: int, day: date, body: Mapping[str, Any]) -> Optional[BrandFact]:
+    """The day's fact, or None when it is all zero (no activity, no row; the ledger still closes)."""
+    cost = _money(_dashboard_point(body, "consumed_budget", day))
+    prints = _count(_dashboard_point(body, "prints", day))
+    clicks = _count(_dashboard_point(body, "clicks", day))
+    if not (cost or prints or clicks):
+        return None
+    return BrandFact(advertiser_id=advertiser_id, day=day, cost=cost, prints=prints, clicks=clicks, raw=body)
+
+
+def parse_brand_summary(body: Mapping[str, Any]) -> Optional[DaySummary]:
+    """ML's own total for the one-day window (`summary.consumed_budget`); None when the answer has none."""
+    summary = body.get("summary")
+    if not isinstance(summary, Mapping) or summary.get("consumed_budget") is None:
+        return None
+    return DaySummary(cost=_money(summary["consumed_budget"]), raw=summary)

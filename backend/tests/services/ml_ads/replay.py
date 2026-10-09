@@ -26,6 +26,7 @@ ADS_RE = re.compile(r"/product_ads/ad_groups/(\d+)/ads$")
 ADVERTISERS_RE = re.compile(r"/advertising/advertisers$")
 DISPLAY_CAMPAIGNS_RE = re.compile(r"/advertisers/(\d+)/display/campaigns$")
 DISPLAY_METRICS_RE = re.compile(r"/advertisers/(\d+)/display/campaigns/(\d+)/metrics$")
+BRAND_RE = re.compile(r"/advertisers/(\d+)/brand_ads/campaigns/metrics$")
 
 
 class FakeClock:
@@ -95,10 +96,16 @@ def gauss_display() -> dict[str, Any]:
     }
 
 
+def brand_ads() -> dict[int, dict[str, Any]]:
+    """Both advertisers' Brand Ads answers of 2026-10-05 (all zeros that day), advertiser id -> body."""
+    return {int(adv): response["body"] for adv, response in load("brand_ads_day_2026_10_05.json").items()}
+
+
 class Replay:
     """httpx handler. `days` maps advertiser id -> {pages, summary, ads}; every answer is a captured body.
 
     `display` maps advertiser id -> {campaigns, metrics}; by default only 25713 has the captured Display answers.
+    `brand` maps advertiser id -> Brand Ads body; by default both advertisers have their captured answer.
 
     A request with no captured answer fails the test loudly instead of inventing one.
     """
@@ -110,10 +117,12 @@ class Replay:
         *,
         advertisers: Optional[tuple[int, ...]] = None,
         display: Optional[dict[int, dict[str, Any]]] = None,
+        brand: Optional[dict[int, dict[str, Any]]] = None,
     ) -> None:
         self.clock = clock
         self.days = days
         self.display = {25713: gauss_display()} if display is None else display
+        self.brand = brand_ads() if brand is None else brand
         # The real advertisers answer; `advertisers` keeps whole entries of it (ids), never edits one.
         listing = load("advertisers_pads.json")["body"]
         if advertisers is not None:
@@ -133,6 +142,8 @@ class Replay:
         params = dict(request.url.params)
         if ADVERTISERS_RE.search(path):
             return httpx.Response(200, json=self.advertisers_body)
+        if match := BRAND_RE.search(path):
+            return httpx.Response(200, json=self.brand[int(match.group(1))])
         if match := DISPLAY_METRICS_RE.search(path):
             return httpx.Response(200, json=self.display[int(match.group(1))]["metrics"][int(match.group(2))])
         if match := DISPLAY_CAMPAIGNS_RE.search(path):
@@ -175,6 +186,9 @@ class Replay:
 
     def display_calls(self) -> list[httpx.Request]:
         return [r for r in self.requests if "/display/" in r.url.path]
+
+    def brand_calls(self) -> list[httpx.Request]:
+        return self.calls(BRAND_RE)
 
     def summary_calls(self) -> list[httpx.Request]:
         return self.calls(SUMMARY_RE)
