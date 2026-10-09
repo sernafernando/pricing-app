@@ -36,15 +36,19 @@ export function usePublicationDetail(itemId, { canSeeMargin }) {
 
   const reload = () => setAttempt((n) => n + 1);
 
+  // The newest silent request wins, and a selection change cancels every older one.
   const selected = useRef(itemId);
+  const latestRefresh = useRef(0);
   useEffect(() => {
     selected.current = itemId;
+    latestRefresh.current += 1;
   }, [itemId]);
   const refresh = useCallback(() => {
+    const request = ++latestRefresh.current;
     publicacionesMlAPI
       .detail(itemId)
       .then((response) => {
-        if (selected.current !== itemId) return;
+        if (selected.current !== itemId || request !== latestRefresh.current) return;
         setState((current) => (current.itemId === itemId && !current.error ? { itemId, raw: response.data ?? {}, error: null } : current));
       })
       .catch(() => {});

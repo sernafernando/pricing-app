@@ -166,6 +166,7 @@ export default function PublicacionesML() {
       })
       .catch((err) => {
         if (request !== latestRequest.current) return;
+        keepExpanded.current = false;
         setError(err);
         setLoading(false);
       });

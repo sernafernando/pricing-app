@@ -170,7 +170,9 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   // (after the server's ~60s retry drains for slower SMART reconciliation).
   const reloadTimersRef = useRef([]);
   const onAppliedRef = useRef(onApplied);
-  onAppliedRef.current = onApplied;
+  useEffect(() => {
+    onAppliedRef.current = onApplied;
+  }, [onApplied]);
   const storedTypes = usePromoFilterStore((state) => state.selectedTypes);
   const storedNames = usePromoFilterStore((state) => state.selectedNames);
   // Empty selections mean "show all" to `matchesPromoFilter`.

@@ -71,4 +71,18 @@ describe('refresh', () => {
     await act(async () => other.resolve({ data: { ...withPrice(5), row: { ...DETAIL_RESPONSE.row, item_id: 'MLA2', price: 5 } } }));
     expect(result.current.detail.row.price).toBe(5);
   });
+
+  it('keeps the newest answer when two refreshes overlap and the older one arrives last', async () => {
+    publicacionesMlAPI.detail.mockResolvedValueOnce({ data: withPrice(100) });
+    const { result } = renderHook(() => usePublicationDetail('MLA1', { canSeeMargin: false }));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const first = deferred();
+    const second = deferred();
+    publicacionesMlAPI.detail.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    act(() => result.current.refresh());
+    act(() => result.current.refresh());
+    await act(async () => second.resolve({ data: withPrice(300) }));
+    await act(async () => first.resolve({ data: withPrice(200) }));
+    expect(result.current.detail.row.price).toBe(300);
+  });
 });
