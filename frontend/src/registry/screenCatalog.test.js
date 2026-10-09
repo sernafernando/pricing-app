@@ -48,16 +48,17 @@ function parseProtectedRoutes(source) {
 function parseSidebar(source) {
   const items = [];
   let section = null;
-  for (const line of source.split('\n')) {
+  const lines = source.split('\n');
+  lines.forEach((line, i) => {
     const title = line.match(/^\s*title:\s*'([^']+)'/);
     if (title) section = title[1];
     const item = line.match(/\{\s*label:\s*'([^']+)',\s*path:\s*'([^']+)'/);
     if (item) items.push({ label: item[1], path: item[2], section });
-  }
-  // Multi-line items (`label:` and `path:` on separate lines).
-  for (const match of source.matchAll(/label:\s*'([^']+)',\s*\n\s*path:\s*'([^']+)'/g)) {
-    items.push({ label: match[1], path: match[2], section: null });
-  }
+    // Multi-line item: `label:` alone on its line, `path:` on the next one.
+    const label = line.match(/^\s*label:\s*'([^']+)',\s*$/);
+    const path = label && (lines[i + 1] || '').match(/^\s*path:\s*'([^']+)'/);
+    if (path) items.push({ label: label[1], path: path[1], section });
+  });
   return items;
 }
 
@@ -128,6 +129,33 @@ describe('screen catalog vs App.jsx protectedRoutes', () => {
   });
 });
 
+describe('sidebar parser', () => {
+  it('reads the section of single-line and multi-line items', () => {
+    const fixture = [
+      '    {',
+      "      title: 'Uno',",
+      '      items: [',
+      "        { label: 'A', path: '/a', permiso: 'a.ver' },",
+      '      ],',
+      '    },',
+      '    {',
+      "      title: 'Dos',",
+      '      items: [',
+      '        {',
+      "          label: 'B',",
+      "          path: '/b',",
+      '          multiple: true,',
+      '        },',
+      '      ],',
+      '    },',
+    ].join('\n');
+    expect(parseSidebar(fixture)).toEqual([
+      { label: 'A', path: '/a', section: 'Uno' },
+      { label: 'B', path: '/b', section: 'Dos' },
+    ]);
+  });
+});
+
 describe('screen catalog vs Sidebar.jsx menuSections', () => {
   const sidebarItems = parseSidebar(sidebarSource);
 
@@ -137,7 +165,8 @@ describe('screen catalog vs Sidebar.jsx menuSections', () => {
       const screen = byPath.get(item.path);
       expect(screen, `sidebar item ${item.path} missing from catalog`).toBeDefined();
       expect(screen.label).toBe(item.label);
-      if (item.section) expect(screen.section).toBe(item.section);
+      expect(item.section, `no section read for ${item.path}`).toBeTruthy();
+      expect(screen.section, `section drifted for ${item.path}`).toBe(item.section);
     }
   });
 });
