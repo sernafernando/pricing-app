@@ -82,3 +82,21 @@ Per page, ML's own `offset`, `limit` and `total` plus the real `n_results`, and
 the first 12 real `detail_id`s of page 0. It proves the offset shape: pages are
 contiguous (`offset` 0, 500, ... 3000), the last one is partial (325) and
 `total` drifts while the sweep runs (3324 -> 3325).
+
+## `credit_note_2026_09.json.gz` (PR 4b)
+
+Source: the same capture, `ml.details.general_CREDIT_NOTE["2026-09-01"]`
+(general `/details`, `document_type=CREDIT_NOTE`, `from_id` paging,
+`limit=1000`). The two real pages in order, each with ML's own envelope
+(`total`, `limit`, `offset`, `last_id`, `n_results`) and its `results`: the
+196 complete rows (nothing stripped; `payer_nickname`, `state_name`,
+`marketplace_info`, `currency_info` and `charge_bonified_id` as ML sent them)
+and the empty page (`last_id=0`) that ends the pass. The 5 credit-note
+documents these rows belong to are in `documents_2026_09_01.json`.
+
+What the rows prove: all 196 are `detail_type=BONUS` (sub-types BVFV 100, BXD
+36, BVFF 25, BVFN 19, BFF 8, BSSTEC 3, BIBME 2, BIB 2, BS 1); 195 carry a
+`charge_bonified_id` and the one that does not is the `BS` row of 8,675,215 (a
+whole-document reversal, document 5224932860); none of the 196 `detail_id`s
+and none of the 195 `charge_bonified_id`s is among the period's 33,210 BILL
+`detail_id`s, i.e. credit notes reverse invoices of EARLIER periods.

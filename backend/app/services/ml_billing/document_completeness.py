@@ -12,8 +12,9 @@ caller decides which period and document type to ask about.
 Sign: detail amounts are stored the way the mapper writes them (BONUS
 negated). A BILL document's amount equals their sum (sign +1; verified on the
 2026-09-01 capture: 534,258,231.37 / 56,674,709.86). A CREDIT_NOTE document is
-counted with sign -1, per the design. PR 4b verifies that against the captured
-credit-note rows.
+counted with sign -1: its rows are all BONUS, stored negated, and ML's document
+amount is positive (verified on the 5 captured credit-note documents of
+2026-09-01 in `tests/services/ml_billing/test_credit_notes.py`).
 """
 
 from __future__ import annotations

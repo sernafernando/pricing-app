@@ -338,3 +338,19 @@ class TestGetBillingDocuments:
         _patch_client(monkeypatch, httpx.MockTransport(handler))
 
         assert asyncio.run(MLWebhookClient().get_billing_documents("2026-09-01", "ML", "BILL")) is None
+
+
+class TestGetBillingDetailsDocumentType:
+    def test_credit_note_is_requested_when_asked_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url.params["resource"])
+            return httpx.Response(200, json=DETAILS_PAYLOAD_PAGE_1)
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+
+        asyncio.run(MLWebhookClient().get_billing_details("2026-09-01", "ML", document_type="CREDIT_NOTE"))
+
+        assert "document_type=CREDIT_NOTE" in seen[0]
+        assert "from_id=0" in seen[0]
