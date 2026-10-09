@@ -31,6 +31,8 @@ import {
   HISTORY_RESPONSE,
   FACETS,
   ITEMS,
+  KPIS_RESPONSE,
+  KPIS_RESPONSE_MARGIN,
   ITEMS_RESPONSE,
   PRODUCT_NODES,
   VARIATIONS_RESPONSE,
@@ -41,10 +43,15 @@ import {
 
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
 let canSeeMargin = false;
+let canSeeKpis = true;
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: (permiso) => (permiso === 'ml_metricas.ver_ganancia' ? canSeeMargin : true),
+    tienePermiso: (permiso) => {
+      if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
+      if (permiso === 'ml_metricas.ver') return canSeeKpis;
+      return true;
+    },
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -55,7 +62,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), kpis: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
@@ -128,6 +135,13 @@ const wrapped = (elements) =>
   [...elements]
     .filter((el) => el.getClientRects().length > 1 || rect(el).height > lineHeightOf(el) * 1.6)
     .map((el) => el.textContent.trim());
+
+// Every suite shows the strip unless it says otherwise.
+beforeEach(() => {
+  canSeeKpis = true;
+  publicacionesMlAPI.kpis.mockReset();
+  publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
+});
 
 const VIEWPORTS = [
   { width: 1920, height: 1080 },
@@ -770,6 +784,70 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     const box = rect(button.element());
     expect(box.right).toBeLessThanOrEqual(rect(panelOf()).right + 0.5);
     expect(box.left).toBeGreaterThanOrEqual(rect(panelOf()).left - 0.5);
+    screen.unmount();
+  });
+});
+
+describe('Publicaciones ML KPI strip (visual, P12b)', () => {
+  const strip = () => document.querySelector('section[aria-label="Indicadores de las publicaciones"]');
+
+  beforeEach(() => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+
+  // 1280 is the narrowest the page is used at; CI's wider fonts need the slack the assertions leave.
+  for (const { width, height } of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1280, height: 720 }]) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: every tile fits its card and the strip fits the page, with the profit tiles too`, async () => {
+        canSeeMargin = true;
+        publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE_MARGIN });
+        const screen = await renderPage({ width, height, theme });
+        await expect.element(screen.getByText('Markup promedio')).toBeVisible();
+        const box = rect(strip());
+        expect(box.right).toBeLessThanOrEqual(width + 0.5);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        const cards = [...strip().querySelectorAll('[class*="cards"] > *')];
+        expect(cards).toHaveLength(6);
+        for (const card of cards) {
+          expect(card.scrollWidth, card.textContent).toBeLessThanOrEqual(card.clientWidth + 1);
+          expect(rect(card).right).toBeLessThanOrEqual(box.right + 0.5);
+        }
+        // The big figures never wrap, whatever the font.
+        expect(wrapped(strip().querySelectorAll('[data-kpi-value]'))).toEqual([]);
+        expect(getComputedStyle(cards[0]).backgroundColor).toBe(tokenColor('--cf-bg-card'));
+        screen.unmount();
+      });
+    }
+  }
+
+  it('narrow: the markup notice and the period selector wrap inside the strip', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE_MARGIN });
+    await page.viewport(900, 720);
+    setTheme('light');
+    const screen = await render(
+      <MemoryRouter initialEntries={['/ml-publicaciones?markup_neg=1']}>
+        <Shell>
+          <PublicacionesML />
+        </Shell>
+      </MemoryRouter>,
+    );
+    await expect.element(screen.getByText('Los KPIs no aplican el filtro de markup')).toBeVisible();
+    const box = rect(strip());
+    for (const child of strip().querySelectorAll('[class*="toolbar"] > *')) {
+      expect(rect(child).right).toBeLessThanOrEqual(box.right + 0.5);
+    }
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(900);
+    screen.unmount();
+  });
+
+  it('without ml_metricas.ver there is no strip and the table renders', async () => {
+    canSeeKpis = false;
+    const screen = await renderPage({ width: 1366, height: 768, theme: 'light' });
+    expect(strip()).toBeNull();
+    expect(publicacionesMlAPI.kpis).not.toHaveBeenCalled();
+    expect(scrollerOf()).not.toBeNull();
     screen.unmount();
   });
 });

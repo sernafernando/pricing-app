@@ -111,6 +111,21 @@ export function buildItemsParams(filters, pageSize = filters.limite ?? PAGE_SIZE
   return params;
 }
 
+const MARKUP_KEYS = ['markup_neg', 'markup_min', 'markup_max'];
+
+/** True when a markup filter narrows the list. The list applies it after the query, so the KPIs cannot. */
+export const hasMarkupFilter = (filters) => MARKUP_KEYS.some((key) => filters[key] !== '');
+
+/**
+ * The `GET /ml-publications/view/kpis` query: the list's filters plus the strip's own `periodo`. No paging, no
+ * sort, and never the markup filters (the backend computes the strip before them): the strip says so instead.
+ */
+export function buildKpiParams(filters, periodo) {
+  const { orden, dir, limit, offset, ...params } = buildItemsParams(filters, 1, { canSeeMargin: false });
+  void orden, dir, limit, offset;
+  return { ...params, periodo };
+}
+
 export function usePublicacionesMLFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => readFilters(searchParams), [searchParams]);
