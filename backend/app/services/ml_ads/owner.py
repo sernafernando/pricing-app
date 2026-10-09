@@ -48,7 +48,9 @@ def ads_owner_select(*, sqlite: bool, mlas: Optional[Select] = None) -> Select:
         ranked = ranked.where(last.c.mla.in_(mlas))
     sold = select(ranked.c.mla, ranked.c.product).where(ranked.c.rn == 1).subquery("ads_sold")
 
-    universe = (mlas if mlas is not None else union(select(published.c.mla), select(sold.c.mla))).subquery("ads_mlas")
+    universe = (mlas.distinct() if mlas is not None else union(select(published.c.mla), select(sold.c.mla))).subquery(
+        "ads_mlas"
+    )
     mla = universe.c[0]
     return (
         select(mla.label("mla"), func.coalesce(published.c.product, sold.c.product, NO_PRODUCT).label("owner_product"))

@@ -92,3 +92,11 @@ def test_every_requested_mla_gets_exactly_one_owner(db):
     asked = union_all(select(literal("MLA1")), select(literal("MLA9")))
     rows = db.execute(ads_owner_select(sqlite=True, mlas=select(asked.c[0]))).all()
     assert sorted(rows) == [("MLA1", 11), ("MLA9", NO_PRODUCT)]
+
+
+def test_a_duplicated_requested_mla_still_has_one_owner(db):
+    from sqlalchemy import literal, union_all
+
+    _publish(db, 1, "MLA1", 10)
+    asked = union_all(select(literal("MLA1")), select(literal("MLA1")))
+    assert db.execute(ads_owner_select(sqlite=True, mlas=select(asked.c[0]))).all() == [("MLA1", 10)]

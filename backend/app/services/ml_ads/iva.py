@@ -10,9 +10,13 @@ carry an IVA rate (a guard test enforces it). Ratios (ACOS, ROAS, CPC) stay on t
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Dict
+from typing import Any, Dict, TypeVar, Union
+
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.services.ml_ventas_desglose.iva import IVA_ML_DIVISOR  # import only; that package is not modified
+
+Money = TypeVar("Money", bound=Union[Decimal, ColumnElement])  # a Decimal, or a SQL expression
 
 # Billing is IVA-inclusive, so billing / API tells which basis the API uses.
 ADS_IVA_MEASUREMENT: Dict[str, Dict[str, Any]] = {
@@ -42,7 +46,7 @@ def includes_iva_for_ratio(ratio: Decimal) -> bool:
     raise ValueError(f"unexplained billing/API ratio {ratio}: an owner decision is needed")
 
 
-def ads_cost_net_of_iva(value, source: str = "product_ads"):
+def ads_cost_net_of_iva(value: Money, source: str = "product_ads") -> Money:
     """Decimal or SQLAlchemy expression -> the same type. The ONLY place ads money changes basis.
 
     Never rounds: `cents()` is applied once, at presentation."""
