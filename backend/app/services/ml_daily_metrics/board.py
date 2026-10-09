@@ -90,7 +90,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-from app.models.ml_orders_ops import MlOpsSyncCursor
+from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps
 from app.models.producto import ProductoERP
 from app.services.ml_daily_metrics import groups as grouping
 from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
@@ -632,13 +632,22 @@ class Board:
         # the request's accreditation window, never the whole history (their
         # ageing/last sale looks back over that window only).
         history = self._ranges() if self.product_item_id == NO_PRODUCT else None
-        last = last_sales(sqlite=self.sqlite, product=self.product_item_id, ranges=history).cte("last_sale")
+        last_query = last_sales(sqlite=self.sqlite, product=self.product_item_id, ranges=history)
+        if self.mla_set is not None:
+            # Restricted BEFORE the aggregation: the history of the MLAs outside the set is never read, so a small
+            # set costs its own sales, not the whole store's (filtering the aggregate afterwards is what it was).
+            last_query = last_query.where(MlOrderItemOps.item_id.in_(select(self.mla_set.c.mla)))
+        last = last_query.cte("last_sale")
         published = select(M.item_id, M.mlp_publicationID).where(M.item_id.isnot(None), M.mlp_publicationID.isnot(None))
         if self.product_item_id is not None:
             published = published.where(M.item_id == self.product_item_id)
         published = self._in_mla_set(published, M.mlp_publicationID)
-        pairs = union(self._in_mla_set(select(last.c.product, last.c.mla), last.c.mla), published).subquery("pairs")
-        pub = self._pub(select(pairs.c.mla) if self.product_item_id is not None else None)
+        pairs = union(select(last.c.product, last.c.mla), published).subquery("pairs")
+        if self.product_item_id is not None:
+            pub = self._pub(select(pairs.c.mla))
+        else:
+            # `None` resolves every publication of the store; with a set, only the set's.
+            pub = self._pub(None if self.mla_set is None else select(self.mla_set.c.mla))
         sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
         # The group view (and opening a node) reads each pair's key and label
         # per tree level as COLUMNS: the levels' small lookup joins run once here.
