@@ -1,20 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Lock, Check, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Lock } from 'lucide-react';
 import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
-import SearchInput from './SearchInput';
+import PermisosPorPantalla from './permisos/PermisosPorPantalla';
 import styles from './PanelPermisos.module.css';
-
-const CATEGORIAS_NOMBRE = {
-  productos: 'Productos',
-  ventas_ml: 'Ventas MercadoLibre',
-  ventas_fuera: 'Ventas Fuera de ML',
-  ventas_tn: 'Ventas Tienda Nube',
-  clientes: 'Clientes',
-  reportes: 'Reportes',
-  administracion: 'Administración',
-  configuracion: 'Configuración'
-};
 
 export default function PanelPermisos() {
   const [usuarios, setUsuarios] = useState([]);
@@ -26,8 +15,13 @@ export default function PanelPermisos() {
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null);
   const [filtroUsuario, setFiltroUsuario] = useState('');
-  const [busquedaPermiso, setBusquedaPermiso] = useState('');
   const [usuarioActual, setUsuarioActual] = useState(null);
+  // Id of the user whose permissions are on screen: a late reload for a
+  // previously selected user must not overwrite the current one.
+  const usuarioSeleccionadoIdRef = useRef(null);
+  // Pending auto-clear of a success message from the permissions view: a newer
+  // message cancels it, so an old timer never wipes a later error.
+  const mensajeTimerRef = useRef(null);
 
   // Estados para crear/editar usuario
   const [mostrarFormUsuario, setMostrarFormUsuario] = useState(false);
@@ -80,6 +74,7 @@ export default function PanelPermisos() {
 
   const seleccionarUsuario = async (usuario) => {
     setUsuarioSeleccionado(usuario);
+    usuarioSeleccionadoIdRef.current = usuario.id;
     setPermisosUsuario(null);
     setEditandoUsuario(null);
     setCambiandoPassword(false);
@@ -199,43 +194,34 @@ export default function PanelPermisos() {
     }
   };
 
-  const forzarPermiso = async (permisoCodigo, conceder) => {
-    if (!usuarioSeleccionado) return;
+  // Reloads the selected user's permissions in place (no loading flash), so the
+  // permissions view keeps its search, filter and expanded rows after an override.
+  const recargarPermisosUsuario = async (usuarioId) => {
+    const res = await api.get(`/permisos/usuario/${usuarioId}`);
+    if (usuarioSeleccionadoIdRef.current === usuarioId) setPermisosUsuario(res.data);
+  };
 
-    setGuardando(true);
-    try {
-      await api.post('/permisos/override', {
-        usuario_id: usuarioSeleccionado.id,
-        permiso_codigo: permisoCodigo,
-        concedido: conceder,
-        motivo: `Override desde panel de permisos`
-      });
-
-      await seleccionarUsuario(usuarioSeleccionado);
-      setMensaje({ tipo: 'success', texto: `Permiso ${conceder ? 'concedido' : 'denegado'}` });
-      setTimeout(() => setMensaje(null), 2000);
-    } catch {
-      setMensaje({ tipo: 'error', texto: 'Error al modificar permiso' });
-    } finally {
-      setGuardando(false);
+  const mostrarMensajeTemporal = (nuevoMensaje) => {
+    clearTimeout(mensajeTimerRef.current);
+    mensajeTimerRef.current = null;
+    setMensaje(nuevoMensaje);
+    if (nuevoMensaje.tipo === 'success') {
+      mensajeTimerRef.current = setTimeout(() => {
+        mensajeTimerRef.current = null;
+        setMensaje(null);
+      }, 2000);
     }
   };
 
-  const resetearOverride = async (permisoCodigo) => {
-    if (!usuarioSeleccionado) return;
+  useEffect(() => () => clearTimeout(mensajeTimerRef.current), []);
 
-    setGuardando(true);
-    try {
-      await api.delete(`/permisos/override/${usuarioSeleccionado.id}/${permisoCodigo}`);
-
-      await seleccionarUsuario(usuarioSeleccionado);
-      setMensaje({ tipo: 'success', texto: 'Vuelto al permiso base del rol' });
-      setTimeout(() => setMensaje(null), 2000);
-    } catch {
-      setMensaje({ tipo: 'error', texto: 'Error al resetear permiso' });
-    } finally {
-      setGuardando(false);
-    }
+  // Messages from the permissions view belong to the user they were raised
+  // for: a success that lands after switching users is dropped so it never
+  // shows over someone else's permissions. Errors still show (a failed change
+  // must not go unnoticed).
+  const mostrarMensajeDeUsuario = (usuarioId, nuevoMensaje) => {
+    if (nuevoMensaje.tipo === 'success' && usuarioSeleccionadoIdRef.current !== usuarioId) return;
+    mostrarMensajeTemporal(nuevoMensaje);
   };
 
   const iniciarEdicion = () => {
@@ -684,145 +670,13 @@ export default function PanelPermisos() {
                   <div className={styles.emptyMessage}>Cargando permisos...</div>
                 </div>
               ) : (
-                <div className={styles.permisosWrapper}>
-                  {/* Header con buscador */}
-                  <div className={styles.permisosHeader}>
-                    <div className={styles.headerRow}>
-                      <SearchInput
-                        value={busquedaPermiso}
-                        onChange={setBusquedaPermiso}
-                        placeholder="Buscar permiso por nombre, código o descripción..."
-                        size="sm"
-                        className={styles.searchBox}
-                      />
-                      <div className={styles.legend}>
-                        <span className={styles.legendItem}>
-                          <span className={styles.legendDot} style={{ background: 'var(--success)' }}></span>
-                          Activo
-                        </span>
-                        <span className={styles.legendItem}>
-                          <span className={styles.legendDot} style={{ background: 'var(--error)' }}></span>
-                          Inactivo
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Scroll de permisos */}
-                  <div className={styles.permisosScroll}>
-                    {Object.entries(permisosUsuario.permisos_detallados).map(([categoria, permisos]) => {
-                      // Filtrar permisos según búsqueda
-                      const permisosFiltrados = busquedaPermiso.trim()
-                        ? permisos.filter(p => 
-                            p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                            p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                            p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
-                          )
-                        : permisos;
-                      
-                      // Si no hay permisos que coincidan, no mostrar la categoría
-                      if (permisosFiltrados.length === 0) return null;
-                      
-                      const permisosActivos = permisosFiltrados.filter(p => p.efectivo).length;
-                      const esSuperadmin = permisosUsuario.rol === 'SUPERADMIN';
-
-                      return (
-                        <div key={categoria} className={styles.categoria}>
-                          <div className={styles.categoriaHeader}>
-                            <h3 className={styles.categoriaTitulo}>
-                              {CATEGORIAS_NOMBRE[categoria] || categoria}
-                            </h3>
-                            <div className={styles.categoriaStats}>
-                              {permisosActivos} de {permisosFiltrados.length} activos
-                            </div>
-                          </div>
-
-                          <div className={styles.permisosList}>
-                            {permisosFiltrados.map(permiso => {
-                              const tieneOverride = permiso.override !== null;
-                              const esOverridePositivo = permiso.override === true;
-
-                              return (
-                                <div 
-                                  key={permiso.codigo} 
-                                  className={styles.permisoItem}
-                                  style={{ opacity: guardando ? 0.6 : 1 }}
-                                >
-                                  {/* Lado izquierdo: Info */}
-                                  <div className={styles.permisoInfo}>
-                                    <div className={styles.permisoNombre}>
-                                      {permiso.nombre}
-                                      {permiso.es_critico && (
-                                        <span className={`${styles.badge} ${styles.badgeCritico}`}>
-                                          Crítico
-                                        </span>
-                                      )}
-                                      {tieneOverride && (
-                                        <span className={`${styles.badge} ${esOverridePositivo ? styles.badgeOverride : styles.badgeOverrideNegativo}`}>
-                                          Override {esOverridePositivo ? '↑' : '↓'}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <code className={styles.permisoCodigo}>{permiso.codigo}</code>
-                                    {permiso.descripcion && (
-                                      <div className={styles.permisoDescripcion}>
-                                        {permiso.descripcion}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Lado derecho: Controles */}
-                                  <div className={styles.permisoControls}>
-                                    <div className={styles.estadoActual}>
-                                      <div className={`${styles.estadoIcon} ${permiso.efectivo ? styles.activo : styles.inactivo}`}>
-                                        {permiso.efectivo ? <Check size={14} /> : <X size={14} />}
-                                      </div>
-                                      <span>{permiso.efectivo ? 'Activo' : 'Inactivo'}</span>
-                                    </div>
-                                    
-                                    <div className={styles.infoRol}>
-                                      {permiso.tiene_por_rol ? 'Del rol' : 'No en rol'}
-                                    </div>
-
-                                    {!esSuperadmin && (
-                                      <div className={styles.accionesGroup}>
-                                        {tieneOverride ? (
-                                          <button
-                                            onClick={() => resetearOverride(permiso.codigo)}
-                                            disabled={guardando}
-                                            className={`${styles.btnAccion} ${styles.btnResetear}`}
-                                          >
-                                            ↺ Resetear
-                                          </button>
-                                        ) : permiso.tiene_por_rol ? (
-                                          <button
-                                            onClick={() => forzarPermiso(permiso.codigo, false)}
-                                            disabled={guardando}
-                                            className={`${styles.btnAccion} ${styles.btnQuitar}`}
-                                          >
-                                            − Quitar
-                                          </button>
-                                        ) : (
-                                          <button
-                                            onClick={() => forzarPermiso(permiso.codigo, true)}
-                                            disabled={guardando}
-                                            className={`${styles.btnAccion} ${styles.btnAgregar}`}
-                                          >
-                                            + Agregar
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                <PermisosPorPantalla
+                  key={usuarioSeleccionado.id}
+                  usuarioId={usuarioSeleccionado.id}
+                  permisosUsuario={permisosUsuario}
+                  onActualizado={() => recargarPermisosUsuario(usuarioSeleccionado.id)}
+                  onMensaje={(nuevoMensaje) => mostrarMensajeDeUsuario(usuarioSeleccionado.id, nuevoMensaje)}
+                />
               )}
             </>
           ) : (
