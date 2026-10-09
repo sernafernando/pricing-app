@@ -18,6 +18,7 @@ function renderAt() {
     <MemoryRouter initialEntries={['/']}>
       <Routes>
         <Route path="/" element={<SmartRedirect />} />
+        <Route path="/productos" element={<div>PRODUCTOS</div>} />
         <Route path="/ml-publicaciones" element={<div>PUBLICACIONES</div>} />
         <Route path="/fichaje" element={<div>FICHAJE</div>} />
         <Route path="/login" element={<div>LOGIN</div>} />
@@ -31,5 +32,11 @@ describe('SmartRedirect — Publicaciones ML', () => {
     permisos = new Set(['ml_ops.ver']);
     renderAt();
     expect(screen.getByText('PUBLICACIONES')).toBeInTheDocument();
+  });
+
+  it('keeps higher-priority landings: productos.ver still goes to /productos', () => {
+    permisos = new Set(['productos.ver', 'ml_ops.ver']);
+    renderAt();
+    expect(screen.getByText('PRODUCTOS')).toBeInTheDocument();
   });
 });
