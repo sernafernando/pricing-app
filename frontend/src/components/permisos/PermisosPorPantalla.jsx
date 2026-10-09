@@ -12,12 +12,15 @@ import {
   coincideBusqueda,
   construirVistaPorPantalla,
   contarFiltros,
+  contarOverrides,
   contarParesEfectivos,
   cumpleFiltro,
   permisoCoincideBusqueda,
   permisoCumpleFiltro,
   permisosSinPantalla,
+  resumenAcceso,
 } from '../../registry/permisosAcceso';
+import ResumenAcceso from './ResumenAcceso';
 import styles from './PermisosPorPantalla.module.css';
 
 const PERMISO_GESTIONAR = 'admin.gestionar_permisos';
@@ -159,6 +162,8 @@ export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActu
 
   return (
     <div className={styles.wrapper}>
+      <ResumenAcceso resumen={resumenAcceso(vista)} overrides={contarOverrides(detallados)} />
+
       <div className={styles.toolbar}>
         <SearchInput
           value={busqueda}

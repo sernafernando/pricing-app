@@ -206,6 +206,29 @@ export function agruparPorSeccion(items) {
   }));
 }
 
+/**
+ * KPI summary of one user's screen view (`construirVistaPorPantalla`): the
+ * same statuses the screen list shows, so both always agree. `accesibles`
+ * uses the same rule as the section counts (accede + publica).
+ */
+export function resumenAcceso(vista) {
+  const contar = (status) => vista.filter((item) => item.acceso.status === status).length;
+  return {
+    total: vista.length,
+    accesibles: vista.filter((item) => ACCESIBLE.has(item.acceso.status)).length,
+    sinAcceso: contar(STATUS.SIN_ACCESO),
+    condicionales: contar(STATUS.CONDICIONAL),
+  };
+}
+
+/** Overrides in the payload: `override: true` adds a permission, `false` removes it. */
+export function contarOverrides(permisosDetallados) {
+  const permisos = [...indexarPermisos(permisosDetallados).values()];
+  const agregados = permisos.filter((p) => p.override === true).length;
+  const quitados = permisos.filter((p) => p.override === false).length;
+  return { agregados, quitados, total: agregados + quitados };
+}
+
 /** Payload permissions that no catalog screen references, so they stay editable. */
 export function permisosSinPantalla(permisosDetallados, catalogo) {
   const referenciados = new Set(catalogo.flatMap((screen) => screen.permisos));

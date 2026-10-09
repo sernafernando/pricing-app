@@ -1,0 +1,66 @@
+/* KPI strip of the selected user (Stitch "Permisos por Usuario"): uppercase
+   label, big mono number, muted sub-line. Tokens only, light and dark. */
+
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-2xl);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.sub {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.danger .value {
+  color: var(--tone-danger-fg);
+}
+
+.warning .value {
+  color: var(--tone-warning-fg);
+}
+
+.agregados {
+  color: var(--tone-info-fg);
+}
+
+.quitados {
+  color: var(--tone-danger-fg);
+}
+
+.separador {
+  color: var(--cf-text-muted);
+}
