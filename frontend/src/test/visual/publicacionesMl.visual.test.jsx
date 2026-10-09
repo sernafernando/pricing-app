@@ -25,6 +25,8 @@ import {
   DATA_STATE_OK,
   DETAIL_RESPONSE,
   DETAIL_RESPONSE_MARGIN,
+  EVENTS_RESPONSE,
+  HISTORY_RESPONSE,
   FACETS,
   ITEMS,
   ITEMS_RESPONSE,
@@ -51,7 +53,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -514,6 +516,8 @@ const renderWithPanel = async ({ width, height, theme, margin = false, tab = '' 
     data: margin ? { ...MARGIN_RESPONSE, items: [{ ...base, markup: MARGIN_ITEMS[1].markup }, ...MANY.slice(1)] } : { ...RESPONSE, items: [base, ...MANY.slice(1)] },
   });
   publicacionesMlAPI.detail.mockResolvedValue({ data: { ...(margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE), row: base } });
+  publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
+  publicacionesMlAPI.history.mockResolvedValue({ data: HISTORY_RESPONSE });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   await page.viewport(width, height);
   setTheme(theme);
@@ -537,6 +541,8 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     publicacionesMlAPI.items.mockReset();
     publicacionesMlAPI.detail.mockReset();
     publicacionesMlAPI.variations.mockReset();
+    publicacionesMlAPI.events.mockReset();
+    publicacionesMlAPI.history.mockReset();
   });
 
   for (const { width, height } of PANEL_VIEWPORTS) {
@@ -590,7 +596,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
         const tabs = [...panel.querySelectorAll('[role="tab"]')];
-        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full']);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Eventos', 'Historial']);
         // One row of tabs: they all start at the same height.
         expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
         // The footer sits inside the panel's box even though the content is taller than the panel.
@@ -611,6 +617,35 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         const values = [...panelOf().querySelectorAll('dd')].filter((el) => /^[\d.,/: ]+(ARS|%)?$/.test(el.textContent.trim()));
         expect(values.length).toBeGreaterThan(4);
         expect(wrapped(values)).toEqual([]);
+        screen.unmount();
+      });
+    }
+  }
+
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the Eventos tab lists the events inside the panel, the figures on one line`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, tab: 'eventos' });
+        await expect.element(screen.getByText('Precio de promoción modificado')).toBeVisible();
+        const panel = panelOf();
+        const entries = [...panel.querySelectorAll('[role="tabpanel"] li')];
+        expect(entries).toHaveLength(3);
+        for (const entry of entries) expect(rect(entry).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        expect(getComputedStyle(entries[0]).borderTopColor).toBe(tokenColor('--cf-border-default'));
+        expect(getComputedStyle(entries[0].querySelector('time')).color).toBe(tokenColor('--cf-text-secondary'));
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the Historial tab shows the business fields first and the technical ones after "Ver todo"`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, tab: 'historial' });
+        await expect.element(screen.getByText('Stock por ubicación')).toBeVisible();
+        const panel = panelOf();
+        expect(panel.textContent).not.toContain('last_updated');
+        await screen.getByRole('button', { name: 'Ver todo' }).click();
+        await expect.element(screen.getByText('last_updated')).toBeVisible();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const code of panel.querySelectorAll('code')) expect(rect(code).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
         screen.unmount();
       });
     }

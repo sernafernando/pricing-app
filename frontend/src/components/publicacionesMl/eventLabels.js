@@ -1,7 +1,9 @@
 /**
  * Spanish labels of the event types the store writes
- * (`services/ml_publications/events.py`). An unknown type shows as itself:
- * a new type must be visible before somebody gets to label it.
+ * (`services/ml_publications/events.py`, 22 types; `eventLabels.test.js` pins
+ * both lists to the same set). The frontend owns the labels: the backend's own
+ * `label` is not read. A type nobody labelled yet shows a generic Spanish label,
+ * never its raw code.
  */
 export const EVENT_LABELS = {
   status_paused: 'Pausada',
@@ -24,6 +26,10 @@ export const EVENT_LABELS = {
   product_link_changed: 'Vínculo con producto modificado',
   item_gone: 'Eliminada de ML',
   item_restored: 'Restaurada en ML',
+  listing_type_changed: 'Tipo de publicación modificado',
+  title_changed: 'Título modificado',
 };
 
-export const eventLabel = (type) => EVENT_LABELS[type] ?? type;
+export const GENERIC_EVENT_LABEL = 'Evento';
+
+export const eventLabel = (type) => EVENT_LABELS[type] ?? GENERIC_EVENT_LABEL;
