@@ -87,7 +87,7 @@ def tplink_day() -> dict[str, Any]:
 
 
 def gauss_display() -> dict[str, Any]:
-    """Advertiser 25713's Display answers of 2026-10-05: `campaigns` (the list body) and `metrics` (campaign id -> body)."""
+    """Advertiser 25713's Display answers of 2026-10-05: `campaigns` (list body), `metrics` (campaign id -> body)."""
     capture = load("display_day_2026_10_05_25713.json")
     return {
         "campaigns": capture["campaigns"]["body"],
