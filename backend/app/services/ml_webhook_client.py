@@ -658,7 +658,7 @@ class MLWebhookClient:
             return None
 
     async def get_billing_details(
-        self, period_key: str, group: str, limit: int = 1000, from_id: int | str = 0
+        self, period_key: str, group: str, limit: int = 1000, from_id: int | str = 0, document_type: str = "BILL"
     ) -> Optional[Dict]:
         """Obtiene una página de cargos de facturación de un período vía el
         proxy `billing`.
@@ -669,6 +669,7 @@ class MLWebhookClient:
             limit: Tamaño de página (ML acepta hasta 1000).
             from_id: Cursor de paginación. Empieza en 0 y después lleva el
                 `last_id` de la página anterior.
+            document_type: `"BILL"` (por defecto) o `"CREDIT_NOTE"`.
 
         NO USAR `offset`: ML rechaza `offset + limit > 10_000` con un 422
         y el período abierto tuvo 22.538 cargos. Como el orden es
@@ -683,7 +684,7 @@ class MLWebhookClient:
             NIVEL SUPERIOR; ML no manda ningún objeto `paging`. Quien necesite
             distinguir un 400 de un 429 usa `fetch_billing_details`.
         """
-        fetch = await self.fetch_billing_details(period_key, group, "BILL", limit, from_id)
+        fetch = await self.fetch_billing_details(period_key, group, document_type, limit, from_id)
         return fetch.body if fetch.ok else None
 
     async def fetch_billing_details(

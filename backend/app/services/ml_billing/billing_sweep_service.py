@@ -40,6 +40,13 @@ documents are complete is a query (`document_completeness`), reported on the
 result and in the log, never stored; a document that is not complete is
 retried by the next run's full re-sweep of the period.
 
+Credit notes (PR 4b, BS-6): `run_billing_sweep(document_type="CREDIT_NOTE")` is
+the same pass over `/details?document_type=CREDIT_NOTE` and the period's
+CREDIT_NOTE documents. Purely additive: CN `detail_id`s are disjoint from the
+BILL ones (0 overlap on 2026-09-01), `charge_bonified_id` stays in
+`raw_detail`, and the cron entry point still runs BILL only (the worker
+handler of PR 4c schedules both types).
+
 `documents.count_details` (investigation §3 open discrepancy: 18,414 vs
 18,743, a 329 difference with no known explanation) is persisted as an
 OBSERVATION on `MlBillingPeriodStat` and is NEVER treated as an alarm or
@@ -77,8 +84,11 @@ logger = logging.getLogger(__name__)
 CURSOR_NAME = "billing"
 BILLING_GROUP = "ML"
 PAGE_LIMIT = 1000
-# The only document type this sweep fetches. CREDIT_NOTE arrives with PR 4b.
+# The default document type of a sweep. A sweep fetches exactly one type:
+# `run_billing_sweep(document_type="CREDIT_NOTE")` is the general credit-note
+# pass (BS-6). Which type runs when is the scheduler's business (PR 4c).
 DOCUMENT_TYPE = "BILL"
+DOCUMENT_TYPES = ("BILL", "CREDIT_NOTE")
 # Hard bound on pages per pass, on top of the strictly advancing cursor.
 # Only an empty page ends a pass (BS-1), so without a bound a misbehaving
 # answer would hold the lock and spend one request of the account-wide budget
@@ -229,12 +239,19 @@ def _upsert_period_stat(
     db.execute(stmt)
 
 
-def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
+def run_billing_sweep(group: str = BILLING_GROUP, document_type: str = DOCUMENT_TYPE) -> BillingSweepResult:
     """Entry point for the cron sweep (`app/scripts/sync_ml_billing.py`).
 
     Flag-gated: a complete no-op (zero HTTP calls, zero DB writes/reads)
     while `ML_BILLING_ENABLED` is False.
+
+    `document_type` is `BILL` (the cron's call) or `CREDIT_NOTE` (BS-6). A
+    credit-note pass is additive: its detail ids are disjoint from BILL's, it
+    upserts its own rows and documents, and it leaves the period observation
+    (`MlBillingPeriodStat`, about the BILL details) alone.
     """
+    if document_type not in DOCUMENT_TYPES:
+        raise ValueError(f"document_type inválido: {document_type!r} (esperado {' o '.join(DOCUMENT_TYPES)})")
     if not settings.ML_BILLING_ENABLED:
         return BillingSweepResult(ran=False)
 
@@ -289,7 +306,9 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 time.sleep(REQUEST_SPACING_SECONDS)
 
                 page = resolve_maybe_async(
-                    ml_webhook_client.get_billing_details(period_key, group, limit=PAGE_LIMIT, from_id=from_id)
+                    ml_webhook_client.get_billing_details(
+                        period_key, group, limit=PAGE_LIMIT, from_id=from_id, document_type=document_type
+                    )
                 )
                 if page is None:
                     # A 429 (proxy throttle) and a genuine transport error
@@ -322,7 +341,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 raw_results = list(page.get("results") or [])
                 for raw in raw_results:
                     result.charges_seen += 1
-                    mapped = map_billing_detail(raw, period_key, document_type=DOCUMENT_TYPE)
+                    mapped = map_billing_detail(raw, period_key, document_type=document_type)
                     if isinstance(mapped, MappingError):
                         result.charges_mapping_error += 1
                         logger.warning("sync_ml_billing: mapping error (period=%s): %s", period_key, mapped.reason)
@@ -385,7 +404,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 # module is not allowed to do.
                 time.sleep(REQUEST_SPACING_SECONDS)
                 documents = resolve_maybe_async(
-                    ml_webhook_client.get_billing_documents(period_key, group, DOCUMENT_TYPE)
+                    ml_webhook_client.get_billing_documents(period_key, group, document_type)
                 )
                 if documents is not None:
                     # The capture stored the list under `results`; the earlier
@@ -421,7 +440,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                         result.documents_upserted += 1
                     db.flush()
                     result.incomplete_document_ids = [
-                        c.document_id for c in document_completeness(db, period_key, DOCUMENT_TYPE) if not c.complete
+                        c.document_id for c in document_completeness(db, period_key, document_type) if not c.complete
                     ]
                     if result.incomplete_document_ids:
                         logger.warning(
@@ -430,20 +449,27 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                             result.incomplete_document_ids,
                         )
 
-                stored_total = db.query(MlBillingCharge).filter_by(period_key=period_key).count()
-                _upsert_period_stat(
-                    db,
-                    period_key=period_key,
-                    reported_total=reported_total,
-                    stored_total=stored_total,
-                    documents_count_details=documents_count_details,
-                    # El FIN del barrido, no el inicio: `now` se capturó
-                    # antes de ~19 páginas espaciadas 15s, o sea unos 5
-                    # minutos antes. En una tabla de reconciliación,
-                    # `swept_at` tiene que ser el momento en que los datos
-                    # quedaron consistentes.
-                    swept_at=datetime.now(timezone.utc),
-                )
+                if document_type == DOCUMENT_TYPE:
+                    # The observation is about the BILL details (their first
+                    # `total`, their documents' count), so its stored side
+                    # counts BILL rows only: credit-note rows are in the
+                    # same table and must not inflate it.
+                    stored_total = (
+                        db.query(MlBillingCharge).filter_by(period_key=period_key, document_type=DOCUMENT_TYPE).count()
+                    )
+                    _upsert_period_stat(
+                        db,
+                        period_key=period_key,
+                        reported_total=reported_total,
+                        stored_total=stored_total,
+                        documents_count_details=documents_count_details,
+                        # El FIN del barrido, no el inicio: `now` se capturó
+                        # antes de ~19 páginas espaciadas 15s, o sea unos 5
+                        # minutos antes. En una tabla de reconciliación,
+                        # `swept_at` tiene que ser el momento en que los datos
+                        # quedaron consistentes.
+                        swept_at=datetime.now(timezone.utc),
+                    )
                 db.commit()
     except Exception as e:  # noqa: BLE001 -- fail-closed: release the lock as errored, never leave it stuck
         release_lock_as_error(e, cursor_name=CURSOR_NAME)
