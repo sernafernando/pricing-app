@@ -23,8 +23,10 @@ its documents verified, and at most once a week (`verified`).
 Failures: a 429, a timeout or a 5xx keeps the cursor and sets
 `retry_at = now + min(60 s * 2^(failures-1), 15 min)`; the fifth in a row on one
 unit fails the unit and the lap moves on (the next lap retries it). Any other
-4xx fails the unit at once: the poison-row engine (`poison_rows`) is not wired
-here yet, so a bare 400 halts that period's details exactly as the cron did.
+4xx fails the unit at once, except a BARE 400 on a details page: that starts the
+poison probe (`poison_probe`), kept in `unit["probe"]` and advanced one request
+per tick until the poison row is isolated, recorded as a gap and stepped over.
+Every good page also resolves the open gaps it covers (`resolve_recovered_gaps`).
 """
 
 from __future__ import annotations
@@ -48,8 +50,10 @@ from app.services.ml_billing.billing_sweep_service import (
     persist_documents,
 )
 from app.services.ml_billing.document_completeness import document_completeness
+from app.services.ml_billing.poison_probe import advance, new_probe, next_request
+from app.services.ml_billing.poison_rows import record_probe_gap, resolve_recovered_gaps
 from app.services.ml_billing.sweep_gaps import open_gaps
-from app.services.ml_webhook_client import ml_webhook_client
+from app.services.ml_webhook_client import BillingFetch, ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
 
 logger = logging.getLogger(__name__)
@@ -147,26 +151,78 @@ def _step(db: Session, state: dict, now: datetime) -> dict:
 
 def _details(db: Session, state: dict, unit: dict, now: datetime) -> dict:
     period, document_type = unit["period_key"], unit["document_type"]
+    probe = unit.get("probe")
+    position, limit = next_request(probe) if probe else (unit["from_id"], PAGE_LIMIT)
     fetch = resolve_maybe_async(
-        ml_webhook_client.fetch_billing_details(period, BILLING_GROUP, document_type, PAGE_LIMIT, unit["from_id"])
+        ml_webhook_client.fetch_billing_details(period, BILLING_GROUP, document_type, limit, position)
     )
+    if probe is None and fetch.is_bare_400:
+        probe = new_probe(unit["from_id"], PAGE_LIMIT)  # the bare 400 is the probe's first answer
+    if probe is not None:
+        return _probe_step(db, state, unit, probe, fetch, now)
     if not fetch.ok:
-        if fetch.status is not None and fetch.status != 429 and 400 <= fetch.status < 500:
-            logger.error("ml_billing lap: %s %s details rejected (HTTP %s)", period, document_type, fetch.status)
-            return _finish(state, unit, "failed", now)
-        return _transport_failure(state, unit, now)
-    page = fetch.body
+        return _details_failure(state, unit, fetch, now)
+    return _apply_page(db, state, unit, fetch.body, unit["from_id"], now)
+
+
+def _details_failure(state: dict, unit: dict, fetch: BillingFetch, now: datetime) -> dict:
+    if fetch.status is not None and fetch.status != 429 and 400 <= fetch.status < 500:
+        logger.error(
+            "ml_billing lap: %s %s details rejected (HTTP %s)", unit["period_key"], unit["document_type"], fetch.status
+        )
+        return _finish(state, unit, "failed", now)
+    return _transport_failure(state, unit, now)
+
+
+def _probe_step(db: Session, state: dict, unit: dict, probe: dict, fetch: BillingFetch, now: datetime) -> dict:
+    """One answer of a poison probe (BS-7). The probe lives in the unit, so a
+    restart resumes it; a throttle or outage keeps it and backs off like any
+    other request. A gap moves the cursor ONTO the poison row (`from_id` is
+    exclusive), so the next ordinary read starts right after it."""
+    step = advance(probe, fetch)
+    if step.kind == "failure":
+        unit["probe"] = probe
+        return _details_failure(state, unit, step.failure, now)
+    state["failures"], state["retry_at"] = 0, None
+    if step.kind == "next":
+        unit["probe"] = probe
+        return state
+    unit.pop("probe", None)
+    if step.kind == "page":  # a smaller read succeeded: an ordinary page at the cursor
+        return _apply_page(db, state, unit, step.page, unit["from_id"], now, counts=False)
+    record_probe_gap(
+        db, step, period_key=unit["period_key"], document_type=unit["document_type"], now=now, lap_id=state["lap"]["id"]
+    )
+    logger.warning("ml_billing lap: poison row %s %s %s", unit["period_key"], unit["document_type"], step.window)
+    unit["from_id"] = step.position
+    return state
+
+
+def _apply_page(
+    db: Session, state: dict, unit: dict, page: dict, read_from_id: int, now: datetime, counts: bool = True
+) -> dict:
+    period, document_type = unit["period_key"], unit["document_type"]
     if unit["total"] is None and isinstance(page.get("total"), int):
         unit["total"] = page["total"]  # the FIRST page's total is the period's size (BS-1)
     rows = list(page.get("results") or [])
     persist_details_page(db, rows, period, document_type)
     if not rows:
         return _finish(state, unit, "done", now)
+    detail_ids = [(r.get("charge_info") or {}).get("detail_id") for r in rows if isinstance(r, dict)]
+    resolve_recovered_gaps(
+        db,
+        period_key=period,
+        document_type=document_type,
+        detail_ids=[i for i in detail_ids if i is not None],
+        read_from_id=_cursor_value(read_from_id) or 0,
+        now=now,
+    )
     cursor = page.get("last_id")
     if cursor is None:
         cursor = _highest_detail_id(rows)
     advanced = _cursor_value(cursor)
-    unit["pages"] += 1
+    # Pages narrowed by a poison probe are small by design: they never count towards the cap.
+    unit["pages"] += 1 if counts else 0
     if advanced is None or advanced <= _cursor_value(unit["from_id"]):
         logger.warning(
             "ml_billing lap: cursor did not advance (%s %s from_id=%s)", period, document_type, unit["from_id"]
@@ -213,6 +269,7 @@ def _transport_failure(state: dict, unit: Optional[dict], now: datetime) -> dict
 
 def _finish(state: dict, unit: dict, outcome: str, now: datetime) -> dict:
     unit["state"] = outcome
+    unit.pop("probe", None)
     state["lap"]["index"] += 1
     state["failures"], state["retry_at"] = 0, None
     return _close_lap_if_done(state, now)

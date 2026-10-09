@@ -27,6 +27,11 @@ CN_PAGES = json.load(gzip.open(_FIXTURES / "credit_note_2026_09.json.gz"))["page
 DOCUMENTS = json.loads((_FIXTURES / "documents_2026_09_01.json").read_text())
 
 
+_ENVELOPE = json.loads((_FIXTURES / "captured_400_envelope.json").read_text())
+_BARE_400 = BillingFetch(status=400, body=_ENVELOPE, error="HTTP 400")
+_CN_ROWS = [row for page in CN_PAGES for row in page["results"]]
+
+
 def tick(db, state, at):
     """One tick; the state goes through JSON like it does through `worker_job_state.detail`."""
     return json.loads(json.dumps(billing_lap.run_billing_tick(db, json.loads(json.dumps(state)), at), default=str))
@@ -170,11 +175,10 @@ class TestFailures:
         assert state["lap"]["units"][0]["state"] == "failed" and state["lap"]["index"] == 1
         assert state["failures"] == 0
 
-    def test_a_bare_400_halts_that_unit_and_the_lap_moves_on(self, db, client) -> None:
-        """Until the poison engine is wired (4c-ii) a 400 stops the period's details exactly as the cron did."""
-        envelope = json.loads((_FIXTURES / "captured_400_envelope.json").read_text())
+    def test_a_400_that_names_its_cause_fails_the_unit_and_the_lap_moves_on(self, db, client) -> None:
         state = started(db, client)
-        client.details.return_value = BillingFetch(status=400, body=envelope, error="HTTP 400")
+        body = {**_ENVELOPE, "error": "invalid_param"}
+        client.details.return_value = BillingFetch(status=400, body=body, error="HTTP 400")
         state = tick(db, state, at(15))
         assert state["lap"]["units"][0]["state"] == "failed" and state["lap"]["index"] == 1
 
@@ -284,3 +288,82 @@ class TestSettled:
     def test_an_open_period_is_never_settled(self, db, client) -> None:
         state = tick(db, {"complete": True, "verified": {"2026-10-01": at(0).isoformat()}}, at(600))
         assert len(self._units_of(state, "2026-10-01")) == 4
+
+
+class _PoisonedMl:
+    """The captured 2026-09 credit-note rows behind the measured `from_id` semantics."""
+
+    def __init__(self, poison=()):
+        self.poison, self.calls = set(poison), []
+
+    def __call__(self, period, group, document_type, limit, from_id):
+        self.calls.append((from_id, limit))
+        rows = [r for r in _CN_ROWS if r["charge_info"]["detail_id"] > int(from_id)][:limit]
+        if self.poison & {r["charge_info"]["detail_id"] for r in rows}:
+            return _BARE_400
+        last = rows[-1]["charge_info"]["detail_id"] if rows else 0
+        return ok({"results": rows, "total": len(_CN_ROWS), "last_id": last})
+
+
+def _cn_details_state(db, client):
+    state = started(db, client)
+    state["lap"]["units"] = [
+        u
+        for u in state["lap"]["units"]
+        if (u["period_key"], u["document_type"], u["kind"]) == ("2026-09-01", "CREDIT_NOTE", "details")
+    ]
+    return state
+
+
+def _run_unit(db, client, state, ml, start=15, max_ticks=400):
+    client.details.side_effect = ml
+    for n in range(max_ticks):
+        before = client.details.call_count
+        state = tick(db, state, at(start + 15 * n))
+        assert client.details.call_count - before <= 1  # ONE request per tick, always
+        if state["lap"] is None:
+            return state
+    raise AssertionError("the unit did not end")
+
+
+class TestPoisonRow:
+    def test_a_bare_400_is_isolated_recorded_as_a_gap_and_stepped_over(self, db, client) -> None:
+        from app.services.ml_billing.sweep_gaps import open_gaps
+
+        poison = _CN_ROWS[100]["charge_info"]["detail_id"]
+        state = _run_unit(db, client, _cn_details_state(db, client), _PoisonedMl([poison]))
+        assert state["last_lap"]["failed"] == []
+        assert db.query(MlBillingCharge).count() == len(_CN_ROWS) - 1
+        [gap] = open_gaps(db, "2026-09-01", "CREDIT_NOTE")
+        assert gap.position == str(poison) and (gap.paging, gap.billing_source) == ("from_id", "general")
+        assert gap.lap_id is not None
+
+    def test_the_probe_state_survives_a_restart_between_any_two_ticks(self, db, client) -> None:
+        poison = _CN_ROWS[7]["charge_info"]["detail_id"]
+        client.details.side_effect = _PoisonedMl([poison])
+        state = tick(db, _cn_details_state(db, client), at(15))  # `tick` round-trips the state through JSON
+        unit = state["lap"]["units"][0]
+        assert unit["state"] == "pending" and unit["probe"]["from_id"] == 0 and unit["probe"]["retried"] is True
+        assert client.details.call_count == 1
+
+    def test_a_transport_failure_in_the_middle_of_the_probe_keeps_the_probe(self, db, client) -> None:
+        poison = _CN_ROWS[7]["charge_info"]["detail_id"]
+        ml = _PoisonedMl([poison])
+        state = _cn_details_state(db, client)
+        client.details.side_effect = ml
+        state = tick(db, state, at(15))
+        probe = state["lap"]["units"][0]["probe"]
+        client.details.side_effect = None
+        client.details.return_value = BillingFetch(status=429, body=None, error="HTTP 429")
+        state = tick(db, state, at(30))
+        assert state["lap"]["units"][0]["probe"] == probe and state["failures"] == 1
+
+    def test_a_later_clean_read_from_before_the_window_resolves_the_gap(self, db, client) -> None:
+        from app.services.ml_billing.sweep_gaps import open_gaps
+
+        poison = _CN_ROWS[100]["charge_info"]["detail_id"]
+        _run_unit(db, client, _cn_details_state(db, client), _PoisonedMl([poison]))
+        assert len(open_gaps(db, "2026-09-01", "CREDIT_NOTE")) == 1
+        _run_unit(db, client, _cn_details_state(db, client), _PoisonedMl(), start=100_000)  # ML recovered
+        assert open_gaps(db, "2026-09-01", "CREDIT_NOTE") == []
+        assert db.query(MlBillingCharge).count() == len(_CN_ROWS)

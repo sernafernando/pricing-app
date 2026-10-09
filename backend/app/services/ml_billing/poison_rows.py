@@ -44,10 +44,10 @@ from typing import Callable, Iterable, Optional
 
 from sqlalchemy.orm import Session
 
+from app.services.ml_billing.poison_probe import POISON_PROBE_BOUND, NARROW, Step, advance, new_probe, next_request
 from app.services.ml_billing.sweep_gaps import open_gaps, record_gap, resolve_gap
 from app.services.ml_webhook_client import BillingFetch
 
-POISON_PROBE_BOUND = 2**40
 _PAGING = "from_id"
 _SOURCE = "general"
 
@@ -87,6 +87,33 @@ def narrow_bare_400(fetch: Fetch, position: int, limit: int) -> BillingFetch:
     return result
 
 
+def record_probe_gap(
+    db: Session,
+    step: Step,
+    *,
+    period_key: str,
+    document_type: str,
+    now: datetime,
+    lap_id: Optional[str] = None,
+) -> None:
+    """Records the gap a `gap` step isolated. Shared by the synchronous reader and
+    the billing lap. The caller commits."""
+    error = step.error or {}
+    record_gap(
+        db,
+        period_key=period_key,
+        document_type=document_type,
+        billing_source=_SOURCE,
+        paging=_PAGING,
+        position=str(step.position),
+        window=step.window,
+        http_status=error.get("status"),
+        error=json.dumps(error.get("body")),
+        now=now,
+        lap_id=lap_id,
+    )
+
+
 def read_page_skipping_poison(
     db: Session,
     *,
@@ -99,58 +126,24 @@ def read_page_skipping_poison(
     lap_id: Optional[str] = None,
     probe_bound: int = POISON_PROBE_BOUND,
 ) -> PageRead:
-    result = narrow_bare_400(fetch, from_id, limit)
-    if result.ok:
-        return PageRead(from_id=from_id, page=result.body)
-    if not result.is_bare_400:
-        return PageRead(from_id=from_id, failure=result)
-
-    def record(position: int, window: str, error: BillingFetch) -> None:
-        record_gap(
-            db,
-            period_key=period_key,
-            document_type=document_type,
-            billing_source=_SOURCE,
-            paging=_PAGING,
-            position=str(position),
-            window=window,
-            http_status=error.status,
-            error=json.dumps(error.body),
-            now=now,
-            lap_id=lap_id,
-        )
-
-    def probe_at(step: int) -> BillingFetch:
-        probe = fetch(from_id + step, 1)
-        return fetch(from_id + step, 1) if probe.is_bare_400 else probe
-
-    # Step over: the next row after `from_id` is the poison row.
-    last_400, lo, hi, hi_body = result, 0, None, None
-    step = 1
-    while hi is None:
-        if step > probe_bound:
-            end = from_id + probe_bound
-            record(end, f"({from_id}, {end}]", last_400)
-            return PageRead(from_id=end, gaps=(end,))
-        probe = probe_at(step)
-        if probe.ok:
-            hi, hi_body = step, probe.body
-        elif probe.is_bare_400:
-            last_400, lo, step = probe, step, step * 2
-        else:
-            return PageRead(from_id=from_id, failure=probe)
-    while hi - lo > 1:
-        mid = (lo + hi) // 2
-        probe = probe_at(mid)
-        if probe.ok:
-            hi, hi_body = mid, probe.body
-        elif probe.is_bare_400:
-            last_400, lo = probe, mid
-        else:
-            return PageRead(from_id=from_id, failure=probe)
-    poison = from_id + hi
-    record(poison, f"({from_id}, {poison}]", last_400)
-    return PageRead(from_id=poison, page=hi_body, gaps=(poison,))
+    """The whole probe in one call (the billing lap drives the same machine one
+    request per tick)."""
+    probe, hi_body = new_probe(from_id, limit, probe_bound), None
+    while True:
+        result = fetch(*next_request(probe))
+        searching = probe["phase"] != NARROW
+        step = advance(probe, result)
+        if result.ok and searching:
+            hi_body = result.body  # the last good probe is the one right after the poison row
+        if step.kind == "next":
+            continue
+        if step.kind == "page":
+            return PageRead(from_id=from_id, page=step.page)
+        if step.kind == "failure":
+            return PageRead(from_id=from_id, failure=step.failure)
+        record_probe_gap(db, step, period_key=period_key, document_type=document_type, now=now, lap_id=lap_id)
+        bounded = step.position - from_id >= probe_bound
+        return PageRead(from_id=step.position, page=None if bounded else hi_body, gaps=(step.position,))
 
 
 def _window_start(window: Optional[str]) -> Optional[int]:
