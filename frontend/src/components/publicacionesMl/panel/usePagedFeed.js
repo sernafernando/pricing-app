@@ -23,7 +23,10 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
   // Bumped by every first-page request: older answers are ignored.
   const generation = useRef(0);
   const fetchRef = useRef(fetchPage);
-  fetchRef.current = fetchPage;
+  // Refs are written in effects, never while rendering. Declared first so the fetch effect below sees the latest.
+  useEffect(() => {
+    fetchRef.current = fetchPage;
+  });
 
   useEffect(() => {
     const mine = ++generation.current;
@@ -46,7 +49,9 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
 
   // The latest state, readable from `loadMore` without running a request inside a state updater.
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const loadMore = useCallback(() => {
     const current = stateRef.current;

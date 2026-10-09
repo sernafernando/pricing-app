@@ -78,7 +78,9 @@ const hasBusiness = (entry) => entry.business.length > 0 || entry.kind !== 'chan
  */
 export default function HistorialTab({ itemId }) {
   const feed = usePagedFeed(fetchHistory, itemId, 'entries');
-  const [showAll, setShowAll] = useState(false);
+  // "Ver todo" belongs to one publication: it is off for any other, whatever remounts around the tab.
+  const [expanded, setExpanded] = useState({ itemId, on: false });
+  const showAll = expanded.itemId === itemId && expanded.on;
   if (feed.status !== 'ready') {
     return <FeedStatus feed={feed} loadingText="Cargando historial…" errorText={(error) => describeFeedError(error, ERRORS)} />;
   }
@@ -88,7 +90,7 @@ export default function HistorialTab({ itemId }) {
   return (
     <Section title="Historial">
       <div>
-        <button type="button" className="btn-tesla outline sm" aria-pressed={showAll} onClick={() => setShowAll((on) => !on)}>
+        <button type="button" className="btn-tesla outline sm" aria-pressed={showAll} onClick={() => setExpanded({ itemId, on: !showAll })}>
           Ver todo
         </button>
       </div>

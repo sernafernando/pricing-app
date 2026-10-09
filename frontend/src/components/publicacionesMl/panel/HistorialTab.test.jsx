@@ -95,6 +95,20 @@ describe('the technical fields (S58.1)', () => {
     expect(screen.queryByText('last_updated')).not.toBeInTheDocument();
   });
 
+  it('collapse again when the selection moves to another publication, whatever the panel does around the tab', async () => {
+    const { rerender } = renderTab();
+    await screen.findByText('Precio');
+    await userEvent.click(verTodo());
+    expect(screen.getByText('last_updated')).toBeInTheDocument();
+
+    rerender(<HistorialTab itemId="MLA1100000002" />);
+
+    await screen.findByText('Precio');
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1100000002', {});
+    expect(verTodo()).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByText('last_updated')).not.toBeInTheDocument();
+  });
+
   it('an entry with only technical fields stays out of the first view', async () => {
     renderTab();
     await screen.findByText('Precio');
