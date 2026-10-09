@@ -215,3 +215,9 @@ def add_event(conn, item_id: str, event_type: str, observed_at: datetime) -> Non
 
 def hours_ago(hours: float) -> datetime:
     return NOW - timedelta(hours=hours)
+
+
+def real_hours_ago(hours: float) -> datetime:
+    """Relative to the real clock, for the queries that compare against the database's `now()` (the
+    `evento_desde` window). Against the fixed `NOW` those windows expire a day or a week after `NOW`."""
+    return datetime.now(timezone.utc) - timedelta(hours=hours)
