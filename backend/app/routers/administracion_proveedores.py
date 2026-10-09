@@ -104,6 +104,7 @@ class DireccionResponse(BaseModel):
     proveedor_id: int
     etiqueta: str
     direccion: str
+    numero: Optional[str] = None
     cp: Optional[str] = None
     ciudad: Optional[str] = None
     provincia: Optional[str] = None
@@ -201,6 +202,7 @@ class ProveedorUpdate(BaseModel):
 class DireccionCreate(BaseModel):
     etiqueta: str = Field(min_length=1, max_length=100)
     direccion: str = Field(min_length=1, max_length=500)
+    numero: Optional[str] = Field(None, max_length=50)
     cp: Optional[str] = Field(None, max_length=20)
     ciudad: Optional[str] = Field(None, max_length=255)
     provincia: Optional[str] = Field(None, max_length=255)

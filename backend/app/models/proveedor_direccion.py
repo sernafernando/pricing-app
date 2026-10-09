@@ -38,7 +38,10 @@ class ProveedorDireccion(Base):
     etiqueta = Column(String(100), nullable=False, default="Depósito")
 
     # ── Dirección ─────────────────────────────────────────────────
+    # Calle (sin número). El número va separado en `numero`, igual que
+    # manual_street_name / manual_street_number en etiquetas de envío.
     direccion = Column(String(500), nullable=False)
+    numero = Column(String(50), nullable=True)
     cp = Column(String(20), nullable=True)
     ciudad = Column(String(255), nullable=True)
     provincia = Column(String(255), nullable=True)

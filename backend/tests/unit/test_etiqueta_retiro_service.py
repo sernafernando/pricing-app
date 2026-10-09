@@ -8,6 +8,7 @@ Cubre:
   - Error si la dirección pertenece a otro proveedor (400).
   - Auto-selección de dirección cuando `proveedor_direccion_id=None`.
   - Evento `etiqueta_envio_generada` insertado.
+  - Calle y número de la dirección van a campos separados de la etiqueta.
 """
 
 from __future__ import annotations
@@ -55,7 +56,8 @@ def direccion_retiro(db, proveedor) -> ProveedorDireccion:
     d = ProveedorDireccion(
         proveedor_id=proveedor.id,
         etiqueta="Depósito Retiro",
-        direccion="Av. Siempreviva 742",
+        direccion="Av. Siempreviva",
+        numero="742",
         cp="1407",
         ciudad="CABA",
         provincia="Buenos Aires",
@@ -115,7 +117,8 @@ class TestGenerarEtiquetaRetiro:
         assert etiqueta.es_manual is True
         assert etiqueta.shipping_id.startswith(f"RETIRO-{pedido.numero}-")
         # Datos copiados
-        assert etiqueta.manual_street_name == "Av. Siempreviva 742"
+        assert etiqueta.manual_street_name == "Av. Siempreviva"
+        assert etiqueta.manual_street_number == "742"
         assert etiqueta.manual_zip_code == "1407"
         assert etiqueta.manual_city_name == "CABA"
         assert etiqueta.manual_phone == "011-4567-8910"
