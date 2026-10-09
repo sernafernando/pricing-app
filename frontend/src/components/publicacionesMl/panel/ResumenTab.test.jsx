@@ -265,13 +265,13 @@ describe('the body of the publication (the whitelisted extra)', () => {
     expect(valueOf(NAME, 'Ofertas')).toHaveTextContent('MLA12345');
   });
 
-  it('shows the shipping and the seller address', () => {
+  it('shows the shipping, not the seller address (the seller is the company itself)', () => {
     renderTab();
     expect(valueOf(NAME, 'Retiro en persona')).toHaveTextContent('No');
     expect(valueOf(NAME, 'Retiro en tienda')).toHaveTextContent('No');
     expect(valueOf(NAME, 'Etiquetas de envío')).toHaveTextContent('self_service_in');
-    expect(valueOf(NAME, 'Ciudad')).toHaveTextContent('Palermo');
-    expect(valueOf(NAME, 'Provincia')).toHaveTextContent('Capital Federal');
+    expect(within(section(NAME)).queryByText('Ciudad')).not.toBeInTheDocument();
+    expect(within(section(NAME)).queryByText('Provincia')).not.toBeInTheDocument();
   });
 
   it('lists the sale terms, the attributes and the item relations', () => {
@@ -300,7 +300,7 @@ describe('the body of the publication (the whitelisted extra)', () => {
   it('a body the store does not have reads "—" everywhere', () => {
     const empty = Object.fromEntries(Object.keys(EXTRA_FIELDS).map((key) => [key, null]));
     renderTab(makeDetail({ extra: empty }));
-    for (const label of ['Garantía', 'Republicación automática', 'Acepta Mercado Pago', 'Canales', 'Ofertas', 'Retiro en persona', 'Etiquetas de envío', 'Ciudad', 'Provincia', 'Condiciones de venta', 'Atributos', 'Imágenes', 'Relaciones']) {
+    for (const label of ['Garantía', 'Republicación automática', 'Acepta Mercado Pago', 'Canales', 'Ofertas', 'Retiro en persona', 'Etiquetas de envío', 'Condiciones de venta', 'Atributos', 'Imágenes', 'Relaciones']) {
       expect(valueOf(NAME, label)).toHaveTextContent('—');
     }
   });

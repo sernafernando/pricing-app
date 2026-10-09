@@ -653,17 +653,13 @@ class TestExtraFields:
         assert [set(p) for p in extra["pictures"]] == [{"id", "secure_url", "size", "max_size"}] * len(
             CAPTURED["pictures"]
         )
-        assert extra["seller_address"] == {
-            "city": CAPTURED["seller_address"]["city"]["name"],
-            "state": CAPTURED["seller_address"]["state"]["name"],
-        }
 
     def test_nothing_outside_the_whitelist_leaks(self) -> None:
         extra = detail.extra_fields({**CAPTURED, "secret": "x", "seller_contact": {"phone": "1"}})
         assert "secret" not in extra and "seller_contact" not in extra
-        assert "address_line" not in json.dumps(extra)  # the street stays out
+        assert "seller_address" not in extra  # the seller is the company itself: its address says nothing
 
-    @pytest.mark.parametrize("raw", [None, {}, [], "x", {"shipping": "x", "attributes": "x", "seller_address": []}])
+    @pytest.mark.parametrize("raw", [None, {}, [], "x", {"shipping": "x", "attributes": "x"}])
     def test_anything_else_is_all_none(self, raw) -> None:
         extra = detail.extra_fields(raw)
         assert set(extra) == set(detail.EXTRA_FIELDS) and all(value is None for value in extra.values())

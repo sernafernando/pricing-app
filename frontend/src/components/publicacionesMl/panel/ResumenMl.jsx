@@ -81,7 +81,6 @@ export function MercadoLibreSection({ item }) {
 /** The whitelisted part of the item body (`extra`): warranty, shipping, terms, attributes, pictures. */
 export function BodySection({ extra }) {
   const shipping = extra.shipping ?? {};
-  const address = extra.seller_address ?? {};
   return (
     <Section title="Características">
       <Fields>
@@ -98,8 +97,6 @@ export function BodySection({ extra }) {
         <Field label="Retiro en persona">{yesNo(shipping.local_pick_up)}</Field>
         <Field label="Retiro en tienda">{yesNo(shipping.store_pick_up)}</Field>
         <Field label="Etiquetas de envío">{lines(shipping.tags)}</Field>
-        <Field label="Ciudad">{plain(address.city)}</Field>
-        <Field label="Provincia">{plain(address.state)}</Field>
         <Field label="Condiciones de venta">{lines(named(extra.sale_terms))}</Field>
         <Field label="Atributos">{lines(named(extra.attributes))}</Field>
         <Field label="Relaciones">{lines(relations(extra.item_relations))}</Field>

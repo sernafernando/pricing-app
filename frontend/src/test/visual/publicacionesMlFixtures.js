@@ -421,7 +421,6 @@ export const EXTRA_FIELDS = {
     { id: '111-MLA', secure_url: 'https://http2.mlstatic.com/D_111-O.jpg', size: '500x500', max_size: '1200x1200' },
     { id: '222-MLA', secure_url: 'https://http2.mlstatic.com/D_222-O.jpg', size: '500x500', max_size: '1200x1200' },
   ],
-  seller_address: { city: 'Palermo', state: 'Capital Federal' },
 };
 
 /** The link of one unit (`variation_id` 0 is the item level). */

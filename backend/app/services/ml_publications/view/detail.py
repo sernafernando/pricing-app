@@ -75,7 +75,8 @@ NOT_FOUND_STATUS = 404
 
 # The part of the item body (`raw`) the panel shows, sampled from the captured items (`items_bulk_*`, 10 items):
 # the scalar fields, then the structures reduced to the keys a person reads. Whatever else the body carries
-# (`seller_contact`, `location`, `geolocation`, the street of `seller_address`, ...) is not shown.
+# (`seller_contact`, `location`, `geolocation`, `seller_address`, ...) is not shown: the seller is the company
+# itself, so its contact and address say nothing about the publication.
 SCALAR_EXTRAS = (
     "warranty",
     "listing_source",
@@ -94,7 +95,7 @@ OBJECT_LISTS: dict[str, tuple[str, ...]] = {
     "item_relations": ("id", "variation_id", "stock_relation"),
     "pictures": ("id", "secure_url", "size", "max_size"),
 }
-EXTRA_FIELDS = (*SCALAR_EXTRAS, *LIST_EXTRAS, "shipping", *OBJECT_LISTS, "seller_address")
+EXTRA_FIELDS = (*SCALAR_EXTRAS, *LIST_EXTRAS, "shipping", *OBJECT_LISTS)
 
 ITEM_COLUMNS = [column.key for column in MlItem.__table__.columns if column.key not in HIDDEN_COLUMNS]
 REPLENISHMENT_COLUMNS = (
@@ -130,10 +131,6 @@ def _pick(source: Any, keys: tuple[str, ...]) -> Optional[dict[str, Any]]:
     return {key: source.get(key) for key in keys} if isinstance(source, Mapping) else None
 
 
-def _name_of(place: Any) -> Optional[str]:
-    return place.get("name") if isinstance(place, Mapping) else None
-
-
 def extra_fields(raw: Any) -> dict[str, Any]:
     """The whitelisted part of an item body; every field is present, `None` when the body lacks it or it is not of
     the captured shape (never a guess)."""
@@ -149,9 +146,6 @@ def extra_fields(raw: Any) -> dict[str, Any]:
         entries = body.get(name)
         if isinstance(entries, list):
             out[name] = [_pick(entry, keys) for entry in entries if isinstance(entry, Mapping)]
-    address = body.get("seller_address")
-    if isinstance(address, Mapping):
-        out["seller_address"] = {"city": _name_of(address.get("city")), "state": _name_of(address.get("state"))}
     return out
 
 
