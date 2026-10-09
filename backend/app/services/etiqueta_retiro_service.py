@@ -187,6 +187,7 @@ def generar_etiqueta_retiro(
         pedido_compra_id=pedido.id,
         manual_receiver_name=direccion.contacto_nombre or f"Retiro {pedido.numero}",
         manual_street_name=direccion.direccion,
+        manual_street_number=direccion.numero,
         manual_zip_code=direccion.cp,
         manual_city_name=direccion.ciudad,
         manual_status="ready_to_ship",

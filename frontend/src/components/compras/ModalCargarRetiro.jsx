@@ -86,7 +86,9 @@ export default function ModalCargarRetiro({
 
   const direcId = (d) => d.id ?? d.proveedor_direccion_id;
   const direcLabel = (d) =>
-    d.direccion ?? d.label ?? d.descripcion ?? `Dirección #${direcId(d)}`;
+    d.direccion
+      ? `${d.direccion}${d.numero ? ` ${d.numero}` : ''}`
+      : d.label ?? d.descripcion ?? `Dirección #${direcId(d)}`;
 
   return (
     <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="modal-retiro-title">

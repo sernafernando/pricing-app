@@ -813,7 +813,7 @@ function DatosFiscalesView({ datos }) {
 
 function DireccionesSection({ proveedorId, direcciones, canEdit, onRefresh }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ etiqueta: 'Depósito', direccion: '', cp: '', ciudad: '', provincia: '', horario_recepcion: '', contacto_nombre: '', contacto_telefono: '' });
+  const [form, setForm] = useState({ etiqueta: 'Depósito', direccion: '', numero: '', cp: '', ciudad: '', provincia: '', horario_recepcion: '', contacto_nombre: '', contacto_telefono: '' });
   const [saving, setSaving] = useState(false);
 
   const handleSave = async (e) => {
@@ -822,7 +822,7 @@ function DireccionesSection({ proveedorId, direcciones, canEdit, onRefresh }) {
     try {
       await api.post(`/administracion/proveedores/${proveedorId}/direcciones`, form);
       setShowForm(false);
-      setForm({ etiqueta: 'Depósito', direccion: '', cp: '', ciudad: '', provincia: '', horario_recepcion: '', contacto_nombre: '', contacto_telefono: '' });
+      setForm({ etiqueta: 'Depósito', direccion: '', numero: '', cp: '', ciudad: '', provincia: '', horario_recepcion: '', contacto_nombre: '', contacto_telefono: '' });
       onRefresh();
     } catch { /* */ }
     finally { setSaving(false); }
@@ -848,6 +848,7 @@ function DireccionesSection({ proveedorId, direcciones, canEdit, onRefresh }) {
           <div className={styles.formRow}>
             <input className={styles.formInput} placeholder="Etiqueta (ej: Depósito)" value={form.etiqueta} onChange={(e) => setForm({ ...form, etiqueta: e.target.value })} required />
             <input className={styles.formInput} placeholder="Dirección *" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} required />
+            <input className={styles.formInput} placeholder="Número" value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} maxLength={50} />
           </div>
           <div className={styles.formRow}>
             <input className={styles.formInput} placeholder="Ciudad" value={form.ciudad} onChange={(e) => setForm({ ...form, ciudad: e.target.value })} />
@@ -880,7 +881,7 @@ function DireccionesSection({ proveedorId, direcciones, canEdit, onRefresh }) {
             )}
           </div>
           <div className={styles.subCardBody}>
-            <span>{d.direccion}</span>
+            <span>{d.direccion}{d.numero ? ` ${d.numero}` : ''}</span>
             {d.ciudad && <span>{d.ciudad}{d.provincia ? `, ${d.provincia}` : ''}{d.cp ? ` (${d.cp})` : ''}</span>}
             {d.horario_recepcion && <span>Horario: {d.horario_recepcion}</span>}
             {d.contacto_nombre && <span>Contacto: {d.contacto_nombre}{d.contacto_telefono ? ` — ${d.contacto_telefono}` : ''}</span>}
