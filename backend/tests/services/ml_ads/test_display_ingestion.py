@@ -133,11 +133,33 @@ class TestCursor:
         first = _step(session_factory, replay, monkeypatch, deadline=replay.clock.now() + timedelta(seconds=4))
 
         assert (first.outcome, first.status, first.calls) == ("deadline", "fetching", 4)
-        assert _display_ledger(pg_ads_db).groups_offset == 3  # list + campaigns 0..2 done
+        assert _display_ledger(pg_ads_db).groups_offset == 290925  # the last campaign read: list + 3 campaigns done
         second = _step(session_factory, replay, monkeypatch)
         assert (second.outcome, second.calls) == ("closed", 1 + 4)
         assert sorted(_metrics_paths(replay)) == CAMPAIGNS  # every campaign fetched exactly once across both runs
         assert _spend(pg_ads_db) == WITH_SPEND
+
+    def test_a_campaign_appearing_below_the_cursor_does_not_shift_the_rest(
+        self, session_factory, pg_ads_db, monkeypatch
+    ) -> None:
+        replay = _replay()
+        _step(session_factory, replay, monkeypatch, deadline=replay.clock.now() + timedelta(seconds=4))
+        display = gauss_display()
+        newcomer = dict(display["campaigns"]["results"][0], id=100000)  # a real entry given a lower id, test only
+        display["campaigns"]["results"].append(newcomer)
+        resumed = _replay(display={GAUSS: display})
+
+        _step(session_factory, resumed, monkeypatch)
+
+        assert _metrics_paths(resumed) == [294806, 301232, 335306, 340339]  # nothing before or after was skipped
+        assert _spend(pg_ads_db) == WITH_SPEND
+
+    def test_display_days_are_never_verified(self, session_factory, monkeypatch) -> None:
+        run = ingestion._DisplayRun(
+            session_factory, make_client(_replay(), monkeypatch), GAUSS, DAY, lambda: None, None
+        )
+        with pytest.raises(NotImplementedError):
+            run.verify()
 
     def test_a_429_keeps_what_was_stored_and_the_cursor(self, session_factory, pg_ads_db, monkeypatch) -> None:
         replay = _replay()
@@ -146,7 +168,7 @@ class TestCursor:
         step = _step(session_factory, replay, monkeypatch)
 
         assert (step.outcome, step.status) == ("rate_limited", "fetching")
-        assert _display_ledger(pg_ads_db).groups_offset == 4
+        assert _display_ledger(pg_ads_db).groups_offset == 294806  # the fourth campaign; the fifth was refused
         assert set(_spend(pg_ads_db)) == {259859, 294806}  # the campaigns before the cursor that had activity
 
     def test_a_5xx_counts_one_attempt_and_leaves_the_day_for_a_later_run(

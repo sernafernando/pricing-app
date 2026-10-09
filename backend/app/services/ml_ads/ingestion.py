@@ -327,11 +327,12 @@ def run_display_step(
 
 
 class _DisplayRun(_DayRun):
-    """Display day: the ledger (`source='display'`) cursor is the INDEX of the next campaign in id order.
+    """Display day: the ledger (`source='display'`) cursor, `groups_offset`, is the ID of the last campaign read.
 
-    The list is read again on every run (one call) so a resumed day still knows its campaigns. ML answers the
-    list with no paging keys, so it is taken as one page; its length goes to the ledger so a truncation
-    would show. The day has no ML total of ours: it closes once every campaign was read.
+    The list is read again on every run (one call) and the run continues with the campaigns above the cursor, so
+    a campaign appearing or vanishing between runs never shifts the rest. ML answers the list with no paging
+    keys, so it is taken as one page; its length goes to the ledger so a truncation would show. The day has no
+    ML total of ours: it closes once every campaign was read.
     """
 
     source = store.DISPLAY_SOURCE
@@ -341,18 +342,21 @@ class _DisplayRun(_DayRun):
             self._open()
             listing = self._call(endpoints.display_campaigns_request(self.advertiser_id, self.day))
             campaigns = mapper.parse_display_campaigns(listing)
-            for index in range(self.groups_offset, len(campaigns)):
-                self._read_campaign(campaigns[index], next_index=index + 1)
+            for campaign_id in (c for c in campaigns if c > self.groups_offset):
+                self._read_campaign(campaign_id)
             return self._close_display(len(campaigns))
         except _Stop as stop:
             return self._result(stop.outcome)
 
-    def _read_campaign(self, campaign_id: int, *, next_index: int) -> None:
+    def verify(self) -> StepResult:
+        raise NotImplementedError("Display days are refreshed, not verified: it has no cheap summary call")
+
+    def _read_campaign(self, campaign_id: int) -> None:
         body = self._call(endpoints.display_metrics_request(self.advertiser_id, campaign_id, self.day))
         facts = mapper.map_display_metrics(self.advertiser_id, campaign_id, self.day, body)
         with self.session_factory() as db:
             store.upsert_display_days(db, facts, now=self.now())
-            store.set_groups_offset(db, self.advertiser_id, self.day, next_index, source=self.source)
+            store.set_groups_offset(db, self.advertiser_id, self.day, campaign_id, source=self.source)
 
     def _close_display(self, campaigns: int) -> StepResult:
         with self.session_factory() as db:
