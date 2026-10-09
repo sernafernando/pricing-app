@@ -47,6 +47,10 @@ BILL ones (0 overlap on 2026-09-01), `charge_bonified_id` stays in
 `raw_detail`, and the cron entry point still runs BILL only (the worker
 handler of PR 4c schedules both types).
 
+The persistence steps of a pass (`persist_details_page`, `persist_documents`)
+are separate functions so the worker lap of PR 4c can run them one request at a
+time without this blocking loop.
+
 `documents.count_details` (investigation §3 open discrepancy: 18,414 vs
 18,743, a 329 difference with no known explanation) is persisted as an
 OBSERVATION on `MlBillingPeriodStat` and is NEVER treated as an alarm or
@@ -239,6 +243,64 @@ def _upsert_period_stat(
     db.execute(stmt)
 
 
+@dataclass
+class PersistedDocuments:
+    count_details: int
+    upserted: int
+    incomplete_ids: list[str]
+
+
+def persist_details_page(db, raw_results: list, period_key: str, document_type: str) -> tuple[int, int, int]:
+    """Maps and upserts one `/details` page. Returns (seen, upserted, mapping_errors).
+
+    Shared by the cron-style pass below and the worker lap (`billing_lap`). The
+    caller commits."""
+    upserted = errors = 0
+    for raw in raw_results:
+        mapped = map_billing_detail(raw, period_key, document_type=document_type)
+        if isinstance(mapped, MappingError):
+            errors += 1
+            logger.warning("sync_ml_billing: mapping error (period=%s): %s", period_key, mapped.reason)
+            continue
+        upsert_billing_charge(db, mapped)
+        upserted += 1
+    return len(raw_results), upserted, errors
+
+
+def persist_documents(db, documents: dict, period_key: str, group: str, document_type: str) -> PersistedDocuments:
+    """Upserts the documents of a `/documents` answer and reads which are incomplete.
+
+    The capture stored the list under `results`; the earlier cut read
+    `documents`. Either is accepted so a wrong guess about the envelope cannot
+    silently drop them all. The caller commits."""
+    raw_documents = [
+        doc for doc in (documents.get("results") or documents.get("documents") or []) if isinstance(doc, dict)
+    ]
+    upserted = 0
+    for raw_document in raw_documents:
+        mapped_document = map_billing_document(raw_document, period_key, group)
+        if isinstance(mapped_document, MappingError):
+            logger.warning(
+                "sync_ml_billing: document mapping error (period=%s): %s", period_key, mapped_document.reason
+            )
+            continue
+        upsert_billing_document(db, mapped_document)
+        upserted += 1
+    db.flush()
+    incomplete = [c.document_id for c in document_completeness(db, period_key, document_type) if not c.complete]
+    if incomplete:
+        logger.warning(
+            "sync_ml_billing: documents incomplete (period=%s): %s -- the next run re-sweeps the period",
+            period_key,
+            incomplete,
+        )
+    return PersistedDocuments(
+        count_details=sum(int(doc.get("count_details") or 0) for doc in raw_documents),
+        upserted=upserted,
+        incomplete_ids=incomplete,
+    )
+
+
 def run_billing_sweep(group: str = BILLING_GROUP, document_type: str = DOCUMENT_TYPE) -> BillingSweepResult:
     """Entry point for the cron sweep (`app/scripts/sync_ml_billing.py`).
 
@@ -339,15 +401,10 @@ def run_billing_sweep(group: str = BILLING_GROUP, document_type: str = DOCUMENT_
                     reported_total = page_total
 
                 raw_results = list(page.get("results") or [])
-                for raw in raw_results:
-                    result.charges_seen += 1
-                    mapped = map_billing_detail(raw, period_key, document_type=document_type)
-                    if isinstance(mapped, MappingError):
-                        result.charges_mapping_error += 1
-                        logger.warning("sync_ml_billing: mapping error (period=%s): %s", period_key, mapped.reason)
-                        continue
-                    upsert_billing_charge(db, mapped)
-                    result.charges_upserted += 1
+                seen, upserted, errors = persist_details_page(db, raw_results, period_key, document_type)
+                result.charges_seen += seen
+                result.charges_upserted += upserted
+                result.charges_mapping_error += errors
 
                 db.commit()
 
@@ -407,15 +464,8 @@ def run_billing_sweep(group: str = BILLING_GROUP, document_type: str = DOCUMENT_
                     ml_webhook_client.get_billing_documents(period_key, group, document_type)
                 )
                 if documents is not None:
-                    # The capture stored the list under `results`; the earlier
-                    # cut read `documents`. Either is accepted so a wrong
-                    # guess about the envelope cannot silently drop them all.
-                    raw_documents = [
-                        doc
-                        for doc in (documents.get("results") or documents.get("documents") or [])
-                        if isinstance(doc, dict)
-                    ]
-                    documents_count_details = sum(int(doc.get("count_details") or 0) for doc in raw_documents)
+                    persisted = persist_documents(db, documents, period_key, group, document_type)
+                    documents_count_details = persisted.count_details
                     if reported_total is not None and documents_count_details != reported_total:
                         # OBSERVATION only -- see module docstring. Never
                         # raised, never blocks, never marks the pass as an
@@ -427,27 +477,8 @@ def run_billing_sweep(group: str = BILLING_GROUP, document_type: str = DOCUMENT_
                             reported_total,
                             period_key,
                         )
-                    for raw_document in raw_documents:
-                        mapped_document = map_billing_document(raw_document, period_key, group)
-                        if isinstance(mapped_document, MappingError):
-                            logger.warning(
-                                "sync_ml_billing: document mapping error (period=%s): %s",
-                                period_key,
-                                mapped_document.reason,
-                            )
-                            continue
-                        upsert_billing_document(db, mapped_document)
-                        result.documents_upserted += 1
-                    db.flush()
-                    result.incomplete_document_ids = [
-                        c.document_id for c in document_completeness(db, period_key, document_type) if not c.complete
-                    ]
-                    if result.incomplete_document_ids:
-                        logger.warning(
-                            "sync_ml_billing: documents incomplete (period=%s): %s -- the next run re-sweeps the period",
-                            period_key,
-                            result.incomplete_document_ids,
-                        )
+                    result.documents_upserted = persisted.upserted
+                    result.incomplete_document_ids = persisted.incomplete_ids
 
                 if document_type == DOCUMENT_TYPE:
                     # The observation is about the BILL details (their first
