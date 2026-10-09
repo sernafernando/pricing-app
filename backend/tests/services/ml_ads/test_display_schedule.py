@@ -75,7 +75,8 @@ class TestSchedule:
         assert (tick.stopped, tick.complete) == (None, True)
         paths = [r.url.path for r in replay.requests]
         first_display = next(i for i, p in enumerate(paths) if "/display/" in p)
-        assert not any("/display/" not in p for p in paths[first_display:])  # nothing of Product Ads comes after
+        # Nothing of Product Ads comes after (Brand Ads, which follows Display, is covered by test_brand_schedule).
+        assert not any("/display/" not in p and "/brand_ads/" not in p for p in paths[first_display:])
         assert all(f"/advertisers/{GAUSS}/" in r.url.path for r in replay.display_calls())
         assert _display_ledger(pg_ads_db, yesterday).status == "closed"
         assert tick.as_detail()["display"]["steps"] == [

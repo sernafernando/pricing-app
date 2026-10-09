@@ -62,13 +62,14 @@ class TestBackfillOrder:
         tick = _tick(session_factory, replay, monkeypatch)
         assert [s.day for s in tick.steps] == [date(2026, 10, 5), date(2026, 10, 6), date(2026, 10, 7)]
         assert [s.outcome for s in tick.steps] == ["closed"] * 3
-        product_calls = tick.calls - sum(s.calls for s in tick.display_steps)
+        product_calls = tick.calls - sum(s.calls for s in tick.display_steps + tick.brand_steps)
         assert (tick.stopped, tick.complete, product_calls) == (
             None,
             True,
             3 * 109 + 1,
-        )  # three days and the advertisers list; Display's calls are counted apart
+        )  # three days and the advertisers list; Display's and Brand Ads' calls are counted apart
         assert [s.day for s in tick.display_steps] == [s.day for s in tick.steps]
+        assert [s.day for s in tick.brand_steps] == [s.day for s in tick.steps]  # one advertiser here
         assert len(replay.calls(ADVERTISERS_RE)) == 1
 
     def test_every_advertiser_of_a_day_is_done_before_the_next_day(
