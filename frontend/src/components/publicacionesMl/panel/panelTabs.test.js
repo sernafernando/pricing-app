@@ -1,0 +1,28 @@
+/**
+ * The panel's tab registry (publicaciones-ml-vista P13b): which tabs exist for
+ * which data and permission, in which order.
+ */
+import { describe, it, expect } from 'vitest';
+import { PANEL_TABS, visibleTabs } from './panelTabs';
+import { readDetail } from './detailModel';
+import { DETAIL_RESPONSE, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
+
+const keysFor = (raw, context = {}) => visibleTabs(PANEL_TABS, { detail: readDetail(raw), canSeeMargin: false, canManage: false, ...context }).map((tab) => tab.key);
+
+describe('the registry', () => {
+  it('opens on Resumen and lists the history tabs after the data ones', () => {
+    const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 3, is_full: true } });
+    expect(keysFor(raw)).toEqual(['resumen', 'variaciones', 'full', 'eventos', 'historial']);
+  });
+
+  it('keeps Eventos and Historial for every publication, with or without margin', () => {
+    const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 0, is_full: false }, replenishment: null });
+    expect(keysFor(raw)).toEqual(['resumen', 'eventos', 'historial']);
+    expect(keysFor(raw, { canSeeMargin: true })).toEqual(['resumen', 'eventos', 'historial']);
+  });
+
+  it('labels them in Spanish', () => {
+    const labels = Object.fromEntries(PANEL_TABS.map((tab) => [tab.key, tab.label]));
+    expect(labels).toMatchObject({ eventos: 'Eventos', historial: 'Historial' });
+  });
+});
