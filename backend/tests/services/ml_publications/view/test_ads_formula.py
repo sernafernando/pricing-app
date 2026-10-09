@@ -15,7 +15,6 @@ from app.services.ml_publications.view.ads import (
     UnavailableAdsProvider,
     ads_row,
     apply_ads,
-    get_ads_provider,
     resolve_ads,
 )
 from app.services.ml_publications.view.markup import REASON_OK, UnitMarkup, aggregate_publication
@@ -116,9 +115,8 @@ class TestApplyAds:
 
 
 class TestProvider:
-    def test_the_default_provider_is_unavailable(self) -> None:
-        provider = get_ads_provider()
-        assert isinstance(provider, UnavailableAdsProvider)
+    def test_the_unavailable_provider_has_no_data(self) -> None:
+        provider = UnavailableAdsProvider()
         assert provider.availability() is AdsAvailability.UNAVAILABLE
         assert provider.amounts(["MLA1"], date(2026, 9, 1), date(2026, 9, 30)) == {}
         assert provider.amounts(None, date(2026, 9, 1), date(2026, 9, 30)) == {}

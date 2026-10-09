@@ -11,7 +11,7 @@ Addendum decisions 3, 5 and 6:
 * The formula is configurable (`ML_PUB_VIEW_ADS_FORMULA`); the name must be a key of
   `ADS_MARKUP_FORMULAS`.
 
-No I/O: the provider is a Protocol; the only implementation today says "unavailable".
+No I/O here: the provider is a Protocol; `get_ads_provider` returns the ml-billing-balance adapter.
 """
 
 from __future__ import annotations
@@ -22,6 +22,10 @@ from dataclasses import dataclass, replace
 from datetime import date
 from typing import Callable, Mapping, Optional, Protocol, Sequence
 
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
 from app.services.ml_publications.view.markup import (
     REASON_ADS_SIN_VENTAS,
     REASON_SIN_COSTO,
@@ -53,9 +57,8 @@ class AdsCostProvider(Protocol):
         ...
 
 
-# ponytail: stub provider — replace with the ml-billing-balance provider when billing is wired
 class UnavailableAdsProvider:
-    """The provider until the billing source is wired: no data, never an error."""
+    """A provider with no data, never an error (kept for tests)."""
 
     def availability(self) -> AdsAvailability:
         return AdsAvailability.UNAVAILABLE
@@ -64,9 +67,11 @@ class UnavailableAdsProvider:
         return {}
 
 
-def get_ads_provider() -> AdsCostProvider:
-    """FastAPI dependency; replaced when the billing provider lands."""
-    return UnavailableAdsProvider()
+def get_ads_provider(db: Session = Depends(get_db)) -> AdsCostProvider:
+    """FastAPI dependency: the ml-billing-balance provider (net of IVA), bound to the request session."""
+    from app.services.ml_ads.read import ViewAdsProvider  # lazy: `ml_ads.read` imports this module
+
+    return ViewAdsProvider(db)
 
 
 REASON_PROVIDER_MISSING = "provider_missing"
