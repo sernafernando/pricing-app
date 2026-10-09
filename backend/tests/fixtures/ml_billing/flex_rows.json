@@ -1,0 +1,143 @@
+{
+ "source": "flex_billing_capture_20261007_150559.json (matches[], period 2026-10-01) and billing_balance_capture_20261007_123428.json.gz (ml.details.flex_*[period].rows)",
+ "bflx_599": {
+  "period": "2026-10-01",
+  "document_type": "CREDIT_NOTE",
+  "row": {
+   "charge_info": {
+    "legal_document_number": null,
+    "legal_document_status": "PROCESSING",
+    "legal_document_status_description": "En proceso",
+    "creation_date_time": "2026-10-07T10:21:05",
+    "detail_id": 72841878795,
+    "detail_associated_id": null,
+    "detail_amount": 599.0,
+    "transaction_detail": "Anulación del cargo por Mercado Envíos Flex",
+    "detail_type": "BONUS",
+    "detail_sub_type": "BFLX",
+    "concept_type": "CASHBACKS"
+   },
+   "shipping_info": {
+    "shipping_id": 48195392397,
+    "receiver_nickname": "MARTIN6081",
+    "pack_id": "2000015400388457",
+    "receiver_shipping_cost": 5990.0,
+    "order": {
+     "order_id": 2000018846584294,
+     "date_created": "2026-10-07T09:18:54",
+     "total_amount": 105998.0,
+     "payment_id": 182866205126,
+     "buyer_nickname": "MARTIN6081"
+    }
+   },
+   "document_info": {
+    "document_id": 5256322728
+   }
+  }
+ },
+ "bflx_8990": {
+  "period": "2026-10-01",
+  "document_type": "CREDIT_NOTE",
+  "row": {
+   "charge_info": {
+    "legal_document_number": null,
+    "legal_document_status": "PROCESSING",
+    "legal_document_status_description": "En proceso",
+    "creation_date_time": "2026-10-05T15:56:34",
+    "detail_id": 72704677714,
+    "detail_associated_id": null,
+    "detail_amount": 8990.0,
+    "transaction_detail": "Anulación del cargo por Mercado Envíos Flex",
+    "detail_type": "BONUS",
+    "detail_sub_type": "BFLX",
+    "concept_type": "CASHBACKS"
+   },
+   "shipping_info": {
+    "shipping_id": 48178052704,
+    "receiver_nickname": "LOPEZANA20220217170912",
+    "pack_id": "2000015364544817",
+    "receiver_shipping_cost": 0.0,
+    "order": {
+     "order_id": 2000018808335864,
+     "date_created": "2026-10-05T14:53:38",
+     "total_amount": 18857.0,
+     "payment_id": 181528413163,
+     "buyer_nickname": "LOPEZANA20220217170912"
+    }
+   },
+   "document_info": {
+    "document_id": 5256322728
+   }
+  }
+ },
+ "cflx_reciprocal": {
+  "period": "2026-09-01",
+  "document_type": "BILL",
+  "row": {
+   "charge_info": {
+    "legal_document_number": "0057A00108906",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T12:24:10",
+    "detail_id": 69348178279,
+    "detail_associated_id": 69346475478,
+    "detail_amount": 649.0,
+    "transaction_detail": "Cargo por Envíos Flex",
+    "detail_type": "CHARGE",
+    "detail_sub_type": "CFLX",
+    "concept_type": "CASHBACKS"
+   },
+   "shipping_info": {
+    "shipping_id": 47789566886,
+    "receiver_nickname": "FLORENCIAPARZANESE",
+    "pack_id": "2000014572447381",
+    "receiver_shipping_cost": 6490.0,
+    "order": {
+     "order_id": 2000017977526962,
+     "date_created": "2026-08-17T10:56:55",
+     "total_amount": 63029.0,
+     "payment_id": 174276384790,
+     "buyer_nickname": "FLORENCIAPARZANESE"
+    }
+   },
+   "document_info": {
+    "document_id": 5141978434
+   }
+  }
+ },
+ "bflx_reciprocal": {
+  "period": "2026-09-01",
+  "document_type": "CREDIT_NOTE",
+  "row": {
+   "charge_info": {
+    "legal_document_number": "0058A00404297",
+    "legal_document_status": "PROCESSED",
+    "legal_document_status_description": "Procesado",
+    "creation_date_time": "2026-08-17T11:59:39",
+    "detail_id": 69346475478,
+    "detail_associated_id": 69348178279,
+    "detail_amount": 649.0,
+    "transaction_detail": "Anulación del cargo por Mercado Envíos Flex",
+    "detail_type": "BONUS",
+    "detail_sub_type": "BFLX",
+    "concept_type": "CASHBACKS"
+   },
+   "shipping_info": {
+    "shipping_id": 47789566886,
+    "receiver_nickname": "FLORENCIAPARZANESE",
+    "pack_id": "2000014572447381",
+    "receiver_shipping_cost": 6490.0,
+    "order": {
+     "order_id": 2000017977526962,
+     "date_created": "2026-08-17T10:56:55",
+     "total_amount": 63029.0,
+     "payment_id": 174276384790,
+     "buyer_nickname": "FLORENCIAPARZANESE"
+    }
+   },
+   "document_info": {
+    "document_id": 5140842971
+   }
+  }
+ }
+}

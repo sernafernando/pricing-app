@@ -250,14 +250,16 @@ class PersistedDocuments:
     incomplete_ids: list[str]
 
 
-def persist_details_page(db, raw_results: list, period_key: str, document_type: str) -> tuple[int, int, int]:
+def persist_details_page(
+    db, raw_results: list, period_key: str, document_type: str, billing_source: str = "general"
+) -> tuple[int, int, int]:
     """Maps and upserts one `/details` page. Returns (seen, upserted, mapping_errors).
 
     Shared by the cron-style pass below and the worker lap (`billing_lap`). The
     caller commits."""
     upserted = errors = 0
     for raw in raw_results:
-        mapped = map_billing_detail(raw, period_key, document_type=document_type)
+        mapped = map_billing_detail(raw, period_key, document_type=document_type, billing_source=billing_source)
         if isinstance(mapped, MappingError):
             errors += 1
             logger.warning("sync_ml_billing: mapping error (period=%s): %s", period_key, mapped.reason)
