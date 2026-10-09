@@ -102,7 +102,10 @@ def fetch(base_url: str, token: str, scenario: Scenario) -> tuple[float, dict[st
     except (urllib.error.URLError, OSError) as exc:
         raise RequestFailed(f"connection error: {exc}") from exc
     elapsed = (time.perf_counter() - started) * 1000
-    return elapsed, stages, json.loads(raw)
+    try:
+        return elapsed, stages, json.loads(raw)
+    except ValueError as exc:  # a 200 that is not JSON (a proxy's page): reported, not a stack trace
+        raise RequestFailed("the answer is not JSON") from exc
 
 
 @dataclass

@@ -31,14 +31,18 @@ def script():
 class Api:
     """A fake strip endpoint with a `Server-Timing` header; records every request it receives."""
 
-    def __init__(self, status: int = 200) -> None:
+    def __init__(self, status: int = 200, payload: bytes | None = None) -> None:
         self.requests: list[tuple[str, str, str | None]] = []
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802 -- http.server API
                 outer.requests.append(("GET", self.path, self.headers.get("Authorization")))
-                raw = json.dumps({"mla_count": 12, "kpis": {"units": {"value": 34}}}).encode()
+                raw = (
+                    payload
+                    if payload is not None
+                    else json.dumps({"mla_count": 12, "kpis": {"units": {"value": 34}}}).encode()
+                )
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Server-Timing", "kpis;dur=7.5")
@@ -134,6 +138,11 @@ class TestRun:
         with Api(status=403) as api:
             code = script.main(["--base-url", api.url, "--token", "t"])
         assert code == 1 and "HTTP 403" in capsys.readouterr().out
+
+    def test_an_answer_that_is_not_json_is_reported_and_fails_the_run(self, script, capsys) -> None:
+        with Api(payload=b"<html>bad gateway</html>") as api:
+            code = script.main(["--base-url", api.url, "--token", "t"])
+        assert code == 1 and "not JSON" in capsys.readouterr().out
 
     def test_the_token_may_come_from_the_environment(self, script, monkeypatch) -> None:
         monkeypatch.setenv("PUBML_TOKEN", "from-env")
