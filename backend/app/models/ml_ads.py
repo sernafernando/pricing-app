@@ -6,6 +6,7 @@ Three tables, all keyed by the ad day in the account's local (Argentina) calenda
   missing ledger row means "not fetched"; a missing fact row on a ledgered day means zero (owner Q4).
 - `ml_ads_ad_group_days`: the ad-group grain of a day, with the drill status of its `/ads` pages.
 - `ml_ads_item_days`: the (ad group, item) grain, the one the Board joins on.
+- `ml_ads_display_campaign_days` and `ml_ads_brand_days`: account-level Display and Brand Ads (PR 3), never MLA-level.
 
 Money is `Numeric(16, 2)` built from `Decimal(str(value))`; payloads are kept in `raw`. No table stores
 a sum that this system computed (ADS-4): ML's own reported figures (`summary_cost`, a group's `cost`)
@@ -42,7 +43,7 @@ def _in_list(column: str, values: tuple[str, ...]) -> str:
 
 
 class MlAdsDayLedger(Base):
-    """Cursor and audit of one (source, advertiser, day): 'product_ads' now; 'display'/'brand_ads' later."""
+    """Cursor and audit of one (source, advertiser, day): 'product_ads' now; 'display' and 'brand_ads' (PR 3)."""
 
     __tablename__ = "ml_ads_day_ledger"
 
@@ -128,3 +129,38 @@ class MlAdsItemDay(Base):
     fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (Index("ix_ml_ads_item_days_day_item", "day", "item_id"),)
+
+
+class MlAdsDisplayCampaignDay(Base):
+    """Display spend of one campaign on one day (account-level, ADS-9, D11). Never tied to an MLA."""
+
+    __tablename__ = "ml_ads_display_campaign_days"
+
+    advertiser_id = Column(BigInteger, primary_key=True)
+    campaign_id = Column(BigInteger, primary_key=True)
+    day = Column(Date, primary_key=True)
+
+    consumed_budget = Column(Numeric(16, 2), nullable=False, server_default="0", default=0)
+    prints = Column(BigInteger, nullable=False, server_default="0", default=0)
+    clicks = Column(Integer, nullable=False, server_default="0", default=0)
+    reach = Column(BigInteger, nullable=False, server_default="0", default=0)
+    raw = Column(JSONB, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MlAdsBrandDay(Base):
+    """Brand Ads figures of one advertiser on one day (account-level, informational, ADS-10, D11).
+
+    `cost` is the captured `dashboard.consumed_budget[{x, y}]` value of the day. It is shown, never subtracted.
+    """
+
+    __tablename__ = "ml_ads_brand_days"
+
+    advertiser_id = Column(BigInteger, primary_key=True)
+    day = Column(Date, primary_key=True)
+
+    cost = Column(Numeric(16, 2), nullable=True)
+    prints = Column(BigInteger, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    raw = Column(JSONB, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

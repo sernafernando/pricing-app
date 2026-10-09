@@ -14,6 +14,7 @@ from typing import Any, Mapping
 
 PRODUCT_ADS_API_VERSION = "2"
 ADVERTISERS_API_VERSION = "1"
+DISPLAY_API_VERSION = "1"
 
 GROUPS_PAGE_SIZE = 200
 ADS_PAGE_SIZE = 50
@@ -106,4 +107,23 @@ def group_ads_request(ad_group_id: Any, day: date, *, offset: int) -> AdsRequest
         path=f"/advertising/MLA/product_ads/ad_groups/{_int_id(ad_group_id)}/ads",
         params={**_one_day(day), "metrics": METRICS, "limit": ADS_PAGE_SIZE, "offset": _offset(offset)},
         headers=_product_ads_headers(),
+    )
+
+
+def display_campaigns_request(advertiser_id: Any, day: date) -> AdsRequest:
+    """The Display campaigns of an advertiser (account-level, Api-Version 1). The capture sent one-day dates."""
+    return AdsRequest(
+        family="ads_display",
+        path=f"/advertising/advertisers/{_int_id(advertiser_id)}/display/campaigns",
+        params=_one_day(day),
+        headers={"Api-Version": DISPLAY_API_VERSION},
+    )
+
+
+def display_metrics_request(advertiser_id: Any, campaign_id: Any, day: date) -> AdsRequest:
+    return AdsRequest(
+        family="ads_display",
+        path=f"/advertising/advertisers/{_int_id(advertiser_id)}/display/campaigns/{_int_id(campaign_id)}/metrics",
+        params=_one_day(day),
+        headers={"Api-Version": DISPLAY_API_VERSION},
     )
