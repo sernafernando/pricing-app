@@ -41,3 +41,24 @@ describe('Sidebar — curation link entry point', () => {
     expect(screen.getByText('Ejemplos de Corrección')).toBeInTheDocument();
   });
 });
+
+describe('Sidebar — Publicaciones ML entry (go-live)', () => {
+  async function openReportes() {
+    const user = userEvent.setup();
+    renderWithRouter(<Sidebar />, { initialEntries: ['/'] });
+    await user.click(screen.getByText('Reportes'));
+  }
+
+  it('links "Publicaciones ML" under Reportes with a "Nuevo" badge for ml_ops.ver', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo === 'ml_ops.ver');
+    await openReportes();
+    const link = screen.getByRole('link', { name: /^Publicaciones ML\s*Nuevo$/ });
+    expect(link).toHaveAttribute('href', '/ml-publicaciones');
+  });
+
+  it('hides "Publicaciones ML" without ml_ops.ver', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo === 'ml_metricas.ver');
+    await openReportes();
+    expect(screen.queryByRole('link', { name: /Publicaciones ML/ })).not.toBeInTheDocument();
+  });
+});
