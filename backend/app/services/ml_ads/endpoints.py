@@ -15,6 +15,7 @@ from typing import Any, Mapping
 PRODUCT_ADS_API_VERSION = "2"
 ADVERTISERS_API_VERSION = "1"
 DISPLAY_API_VERSION = "1"
+BRAND_API_VERSION = "1"
 
 GROUPS_PAGE_SIZE = 200
 ADS_PAGE_SIZE = 50
@@ -126,4 +127,18 @@ def display_metrics_request(advertiser_id: Any, campaign_id: Any, day: date) -> 
         path=f"/advertising/advertisers/{_int_id(advertiser_id)}/display/campaigns/{_int_id(campaign_id)}/metrics",
         params=_one_day(day),
         headers={"Api-Version": DISPLAY_API_VERSION},
+    )
+
+
+def brand_metrics_request(advertiser_id: Any, day: date) -> AdsRequest:
+    """Brand Ads metrics of an advertiser for one day (account-level, Api-Version 1).
+
+    The capture sent a one-day window WITH `aggregation_type=daily`: it is what makes ML answer the per-date
+    `dashboard` series. Brand Ads has no per-campaign identity to lose here, unlike Product Ads (ADS-1).
+    """
+    return AdsRequest(
+        family="ads_brand",
+        path=f"/advertising/advertisers/{_int_id(advertiser_id)}/brand_ads/campaigns/metrics",
+        params={**_one_day(day), "aggregation_type": "daily"},
+        headers={"Api-Version": BRAND_API_VERSION},
     )

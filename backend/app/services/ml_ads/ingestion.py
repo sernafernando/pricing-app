@@ -374,3 +374,68 @@ class _DisplayRun(_DayRun):
                 detail={"campaigns": campaigns},
             )
         return StepResult(self.advertiser_id, self.day, CLOSED, CLOSED, self.calls)
+
+
+# --- Brand Ads (account-level, informational, ADS-10) ------------------------------------------------
+
+
+def run_brand_step(
+    session_factory: SessionFactory,
+    client: Any,
+    advertiser_id: int,
+    day: date,
+    *,
+    now: Callable[[], datetime],
+    deadline: Optional[datetime] = None,
+) -> StepResult:
+    """One `(advertiser, day)` of Brand Ads: a single metrics call."""
+    return _BrandRun(session_factory, client, advertiser_id, day, now, deadline).execute()
+
+
+class _BrandRun(_DayRun):
+    """Brand Ads day: one call, so there is no cursor to keep (a cut-off day simply asks again).
+
+    ML's `summary.consumed_budget` is the day total the ledger stores (`summary_cost`) and the day closes against:
+    the dashboard point of the day must agree with it, otherwise the day stays `mismatch` and is retried. An
+    all-zero day stores no row but still closes. The figure is informational and never subtracted from a margin.
+    """
+
+    source = store.BRAND_SOURCE
+
+    def execute(self) -> StepResult:
+        try:
+            self._open()
+            body = self._call(endpoints.brand_metrics_request(self.advertiser_id, self.day))
+            fact = mapper.map_brand_day(self.advertiser_id, self.day, body)
+            summary = mapper.parse_brand_summary(body)
+            if summary is None:
+                self._no_summary()
+            return self._close_brand(fact, summary)
+        except _Stop as stop:
+            return self._result(stop.outcome)
+
+    def verify(self) -> StepResult:
+        raise NotImplementedError("Brand Ads days are refreshed, not verified: the daily refresh restates recent days")
+
+    def _no_summary(self) -> NoReturn:
+        with self.session_factory() as db:
+            store.record_failure(
+                db,
+                self.advertiser_id,
+                self.day,
+                today=self._today,
+                error="brand_ads metrics without summary.consumed_budget",
+                source=self.source,
+            )
+        raise _Stop(ERROR)
+
+    def _close_brand(self, fact: Optional[mapper.BrandFact], summary: mapper.DaySummary) -> StepResult:
+        shown = fact.cost if fact is not None else Decimal(0)
+        status = CLOSED if abs(shown - summary.cost) <= CENT else MISMATCH
+        with self.session_factory() as db:
+            store.upsert_brand_days(db, [fact] if fact is not None else [], now=self.now())
+            store.delete_stale_brand(db, self.advertiser_id, self.day, fetch_started_at=self.fetch_started_at)
+            store.finish_day(
+                db, self.advertiser_id, self.day, status=status, summary=summary, now=self.now(), source=self.source
+            )
+        return StepResult(self.advertiser_id, self.day, status, status, self.calls)

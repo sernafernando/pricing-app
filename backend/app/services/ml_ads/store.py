@@ -21,11 +21,12 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.models.ml_ads import MlAdsAdGroupDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
-from app.services.ml_ads.mapper import DaySummary, DisplayFact, GroupFact, ItemFact
+from app.models.ml_ads import MlAdsAdGroupDay, MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
+from app.services.ml_ads.mapper import BrandFact, DaySummary, DisplayFact, GroupFact, ItemFact
 
 SOURCE = "product_ads"
 DISPLAY_SOURCE = "display"
+BRAND_SOURCE = "brand_ads"
 UNFINISHED = "fetching"
 # `groups_offset` is the offset of the next `ad_groups/search` page; this value says every page was read,
 # so a resumed day goes straight to the drill instead of asking ML for a page past the end.
@@ -426,6 +427,42 @@ def delete_stale_display(db: Session, advertiser_id: int, day: date, *, fetch_st
             MlAdsDisplayCampaignDay.advertiser_id == advertiser_id,
             MlAdsDisplayCampaignDay.day == day,
             MlAdsDisplayCampaignDay.fetched_at < fetch_started_at,
+        )
+    )
+    db.flush()
+
+
+# --- Brand Ads (account-level, informational, ADS-10) ------------------------------------------------
+
+
+def upsert_brand_days(db: Session, facts: Iterable[BrandFact], *, now: datetime) -> None:
+    rows = [
+        {
+            "advertiser_id": f.advertiser_id,
+            "day": f.day,
+            "cost": f.cost,
+            "prints": f.prints,
+            "clicks": f.clicks,
+            "raw": dict(f.raw),
+            "fetched_at": now,
+        }
+        for f in facts
+    ]
+    if not rows:
+        return
+    stmt = pg_insert(MlAdsBrandDay).values(rows)
+    refreshed = {name: getattr(stmt.excluded, name) for name in ("cost", "prints", "clicks", "raw", "fetched_at")}
+    db.execute(stmt.on_conflict_do_update(index_elements=["advertiser_id", "day"], set_=refreshed))
+    db.flush()
+
+
+def delete_stale_brand(db: Session, advertiser_id: int, day: date, *, fetch_started_at: datetime) -> None:
+    """Drop the day's Brand Ads row when the current fetch did not rewrite it (the day lost its activity)."""
+    db.execute(
+        delete(MlAdsBrandDay).where(
+            MlAdsBrandDay.advertiser_id == advertiser_id,
+            MlAdsBrandDay.day == day,
+            MlAdsBrandDay.fetched_at < fetch_started_at,
         )
     )
     db.flush()
