@@ -33,6 +33,15 @@ function parseProtectedRoutes(source) {
         : [];
     routes.push({ path, permisos });
   }
+
+  // Every `path:` in the block must have been read: a route the regex cannot
+  // match (e.g. nested braces) would otherwise slip past the drift checks.
+  const declared = [...block.matchAll(/path:\s*'([^']+)'/g)].map((m) => m[1]);
+  const parsed = new Set(routes.map((r) => r.path));
+  const unread = declared.filter((path) => !parsed.has(path));
+  if (unread.length > 0 || declared.length !== routes.length) {
+    throw new Error(`protectedRoutes parser could not read: ${unread.join(', ') || '(count mismatch)'}`);
+  }
   return routes;
 }
 
@@ -54,6 +63,33 @@ function parseSidebar(source) {
 
 const appRoutes = parseProtectedRoutes(appSource);
 const byPath = new Map(SCREENS.map((s) => [s.path, s]));
+
+describe('protectedRoutes parser', () => {
+  it('fails loudly on a route object it cannot read (nested braces)', () => {
+    const fixture = [
+      'const protectedRoutes = [',
+      "  { path: '/a', component: A, permiso: 'a.ver' },",
+      "  { path: '/b', component: B, meta: { x: 1 }, permiso: 'b.ver' },",
+      '];',
+    ].join('\n');
+    expect(() => parseProtectedRoutes(fixture)).toThrow(/\/b/);
+  });
+
+  it('reads single, multiple and permission-less routes', () => {
+    const fixture = [
+      'const protectedRoutes = [',
+      "  { path: '/a', component: A, permiso: 'a.ver' },",
+      "  { path: '/b', component: B },",
+      "  { path: '/c', component: C, permisos: ['c.uno', 'c.dos'] },",
+      '];',
+    ].join('\n');
+    expect(parseProtectedRoutes(fixture)).toEqual([
+      { path: '/a', permisos: ['a.ver'] },
+      { path: '/b', permisos: [] },
+      { path: '/c', permisos: ['c.uno', 'c.dos'] },
+    ]);
+  });
+});
 
 describe('screen catalog vs App.jsx protectedRoutes', () => {
   it('parses a realistic number of protected routes', () => {

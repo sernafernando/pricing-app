@@ -215,6 +215,15 @@ export default function PanelPermisos() {
 
   useEffect(() => () => clearTimeout(mensajeTimerRef.current), []);
 
+  // Messages from the permissions view belong to the user they were raised
+  // for: a success that lands after switching users is dropped so it never
+  // shows over someone else's permissions. Errors still show (a failed change
+  // must not go unnoticed).
+  const mostrarMensajeDeUsuario = (usuarioId, nuevoMensaje) => {
+    if (nuevoMensaje.tipo === 'success' && usuarioSeleccionadoIdRef.current !== usuarioId) return;
+    mostrarMensajeTemporal(nuevoMensaje);
+  };
+
   const iniciarEdicion = () => {
     if (!usuarioSeleccionado) return;
     setEditandoUsuario(usuarioSeleccionado.id);
@@ -666,7 +675,7 @@ export default function PanelPermisos() {
                   usuarioId={usuarioSeleccionado.id}
                   permisosUsuario={permisosUsuario}
                   onActualizado={() => recargarPermisosUsuario(usuarioSeleccionado.id)}
-                  onMensaje={mostrarMensajeTemporal}
+                  onMensaje={(nuevoMensaje) => mostrarMensajeDeUsuario(usuarioSeleccionado.id, nuevoMensaje)}
                 />
               )}
             </>

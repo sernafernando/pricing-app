@@ -108,6 +108,9 @@ describe('PanelPermisos', () => {
     // Still Beto's permissions: Ana's late payload was dropped.
     expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Conceder acceso a Admin' })).not.toBeInTheDocument();
+    // ...and Ana's success banner does not show up over Beto's permissions.
+    await act(async () => {});
+    expect(screen.queryByText('Permiso concedido')).not.toBeInTheDocument();
   });
 
   describe('feedback messages', () => {
