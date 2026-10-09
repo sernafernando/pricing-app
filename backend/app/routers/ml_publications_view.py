@@ -37,8 +37,7 @@ from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
-from app.routers import ml_metricas
-from app.services.ml_daily_metrics import board
+from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
     detail,
@@ -65,7 +64,7 @@ from app.services.permisos_service import PermisosService
 
 PERMISO_VER = "ml_ops.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
-PERMISO_METRICAS = ml_metricas.PERMISO_VER  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
+PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
 SLOW_QUERY_CODE = "consulta_lenta"
@@ -475,19 +474,19 @@ class GroupsResponse(BaseModel):
 
 
 class KpiStripOut(BaseModel):
-    """Métricas' KPI strip, figure for figure (`ml_metricas.BoardKpis`); the profit figures (`total_gauss`, `markup`)
+    """Métricas' KPI strip, figure for figure (`kpi_strip.BoardKpis`); the profit figures (`total_gauss`, `markup`)
     are absent, not null, without `ml_metricas.ver_ganancia`. The Board has no Ads figures, so neither has this."""
 
-    units: ml_metricas.KpiUnits
-    gross: ml_metricas.KpiMoney
-    total_gauss: Optional[ml_metricas.KpiMoney] = None
-    markup: Optional[ml_metricas.KpiMarkup] = None
-    rows_with_sales: ml_metricas.KpiShare
-    ageing: ml_metricas.KpiAgeing
+    units: kpi_strip.KpiUnits
+    gross: kpi_strip.KpiMoney
+    total_gauss: Optional[kpi_strip.KpiMoney] = None
+    markup: Optional[kpi_strip.KpiMarkup] = None
+    rows_with_sales: kpi_strip.KpiShare
+    ageing: kpi_strip.KpiAgeing
 
 
 class KpisResponse(BaseModel):
-    period: ml_metricas.BoardPeriod
+    period: kpi_strip.BoardPeriod
     kpis: KpiStripOut
     mla_count: int  # the publications the filter selects: the list's `total`, not the ones that sold
     can_see_margin: bool
@@ -948,7 +947,7 @@ def kpi_period(periodo: Optional[str], desde: Optional[str], hasta: Optional[str
     last = _day(hasta, "hasta") or board.today_business()
     given = _day(desde, "desde")
     first = given or last - timedelta(days=days - 1)
-    low, high = ml_metricas.MIN_BOARD_DATE, ml_metricas.MAX_BOARD_DATE
+    low, high = kpi_strip.MIN_BOARD_DATE, kpi_strip.MAX_BOARD_DATE
     bounds = f"must be between {low.isoformat()} and {high.isoformat()}"
     if given and not low <= given <= high:
         raise FilterError("desde", bounds)
@@ -958,8 +957,8 @@ def kpi_period(periodo: Optional[str], desde: Optional[str], hasta: Optional[str
         raise FilterError("hasta", f"leaves the {days}-day period before {low.isoformat()}")
     if first > last:
         raise FilterError("desde", "is after hasta")
-    if (last - first).days + 1 > ml_metricas.MAX_PERIOD_DAYS:
-        raise FilterError("desde", f"the period cannot exceed {ml_metricas.MAX_PERIOD_DAYS} days")
+    if (last - first).days + 1 > kpi_strip.MAX_PERIOD_DAYS:
+        raise FilterError("desde", f"the period cannot exceed {kpi_strip.MAX_PERIOD_DAYS} days")
     return first, last
 
 
@@ -1013,7 +1012,7 @@ def get_kpis(
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(mla_count=strip.mla_count)
-    figures = ml_metricas.build_kpis(strip.kpis, can_see_margin)
+    figures = kpi_strip.build_kpis(strip.kpis, can_see_margin)
     return {
         "period": {"date_from": first, "date_to": last, "prev_from": strip.prev_from, "prev_to": strip.prev_to},
         "kpis": figures.model_dump(exclude=None if can_see_margin else {"total_gauss", "markup"}),

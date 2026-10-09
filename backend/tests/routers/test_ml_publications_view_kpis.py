@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.routers import ml_metricas, ml_publications_view
-from app.services.ml_daily_metrics import board
+from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_publications.view import kpis as kpis_service, listing, status_block
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import (  # noqa: F401
@@ -162,7 +162,7 @@ class TestContract:
         )
         session = sessionmaker(bind=pg)()
         with board.Board(session, f, scope_pairs=None) as b:
-            expected = ml_metricas.build_kpis(b.kpis(), True).model_dump(mode="json")
+            expected = kpi_strip.build_kpis(b.kpis(), True).model_dump(mode="json")
         session.close()
         assert body["kpis"] == expected
         assert body["kpis"]["units"]["value"] == 5

@@ -13,7 +13,7 @@ Decisions worth knowing:
 * `mla_count` is the size of the selected set (the list's `total`), NOT the Board's `rows`, whose universe is the
   MLAs that sold plus the legacy publications; it is read from the Board's own set table, so it costs no second
   scan of the base select.
-* The Board exposes no Ads figures, so the strip has none (the Ads adapter is a later change).
+* The Board exposes no Ads figures, so the strip has none.
 * Nothing commits and nothing is written; the caller ends the transaction (its `rollback()` also ends the
   `SET LOCAL statement_timeout`).
 
@@ -41,6 +41,7 @@ class KpiStrip:
     prev_to: date
 
 
+# ponytail: Ads KPIs join the strip when the Ads adapter (P15) lands; until then they are absent, not zero.
 def compute(db: Session, f: PublicationFilter, date_from: date, date_to: date, compare: str) -> KpiStrip:
     """The Board's KPIs over the MLAs of `f` for `[date_from, date_to]` against the `compare` period."""
     f = resolve_pm_pairs(db, f)

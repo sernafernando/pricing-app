@@ -34,6 +34,17 @@ from app.core.database import get_background_db, get_db
 from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board, groups
+from app.services.ml_daily_metrics.kpi_strip import (
+    MAX_BOARD_DATE,
+    MAX_PERIOD_DAYS,
+    MIN_BOARD_DATE,
+    BoardKpis,
+    BoardPeriod,
+    KpiAgeing,  # noqa: F401 -- part of this router's public surface (its tests import it from here)
+    build_kpis,
+    round_money,
+    round_pp,
+)
 from app.services import pm_scope
 from app.services.permisos_service import PermisosService
 from app.services.product_facets import ProductFacetOptions
@@ -42,10 +53,6 @@ from app.utils.csv_cells import csv_text
 PERMISO_VER = "ml_metricas.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 DEFAULT_PERIOD_DAYS = 30
-# The KPI daily series holds one entry per day of the period: an unbounded
-# range would build millions of them in memory. One year (a leap year
-# included) is the most the screen offers ("3m" preset, custom ranges).
-MAX_PERIOD_DAYS = 366
 # The CSV streams this many rows per page, each page on its own short DB
 # session: memory and the pooled connection follow ONE page, never the file.
 EXPORT_PAGE_SIZE = 500
@@ -53,10 +60,6 @@ EXPORT_PAGE_SIZE = 500
 # beyond this many rows it refuses and asks for narrower filters, like the
 # Ventas ML export.
 EXPORT_MAX_ROWS = 10_000
-# Sane ends for the period AND its comparison period (a year back, or the
-# same length back), so the date arithmetic can never underflow/overflow.
-MIN_BOARD_DATE = date(2001, 1, 1)
-MAX_BOARD_DATE = date(2100, 12, 31)
 
 logger = logging.getLogger(__name__)
 
@@ -70,13 +73,6 @@ def require_ver(current_user: Usuario = Depends(get_current_user), db: Session =
 
 
 # ── Response models ──────────────────────────────────────────────
-
-
-class BoardPeriod(BaseModel):
-    date_from: date
-    date_to: date
-    prev_from: date
-    prev_to: date
 
 
 class BoardRow(BaseModel):
@@ -123,52 +119,6 @@ class BoardRow(BaseModel):
     store_id: Optional[int] = None
     is_best: Optional[bool] = None
     thumbnail: Optional[str] = None
-
-
-class KpiMoney(BaseModel):
-    value: Optional[float] = None
-    delta_pct: Optional[float] = None
-    series: Optional[List[float]] = None
-
-
-class KpiUnits(BaseModel):
-    value: int
-    delta_pct: Optional[float] = None
-    series: List[int]
-
-
-class KpiMarkup(BaseModel):
-    value: Optional[float] = None
-    delta_pp: Optional[float] = None
-    series: Optional[List[Optional[float]]] = None
-
-
-class KpiShare(BaseModel):
-    value: int
-    of_total: int
-
-
-class KpiAgeing(BaseModel):
-    """Ageing of the filtered rows (days since the last sale, or since the
-    publication started if it never sold). The three buckets split ALL the
-    rows with an ageing and drive the card's bar: up to 30 days, 31 to 60
-    days, over 60 days (the "Ageing > 60d" alert)."""
-
-    avg_days: Optional[float] = None
-    up_to_30: int
-    from_31_to_60: int
-    over_60: int
-
-
-class BoardKpis(BaseModel):
-    units: KpiUnits
-    gross: KpiMoney
-    total_gauss: KpiMoney
-    markup: KpiMarkup
-    # Rows with sales in the period / all rows: products, or publications
-    # when the board is grouped by publication.
-    rows_with_sales: KpiShare
-    ageing: KpiAgeing
 
 
 class BoardFacets(BaseModel):
@@ -357,20 +307,6 @@ def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> None:
 # ── Shaping ──────────────────────────────────────────────────────
 
 
-def _f(value) -> Optional[float]:
-    return None if value is None else round(float(value), 2)
-
-
-def _pp(value) -> Optional[float]:
-    return None if value is None else round(float(value), 1)
-
-
-def _delta_pct(now, before) -> Optional[float]:
-    if not before:
-        return None
-    return round((float(now) - float(before)) / float(before) * 100, 1)
-
-
 def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, leaf: bool = False) -> BoardRow:
     """`group_view`: a node of the "Agrupado" tree; `leaf`: a product under one."""
     known = [m for m in row.series_markup if m is not None]
@@ -394,11 +330,11 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, lea
         units_7d=row.windows["7d"],
         units_15d=row.windows["15d"],
         units_30d=row.windows["30d"],
-        gross=_f(row.gross),
-        total_gauss=_f(row.tg) if can_see_margin else None,
-        markup_pct=_pp(row.markup) if can_see_margin else None,
-        markup_prev_pct=_pp(row.markup_prev) if can_see_margin else None,
-        markup_delta_pp=_pp(row.markup_delta) if can_see_margin else None,
+        gross=round_money(row.gross),
+        total_gauss=round_money(row.tg) if can_see_margin else None,
+        markup_pct=round_pp(row.markup) if can_see_margin else None,
+        markup_prev_pct=round_pp(row.markup_prev) if can_see_margin else None,
+        markup_delta_pp=round_pp(row.markup_delta) if can_see_margin else None,
         markup_min_90d=(min(known) if known else None) if can_see_margin else None,
         markup_max_90d=(max(known) if known else None) if can_see_margin else None,
         series_units_90d=row.series_units,
@@ -413,40 +349,6 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, lea
         is_full=pub.is_full if pub else None,
         store_id=pub.store_id if pub else None,
         thumbnail=row.thumbnail,
-    )
-
-
-def build_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
-    """The KPI strip as the API serializes it. Public: Publicaciones' strip (`/ml-publications/view/kpis`) uses
-    it too, so both screens answer the same figures; without `can_see_margin` the profit ones are null."""
-    markup = board.markup_of(k.mtg, k.costo)
-    markup_prev = board.markup_of(k.prev_mtg, k.prev_costo)
-    return BoardKpis(
-        units=KpiUnits(value=k.units, delta_pct=_delta_pct(k.units, k.prev_units), series=k.series_units),
-        gross=KpiMoney(
-            value=_f(k.gross), delta_pct=_delta_pct(k.gross, k.prev_gross), series=[_f(v) for v in k.series_gross]
-        ),
-        total_gauss=(
-            KpiMoney(value=_f(k.tg), delta_pct=_delta_pct(k.tg, k.prev_tg), series=[_f(v) for v in k.series_tg])
-            if can_see_margin
-            else KpiMoney()
-        ),
-        markup=(
-            KpiMarkup(
-                value=_pp(markup),
-                delta_pp=_pp(markup - markup_prev) if markup is not None and markup_prev is not None else None,
-                series=k.series_markup,
-            )
-            if can_see_margin
-            else KpiMarkup()
-        ),
-        rows_with_sales=KpiShare(value=k.with_sales, of_total=k.rows),
-        ageing=KpiAgeing(
-            avg_days=round(k.ageing_avg, 1) if k.ageing_avg is not None else None,
-            up_to_30=k.up_to_30,
-            from_31_to_60=k.from_31_to_60,
-            over_60=k.over_60,
-        ),
     )
 
 
@@ -704,14 +606,14 @@ def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout) -> list:
         row.windows["7d"],
         row.windows["15d"],
         row.windows["30d"],
-        _csv_money(_f(row.gross)),
+        _csv_money(round_money(row.gross)),
     ]
     if can_see_margin:
         line += [
-            _csv_money(_f(row.tg)),
-            _csv_money(_pp(row.markup)),
-            _csv_money(_pp(row.markup_prev)),
-            _csv_money(_pp(row.markup_delta)),
+            _csv_money(round_money(row.tg)),
+            _csv_money(round_pp(row.markup)),
+            _csv_money(round_pp(row.markup_prev)),
+            _csv_money(round_pp(row.markup_delta)),
         ]
     line += [
         row.last_sale_at.isoformat() if row.last_sale_at else "",
