@@ -3,6 +3,7 @@ import { act, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import api, { marcasPmAPI } from '../../services/api';
+import { SCREENS } from '../../registry/screenCatalog';
 import PermisosPorPantalla from './PermisosPorPantalla';
 
 vi.mock('../../services/api', () => ({
@@ -348,6 +349,39 @@ describe('PermisosPorPantalla', () => {
       expect(within(sueltos()).getByText('admin.sincronizar')).toBeInTheDocument();
       expect(screen.queryByText('/productos', { selector: 'code' })).not.toBeInTheDocument();
       expect(conteoChip('Todas')).toBe(filasVisibles());
+    });
+  });
+
+  describe('access summary (KPI strip)', () => {
+    const kpi = (nombre) => within(screen.getByRole('region', { name: 'Resumen de acceso' })).getByRole('group', { name: nombre });
+    const filasConEstado = (texto) =>
+      screen.getAllByRole('listitem').filter((li) => within(li).queryByText(texto, { selector: 'span' }));
+
+    it('counts screens by the same status the list shows', async () => {
+      paresDe();
+      renderPanel();
+      await waitFor(() => expect(filasConEstado('Condicional').length).toBeGreaterThan(0));
+
+      expect(within(kpi('Sin acceso')).getByText(String(filasConEstado('Sin acceso').length))).toBeInTheDocument();
+      expect(within(kpi('Condicionales')).getByText(String(filasConEstado('Condicional').length))).toBeInTheDocument();
+      const accesibles = filasConEstado('Accede').length + filasConEstado('Pública').length;
+      expect(within(kpi('Pantallas accesibles')).getByText(`${accesibles} / ${SCREENS.length}`)).toBeInTheDocument();
+    });
+
+    it('shows overrides that add and remove permissions', async () => {
+      const datos = payload();
+      datos.permisos_detallados.administracion = [
+        permiso('admin.ver_panel', { override: true, efectivo: true, origen: 'override_agregado' }),
+        permiso('admin.sincronizar'),
+      ];
+      datos.permisos_detallados.productos = [
+        permiso('productos.ver', { tiene_por_rol: true, override: false, origen: 'override_quitado' }),
+      ];
+      renderPanel({ permisosUsuario: datos });
+      await flush();
+
+      expect(within(kpi('Overrides')).getByText('+1')).toBeInTheDocument();
+      expect(within(kpi('Overrides')).getByText('−1')).toBeInTheDocument();
     });
   });
 });

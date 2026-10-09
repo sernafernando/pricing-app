@@ -13,6 +13,8 @@ import {
   contarParesEfectivos,
   permisoCumpleFiltro,
   permisoCoincideBusqueda,
+  contarOverrides,
+  resumenAcceso,
 } from './permisosAcceso';
 
 // Shape of GET /permisos/usuario/{id} -> permisos_detallados.
@@ -284,5 +286,42 @@ describe('loose permissions (no screen): filters, search and counts', () => {
     expect(contarFiltros(vista, [falta, conOverride, delRolSuelto])).toEqual({
       todo: 4, sin_acceso: 2, con_overrides: 1, criticos: 2, depende_de_datos: 0,
     });
+  });
+});
+
+describe('user summary (KPI strip)', () => {
+  it('counts screens by access status using the same view as the screen list', () => {
+    const detallados = {
+      productos: [delRol('productos.ver')],
+      ventas_ml: [delRol('ml_metricas.ver')],
+    };
+    const vista = construirVistaPorPantalla(detallados, { rol: 'PRICING', paresDelegados: 0 }, CATALOGO);
+    // /productos accede, /metricas-ml condicional (no pairs), ranking sin acceso, /novedades publica.
+    expect(resumenAcceso(vista)).toEqual({ total: 4, accesibles: 2, sinAcceso: 1, condicionales: 1 });
+  });
+
+  it('never counts a screen as conditional while the pair count is unknown', () => {
+    const detallados = { ventas_ml: [delRol('ml_metricas.ver')] };
+    const vista = construirVistaPorPantalla(detallados, { rol: 'PRICING', paresDelegados: null }, CATALOGO);
+    expect(resumenAcceso(vista).condicionales).toBe(0);
+  });
+
+  it('counts overrides that add and remove permissions', () => {
+    const detallados = {
+      productos: [
+        permiso('productos.ver', { override: true, efectivo: true, origen: 'override_agregado' }),
+        delRol('productos.editar'),
+      ],
+      administracion: [
+        permiso('admin.ver_panel', { tiene_por_rol: true, override: false, origen: 'override_quitado' }),
+        permiso('admin.sincronizar', { override: false, origen: 'override_quitado' }),
+      ],
+    };
+    expect(contarOverrides(detallados)).toEqual({ agregados: 1, quitados: 2, total: 3 });
+  });
+
+  it('counts no overrides for an empty or missing payload', () => {
+    expect(contarOverrides({})).toEqual({ agregados: 0, quitados: 0, total: 0 });
+    expect(contarOverrides(undefined)).toEqual({ agregados: 0, quitados: 0, total: 0 });
   });
 });

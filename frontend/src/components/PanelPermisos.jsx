@@ -19,6 +19,10 @@ export default function PanelPermisos() {
   // Id of the user whose permissions are on screen: a late reload for a
   // previously selected user must not overwrite the current one.
   const usuarioSeleccionadoIdRef = useRef(null);
+  // Generation of the latest permissions request: only the newest response is
+  // applied, so a late answer to an older request (same or another user)
+  // never overwrites a newer one.
+  const cargaPermisosRef = useRef(0);
   // Pending auto-clear of a success message from the permissions view: a newer
   // message cancels it, so an old timer never wipes a later error.
   const mensajeTimerRef = useRef(null);
@@ -80,11 +84,18 @@ export default function PanelPermisos() {
     setCambiandoPassword(false);
 
     try {
-      const res = await api.get(`/permisos/usuario/${usuario.id}`);
-      setPermisosUsuario(res.data);
+      await cargarPermisos(usuario.id);
     } catch {
       setMensaje({ tipo: 'error', texto: 'Error al cargar permisos del usuario' });
     }
+  };
+
+  // Fetches a user's permissions and applies them only if no newer request
+  // started meanwhile. Rejects on a failed request so callers report it.
+  const cargarPermisos = async (usuarioId) => {
+    const generacion = ++cargaPermisosRef.current;
+    const res = await api.get(`/permisos/usuario/${usuarioId}`);
+    if (generacion === cargaPermisosRef.current) setPermisosUsuario(res.data);
   };
 
   const crearUsuario = async () => {
@@ -196,10 +207,7 @@ export default function PanelPermisos() {
 
   // Reloads the selected user's permissions in place (no loading flash), so the
   // permissions view keeps its search, filter and expanded rows after an override.
-  const recargarPermisosUsuario = async (usuarioId) => {
-    const res = await api.get(`/permisos/usuario/${usuarioId}`);
-    if (usuarioSeleccionadoIdRef.current === usuarioId) setPermisosUsuario(res.data);
-  };
+  const recargarPermisosUsuario = (usuarioId) => cargarPermisos(usuarioId);
 
   const mostrarMensajeTemporal = (nuevoMensaje) => {
     clearTimeout(mensajeTimerRef.current);
