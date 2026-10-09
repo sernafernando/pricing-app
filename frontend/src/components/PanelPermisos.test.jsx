@@ -136,6 +136,46 @@ describe('PanelPermisos', () => {
     expect(screen.queryByRole('button', { name: 'Conceder acceso a Admin' })).not.toBeInTheDocument();
   });
 
+  describe('user list', () => {
+    const lista = () => screen.getByRole('list', { name: 'Usuarios del sistema' });
+    const filaUsuario = (nombre) => within(lista()).getByRole('button', { name: new RegExp(nombre) });
+
+    it('shows each user with a role chip and the overrides chip only for the selected one', async () => {
+      const user = userEvent.setup();
+      api.get.mockImplementation(((original) => (url) => {
+        if (url !== '/permisos/usuario/7') return original(url);
+        const data = permisosDe(7);
+        Object.assign(data.permisos_detallados.administracion[0], {
+          override: true, efectivo: true, origen: 'override_agregado',
+        });
+        return Promise.resolve({ data });
+      })(api.get.getMockImplementation()));
+      renderPanel();
+
+      await screen.findByText('Ana Pérez');
+      expect(within(filaUsuario('Ana Pérez')).getByText('PRICING')).toBeInTheDocument();
+      expect(within(filaUsuario('Beto Gómez')).getByText('ADMIN')).toBeInTheDocument();
+      expect(within(lista()).queryByText(/^\+\d/)).not.toBeInTheDocument();
+
+      await user.click(filaUsuario('Ana Pérez'));
+
+      expect(filaUsuario('Ana Pérez')).toHaveAttribute('aria-pressed', 'true');
+      expect(await within(filaUsuario('Ana Pérez')).findByText('+1 −0')).toBeInTheDocument();
+      expect(within(filaUsuario('Beto Gómez')).queryByText(/^\+\d/)).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument();
+    });
+
+    it('searches users ignoring case and accents', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), 'PEREZ');
+
+      expect(within(lista()).getByText('Ana Pérez')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Beto Gómez')).not.toBeInTheDocument();
+    });
+  });
+
   describe('late permission responses', () => {
     // Holds the FIRST GET of the given user's permissions until released;
     // later GETs answer at once with `siguiente()`.
