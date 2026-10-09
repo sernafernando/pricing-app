@@ -79,6 +79,8 @@ function formatDateRange(startDate, finishDate) {
 
 /**
  * Level 2 panel: promotions of a single MLA.
+ * `onApplied(result)` (optional) is called after an apply or remove returned a
+ * result, for a host that shows data the write changes (price, markup).
  * `ignoreGlobalFilter` is for a host that is not a Productos tree (the
  * Publicaciones ML side panel): the shared type/name filter belongs to the
  * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
@@ -86,7 +88,7 @@ function formatDateRange(startDate, finishDate) {
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
  * first expand — the parent conditionally mounts this component).
  */
-function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlobalFilter = false }) {
+function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlobalFilter = false, onApplied }) {
   // The pull endpoint is a READ (it reconciles our mirror from ML and never
   // writes to ML) and requires `promos.ver`. It used to require
   // `promos.escribir`, which left read-only users looking at an unrefreshed
@@ -377,7 +379,10 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
                 <PromoApplyControl
                   mla={mla}
                   promotion={promo}
-                  onApplied={scheduleMirrorReloads}
+                  onApplied={(result) => {
+                    scheduleMirrorReloads();
+                    if (onApplied) onApplied(result);
+                  }}
                   onReloadNeeded={scheduleMirrorReloads}
                 />
               )}

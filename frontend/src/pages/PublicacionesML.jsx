@@ -105,6 +105,7 @@ export default function PublicacionesML() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const reloadList = useCallback(() => setReloadToken((token) => token + 1), []);
   const [columnVisibility, setColumnVisibility] = useState({});
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
@@ -362,6 +363,7 @@ export default function PublicacionesML() {
                   tab={filters.tab}
                   onTabChange={changeTab}
                   onClose={closePanel}
+                  onListReload={reloadList}
                   dataState={data?.data_state}
                 />
               ) : null

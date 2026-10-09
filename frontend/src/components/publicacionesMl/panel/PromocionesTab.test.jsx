@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import PromocionesTab from './PromocionesTab';
 import { promocionesAPI } from '../../../services/api';
 import { usePromoFilterStore } from '../../../store/promoFilterStore';
@@ -17,6 +18,7 @@ vi.mock('../../../services/api', () => ({
     getPromocionesItem: vi.fn(),
     refreshItemPromociones: vi.fn(),
     postPromocionItem: vi.fn(),
+    deletePromocionItem: vi.fn(),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
 }));
@@ -37,9 +39,9 @@ const PROMOTIONS = [
   { promotion_id: 'P2', promotion_type: 'DOD', name: 'Deal of the day', price: 50 },
 ];
 
-const renderTab = (itemId = 'MLA1100000001') => {
+const renderTab = (itemId = 'MLA1100000001', props = {}) => {
   const detail = readDetail(DETAIL_RESPONSE);
-  return render(<PromocionesTab detail={detail} itemId={itemId} canSeeMargin={false} dataState={null} />);
+  return render(<PromocionesTab detail={detail} itemId={itemId} canSeeMargin={false} dataState={null} {...props} />);
 };
 
 beforeEach(() => {
@@ -92,5 +94,32 @@ describe('the Promociones page filter', () => {
     renderTab();
     await screen.findByText('Smart promo');
     expect(usePromoFilterStore.getState().selectedTypes).toEqual(['LIGHTNING']);
+  });
+});
+
+describe('after a write', () => {
+  const DEAL = { promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'candidate' };
+
+  it('tells the panel once an apply went through, so price and markup can be re-read', async () => {
+    const user = userEvent.setup();
+    const onPromoApplied = vi.fn();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [DEAL] } });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    renderTab('MLA1100000001', { onPromoApplied });
+    await user.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+    expect(onPromoApplied).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await waitFor(() => expect(onPromoApplied).toHaveBeenCalledTimes(1));
+  });
+
+  it('tells the panel once a removal went through', async () => {
+    const user = userEvent.setup();
+    const onPromoApplied = vi.fn();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [{ ...DEAL, status: 'started' }] } });
+    promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'reconciled_applied' } });
+    renderTab('MLA1100000001', { onPromoApplied });
+    await user.click(await screen.findByRole('button', { name: /^desaplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+    await waitFor(() => expect(onPromoApplied).toHaveBeenCalledTimes(1));
   });
 });

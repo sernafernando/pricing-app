@@ -19,6 +19,7 @@ vi.mock('../../services/api', () => ({
   promocionesAPI: {
     getPromocionesItem: vi.fn(() => Promise.resolve({ data: { promotions: [] } })),
     refreshItemPromociones: vi.fn(() => Promise.resolve({ data: { ok: true } })),
+    postPromocionItem: vi.fn(),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
   registerAuthFailureHandler: vi.fn(),
@@ -299,6 +300,24 @@ describe('the Promociones tab', () => {
     renderPanel({ tab: 'promociones' });
     await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA1100000001'));
     expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA1100000001');
+  });
+});
+
+describe('after applying a promotion', () => {
+  it('re-reads the detail silently and asks the list to reload its row, without remounting the tab', async () => {
+    const user = userEvent.setup();
+    const onListReload = vi.fn();
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [{ promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'candidate' }] } });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    renderPanel({ tab: 'promociones', onListReload });
+    await user.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(2));
+    expect(onListReload).toHaveBeenCalledTimes(1);
+    // The tab never went through "loading": its feedback is still there and so is its content.
+    expect(screen.getByText(/puede tardar en reflejarse/i)).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Cargando publicación' })).not.toBeInTheDocument();
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
   });
 });
 

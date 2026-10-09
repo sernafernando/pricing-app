@@ -11,12 +11,15 @@ import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
  * first (`pullOnOpen`); `MlaPromocionesPanel` itself gates the pull and the
  * apply/remove controls on `promos.ver` / `promos.escribir`.
  *
+ * `onPromoApplied` fires after an apply or remove, so the panel can re-read
+ * the price and markup it shows.
+ *
  * `key={itemId}` makes a new selection start from scratch, so one
  * publication's promotions are never shown under the next. The cache is
  * private to this tab: the Productos filter bar that reads its entries is not
  * on this page, and the global promo filter is ignored for the same reason.
  */
-export default function PromocionesTab({ itemId }) {
+export default function PromocionesTab({ itemId, onPromoApplied }) {
   const [promosCacheRef] = useState(() => ({ current: new Map() }));
-  return <MlaPromocionesPanel key={itemId} mla={itemId} promosCacheRef={promosCacheRef} pullOnOpen ignoreGlobalFilter />;
+  return <MlaPromocionesPanel key={itemId} mla={itemId} promosCacheRef={promosCacheRef} pullOnOpen ignoreGlobalFilter onApplied={onPromoApplied} />;
 }

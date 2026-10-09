@@ -12,7 +12,7 @@ import VariacionesTab from './VariacionesTab';
  *  - `isVisible` gets `{ detail, canSeeMargin, canManage, canViewPromos }` (see
  *    `PublicationPanel`), so a tab exists only for the data and the permission
  *    that make it worth opening;
- *  - `Component` gets `{ detail, itemId, canSeeMargin, dataState }`.
+ *  - `Component` gets `{ detail, itemId, canSeeMargin, dataState, onPromoApplied }`.
  *
  * Eventos and Historial load their own pages when opened (they cost a request
  * only when somebody looks at them); Producto vinculado reads the detail.

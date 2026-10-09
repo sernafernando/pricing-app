@@ -31,15 +31,22 @@ const describeError = (error) =>
  * @param {string} props.tab Key of the open tab (anything unknown is the first one).
  * @param {(key: string) => void} props.onTabChange
  * @param {() => void} props.onClose
+ * @param {() => void} [props.onListReload] Asks the page to reload its list (a promotion write changes price and markup).
  * @param {object} [props.dataState] The list's honest-state block.
  * @param {Array} [props.tabs] The tab registry (tests inject their own).
  */
-export default function PublicationPanel({ itemId, tab, onTabChange, onClose, dataState, tabs = PANEL_TABS }) {
+export default function PublicationPanel({ itemId, tab, onTabChange, onClose, onListReload, dataState, tabs = PANEL_TABS }) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   const canManage = tienePermiso('ml_ops.gestionar');
   const canViewPromos = tienePermiso('promos.ver');
-  const { status, detail, error, reload } = usePublicationDetail(itemId, { canSeeMargin });
+  const { status, detail, error, reload, refresh } = usePublicationDetail(itemId, { canSeeMargin });
+  // A write in a tab (applying a promotion) changes what the detail and the
+  // list row show: re-read both, the detail silently so the tab keeps its state.
+  const handleWritten = () => {
+    refresh();
+    onListReload?.();
+  };
   const tabRefs = useRef({});
   const stripRef = useRef(null);
   const panelId = useId();
@@ -140,7 +147,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, da
             ))}
           </div>
           <div className={styles.body} role="tabpanel" id={`${panelId}-tabpanel`} aria-labelledby={`${panelId}-tab-${active.key}`}>
-            <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} />
+            <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} />
           </div>
         </>
       )}
