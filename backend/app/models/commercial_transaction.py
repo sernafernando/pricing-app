@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Numeric, Text
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Index, Numeric, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -14,6 +14,11 @@ class CommercialTransaction(Base):
     """
 
     __tablename__ = "tb_commercial_transactions"
+    __table_args__ = (
+        # Mirrors migration 20261016_ct_mlo_soh_indexes (partial: Postgres only).
+        Index("ix_tct_mlo_id_comp_id", "mlo_id", "comp_id", postgresql_where="mlo_id IS NOT NULL"),
+        Index("ix_tct_ct_soh_id_comp_id", "ct_soh_id", "comp_id", postgresql_where="ct_soh_id IS NOT NULL"),
+    )
 
     # IDs principales
     comp_id = Column(Integer)
