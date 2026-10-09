@@ -280,3 +280,195 @@ export const PRODUCT_NODES = [
     markup_max: null,
   }),
 ];
+
+/**
+ * `GET /ml-publications/view/items/{item_id}` (router `ml_publications_view.py`,
+ * `ItemDetailResponse`; P8a). `item` is every `ml_items` column but the body and
+ * its hash; `extra` is the whitelisted part of the body (`view/detail.py`, every
+ * key present, `null` when the body lacks it). `replenishment` is `null` when
+ * the publication is not Full. `markup_breakdown` exists only with
+ * `ml_metricas.ver_ganancia` and may be `null`.
+ */
+export const REPLENISHMENT_OK = {
+  status: 'ok',
+  content_missing: null,
+  period: '30d',
+  units_30d: 42,
+  gmv_30d: 4137021.5,
+  currency: 'ARS',
+  units_7d: 9,
+  units_14d: 20,
+  units_21d: 31,
+  days_out_of_stock_21d: 2,
+  shipping_urgency: 'normal',
+  total_stock: 20,
+  minimum_distributable_stock: 4,
+  history_through: '2026-10-05',
+  fetched_at: '2026-10-08T08:00:00Z',
+};
+
+/** What a Full publication shows before its first replenishment answer: every figure null. */
+export const REPLENISHMENT_EMPTY = {
+  status: 'never_fetched',
+  content_missing: null,
+  period: null,
+  units_30d: null,
+  gmv_30d: null,
+  currency: null,
+  units_7d: null,
+  units_14d: null,
+  units_21d: null,
+  days_out_of_stock_21d: null,
+  shipping_urgency: null,
+  total_stock: null,
+  minimum_distributable_stock: null,
+  history_through: null,
+  fetched_at: null,
+};
+
+export const FRESHNESS = [
+  { resource: 'items', state: 'ok', fetched_at: '2026-10-08T09:30:00Z', last_checked_at: '2026-10-08T09:45:00Z', http_status: 200 },
+  { resource: 'stock', state: 'ok', fetched_at: '2026-10-08T09:30:00Z', last_checked_at: '2026-10-08T09:45:00Z', http_status: 200 },
+  { resource: 'replenishment', state: 'ok', fetched_at: '2026-10-08T08:00:00Z', last_checked_at: '2026-10-08T09:00:00Z', http_status: 200 },
+];
+
+export const MARKUP_BREAKDOWN = {
+  variation_id: null,
+  price: 98500.5,
+  price_source: 'sale_price',
+  pricelist_id: 12,
+  installments: 6,
+  comision_pct: 13.5,
+  comision_total: 13297.57,
+  costo_envio: 4200,
+  envio_source: 'erp',
+  limpio: 81002.93,
+  costo_ars: 64000,
+  markup: 26.5,
+};
+
+/** Every `ml_items` column the detail returns (the body and its hash are not among them). */
+export const ITEM_COLUMNS = {
+  item_id: 'MLA1100000001',
+  site_id: 'MLA',
+  seller_id: 123456789,
+  title: 'Router TP-Link Archer AX55 Wi-Fi 6 Dual Band 3000 Mbps',
+  brand: 'TP-Link',
+  family_name: 'Archer AX55',
+  family_id: 7001,
+  category_id: 'MLA1648',
+  domain_id: 'MLA-ROUTERS',
+  user_product_id: null,
+  catalog_product_id: 'MLA19000001',
+  catalog_listing: false,
+  official_store_id: 471846,
+  status: 'active',
+  sub_status: [],
+  tags: ['good_quality_picture', 'immediate_payment'],
+  listing_type_id: 'gold_pro',
+  buying_mode: 'buy_it_now',
+  condition: 'new',
+  currency_id: 'ARS',
+  seller_custom_field: 'ARCHER-AX55',
+  seller_sku: 'AX55-SKU',
+  price: 98500.5,
+  base_price: 112000,
+  original_price: null,
+  available_quantity: 34,
+  sold_quantity: 120,
+  initial_quantity: 200,
+  permalink: 'https://articulo.mercadolibre.com.ar/MLA-1100000001-router-tp-link-archer-ax55-_JM',
+  thumbnail: null,
+  health: 0.87,
+  inventory_id: 'ABCD1234',
+  parent_item_id: null,
+  shipping_mode: 'me2',
+  logistic_type: 'fulfillment',
+  free_shipping: true,
+  start_time: '2026-03-02T13:00:00Z',
+  stop_time: '2046-03-02T13:00:00Z',
+  end_time: null,
+  expiration_time: null,
+  date_created: '2026-03-02T13:00:00Z',
+  ml_last_updated: '2026-10-08T09:00:00Z',
+  http_status: 200,
+  last_error: null,
+};
+
+/** The whitelisted body: warranty, shipping, sale terms, attributes, pictures, ... */
+export const EXTRA_FIELDS = {
+  warranty: 'Garantía del vendedor: 6 meses',
+  listing_source: '',
+  automatic_relist: false,
+  accepts_mercadopago: true,
+  international_delivery_mode: 'none',
+  video_id: null,
+  thumbnail_id: '987654-MLA',
+  differential_pricing: null,
+  channels: ['marketplace', 'mshops'],
+  deal_ids: ['MLA12345'],
+  shipping: { mode: 'me2', local_pick_up: false, store_pick_up: false, tags: ['self_service_in'] },
+  sale_terms: [
+    { id: 'WARRANTY_TIME', name: 'Tiempo de garantía', value_name: '6 meses' },
+    { id: 'INSTALLMENTS_CAMPAIGN', name: 'Cuotas', value_name: '6x_campaign' },
+  ],
+  attributes: [
+    { id: 'BRAND', name: 'Marca', value_name: 'TP-Link' },
+    { id: 'MODEL', name: 'Modelo', value_name: 'Archer AX55' },
+  ],
+  item_relations: [{ id: 'MLA1100000009', variation_id: null, stock_relation: 1 }],
+  pictures: [
+    { id: '111-MLA', secure_url: 'https://http2.mlstatic.com/D_111-O.jpg', size: '500x500', max_size: '1200x1200' },
+    { id: '222-MLA', secure_url: 'https://http2.mlstatic.com/D_222-O.jpg', size: '500x500', max_size: '1200x1200' },
+  ],
+};
+
+/** The link of one unit (`variation_id` 0 is the item level). */
+export const ITEM_LINK = {
+  variation_id: 0,
+  state: 'auto',
+  source: 'sku',
+  match_status: 'linked',
+  producto_item_id: 4101,
+  codigo: 'ARCHER-AX55',
+  descripcion: 'Router Archer AX55',
+  marca: 'TP-LINK',
+  matched_sku: 'AX55-SKU',
+  sku_field: 'seller_sku',
+  suggested_producto_item_id: null,
+  suggestion_status: null,
+  linked_at: '2026-09-01T10:00:00Z',
+  note: null,
+};
+
+export const makeDetail = (overrides = {}) => ({
+  row: ITEMS[0],
+  item: ITEM_COLUMNS,
+  extra: EXTRA_FIELDS,
+  sub_status: [],
+  tags: ['good_quality_picture', 'immediate_payment'],
+  health: 0.87,
+  condition: 'new',
+  date_created: '2026-03-02T13:00:00Z',
+  ml_last_updated: '2026-10-08T09:00:00Z',
+  fetched_at: '2026-10-08T09:30:00Z',
+  stock_locations: [
+    { type: 'meli_facility', quantity: 20 },
+    { type: 'selling_address', quantity: 14 },
+  ],
+  stock_as_of: '2026-10-08T09:30:00Z',
+  replenishment: REPLENISHMENT_OK,
+  links: [ITEM_LINK],
+  product: null,
+  freshness: FRESHNESS,
+  can_resync: false,
+  ...overrides,
+});
+
+export const DETAIL_RESPONSE = makeDetail();
+
+/** The same detail for a caller with `ml_metricas.ver_ganancia`: markup breakdown and product cost. */
+export const DETAIL_RESPONSE_MARGIN = makeDetail({
+  markup_breakdown: MARKUP_BREAKDOWN,
+  can_resync: true,
+});

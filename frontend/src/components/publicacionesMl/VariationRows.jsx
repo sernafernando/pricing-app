@@ -1,48 +1,11 @@
-import { useEffect, useState } from 'react';
-import { publicacionesMlAPI } from '../../services/api';
+import { useState } from 'react';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import MarkupCell from './MarkupCell';
 import StockCell from './StockCell';
-import { readVariation } from './variationRows';
+import { costLabel, readVariation } from './variationRows';
+import { describeVariationsError, useVariations } from './useVariations';
 import cellStyles from './cells.module.css';
 import styles from './VariationRows.module.css';
-
-/** What to tell the operator when the variations cannot be loaded. */
-function describeError(error) {
-  const status = error?.response?.status;
-  if (status === 404) return 'La publicación ya no existe.';
-  if (status === 422) return 'El identificador de la publicación no es válido.';
-  if (status === 403) return 'No tenés permiso para ver las variaciones.';
-  if (status === 503) return 'La consulta tardó demasiado. Reintentá en unos segundos.';
-  return 'No se pudieron cargar las variaciones.';
-}
-
-/**
- * Loads the variations of `itemId` when it mounts. Mounted only while the row is
- * expanded, so a collapsed publication costs no request. `attempt` re-runs it.
- */
-function useVariations(itemId, attempt) {
-  const [state, setState] = useState({ status: 'loading', variations: [], error: null });
-  useEffect(() => {
-    let current = true;
-    setState({ status: 'loading', variations: [], error: null });
-    publicacionesMlAPI
-      .variations(itemId)
-      .then((response) => {
-        if (current) setState({ status: 'ready', variations: response.data?.variations ?? [], error: null });
-      })
-      .catch((error) => {
-        if (current) setState({ status: 'error', variations: [], error });
-      });
-    return () => {
-      current = false;
-    };
-  }, [itemId, attempt]);
-  return state;
-}
-
-/** Pesos are the default; any other currency of the product's cost is named. */
-const costLabel = (currency) => (currency && currency !== 'ARS' ? `Costo ${currency}` : 'Costo');
 
 /** Cell of a variation under the column `key`; columns it has nothing for stay empty. */
 function VariationCell({ column, variation, canSeeMargin }) {
@@ -115,7 +78,7 @@ export default function VariationRows({ item, columns, canSeeMargin, depth = 0 }
   if (status === 'error') {
     return (
       <StateRow span={span} depth={depth}>
-        <span role="alert">{describeError(error)}</span>
+        <span role="alert">{describeVariationsError(error)}</span>
         <button type="button" className="btn-tesla outline sm" onClick={() => setAttempt((n) => n + 1)}>
           Reintentar
         </button>

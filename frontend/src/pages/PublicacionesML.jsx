@@ -7,6 +7,7 @@ import SearchInput from '../components/SearchInput';
 import { ColumnPicker, FacetChips, Pagination, SegmentedControl, SplitPanelLayout, SwitchChip, TableShell } from '../components/kit';
 import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
+import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
 import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns } from '../components/publicacionesMl/columns';
@@ -31,7 +32,7 @@ import styles from './PublicacionesML.module.css';
  * filter changed (a page or sort change keeps the last counts). Filters, sort,
  * page and selection live in the URL (`usePublicacionesMLFilters`).
  * Ctrl/Cmd+click opens the publication in Mercado Libre; a plain click selects
- * the row (the detail panel is mounted by a later PR).
+ * the row, which opens the detail panel beside the table (`sel`, `tab` in the URL).
  *
  * `vista=agrupado` swaps the list for the tree (marca > categoría > subcategoría
  * > producto > [familia] > publicación, `AgrupadoTable`): the tree loads its own
@@ -185,6 +186,8 @@ export default function PublicacionesML() {
   const requestedSort = filters.orden === 'markup' && !canSeeMargin ? '' : filters.orden;
   const sortKey = requestedSort || DEFAULT_SORT;
   const sort = { key: sortKey, dir: (requestedSort && filters.dir) || DEFAULT_DIRECTION[sortKey] || 'desc' };
+  const closePanel = () => setFilters({ sel: '', tab: '' });
+  const changeTab = (tab) => setFilters({ tab });
   const handleSort = (key) => {
     if (key === sort.key) setFilters({ orden: key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
     else setFilters({ orden: key, dir: DEFAULT_DIRECTION[key] ?? 'desc' });
@@ -347,7 +350,23 @@ export default function PublicacionesML() {
         <ListSkeleton />
       ) : (
         <div className={styles.listArea} aria-busy={loading}>
-          <SplitPanelLayout open={false} onClose={() => setFilters({ sel: '', tab: '' })} panel={null}>
+          <SplitPanelLayout
+            open={Boolean(filters.sel)}
+            onClose={closePanel}
+            width="lg"
+            ariaLabel="Detalle de la publicación"
+            panel={
+              filters.sel ? (
+                <PublicationPanel
+                  itemId={filters.sel}
+                  tab={filters.tab}
+                  onTabChange={changeTab}
+                  onClose={closePanel}
+                  dataState={data?.data_state}
+                />
+              ) : null
+            }
+          >
             {agrupado ? (
               <AgrupadoTable
                 columns={visibleColumns}

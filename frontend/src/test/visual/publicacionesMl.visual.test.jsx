@@ -23,6 +23,8 @@ import { publicacionesMlAPI } from '../../services/api';
 import {
   BRAND_NODES,
   DATA_STATE_OK,
+  DETAIL_RESPONSE,
+  DETAIL_RESPONSE_MARGIN,
   FACETS,
   ITEMS,
   ITEMS_RESPONSE,
@@ -49,7 +51,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -496,4 +498,155 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
       screen.unmount();
     });
   }
+});
+
+// The detail panel open beside the table (publicaciones-ml-vista P13a.T5, S61.1/S62.1).
+const SELECTED = MANY[0].item_id;
+const PANEL_VIEWPORTS = [
+  { width: 1366, height: 768 },
+  { width: 1920, height: 1080 },
+];
+
+const renderWithPanel = async ({ width, height, theme, margin = false, tab = '' }) => {
+  canSeeMargin = margin;
+  const base = { ...MANY[0], is_full: true, variations_count: 3 };
+  publicacionesMlAPI.items.mockResolvedValue({
+    data: margin ? { ...MARGIN_RESPONSE, items: [{ ...base, markup: MARGIN_ITEMS[1].markup }, ...MANY.slice(1)] } : { ...RESPONSE, items: [base, ...MANY.slice(1)] },
+  });
+  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...(margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE), row: base } });
+  publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+  await page.viewport(width, height);
+  setTheme(theme);
+  document.body.style.background = 'var(--cf-bg-app)';
+  window.scrollTo(0, 0);
+  const query = new URLSearchParams({ sel: SELECTED, ...(tab ? { tab } : {}) });
+  const screen = await render(
+    <MemoryRouter initialEntries={[`/ml-publicaciones?${query}`]}>
+      <Shell>
+        <PublicacionesML />
+      </Shell>
+    </MemoryRouter>,
+  );
+  await expect.element(screen.getByRole('tab', { name: 'Resumen' })).toBeVisible();
+  return screen;
+};
+const panelOf = () => document.querySelector('[data-split-panel]');
+
+describe('Publicaciones ML with the detail panel open (visual)', () => {
+  beforeEach(() => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.detail.mockReset();
+    publicacionesMlAPI.variations.mockReset();
+  });
+
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the panel shrinks the table beside it, 460-560px wide, and nothing overlaps (S61.1)`, async () => {
+        const screen = await renderWithPanel({ width, height, theme });
+        const panel = panelOf();
+        const scroller = scrollerOf();
+        expect(rect(panel).width).toBeGreaterThanOrEqual(460 - 0.5);
+        expect(rect(panel).width).toBeLessThanOrEqual(560 + 0.5);
+        // The table ends where the panel starts: side by side, never one over the other.
+        expect(rect(scroller).right).toBeLessThanOrEqual(rect(panel).left + 0.5);
+        expect(rect(panel).right).toBeLessThanOrEqual(width + 0.5);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        // The panel is a column of the layout, not a fixed sheet over the page.
+        expect(getComputedStyle(panel).position).toBe('sticky');
+        expect(getComputedStyle(panel).backgroundColor).toBe(tokenColor('--cf-bg-card'));
+        // The selected row is still on screen, not hidden behind the panel.
+        const selected = [...scroller.querySelectorAll('tbody tr')].find((row) => row.textContent.includes(SELECTED));
+        expect(selected).toBeDefined();
+        // ... inside the scroller's box, which itself ends before the panel.
+        expect(rect(selected).top).toBeGreaterThanOrEqual(rect(scroller).top);
+        expect(rect(selected).left).toBeGreaterThanOrEqual(rect(scroller).left - 0.5);
+        expect(rect(selected).left).toBeLessThan(rect(panel).left);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the table still scrolls on both axes inside its scroller and keeps its pinned column (S62.1)`, async () => {
+        const screen = await renderWithPanel({ width, height, theme });
+        const scroller = scrollerOf();
+        expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth);
+        scroller.scrollTo({ top: 300, left: 120 });
+        await frame();
+        const scrollerBox = rect(scroller);
+        const header = scroller.querySelector('thead th');
+        expect(Math.abs(rect(header).top - scrollerBox.top)).toBeLessThanOrEqual(2);
+        const pinned = scroller.querySelector('tbody tr td[data-pinned]');
+        expect(Math.abs(rect(pinned).left - scrollerBox.left)).toBeLessThanOrEqual(2);
+        expect(rect(scroller).right).toBeLessThanOrEqual(rect(panelOf()).left + 0.5);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the panel's content fits its width, the tabs stay on one line and the footer stays in view`, async () => {
+        const screen = await renderWithPanel({ width, height, theme });
+        const panel = panelOf();
+        const box = rect(panel);
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const el of panel.querySelectorAll('*')) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0) continue;
+          expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
+        }
+        const tabs = [...panel.querySelectorAll('[role="tab"]')];
+        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full']);
+        // One row of tabs: they all start at the same height.
+        expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
+        // The footer sits inside the panel's box even though the content is taller than the panel.
+        const footer = panel.querySelector('footer');
+        // On a laptop the content is taller than the panel (the footer must not scroll away); on a big screen it fits.
+        if (height < 900) expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
+        expect(rect(footer).bottom).toBeLessThanOrEqual(box.bottom + 0.5);
+        expect(rect(footer).top).toBeGreaterThanOrEqual(box.top);
+        panel.scrollTo({ top: panel.scrollHeight });
+        await frame();
+        expect(rect(footer).bottom).toBeLessThanOrEqual(box.bottom + 0.5);
+        expect(rect(footer).top).toBeGreaterThanOrEqual(box.top);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the money, stock and dates of Resumen stay on one line`, async () => {
+        const screen = await renderWithPanel({ width, height, theme });
+        const values = [...panelOf().querySelectorAll('dd')].filter((el) => /^[\d.,/: ]+(ARS|%)?$/.test(el.textContent.trim()));
+        expect(values.length).toBeGreaterThan(4);
+        expect(wrapped(values)).toEqual([]);
+        screen.unmount();
+      });
+    }
+  }
+
+  it('1366x768 light: the Variaciones tab flags the negative variation with the danger tone and fits the panel', async () => {
+    const screen = await renderWithPanel({ width: 1366, height: 768, theme: 'light', margin: true, tab: 'variaciones' });
+    await expect.element(screen.getByText('Variación 9002')).toBeVisible();
+    const panel = panelOf();
+    const cardOf = (id) => [...panel.querySelectorAll('li')].find((li) => li.textContent.includes(`Variación ${id}`));
+    expect(getComputedStyle(cardOf(9002)).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
+    expect(getComputedStyle(cardOf(9001)).backgroundColor).not.toBe(tokenColor('--tone-danger-bg'));
+    expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+    expect(rect(scrollerOf()).right).toBeLessThanOrEqual(rect(panel).left + 0.5);
+    screen.unmount();
+  });
+
+  it('1366x768 dark: the Full tab shows a complete report without the partial badge, its figures on one line', async () => {
+    const screen = await renderWithPanel({ width: 1366, height: 768, theme: 'dark', tab: 'full' });
+    await expect.element(screen.getByText('Últimos 30 días')).toBeVisible();
+    expect(screen.getByText('Datos parciales').elements()).toHaveLength(0);
+    const panel = panelOf();
+    const figures = [...panel.querySelectorAll('dd')].filter((el) => /^[\d.,]+( ARS)?$/.test(el.textContent.trim()));
+    expect(figures.length).toBeGreaterThan(5);
+    expect(wrapped(figures)).toEqual([]);
+    expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+    screen.unmount();
+  });
+
+  it('1366x768 light: the footer of a manager shows the Resincronizar button inside the panel', async () => {
+    const screen = await renderWithPanel({ width: 1366, height: 768, theme: 'light', margin: true });
+    const button = screen.getByRole('button', { name: 'Resincronizar' });
+    await expect.element(button).toBeVisible();
+    const box = rect(button.element());
+    expect(box.right).toBeLessThanOrEqual(rect(panelOf()).right + 0.5);
+    expect(box.left).toBeGreaterThanOrEqual(rect(panelOf()).left - 0.5);
+    screen.unmount();
+  });
 });
