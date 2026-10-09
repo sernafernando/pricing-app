@@ -1,4 +1,4 @@
-from sqlalchemy import Index, Column, Integer, BigInteger, String, Boolean, DateTime, Numeric, Text
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Index, Numeric, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.core.database import Base
