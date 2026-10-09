@@ -485,7 +485,7 @@ export const makeEvent = (overrides = {}) => ({
   label: 'Cambio de precio',
   observed_at: '2026-10-08T09:30:00Z',
   promotion_type: null,
-  price_kind: 'price',
+  price_kind: 'standard',
   old_value: 55882.0,
   new_value: 56382.0,
   ...overrides,

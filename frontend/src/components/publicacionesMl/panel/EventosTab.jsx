@@ -52,7 +52,7 @@ export default function EventosTab({ itemId }) {
   if (feed.meta?.enabled === false) {
     return (
       <p className={styles.note} role="status">
-        Los eventos están desactivados: la sincronización de publicaciones no los registra (events.enabled).
+        Los eventos están desactivados: la sincronización de publicaciones no los registra.
       </p>
     );
   }

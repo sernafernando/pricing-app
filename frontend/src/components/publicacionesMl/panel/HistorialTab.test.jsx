@@ -112,6 +112,15 @@ describe('the technical fields (S58.1)', () => {
   });
 });
 
+describe('an unknown resource', () => {
+  it('gets a generic label, never its code', async () => {
+    publicacionesMlAPI.history.mockResolvedValue({ data: { entries: [{ ...HISTORY_ENTRIES[1], resource_type: 'brand_new_resource' }], next_cursor: null } });
+    renderTab();
+    expect(await screen.findByText('Otro recurso')).toBeInTheDocument();
+    expect(screen.queryByText('brand_new_resource')).not.toBeInTheDocument();
+  });
+});
+
 describe('restored and gone entries', () => {
   it('marks a publication that disappeared from or came back to Mercado Libre', async () => {
     publicacionesMlAPI.history.mockResolvedValue({

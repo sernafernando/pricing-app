@@ -63,6 +63,7 @@ describe('the events', () => {
     expect(within(price).getByText(/55\.882/)).toBeInTheDocument();
     expect(within(price).getByText(/56\.382/)).toBeInTheDocument();
     expect(within(price).getByText(/\d{2}\/\d{2}\/\d{4}/)).toBeInTheDocument();
+    expect(within(price).getByText('Precio estándar')).toBeInTheDocument();
     const status = screen.getByText('Pausada').closest('li');
     expect(within(status).getByText(/active/)).toBeInTheDocument();
     expect(within(status).getByText(/paused/)).toBeInTheDocument();
@@ -72,6 +73,20 @@ describe('the events', () => {
     renderTab();
     const promo = (await screen.findByText('Precio de promoción modificado')).closest('li');
     expect(within(promo).getByText(/DEAL/)).toBeInTheDocument();
+  });
+
+  it('does not ask for the next page twice on a double click', async () => {
+    let resolveNext;
+    publicacionesMlAPI.events
+      .mockResolvedValueOnce({ data: { ...EVENTS_RESPONSE, events: EVENTS.slice(0, 2), next_cursor: 'c|1' } })
+      .mockReturnValueOnce(new Promise((resolve) => (resolveNext = resolve)));
+    renderTab();
+    await screen.findByText('Precio modificado');
+    const more = screen.getByRole('button', { name: 'Ver más' });
+    await userEvent.dblClick(more);
+    expect(publicacionesMlAPI.events).toHaveBeenCalledTimes(2);
+    resolveNext({ data: { ...EVENTS_RESPONSE, events: EVENTS.slice(2), next_cursor: null } });
+    await screen.findByText('Precio de promoción modificado');
   });
 
   it('shows an event without values as just its label and date', async () => {

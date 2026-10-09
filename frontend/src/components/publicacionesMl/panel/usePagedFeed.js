@@ -44,23 +44,27 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
     };
   }, [itemId, listKey, attempt]);
 
+  // The latest state, readable from `loadMore` without running a request inside a state updater.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   const loadMore = useCallback(() => {
+    const current = stateRef.current;
+    if (current.status !== 'ready' || current.nextCursor == null || current.more === 'loading') return;
     const mine = generation.current;
-    setState((current) => {
-      if (current.status !== 'ready' || current.nextCursor == null || current.more === 'loading') return current;
-      const cursor = current.nextCursor;
-      fetchRef
-        .current(itemId, { cursor })
-        .then((response) => {
-          if (generation.current !== mine) return;
-          const { [listKey]: items = [], next_cursor: nextCursor = null } = response.data ?? {};
-          setState((now) => ({ ...now, items: [...now.items, ...items], nextCursor, more: 'idle' }));
-        })
-        .catch(() => {
-          if (generation.current === mine) setState((now) => ({ ...now, more: 'error' }));
-        });
-      return { ...current, more: 'loading' };
-    });
+    setState((now) => ({ ...now, more: 'loading' }));
+    // A second click before the re-render must not ask for the same page twice.
+    stateRef.current = { ...current, more: 'loading' };
+    fetchRef
+      .current(itemId, { cursor: current.nextCursor })
+      .then((response) => {
+        if (generation.current !== mine) return;
+        const { [listKey]: items = [], next_cursor: nextCursor = null } = response.data ?? {};
+        setState((now) => ({ ...now, items: [...now.items, ...items], nextCursor, more: 'idle' }));
+      })
+      .catch(() => {
+        if (generation.current === mine) setState((now) => ({ ...now, more: 'error' }));
+      });
   }, [itemId, listKey]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);

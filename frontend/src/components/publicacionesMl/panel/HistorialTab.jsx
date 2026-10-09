@@ -11,7 +11,7 @@ import styles from './panel.module.css';
 const ERRORS = { forbidden: 'No tenés permiso para ver el historial.', fallback: 'No se pudo cargar el historial.' };
 const fetchHistory = (itemId, params) => publicacionesMlAPI.history(itemId, params);
 
-/** The resources the change log keeps (`ml_change_log.resource_type`). An unknown one shows as itself. */
+/** The resources the change log keeps (`ml_change_log.resource_type`). An unknown one gets a generic label, never its code. */
 const RESOURCE_LABELS = {
   item: 'Publicación',
   prices: 'Precios',
@@ -24,6 +24,8 @@ const RESOURCE_LABELS = {
   replenishment: 'Reposición',
   family: 'Familia',
 };
+
+const GENERIC_RESOURCE_LABEL = 'Otro recurso';
 
 /** Entries that are not a plain change say so. */
 const KIND_LABELS = { gone: 'Eliminada de Mercado Libre', restored: 'Restaurada en Mercado Libre' };
@@ -51,7 +53,7 @@ function Entry({ entry, showAll }) {
   return (
     <li className={styles.entry}>
       <div className={styles.entryHead}>
-        <span className={styles.entryTitle}>{RESOURCE_LABELS[entry.resource_type] ?? entry.resource_type}</span>
+        <span className={styles.entryTitle}>{RESOURCE_LABELS[entry.resource_type] ?? GENERIC_RESOURCE_LABEL}</span>
         <time className={styles.entryWhen} dateTime={entry.observed_at}>
           {date(entry.observed_at)}
         </time>
