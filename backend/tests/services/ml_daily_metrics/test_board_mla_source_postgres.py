@@ -195,6 +195,18 @@ def test_kpis_equal_metricas_for_the_same_set_of_mlas(tree_catalog: Session) -> 
 
 
 @pytest.mark.postgres
+def test_the_sub_rows_of_a_product_follow_the_set(tree_catalog: Session) -> None:
+    """Product 21 sells through two MLAs; a set holding only one of them leaves the other out of its sub-rows."""
+
+    def sub_rows(f: board.BoardFilter) -> dict:
+        with _board(tree_catalog, f, product_item_id=21) as b:
+            return {row.key: row.units for row in b.page(None)}
+
+    assert sub_rows(_filter(group_by="publication")) == {MLA_21: 1, MLA_121: 2}
+    assert sub_rows(_filter(group_by="publication", mla_source=_mlas(MLA_121))) == {MLA_121: 2}
+
+
+@pytest.mark.postgres
 def test_an_empty_set_is_empty_never_store_wide(tree_catalog: Session) -> None:
     f = _filter(mla_source=select(literal(MLA_21, String).label("mla")).where(false()))
     with _board(tree_catalog, f) as b:
@@ -241,6 +253,71 @@ def test_mla_source_must_select_exactly_one_column() -> None:
     two = select(literal("MLA1").label("a"), literal("MLA2").label("b"))
     with pytest.raises(ValueError, match="one column"):
         board.mla_set_query(two)
+
+
+# ── the restriction reaches the store-wide reads, not only the result ────────
+#
+# Production incident (Publicaciones KPI strip, `consulta_lenta`): the set was applied AFTER the pair table had
+# aggregated the whole sales history and resolved every publication of the store, so a 30-MLA request cost what
+# the whole store costs. The result was right and the figures identical, only slow: so these pin the PLAN (the
+# rows each store-wide read hands on), not the numbers.
+
+
+def _pair_table_plan(db: Session, f: board.BoardFilter) -> dict:
+    """`EXPLAIN (ANALYZE)` of the statement that builds the pair table, captured while the Board runs it."""
+    plans: list = []
+    engine = db.get_bind()
+
+    def spy(conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool) -> None:
+        prefix = re.match(rf"\s*CREATE TEMPORARY TABLE {board.PAIRS_TABLE}\b.*? AS ", statement, re.S)
+        if prefix:
+            cursor.execute("EXPLAIN (ANALYZE, FORMAT JSON) " + statement[prefix.end() :], parameters)
+            plans.append(cursor.fetchone()[0][0]["Plan"])
+
+    event.listen(engine, "before_cursor_execute", spy)
+    try:
+        with _board(db, f):
+            pass
+    finally:
+        event.remove(engine, "before_cursor_execute", spy)
+    assert len(plans) == 1
+    return plans[0]
+
+
+def _nodes(plan: dict) -> Iterator[dict]:
+    yield plan
+    for child in plan.get("Plans", []):
+        yield from _nodes(child)
+
+
+def _rows(node: dict) -> int:
+    return int(node["Actual Rows"] * node["Actual Loops"])
+
+
+@pytest.mark.postgres
+def test_the_sales_history_is_aggregated_for_the_set_only(tree_catalog: Session) -> None:
+    def last_sale_rows(f: board.BoardFilter) -> int:
+        (node,) = [n for n in _nodes(_pair_table_plan(tree_catalog, f)) if n.get("Subplan Name") == "CTE last_sale"]
+        return _rows(node)
+
+    assert last_sale_rows(_filter()) == 10  # nothing to restrict: every sold pair
+    assert last_sale_rows(_filter(mla_source=_mlas(MLA_21, MLA_26))) == 2
+
+
+@pytest.mark.postgres
+def test_only_the_publications_of_the_set_are_resolved(tree_catalog: Session) -> None:
+    def resolved(f: board.BoardFilter) -> int:
+        """The rows of the "newest row per MLA" step of `_pub`, wherever the planner puts it."""
+        latest = [
+            n
+            for n in _nodes(_pair_table_plan(tree_catalog, f))
+            if n["Node Type"] == "Aggregate" and "mlp_publicationid" in str(n.get("Group Key", ""))
+        ]
+        assert latest
+        return max(_rows(n) for n in latest)
+
+    assert resolved(_filter()) == 10
+    assert resolved(_filter(mla_source=_mlas(MLA_21, MLA_26))) == 2
 
 
 # ── lifecycle on a pooled connection (PgBouncer transaction mode) ────────────
