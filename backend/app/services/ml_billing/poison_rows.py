@@ -70,6 +70,23 @@ class PageRead:
     gaps: tuple[int, ...] = ()
 
 
+def narrow_bare_400(fetch: Fetch, position: int, limit: int) -> BillingFetch:
+    """Reads at `position` retrying a bare 400 once, then halving `limit` down to
+    1 (each verdict retried once, so a spurious 400 never becomes a phantom gap).
+    Shared with the offset engine. A result that is still a bare 400 means the
+    row at `position` itself is the one ML refuses."""
+    result = fetch(position, limit)
+    if result.is_bare_400:
+        result = fetch(position, limit)
+    size = limit
+    while result.is_bare_400 and size > 1:
+        size //= 2
+        result = fetch(position, size)
+        if size == 1 and result.is_bare_400:  # a phantom gap needs this last verdict to be real
+            result = fetch(position, size)
+    return result
+
+
 def read_page_skipping_poison(
     db: Session,
     *,
@@ -82,15 +99,7 @@ def read_page_skipping_poison(
     lap_id: Optional[str] = None,
     probe_bound: int = POISON_PROBE_BOUND,
 ) -> PageRead:
-    result = fetch(from_id, limit)
-    if result.is_bare_400:
-        result = fetch(from_id, limit)
-    size = limit
-    while result.is_bare_400 and size > 1:
-        size //= 2
-        result = fetch(from_id, size)
-        if size == 1 and result.is_bare_400:  # a phantom gap needs this last verdict to be real
-            result = fetch(from_id, size)
+    result = narrow_bare_400(fetch, from_id, limit)
     if result.ok:
         return PageRead(from_id=from_id, page=result.body)
     if not result.is_bare_400:

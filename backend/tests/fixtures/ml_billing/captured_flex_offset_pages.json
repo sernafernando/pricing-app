@@ -1,0 +1,61 @@
+{
+  "source": "flex_billing_capture_20261007_150559.json, flex/details CREDIT_NOTE, period 2026-10-01, offset paging, limit 500",
+  "pages": [
+    {
+      "offset": 0,
+      "limit": 500,
+      "total": 3324,
+      "n_results": 500
+    },
+    {
+      "offset": 500,
+      "limit": 500,
+      "total": 3324,
+      "n_results": 500
+    },
+    {
+      "offset": 1000,
+      "limit": 500,
+      "total": 3325,
+      "n_results": 500
+    },
+    {
+      "offset": 1500,
+      "limit": 500,
+      "total": 3325,
+      "n_results": 500
+    },
+    {
+      "offset": 2000,
+      "limit": 500,
+      "total": 3325,
+      "n_results": 500
+    },
+    {
+      "offset": 2500,
+      "limit": 500,
+      "total": 3325,
+      "n_results": 500
+    },
+    {
+      "offset": 3000,
+      "limit": 500,
+      "total": 3325,
+      "n_results": 325
+    }
+  ],
+  "first_page_detail_ids": [
+    71464331797,
+    71464452609,
+    71465708556,
+    71468771540,
+    71471209972,
+    71472060119,
+    71472566701,
+    71472575413,
+    71473064873,
+    71473789984,
+    71476520120,
+    71476753142
+  ]
+}
