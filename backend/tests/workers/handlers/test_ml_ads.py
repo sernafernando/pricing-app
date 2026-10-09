@@ -122,7 +122,11 @@ class TestRun:
         ledger = pg_ads_db.get(MlAdsDayLedger, ("product_ads", GAUSS, TODAY - timedelta(days=1)))
         assert (ledger.status, result.detail["complete"]) == ("closed", True)
         detail = pg_ads_db.get(WorkerJobState, "ml_ads.ingest").detail
-        assert set(detail) == {"at", "complete", "refreshed_for", "stopped", "calls", "steps"}
+        assert set(detail) == {"at", "complete", "refreshed_for", "stopped", "calls", "steps", "display"}
+        assert detail["display"] == {
+            "error": None,
+            "steps": [{"advertiser_id": GAUSS, "day": (TODAY - timedelta(days=1)).isoformat(), "outcome": "closed"}],
+        }
         assert detail["refreshed_for"] == TODAY.isoformat()
 
     def test_deleting_the_detail_loses_no_progress(self, enabled, session_factory, pg_ads_db, monkeypatch) -> None:
