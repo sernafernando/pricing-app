@@ -83,7 +83,7 @@ class TestFlexStorage:
         db.commit()
         charge = db.query(MlBillingCharge).one()
         assert (charge.billing_source, charge.detail_sub_type, charge.amount) == ("flex", "BFLX", Decimal("-599.00"))
-        assert [l.order_id for l in db.query(MlBillingChargeOrder).all()] == [2000018846584294]
+        assert [link.order_id for link in db.query(MlBillingChargeOrder).all()] == [2000018846584294]
 
     def test_refetching_is_idempotent(self, db) -> None:
         for _ in range(2):
