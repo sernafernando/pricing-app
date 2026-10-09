@@ -85,7 +85,7 @@ def ct_pg():
         conn.execute(
             text(
                 "CREATE TABLE tb_commercial_transactions ("
-                "ct_transaction BIGINT PRIMARY KEY, comp_id INTEGER, mlo_id BIGINT, ct_soh_id INTEGER)"
+                "ct_transaction BIGINT PRIMARY KEY, comp_id INTEGER, mlo_id INTEGER, ct_soh_id INTEGER)"
             )
         )
         conn.commit()
@@ -145,6 +145,11 @@ class TestMigrationDdl:
 
     def test_an_invalid_leftover_of_a_failed_build_is_rebuilt(self, ct_pg) -> None:
         module = _migration()
+        # Faking INVALID means writing to pg_index, which only a superuser may do.
+        with ct_pg.connect() as probe:
+            is_super = probe.exec_driver_sql("SELECT rolsuper FROM pg_roles WHERE rolname = current_user").scalar()
+        if not is_super:
+            pytest.skip("needs a superuser to simulate an INVALID index")
         with ct_pg.connect() as conn:
             ctx = MigrationContext.configure(conn)
             with Operations.context(ctx), ctx.begin_transaction():
