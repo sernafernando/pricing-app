@@ -106,3 +106,20 @@ and none of the 195 `charge_bonified_id`s is among the period's 33,210 BILL
 Source: the same capture, `ml.periods.BILL.body`: ML's first `monthly/periods?group=ML`
 page as sent (`limit` 12, `total` 13): the OPEN period 2026-10-01 and the 11 CLOSED
 ones 2026-09-01 .. 2025-11-01. The lap walks exactly these 12.
+
+## `flex_rows.json` (PR 5-i)
+
+Four complete flex detail rows, copied verbatim, nothing stripped (receiver and
+buyer nicknames included):
+
+- `bflx_599` and `bflx_8990`: the `matches[]` of `flex_billing_capture_20261007_150559.json`
+  (`flex/details`, `CREDIT_NOTE`, period 2026-10-01): BFLX for orders
+  2000018846584294 (599) and 2000018808335864 (8,990), both `PROCESSING`.
+- `cflx_reciprocal` (`BILL`) and `bflx_reciprocal` (`CREDIT_NOTE`): period
+  2026-09-01 rows of `billing_balance_capture_20261007_123428.json.gz`
+  (`ml.details.flex_BILL` / `flex_CREDIT_NOTE`), detail ids 69348178279 and
+  69346475478; each one's `detail_associated_id` is the other's `detail_id`.
+
+What the capture shows: none of the 13,688 flex rows (773 CFLX in BILL, 12,915
+BFLX in CREDIT_NOTE) has `items_info`; the order is `shipping_info.order.order_id`.
+Their `detail_id`s do not overlap the 33,406 general ones.

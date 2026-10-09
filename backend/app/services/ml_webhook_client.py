@@ -207,6 +207,23 @@ def _validate_billing_document_type(document_type: str) -> str:
     return document_type
 
 
+FLEX_PAGE_LIMIT = 500
+
+
+def _validate_flex_paging(limit: int, offset: int) -> tuple[int, int]:
+    """Both go into the query string. Plain ints only: `limit` 1..500 (the page
+    size ML serves for flex) and `offset` >= 0. Raised BEFORE any HTTP call."""
+    if isinstance(limit, bool) or isinstance(offset, bool):
+        raise ValueError(f"limit/offset flex inválidos: {limit!r}, {offset!r}")
+    try:
+        limit, offset = int(limit), int(offset)
+    except (TypeError, ValueError):
+        raise ValueError(f"limit/offset flex inválidos: {limit!r}, {offset!r}") from None
+    if not 1 <= limit <= FLEX_PAGE_LIMIT or offset < 0:
+        raise ValueError(f"limit/offset flex fuera de rango: {limit}, {offset}")
+    return limit, offset
+
+
 @dataclass(frozen=True)
 class BillingFetch:
     """Outcome of one billing request with its status kept (PR 4a-iii).
@@ -237,6 +254,20 @@ class BillingFetch:
             and "error" not in body
             and "cause" not in body
         )
+
+
+def _billing_fetch_from_response(response: httpx.Response, what: str) -> BillingFetch:
+    """The outcome of a billing request that DID get an answer: its status kept,
+    its body when it is a JSON object."""
+    try:
+        parsed = response.json()
+    except ValueError:
+        parsed = None
+    body = parsed if isinstance(parsed, dict) else None
+    if response.is_success:
+        return BillingFetch(status=response.status_code, body=body, error=None)
+    logger.warning(f"Detalle de facturación rechazado ({what}): HTTP {response.status_code}")
+    return BillingFetch(status=response.status_code, body=body, error=f"HTTP {response.status_code}")
 
 
 class MLWebhookClient:
@@ -716,18 +747,39 @@ class MLWebhookClient:
             )
             return BillingFetch(status=None, body=None, error=error)
 
-        try:
-            parsed = response.json()
-        except ValueError:
-            parsed = None
-        body = parsed if isinstance(parsed, dict) else None
-        if response.is_success:
-            return BillingFetch(status=response.status_code, body=body, error=None)
-        logger.warning(
-            f"Detalle de facturación rechazado (period={period_key}, group={group}, from_id={from_id}, "
-            f"limit={limit}): HTTP {response.status_code}"
+        return _billing_fetch_from_response(
+            response, f"period={period_key}, group={group}, from_id={from_id}, limit={limit}"
         )
-        return BillingFetch(status=response.status_code, body=body, error=f"HTTP {response.status_code}")
+
+    async def fetch_billing_flex_details(
+        self, period_key: str, group: str, document_type: str, limit: int = 500, offset: int = 0
+    ) -> BillingFetch:
+        """One page of the FLEX billing details (`/flex/details`), status kept.
+
+        Flex pages by `offset` (limit 500), not by `from_id`, and ML answers 422
+        when `document_type` is missing, so it is always sent. Like the general
+        fetch it never raises on the network: only the arguments raise
+        `ValueError`, before any request.
+        """
+        group = _validate_billing_group(group)
+        period_key = _validate_period_key(period_key)
+        document_type = _validate_billing_document_type(document_type)
+        limit, offset = _validate_flex_paging(limit, offset)
+        resource = (
+            f"/billing/integration/periods/key/{period_key}/group/{group}/flex/details"
+            f"?document_type={document_type}&limit={limit}&offset={offset}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(f"{self.base_url}/api/ml/billing", params={"resource": resource})
+        except Exception as e:
+            error = _describe_exc(e)
+            logger.error(
+                f"Error obteniendo detalle flex de facturación (period={period_key}, group={group}, "
+                f"offset={offset}): {error}"
+            )
+            return BillingFetch(status=None, body=None, error=error)
+        return _billing_fetch_from_response(response, f"flex period={period_key}, group={group}, offset={offset}")
 
     async def get_billing_documents(self, period_key: str, group: str, document_type: str = "BILL") -> Optional[Dict]:
         """Lists the billing documents of a period through the `billing` proxy.

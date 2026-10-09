@@ -71,6 +71,9 @@ class BillingChargeDTO:
     document_type: Optional[str] = None
     legal_document_number: Optional[str] = None
     legal_document_status: Optional[str] = None
+    # 'general' (`/details`) or 'flex' (`/flex/details`); flex detail_ids are
+    # disjoint from the general ones (0 overlap across 47,094 captured ids).
+    billing_source: str = "general"
 
 
 @dataclass(frozen=True)
@@ -133,8 +136,16 @@ def _dedup_order_ids(items_info: List[Any]) -> List[int]:
     return result
 
 
+def _flex_order_id(shipping_info: Dict[str, Any]) -> Optional[int]:
+    """The order of a flex row: `shipping_info.order.order_id`. Flex rows carry
+    no `items_info`."""
+    order = shipping_info.get("order")
+    order_id = order.get("order_id") if isinstance(order, dict) else None
+    return None if order_id is None else int(order_id)
+
+
 def map_billing_detail(
-    raw: Dict[str, Any], period_key: Optional[str], document_type: str = "BILL"
+    raw: Dict[str, Any], period_key: Optional[str], document_type: str = "BILL", billing_source: str = "general"
 ) -> Union[BillingChargeDTO, MappingError]:
     """Maps one raw ML billing detail (from `get_billing_details`'s
     `results[]`) into a `BillingChargeDTO`.
@@ -147,6 +158,9 @@ def map_billing_detail(
             None if unknown to the caller.
         document_type: The document type the fetch asked for (`BILL`, the
             only one fetched before PR 2b, or `CREDIT_NOTE`).
+        billing_source: `general` (default) or `flex`. A flex row is linked to
+            its order through `shipping_info.order.order_id` (deduped with
+            `items_info`); a general row only through `items_info`.
 
     Returns:
         A `BillingChargeDTO`, or a `MappingError` if the payload is
@@ -189,7 +203,11 @@ def map_billing_detail(
         # stored is the whole detail, deep-copied so no reference to the
         # caller's dicts survives.
         _as_list(raw.get("sales_info"), "sales_info")
-        _as_dict(raw.get("shipping_info"), "shipping_info")
+        shipping_info = _as_dict(raw.get("shipping_info"), "shipping_info")
+        if billing_source == "flex":
+            flex_order = _flex_order_id(shipping_info)
+            if flex_order is not None and flex_order not in order_ids:
+                order_ids.append(flex_order)
         _as_dict(raw.get("discount_info"), "discount_info")
         raw_detail = copy.deepcopy(raw)
 
@@ -205,6 +223,7 @@ def map_billing_detail(
             document_type=document_type,
             legal_document_number=charge_info.get("legal_document_number"),
             legal_document_status=charge_info.get("legal_document_status"),
+            billing_source=billing_source,
         )
     # `ArithmeticError` está acá por `decimal.InvalidOperation`, que es lo
     # que levanta `Decimal(str(...))` con un `detail_amount` como "N/A" o

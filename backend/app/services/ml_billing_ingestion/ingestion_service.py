@@ -51,12 +51,15 @@ def _upsert_charge_row(db: Session, dto: BillingChargeDTO) -> None:
         "amount": dto.amount,
         "document_id": dto.document_id,
         "document_type": dto.document_type,
+        "billing_source": dto.billing_source,
         "legal_document_number": dto.legal_document_number,
         "legal_document_status": dto.legal_document_status,
         "raw_detail": dto.raw_detail,
     }
     stmt = _insert_stmt(db, MlBillingCharge.__table__).values(**values)
-    update_cols = {k: stmt.excluded[k] for k in values if k != "detail_id"}
+    # The source is set when the row is first stored and never relabeled: a flex
+    # fetch that returned a general `detail_id` would be a collision to look at.
+    update_cols = {k: stmt.excluded[k] for k in values if k not in ("detail_id", "billing_source")}
     stmt = stmt.on_conflict_do_update(index_elements=["detail_id"], set_=update_cols)
     db.execute(stmt)
 
