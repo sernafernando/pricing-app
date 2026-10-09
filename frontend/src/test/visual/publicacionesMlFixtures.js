@@ -556,3 +556,47 @@ export const HISTORY_ENTRIES = [
 ];
 
 export const HISTORY_RESPONSE = { entries: HISTORY_ENTRIES, next_cursor: null };
+
+/**
+ * The item-level product of the detail (`product`, `_product_out` in
+ * `view/detail.py`): list prices by pricelist id, rounded for display, and the
+ * cost columns only for a caller with `ml_metricas.ver_ganancia`.
+ */
+export const PRODUCT = {
+  item_id: 4101,
+  codigo: 'ARCHER-AX55',
+  descripcion: 'Router Archer AX55',
+  marca: 'TP-LINK',
+  categoria: 'ROUTERS',
+  subcategoria_id: 55,
+  subcategoria: 'Wi-Fi 6',
+  precios_lista: { 4: 98500.5, 17: 101200, 14: 104800.25, 13: null, 23: 110900 },
+};
+
+export const PRODUCT_COST = { costo: 64000, moneda_costo: 'ARS', iva: 21 };
+
+/** A variation-level link (`variation_id` is the ML variation, 0 the item). */
+export const VARIATION_LINK = {
+  ...ITEM_LINK,
+  variation_id: 9002,
+  state: 'manual',
+  source: 'manual',
+  producto_item_id: 4102,
+  codigo: 'ARCHER-AX55-B',
+  descripcion: 'Router Archer AX55 blanco',
+  matched_sku: null,
+  sku_field: null,
+  linked_at: '2026-09-15T12:00:00Z',
+  note: 'Corregido a mano',
+};
+
+/** A linked publication for the Producto vinculado tab: item-level product, one variation link. */
+export const DETAIL_LINKED = makeDetail({ product: PRODUCT, links: [ITEM_LINK, VARIATION_LINK] });
+
+/** The same, for a caller with `ml_metricas.ver_ganancia`: the product carries its cost. */
+export const DETAIL_LINKED_MARGIN = makeDetail({
+  product: { ...PRODUCT, ...PRODUCT_COST },
+  links: [ITEM_LINK, VARIATION_LINK],
+  markup_breakdown: MARKUP_BREAKDOWN,
+  can_resync: true,
+});
