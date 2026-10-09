@@ -12,17 +12,17 @@ const keysFor = (raw, context = {}) => visibleTabs(PANEL_TABS, { detail: readDet
 describe('the registry', () => {
   it('opens on Resumen and lists the history tabs after the data ones', () => {
     const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 3, is_full: true } });
-    expect(keysFor(raw)).toEqual(['resumen', 'variaciones', 'full', 'eventos', 'historial']);
+    expect(keysFor(raw)).toEqual(['resumen', 'variaciones', 'full', 'eventos', 'historial', 'producto']);
   });
 
-  it('keeps Eventos and Historial for every publication, with or without margin', () => {
+  it('keeps Eventos, Historial and Producto vinculado for every publication, with or without margin', () => {
     const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 0, is_full: false }, replenishment: null });
-    expect(keysFor(raw)).toEqual(['resumen', 'eventos', 'historial']);
-    expect(keysFor(raw, { canSeeMargin: true })).toEqual(['resumen', 'eventos', 'historial']);
+    expect(keysFor(raw)).toEqual(['resumen', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw, { canSeeMargin: true })).toEqual(['resumen', 'eventos', 'historial', 'producto']);
   });
 
   it('labels them in Spanish', () => {
     const labels = Object.fromEntries(PANEL_TABS.map((tab) => [tab.key, tab.label]));
-    expect(labels).toMatchObject({ eventos: 'Eventos', historial: 'Historial' });
+    expect(labels).toMatchObject({ eventos: 'Eventos', historial: 'Historial', producto: 'Producto vinculado' });
   });
 });

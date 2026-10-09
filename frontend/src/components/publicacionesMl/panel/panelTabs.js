@@ -1,6 +1,7 @@
 import EventosTab from './EventosTab';
 import FullTab from './FullTab';
 import HistorialTab from './HistorialTab';
+import ProductoVinculadoTab from './ProductoVinculadoTab';
 import ResumenTab from './ResumenTab';
 import VariacionesTab from './VariacionesTab';
 
@@ -12,9 +13,9 @@ import VariacionesTab from './VariacionesTab';
  *    that make it worth opening;
  *  - `Component` gets `{ detail, itemId, canSeeMargin, dataState }`.
  *
- * Producto vinculado and Promociones (later PRs) are one entry each here --
- * the panel itself does not change. Eventos and Historial load their own pages
- * when opened (they cost a request only when somebody looks at them).
+ * Promociones (a later PR) is one entry here -- the panel itself does not change.
+ * Eventos and Historial load their own pages when opened (they cost a request
+ * only when somebody looks at them); Producto vinculado reads the detail.
  */
 export const PANEL_TABS = [
   { key: 'resumen', label: 'Resumen', isVisible: () => true, Component: ResumenTab },
@@ -22,6 +23,7 @@ export const PANEL_TABS = [
   { key: 'full', label: 'Full', isVisible: ({ detail }) => detail.isFull || detail.replenishment != null, Component: FullTab },
   { key: 'eventos', label: 'Eventos', isVisible: () => true, Component: EventosTab },
   { key: 'historial', label: 'Historial', isVisible: () => true, Component: HistorialTab },
+  { key: 'producto', label: 'Producto vinculado', isVisible: () => true, Component: ProductoVinculadoTab },
 ];
 
 export function visibleTabs(tabs, context) {

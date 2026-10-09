@@ -24,6 +24,8 @@ import {
   BRAND_NODES,
   DATA_STATE_OK,
   DETAIL_RESPONSE,
+  DETAIL_LINKED,
+  DETAIL_LINKED_MARGIN,
   DETAIL_RESPONSE_MARGIN,
   EVENTS_RESPONSE,
   HISTORY_RESPONSE,
@@ -509,13 +511,14 @@ const PANEL_VIEWPORTS = [
   { width: 1920, height: 1080 },
 ];
 
-const renderWithPanel = async ({ width, height, theme, margin = false, tab = '' }) => {
+const renderWithPanel = async ({ width, height, theme, margin = false, tab = '', linked = false }) => {
   canSeeMargin = margin;
   const base = { ...MANY[0], is_full: true, variations_count: 3 };
   publicacionesMlAPI.items.mockResolvedValue({
     data: margin ? { ...MARGIN_RESPONSE, items: [{ ...base, markup: MARGIN_ITEMS[1].markup }, ...MANY.slice(1)] } : { ...RESPONSE, items: [base, ...MANY.slice(1)] },
   });
-  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...(margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE), row: base } });
+  const detail = linked ? (margin ? DETAIL_LINKED_MARGIN : DETAIL_LINKED) : margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE;
+  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, row: base } });
   publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
   publicacionesMlAPI.history.mockResolvedValue({ data: HISTORY_RESPONSE });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
@@ -596,7 +599,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
         const tabs = [...panel.querySelectorAll('[role="tab"]')];
-        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Eventos', 'Historial']);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Eventos', 'Historial', 'Producto vinculado']);
         // One row of tabs: they all start at the same height.
         expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
         // The footer sits inside the panel's box even though the content is taller than the panel.
@@ -647,6 +650,22 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
         for (const code of panel.querySelectorAll('code')) expect(rect(code).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
         screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the Producto vinculado tab fits the panel and shows the cost only with the margin permission`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, tab: 'producto', linked: true });
+        await expect.element(screen.getByText('Precios de lista')).toBeVisible();
+        const panel = panelOf();
+        expect(panel.textContent).not.toContain('64.000');
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const prices = [...panel.querySelectorAll('dd')].filter((el) => /^[\d.,]+$/.test(el.textContent.trim()));
+        expect(prices.length).toBeGreaterThan(3);
+        expect(wrapped(prices)).toEqual([]);
+        screen.unmount();
+
+        const withCost = await renderWithPanel({ width, height, theme, tab: 'producto', linked: true, margin: true });
+        await expect.element(withCost.getByText('64.000,00 ARS')).toBeVisible();
+        withCost.unmount();
       });
     }
   }
