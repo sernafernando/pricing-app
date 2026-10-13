@@ -201,7 +201,8 @@ def fetch_inputs(
     db: Session, *, item_ids: Optional[Sequence[str]] = None, f: Optional[PublicationFilter] = None
 ) -> dict[str, PublicationInputs]:
     """Inputs of the given publications, or of every publication of a (PM-resolved) filter; ids that do not
-    exist are absent. Exactly one of `item_ids` / `f`. Four statements, whatever the size of the set."""
+    exist are absent. Exactly one of `item_ids` / `f`. Three statements, four when some unit has no price of its own,
+    whatever the size of the set."""
     if (item_ids is None) == (f is None):
         raise ValueError("pass exactly one of `item_ids` or `f`")
     if item_ids is not None and not item_ids:
@@ -215,13 +216,13 @@ def fetch_inputs(
     # Always the third statement (an empty array when no publication has variations): a fixed count.
     links: dict[tuple[str, int], Any] = {(row[0], row[1]): row for row in _variation_link_rows(db, list(variations))}
 
-    # The list prices are read, in one more statement (also always issued), for the products of the units whose
-    # publication has no price of its own (`_pick_price` reads them only then).
+    # The list prices are read, in one more statement, for the products of the units whose
+    # publication has no price of its own (`_pick_price` reads them only then); none needs them, no statement.
     priceless = {row[0] for row in items if not (_has_price(row[4]) or _has_price(row[3]))}
     needing = {row[6] for row in items if row[0] in priceless and row[6] is not None}
     needing.update(row[2] for (item_id, _variation), row in links.items() if item_id in priceless)
     fallbacks: dict[int, dict[str, Optional[float]]] = {pid: dict.fromkeys(FALLBACK_COLUMNS) for pid in needing}
-    for pid, *prices in _fallback_rows(db, sorted(needing)):
+    for pid, *prices in _fallback_rows(db, sorted(needing)) if needing else ():
         fallbacks[pid] = {column: _floats(price) for column, price in zip(FALLBACK_COLUMNS, prices)}
 
     # A product's fields converted once, however many publications link it.

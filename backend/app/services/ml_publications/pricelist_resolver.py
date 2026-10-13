@@ -19,6 +19,7 @@ inputs; the decision lives here so it is testable without a database.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional, Sequence
 
 PRICELIST_CLASICA = 4
@@ -63,7 +64,15 @@ def resolve_pricelist(
     sale_terms_campaign: Optional[str],
 ) -> PricelistResolution:
     """Resolve the pricelist of one publication from its extracted inputs."""
-    tags = tags or ()
+    return _resolve(listing_type_id, tags if isinstance(tags, tuple) else tuple(tags or ()), sale_terms_campaign)
+
+
+@lru_cache(maxsize=2048)
+def _resolve(
+    listing_type_id: Optional[str], tags: tuple[str, ...], sale_terms_campaign: Optional[str]
+) -> PricelistResolution:
+    """The decision is a pure function of three small values, and a store repeats a handful of combinations over
+    tens of thousands of publications: it is decided once per combination (the result is immutable)."""
     campaign = _campaign_from_tags(tags) or sale_terms_campaign
 
     if listing_type_id == "gold_special":

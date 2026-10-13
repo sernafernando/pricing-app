@@ -135,20 +135,17 @@ def aggregate_nodes(items: Mapping[str, ItemMarkup], members: Iterable[tuple[str
     return {key: NodeMarkup(count, low.get(key), high.get(key)) for key, count in negative.items()}
 
 
-def _units(inputs: PublicationInputs) -> list[UnitInputs]:
-    return [inputs.item_unit, *(u for u in inputs.variation_units if u is not None)]
-
-
 def _priceable_products(publications: Sequence[PublicationInputs]) -> list[int]:
     """Distinct products whose cost is usable: only those are priced, so only their shipping is looked up."""
-    return sorted(
-        {
-            unit.producto_item_id
-            for pub in publications
-            for unit in _units(pub)
-            if unit.producto_item_id is not None and unit.costo is not None and unit.costo > 0
-        }
-    )
+    found: set[int] = set()
+    for pub in publications:
+        unit = pub.item_unit
+        if unit.producto_item_id is not None and unit.costo is not None and unit.costo > 0:
+            found.add(unit.producto_item_id)
+        for unit in pub.variation_units:
+            if unit is not None and unit.producto_item_id is not None and unit.costo is not None and unit.costo > 0:
+                found.add(unit.producto_item_id)
+    return sorted(found)
 
 
 def price_publication(ctx: PricingContext, inputs: PublicationInputs, envio: Mapping[int, float]) -> PublicationMarkup:
@@ -202,8 +199,12 @@ def compute_markups(
     ctx = ctx or build_pricing_context(pricing_db)
     plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
     with_ads = _with_ads(pricing_db, ads, plain, item_ids) if ads is not None else None
-    items = with_ads or {item_id: ItemMarkup(markup) for item_id, markup in plain.items()}
-    items = {item_id: replace(item, variation_ids=inputs[item_id].variation_ids) for item_id, item in items.items()}
+    if with_ads is None:
+        items = {item_id: ItemMarkup(markup, None, inputs[item_id].variation_ids) for item_id, markup in plain.items()}
+    else:
+        items = {
+            item_id: replace(item, variation_ids=inputs[item_id].variation_ids) for item_id, item in with_ads.items()
+        }
     unpriced = Counter(m.markup.reason for m in items.values() if m.markup.worst is None)
     stats = MarkupStats(
         computed=len(items) - sum(unpriced.values()),

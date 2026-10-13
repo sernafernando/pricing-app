@@ -155,8 +155,26 @@ class TestListPricesFallback:
         finally:
             event.remove(engine, "before_cursor_execute", record)
         pricing_reads = [s for s in recorded if "productos_pricing" in s]
-        assert len(pricing_reads) == 2  # one per call, the dedicated statement
-        assert all(s.lstrip().upper().startswith("SELECT PRODUCTOS_PRICING.") for s in pricing_reads)
+        assert pricing_reads == []  # nothing needs them: not even the dedicated statement
+
+    def test_the_list_prices_cost_one_dedicated_statement_whatever_the_number_of_units(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        for number in range(30):
+            self.seed_unit(conn, f"MLA{number}")
+        recorded: list[str] = []
+
+        def record(connection, cursor, statement, *rest) -> None:
+            recorded.append(statement)
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            markup_inputs.fetch_inputs(db, f=parse_filter())
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert len(recorded) == 4
+        assert [s for s in recorded if "productos_pricing" in s] == [recorded[3]]
+        assert recorded[3].lstrip().upper().startswith("SELECT PRODUCTOS_PRICING.")
 
 
 class TestCampaign:
@@ -250,4 +268,4 @@ class TestStatementCount:
         by_ids = {n: self.count_statements(db, item_ids=ids[:n]) for n in (10, 100)}
         by_filter = self.count_statements(db, f=parse_filter())
         assert len(markup_inputs.fetch_inputs(db, item_ids=ids)) == 100
-        assert by_ids[10] == by_ids[100] == by_filter == 4
+        assert by_ids[10] == by_ids[100] == by_filter == 3  # every unit has a price: no list prices to read
