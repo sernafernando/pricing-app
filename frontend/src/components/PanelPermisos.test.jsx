@@ -204,6 +204,34 @@ describe('PanelPermisos', () => {
         expect(screen.getByRole('button', { name: 'Conceder admin.ver_panel' })).toBeEnabled(),
       );
     });
+
+    it('locks only the user whose override is in flight', async () => {
+      const user = userEvent.setup();
+      const acciones = () => screen.getAllByRole('button', { name: /^(Conceder|Quitar|Resetear) / });
+      const concederVerPanel = () => screen.getByRole('button', { name: 'Conceder admin.ver_panel' });
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(await screen.findByRole('button', { name: 'Por permiso' }));
+
+      let liberarOverride;
+      api.post.mockReturnValueOnce(new Promise((resolve) => { liberarOverride = resolve; }));
+      await user.click(concederVerPanel());
+
+      // Another user is not blocked by Ana's pending change.
+      await user.click(screen.getAllByText('Beto Gómez')[0]);
+      await waitFor(() => expect(screen.getByRole('region', { name: 'Usuario seleccionado' })).toHaveTextContent('Beto Gómez'));
+      await waitFor(() => expect(acciones().length).toBeGreaterThan(0));
+      for (const boton of acciones()) expect(boton).toBeEnabled();
+
+      // Back on Ana, her change is still pending.
+      await user.click(screen.getAllByText('Ana Pérez')[0]);
+      await waitFor(() => expect(concederVerPanel()).toBeDisabled());
+
+      await act(async () => liberarOverride({ data: {} }));
+      await waitFor(() => {
+        for (const boton of acciones()) expect(boton).toBeEnabled();
+      });
+    });
   });
 
   describe('user list', () => {
