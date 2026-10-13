@@ -25,7 +25,7 @@ from app.core.config import settings
 from app.services.ml_billing.billing_sweep_service import (
     BILLING_GROUP,
     DOCUMENT_TYPES,
-    PAGE_CAP_MARGIN,
+    _page_cap,
     persist_details_page,
 )
 from app.services.ml_billing.offset_poison_probe import advance, new_probe, next_request
@@ -123,8 +123,8 @@ def _page(db: Session, unit: dict, page: dict, now: datetime, counts: bool) -> F
     )
     unit["offset"] += len(rows)
     unit["pages"] += 1 if counts else 0  # pages narrowed by a probe are small by design
-    # `total` drifts while a sweep runs (3324 -> 3325), so the cap keeps a margin like the general one.
-    if unit["total"] is not None and unit["pages"] >= -(-unit["total"] // FLEX_PAGE_LIMIT) + PAGE_CAP_MARGIN:
+    # `total` drifts while a sweep runs (3324 -> 3325), so the cap keeps the same margin as the general one.
+    if unit["total"] is not None and unit["pages"] >= _page_cap(unit["total"], FLEX_PAGE_LIMIT):
         logger.warning("ml_billing lap: flex %s %s exceeded the expected pages", period, document_type)
         return FlexResult("failed")
     return FlexResult("continue")

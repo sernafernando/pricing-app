@@ -193,8 +193,8 @@ def _cursor_value(cursor) -> Optional[int]:
         return None
 
 
-def _page_cap(first_total: int) -> int:
-    return -(-first_total // PAGE_LIMIT) + PAGE_CAP_MARGIN
+def _page_cap(first_total: int, limit: int = PAGE_LIMIT) -> int:
+    return -(-first_total // limit) + PAGE_CAP_MARGIN
 
 
 def _highest_detail_id(raw_results: list) -> Optional[int]:

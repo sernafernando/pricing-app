@@ -41,6 +41,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models.ml_billing import MlBillingCharge
+from app.services.ml_billing import flex_lap
 from app.services.ml_billing.billing_sweep_service import (
     BILLING_GROUP,
     DOCUMENT_TYPES,
@@ -52,7 +53,6 @@ from app.services.ml_billing.billing_sweep_service import (
     persist_details_page,
     persist_documents,
 )
-from app.services.ml_billing import flex_lap
 from app.services.ml_billing.document_completeness import document_completeness
 from app.services.ml_billing.poison_probe import advance, new_probe, next_request
 from app.services.ml_billing.poison_rows import record_probe_gap, resolve_recovered_gaps
