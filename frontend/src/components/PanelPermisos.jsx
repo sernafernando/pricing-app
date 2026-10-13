@@ -117,10 +117,9 @@ export default function PanelPermisos() {
         rol_id: formUsuario.rol_id
       });
 
-      setMensaje({ tipo: 'success', texto: 'Usuario creado correctamente' });
+      mostrarMensajeTemporal({ tipo: 'success', texto: 'Usuario creado correctamente' });
       setModalUsuario(null);
       cargarDatos();
-      setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al crear usuario' });
     } finally {
@@ -230,8 +229,11 @@ export default function PanelPermisos() {
     mostrarMensajeTemporal(nuevoMensaje);
   };
 
-  // A message raised before opening the dialog must not show up inside it.
+  // A message raised before opening the dialog must not show up inside it,
+  // and its pending timer must not clear an error raised inside the dialog.
   const abrirModalUsuario = (modo, inicial) => {
+    clearTimeout(mensajeTimerRef.current);
+    mensajeTimerRef.current = null;
     setMensaje(null);
     setModalUsuario({ modo, inicial });
   };

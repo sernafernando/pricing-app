@@ -391,6 +391,48 @@ describe('PanelPermisos', () => {
       });
       await waitFor(() => expect(screen.queryByRole('form', { name: 'Editar usuario' })).not.toBeInTheDocument());
     });
+
+    it('keeps the edit modal open and shows a backend error inside it', async () => {
+      const user = userEvent.setup();
+      api.patch.mockRejectedValueOnce({ response: { data: { detail: 'El email ya está en uso' } } });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(within(encabezadoUsuario()).getByRole('button', { name: 'Editar' }));
+      await user.click(within(formulario('Editar usuario')).getByRole('button', { name: 'Guardar' }));
+
+      expect(await within(formulario('Editar usuario')).findByText('El email ya está en uso')).toBeInTheDocument();
+    });
+
+    it('does not let the previous create success timer wipe an error in a reopened modal', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        renderPanel();
+        const nuevo = await screen.findByRole('button', { name: '+ Nuevo Usuario' });
+
+        await user.click(nuevo);
+        const form = formulario('Nuevo usuario');
+        await user.type(within(form).getByLabelText('Usuario'), 'carla');
+        await user.type(within(form).getByLabelText('Nombre completo'), 'Carla');
+        await user.type(within(form).getByLabelText('Contraseña'), 'x');
+        await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+        expect(await screen.findByText('Usuario creado correctamente')).toBeInTheDocument();
+
+        // One second later the admin opens a new dialog and hits a validation error.
+        await act(async () => vi.advanceTimersByTime(1000));
+        await user.click(nuevo);
+        await user.click(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Crear Usuario' }));
+        const error = 'Username, nombre y contraseña son requeridos';
+        expect(within(formulario('Nuevo usuario')).getByText(error)).toBeInTheDocument();
+
+        // Past the first success's 3 s timer: the error must still be there.
+        await act(async () => vi.advanceTimersByTime(2500));
+        expect(within(formulario('Nuevo usuario')).getByText(error)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('late permission responses', () => {
