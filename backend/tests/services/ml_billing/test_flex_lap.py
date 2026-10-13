@@ -194,3 +194,36 @@ class TestPoisonOffset:
             state = tick(db, state, at(15 + 15 * n))
         unit = state["lap"]["units"][0]
         assert unit["offset"] == 1 and unit["pages"] == 11 and unit["state"] == "pending"
+
+
+class TestSettledIgnoresFlexGaps:
+    """A general period's settledness depends only on general data."""
+
+    def _gap(self, db, source, paging):
+        from app.services.ml_billing.sweep_gaps import record_gap
+
+        record_gap(
+            db,
+            period_key="2026-09-01",
+            document_type="CREDIT_NOTE",
+            billing_source=source,
+            paging=paging,
+            position="1",
+            window=None,
+            http_status=400,
+            error=None,
+            now=NOW,
+        )
+
+    def _settled(self, db):
+        complete = [mock.Mock(complete=True)]
+        with mock.patch.object(billing_lap, "document_completeness", return_value=complete):
+            return billing_lap._settled(db, "2026-09-01")
+
+    def test_an_open_flex_gap_does_not_keep_the_general_period_from_being_settled(self, db) -> None:
+        self._gap(db, "flex", "offset")
+        assert self._settled(db) is True
+
+    def test_an_open_general_gap_still_does(self, db) -> None:
+        self._gap(db, "general", "from_id")
+        assert self._settled(db) is False

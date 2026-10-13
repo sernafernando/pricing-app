@@ -1070,7 +1070,7 @@ allows 5 requests/minute per account for all of billing), so a lap takes hours o
   general units). They page by `offset` (limit 500), one request per tick, the same `billing` lock and
   pacer slot; `unit.offset` is their cursor. A bare 400 runs the resumable offset probe (`unit.probe`)
   and records a gap with paging `offset`, source `flex`, window `[O, O]`; a later clean page that
-  covers the offset closes it. An open flex gap keeps the period out of "settled". Flex documents are
+  covers the offset closes it. An open flex gap does not affect whether the general data of the period is settled. Flex documents are
   not listed by `/documents` (captured 2026-10-09: group ML and MP do not return them, no group is a
   422), so the unit says `documents: "document_unknown"`, has no documents unit, and a settled period
   still re-sweeps its flex details every lap. Turning the flag off mid-lap skips the pending flex

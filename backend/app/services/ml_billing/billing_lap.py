@@ -87,7 +87,9 @@ def _settled(db: Session, period_key: str) -> bool:
         .filter(MlBillingCharge.period_key == period_key, MlBillingCharge.legal_document_number.is_(None))
         .first()
     )
-    return unnumbered is None and not open_gaps(db, period_key)
+    # Settledness is about the general data only: a flex gap never keeps a general period in the full sweep.
+    general_gaps = [g for g in open_gaps(db, period_key) if g.billing_source == "general"]
+    return unnumbered is None and not general_gaps
 
 
 def _units(db: Session, periods: list[dict], verified: dict, now: datetime) -> list[dict]:
