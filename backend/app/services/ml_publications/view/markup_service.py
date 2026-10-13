@@ -270,9 +270,9 @@ def _worst_unit(
 def compute_detail(
     db: Session, pricing_db: Session, item_id: str, *, ctx: Optional[PricingContext] = None
 ) -> Optional[DetailMarkup]:
-    """Markup and breakdown of ONE publication: the inputs (three or four statements), one shipping batch for its priceable
-    products and the pure functions of the list (`price_publication`, `unit_breakdown`). `None` when the publication
-    is not in the store. No Ads: the detail explains the plain markup."""
+    """Markup and breakdown of ONE publication: the inputs (three or four statements), one shipping batch for its
+    priceable products and the pure functions of the list (`price_publication`, `unit_breakdown`). `None` when the
+    publication is not in the store. No Ads: the detail explains the plain markup."""
     publication = fetch_inputs(db, item_ids=[item_id]).get(item_id)
     if publication is None:
         return None

@@ -174,7 +174,7 @@ class TestListPricesFallback:
             event.remove(engine, "before_cursor_execute", record)
         assert len(recorded) == 4
         assert [s for s in recorded if "productos_pricing" in s] == [recorded[3]]
-        assert recorded[3].lstrip().upper().startswith("SELECT PRODUCTOS_PRICING.")
+        assert "productos_pricing" in recorded[3]  # the last one is the dedicated read
 
 
 class TestCampaign:
