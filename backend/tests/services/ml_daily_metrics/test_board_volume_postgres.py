@@ -815,3 +815,86 @@ class TestGroupedBoardOnVolume:
                 assert len(children) == node.products_count, scope
                 break
             node = max(children, key=lambda r: r.units)
+
+
+# ── "Restar publicidad" (ml-billing-balance PR 7a) on volume ──────────────────────
+
+
+@pytest.fixture(scope="module")
+def volume_ads(volume_session):
+    """Product Ads for half the MLAs over the period and its comparison (60 days), two ad groups on every
+    4th MLA. TEMPORARY tables shadow any real `ml_ads_*` table and die with the module's transaction."""
+    volume_session.execute(
+        text(
+            "CREATE TEMPORARY TABLE ml_ads_item_days (advertiser_id BIGINT, ad_group_id BIGINT, item_id VARCHAR(30), "
+            "day DATE, cost NUMERIC(16, 2))"
+        )
+    )
+    volume_session.execute(
+        text(
+            "CREATE TEMPORARY TABLE ml_ads_day_ledger (source VARCHAR(20), advertiser_id BIGINT, day DATE, "
+            "status VARCHAR(16))"
+        )
+    )
+    volume_session.execute(
+        text(
+            f"INSERT INTO ml_ads_item_days SELECT 1, grp, {_MLA}, CAST(:today AS DATE) - d, 5 + (k + d) % 20 "
+            "FROM generate_series(1, 3000) AS k, generate_series(0, 59) AS d, generate_series(1, 2) AS grp "
+            "WHERE grp = 1 OR k % 4 = 0"
+        ),
+        {"today": TODAY},
+    )
+    volume_session.execute(
+        text(
+            "INSERT INTO ml_ads_day_ledger SELECT 'product_ads', 1, CAST(:today AS DATE) - d, 'closed' "
+            "FROM generate_series(0, 59) AS d"
+        ),
+        {"today": TODAY},
+    )
+    # The real table's only secondary index (`ix_ml_ads_item_days_day_item`); no other index is justified.
+    volume_session.execute(text("CREATE INDEX ix_ml_ads_item_days_day_item ON ml_ads_item_days (day, item_id)"))
+    volume_session.execute(text("ANALYZE ml_ads_item_days"))
+    volume_session.execute(text("ANALYZE ml_ads_day_ledger"))
+
+
+@pytest.mark.postgres
+class TestAdsOnVolume:
+    def test_the_ads_cost_exactly_three_statements_whatever_the_page_size(self, volume_session, volume_ads) -> None:
+        """ON adds the comparison-ledger check, the ads temp table and its ANALYZE; nothing per row."""
+        for limit in (10, 50, 200):
+            _off, plain, plain_ms = _request(volume_session, limit=limit)
+            on, recorder, elapsed_ms = _request(volume_session, limit=limit, restar_publicidad=True)
+            assert len(on.rows) == limit
+            assert len(recorder.statements) == len(plain.statements) + 3
+            print(f"\nboard OFF limit={limit}: {len(plain.statements)} statements, {plain_ms:.0f} ms")
+            _print(f"board ads ON limit={limit}", recorder, elapsed_ms)
+
+    def test_sorting_by_ads_cost_with_the_toggle_off_runs_on_postgres(self, volume_session, volume_ads) -> None:
+        """The OFF tie-breaker must not be a literal integer: psycopg2 inlines it and `ORDER BY 0` is an error."""
+        response, _recorder, _ms = _request(volume_session, limit=10, sort="ads_cost")
+        assert len(response.rows) == 10
+
+    def test_the_toggle_lowers_total_gauss_by_the_ads_of_the_owner_pairs(self, volume_session, volume_ads) -> None:
+        off, _r, _ms = _request(volume_session, limit=200, group_by="publication")
+        on, _r, _ms = _request(volume_session, limit=200, group_by="publication", restar_publicidad=True)
+        before = {row.key: row for row in off.rows}
+        charged = [row for row in on.rows if row.ads is not None and row.ads.cost > 0]
+        assert charged
+        for row in charged:
+            assert float(before[row.key].total_gauss) - row.total_gauss == pytest.approx(row.ads.cost, abs=0.011)
+
+    def test_the_owner_fallback_cost_is_printed(self, volume_session, volume_ads) -> None:
+        """Design open item 5: `ads_owner_select` over every history, narrowed to the MLAs that have ads."""
+        from sqlalchemy import select
+
+        from app.models.ml_ads import MlAdsItemDay
+        from app.services.ml_ads.owner import ads_owner_select
+
+        for label, mlas in (
+            ("owner of the MLAs with ads", select(MlAdsItemDay.item_id).distinct()),
+            ("owner of every MLA (no narrowing)", None),
+        ):
+            started = time.perf_counter()
+            rows = volume_session.execute(ads_owner_select(sqlite=False, mlas=mlas)).all()
+            print(f"{label}: {len(rows)} MLAs, {(time.perf_counter() - started) * 1000:.0f} ms")
+            assert rows
