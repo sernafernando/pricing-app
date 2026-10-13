@@ -843,7 +843,7 @@ class Board:
         )
         return bool(counts) and all(int(n or 0) == days for n in counts)
 
-    def _ads_source(self):
+    def _ads_source(self) -> Any:
         """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups."""
         day = MlAdsItemDay.day
         query = (
@@ -858,7 +858,7 @@ class Board:
         )
         return self._in_mla_set(query, MlAdsItemDay.item_id)
 
-    def _pair_ads(self):
+    def _pair_ads(self) -> Any:
         """Per OWNER pair (owner product, MLA), its ads of the period and of the comparison period, NET of IVA.
         An MLA's ads land on ONE pair (`ads_owner_select`); an owner with no pair on the board is a 7b concern."""
         A = self.ads_lines
