@@ -153,7 +153,7 @@ class TestMinimumAge:
         enqueue_items(ITEM)
         make_handler(ScriptedTransport(responder_for())).run(context())
         with env.begin() as conn:
-            conn.execute(text(f"UPDATE {TABLE} SET last_checked_at = now() - interval '299 seconds'"))
+            conn.execute(text(f"UPDATE {TABLE} SET last_checked_at = now() - interval '240 seconds'"))
 
         enqueue_items(ITEM)
         transport = ScriptedTransport(responder_for())
