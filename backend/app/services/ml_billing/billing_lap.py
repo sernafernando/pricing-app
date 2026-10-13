@@ -10,7 +10,7 @@ construction and the worker is never blocked for minutes.
 the cursor (the billing lap has no ML-side ledger). Deleting it loses no data,
 only the position: the next run builds a new lap and the upserts are idempotent.
 
-    {complete, last_request_at, retry_at, failures, verified: {period: iso},
+    {complete, last_request_at, retry_at, failures, verified: {period: iso}, flex_verified: {period: iso},
      lap: {id, started_at, index, units: [{period_key, document_type, kind,
            state, from_id, total, pages, verify}]} | None, last_lap}
 
@@ -30,6 +30,8 @@ Every good page also resolves the open gaps it covers (`resolve_recovered_gaps`)
 
 With `ML_BILLING_FLEX_ENABLED` each period also gets its flex BILL and CREDIT_NOTE details units, after
 its general ones and even when the period is settled (`flex_lap`: paged by `offset`, no documents).
+Flex cannot prove a period settled, so a CLOSED period whose flex units completed a clean pass (both done,
+no open flex gap) is stamped in `flex_verified` and skipped for 7 days; the OPEN period is always swept.
 """
 
 from __future__ import annotations
@@ -92,15 +94,40 @@ def _settled(db: Session, period_key: str) -> bool:
     return unnumbered is None and not general_gaps
 
 
-def _units(db: Session, periods: list[dict], verified: dict, now: datetime) -> list[dict]:
+def _flex_recently_verified(db: Session, key: str, state: dict, now: datetime) -> bool:
+    """A flex unit cannot prove a period settled (no documents), so a CLOSED period is trusted for a week
+    after a full clean pass of its flex units; an open flex gap voids that."""
+    seen = _when((state.get("flex_verified") or {}).get(key))
+    if seen is None or now - seen >= VERIFY_EVERY:
+        return False
+    return not any(g.billing_source == flex_lap.SOURCE for g in open_gaps(db, key))
+
+
+def _stamp_flex_verified(db: Session, state: dict, unit: dict, now: datetime) -> None:
+    if not unit.get("closed"):
+        return
+    mine = [
+        u for u in state["lap"]["units"] if u.get("source") == flex_lap.SOURCE and u["period_key"] == unit["period_key"]
+    ]
+    if all(u["state"] == "done" for u in mine) and not any(
+        g.billing_source == flex_lap.SOURCE for g in open_gaps(db, unit["period_key"])
+    ):
+        state.setdefault("flex_verified", {})[unit["period_key"]] = now.isoformat()
+
+
+def _units(db: Session, periods: list[dict], state: dict, now: datetime) -> list[dict]:
     keys = [(p["key"], p.get("period_status")) for p in periods if isinstance(p, dict) and p.get("key")]
     ordered = [k for k, status in keys if status == OPEN] + sorted((k for k, s in keys if s != OPEN), reverse=True)
     status_of = dict(keys)
+    verified = state.setdefault("verified", {})
     units: list[dict] = []
     for key in ordered:
         verify = status_of[key] != OPEN and _settled(db, key)
         seen = _when(verified.get(key)) if verify else None
-        flex = flex_lap.units(key) if flex_lap.enabled() else []
+        skip_flex = status_of[key] != OPEN and _flex_recently_verified(db, key, state, now)
+        flex = flex_lap.units(key) if flex_lap.enabled() and not skip_flex else []
+        for unit in flex:
+            unit["closed"] = status_of[key] != OPEN  # a pass over the OPEN period proves nothing once it closes
         if seen is not None and now - seen < VERIFY_EVERY:
             units.extend(flex)  # flex documents are unknown: a settled period still re-sweeps its flex details
             continue
@@ -145,7 +172,7 @@ def _start_lap(db: Session, state: dict, now: datetime) -> dict:
         "id": now.isoformat(),
         "started_at": now.isoformat(),
         "index": 0,
-        "units": _units(db, periods, state.setdefault("verified", {}), now),
+        "units": _units(db, periods, state, now),
     }
     return _close_lap_if_done(state, now)
 
@@ -165,6 +192,9 @@ def _flex_details(db: Session, state: dict, unit: dict, now: datetime) -> dict:
     if result.kind == "failure":
         return _details_failure(state, unit, result.fetch, now)
     if result.kind in ("done", "failed"):
+        if result.kind == "done":
+            unit["state"] = "done"  # the stamp must see this unit as finished; _finish may close the lap
+            _stamp_flex_verified(db, state, unit, now)
         return _finish(state, unit, result.kind, now)
     state["failures"], state["retry_at"] = 0, None
     return state

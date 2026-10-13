@@ -1073,7 +1073,11 @@ allows 5 requests/minute per account for all of billing), so a lap takes hours o
   covers the offset closes it. An open flex gap does not affect whether the general data of the period is settled. Flex documents are
   not listed by `/documents` (captured 2026-10-09: group ML and MP do not return them, no group is a
   422), so the unit says `documents: "document_unknown"`, has no documents unit, and a settled period
-  still re-sweeps its flex details every lap. Turning the flag off mid-lap skips the pending flex
+  still re-sweeps its flex details every lap unless it is time-verified: when both flex units of a
+  CLOSED period finish a clean pass (no open flex gap) the lap stamps `flex_verified[period]` in the
+  worker state, and that period's flex units are skipped for 7 days (an open flex gap voids the stamp;
+  the OPEN period is always swept). Clear `flex_verified` in `worker_job_state.detail` to force a full
+  re-sweep. Turning the flag off mid-lap skips the pending flex
   units (`skipped`) without a request.
 
 ### Heartbeat death / unexpected restarts
