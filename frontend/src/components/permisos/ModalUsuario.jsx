@@ -104,7 +104,7 @@ export default function ModalUsuario({ modo, inicial, roles, guardando, error, o
         </label>
 
         <div className={styles.acciones}>
-          <button type="button" className="btn-tesla ghost sm" onClick={onCerrar}>
+          <button type="button" disabled={guardando} className="btn-tesla ghost sm" onClick={onCerrar}>
             Cancelar
           </button>
           <button type="submit" disabled={guardando} className="btn-tesla outline-subtle-success sm">

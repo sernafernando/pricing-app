@@ -436,6 +436,8 @@ export default function PanelPermisos() {
           error={errorModal}
           onGuardar={modalUsuario.modo === 'crear' ? crearUsuario : actualizarUsuario}
           onCerrar={() => {
+            // Closing mid-save would let the pending response close or fill a reopened modal.
+            if (guardando) return;
             setModalUsuario(null);
             setMensaje(null);
           }}

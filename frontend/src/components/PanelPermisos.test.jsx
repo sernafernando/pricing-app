@@ -347,6 +347,28 @@ describe('PanelPermisos', () => {
       expect(screen.queryByRole('form', { name: 'Nuevo usuario' })).not.toBeInTheDocument();
     });
 
+    it('cannot be closed while saving, so a late response never lands in a reopened modal', async () => {
+      const user = userEvent.setup();
+      let rechazarAlta;
+      api.post.mockReturnValueOnce(new Promise((_, reject) => { rechazarAlta = reject; }));
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      const form = formulario('Nuevo usuario');
+      await user.type(within(form).getByLabelText('Usuario'), 'ana');
+      await user.type(within(form).getByLabelText('Nombre completo'), 'Ana');
+      await user.type(within(form).getByLabelText('Contraseña'), 'x');
+      await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+      await user.keyboard('{Escape}');
+      expect(formulario('Nuevo usuario')).toBeInTheDocument();
+
+      rechazarAlta({ response: { data: { detail: 'El usuario ya existe' } } });
+      expect(await within(formulario('Nuevo usuario')).findByText('El usuario ya existe')).toBeInTheDocument();
+      expect(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Cancelar' })).toBeEnabled();
+    });
+
     it('edits the selected user from a modal prefilled with their data', async () => {
       const user = userEvent.setup();
       renderPanel();
