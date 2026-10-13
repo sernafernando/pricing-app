@@ -23,6 +23,7 @@ from tests.services.ml_ads.test_read_provider import DAY, GAUSS, T0, TPLINK, _cl
 BASE = "/api/ml-ads"
 GANANCIA = "ml_metricas.ver_ganancia"
 BIG, SMALL = "MLA1150587086", "MLA3505349772"  # captured MLAs with cost on DAY
+ORGANIC_ONLY, CLICKS_ONLY = "MLA1417727981", "MLA1824116594"  # captured MLAs with activity but no cost
 RANGE = {"date_from": DAY.isoformat(), "date_to": DAY.isoformat()}
 
 
@@ -96,7 +97,8 @@ class TestByMla:
         db.flush()
         body = get(client, reader, "by-mla").json()
         rows = {r["mla"]: r for r in body["items"]}
-        assert set(rows) == {BIG, SMALL}
+        assert set(rows) == {BIG, SMALL, ORGANIC_ONLY, CLICKS_ONLY}  # zero-cost MLAs are listed (owner decision)
+        assert (rows[ORGANIC_ONLY]["cost_api"], rows[ORGANIC_ONLY]["organic_units"]) == (0.0, 6)
         big = rows[BIG]
         assert (big["owner_product_id"], big["cost_api"], big["cost_net"]) == (10, 63996.44, 63996.44)
         assert (big["clicks"], big["prints"], big["direct_units"], big["organic_units"]) == (141, 5296, 32, 28)
@@ -139,7 +141,7 @@ class TestByProduct:
     def test_it_sums_the_mlas_of_each_owner(self, client, db, reader) -> None:
         _seed(db)
         self._publish(db)
-        [row] = get(client, reader, "by-product").json()["products"]
+        row = next(p for p in get(client, reader, "by-product").json()["products"] if p["product_id"] == 10)
         assert (row["product_id"], row["mlas_count"], row["cost_api"], row["clicks"]) == (10, 2, 64692.18, 142)
 
     def test_product_ids_narrows_and_zero_is_sin_producto(self, client, db, reader) -> None:

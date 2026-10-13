@@ -3,7 +3,7 @@
 Thin on purpose: it parses the query, checks `ml_metricas.ver_ganancia`, calls `services/ml_ads/read.py` and
 serializes. Everything is computed at read time from the stored facts; nothing here writes or calls Mercado Libre.
 
-- `GET /ml-ads/by-mla`: Product Ads per MLA with cost > 0 in `[date_from, date_to]`, with its single owner product
+- `GET /ml-ads/by-mla`: Product Ads per MLA with any activity (cost 0 included) in `[date_from, date_to]`, with its single owner product
   (0 = "sin producto"), cost on the API basis and net of IVA, and the informational metrics. `mlas` narrows (CSV).
 - `GET /ml-ads/by-product`: the read-time sum of those rows per owner, "sin producto" included. `product_ids` narrows.
 - `GET /ml-ads/account-level`: Display per campaign (subtractable: its IVA basis is measured) and Brand Ads
