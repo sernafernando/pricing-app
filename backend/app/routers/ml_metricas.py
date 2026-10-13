@@ -226,6 +226,10 @@ def board_filter(
         default=False,
         description="Sólo filas con al menos una unidad vendida en el período (sus ventanas no cambian)",
     ),
+    restar_publicidad: bool = Query(
+        default=False,
+        description="Restar el costo de publicidad de Total Gauss y markup (requiere ml_metricas.ver_ganancia)",
+    ),
     sort: str = Query(default="gross", description=" | ".join(board.SORTS)),
     sort_dir: str = Query(default="desc", description="asc | desc"),
 ) -> board.BoardFilter:
@@ -290,6 +294,7 @@ def board_filter(
         ageing=ageing_in,
         ageing_exclude=ageing_out,
         solo_con_ventas=solo_con_ventas,
+        restar_publicidad=restar_publicidad,
         sort=sort,
         sort_desc=sort_dir == "desc",
     )
@@ -298,9 +303,10 @@ def board_filter(
 def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> None:
     if can_see_margin:
         return
-    if f.sort in board.MARGIN_SORTS or "margen_cayendo" in f.alerts:
+    if f.restar_publicidad or f.sort in board.MARGIN_SORTS or "margen_cayendo" in f.alerts:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail=f"Ordenar o filtrar por margen requiere {PERMISO_GANANCIA}"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Ordenar o filtrar por margen, o restar publicidad, requiere {PERMISO_GANANCIA}",
         )
 
 
