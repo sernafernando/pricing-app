@@ -180,4 +180,31 @@ describe('PermisosPorPermiso', () => {
 
     expect(screen.queryByRole('button', { name: ACCION })).not.toBeInTheDocument();
   });
+  it('says there are no permissions, not a search miss, when the payload is empty', () => {
+    renderVista({ permisosUsuario: { rol: 'PRICING', permisos_detallados: {} } });
+
+    expect(screen.getByText('Este usuario no tiene permisos para mostrar.')).toBeInTheDocument();
+    expect(screen.queryByText('No hay permisos que coincidan.')).not.toBeInTheDocument();
+  });
+
+  it('locks every action while its own override is in flight (no parent lock)', async () => {
+    const user = userEvent.setup();
+    let liberar;
+    api.post.mockReturnValueOnce(new Promise((resolve) => { liberar = resolve; }));
+    renderVista();
+
+    await user.click(screen.getByRole('button', { name: 'Conceder admin.ver_panel' }));
+    for (const boton of screen.getAllByRole('button', { name: ACCION })) expect(boton).toBeDisabled();
+
+    liberar({ data: {} });
+    await waitFor(() => {
+      for (const boton of screen.getAllByRole('button', { name: ACCION })) expect(boton).toBeEnabled();
+    });
+  });
+
+  it('honours a parent lock that is already held', () => {
+    renderVista({ bloqueo: { enCurso: 'admin.sincronizar', setEnCurso: vi.fn() } });
+
+    for (const boton of screen.getAllByRole('button', { name: ACCION })) expect(boton).toBeDisabled();
+  });
 });

@@ -44,7 +44,11 @@ export default function PermisosPorPermiso({ usuarioId, permisosUsuario, onActua
       </div>
 
       <div className={styles.lista}>
-        {grupos.length === 0 && <div className={styles.vacio}>No hay permisos que coincidan.</div>}
+        {grupos.length === 0 && (
+          <div className={styles.vacio}>
+            {q ? 'No hay permisos que coincidan.' : 'Este usuario no tiene permisos para mostrar.'}
+          </div>
+        )}
 
         {grupos.map((grupo) => (
           <section key={grupo.categoria} className={styles.grupo} aria-label={grupo.nombre}>
