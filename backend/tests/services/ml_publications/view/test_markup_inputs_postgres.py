@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.services.ml_publications.view import markup_inputs
 from app.services.ml_publications.view.filters import parse_filter
+from app.services.ml_publications.view.markup import UnitInputs
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
@@ -175,6 +176,25 @@ class TestListPricesFallback:
         assert len(recorded) == 4
         assert [s for s in recorded if "productos_pricing" in s] == [recorded[3]]
         assert "productos_pricing" in recorded[3]  # the last one is the dedicated read
+
+
+class TestUnitInputsLayout:
+    def test_the_field_order_the_positional_construction_relies_on(self) -> None:
+        assert tuple(UnitInputs.__dataclass_fields__) == (
+            "item_id",
+            "listing_type_id",
+            "tags",
+            "sale_terms_campaign",
+            "sale_price",
+            "item_price",
+            "fallback_prices",
+            "producto_item_id",
+            "costo",
+            "moneda_costo",
+            "iva",
+            "envio",
+            "subcategoria_id",
+        )
 
 
 class TestCampaign:
