@@ -413,7 +413,7 @@ export default function PanelPermisos() {
           {usuarioSeleccionado ? (
             <>
               {/* Header sticky con info del usuario */}
-              <div className={styles.detalleHeader}>
+              <section className={styles.detalleHeader} aria-label="Usuario seleccionado">
                 {/* Info del usuario y acciones */}
                 <div className={styles.detalleHeaderFila}>
                   <div className={styles.detalleHeaderInfo}>
@@ -581,7 +581,7 @@ export default function PanelPermisos() {
                     </button>
                   </div>
                 )}
-              </div>
+              </section>
 
               {/* Lista de permisos */}
               {!permisosUsuario ? (

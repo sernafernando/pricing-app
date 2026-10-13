@@ -34,6 +34,7 @@ function renderPanel() {
   );
 }
 
+const encabezadoUsuario = () => screen.getByRole('region', { name: 'Usuario seleccionado' });
 const filaAdmin = () => screen.getByText('/admin', { selector: 'code' }).closest('li');
 const concederAdmin = () => within(filaAdmin()).getByRole('button', { name: 'Conceder acceso a Admin' });
 
@@ -175,6 +176,24 @@ describe('PanelPermisos', () => {
       expect(within(lista()).queryByText('Beto Gómez')).not.toBeInTheDocument();
     });
 
+    it.each([
+      ['username', 'bgz'],
+      ['email', 'contacto@empresa'],
+    ])('searches users by %s', async (_campo, texto) => {
+      const user = userEvent.setup();
+      // Username and email share nothing with the name, so only they can match.
+      const beto = { ...OTRO, username: 'bgz', email: 'contacto@empresa.com' };
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [USUARIO, beto] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), texto);
+
+      expect(within(lista()).getByText('Beto Gómez')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Ana Pérez')).not.toBeInTheDocument();
+    });
+
     it('searches users that have no email or username', async () => {
       const user = userEvent.setup();
       const sinDatos = { ...OTRO, username: null, email: undefined };
@@ -193,7 +212,7 @@ describe('PanelPermisos', () => {
 
       // Neither a lone "@" in the selected user's header.
       await user.click(filaUsuario('Beto Gómez'));
-      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      const encabezado = encabezadoUsuario();
       expect(encabezado).not.toHaveTextContent('@');
     });
 
@@ -240,7 +259,7 @@ describe('PanelPermisos', () => {
       expect(within(filaUsuario('Ana Pérez')).queryByText('Inactivo')).not.toBeInTheDocument();
 
       await user.click(filaUsuario('Beto Gómez'));
-      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      const encabezado = encabezadoUsuario();
       expect(within(encabezado).getByText('Inactivo')).toBeInTheDocument();
     });
   });
