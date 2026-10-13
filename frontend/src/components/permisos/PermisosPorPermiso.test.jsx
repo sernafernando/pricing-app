@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { render, screen, within, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import api from '../../services/api';
 import PermisosPorPermiso from './PermisosPorPermiso';
@@ -196,7 +196,7 @@ describe('PermisosPorPermiso', () => {
     await user.click(screen.getByRole('button', { name: 'Conceder admin.ver_panel' }));
     for (const boton of screen.getAllByRole('button', { name: ACCION })) expect(boton).toBeDisabled();
 
-    liberar({ data: {} });
+    await act(async () => liberar({ data: {} }));
     await waitFor(() => {
       for (const boton of screen.getAllByRole('button', { name: ACCION })) expect(boton).toBeEnabled();
     });
