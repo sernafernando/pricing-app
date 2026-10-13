@@ -182,3 +182,12 @@ class TestPoisonOffset:
         assert len(open_gaps(db, "2026-09-01", "CREDIT_NOTE")) == 1
         _run(db, client, _flex_cn_state(db), _FlexMl(), start=100_000)  # ML recovered
         assert open_gaps(db, "2026-09-01", "CREDIT_NOTE") == [] and db.query(MlBillingCharge).count() == 3
+
+    def test_pages_narrowed_by_the_probe_never_count_towards_the_page_cap(self, db, client, flex_on) -> None:
+        state = _flex_cn_state(db)
+        state["lap"]["units"][0].update(total=len(ROWS), pages=11)  # one page short of the cap (2 + 10)
+        client.flex.side_effect = _FlexMl(poison=[1])
+        for n in range(3):  # bare 400, retry, then the limit-1 read at offset 0 succeeds
+            state = tick(db, state, at(15 + 15 * n))
+        unit = state["lap"]["units"][0]
+        assert unit["offset"] == 1 and unit["pages"] == 11 and unit["state"] == "pending"

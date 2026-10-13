@@ -78,7 +78,7 @@ def step(db: Session, unit: dict, lap_id: str, now: datetime) -> FlexResult:
     if probe is None and fetch.is_bare_400:
         probe = new_probe(unit["offset"], FLEX_PAGE_LIMIT)  # the bare 400 is the probe's first answer
     if probe is None:
-        return _page(db, unit, fetch.body, now) if fetch.ok else FlexResult("failure", fetch)
+        return _page(db, unit, fetch.body, now, counts=True) if fetch.ok else FlexResult("failure", fetch)
     verdict = advance(probe, fetch)
     if verdict.kind == "failure":
         unit["probe"] = probe
@@ -88,7 +88,7 @@ def step(db: Session, unit: dict, lap_id: str, now: datetime) -> FlexResult:
         return FlexResult("continue")
     unit.pop("probe", None)
     if verdict.kind == "page":  # a narrowed prefix: advance by what it holds
-        return _page(db, unit, verdict.page, now)
+        return _page(db, unit, verdict.page, now, counts=False)
     record_gap(
         db,
         period_key=period,
@@ -106,7 +106,7 @@ def step(db: Session, unit: dict, lap_id: str, now: datetime) -> FlexResult:
     return FlexResult("continue")
 
 
-def _page(db: Session, unit: dict, page: dict, now: datetime) -> FlexResult:
+def _page(db: Session, unit: dict, page: dict, now: datetime, counts: bool) -> FlexResult:
     period, document_type = unit["period_key"], unit["document_type"]
     if unit["total"] is None and isinstance(page.get("total"), int):
         unit["total"] = page["total"]
@@ -118,7 +118,7 @@ def _page(db: Session, unit: dict, page: dict, now: datetime) -> FlexResult:
         db, period_key=period, document_type=document_type, read_offset=unit["offset"], n_results=len(rows), now=now
     )
     unit["offset"] += len(rows)
-    unit["pages"] += 1
+    unit["pages"] += 1 if counts else 0  # pages narrowed by a probe are small by design
     # `total` drifts while a sweep runs (3324 -> 3325), so the cap keeps a margin like the general one.
     if unit["total"] is not None and unit["pages"] >= -(-unit["total"] // FLEX_PAGE_LIMIT) + PAGE_CAP_MARGIN:
         return FlexResult("failed")
