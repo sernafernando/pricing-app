@@ -320,8 +320,9 @@ def _members(db: Session, f: PublicationFilter, path: list[str], page: GroupsPag
         return _family_members(db, f, path, dimensions, page)
     key = dimensions[page.level].key if page.level in dimensions else product_key()
     raw = {_raw_key(page.level, node.key): node.key for node in page.nodes}
-    rows = db.execute(_scoped(f, path, dimensions, T.i.item_id, key.label("k")).where(key.in_(list(raw)))).all()
-    return [(item_id, raw[k]) for item_id, k in rows]
+    # Plain columns, straight through the connection: the ORM loading layer costs more than the rows on a big set.
+    query = _scoped(f, path, dimensions, T.i.item_id, key.label("k")).where(key.in_(list(raw)))
+    return [(item_id, raw[k]) for item_id, k in db.connection().execute(query).all()]
 
 
 def _family_members(
