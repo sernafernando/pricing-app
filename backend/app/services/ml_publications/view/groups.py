@@ -334,9 +334,10 @@ def _family_members(
     families = [node.key for node in page.nodes if node.kind == KIND_FAMILY]
     items = [node.key for node in page.nodes if node.kind == KIND_ITEM]
     fk = family_key()
-    rows = db.execute(
-        _scoped(f, path, dimensions, T.i.item_id, fk.label("k")).where(or_(fk.in_(families), T.i.item_id.in_(items)))
-    ).all()
+    query = _scoped(f, path, dimensions, T.i.item_id, fk.label("k")).where(
+        or_(fk.in_(families), T.i.item_id.in_(items))
+    )
+    rows = db.connection().execute(query).all()  # plain columns: no ORM loading layer (see `_members`)
     lone, grouped = set(items), set(families)
     return [(item_id, item_id if item_id in lone else k) for item_id, k in rows if item_id in lone or k in grouped]
 
@@ -349,10 +350,12 @@ def _with_markup(
     roots of a big store) by the whole filter, which is the same set or a superset, never a giant id list."""
     with gc_paused():  # tens of thousands of small objects, none in a cycle (see `gc_paused`)
         members = _members(db, f, path, page)
-        if len(members) > ITEM_IDS_MAX:
-            result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
-        else:
-            result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
+    # `compute_markups` pauses the collector itself around the inputs and the pricing, never around the Ads provider.
+    if len(members) > ITEM_IDS_MAX:
+        result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
+    else:
+        result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
+    with gc_paused():
         figures = aggregate_nodes(result.items, members)
     nodes = []
     for node in page.nodes:

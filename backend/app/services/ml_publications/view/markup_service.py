@@ -7,7 +7,7 @@ One entry point, `compute_markups`, for both paths:
 * set-wide path: `f` (a PM-resolved filter): the inputs of every publication of the filtered set, for sorting
   and filtering by markup.
 
-Either way the cost is a fixed number of statements: three for the inputs (`markup_inputs`), one shipping batch
+Either way the cost is a fixed number of statements: three or four for the inputs (`markup_inputs`), one shipping batch
 (`resolver_costos_envio_batch`, once per request, for the distinct priceable products) and the pricing context
 (`build_pricing_context`, built by the caller or here), then a Python loop over the pure functions
 (`markup.unit_markup`, `markup.aggregate_publication`). Nothing here names the product catalog.
@@ -270,7 +270,7 @@ def _worst_unit(
 def compute_detail(
     db: Session, pricing_db: Session, item_id: str, *, ctx: Optional[PricingContext] = None
 ) -> Optional[DetailMarkup]:
-    """Markup and breakdown of ONE publication: the inputs (three statements), one shipping batch for its priceable
+    """Markup and breakdown of ONE publication: the inputs (three or four statements), one shipping batch for its priceable
     products and the pure functions of the list (`price_publication`, `unit_breakdown`). `None` when the publication
     is not in the store. No Ads: the detail explains the plain markup."""
     publication = fetch_inputs(db, item_ids=[item_id]).get(item_id)

@@ -1,16 +1,19 @@
-"""The markup INPUTS of a set of publications (design §4.3, §4.4): extracted in three statements, whatever the size.
+"""The markup INPUTS of a set of publications (design §4.3, §4.4): extracted in three statements (four when some
+unit has no price of its own), whatever the size.
 
-SQL only extracts; the maths is `markup.unit_markup` (P2). For each publication the three statements read:
+SQL only extracts; the maths is `markup.unit_markup` (P2). For each publication the statements read:
 
 1. the item: listing type, tags, the price inputs (current sale price and `ml_items.price`) and the installments
    campaign sale term, which is read ONLY when no campaign tag is present (the tag wins, see `pricelist_resolver`);
 2. its live variations;
-3. every `linked` unit (item level and per variation) with the linked product's cost fields and the Productos
-   list prices the fallback reads.
+3. every `linked` unit (item level and per variation) with the linked product's cost fields;
+4. only when some unit has no usable price (neither the sale price nor `ml_items.price`): the Productos list prices
+   its fallback reads, for the products of those units. The big statements do not carry them.
 
 The set is either explicit ids (a page) or a `PublicationFilter` (the whole filtered set, for sorting and
-filtering by markup). Statements 2 and 3 are scoped by the ids statement 1 returned, bound as ONE array
-parameter, so the filter's joins run once and the statement text does not grow with the set.
+filtering by markup). Statements 2 and 3 are scoped by the ids statement 1 returned, bound as ONE JSON text
+parameter (unnested by the server), so the filter's joins run once and neither the statement text nor the cost of
+binding grows with the set.
 
 This module is the second view module allowed to name the product catalog (see `test_static_guards.py`): it reads
 the cost fields of the products a publication is linked to, in one join from the stored links, and never writes.
@@ -23,7 +26,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import ARRAY, Integer, Text, and_, any_, case, cast, func, literal, literal_column, select, type_coerce
+from sqlalchemy import ARRAY, Integer, Text, and_, case, cast, func, literal, literal_column, select, type_coerce
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.orm import Session, aliased, join as orm_join
 from sqlalchemy.types import NullType
@@ -60,11 +63,15 @@ class PublicationInputs:
     variation_ids: tuple[int, ...] = ()
 
 
+def _unnested(ids: Sequence[Any]) -> Any:
+    return func.jsonb_array_elements_text(cast(literal(json.dumps(list(ids))), JSONB)).column_valued()
+
+
 def _ids_param(ids: Sequence[str]) -> Any:
     """The ids as ONE JSON text parameter, unnested server side. Bound as an array of N text elements the driver
     quotes and the server parses N literals (about 50 ms for 40k ids, per statement); as one JSON text it is about
     7 ms, and the statement text does not change with N either."""
-    return select(func.jsonb_array_elements_text(cast(literal(json.dumps(list(ids))), JSONB)).column_valued())
+    return select(_unnested(ids))
 
 
 def _campaign(item: Any) -> Any:
@@ -184,7 +191,7 @@ def _fallback_rows(db: Session, product_ids: Sequence[int]) -> list[Any]:
     return _rows(
         db,
         select(pricing.item_id, *(getattr(pricing, column) for column in FALLBACK_COLUMNS)).where(
-            pricing.item_id == any_(literal(list(product_ids), ARRAY(Integer)))
+            pricing.item_id.in_(select(cast(_unnested(product_ids), Integer)))
         ),
     )
 
