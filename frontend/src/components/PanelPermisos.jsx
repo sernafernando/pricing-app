@@ -3,12 +3,18 @@ import { Lock } from 'lucide-react';
 import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
 import PermisosPorPantalla from './permisos/PermisosPorPantalla';
+import PermisosPorPermiso from './permisos/PermisosPorPermiso';
 import ListaUsuarios from './permisos/ListaUsuarios';
 import AvatarIniciales from './permisos/AvatarIniciales';
 import ModalUsuario from './permisos/ModalUsuario';
-import { StatusPill } from './kit';
+import { SegmentedControl, StatusPill } from './kit';
 import { contarOverrides } from '../registry/permisosAcceso';
 import styles from './PanelPermisos.module.css';
+
+const VISTAS = [
+  { value: 'pantalla', label: 'Por pantalla' },
+  { value: 'permiso', label: 'Por permiso' },
+];
 
 export default function PanelPermisos() {
   const [usuarios, setUsuarios] = useState([]);
@@ -20,6 +26,11 @@ export default function PanelPermisos() {
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null);
   const [usuarioActual, setUsuarioActual] = useState(null);
+  // Permissions view; kept while switching users.
+  const [vista, setVista] = useState('pantalla');
+  // In-flight override per user ({ [usuarioId]: codigo }), owned here so the
+  // one-action-at-a-time lock survives switching between views.
+  const [overridesEnCurso, setOverridesEnCurso] = useState({});
   // Id of the user whose permissions are on screen: a late reload for a
   // previously selected user must not overwrite the current one.
   const usuarioSeleccionadoIdRef = useRef(null);
@@ -267,6 +278,19 @@ export default function PanelPermisos() {
       ? contarOverrides(permisosUsuario.permisos_detallados)
       : null;
 
+  // Both permission views share the same data and override contract.
+  const propsVista = usuarioSeleccionado && {
+    usuarioId: usuarioSeleccionado.id,
+    permisosUsuario,
+    onActualizado: () => recargarPermisosUsuario(usuarioSeleccionado.id),
+    onMensaje: (nuevoMensaje) => mostrarMensajeDeUsuario(usuarioSeleccionado.id, nuevoMensaje),
+    bloqueo: {
+      enCurso: overridesEnCurso[usuarioSeleccionado.id] ?? null,
+      setEnCurso: (codigo) =>
+        setOverridesEnCurso((prev) => ({ ...prev, [usuarioSeleccionado.id]: codigo })),
+    },
+  };
+
   if (loading) {
     return (
       <div className={styles.section}>
@@ -412,13 +436,16 @@ export default function PanelPermisos() {
                   <div className={styles.emptyMessage}>Cargando permisos...</div>
                 </div>
               ) : (
-                <PermisosPorPantalla
-                  key={usuarioSeleccionado.id}
-                  usuarioId={usuarioSeleccionado.id}
-                  permisosUsuario={permisosUsuario}
-                  onActualizado={() => recargarPermisosUsuario(usuarioSeleccionado.id)}
-                  onMensaje={(nuevoMensaje) => mostrarMensajeDeUsuario(usuarioSeleccionado.id, nuevoMensaje)}
-                />
+                <>
+                  <div className={styles.vistaSelector}>
+                    <SegmentedControl label="Ver permisos" options={VISTAS} value={vista} onChange={setVista} />
+                  </div>
+                  {vista === 'permiso' ? (
+                    <PermisosPorPermiso key={usuarioSeleccionado.id} {...propsVista} />
+                  ) : (
+                    <PermisosPorPantalla key={usuarioSeleccionado.id} {...propsVista} />
+                  )}
+                </>
               )}
             </>
           ) : (
