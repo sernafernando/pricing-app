@@ -200,7 +200,8 @@ _MLA_SUMS = {
 
 
 def ads_by_mla(db: Session, date_from: date, date_to: date, mlas: Optional[Sequence[str]] = None) -> list[AdsMlaRow]:
-    """Product Ads per MLA with cost > 0 (the provider's own rule) in `[date_from, date_to]`, with its owner."""
+    """Product Ads per MLA with any stored activity in `[date_from, date_to]` (cost 0 included: owner decision, so
+    organic-only MLAs show), with its owner. The provider (`cost_by_mla`) keeps its cost > 0 rule."""
     sums = [func.sum(column) for column in _MLA_SUMS.values()]
     in_range = [MlAdsItemDay.day.between(date_from, date_to)]
     if mlas is not None:
@@ -209,7 +210,6 @@ def ads_by_mla(db: Session, date_from: date, date_to: date, mlas: Optional[Seque
         select(MlAdsItemDay.item_id, *sums)
         .where(*in_range)
         .group_by(MlAdsItemDay.item_id)
-        .having(sums[0] > 0)
         .order_by(MlAdsItemDay.item_id)
     )
     found = db.execute(spent).all()

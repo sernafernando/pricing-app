@@ -17,6 +17,7 @@ from tests.services.ml_ads.test_display import _facts as display_facts
 from tests.services.ml_ads.test_read_provider import DAY, GAUSS, T0, TPLINK, _close, _seed
 
 BIG, SMALL, NO_COST = "MLA1150587086", "MLA3505349772", "MLA1417727981"  # the captured MLAs; NO_COST has organic only
+CLICKS_ONLY = "MLA1824116594"  # captured too: activity (not cost) and no sales
 
 
 def _publish(db, mlp_id: int, mla: str, product) -> None:
@@ -30,15 +31,26 @@ class TestAdsByMla:
         _seed(db)
         _publish(db, 1, BIG, 10)
         rows = {r.mla: r for r in read.ads_by_mla(db, DAY, DAY)}
-        assert set(rows) == {BIG, SMALL}  # the zero-cost MLAs are not ad spend
+        assert set(rows) == {BIG, SMALL, NO_COST, CLICKS_ONLY}  # owner decision: zero-cost MLAs are listed too
         big = rows[BIG]
         assert (big.owner_product_id, big.cost_api, big.cost_net) == (10, Decimal("63996.44"), Decimal("63996.44"))
         assert (big.clicks, big.prints, big.direct_units, big.organic_units) == (141, 5296, 32, 28)
         assert (big.direct_amount, big.indirect_amount) == (Decimal("1053364.00"), Decimal("44285.00"))
 
+    def test_an_organic_only_mla_is_listed_with_zero_cost_and_its_organic_figures(self, db) -> None:
+        _seed(db)
+        row = next(r for r in read.ads_by_mla(db, DAY, DAY) if r.mla == NO_COST)
+        assert (row.cost_api, row.cost_net, row.organic_units) == (Decimal(0), Decimal(0), 6)
+        assert row.organic_amount > 0
+
     def test_an_mla_without_a_publication_or_a_sale_is_sin_producto(self, db) -> None:
         _seed(db)
-        assert {r.mla: r.owner_product_id for r in read.ads_by_mla(db, DAY, DAY)} == {BIG: 0, SMALL: 0}
+        assert {r.mla: r.owner_product_id for r in read.ads_by_mla(db, DAY, DAY)} == {
+            BIG: 0,
+            SMALL: 0,
+            NO_COST: 0,
+            CLICKS_ONLY: 0,
+        }
 
     def test_mlas_narrows_and_the_range_bounds_the_days(self, db) -> None:
         _seed(db)
@@ -61,7 +73,7 @@ class TestAdsByProduct:
         _seed(db)
         _publish(db, 1, BIG, 10)
         _publish(db, 2, SMALL, 10)
-        [row] = read.ads_by_product(db, DAY, DAY)
+        row = next(r for r in read.ads_by_product(db, DAY, DAY) if r.product_id == 10)
         assert (row.product_id, row.mlas_count) == (10, 2)
         assert (row.cost_api, row.clicks, row.prints) == (Decimal("64692.18"), 142, 5302)
 
@@ -69,7 +81,7 @@ class TestAdsByProduct:
         _seed(db)
         _publish(db, 1, BIG, 10)
         by_product = {r.product_id: r for r in read.ads_by_product(db, DAY, DAY)}
-        assert by_product[0].cost_api == Decimal("695.74") and by_product[0].mlas_count == 1
+        assert by_product[0].cost_api == Decimal("695.74") and by_product[0].mlas_count == 3
 
     def test_product_ids_narrows_including_zero(self, db) -> None:
         _seed(db)
