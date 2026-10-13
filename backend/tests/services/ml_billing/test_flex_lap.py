@@ -156,16 +156,19 @@ class TestFlexUnit:
             {"period_key": "2026-09-01", "document_type": "CREDIT_NOTE", "kind": "details", "source": "flex"}
         ]
 
-    def test_a_source_that_never_runs_dry_fails_at_the_page_cap(self, db, client, flex_on) -> None:
+    def test_a_source_that_never_runs_dry_fails_at_the_page_cap(self, db, client, flex_on, caplog) -> None:
         never_dry = BillingFetch(200, {"results": ROWS[:2], "total": 3}, None)
         state = _run(db, client, _flex_cn_state(db), lambda *args: never_dry)
-        assert state["last_lap"]["failed"][0]["source"] == "flex"
+        assert state["last_lap"]["failed"][0]["source"] == "flex" and "exceeded the expected pages" in caplog.text
 
 
 class TestPoisonOffset:
-    def test_a_bare_400_is_isolated_recorded_as_an_offset_gap_and_stepped_over(self, db, client, flex_on) -> None:
+    def test_a_bare_400_is_isolated_recorded_as_an_offset_gap_and_stepped_over(
+        self, db, client, flex_on, caplog
+    ) -> None:
         ml = _FlexMl(poison=[1])
         state = _run(db, client, _flex_cn_state(db), ml)
+        assert "poison offset 2026-09-01 CREDIT_NOTE [1, 1]" in caplog.text
         assert state["last_lap"]["failed"] == [] and db.query(MlBillingCharge).count() == 2
         [gap] = open_gaps(db, "2026-09-01", "CREDIT_NOTE")
         assert (gap.position, gap.paging, gap.billing_source, gap.window) == ("1", "offset", "flex", "[1, 1]")

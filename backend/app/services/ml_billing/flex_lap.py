@@ -14,6 +14,7 @@ it has no documents unit, and the period is swept again on every lap.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -32,6 +33,8 @@ from app.services.ml_billing.offset_poison_rows import resolve_recovered_offset_
 from app.services.ml_billing.sweep_gaps import record_gap
 from app.services.ml_webhook_client import BillingFetch, ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
+
+logger = logging.getLogger(__name__)
 
 FLEX_PAGE_LIMIT = 500
 SOURCE = "flex"
@@ -102,6 +105,7 @@ def step(db: Session, unit: dict, lap_id: str, now: datetime) -> FlexResult:
         now=now,
         lap_id=lap_id,
     )
+    logger.warning("ml_billing lap: poison offset %s %s %s", period, document_type, verdict.window)
     unit["offset"] = verdict.position + 1
     return FlexResult("continue")
 
@@ -121,5 +125,6 @@ def _page(db: Session, unit: dict, page: dict, now: datetime, counts: bool) -> F
     unit["pages"] += 1 if counts else 0  # pages narrowed by a probe are small by design
     # `total` drifts while a sweep runs (3324 -> 3325), so the cap keeps a margin like the general one.
     if unit["total"] is not None and unit["pages"] >= -(-unit["total"] // FLEX_PAGE_LIMIT) + PAGE_CAP_MARGIN:
+        logger.warning("ml_billing lap: flex %s %s exceeded the expected pages", period, document_type)
         return FlexResult("failed")
     return FlexResult("continue")
