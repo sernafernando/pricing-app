@@ -27,6 +27,10 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
      publication data (newest `mlp_id` wins) and product data, joined --
      never loaded whole into Python. The universe: every publication the
      ERP mirror knows plus every pair ever sold.
+   With `BoardFilter.restar_publicidad`, `ADS_TABLE` (Product Ads per MLA and
+   AD day, net of IVA only through `ads_cost_net_of_iva`) is materialized too,
+   and each MLA's ads are subtracted from its OWNER pair's Total Gauss and
+   markup numerator (never the denominator). OFF emits no extra statement.
    When `BoardFilter.mla_source` is set, a third table, `MLA_SET_TABLE`, is
    materialized FIRST (same savepoint) and both tables above are restricted
    to its MLAs; absent, no statement changes.
@@ -68,6 +72,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import (
     Date,
+    Numeric,
     String,
     and_,
     any_,
@@ -77,6 +82,7 @@ from sqlalchemy import (
     false,
     func,
     literal,
+    null,
     or_,
     select,
     table,
@@ -90,8 +96,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+from app.models.ml_ads import MlAdsDayLedger, MlAdsItemDay
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps
 from app.models.producto import ProductoERP
+from app.services.ml_ads.iva import ads_cost_net_of_iva
+from app.services.ml_ads.owner import ads_owner_select
 from app.services.ml_daily_metrics import groups as grouping
 from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
 from app.services.ml_daily_metrics.sales import (
@@ -150,12 +159,13 @@ SORTS = (
     "total_gauss",
     "markup",
     "markup_delta",
+    "ads_cost",
     "last_sale",
     "ageing",
     "title",
     "stock",
 )
-MARGIN_SORTS = ("total_gauss", "markup", "markup_delta")
+MARGIN_SORTS = ("total_gauss", "markup", "markup_delta", "ads_cost")
 SERIES_DAYS = 90
 WINDOWS = (("3d", 3), ("7d", 7), ("15d", 15), ("30d", 30))
 AGEING_ALERT_DAYS = 60
@@ -177,6 +187,10 @@ LINES_TABLE = "board_lines"
 # The optional MLA restriction (`BoardFilter.mla_source`): one column of
 # distinct MLAs, materialized in the same savepoint as the two tables above.
 MLA_SET_TABLE = "board_mla_set"
+# Product Ads per (MLA, ad day) over the period and its comparison period: only built with the toggle ON.
+ADS_TABLE = "board_ads_lines"
+ADS_SOURCE = "product_ads"
+ADS_COVERED = ("closed", "mismatch")
 # The cursors whose completed passes keep the sales fresh (same as Ventas ML's
 # sync-status): the windowed sweep and the event-driven activity drain.
 FRESHNESS_CURSORS = ("sweep", "ml_activity")
@@ -399,9 +413,12 @@ class Row:
     tg: Decimal = Decimal("0")
     mtg: Decimal = Decimal("0")
     costo: Decimal = Decimal("0")
-    prev_tg: Decimal = Decimal("0")
-    prev_mtg: Decimal = Decimal("0")
+    # None: the toggle subtracts ads and the comparison period has days the ads ledger never closed.
+    prev_tg: Optional[Decimal] = Decimal("0")
+    prev_mtg: Optional[Decimal] = Decimal("0")
     prev_costo: Decimal = Decimal("0")
+    # Product Ads cost of the period, net of IVA; None unless the toggle is ON.
+    ads_cost: Optional[Decimal] = None
     windows: Dict[str, int] = field(default_factory=dict)
     units_24h: int = 0
     last_sale_at: Optional[datetime] = None
@@ -441,8 +458,8 @@ class Kpis:
     costo: Decimal
     prev_units: int
     prev_gross: Decimal
-    prev_tg: Decimal
-    prev_mtg: Decimal
+    prev_tg: Optional[Decimal]
+    prev_mtg: Optional[Decimal]
     prev_costo: Decimal
     rows: int
     with_sales: int
@@ -478,6 +495,11 @@ def cents(value: Any) -> Decimal:
     2-decimal values, so its totals are exact cents; the board's per-item
     shares (33.33...) are exact only once the total is rounded."""
     return Decimal(str(value or 0)).quantize(CENT, ROUND_HALF_UP)
+
+
+def _prev_cents(value: Any) -> Optional[Decimal]:
+    """A previous-period money sum: NULL only when ads are subtracted and the comparison has unledgered days."""
+    return None if value is None else cents(value)
 
 
 def _round1(value: Optional[Decimal]) -> Optional[float]:
@@ -549,6 +571,9 @@ class Board:
         self.pm_pairs = _resolve_pm_pairs(db, f.pms) if f.pms else None
         # Set by `__enter__` when the filter restricts the MLAs.
         self.mla_set: Optional[Any] = None
+        # Set by `__enter__` with the toggle ON: the ads temp table and whether the ledger covers the comparison.
+        self.ads_lines: Optional[Any] = None
+        self.prev_ads_covered = False
 
     # ── dialect helpers ──
 
@@ -697,6 +722,19 @@ class Board:
             # `None` resolves every publication of the store; with a set, only the set's.
             pub = self._pub(None if self.mla_set is None else select(self.mla_set.c.mla))
         sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
+        pair_ads = self._pair_ads() if self.ads else None
+        # With the toggle ON the money columns come out already net of ads; `costo` never changes.
+        ads = func.coalesce(pair_ads.c.ads, 0) if pair_ads is not None else None
+        prev_ads = func.coalesce(pair_ads.c.prev_ads, 0) if pair_ads is not None else None
+
+        def money(name: str) -> Any:
+            base = func.coalesce(agg.c[name], 0)
+            if pair_ads is None or name not in ("tg", "mtg", "prev_tg", "prev_mtg"):
+                return base
+            if name.startswith("prev_"):
+                return base - prev_ads if self.prev_ads_covered else cast(null(), Numeric(16, 2))
+            return base - ads
+
         # The group view (and opening a node) reads each pair's key and label
         # per tree level as COLUMNS: the levels' small lookup joins run once here.
         dimensions = []
@@ -729,7 +767,8 @@ class Board:
                 P.marca,
                 P.categoria,
                 P.subcategoria_id,
-                *(func.coalesce(agg.c[name], 0).label(name) for name in sums),
+                *(money(name).label(name) for name in sums),
+                *([ads.label("ads_cost")] if ads is not None else []),
                 last.c.last_at,
                 business_date(last.c.last_at, self.sqlite).label("last_day"),
                 *(
@@ -747,6 +786,10 @@ class Board:
             .outerjoin(agg, and_(agg.c.product == pairs.c.product, agg.c.mla == pairs.c.mla))
             .outerjoin(last, and_(last.c.product == pairs.c.product, last.c.mla == pairs.c.mla))
         )
+        if pair_ads is not None:
+            source = source.outerjoin(
+                pair_ads, and_(pair_ads.c.product == pairs.c.product, pair_ads.c.mla == pairs.c.mla)
+            )
         if self.scope_pairs is not None:
             # Fail closed: an empty scope matches nothing, and a pair with no
             # product (NULL marca/categoría) never matches a scoped caller.
@@ -772,6 +815,68 @@ class Board:
         types = types or {}
         return table(name, *(column(c, types.get(c)) for c in source.selected_columns.keys()))
 
+    def _in_ads_period(self, day_column: Any, start: date, end: date) -> Any:
+        return day_column.between(self._day(start), self._day(end))
+
+    def _comparison_is_ledgered(self) -> bool:
+        """Whether EVERY advertiser has a closed (or mismatch) ledger row for EVERY day of the comparison
+        period: otherwise its ads are unknown there and the previous-period values must be NULL."""
+        days = (self.prev_to - self.prev_from).days + 1
+        covered = case(
+            (
+                and_(
+                    MlAdsDayLedger.status.in_(ADS_COVERED),
+                    self._in_ads_period(MlAdsDayLedger.day, self.prev_from, self.prev_to),
+                ),
+                1,
+            ),
+            else_=0,
+        )
+        counts = (
+            self.db.execute(
+                select(func.sum(covered))
+                .where(MlAdsDayLedger.source == ADS_SOURCE)
+                .group_by(MlAdsDayLedger.advertiser_id)
+            )
+            .scalars()
+            .all()
+        )
+        return bool(counts) and all(int(n or 0) == days for n in counts)
+
+    def _ads_source(self):
+        """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups."""
+        day = MlAdsItemDay.day
+        query = (
+            select(MlAdsItemDay.item_id.label("mla"), day.label("day"), func.sum(MlAdsItemDay.cost).label("cost"))
+            .where(
+                or_(
+                    self._in_ads_period(day, self.f.date_from, self.f.date_to),
+                    self._in_ads_period(day, self.prev_from, self.prev_to),
+                )
+            )
+            .group_by(MlAdsItemDay.item_id, day)
+        )
+        return self._in_mla_set(query, MlAdsItemDay.item_id)
+
+    def _pair_ads(self):
+        """Per OWNER pair (owner product, MLA), its ads of the period and of the comparison period, NET of IVA.
+        An MLA's ads land on ONE pair (`ads_owner_select`); an owner with no pair on the board is a 7b concern."""
+        A = self.ads_lines
+        owner = ads_owner_select(sqlite=self.sqlite, mlas=select(A.c.mla)).subquery("ads_owner")
+        current = case((self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to), A.c.cost), else_=0)
+        previous = case((self._in_ads_period(A.c.day, self.prev_from, self.prev_to), A.c.cost), else_=0)
+        return (
+            select(
+                owner.c.owner_product.label("product"),
+                A.c.mla.label("mla"),
+                ads_cost_net_of_iva(func.sum(current), ADS_SOURCE).label("ads"),
+                ads_cost_net_of_iva(func.sum(previous), ADS_SOURCE).label("prev_ads"),
+            )
+            .select_from(A.join(owner, owner.c.mla == A.c.mla))
+            .group_by(owner.c.owner_product, A.c.mla)
+            .subquery("pair_ads")
+        )
+
     def __enter__(self) -> "Board":
         # Everything below runs in ONE transaction: a SAVEPOINT inside the
         # request's transaction, rolled back on the way out whatever happens.
@@ -783,6 +888,9 @@ class Board:
             # rolled back with them and never reaches another pooled client.
             self.mla_set = self._materialize(MLA_SET_TABLE, mla_set_query(self.f.mla_source))
         self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()})
+        if self.ads:
+            self.prev_ads_covered = self._comparison_is_ledgered()
+            self.ads_lines = self._materialize(ADS_TABLE, self._ads_source(), {"day": Date()})
         self.t = self._materialize(PAIRS_TABLE, self._pair_source())
         return self
 
@@ -972,6 +1080,7 @@ class Board:
                         "w15d",
                         "w30d",
                         "u24",
+                        *(("ads_cost",) if self.ads else ()),
                     )
                 ),
                 func.max(fp.c.last_day).label("last_day"),
@@ -1055,6 +1164,8 @@ class Board:
             "total_gauss": rows.c.tg,
             "markup": rows.c.markup,
             "markup_delta": rows.c.markup_delta,
+            # With the toggle OFF there is no ads column: every row ties and the unique key orders them.
+            "ads_cost": rows.c.ads_cost if self.ads else literal(0),
             "last_sale": rows.c.last_day,
             # More days of ageing = an OLDER reference day.
             "ageing": rows.c.ref_day,
@@ -1115,9 +1226,10 @@ class Board:
                 tg=cents(r["tg"]),
                 mtg=cents(r["mtg"]),
                 costo=cents(r["costo"]),
-                prev_tg=cents(r["prev_tg"]),
-                prev_mtg=cents(r["prev_mtg"]),
+                prev_tg=_prev_cents(r["prev_tg"]),
+                prev_mtg=_prev_cents(r["prev_mtg"]),
                 prev_costo=cents(r["prev_costo"]),
+                ads_cost=cents(r["ads_cost"]) if self.ads else None,
                 last_sale_at=_as_aware(_as_datetime(r["last_at"])),
                 windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
                 units_24h=int(r["u24"] or 0),
@@ -1266,7 +1378,7 @@ class Board:
                 func.max(gp.c[grouping.label_column(level)]).label("label"),
                 func.sum(gp.c.first_in_group).label("products"),
                 func.count(func.distinct(gp.c.mla)).label("pubs"),
-                *(func.sum(gp.c[name]).label(name) for name in grouping.SUM_COLUMNS),
+                *(func.sum(gp.c[name]).label(name) for name in grouping.sum_columns(gp)),
                 func.max(gp.c.last_day).label("last_day"),
                 func.max(gp.c.last_at).label("last_at"),
                 func.min(gp.c.start_day).label("start_day"),
@@ -1355,9 +1467,10 @@ class Board:
             tg=cents(r["tg"]),
             mtg=cents(r["mtg"]),
             costo=cents(r["costo"]),
-            prev_tg=cents(r["prev_tg"]),
-            prev_mtg=cents(r["prev_mtg"]),
+            prev_tg=_prev_cents(r["prev_tg"]),
+            prev_mtg=_prev_cents(r["prev_mtg"]),
             prev_costo=cents(r["prev_costo"]),
+            ads_cost=cents(r["ads_cost"]) if self.ads else None,
             last_sale_at=_as_aware(_as_datetime(r["last_at"])),
             windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
             units_24h=int(r["u24"] or 0),
@@ -1390,7 +1503,7 @@ class Board:
                 func.max(gp.c.codigo).label("sku"),
                 func.max(gp.c.marca).label("marca"),
                 func.count(func.distinct(gp.c.mla)).label("pubs"),
-                *(func.sum(gp.c[name]).label(name) for name in grouping.SUM_COLUMNS),
+                *(func.sum(gp.c[name]).label(name) for name in grouping.sum_columns(gp)),
                 func.max(gp.c.last_day).label("last_day"),
                 func.max(gp.c.last_at).label("last_at"),
                 func.min(gp.c.start_day).label("start_day"),
@@ -1462,6 +1575,11 @@ class Board:
 
     def kpis(self) -> Kpis:
         rows = self.rows()
+
+        def prev_sum(column: Any) -> Any:
+            # Unledgered comparison days make the previous money NULL: a 0 would read as "no profit before".
+            return func.sum(column) if self.ads else func.coalesce(func.sum(column), 0)
+
         totals = (
             self.db.execute(
                 select(
@@ -1472,8 +1590,8 @@ class Board:
                     func.coalesce(func.sum(rows.c.costo), 0).label("costo"),
                     func.coalesce(func.sum(rows.c.prev_units), 0).label("prev_units"),
                     func.coalesce(func.sum(rows.c.prev_gross), 0).label("prev_gross"),
-                    func.coalesce(func.sum(rows.c.prev_tg), 0).label("prev_tg"),
-                    func.coalesce(func.sum(rows.c.prev_mtg), 0).label("prev_mtg"),
+                    prev_sum(rows.c.prev_tg).label("prev_tg"),
+                    prev_sum(rows.c.prev_mtg).label("prev_mtg"),
                     func.coalesce(func.sum(rows.c.prev_costo), 0).label("prev_costo"),
                     func.count().label("rows"),
                     func.coalesce(func.sum(case((rows.c.units > 0, 1), else_=0)), 0).label("with_sales"),
@@ -1526,8 +1644,8 @@ class Board:
             costo=dec(totals["costo"]),
             prev_units=int(totals["prev_units"]),
             prev_gross=dec(totals["prev_gross"]),
-            prev_tg=dec(totals["prev_tg"]),
-            prev_mtg=dec(totals["prev_mtg"]),
+            prev_tg=_prev_cents(totals["prev_tg"]) if self.ads else dec(totals["prev_tg"]),
+            prev_mtg=_prev_cents(totals["prev_mtg"]) if self.ads else dec(totals["prev_mtg"]),
             prev_costo=dec(totals["prev_costo"]),
             rows=int(totals["rows"]),
             with_sales=int(totals["with_sales"]),

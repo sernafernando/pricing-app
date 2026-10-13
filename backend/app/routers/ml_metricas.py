@@ -75,6 +75,12 @@ def require_ver(current_user: Usuario = Depends(get_current_user), db: Session =
 # ── Response models ──────────────────────────────────────────────
 
 
+class RowAds(BaseModel):
+    """Product Ads of a row, present only with `restar_publicidad` and `ver_ganancia`."""
+
+    cost: float  # net of IVA, the amount already subtracted from `total_gauss`
+
+
 class BoardRow(BaseModel):
     key: str
     product_item_id: int
@@ -105,6 +111,7 @@ class BoardRow(BaseModel):
     markup_max_90d: Optional[float] = None
     series_units_90d: List[int]
     series_markup_90d: Optional[List[Optional[float]]] = None
+    ads: Optional[RowAds] = None
     last_sale_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
     # `productos_erp.stock` of the row's product (a publication row: its
@@ -345,6 +352,7 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, lea
         markup_max_90d=(max(known) if known else None) if can_see_margin else None,
         series_units_90d=row.series_units,
         series_markup_90d=row.series_markup if can_see_margin else None,
+        ads=RowAds(cost=round_money(row.ads_cost)) if can_see_margin and row.ads_cost is not None else None,
         last_sale_at=row.last_sale_at,
         ageing_days=row.ageing_days,
         stock=row.stock,

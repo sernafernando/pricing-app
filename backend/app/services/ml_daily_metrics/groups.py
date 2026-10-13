@@ -121,6 +121,11 @@ SUM_COLUMNS = (
 )
 
 
+def sum_columns(pairs: Any) -> tuple:
+    """`SUM_COLUMNS` plus the ads cost when the pair table carries it (the toggle ON)."""
+    return SUM_COLUMNS + (("ads_cost",) if "ads_cost" in pairs.c else ())
+
+
 class Dimension(NamedTuple):
     key: ColumnElement
     label: ColumnElement
@@ -255,7 +260,7 @@ def grouped_pairs(joined: Any, fp: Any, stock: Any, level: int) -> Any:
             fp.c.title,
             fp.c.codigo,
             fp.c.marca,
-            *(fp.c[column] for column in SUM_COLUMNS),
+            *(fp.c[column] for column in sum_columns(fp)),
             fp.c.last_day,
             fp.c.last_at,
             fp.c.start_day,

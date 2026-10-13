@@ -1104,6 +1104,7 @@ SORT_FIELDS = {
     "total_gauss": lambda r: r["total_gauss"],
     "markup": lambda r: r["markup_pct"],
     "markup_delta": lambda r: r["markup_delta_pp"],
+    "ads_cost": lambda r: (r["ads"] or {}).get("cost"),
     "last_sale": lambda r: r["last_sale_at"][:10] if r["last_sale_at"] else None,
     "ageing": lambda r: r["ageing_days"],
     "title": lambda r: r["title"].lower(),
