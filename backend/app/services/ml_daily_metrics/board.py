@@ -257,6 +257,51 @@ class BoardFilter:
     # empty set selects NOTHING (never "everything"). A query, not a value:
     # out of equality and hashing, like the rest of the filter's identity.
     mla_source: Optional[Any] = field(default=None, compare=False, hash=False)
+    # "Restar publicidad" (ODD `ml-billing-balance`): subtract the ads cost
+    # from Total Gauss and markup. OFF by default and absent from every older
+    # caller; the router refuses it without `ml_metricas.ver_ganancia`.
+    restar_publicidad: bool = False
+
+
+# Every `BoardFilter` field is classified, so a new one cannot silently change
+# what an "unfiltered" view is (only that view may show the ads that belong to
+# no product). A FILTER narrows the universe of pairs or rows; NAVIGATION picks
+# how the same universe is read (period, grouping, sort, the row predicate
+# "solo con ventas" -- owner-confirmed not a filter) or is a mode of the board
+# itself. Guarded by `test_every_board_filter_field_is_classified`.
+FILTER_FIELDS = frozenset(
+    {
+        "stores",
+        "marcas",
+        "categorias",
+        "subcategorias",
+        "pms",
+        "q",
+        "pub_status",
+        "pub_type",
+        "pub_status_exclude",
+        "pub_type_exclude",
+        "alerts",
+        "stock",
+        "stock_exclude",
+        "ageing",
+        "ageing_exclude",
+        "mla_source",
+    }
+)
+NAVIGATION_FIELDS = frozenset(
+    {
+        "date_from",
+        "date_to",
+        "compare",
+        "group_by",
+        "dimension",
+        "solo_con_ventas",
+        "sort",
+        "sort_desc",
+        "restar_publicidad",
+    }
+)
 
 
 def mla_set_query(source: Any) -> Any:
@@ -475,6 +520,9 @@ class Board:
         `through_leaves` reads the keys of every level (the CSV export)."""
         self.db = db
         self.f = f
+        # Whether this request subtracts the ads (the router already refused
+        # the toggle without `ml_metricas.ver_ganancia`). OFF changes nothing.
+        self.ads = f.restar_publicidad
         self.product_item_id = product_item_id
         self.scope = tuple(scope)
         self.scope_pairs = None if scope_pairs is None else [tuple(pair) for pair in scope_pairs]
@@ -1627,7 +1675,9 @@ __all__ = [
     "DIMENSIONS",
     "GROUP_BY",
     "Kpis",
+    "FILTER_FIELDS",
     "MARGIN_SORTS",
+    "NAVIGATION_FIELDS",
     "NO_GROUP",
     "PUB_STATUSES",
     "PUB_TYPES",

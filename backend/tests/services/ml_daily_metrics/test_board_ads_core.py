@@ -13,17 +13,26 @@ Métricas ML.
 # ruff: noqa: F811 -- the imported fixtures are re-named by the tests that use them
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict
 
+import pytest
+
+from app.services.ml_daily_metrics import board
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
+    _day,
     _frozen_clock,
+    _grant,
+    _producto,
+    _pub,
     bg_sessions,
     board_data,
 )
+from datetime import date
 
 GOLDEN = Path(__file__).parent / "golden" / "board_off_responses.json"
 
@@ -67,3 +76,75 @@ def test_off_responses_are_pinned_to_main(client, admin_auth_headers, board_data
     for name in pinned:
         assert captured[name] == pinned[name], f"OFF board response changed for {name!r}"
         assert captured[name]["rows"], f"scenario {name!r} returned no rows"
+
+
+# ── T2: the parameter, its gate and the field classification ─────────────────
+
+
+def test_explicit_false_equals_absent_and_both_equal_main(client, admin_auth_headers, board_data) -> None:
+    pinned = json.loads(GOLDEN.read_text())
+    explicit = _off_responses(client, admin_auth_headers, restar_publicidad="false")
+    assert explicit == pinned
+
+
+ENDPOINTS = {
+    "board": URL,
+    "publications": f"{URL}/products/11/publications",
+    "group-nodes": f"{URL}/group-nodes",
+    "export": f"{URL}/export",
+}
+
+
+@pytest.fixture()
+def only_ver(db, rol_admin):
+    """A user with `ml_metricas.ver` but NOT `ml_metricas.ver_ganancia`."""
+    _grant(db, rol_admin, "ml_metricas.ver")
+    _producto(db, 11, "Impresora", "Epson")
+    _pub(db, 1, "MLA1", 11, 57997)
+    _day(db, 11, "MLA1", date(2026, 9, 30), 2, "200", "30", "100")
+    db.commit()
+
+
+@pytest.mark.parametrize("name", sorted(ENDPOINTS))
+def test_restar_publicidad_without_ver_ganancia_is_403(name, client, admin_auth_headers, only_ver) -> None:
+    params = {"restar_publicidad": "true"}
+    if name == "group-nodes":
+        params["path"] = json.dumps(["EPSON"])
+    resp = client.get(ENDPOINTS[name], params=params, headers=admin_auth_headers)
+    assert resp.status_code == 403, resp.text
+    assert "ver_ganancia" in resp.text
+
+
+def test_restar_publicidad_false_without_ver_ganancia_is_not_gated(client, admin_auth_headers, only_ver) -> None:
+    resp = client.get(URL, params={"restar_publicidad": "false"}, headers=admin_auth_headers)
+    assert resp.status_code == 200, resp.text
+
+
+def test_restar_publicidad_with_ver_ganancia_is_accepted(client, admin_auth_headers, board_data) -> None:
+    resp = client.get(URL, params={"restar_publicidad": "true"}, headers=admin_auth_headers)
+    assert resp.status_code == 200, resp.text
+
+
+def test_the_board_reads_the_toggle_from_the_filter(db) -> None:
+    day = date(2026, 9, 30)
+    off = board.BoardFilter(date_from=day, date_to=day)
+    on = dataclasses.replace(off, restar_publicidad=True)
+    assert off.restar_publicidad is False
+    assert board.Board(db, off, scope_pairs=None).ads is False
+    assert board.Board(db, on, scope_pairs=None).ads is True
+
+
+def test_every_board_filter_field_is_classified() -> None:
+    """A new `BoardFilter` field must be classified: a FILTER narrows the
+    universe (an unfiltered view is the only one that may show account-level
+    ads), NAVIGATION only picks how the same universe is read. Unclassified
+    fails here instead of silently counting as navigation."""
+    fields = {f.name for f in dataclasses.fields(board.BoardFilter)}
+    assert board.FILTER_FIELDS.isdisjoint(board.NAVIGATION_FIELDS)
+    assert fields == board.FILTER_FIELDS | board.NAVIGATION_FIELDS
+
+
+def test_solo_con_ventas_is_navigation_not_a_filter() -> None:
+    """Owner decision (#2281 Q9): hiding rows without sales does not narrow the universe."""
+    assert {"solo_con_ventas", "group_by", "dimension", "sort", "sort_desc"} <= board.NAVIGATION_FIELDS
+    assert {"stores", "marcas", "pms", "q", "mla_source"} <= board.FILTER_FIELDS
