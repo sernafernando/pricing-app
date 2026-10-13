@@ -264,6 +264,113 @@ describe('PanelPermisos', () => {
     });
   });
 
+  describe('user modal', () => {
+    const ROLES = [
+      { id: 1, codigo: 'VENTAS', nombre: 'Ventas' },
+      { id: 2, codigo: 'PRICING', nombre: 'Pricing' },
+      { id: 3, codigo: 'SUPERADMIN', nombre: 'Superadmin' },
+    ];
+    const formulario = (nombre) => screen.getByRole('form', { name: nombre });
+
+    beforeEach(() => {
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/roles' ? Promise.resolve({ data: ROLES }) : original(url)
+      ))(api.get.getMockImplementation()));
+      api.patch.mockResolvedValue({ data: {} });
+    });
+
+    it('creates a user from a modal with the same payload as before', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      const form = formulario('Nuevo usuario');
+      await waitFor(() => expect(within(form).getByLabelText('Usuario')).toHaveFocus());
+      // A non-SUPERADMIN admin cannot hand out SUPERADMIN.
+      expect(within(form).queryByRole('option', { name: 'Superadmin' })).not.toBeInTheDocument();
+      expect(within(form).getByLabelText('Rol')).toHaveValue('1');
+
+      await user.type(within(form).getByLabelText('Usuario'), 'carla');
+      await user.type(within(form).getByLabelText('Nombre completo'), 'Carla Ruiz');
+      await user.type(within(form).getByLabelText('Contraseña'), 'secreta');
+      await user.selectOptions(within(form).getByLabelText('Rol'), 'Pricing');
+      await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(api.post).toHaveBeenCalledWith('/usuarios', {
+        username: 'carla', email: null, nombre: 'Carla Ruiz', password: 'secreta', rol: 'PRICING', rol_id: 2,
+      });
+      await waitFor(() => expect(screen.queryByRole('form', { name: 'Nuevo usuario' })).not.toBeInTheDocument());
+      expect(await screen.findByText('Usuario creado correctamente')).toBeInTheDocument();
+    });
+
+    it('keeps the modal open and shows the error inside it when required fields are missing', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      await user.click(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(api.post).not.toHaveBeenCalledWith('/usuarios', expect.anything());
+      expect(within(formulario('Nuevo usuario')).getByText('Username, nombre y contraseña son requeridos'))
+        .toBeInTheDocument();
+    });
+
+    it('shows a backend error inside the modal', async () => {
+      const user = userEvent.setup();
+      api.post.mockRejectedValueOnce({ response: { data: { detail: 'El usuario ya existe' } } });
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      const form = formulario('Nuevo usuario');
+      await user.type(within(form).getByLabelText('Usuario'), 'ana');
+      await user.type(within(form).getByLabelText('Nombre completo'), 'Ana');
+      await user.type(within(form).getByLabelText('Contraseña'), 'x');
+      await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(await within(formulario('Nuevo usuario')).findByText('El usuario ya existe')).toBeInTheDocument();
+    });
+
+    it('closes with Escape and with Cancelar, but not by clicking outside', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      const nuevo = await screen.findByRole('button', { name: '+ Nuevo Usuario' });
+
+      await user.click(nuevo);
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('form', { name: 'Nuevo usuario' })).not.toBeInTheDocument();
+
+      await user.click(nuevo);
+      await user.click(formulario('Nuevo usuario').closest('.modal-overlay-tesla'));
+      expect(formulario('Nuevo usuario')).toBeInTheDocument();
+
+      await user.click(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Cancelar' }));
+      expect(screen.queryByRole('form', { name: 'Nuevo usuario' })).not.toBeInTheDocument();
+    });
+
+    it('edits the selected user from a modal prefilled with their data', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(within(encabezadoUsuario()).getByRole('button', { name: 'Editar' }));
+      const form = formulario('Editar usuario');
+      expect(within(form).getByLabelText('Usuario')).toHaveValue('ana');
+      expect(within(form).getByLabelText('Email')).toHaveValue('ana@x.com');
+      expect(within(form).getByLabelText('Rol')).toHaveValue('2');
+      expect(within(form).queryByLabelText('Contraseña')).not.toBeInTheDocument();
+
+      const nombre = within(form).getByLabelText('Nombre completo');
+      await user.clear(nombre);
+      await user.type(nombre, 'Ana María Pérez');
+      await user.click(within(form).getByRole('button', { name: 'Guardar' }));
+
+      expect(api.patch).toHaveBeenCalledWith('/usuarios/7', {
+        username: 'ana', email: 'ana@x.com', nombre: 'Ana María Pérez', rol: 'PRICING', rol_id: 2,
+      });
+      await waitFor(() => expect(screen.queryByRole('form', { name: 'Editar usuario' })).not.toBeInTheDocument());
+    });
+  });
+
   describe('late permission responses', () => {
     // Holds the FIRST GET of the given user's permissions until released;
     // later GETs answer at once with `siguiente()`.
