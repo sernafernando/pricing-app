@@ -38,3 +38,12 @@ La pestaña **Usuarios** ahora se divide en dos columnas:
 - **A la izquierda, la lista de usuarios:** cada uno con su **rol**. Arriba hay un buscador por nombre, usuario, email o rol (no importan las mayúsculas ni los acentos). Al usuario seleccionado se le suma un indicador de **overrides** (`+agregados −quitados`).
 - **A la derecha, el usuario seleccionado:** su nombre, rol, email y estado, con los botones **Editar**, **Password** y **Activar/Desactivar**.
 - **Resumen de acceso:** arriba de la lista de pantallas, cuatro números: **Pantallas accesibles** (sobre el total), **Sin acceso**, **Condicionales** y **Overrides** agregados y quitados. Cuentan todas las pantallas del usuario, sin importar la búsqueda ni los filtros que tengas aplicados.
+
+## Alta y edición de usuarios en una ventana
+
+Crear o editar un usuario ya no despliega un formulario dentro de la lista ni del encabezado: ahora se abre en una **ventana** aparte.
+
+- **+ Nuevo Usuario** abre la ventana con usuario, email, nombre completo, contraseña y rol.
+- **Editar**, en el encabezado del usuario seleccionado, abre la misma ventana con sus datos cargados (sin contraseña: se cambia con **Password**).
+- Los errores (por ejemplo, un campo obligatorio vacío) se muestran dentro de la ventana, sin cerrarla.
+- Se cierra con **Cancelar**, con la **×** o con la tecla **Esc**. Hacer clic afuera no la cierra, para no perder lo cargado.

@@ -5,6 +5,7 @@ import adminStyles from '../pages/Admin.module.css';
 import PermisosPorPantalla from './permisos/PermisosPorPantalla';
 import ListaUsuarios from './permisos/ListaUsuarios';
 import AvatarIniciales from './permisos/AvatarIniciales';
+import ModalUsuario from './permisos/ModalUsuario';
 import { StatusPill } from './kit';
 import { contarOverrides } from '../registry/permisosAcceso';
 import styles from './PanelPermisos.module.css';
@@ -30,16 +31,8 @@ export default function PanelPermisos() {
   // message cancels it, so an old timer never wipes a later error.
   const mensajeTimerRef = useRef(null);
 
-  // Estados para crear/editar usuario
-  const [mostrarFormUsuario, setMostrarFormUsuario] = useState(false);
-  const [editandoUsuario, setEditandoUsuario] = useState(null);
-  const [formUsuario, setFormUsuario] = useState({
-    username: '',
-    email: '',
-    nombre: '',
-    password: '',
-    rol_id: null
-  });
+  // Create/edit user dialog: null when closed, else { modo, inicial }.
+  const [modalUsuario, setModalUsuario] = useState(null);
 
   // Estado para cambiar password
   const [cambiandoPassword, setCambiandoPassword] = useState(false);
@@ -83,7 +76,6 @@ export default function PanelPermisos() {
     setUsuarioSeleccionado(usuario);
     usuarioSeleccionadoIdRef.current = usuario.id;
     setPermisosUsuario(null);
-    setEditandoUsuario(null);
     setCambiandoPassword(false);
 
     try {
@@ -105,7 +97,7 @@ export default function PanelPermisos() {
     if (generacion === cargaPermisosRef.current) setPermisosUsuario(res.data);
   };
 
-  const crearUsuario = async () => {
+  const crearUsuario = async (formUsuario) => {
     if (!formUsuario.username || !formUsuario.nombre || !formUsuario.password) {
       setMensaje({ tipo: 'error', texto: 'Username, nombre y contraseña son requeridos' });
       return;
@@ -125,11 +117,9 @@ export default function PanelPermisos() {
         rol_id: formUsuario.rol_id
       });
 
-      setMensaje({ tipo: 'success', texto: 'Usuario creado correctamente' });
-      setMostrarFormUsuario(false);
-      setFormUsuario({ username: '', email: '', nombre: '', password: '', rol_id: null });
+      mostrarMensajeTemporal({ tipo: 'success', texto: 'Usuario creado correctamente' });
+      setModalUsuario(null);
       cargarDatos();
-      setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al crear usuario' });
     } finally {
@@ -137,7 +127,7 @@ export default function PanelPermisos() {
     }
   };
 
-  const actualizarUsuario = async () => {
+  const actualizarUsuario = async (formUsuario) => {
     if (!usuarioSeleccionado) return;
 
     setGuardando(true);
@@ -155,7 +145,7 @@ export default function PanelPermisos() {
       await api.patch(`/usuarios/${usuarioSeleccionado.id}`, cambios);
 
       setMensaje({ tipo: 'success', texto: 'Usuario actualizado correctamente' });
-      setEditandoUsuario(null);
+      setModalUsuario(null);
       cargarDatos();
       // Recargar permisos del usuario
       setTimeout(() => {
@@ -239,16 +229,37 @@ export default function PanelPermisos() {
     mostrarMensajeTemporal(nuevoMensaje);
   };
 
+  // A message raised before opening the dialog must not show up inside it,
+  // and its pending timer must not clear an error raised inside the dialog.
+  const abrirModalUsuario = (modo, inicial) => {
+    clearTimeout(mensajeTimerRef.current);
+    mensajeTimerRef.current = null;
+    setMensaje(null);
+    setModalUsuario({ modo, inicial });
+  };
+
+  const iniciarCreacion = () =>
+    abrirModalUsuario('crear', {
+      username: '',
+      email: '',
+      nombre: '',
+      password: '',
+      rol_id: roles.find(r => r.codigo === 'VENTAS')?.id
+    });
+
   const iniciarEdicion = () => {
     if (!usuarioSeleccionado) return;
-    setEditandoUsuario(usuarioSeleccionado.id);
-    setFormUsuario({
+    abrirModalUsuario('editar', {
       username: usuarioSeleccionado.username,
       email: usuarioSeleccionado.email || '',
       nombre: usuarioSeleccionado.nombre,
       rol_id: usuarioSeleccionado.rol_id || roles.find(r => r.codigo === usuarioSeleccionado.rol)?.id
     });
   };
+
+  const rolesAsignables = roles.filter(r => usuarioActual?.rol === 'SUPERADMIN' || r.codigo !== 'SUPERADMIN');
+  // While the dialog is open its errors show inside it, not behind the overlay.
+  const errorModal = modalUsuario && mensaje?.tipo === 'error' ? mensaje.texto : null;
 
   // Overrides are only known for the user whose permissions are loaded.
   const overridesSeleccionado =
@@ -268,7 +279,7 @@ export default function PanelPermisos() {
 
   return (
     <div>
-      {mensaje && (
+      {mensaje && !errorModal && (
         <div style={{
           padding: '12px 16px',
           marginBottom: '16px',
@@ -286,119 +297,10 @@ export default function PanelPermisos() {
         <div className={`${adminStyles.section} ${styles.columnaUsuarios}`}>
           <div className={styles.columnaHeader}>
             <h3 className={styles.columnaTitulo}>Usuarios del sistema</h3>
-            <button
-              onClick={() => {
-                setMostrarFormUsuario(!mostrarFormUsuario);
-                setFormUsuario({ email: '', nombre: '', password: '', rol_id: roles.find(r => r.codigo === 'VENTAS')?.id });
-              }}
-              className="btn-tesla outline-subtle-primary sm"
-            >
+            <button onClick={iniciarCreacion} className="btn-tesla outline-subtle-primary sm">
               + Nuevo Usuario
             </button>
           </div>
-
-          {/* Form crear usuario */}
-          {mostrarFormUsuario && (
-            <div style={{
-              background: 'var(--bg-secondary)',
-              padding: '16px',
-              borderRadius: '8px',
-              marginBottom: '16px',
-              border: '1px solid var(--border-primary)'
-            }}>
-              <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)' }}>Nuevo Usuario</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <input
-                  type="text"
-                  placeholder="Nombre de usuario (requerido)"
-                  value={formUsuario.username}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, username: e.target.value })}
-                  style={{
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-secondary)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)'
-                  }}
-                  required
-                />
-                <input
-                  type="email"
-                  placeholder="Email (opcional)"
-                  value={formUsuario.email}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, email: e.target.value })}
-                  style={{
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-secondary)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-                <input
-                  type="text"
-                  placeholder="Nombre completo"
-                  value={formUsuario.nombre}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, nombre: e.target.value })}
-                  style={{
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-secondary)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  value={formUsuario.password}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, password: e.target.value })}
-                  style={{
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-secondary)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-                <select
-                  value={formUsuario.rol_id || ''}
-                  onChange={(e) => setFormUsuario({ ...formUsuario, rol_id: parseInt(e.target.value) })}
-                  style={{
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-secondary)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)'
-                  }}
-                >
-                  <option value="">Seleccionar rol...</option>
-                  {roles.filter(r => usuarioActual?.rol === 'SUPERADMIN' || r.codigo !== 'SUPERADMIN').map(rol => (
-                    <option key={rol.id} value={rol.id}>{rol.nombre}</option>
-                  ))}
-                </select>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={crearUsuario}
-                    disabled={guardando}
-                    className="btn-tesla outline-subtle-success sm"
-                    style={{ flex: 1 }}
-                  >
-                    {guardando ? 'Creando...' : 'Crear Usuario'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMostrarFormUsuario(false);
-                      setFormUsuario({ email: '', nombre: '', password: '', rol_id: null });
-                    }}
-                    className="btn-tesla outline-subtle-danger sm"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           <ListaUsuarios
             usuarios={usuarios}
@@ -413,129 +315,49 @@ export default function PanelPermisos() {
           {usuarioSeleccionado ? (
             <>
               {/* Header sticky con info del usuario */}
-              <div className={styles.detalleHeader}>
+              <section className={styles.detalleHeader} aria-label="Usuario seleccionado">
                 {/* Info del usuario y acciones */}
                 <div className={styles.detalleHeaderFila}>
                   <div className={styles.detalleHeaderInfo}>
-                    {editandoUsuario ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <input
-                          type="text"
-                          value={formUsuario.username || ''}
-                          onChange={(e) => setFormUsuario({ ...formUsuario, username: e.target.value })}
-                          placeholder="Nombre de usuario"
-                          style={{
-                            padding: '8px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border-secondary)',
-                            background: 'var(--bg-primary)',
-                            color: 'var(--text-primary)',
-                            fontSize: '14px'
-                          }}
-                        />
-                        <input
-                          type="email"
-                          value={formUsuario.email || ''}
-                          onChange={(e) => setFormUsuario({ ...formUsuario, email: e.target.value })}
-                          placeholder="Email (opcional)"
-                          style={{
-                            padding: '8px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border-secondary)',
-                            background: 'var(--bg-primary)',
-                            color: 'var(--text-primary)',
-                            fontSize: '14px'
-                          }}
-                        />
-                        <input
-                          type="text"
-                          value={formUsuario.nombre || ''}
-                          onChange={(e) => setFormUsuario({ ...formUsuario, nombre: e.target.value })}
-                          placeholder="Nombre completo"
-                          style={{
-                            padding: '8px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border-secondary)',
-                            background: 'var(--bg-primary)',
-                            color: 'var(--text-primary)',
-                            fontSize: '16px',
-                            fontWeight: '600'
-                          }}
-                        />
-                        <select
-                          value={formUsuario.rol_id || ''}
-                          onChange={(e) => setFormUsuario({ ...formUsuario, rol_id: parseInt(e.target.value) })}
-                          style={{
-                            padding: '8px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border-secondary)',
-                            background: 'var(--bg-primary)',
-                            color: 'var(--text-primary)'
-                          }}
-                        >
-                          {roles.filter(r => usuarioActual?.rol === 'SUPERADMIN' || r.codigo !== 'SUPERADMIN').map(rol => (
-                            <option key={rol.id} value={rol.id}>{rol.nombre}</option>
-                          ))}
-                        </select>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            onClick={actualizarUsuario}
-                            disabled={guardando}
-                            className="btn-tesla outline-subtle-success sm"
-                          >
-                            Guardar
-                          </button>
-                          <button
-                            onClick={() => setEditandoUsuario(null)}
-                            className="btn-tesla ghost sm"
-                          >
-                            Cancelar
-                          </button>
+                    <div className={styles.usuarioHeader}>
+                      <AvatarIniciales nombre={usuarioSeleccionado.nombre} className={styles.avatar} />
+                      <div className={styles.usuarioDatos}>
+                        <div className={styles.usuarioLinea}>
+                          <h3 className={styles.usuarioNombre}>{usuarioSeleccionado.nombre}</h3>
+                          <StatusPill tone={(permisosUsuario?.rol || usuarioSeleccionado.rol) === 'SUPERADMIN' ? 'warning' : 'info'}>
+                            {permisosUsuario?.rol || usuarioSeleccionado.rol}
+                          </StatusPill>
+                        </div>
+                        <div className={styles.usuarioMeta}>
+                          {usuarioSeleccionado.username && <span>@{usuarioSeleccionado.username}</span>}
+                          {usuarioSeleccionado.email && <span>{usuarioSeleccionado.email}</span>}
+                          <StatusPill tone={usuarioSeleccionado.activo ? 'success' : 'danger'} variant="soft" dot>
+                            {usuarioSeleccionado.activo ? 'Activo' : 'Inactivo'}
+                          </StatusPill>
                         </div>
                       </div>
-                    ) : (
-                      <div className={styles.usuarioHeader}>
-                        <AvatarIniciales nombre={usuarioSeleccionado.nombre} className={styles.avatar} />
-                        <div className={styles.usuarioDatos}>
-                          <div className={styles.usuarioLinea}>
-                            <h3 className={styles.usuarioNombre}>{usuarioSeleccionado.nombre}</h3>
-                            <StatusPill tone={(permisosUsuario?.rol || usuarioSeleccionado.rol) === 'SUPERADMIN' ? 'warning' : 'info'}>
-                              {permisosUsuario?.rol || usuarioSeleccionado.rol}
-                            </StatusPill>
-                          </div>
-                          <div className={styles.usuarioMeta}>
-                            {usuarioSeleccionado.username && <span>@{usuarioSeleccionado.username}</span>}
-                            {usuarioSeleccionado.email && <span>{usuarioSeleccionado.email}</span>}
-                            <StatusPill tone={usuarioSeleccionado.activo ? 'success' : 'danger'} variant="soft" dot>
-                              {usuarioSeleccionado.activo ? 'Activo' : 'Inactivo'}
-                            </StatusPill>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </div>
 
                   {/* Botones de acción */}
-                  {!editandoUsuario && (
-                    <div className={styles.usuarioAcciones}>
-                      <button onClick={iniciarEdicion} className="btn-tesla outline-subtle-primary sm">
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => setCambiandoPassword(!cambiandoPassword)}
-                        className="btn-tesla outline-subtle-primary sm"
-                      >
-                        Password
-                      </button>
-                      <button
-                        onClick={toggleUsuarioActivo}
-                        disabled={guardando}
-                        className={`btn-tesla sm ${usuarioSeleccionado.activo ? 'outline-subtle-danger' : 'outline-subtle-success'}`}
-                      >
-                        {usuarioSeleccionado.activo ? 'Desactivar' : 'Activar'}
-                      </button>
-                    </div>
-                  )}
+                  <div className={styles.usuarioAcciones}>
+                    <button onClick={iniciarEdicion} className="btn-tesla outline-subtle-primary sm">
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => setCambiandoPassword(!cambiandoPassword)}
+                      className="btn-tesla outline-subtle-primary sm"
+                    >
+                      Password
+                    </button>
+                    <button
+                      onClick={toggleUsuarioActivo}
+                      disabled={guardando}
+                      className={`btn-tesla sm ${usuarioSeleccionado.activo ? 'outline-subtle-danger' : 'outline-subtle-success'}`}
+                    >
+                      {usuarioSeleccionado.activo ? 'Desactivar' : 'Activar'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Form cambiar password */}
@@ -581,7 +403,7 @@ export default function PanelPermisos() {
                     </button>
                   </div>
                 )}
-              </div>
+              </section>
 
               {/* Lista de permisos */}
               {!permisosUsuario ? (
@@ -606,6 +428,23 @@ export default function PanelPermisos() {
           )}
         </div>
       </div>
+
+      {modalUsuario && (
+        <ModalUsuario
+          modo={modalUsuario.modo}
+          inicial={modalUsuario.inicial}
+          roles={rolesAsignables}
+          guardando={guardando}
+          error={errorModal}
+          onGuardar={modalUsuario.modo === 'crear' ? crearUsuario : actualizarUsuario}
+          onCerrar={() => {
+            // Closing mid-save would let the pending response close or fill a reopened modal.
+            if (guardando) return;
+            setModalUsuario(null);
+            setMensaje(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -34,6 +34,7 @@ function renderPanel() {
   );
 }
 
+const encabezadoUsuario = () => screen.getByRole('region', { name: 'Usuario seleccionado' });
 const filaAdmin = () => screen.getByText('/admin', { selector: 'code' }).closest('li');
 const concederAdmin = () => within(filaAdmin()).getByRole('button', { name: 'Conceder acceso a Admin' });
 
@@ -175,6 +176,24 @@ describe('PanelPermisos', () => {
       expect(within(lista()).queryByText('Beto Gómez')).not.toBeInTheDocument();
     });
 
+    it.each([
+      ['username', 'bgz'],
+      ['email', 'contacto@empresa'],
+    ])('searches users by %s', async (_campo, texto) => {
+      const user = userEvent.setup();
+      // Username and email share nothing with the name, so only they can match.
+      const beto = { ...OTRO, username: 'bgz', email: 'contacto@empresa.com' };
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [USUARIO, beto] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), texto);
+
+      expect(within(lista()).getByText('Beto Gómez')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Ana Pérez')).not.toBeInTheDocument();
+    });
+
     it('searches users that have no email or username', async () => {
       const user = userEvent.setup();
       const sinDatos = { ...OTRO, username: null, email: undefined };
@@ -193,7 +212,7 @@ describe('PanelPermisos', () => {
 
       // Neither a lone "@" in the selected user's header.
       await user.click(filaUsuario('Beto Gómez'));
-      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      const encabezado = encabezadoUsuario();
       expect(encabezado).not.toHaveTextContent('@');
     });
 
@@ -240,8 +259,179 @@ describe('PanelPermisos', () => {
       expect(within(filaUsuario('Ana Pérez')).queryByText('Inactivo')).not.toBeInTheDocument();
 
       await user.click(filaUsuario('Beto Gómez'));
-      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      const encabezado = encabezadoUsuario();
       expect(within(encabezado).getByText('Inactivo')).toBeInTheDocument();
+    });
+  });
+
+  describe('user modal', () => {
+    const ROLES = [
+      { id: 1, codigo: 'VENTAS', nombre: 'Ventas' },
+      { id: 2, codigo: 'PRICING', nombre: 'Pricing' },
+      { id: 3, codigo: 'SUPERADMIN', nombre: 'Superadmin' },
+    ];
+    const formulario = (nombre) => screen.getByRole('form', { name: nombre });
+
+    beforeEach(() => {
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/roles' ? Promise.resolve({ data: ROLES }) : original(url)
+      ))(api.get.getMockImplementation()));
+      api.patch.mockResolvedValue({ data: {} });
+    });
+
+    it('creates a user from a modal with the same payload as before', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      const form = formulario('Nuevo usuario');
+      await waitFor(() => expect(within(form).getByLabelText('Usuario')).toHaveFocus());
+      // A non-SUPERADMIN admin cannot hand out SUPERADMIN.
+      expect(within(form).queryByRole('option', { name: 'Superadmin' })).not.toBeInTheDocument();
+      expect(within(form).getByLabelText('Rol')).toHaveValue('1');
+
+      await user.type(within(form).getByLabelText('Usuario'), 'carla');
+      await user.type(within(form).getByLabelText('Nombre completo'), 'Carla Ruiz');
+      await user.type(within(form).getByLabelText('Contraseña'), 'secreta');
+      await user.selectOptions(within(form).getByLabelText('Rol'), 'Pricing');
+      await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(api.post).toHaveBeenCalledWith('/usuarios', {
+        username: 'carla', email: null, nombre: 'Carla Ruiz', password: 'secreta', rol: 'PRICING', rol_id: 2,
+      });
+      await waitFor(() => expect(screen.queryByRole('form', { name: 'Nuevo usuario' })).not.toBeInTheDocument());
+      expect(await screen.findByText('Usuario creado correctamente')).toBeInTheDocument();
+    });
+
+    it('keeps the modal open and shows the error inside it when required fields are missing', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      await user.click(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(api.post).not.toHaveBeenCalledWith('/usuarios', expect.anything());
+      expect(within(formulario('Nuevo usuario')).getByText('Username, nombre y contraseña son requeridos'))
+        .toBeInTheDocument();
+    });
+
+    it('shows a backend error inside the modal', async () => {
+      const user = userEvent.setup();
+      api.post.mockRejectedValueOnce({ response: { data: { detail: 'El usuario ya existe' } } });
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      const form = formulario('Nuevo usuario');
+      await user.type(within(form).getByLabelText('Usuario'), 'ana');
+      await user.type(within(form).getByLabelText('Nombre completo'), 'Ana');
+      await user.type(within(form).getByLabelText('Contraseña'), 'x');
+      await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(await within(formulario('Nuevo usuario')).findByText('El usuario ya existe')).toBeInTheDocument();
+    });
+
+    it('closes with Escape and with Cancelar, but not by clicking outside', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      const nuevo = await screen.findByRole('button', { name: '+ Nuevo Usuario' });
+
+      await user.click(nuevo);
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('form', { name: 'Nuevo usuario' })).not.toBeInTheDocument();
+
+      await user.click(nuevo);
+      await user.click(formulario('Nuevo usuario').closest('.modal-overlay-tesla'));
+      expect(formulario('Nuevo usuario')).toBeInTheDocument();
+
+      await user.click(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Cancelar' }));
+      expect(screen.queryByRole('form', { name: 'Nuevo usuario' })).not.toBeInTheDocument();
+    });
+
+    it('cannot be closed while saving, so a late response never lands in a reopened modal', async () => {
+      const user = userEvent.setup();
+      let rechazarAlta;
+      api.post.mockReturnValueOnce(new Promise((_, reject) => { rechazarAlta = reject; }));
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: '+ Nuevo Usuario' }));
+      const form = formulario('Nuevo usuario');
+      await user.type(within(form).getByLabelText('Usuario'), 'ana');
+      await user.type(within(form).getByLabelText('Nombre completo'), 'Ana');
+      await user.type(within(form).getByLabelText('Contraseña'), 'x');
+      await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+
+      expect(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+      await user.keyboard('{Escape}');
+      expect(formulario('Nuevo usuario')).toBeInTheDocument();
+
+      rechazarAlta({ response: { data: { detail: 'El usuario ya existe' } } });
+      expect(await within(formulario('Nuevo usuario')).findByText('El usuario ya existe')).toBeInTheDocument();
+      expect(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Cancelar' })).toBeEnabled();
+    });
+
+    it('edits the selected user from a modal prefilled with their data', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(within(encabezadoUsuario()).getByRole('button', { name: 'Editar' }));
+      const form = formulario('Editar usuario');
+      expect(within(form).getByLabelText('Usuario')).toHaveValue('ana');
+      expect(within(form).getByLabelText('Email')).toHaveValue('ana@x.com');
+      expect(within(form).getByLabelText('Rol')).toHaveValue('2');
+      expect(within(form).queryByLabelText('Contraseña')).not.toBeInTheDocument();
+
+      const nombre = within(form).getByLabelText('Nombre completo');
+      await user.clear(nombre);
+      await user.type(nombre, 'Ana María Pérez');
+      await user.click(within(form).getByRole('button', { name: 'Guardar' }));
+
+      expect(api.patch).toHaveBeenCalledWith('/usuarios/7', {
+        username: 'ana', email: 'ana@x.com', nombre: 'Ana María Pérez', rol: 'PRICING', rol_id: 2,
+      });
+      await waitFor(() => expect(screen.queryByRole('form', { name: 'Editar usuario' })).not.toBeInTheDocument());
+    });
+
+    it('keeps the edit modal open and shows a backend error inside it', async () => {
+      const user = userEvent.setup();
+      api.patch.mockRejectedValueOnce({ response: { data: { detail: 'El email ya está en uso' } } });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(within(encabezadoUsuario()).getByRole('button', { name: 'Editar' }));
+      await user.click(within(formulario('Editar usuario')).getByRole('button', { name: 'Guardar' }));
+
+      expect(await within(formulario('Editar usuario')).findByText('El email ya está en uso')).toBeInTheDocument();
+    });
+
+    it('does not let the previous create success timer wipe an error in a reopened modal', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        renderPanel();
+        const nuevo = await screen.findByRole('button', { name: '+ Nuevo Usuario' });
+
+        await user.click(nuevo);
+        const form = formulario('Nuevo usuario');
+        await user.type(within(form).getByLabelText('Usuario'), 'carla');
+        await user.type(within(form).getByLabelText('Nombre completo'), 'Carla');
+        await user.type(within(form).getByLabelText('Contraseña'), 'x');
+        await user.click(within(form).getByRole('button', { name: 'Crear Usuario' }));
+        expect(await screen.findByText('Usuario creado correctamente')).toBeInTheDocument();
+
+        // One second later the admin opens a new dialog and hits a validation error.
+        await act(async () => vi.advanceTimersByTime(1000));
+        await user.click(nuevo);
+        await user.click(within(formulario('Nuevo usuario')).getByRole('button', { name: 'Crear Usuario' }));
+        const error = 'Username, nombre y contraseña son requeridos';
+        expect(within(formulario('Nuevo usuario')).getByText(error)).toBeInTheDocument();
+
+        // Past the first success's 3 s timer: the error must still be there.
+        await act(async () => vi.advanceTimersByTime(2500));
+        expect(within(formulario('Nuevo usuario')).getByText(error)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
