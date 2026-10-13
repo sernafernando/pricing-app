@@ -3,6 +3,10 @@ import { Lock } from 'lucide-react';
 import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
 import PermisosPorPantalla from './permisos/PermisosPorPantalla';
+import ListaUsuarios from './permisos/ListaUsuarios';
+import AvatarIniciales from './permisos/AvatarIniciales';
+import { StatusPill } from './kit';
+import { contarOverrides } from '../registry/permisosAcceso';
 import styles from './PanelPermisos.module.css';
 
 export default function PanelPermisos() {
@@ -14,7 +18,6 @@ export default function PanelPermisos() {
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState(null);
-  const [filtroUsuario, setFiltroUsuario] = useState('');
   const [usuarioActual, setUsuarioActual] = useState(null);
   // Id of the user whose permissions are on screen: a late reload for a
   // previously selected user must not overwrite the current one.
@@ -247,12 +250,11 @@ export default function PanelPermisos() {
     });
   };
 
-  const usuariosFiltrados = usuarios.filter(u =>
-    u.nombre.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
-    u.username?.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
-    u.email?.toLowerCase().includes(filtroUsuario.toLowerCase()) ||
-    u.rol.toLowerCase().includes(filtroUsuario.toLowerCase())
-  );
+  // Overrides are only known for the user whose permissions are loaded.
+  const overridesSeleccionado =
+    permisosUsuario && permisosUsuario.usuario_id === usuarioSeleccionado?.id
+      ? contarOverrides(permisosUsuario.permisos_detallados)
+      : null;
 
   if (loading) {
     return (
@@ -279,11 +281,11 @@ export default function PanelPermisos() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px' }}>
+      <div className={styles.layout}>
         {/* Panel izquierdo: Lista de usuarios */}
-        <div className={adminStyles.section}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Usuarios</h3>
+        <div className={`${adminStyles.section} ${styles.columnaUsuarios}`}>
+          <div className={styles.columnaHeader}>
+            <h3 className={styles.columnaTitulo}>Usuarios del sistema</h3>
             <button
               onClick={() => {
                 setMostrarFormUsuario(!mostrarFormUsuario);
@@ -398,94 +400,23 @@ export default function PanelPermisos() {
             </div>
           )}
 
-          {/* Buscador */}
-          <input
-            type="text"
-            placeholder="Buscar usuario..."
-            value={filtroUsuario}
-            onChange={(e) => setFiltroUsuario(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              border: '1px solid var(--border-secondary)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              marginBottom: '12px'
-            }}
+          <ListaUsuarios
+            usuarios={usuarios}
+            seleccionadoId={usuarioSeleccionado?.id}
+            overridesSeleccionado={overridesSeleccionado}
+            onSeleccionar={seleccionarUsuario}
           />
-
-          {/* Lista de usuarios */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '60vh', overflowY: 'auto' }}>
-            {usuariosFiltrados.map(usuario => (
-              <div
-                key={usuario.id}
-                onClick={() => seleccionarUsuario(usuario)}
-                style={{
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: `2px solid ${usuarioSeleccionado?.id === usuario.id ? 'var(--primary)' : 'var(--border-primary)'}`,
-                  background: usuarioSeleccionado?.id === usuario.id ? 'var(--primary-light)' : 'var(--bg-primary)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  opacity: usuario.activo === false ? 0.6 : 1
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {usuario.nombre}
-                      {!usuario.activo && (
-                        <span style={{
-                          fontSize: '10px',
-                          padding: '2px 6px',
-                          background: 'var(--error-bg)',
-                          color: 'var(--error-text)',
-                          borderRadius: '4px'
-                        }}>
-                          INACTIVO
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      <strong>@{usuario.username}</strong>{usuario.email && ` • ${usuario.email}`}
-                    </div>
-                  </div>
-                </div>
-                <div style={{
-                  fontSize: '11px',
-                  marginTop: '6px',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  display: 'inline-block',
-                  background: usuario.rol === 'SUPERADMIN' ? 'var(--warning-bg)' : 'var(--bg-tertiary)',
-                  color: usuario.rol === 'SUPERADMIN' ? 'var(--warning-text)' : 'var(--text-secondary)'
-                }}>
-                  {usuario.rol}
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* Panel derecho: Detalles y permisos */}
-        <div className={`${adminStyles.section} ${styles.permisosSection}`}>
+        <div className={`${adminStyles.section} ${styles.columnaDetalle}`}>
           {usuarioSeleccionado ? (
             <>
               {/* Header sticky con info del usuario */}
-              <div style={{
-                position: 'sticky',
-                top: 0,
-                background: 'var(--bg-primary)',
-                paddingBottom: '16px',
-                marginBottom: '16px',
-                borderBottom: '1px solid var(--border-primary)',
-                zIndex: 10
-              }}>
+              <div className={styles.detalleHeader}>
                 {/* Info del usuario y acciones */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div style={{ flex: 1 }}>
+                <div className={styles.detalleHeaderFila}>
+                  <div className={styles.detalleHeaderInfo}>
                     {editandoUsuario ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <input
@@ -563,54 +494,31 @@ export default function PanelPermisos() {
                         </div>
                       </div>
                     ) : (
-                      <>
-                        <h3 style={{ margin: '0 0 4px 0', color: 'var(--text-primary)' }}>
-                          {usuarioSeleccionado.nombre}
-                        </h3>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                          {usuarioSeleccionado.email}
+                      <div className={styles.usuarioHeader}>
+                        <AvatarIniciales nombre={usuarioSeleccionado.nombre} className={styles.avatar} />
+                        <div className={styles.usuarioDatos}>
+                          <div className={styles.usuarioLinea}>
+                            <h3 className={styles.usuarioNombre}>{usuarioSeleccionado.nombre}</h3>
+                            <StatusPill tone={(permisosUsuario?.rol || usuarioSeleccionado.rol) === 'SUPERADMIN' ? 'warning' : 'info'}>
+                              {permisosUsuario?.rol || usuarioSeleccionado.rol}
+                            </StatusPill>
+                          </div>
+                          <div className={styles.usuarioMeta}>
+                            {usuarioSeleccionado.username && <span>@{usuarioSeleccionado.username}</span>}
+                            {usuarioSeleccionado.email && <span>{usuarioSeleccionado.email}</span>}
+                            <StatusPill tone={usuarioSeleccionado.activo ? 'success' : 'danger'} variant="soft" dot>
+                              {usuarioSeleccionado.activo ? 'Activo' : 'Inactivo'}
+                            </StatusPill>
+                          </div>
                         </div>
-                        <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{
-                            padding: '4px 10px',
-                            borderRadius: '4px',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            background: permisosUsuario?.rol === 'SUPERADMIN' ? 'var(--warning-bg)' : 'var(--info-bg)',
-                            color: permisosUsuario?.rol === 'SUPERADMIN' ? 'var(--warning-text)' : 'var(--info-text)'
-                          }}>
-                            {permisosUsuario?.rol || usuarioSeleccionado.rol}
-                          </span>
-                          <span style={{
-                            padding: '4px 10px',
-                            borderRadius: '4px',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            background: usuarioSeleccionado.activo ? 'var(--success-bg)' : 'var(--error-bg)',
-                            color: usuarioSeleccionado.activo ? 'var(--success-text)' : 'var(--error-text)'
-                          }}>
-                            {usuarioSeleccionado.activo ? 'Activo' : 'Inactivo'}
-                          </span>
-                        </div>
-                      </>
+                      </div>
                     )}
                   </div>
 
                   {/* Botones de acción */}
                   {!editandoUsuario && (
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <button
-                        onClick={iniciarEdicion}
-                        style={{
-                          padding: '6px 12px',
-                          background: 'var(--info-bg)',
-                          color: 'var(--info-text)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
-                      >
+                    <div className={styles.usuarioAcciones}>
+                      <button onClick={iniciarEdicion} className="btn-tesla outline-subtle-primary sm">
                         Editar
                       </button>
                       <button

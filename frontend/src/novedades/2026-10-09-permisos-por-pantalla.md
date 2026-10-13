@@ -31,6 +31,10 @@ Qué tenés que saber:
 
 > Si una pantalla figura como **Condicional**, el permiso no alcanza: hay que asignarle pares marca/categoría al usuario. El enlace **Ir a Mis Sub-PMs** de la fila lleva a la pantalla donde se delegan.
 
-## Resumen de acceso
+## Nuevo diseño de la pestaña Usuarios
 
-Arriba de la lista de pantallas del usuario seleccionado hay cuatro números: **Pantallas accesibles** (sobre el total), **Sin acceso**, **Condicionales** y **Overrides** agregados y quitados. Cuentan todas las pantallas del usuario, sin importar la búsqueda ni los filtros que tengas aplicados.
+La pestaña **Usuarios** ahora se divide en dos columnas:
+
+- **A la izquierda, la lista de usuarios:** cada uno con su **rol**. Arriba hay un buscador por nombre, usuario, email o rol (no importan las mayúsculas ni los acentos). Al usuario seleccionado se le suma un indicador de **overrides** (`+agregados −quitados`).
+- **A la derecha, el usuario seleccionado:** su nombre, rol, email y estado, con los botones **Editar**, **Password** y **Activar/Desactivar**.
+- **Resumen de acceso:** arriba de la lista de pantallas, cuatro números: **Pantallas accesibles** (sobre el total), **Sin acceso**, **Condicionales** y **Overrides** agregados y quitados. Cuentan todas las pantallas del usuario, sin importar la búsqueda ni los filtros que tengas aplicados.

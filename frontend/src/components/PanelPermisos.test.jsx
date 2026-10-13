@@ -136,6 +136,115 @@ describe('PanelPermisos', () => {
     expect(screen.queryByRole('button', { name: 'Conceder acceso a Admin' })).not.toBeInTheDocument();
   });
 
+  describe('user list', () => {
+    const lista = () => screen.getByRole('list', { name: 'Usuarios del sistema' });
+    const filaUsuario = (nombre) => within(lista()).getByRole('button', { name: new RegExp(nombre) });
+
+    it('shows each user with a role chip and the overrides chip only for the selected one', async () => {
+      const user = userEvent.setup();
+      api.get.mockImplementation(((original) => (url) => {
+        if (url !== '/permisos/usuario/7') return original(url);
+        const data = permisosDe(7);
+        Object.assign(data.permisos_detallados.administracion[0], {
+          override: true, efectivo: true, origen: 'override_agregado',
+        });
+        return Promise.resolve({ data });
+      })(api.get.getMockImplementation()));
+      renderPanel();
+
+      await screen.findByText('Ana Pérez');
+      expect(within(filaUsuario('Ana Pérez')).getByText('PRICING')).toBeInTheDocument();
+      expect(within(filaUsuario('Beto Gómez')).getByText('ADMIN')).toBeInTheDocument();
+      expect(within(lista()).queryByText(/^\+\d/)).not.toBeInTheDocument();
+
+      await user.click(filaUsuario('Ana Pérez'));
+
+      expect(filaUsuario('Ana Pérez')).toHaveAttribute('aria-pressed', 'true');
+      expect(await within(filaUsuario('Ana Pérez')).findByText('+1 −0')).toBeInTheDocument();
+      expect(within(filaUsuario('Beto Gómez')).queryByText(/^\+\d/)).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument();
+    });
+
+    it('searches users ignoring case and accents', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), 'PEREZ');
+
+      expect(within(lista()).getByText('Ana Pérez')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Beto Gómez')).not.toBeInTheDocument();
+    });
+
+    it('searches users that have no email or username', async () => {
+      const user = userEvent.setup();
+      const sinDatos = { ...OTRO, username: null, email: undefined };
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [USUARIO, sinDatos] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      // Matches by role, so the missing username/email are read before it.
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), 'admin');
+
+      expect(within(lista()).getByText('Beto Gómez')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Ana Pérez')).not.toBeInTheDocument();
+      // No "@null" / "@undefined" placeholder for the missing contact data.
+      expect(filaUsuario('Beto Gómez')).not.toHaveTextContent(/null|undefined/);
+
+      // Neither a lone "@" in the selected user's header.
+      await user.click(filaUsuario('Beto Gómez'));
+      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      expect(encabezado).not.toHaveTextContent('@');
+    });
+
+    it('says so when no user matches the search', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), 'zzz');
+
+      expect(within(lista()).getByText('Ningún usuario coincide.')).toBeInTheDocument();
+      expect(within(lista()).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('says there are no users, not a search mismatch, when the list is empty', async () => {
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      await screen.findByRole('list', { name: 'Usuarios del sistema' });
+      expect(within(lista()).getByText('No hay usuarios.')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Ningún usuario coincide.')).not.toBeInTheDocument();
+    });
+
+    it('shows a +0 −0 overrides chip for a selected user without overrides', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByText('Beto Gómez'));
+
+      expect(await within(filaUsuario('Beto Gómez')).findByText('+0 −0')).toBeInTheDocument();
+    });
+
+    it('marks a user without an active flag as inactive, like the header does', async () => {
+      const user = userEvent.setup();
+      const sinEstado = { ...OTRO, activo: undefined };
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [USUARIO, sinEstado] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      await screen.findByText('Beto Gómez');
+      expect(within(filaUsuario('Beto Gómez')).getByText('Inactivo')).toBeInTheDocument();
+      expect(within(filaUsuario('Ana Pérez')).queryByText('Inactivo')).not.toBeInTheDocument();
+
+      await user.click(filaUsuario('Beto Gómez'));
+      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      expect(within(encabezado).getByText('Inactivo')).toBeInTheDocument();
+    });
+  });
+
   describe('late permission responses', () => {
     // Holds the FIRST GET of the given user's permissions until released;
     // later GETs answer at once with `siguiente()`.
