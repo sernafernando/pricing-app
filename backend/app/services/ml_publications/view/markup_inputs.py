@@ -18,11 +18,13 @@ the cost fields of the products a publication is linked to, in one join from the
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from types import MappingProxyType
+from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import ARRAY, Text, and_, any_, case, cast, func, literal, literal_column, select, type_coerce
-from sqlalchemy.dialects.postgresql import JSONPATH
+from sqlalchemy import ARRAY, Integer, Text, and_, any_, case, cast, func, literal, literal_column, select, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.orm import Session, aliased, join as orm_join
 from sqlalchemy.types import NullType
 
@@ -43,6 +45,7 @@ from app.services.pricing_columns import PRICELIST_TO_CAMPO
 CAMPAIGN_SALE_TERM = '$.sale_terms[*] ? (@.id == "INSTALLMENTS_CAMPAIGN").value_name'
 FALLBACK_COLUMNS = tuple(PRICELIST_TO_CAMPO.values())
 DEFAULT_IVA = 21.0
+_NO_PRICES: Mapping[str, Optional[float]] = MappingProxyType({})  # a unit with a price of its own
 
 
 @dataclass(frozen=True)
@@ -58,7 +61,10 @@ class PublicationInputs:
 
 
 def _ids_param(ids: Sequence[str]) -> Any:
-    return any_(literal(list(ids), ARRAY(Text)))
+    """The ids as ONE JSON text parameter, unnested server side. Bound as an array of N text elements the driver
+    quotes and the server parses N literals (about 50 ms for 40k ids, per statement); as one JSON text it is about
+    7 ms, and the statement text does not change with N either."""
+    return select(func.jsonb_array_elements_text(cast(literal(json.dumps(list(ids))), JSONB)).column_valued())
 
 
 def _campaign(item: Any) -> Any:
@@ -79,15 +85,11 @@ def _floats(value: Any) -> Optional[float]:
     return None if value is None else float(value)
 
 
-def _product_columns(product: Any, pricing: Any) -> list[Any]:
-    return [
-        product.costo,
-        product.moneda_costo,
-        product.iva,
-        product.envio,
-        product.subcategoria_id,
-        *(getattr(pricing, column) for column in FALLBACK_COLUMNS),
-    ]
+def _product_columns(product: Any) -> list[Any]:
+    """The cost fields of a linked product. The Productos list prices are NOT here: they are the last resort of the
+    price, needed by few units, and carrying ten more columns through every row of a big set costs more than the
+    rest of the row (`_fallback_rows` reads them for the units that need them)."""
+    return [product.costo, product.moneda_costo, product.iva, product.envio, product.subcategoria_id]
 
 
 def _rows(db: Session, query: Any) -> list[Any]:
@@ -98,11 +100,10 @@ def _rows(db: Session, query: Any) -> list[Any]:
 
 
 def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[PublicationFilter]) -> list[Any]:
-    """One row per publication: its price inputs and its ITEM-LEVEL unit (link, product, list prices). A filter is
+    """One row per publication: its price inputs and its ITEM-LEVEL unit (link, product cost fields). A filter is
     the list's own base select (one pass over the set, no second join to `ml_items`); explicit ids are the same
     joins over `ml_items` keyed by the id array. The item-level link is not filtered by `match_status`, like the
     list's: the table's CHECK constraint makes `producto_item_id` non-null exactly when the status is `linked`."""
-    pricing = aliased(ProductoPricing, name="pp")
     if f is not None:
         columns = [
             T.i.item_id,
@@ -112,10 +113,9 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
             T.sp.amount.label("sale_price"),
             _campaign(T.i).label("campaign"),
             T.l.producto_item_id,
-            *_product_columns(T.p, pricing),
+            *_product_columns(T.p),
         ]
-        query = build_base_select(f, *columns).outerjoin(pricing, pricing.item_id == T.p.item_id)
-        return _rows(db, query)
+        return _rows(db, build_base_select(f, *columns))
     item, sale, link, product = (
         aliased(MlItem, name="mi"),
         aliased(MlItemSalePrice, name="msp"),
@@ -125,22 +125,17 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
     joins = orm_join(
         orm_join(
             orm_join(
-                orm_join(
-                    item,
-                    sale,
-                    and_(sale.item_id == item.item_id, sale.gone_at.is_(None), sale.http_status.between(200, 299)),
-                    isouter=True,
-                ),
-                link,
-                and_(link.item_id == item.item_id, link.variation_id == LINK_ITEM_LEVEL),
+                item,
+                sale,
+                and_(sale.item_id == item.item_id, sale.gone_at.is_(None), sale.http_status.between(200, 299)),
                 isouter=True,
             ),
-            product,
-            product.item_id == link.producto_item_id,
+            link,
+            and_(link.item_id == item.item_id, link.variation_id == LINK_ITEM_LEVEL),
             isouter=True,
         ),
-        pricing,
-        pricing.item_id == product.item_id,
+        product,
+        product.item_id == link.producto_item_id,
         isouter=True,
     )
     query = (
@@ -152,10 +147,10 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
             sale.amount.label("sale_price"),
             _campaign(item).label("campaign"),
             link.producto_item_id,
-            *_product_columns(product, pricing),
+            *_product_columns(product),
         )
         .select_from(joins)
-        .where(item.item_id == _ids_param(item_ids or ()))
+        .where(item.item_id.in_(_ids_param(item_ids or ())))
     )
     return _rows(db, query)
 
@@ -165,26 +160,32 @@ def _variation_rows(db: Session, ids: Sequence[str]) -> list[Any]:
     return _rows(
         db,
         select(v.item_id, v.variation_id)
-        .where(v.item_id == _ids_param(ids), v.gone_at.is_(None))
+        .where(v.item_id.in_(_ids_param(ids)), v.gone_at.is_(None))
         .order_by(v.item_id, v.variation_id),
     )
 
 
 def _variation_link_rows(db: Session, ids: Sequence[str]) -> list[Any]:
     """The variation-level links (and their products) of the given publications, item level excluded."""
-    link, product, pricing = MlItemProductLink, ProductoERP, ProductoPricing
+    link, product = MlItemProductLink, ProductoERP
     return _rows(
         db,
-        select(link.item_id, link.variation_id, link.producto_item_id, *_product_columns(product, pricing))
-        .select_from(
-            orm_join(
-                orm_join(link, product, product.item_id == link.producto_item_id),
-                pricing,
-                pricing.item_id == product.item_id,
-                isouter=True,
-            )
-        )
-        .where(link.item_id == _ids_param(ids), link.variation_id != LINK_ITEM_LEVEL, link.match_status == LINK_LINKED),
+        select(link.item_id, link.variation_id, link.producto_item_id, *_product_columns(product))
+        .select_from(orm_join(link, product, product.item_id == link.producto_item_id))
+        .where(
+            link.item_id.in_(_ids_param(ids)), link.variation_id != LINK_ITEM_LEVEL, link.match_status == LINK_LINKED
+        ),
+    )
+
+
+def _fallback_rows(db: Session, product_ids: Sequence[int]) -> list[Any]:
+    """The Productos list prices of the given products (a product with none has no row)."""
+    pricing = ProductoPricing
+    return _rows(
+        db,
+        select(pricing.item_id, *(getattr(pricing, column) for column in FALLBACK_COLUMNS)).where(
+            pricing.item_id == any_(literal(list(product_ids), ARRAY(Integer)))
+        ),
     )
 
 
@@ -192,11 +193,15 @@ def currency_of(value: Any) -> Optional[str]:
     return getattr(value, "value", value)
 
 
+def _has_price(value: Any) -> bool:
+    return value is not None and value > 0
+
+
 def fetch_inputs(
     db: Session, *, item_ids: Optional[Sequence[str]] = None, f: Optional[PublicationFilter] = None
 ) -> dict[str, PublicationInputs]:
     """Inputs of the given publications, or of every publication of a (PM-resolved) filter; ids that do not
-    exist are absent. Exactly one of `item_ids` / `f`. Three statements, whatever the size of the set."""
+    exist are absent. Exactly one of `item_ids` / `f`. Four statements, whatever the size of the set."""
     if (item_ids is None) == (f is None):
         raise ValueError("pass exactly one of `item_ids` or `f`")
     if item_ids is not None and not item_ids:
@@ -205,46 +210,68 @@ def fetch_inputs(
     if not items:
         return {}
     variations: dict[str, list[int]] = {}
-    for item_id, variation_id in _variation_rows(db, [row.item_id for row in items]):
+    for item_id, variation_id in _variation_rows(db, [row[0] for row in items]):
         variations.setdefault(item_id, []).append(variation_id)
     # Always the third statement (an empty array when no publication has variations): a fixed count.
-    links: dict[tuple[str, int], Any] = {
-        (row.item_id, row.variation_id): row for row in _variation_link_rows(db, list(variations))
-    }
-    fallbacks: dict[int, dict[str, Optional[float]]] = {}  # the list prices are per product: one dict per product
+    links: dict[tuple[str, int], Any] = {(row[0], row[1]): row for row in _variation_link_rows(db, list(variations))}
 
-    def unit(item: Any, link: Any) -> UnitInputs:
-        common: dict[str, Any] = dict(
-            item_id=item.item_id,
-            listing_type_id=item.listing_type_id,
-            tags=tuple(item.tags or ()),
-            sale_terms_campaign=item.campaign,
-            sale_price=_floats(item.sale_price),
-            item_price=_floats(item.item_price),
-        )
-        if link is None or link.producto_item_id is None:
+    # The list prices are read, in one more statement (also always issued), for the products of the units whose
+    # publication has no price of its own (`_pick_price` reads them only then).
+    priceless = {row[0] for row in items if not (_has_price(row[4]) or _has_price(row[3]))}
+    needing = {row[6] for row in items if row[0] in priceless and row[6] is not None}
+    needing.update(row[2] for (item_id, _variation), row in links.items() if item_id in priceless)
+    fallbacks: dict[int, dict[str, Optional[float]]] = {pid: dict.fromkeys(FALLBACK_COLUMNS) for pid in needing}
+    for pid, *prices in _fallback_rows(db, sorted(needing)):
+        fallbacks[pid] = {column: _floats(price) for column, price in zip(FALLBACK_COLUMNS, prices)}
+
+    # A product's fields converted once, however many publications link it.
+    products: dict[int, tuple[Any, ...]] = {}
+
+    def product_of(pid: int, costo: Any, moneda: Any, iva: Any, envio: Any, subcategoria_id: Any) -> tuple[Any, ...]:
+        found = products.get(pid)
+        if found is None:
+            found = products[pid] = (
+                _floats(costo),
+                currency_of(moneda),
+                DEFAULT_IVA if iva is None else float(iva),
+                _floats(envio),
+                subcategoria_id,
+            )
+        return found
+
+    def unit(common: dict[str, Any], pid: Optional[int], product: Optional[tuple[Any, ...]]) -> UnitInputs:
+        if pid is None or product is None:
             return UnitInputs(**common)
-        prices = fallbacks.get(link.producto_item_id)
-        if prices is None:
-            prices = fallbacks[link.producto_item_id] = {c: _floats(getattr(link, c)) for c in FALLBACK_COLUMNS}
+        costo, moneda, iva, envio, subcategoria_id = product
         return UnitInputs(
             **common,
-            fallback_prices=prices,
-            producto_item_id=link.producto_item_id,
-            costo=_floats(link.costo),
-            moneda_costo=currency_of(link.moneda_costo),
-            iva=DEFAULT_IVA if link.iva is None else float(link.iva),
-            envio=_floats(link.envio),
-            subcategoria_id=link.subcategoria_id,
+            fallback_prices=fallbacks.get(pid, _NO_PRICES),
+            producto_item_id=pid,
+            costo=costo,
+            moneda_costo=moneda,
+            iva=iva,
+            envio=envio,
+            subcategoria_id=subcategoria_id,
         )
 
     inputs: dict[str, PublicationInputs] = {}
-    for item in items:
-        own = [
-            unit(item, links[(item.item_id, v)]) if (item.item_id, v) in links else None
-            for v in variations.get(item.item_id, ())
-        ]
-        inputs[item.item_id] = PublicationInputs(
-            item.item_id, unit(item, item), tuple(own), tuple(variations.get(item.item_id, ()))
+    for item_id, listing_type_id, tags, item_price, sale_price, campaign, pid, *product_fields in items:
+        common: dict[str, Any] = dict(
+            item_id=item_id,
+            listing_type_id=listing_type_id,
+            tags=tuple(tags) if tags else (),
+            sale_terms_campaign=campaign,
+            sale_price=_floats(sale_price),
+            item_price=_floats(item_price),
         )
+        item_unit = unit(common, pid, None if pid is None else product_of(pid, *product_fields))
+        own: list[Optional[UnitInputs]] = []
+        for variation_id in variations.get(item_id, ()):
+            link = links.get((item_id, variation_id))
+            if link is None:
+                own.append(None)
+            else:
+                _item, _variation, variation_pid, *fields = link
+                own.append(unit(common, variation_pid, product_of(variation_pid, *fields)))
+        inputs[item_id] = PublicationInputs(item_id, item_unit, tuple(own), tuple(variations.get(item_id, ())))
     return inputs
