@@ -13,10 +13,15 @@ const MOTIVO_OVERRIDE = 'Override desde panel de permisos';
  * endpoints) and is never offered on a SUPERADMIN target. After a change it
  * awaits `onActualizado()` (the parent reloads the payload) and only then
  * announces success through `onMensaje`.
+ *
+ * `bloqueo` ({ enCurso, setEnCurso }) lets the parent own the one-action-at-a-
+ * time lock, so it survives switching between views; without it the lock is
+ * local to the calling view.
  */
-export default function useAccionesOverride({ usuarioId, rol, onActualizado, onMensaje }) {
+export default function useAccionesOverride({ usuarioId, rol, onActualizado, onMensaje, bloqueo }) {
   const { tienePermiso } = usePermisos();
-  const [enCurso, setEnCurso] = useState(null);
+  const [enCursoLocal, setEnCursoLocal] = useState(null);
+  const { enCurso, setEnCurso } = bloqueo ?? { enCurso: enCursoLocal, setEnCurso: setEnCursoLocal };
   const puedeEditar = tienePermiso(PERMISO_GESTIONAR) && rol !== 'SUPERADMIN';
 
   const ejecutar = async (codigo, accion, textoOk, textoError) => {

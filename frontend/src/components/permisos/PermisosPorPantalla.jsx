@@ -64,14 +64,14 @@ const MAX_CHIPS = 2;
  * `permisosUsuario` is the `GET /permisos/usuario/{id}` response. After an
  * override change it calls `onActualizado()` so the parent reloads it.
  */
-export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActualizado, onMensaje }) {
+export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActualizado, onMensaje, bloqueo }) {
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('');
   const [expandidas, setExpandidas] = useState(() => new Set());
   const [paresDelegados, setParesDelegados] = useState(null);
 
   const rol = permisosUsuario?.rol;
-  const acciones = useAccionesOverride({ usuarioId, rol, onActualizado, onMensaje });
+  const acciones = useAccionesOverride({ usuarioId, rol, onActualizado, onMensaje, bloqueo });
 
   useEffect(() => {
     let cancelado = false;

@@ -28,6 +28,9 @@ export default function PanelPermisos() {
   const [usuarioActual, setUsuarioActual] = useState(null);
   // Permissions view; kept while switching users.
   const [vista, setVista] = useState('pantalla');
+  // In-flight override per user ({ [usuarioId]: codigo }), owned here so the
+  // one-action-at-a-time lock survives switching between views.
+  const [overridesEnCurso, setOverridesEnCurso] = useState({});
   // Id of the user whose permissions are on screen: a late reload for a
   // previously selected user must not overwrite the current one.
   const usuarioSeleccionadoIdRef = useRef(null);
@@ -281,6 +284,11 @@ export default function PanelPermisos() {
     permisosUsuario,
     onActualizado: () => recargarPermisosUsuario(usuarioSeleccionado.id),
     onMensaje: (nuevoMensaje) => mostrarMensajeDeUsuario(usuarioSeleccionado.id, nuevoMensaje),
+    bloqueo: {
+      enCurso: overridesEnCurso[usuarioSeleccionado.id] ?? null,
+      setEnCurso: (codigo) =>
+        setOverridesEnCurso((prev) => ({ ...prev, [usuarioSeleccionado.id]: codigo })),
+    },
   };
 
   if (loading) {

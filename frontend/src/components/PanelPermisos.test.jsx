@@ -184,6 +184,26 @@ describe('PanelPermisos', () => {
       );
       expect(await screen.findByText('Permiso concedido')).toBeInTheDocument();
     });
+
+    it('keeps actions locked after switching views while an override is in flight', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+      await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+
+      let liberarOverride;
+      api.post.mockReturnValueOnce(new Promise((resolve) => { liberarOverride = resolve; }));
+      await user.click(concederAdmin());
+      await user.click(within(vistas()).getByRole('button', { name: 'Por permiso' }));
+
+      // One action at a time, whichever view started it.
+      expect(screen.getByRole('button', { name: 'Conceder admin.ver_panel' })).toBeDisabled();
+
+      await act(async () => liberarOverride({ data: {} }));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Conceder admin.ver_panel' })).toBeEnabled(),
+      );
+    });
   });
 
   describe('user list', () => {

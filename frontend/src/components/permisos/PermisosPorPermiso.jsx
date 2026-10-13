@@ -16,9 +16,9 @@ function coincide(permiso, q) {
  * effective state, origin and the same Conceder / Quitar / Resetear actions
  * (and `onActualizado` / `onMensaje` contract) as `PermisosPorPantalla`.
  */
-export default function PermisosPorPermiso({ usuarioId, permisosUsuario, onActualizado, onMensaje }) {
+export default function PermisosPorPermiso({ usuarioId, permisosUsuario, onActualizado, onMensaje, bloqueo }) {
   const [busqueda, setBusqueda] = useState('');
-  const acciones = useAccionesOverride({ usuarioId, rol: permisosUsuario?.rol, onActualizado, onMensaje });
+  const acciones = useAccionesOverride({ usuarioId, rol: permisosUsuario?.rol, onActualizado, onMensaje, bloqueo });
 
   const q = normalizar(busqueda).trim();
   const grupos = Object.entries(permisosUsuario?.permisos_detallados || {})
