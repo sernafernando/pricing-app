@@ -188,6 +188,8 @@ describe('PanelPermisos', () => {
 
       expect(within(lista()).getByText('Beto Gómez')).toBeInTheDocument();
       expect(within(lista()).queryByText('Ana Pérez')).not.toBeInTheDocument();
+      // No "@null" / "@undefined" placeholder for the missing contact data.
+      expect(filaUsuario('Beto Gómez')).not.toHaveTextContent(/null|undefined/);
     });
 
     it('says so when no user matches the search', async () => {

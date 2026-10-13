@@ -45,7 +45,7 @@ export default function ListaUsuarios({ usuarios, seleccionadoId, overridesSelec
                 <AvatarIniciales nombre={usuario.nombre} className={styles.avatar} />
                 <span className={styles.datos}>
                   <span className={styles.nombre}>{usuario.nombre}</span>
-                  <span className={styles.secundario}>{usuario.email || `@${usuario.username}`}</span>
+                  <span className={styles.secundario}>{usuario.email || (usuario.username ? `@${usuario.username}` : '')}</span>
                 </span>
                 <span className={styles.chips}>
                   {overrides && (
