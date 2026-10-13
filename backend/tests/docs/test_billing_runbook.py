@@ -23,3 +23,8 @@ def test_the_section_names_the_handler_flag_and_the_deploy_steps(section) -> Non
     assert ml_billing.BILLING_HANDLER in section
     assert hasattr(settings, "ML_BILLING_ENABLED") and "ML_BILLING_ENABLED" in section
     assert "crontab -e" in section and "sudo systemctl restart pricing-worker-ml" in section
+
+
+def test_the_section_documents_the_flex_flag_and_its_unknown_documents(section) -> None:
+    assert hasattr(settings, "ML_BILLING_FLEX_ENABLED") and "ML_BILLING_FLEX_ENABLED" in section
+    assert "document_unknown" in section and "offset" in section

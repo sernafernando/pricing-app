@@ -1065,6 +1065,16 @@ allows 5 requests/minute per account for all of billing), so a lap takes hours o
   started at or before the window returns the row; a window ending at 2^40 (a 400 that is not about
   a row) never closes: look at it.
 - **Completeness:** `document_completeness` (a query) says which documents are missing rows.
+- **Flex (flag `ML_BILLING_FLEX_ENABLED`, default OFF, needs `ML_BILLING_ENABLED` too):** each period
+  also gets flex BILL and CREDIT_NOTE details units (`unit.source = "flex"`, after that period's
+  general units). They page by `offset` (limit 500), one request per tick, the same `billing` lock and
+  pacer slot; `unit.offset` is their cursor. A bare 400 runs the resumable offset probe (`unit.probe`)
+  and records a gap with paging `offset`, source `flex`, window `[O, O]`; a later clean page that
+  covers the offset closes it. An open flex gap keeps the period out of "settled". Flex documents are
+  not listed by `/documents` (captured 2026-10-09: group ML and MP do not return them, no group is a
+  422), so the unit says `documents: "document_unknown"`, has no documents unit, and a settled period
+  still re-sweeps its flex details every lap. Turning the flag off mid-lap skips the pending flex
+  units (`skipped`) without a request.
 
 ### Heartbeat death / unexpected restarts
 
