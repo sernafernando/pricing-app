@@ -214,8 +214,10 @@ def compute_markups(
         inputs = fetch_inputs(db, item_ids=item_ids, f=f)
         publications = list(inputs.values())
         products = _priceable_products(publications)
-        envio: Mapping[int, float] = resolver_costos_envio_batch(pricing_db, products) if products else {}
-        ctx = ctx or build_pricing_context(pricing_db)
+    # Not inside the pause: these read the database and build few objects.
+    envio: Mapping[int, float] = resolver_costos_envio_batch(pricing_db, products) if products else {}
+    ctx = ctx or build_pricing_context(pricing_db)
+    with gc_paused():
         plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
     with_ads = _with_ads(pricing_db, ads, plain, item_ids) if ads is not None else None
     if with_ads is None:
