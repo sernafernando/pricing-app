@@ -190,6 +190,11 @@ describe('PanelPermisos', () => {
       expect(within(lista()).queryByText('Ana Pérez')).not.toBeInTheDocument();
       // No "@null" / "@undefined" placeholder for the missing contact data.
       expect(filaUsuario('Beto Gómez')).not.toHaveTextContent(/null|undefined/);
+
+      // Neither a lone "@" in the selected user's header.
+      await user.click(filaUsuario('Beto Gómez'));
+      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      expect(encabezado).not.toHaveTextContent('@');
     });
 
     it('says so when no user matches the search', async () => {

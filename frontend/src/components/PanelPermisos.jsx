@@ -504,7 +504,7 @@ export default function PanelPermisos() {
                             </StatusPill>
                           </div>
                           <div className={styles.usuarioMeta}>
-                            <span>@{usuarioSeleccionado.username}</span>
+                            {usuarioSeleccionado.username && <span>@{usuarioSeleccionado.username}</span>}
                             {usuarioSeleccionado.email && <span>{usuarioSeleccionado.email}</span>}
                             <StatusPill tone={usuarioSeleccionado.activo ? 'success' : 'danger'} variant="soft" dot>
                               {usuarioSeleccionado.activo ? 'Activo' : 'Inactivo'}
