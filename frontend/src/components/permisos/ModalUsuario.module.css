@@ -18,17 +18,7 @@
 }
 
 .input {
-  padding: var(--space-2);
-  font: inherit;
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-base);
-}
-
-.input:focus-visible {
-  outline: 2px solid var(--cf-accent-blue);
-  outline-offset: 1px;
+  composes: input from '../../styles/forms-tesla.css';
 }
 
 .error {
