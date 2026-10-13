@@ -202,3 +202,14 @@ def test_the_response_carries_the_ads_only_when_the_toggle_is_on(client, admin_a
     by_key = {row["key"]: row for row in on.json()["rows"]}
     assert by_key["11"]["ads"] == {"cost": 12.5}
     assert on.json()["rows"][0]["key"] == "11"  # sorted by ads cost, descending by default
+
+
+def test_a_covered_comparison_with_no_rows_left_is_zero_not_null(db) -> None:
+    """Every comparison day is ledgered but the filter keeps nothing: the previous KPI is a real 0, not "unknown"."""
+    _one_product(db, "300", "400", "60")
+    _ledger(db, date(2026, 8, 25), date(2026, 8, 31))
+    db.commit()
+    nothing = dataclasses.replace(ON, q="no-such-product")
+    with board.Board(db, nothing, scope_pairs=None) as b:
+        kpis = b.kpis()
+    assert (kpis.prev_tg, kpis.prev_mtg) == (Decimal("0.00"), Decimal("0.00"))

@@ -869,6 +869,11 @@ class TestAdsOnVolume:
             print(f"\nboard OFF limit={limit}: {len(plain.statements)} statements, {plain_ms:.0f} ms")
             _print(f"board ads ON limit={limit}", recorder, elapsed_ms)
 
+    def test_sorting_by_ads_cost_with_the_toggle_off_runs_on_postgres(self, volume_session, volume_ads) -> None:
+        """The OFF tie-breaker must not be a literal integer: psycopg2 inlines it and `ORDER BY 0` is an error."""
+        response, _recorder, _ms = _request(volume_session, limit=10, sort="ads_cost")
+        assert len(response.rows) == 10
+
     def test_the_toggle_lowers_total_gauss_by_the_ads_of_the_owner_pairs(self, volume_session, volume_ads) -> None:
         off, _r, _ms = _request(volume_session, limit=200, group_by="publication")
         on, _r, _ms = _request(volume_session, limit=200, group_by="publication", restar_publicidad=True)

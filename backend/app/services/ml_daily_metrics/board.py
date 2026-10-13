@@ -1164,8 +1164,7 @@ class Board:
             "total_gauss": rows.c.tg,
             "markup": rows.c.markup,
             "markup_delta": rows.c.markup_delta,
-            # With the toggle OFF there is no ads column: every row ties and the unique key orders them.
-            "ads_cost": rows.c.ads_cost if self.ads else literal(0),
+            "ads_cost": rows.c.ads_cost if self.ads else None,
             "last_sale": rows.c.last_day,
             # More days of ageing = an OLDER reference day.
             "ageing": rows.c.ref_day,
@@ -1173,6 +1172,10 @@ class Board:
             # Unknown stock ("sin dato") goes last either way, like any NULL.
             "stock": rows.c.stock,
         }
+        if self.f.sort == "ads_cost" and not self.ads:
+            # No ads column with the toggle OFF: every row ties and the unique key orders them. Never a constant
+            # term: Postgres reads `ORDER BY 0` as a column position and rejects `ORDER BY NULL`.
+            return (rows.c.rk.asc(),)
         column = sort_cols[self.f.sort]
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc
         return ((column.desc() if descending else column.asc()).nulls_last(), rows.c.rk.asc())
@@ -1307,6 +1310,9 @@ class Board:
             # most expensive read: the 90-day daily series.
             return
         L = self.lines
+        # ponytail: the 90-day sparklines (and the KPI series) read `board_lines`, so with the toggle ON they stay
+        # BEFORE ads while the row's markup/Total Gauss are after them. Revisit with the owner's answer on whether
+        # to subtract ads per day (needs ads lines over the 90-day series range) or hide the series when ON.
         series = (
             select(
                 fp.c.rk,
@@ -1577,8 +1583,9 @@ class Board:
         rows = self.rows()
 
         def prev_sum(column: Any) -> Any:
-            # Unledgered comparison days make the previous money NULL: a 0 would read as "no profit before".
-            return func.sum(column) if self.ads else func.coalesce(func.sum(column), 0)
+            # Unledgered comparison days make the previous money NULL (a 0 would read as "no profit before");
+            # a covered comparison with no row left is a real 0, like with the toggle OFF.
+            return func.sum(column) if self.ads and not self.prev_ads_covered else func.coalesce(func.sum(column), 0)
 
         totals = (
             self.db.execute(
@@ -1644,8 +1651,8 @@ class Board:
             costo=dec(totals["costo"]),
             prev_units=int(totals["prev_units"]),
             prev_gross=dec(totals["prev_gross"]),
-            prev_tg=_prev_cents(totals["prev_tg"]) if self.ads else dec(totals["prev_tg"]),
-            prev_mtg=_prev_cents(totals["prev_mtg"]) if self.ads else dec(totals["prev_mtg"]),
+            prev_tg=_prev_cents(totals["prev_tg"]),
+            prev_mtg=_prev_cents(totals["prev_mtg"]),
             prev_costo=dec(totals["prev_costo"]),
             rows=int(totals["rows"]),
             with_sales=int(totals["with_sales"]),
