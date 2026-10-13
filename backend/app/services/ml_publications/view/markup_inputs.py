@@ -216,63 +216,79 @@ def fetch_inputs(
     # Always the third statement (an empty array when no publication has variations): a fixed count.
     links: dict[tuple[str, int], Any] = {(row[0], row[1]): row for row in _variation_link_rows(db, list(variations))}
 
-    # The list prices are read, in one more statement, for the products of the units whose
-    # publication has no price of its own (`_pick_price` reads them only then); none needs them, no statement.
+    # The list prices are read, in one more statement, for the products of the units whose publication has no
+    # price of its own (`_pick_price` reads them only then); none needs them, no statement.
     priceless = {row[0] for row in items if not (_has_price(row[4]) or _has_price(row[3]))}
-    needing = {row[6] for row in items if row[0] in priceless and row[6] is not None}
-    needing.update(row[2] for (item_id, _variation), row in links.items() if item_id in priceless)
+    needing: set[int] = set()
+    if priceless:
+        needing.update(row[6] for row in items if row[0] in priceless and row[6] is not None)
+        needing.update(row[2] for (item_id, _variation), row in links.items() if item_id in priceless)
     fallbacks: dict[int, dict[str, Optional[float]]] = {pid: dict.fromkeys(FALLBACK_COLUMNS) for pid in needing}
     for pid, *prices in _fallback_rows(db, sorted(needing)) if needing else ():
         fallbacks[pid] = {column: _floats(price) for column, price in zip(FALLBACK_COLUMNS, prices)}
 
-    # A product's fields converted once, however many publications link it.
+    # A product's fields converted once, however many publications link it: `(costo, moneda, iva, envio, subcat)`.
     products: dict[int, tuple[Any, ...]] = {}
 
     def product_of(pid: int, costo: Any, moneda: Any, iva: Any, envio: Any, subcategoria_id: Any) -> tuple[Any, ...]:
-        found = products.get(pid)
-        if found is None:
-            found = products[pid] = (
-                _floats(costo),
-                currency_of(moneda),
-                DEFAULT_IVA if iva is None else float(iva),
-                _floats(envio),
-                subcategoria_id,
-            )
+        found = products[pid] = (
+            None if costo is None else float(costo),
+            getattr(moneda, "value", moneda),
+            DEFAULT_IVA if iva is None else float(iva),
+            None if envio is None else float(envio),
+            subcategoria_id,
+        )
         return found
 
-    def unit(common: dict[str, Any], pid: Optional[int], product: Optional[tuple[Any, ...]]) -> UnitInputs:
-        if pid is None or product is None:
-            return UnitInputs(**common)
-        costo, moneda, iva, envio, subcategoria_id = product
+    def variation_unit(
+        item: UnitInputs, pid: int, costo: Any, moneda: Any, iva: Any, envio: Any, subcat: Any
+    ) -> UnitInputs:
+        """The unit of a variation with a link of its own: the publication's inputs and ITS product."""
+        found = products.get(pid) or product_of(pid, costo, moneda, iva, envio, subcat)
         return UnitInputs(
-            **common,
-            fallback_prices=fallbacks.get(pid, _NO_PRICES),
-            producto_item_id=pid,
-            costo=costo,
-            moneda_costo=moneda,
-            iva=iva,
-            envio=envio,
-            subcategoria_id=subcategoria_id,
+            item.item_id,
+            item.listing_type_id,
+            item.tags,
+            item.sale_terms_campaign,
+            item.sale_price,
+            item.item_price,
+            fallbacks.get(pid, _NO_PRICES),
+            pid,
+            *found,
         )
 
     inputs: dict[str, PublicationInputs] = {}
-    for item_id, listing_type_id, tags, item_price, sale_price, campaign, pid, *product_fields in items:
-        common: dict[str, Any] = dict(
-            item_id=item_id,
-            listing_type_id=listing_type_id,
-            tags=tuple(tags) if tags else (),
-            sale_terms_campaign=campaign,
-            sale_price=_floats(sale_price),
-            item_price=_floats(item_price),
-        )
-        item_unit = unit(common, pid, None if pid is None else product_of(pid, *product_fields))
+    for (
+        item_id,
+        listing_type_id,
+        tags,
+        item_price,
+        sale_price,
+        campaign,
+        pid,
+        costo,
+        moneda,
+        iva,
+        envio,
+        subcat,
+    ) in items:
+        tags = tuple(tags) if tags else ()
+        sale = None if sale_price is None else float(sale_price)
+        price = None if item_price is None else float(item_price)
+        if pid is None:
+            item_unit = UnitInputs(item_id, listing_type_id, tags, campaign, sale, price)
+        else:
+            found = products.get(pid) or product_of(pid, costo, moneda, iva, envio, subcat)
+            item_unit = UnitInputs(
+                item_id, listing_type_id, tags, campaign, sale, price, fallbacks.get(pid, _NO_PRICES), pid, *found
+            )
+        variation_ids = variations.get(item_id)
+        if variation_ids is None:
+            inputs[item_id] = PublicationInputs(item_id, item_unit, (), ())
+            continue
         own: list[Optional[UnitInputs]] = []
-        for variation_id in variations.get(item_id, ()):
+        for variation_id in variation_ids:
             link = links.get((item_id, variation_id))
-            if link is None:
-                own.append(None)
-            else:
-                _item, _variation, variation_pid, *fields = link
-                own.append(unit(common, variation_pid, product_of(variation_pid, *fields)))
-        inputs[item_id] = PublicationInputs(item_id, item_unit, tuple(own), tuple(variations.get(item_id, ())))
+            own.append(None if link is None else variation_unit(item_unit, *link[2:]))
+        inputs[item_id] = PublicationInputs(item_id, item_unit, tuple(own), tuple(variation_ids))
     return inputs

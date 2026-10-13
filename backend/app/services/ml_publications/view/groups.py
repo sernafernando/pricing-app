@@ -55,7 +55,7 @@ from app.services.ml_publications.view.filters import (
     encode_key,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
-from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups
+from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups, gc_paused
 
 KIND_PRODUCT = "producto"
 KIND_FAMILY = "familia"
@@ -346,12 +346,13 @@ def _with_markup(
     """The page with the markup figures of its nodes: P6's computation (`compute_markups`), aggregated per node in
     Python. A small slice (a deep level) is priced by the ids of its publications; one over `ITEM_IDS_MAX` (the
     roots of a big store) by the whole filter, which is the same set or a superset, never a giant id list."""
-    members = _members(db, f, path, page)
-    if len(members) > ITEM_IDS_MAX:
-        result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
-    else:
-        result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
-    figures = aggregate_nodes(result.items, members)
+    with gc_paused():  # tens of thousands of small objects, none in a cycle (see `gc_paused`)
+        members = _members(db, f, path, page)
+        if len(members) > ITEM_IDS_MAX:
+            result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
+        else:
+            result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
+        figures = aggregate_nodes(result.items, members)
     nodes = []
     for node in page.nodes:
         found = figures.get(node.key)

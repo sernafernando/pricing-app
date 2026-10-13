@@ -18,12 +18,14 @@ production both are the application session).
 
 from __future__ import annotations
 
+import gc
 import logging
 import time
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Iterable, Iterator, Mapping, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -135,6 +137,22 @@ def aggregate_nodes(items: Mapping[str, ItemMarkup], members: Iterable[tuple[str
     return {key: NodeMarkup(count, low.get(key), high.get(key)) for key, count in negative.items()}
 
 
+@contextmanager
+def gc_paused() -> Iterator[None]:
+    """Pause the cyclic collector while a big set is built and priced. Tens of thousands of small objects
+    (inputs, units, results) trigger young collections all the time and old ones that walk the WHOLE heap of the
+    process; none of these objects is part of a cycle, so the collector finds nothing and costs about a third of
+    the computation (measured at 40k publications). It is restored when the block ends (and only if it was on),
+    so a long-lived process loses nothing but the pause."""
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
+
+
 def _priceable_products(publications: Sequence[PublicationInputs]) -> list[int]:
     """Distinct products whose cost is usable: only those are priced, so only their shipping is looked up."""
     found: set[int] = set()
@@ -192,12 +210,13 @@ def compute_markups(
     """Markup of the given publications (page path) or of a filter's whole set (set-wide path), after Ads when
     an `ads` plan is given."""
     started = time.perf_counter()
-    inputs = fetch_inputs(db, item_ids=item_ids, f=f)
-    publications = list(inputs.values())
-    products = _priceable_products(publications)
-    envio: Mapping[int, float] = resolver_costos_envio_batch(pricing_db, products) if products else {}
-    ctx = ctx or build_pricing_context(pricing_db)
-    plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
+    with gc_paused():
+        inputs = fetch_inputs(db, item_ids=item_ids, f=f)
+        publications = list(inputs.values())
+        products = _priceable_products(publications)
+        envio: Mapping[int, float] = resolver_costos_envio_batch(pricing_db, products) if products else {}
+        ctx = ctx or build_pricing_context(pricing_db)
+        plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
     with_ads = _with_ads(pricing_db, ads, plain, item_ids) if ads is not None else None
     if with_ads is None:
         items = {item_id: ItemMarkup(markup, None, inputs[item_id].variation_ids) for item_id, markup in plain.items()}
