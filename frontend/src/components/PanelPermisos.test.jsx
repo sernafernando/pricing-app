@@ -174,6 +174,31 @@ describe('PanelPermisos', () => {
       expect(within(lista()).getByText('Ana Pérez')).toBeInTheDocument();
       expect(within(lista()).queryByText('Beto Gómez')).not.toBeInTheDocument();
     });
+
+    it('searches users that have no email or username', async () => {
+      const user = userEvent.setup();
+      const sinDatos = { ...OTRO, username: null, email: undefined };
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [USUARIO, sinDatos] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      // Matches by role, so the missing username/email are read before it.
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), 'admin');
+
+      expect(within(lista()).getByText('Beto Gómez')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Ana Pérez')).not.toBeInTheDocument();
+    });
+
+    it('says so when no user matches the search', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.type(await screen.findByPlaceholderText('Buscar usuario...'), 'zzz');
+
+      expect(within(lista()).getByText('Ningún usuario coincide.')).toBeInTheDocument();
+      expect(within(lista()).queryByRole('button')).not.toBeInTheDocument();
+    });
   });
 
   describe('late permission responses', () => {
