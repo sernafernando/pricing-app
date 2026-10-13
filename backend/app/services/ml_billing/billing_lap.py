@@ -27,6 +27,9 @@ unit fails the unit and the lap moves on (the next lap retries it). Any other
 poison probe (`poison_probe`), kept in `unit["probe"]` and advanced one request
 per tick until the poison row is isolated, recorded as a gap and stepped over.
 Every good page also resolves the open gaps it covers (`resolve_recovered_gaps`).
+
+With `ML_BILLING_FLEX_ENABLED` each period also gets its flex BILL and CREDIT_NOTE details units, after
+its general ones and even when the period is settled (`flex_lap`: paged by `offset`, no documents).
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models.ml_billing import MlBillingCharge
+from app.services.ml_billing import flex_lap
 from app.services.ml_billing.billing_sweep_service import (
     BILLING_GROUP,
     DOCUMENT_TYPES,
@@ -83,7 +87,9 @@ def _settled(db: Session, period_key: str) -> bool:
         .filter(MlBillingCharge.period_key == period_key, MlBillingCharge.legal_document_number.is_(None))
         .first()
     )
-    return unnumbered is None and not open_gaps(db, period_key)
+    # Settledness is about the general data only: a flex gap never keeps a general period in the full sweep.
+    general_gaps = [g for g in open_gaps(db, period_key) if g.billing_source == "general"]
+    return unnumbered is None and not general_gaps
 
 
 def _units(db: Session, periods: list[dict], verified: dict, now: datetime) -> list[dict]:
@@ -94,7 +100,9 @@ def _units(db: Session, periods: list[dict], verified: dict, now: datetime) -> l
     for key in ordered:
         verify = status_of[key] != OPEN and _settled(db, key)
         seen = _when(verified.get(key)) if verify else None
+        flex = flex_lap.units(key) if flex_lap.enabled() else []
         if seen is not None and now - seen < VERIFY_EVERY:
+            units.extend(flex)  # flex documents are unknown: a settled period still re-sweeps its flex details
             continue
         for document_type in DOCUMENT_TYPES:
             for kind in ("details", "documents"):
@@ -112,6 +120,7 @@ def _units(db: Session, periods: list[dict], verified: dict, now: datetime) -> l
                         "verify": verify,
                     }
                 )
+        units.extend(flex)
     return units
 
 
@@ -149,7 +158,21 @@ def _step(db: Session, state: dict, now: datetime) -> dict:
     return _documents(db, state, unit, now)
 
 
+def _flex_details(db: Session, state: dict, unit: dict, now: datetime) -> dict:
+    if not flex_lap.enabled():  # switched off while the lap was in flight: no request
+        return _finish(state, unit, "skipped", now)
+    result = flex_lap.step(db, unit, state["lap"]["id"], now)
+    if result.kind == "failure":
+        return _details_failure(state, unit, result.fetch, now)
+    if result.kind in ("done", "failed"):
+        return _finish(state, unit, result.kind, now)
+    state["failures"], state["retry_at"] = 0, None
+    return state
+
+
 def _details(db: Session, state: dict, unit: dict, now: datetime) -> dict:
+    if unit.get("source") == flex_lap.SOURCE:
+        return _flex_details(db, state, unit, now)
     period, document_type = unit["period_key"], unit["document_type"]
     probe = unit.get("probe")
     position, limit = next_request(probe) if probe else (unit["from_id"], PAGE_LIMIT)
@@ -246,6 +269,7 @@ def _documents(db: Session, state: dict, unit: dict, now: datetime) -> dict:
         u
         for u in state["lap"]["units"]
         if (u["period_key"], u["document_type"], u["kind"]) == (period, "BILL", "details")
+        and u.get("source") != flex_lap.SOURCE
     ]
     if document_type == "BILL" and swept and swept[0]["state"] == "done" and swept[0]["total"] is not None:
         # The observation of the cron sweep (about BILL details only), kept as it was.
@@ -279,7 +303,9 @@ def _close_lap_if_done(state: dict, now: datetime) -> dict:
     lap: Any = state["lap"]
     if lap["index"] >= len(lap["units"]):
         failed = [
-            {k: u[k] for k in ("period_key", "document_type", "kind")} for u in lap["units"] if u["state"] == "failed"
+            {k: u[k] for k in ("period_key", "document_type", "kind", "source") if k in u}
+            for u in lap["units"]
+            if u["state"] == "failed"
         ]
         state["last_lap"] = {"started_at": lap["started_at"], "finished_at": now.isoformat(), "failed": failed}
         state["complete"], state["lap"] = True, None

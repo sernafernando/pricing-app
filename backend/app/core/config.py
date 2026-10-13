@@ -148,6 +148,9 @@ class Settings(BaseSettings):
     # with promos/PxQ/everything else, so this must stay opt-in per
     # environment until the sweep is proven safe in production.
     ML_BILLING_ENABLED: bool = False
+    # Flex BILL / CREDIT_NOTE details in the billing lap (ml-billing-balance PR 5-iii). Default OFF and
+    # only effective while ML_BILLING_ENABLED is on: flex units spend the same pacer slot and request budget.
+    ML_BILLING_FLEX_ENABLED: bool = False
     # Kill-switch for the ML Product Ads day ingestion (ml-billing-balance, ADS-7). Default OFF:
     # the worker handler (a later PR) makes no ML call and writes nothing until it is set at deploy.
     # ML keeps ad history for ML_ADS_RETENTION_DAYS days, which is also the backfill window.
