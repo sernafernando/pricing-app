@@ -94,3 +94,13 @@ def test_first_campaign_tag_wins_when_several_are_present():
 def test_unrecognised_sale_term_campaign_is_sin_lista_not_a_silent_6x():
     got = resolve_pricelist("gold_pro", [], "15x_campaign")
     assert got.pricelist_id is None and got.reason == "sin_lista"
+
+
+def test_a_list_of_tags_resolves_like_the_same_tuple_and_is_not_kept_by_the_cache():
+    """The decision is cached per (listing type, tags, campaign); the caller's list is not part of the key."""
+    tags = ["3x_campaign", "other"]
+    first = resolve_pricelist("gold_pro", tags, None)
+    tags.append("pcj-co-funded")  # a mutation after the call changes nothing already decided...
+    assert first == resolve_pricelist("gold_pro", ("3x_campaign", "other"), None)
+    assert first.pricelist_id == 17 and first.campaign == "3x_campaign"
+    assert resolve_pricelist("gold_pro", None, None) == resolve_pricelist("gold_pro", (), None)  # type: ignore[arg-type]

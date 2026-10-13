@@ -55,7 +55,7 @@ from app.services.ml_publications.view.filters import (
     encode_key,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
-from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups
+from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups, gc_paused
 
 KIND_PRODUCT = "producto"
 KIND_FAMILY = "familia"
@@ -320,8 +320,9 @@ def _members(db: Session, f: PublicationFilter, path: list[str], page: GroupsPag
         return _family_members(db, f, path, dimensions, page)
     key = dimensions[page.level].key if page.level in dimensions else product_key()
     raw = {_raw_key(page.level, node.key): node.key for node in page.nodes}
-    rows = db.execute(_scoped(f, path, dimensions, T.i.item_id, key.label("k")).where(key.in_(list(raw)))).all()
-    return [(item_id, raw[k]) for item_id, k in rows]
+    # Plain columns, straight through the connection: the ORM loading layer costs more than the rows on a big set.
+    query = _scoped(f, path, dimensions, T.i.item_id, key.label("k")).where(key.in_(list(raw)))
+    return [(item_id, raw[k]) for item_id, k in db.connection().execute(query).all()]
 
 
 def _family_members(
@@ -333,9 +334,10 @@ def _family_members(
     families = [node.key for node in page.nodes if node.kind == KIND_FAMILY]
     items = [node.key for node in page.nodes if node.kind == KIND_ITEM]
     fk = family_key()
-    rows = db.execute(
-        _scoped(f, path, dimensions, T.i.item_id, fk.label("k")).where(or_(fk.in_(families), T.i.item_id.in_(items)))
-    ).all()
+    query = _scoped(f, path, dimensions, T.i.item_id, fk.label("k")).where(
+        or_(fk.in_(families), T.i.item_id.in_(items))
+    )
+    rows = db.connection().execute(query).all()  # plain columns: no ORM loading layer (see `_members`)
     lone, grouped = set(items), set(families)
     return [(item_id, item_id if item_id in lone else k) for item_id, k in rows if item_id in lone or k in grouped]
 
@@ -346,12 +348,15 @@ def _with_markup(
     """The page with the markup figures of its nodes: P6's computation (`compute_markups`), aggregated per node in
     Python. A small slice (a deep level) is priced by the ids of its publications; one over `ITEM_IDS_MAX` (the
     roots of a big store) by the whole filter, which is the same set or a superset, never a giant id list."""
-    members = _members(db, f, path, page)
+    with gc_paused():  # tens of thousands of small objects, none in a cycle (see `gc_paused`)
+        members = _members(db, f, path, page)
+    # `compute_markups` pauses the collector itself around the inputs and the pricing, never around the Ads provider.
     if len(members) > ITEM_IDS_MAX:
         result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
     else:
         result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
-    figures = aggregate_nodes(result.items, members)
+    with gc_paused():
+        figures = aggregate_nodes(result.items, members)
     nodes = []
     for node in page.nodes:
         found = figures.get(node.key)

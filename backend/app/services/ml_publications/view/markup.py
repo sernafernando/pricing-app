@@ -78,6 +78,9 @@ def _unusable(reason: str, *, pricelist_id: Optional[int] = None) -> UnitMarkup:
     return UnitMarkup(None, reason, None, None, None, None, pricelist_id)
 
 
+_UNLINKED = _unusable(REASON_SIN_VINCULO)  # the unit of a variation with nothing to price it by
+
+
 def _positive(value: Optional[float]) -> bool:
     return value is not None and value > 0
 
@@ -210,6 +213,12 @@ class PublicationMarkup:
 
 def summarize(variations: Sequence[UnitMarkup]) -> PublicationMarkup:
     """Range, worst and any-negative over the variations that have a value."""
+    if len(variations) == 1:  # no variations: the one unit is the whole publication (the common case, no passes)
+        only = variations[0]
+        value = only.value
+        if value is not None:
+            return PublicationMarkup(tuple(variations), value, value, value, value < 0, 0, REASON_OK)
+        return PublicationMarkup(tuple(variations), None, None, None, False, 0, only.reason)
     values = [v.value for v in variations if v.value is not None]
     if not values:
         concrete = [v.reason for v in variations if v.reason != REASON_SIN_VINCULO]
@@ -237,7 +246,6 @@ def aggregate_publication(
     back to the item-level one, else it is `sin_vinculo`. With no variations the item-level unit is
     the whole publication.
     """
-    unlinked = _unusable(REASON_SIN_VINCULO)
     if not variation_units:
-        return summarize([item_unit or unlinked])
-    return summarize([own or item_unit or unlinked for own in variation_units])
+        return summarize([item_unit or _UNLINKED])
+    return summarize([own or item_unit or _UNLINKED for own in variation_units])

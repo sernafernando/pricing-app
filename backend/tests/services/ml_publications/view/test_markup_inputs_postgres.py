@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.services.ml_publications.view import markup_inputs
 from app.services.ml_publications.view.filters import parse_filter
+from app.services.ml_publications.view.markup import UnitInputs
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
@@ -57,9 +58,7 @@ class TestItemLevelInputs:
         assert (unit.sale_price, unit.item_price) == (100000.0, 90000.0)
         assert (unit.producto_item_id, unit.costo, unit.moneda_costo) == (70, 50000.0, "USD")
         assert (unit.iva, unit.envio, unit.subcategoria_id) == (10.5, 1200.0, 3845)
-        assert unit.fallback_prices["precio_lista_ml"] == 111.5
-        assert unit.fallback_prices["precio_6_cuotas"] == 222.25
-        assert unit.fallback_prices["precio_3_cuotas"] is None
+        assert dict(unit.fallback_prices) == {}  # it has a price of its own (`TestListPricesFallback`)
         assert inputs.variation_units == ()
 
     def test_a_failed_or_gone_sale_price_is_not_an_input(self, conn, db) -> None:
@@ -100,6 +99,102 @@ class TestItemLevelInputs:
         seed.add_item(conn, "MLA1")
         assert set(markup_inputs.fetch_inputs(db, item_ids=["MLA1", "MLA404"])) == {"MLA1"}
         assert markup_inputs.fetch_inputs(db, item_ids=[]) == {}
+
+
+class TestListPricesFallback:
+    """The Productos list prices are the LAST resort of the price: only a unit with no usable price of its own
+    needs them, so only those are read (and the joins of the big statements do not carry them)."""
+
+    def seed_unit(self, conn, item_id: str, **item) -> None:
+        seed.add_item(conn, item_id, listing_type_id="gold_pro", **item)
+        seed.add_link(conn, item_id, 70)
+
+    def test_a_unit_with_its_own_price_does_not_read_the_list_prices(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        seed.add_pricing(conn, 70, precio_6_cuotas=222.25)
+        self.seed_unit(conn, "MLA1", price=10)
+        self.seed_unit(conn, "MLA2")
+        seed.add_sale_price(conn, "MLA2", 55)
+        got = markup_inputs.fetch_inputs(db, item_ids=["MLA1", "MLA2"])
+        assert dict(got["MLA1"].item_unit.fallback_prices) == {}
+        assert dict(got["MLA2"].item_unit.fallback_prices) == {}
+
+    def test_a_unit_without_a_price_carries_the_list_prices_of_its_product(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        seed.add_pricing(conn, 70, precio_6_cuotas=222.25)
+        self.seed_unit(conn, "MLA1")
+        self.seed_unit(conn, "MLA2", price=0)
+        for scope in ({"item_ids": ["MLA1", "MLA2"]}, {"f": parse_filter()}):
+            got = markup_inputs.fetch_inputs(db, **scope)
+            for item_id in ("MLA1", "MLA2"):
+                assert got[item_id].item_unit.fallback_prices["precio_6_cuotas"] == 222.25
+                assert got[item_id].item_unit.fallback_prices["precio_lista_ml"] is None
+
+    def test_a_variation_without_a_price_carries_them_too(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        seed.add_product(conn, 71, "A2", "Switch")
+        seed.add_pricing(conn, 71, precio_9_cuotas=333.5)
+        seed.add_item(conn, "MLA1", listing_type_id="gold_pro")
+        seed.add_variation(conn, "MLA1", 1)
+        seed.add_link(conn, "MLA1", 71, variation_id=1)
+        unit = markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].variation_units[0]
+        assert unit is not None and unit.fallback_prices["precio_9_cuotas"] == 333.5
+
+    def test_the_big_statements_do_not_join_the_list_prices(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        self.seed_unit(conn, "MLA1", price=10)
+        recorded: list[str] = []
+
+        def record(connection, cursor, statement, *rest) -> None:
+            recorded.append(statement)
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            markup_inputs.fetch_inputs(db, f=parse_filter())
+            markup_inputs.fetch_inputs(db, item_ids=["MLA1"])
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        pricing_reads = [s for s in recorded if "productos_pricing" in s]
+        assert pricing_reads == []  # nothing needs them: not even the dedicated statement
+
+    def test_the_list_prices_cost_one_dedicated_statement_whatever_the_number_of_units(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        for number in range(30):
+            self.seed_unit(conn, f"MLA{number}")
+        recorded: list[str] = []
+
+        def record(connection, cursor, statement, *rest) -> None:
+            recorded.append(statement)
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            markup_inputs.fetch_inputs(db, f=parse_filter())
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert len(recorded) == 4
+        assert [s for s in recorded if "productos_pricing" in s] == [recorded[3]]
+        assert "productos_pricing" in recorded[3]  # the last one is the dedicated read
+
+
+class TestUnitInputsLayout:
+    def test_the_field_order_the_positional_construction_relies_on(self) -> None:
+        assert tuple(UnitInputs.__dataclass_fields__) == (
+            "item_id",
+            "listing_type_id",
+            "tags",
+            "sale_terms_campaign",
+            "sale_price",
+            "item_price",
+            "fallback_prices",
+            "producto_item_id",
+            "costo",
+            "moneda_costo",
+            "iva",
+            "envio",
+            "subcategoria_id",
+        )
 
 
 class TestCampaign:
@@ -193,4 +288,4 @@ class TestStatementCount:
         by_ids = {n: self.count_statements(db, item_ids=ids[:n]) for n in (10, 100)}
         by_filter = self.count_statements(db, f=parse_filter())
         assert len(markup_inputs.fetch_inputs(db, item_ids=ids)) == 100
-        assert by_ids[10] == by_ids[100] == by_filter
+        assert by_ids[10] == by_ids[100] == by_filter == 3  # every unit has a price: no list prices to read
