@@ -227,3 +227,60 @@ class TestSettledIgnoresFlexGaps:
     def test_an_open_general_gap_still_does(self, db) -> None:
         self._gap(db, "general", "from_id")
         assert self._settled(db) is False
+
+
+class TestWeeklyFlexVerify:
+    """Flex documents cannot prove a period settled, so a CLOSED period's flex units run at most weekly."""
+
+    def _flex_period_state(self, db, period="2026-09-01"):
+        state = tick(db, {}, NOW)
+        state["lap"]["units"] = [
+            u for u in state["lap"]["units"] if u["period_key"] == period and u.get("source") == "flex"
+        ]
+        return state
+
+    def _flex_periods(self, state):
+        return {u["period_key"] for u in _units(state, source="flex")}
+
+    def test_a_clean_pass_of_both_flex_units_stamps_the_closed_period(self, db, client, flex_on) -> None:
+        state = _run(db, client, self._flex_period_state(db), _FlexMl())
+        assert list(state["flex_verified"]) == ["2026-09-01"] and state["last_lap"]["failed"] == []
+
+    def test_a_failed_flex_unit_does_not_stamp_the_period(self, db, client, flex_on) -> None:
+        named_400 = BillingFetch(400, {"message": "invalid"}, "HTTP 400")
+        state = _run(db, client, self._flex_period_state(db), lambda *args: named_400)
+        assert state["last_lap"]["failed"] and state.get("flex_verified", {}) == {}
+
+    def test_an_open_flex_gap_does_not_stamp_the_period(self, db, client, flex_on) -> None:
+        state = _run(db, client, self._flex_period_state(db), _FlexMl(poison=[1]))
+        assert open_gaps(db, "2026-09-01", "CREDIT_NOTE") and state.get("flex_verified", {}) == {}
+
+    def test_a_closed_period_verified_within_a_week_is_not_swept(self, db, client, flex_on) -> None:
+        stamp = (NOW - timedelta(days=6, hours=23)).isoformat()
+        state = tick(db, {"flex_verified": {"2026-09-01": stamp, "2026-08-01": stamp}}, NOW)
+        swept = self._flex_periods(state)
+        assert "2026-09-01" not in swept and "2026-08-01" not in swept and "2026-07-01" in swept
+
+    def test_a_closed_period_verified_a_week_ago_is_swept_again(self, db, client, flex_on) -> None:
+        stamp = (NOW - timedelta(days=7)).isoformat()
+        assert "2026-09-01" in self._flex_periods(tick(db, {"flex_verified": {"2026-09-01": stamp}}, NOW))
+
+    def test_the_open_period_is_always_swept(self, db, client, flex_on) -> None:
+        stamp = NOW.isoformat()
+        assert "2026-10-01" in self._flex_periods(tick(db, {"flex_verified": {"2026-10-01": stamp}}, NOW))
+
+    def test_an_open_flex_gap_forces_the_sweep_even_inside_the_week(self, db, client, flex_on) -> None:
+        _run(db, client, self._flex_period_state(db), _FlexMl(poison=[1]))
+        stamp = NOW.isoformat()
+        state = tick(db, {"flex_verified": {"2026-09-01": stamp}}, at(100_000))
+        assert "2026-09-01" in self._flex_periods(state)
+
+    def test_the_general_units_are_unaffected_by_the_flex_stamp(self, db, client, flex_on) -> None:
+        stamp = NOW.isoformat()
+        state = tick(db, {"flex_verified": {"2026-09-01": stamp}}, NOW)
+        general = [u for u in state["lap"]["units"] if u.get("source") is None]
+        assert len(general) == 48
+
+    def test_a_pass_over_the_open_period_does_not_stamp_it(self, db, client, flex_on) -> None:
+        state = _run(db, client, self._flex_period_state(db, "2026-10-01"), _FlexMl())
+        assert state["last_lap"]["failed"] == [] and state.get("flex_verified", {}) == {}
