@@ -206,6 +206,43 @@ describe('PanelPermisos', () => {
       expect(within(lista()).getByText('Ningún usuario coincide.')).toBeInTheDocument();
       expect(within(lista()).queryByRole('button')).not.toBeInTheDocument();
     });
+
+    it('says there are no users, not a search mismatch, when the list is empty', async () => {
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      await screen.findByRole('list', { name: 'Usuarios del sistema' });
+      expect(within(lista()).getByText('No hay usuarios.')).toBeInTheDocument();
+      expect(within(lista()).queryByText('Ningún usuario coincide.')).not.toBeInTheDocument();
+    });
+
+    it('shows a +0 −0 overrides chip for a selected user without overrides', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByText('Beto Gómez'));
+
+      expect(await within(filaUsuario('Beto Gómez')).findByText('+0 −0')).toBeInTheDocument();
+    });
+
+    it('marks a user without an active flag as inactive, like the header does', async () => {
+      const user = userEvent.setup();
+      const sinEstado = { ...OTRO, activo: undefined };
+      api.get.mockImplementation(((original) => (url) => (
+        url === '/usuarios' ? Promise.resolve({ data: [USUARIO, sinEstado] }) : original(url)
+      ))(api.get.getMockImplementation()));
+      renderPanel();
+
+      await screen.findByText('Beto Gómez');
+      expect(within(filaUsuario('Beto Gómez')).getByText('Inactivo')).toBeInTheDocument();
+      expect(within(filaUsuario('Ana Pérez')).queryByText('Inactivo')).not.toBeInTheDocument();
+
+      await user.click(filaUsuario('Beto Gómez'));
+      const encabezado = screen.getByRole('heading', { name: 'Beto Gómez' }).parentElement.parentElement;
+      expect(within(encabezado).getByText('Inactivo')).toBeInTheDocument();
+    });
   });
 
   describe('late permission responses', () => {

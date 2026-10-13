@@ -28,7 +28,9 @@ export default function ListaUsuarios({ usuarios, seleccionadoId, overridesSelec
       <SearchInput value={busqueda} onChange={setBusqueda} placeholder="Buscar usuario..." size="sm" />
 
       <ul className={styles.lista} aria-label="Usuarios del sistema">
-        {visibles.length === 0 && <li className={styles.vacio}>Ningún usuario coincide.</li>}
+        {visibles.length === 0 && (
+          <li className={styles.vacio}>{busqueda.trim() ? 'Ningún usuario coincide.' : 'No hay usuarios.'}</li>
+        )}
         {visibles.map((usuario) => {
           const seleccionado = usuario.id === seleccionadoId;
           const overrides = seleccionado ? overridesSeleccionado : null;
@@ -37,7 +39,7 @@ export default function ListaUsuarios({ usuarios, seleccionadoId, overridesSelec
               <button
                 type="button"
                 className={`${styles.fila} ${seleccionado ? styles.seleccionado : ''} ${
-                  usuario.activo === false ? styles.inactivo : ''
+                  !usuario.activo ? styles.inactivo : ''
                 }`}
                 aria-pressed={seleccionado}
                 onClick={() => onSeleccionar(usuario)}
@@ -57,7 +59,7 @@ export default function ListaUsuarios({ usuarios, seleccionadoId, overridesSelec
                     </span>
                   )}
                   <StatusPill tone={usuario.rol === 'SUPERADMIN' ? 'warning' : 'neutral'}>{usuario.rol}</StatusPill>
-                  {usuario.activo === false && <StatusPill tone="danger">Inactivo</StatusPill>}
+                  {!usuario.activo && <StatusPill tone="danger">Inactivo</StatusPill>}
                 </span>
               </button>
             </li>
