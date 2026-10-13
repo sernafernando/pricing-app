@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, Check, ChevronDown, ChevronRight, Minus, Plus, RotateCcw, X } from 'lucide-react';
-import api, { marcasPmAPI } from '../../services/api';
-import { usePermisos } from '../../contexts/PermisosContext';
+import { marcasPmAPI } from '../../services/api';
 import SearchInput from '../SearchInput';
 import { FacetChips, StatusPill } from '../kit';
 import { SCREENS, nombreCategoria } from '../../registry/screenCatalog';
@@ -21,10 +20,8 @@ import {
   resumenAcceso,
 } from '../../registry/permisosAcceso';
 import ResumenAcceso from './ResumenAcceso';
+import useAccionesOverride from './useAccionesOverride';
 import styles from './PermisosPorPantalla.module.css';
-
-const PERMISO_GESTIONAR = 'admin.gestionar_permisos';
-const MOTIVO_OVERRIDE = 'Override desde panel de permisos';
 
 const FILTRO_OPCIONES = ['sin_acceso', 'con_overrides', 'criticos', 'depende_de_datos'];
 const FILTRO_LABELS = {
@@ -68,16 +65,13 @@ const MAX_CHIPS = 2;
  * override change it calls `onActualizado()` so the parent reloads it.
  */
 export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActualizado, onMensaje }) {
-  const { tienePermiso } = usePermisos();
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState('');
   const [expandidas, setExpandidas] = useState(() => new Set());
   const [paresDelegados, setParesDelegados] = useState(null);
-  const [enCurso, setEnCurso] = useState(null);
 
   const rol = permisosUsuario?.rol;
-  const esSuperadmin = rol === 'SUPERADMIN';
-  const puedeEditar = tienePermiso(PERMISO_GESTIONAR) && !esSuperadmin;
+  const acciones = useAccionesOverride({ usuarioId, rol, onActualizado, onMensaje });
 
   useEffect(() => {
     let cancelado = false;
@@ -114,51 +108,6 @@ export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActu
       return next;
     });
   };
-
-  const ejecutar = async (codigo, accion, textoOk, textoError) => {
-    setEnCurso(codigo);
-    try {
-      await accion();
-    } catch (error) {
-      onMensaje?.({ tipo: 'error', texto: error?.response?.data?.detail || textoError });
-      setEnCurso(null);
-      return;
-    }
-    // Success is announced only once the list shows it; a failed reload gets
-    // its own message instead (the change itself was saved).
-    try {
-      await onActualizado?.();
-      onMensaje?.({ tipo: 'success', texto: textoOk });
-    } catch {
-      onMensaje?.({ tipo: 'error', texto: 'El cambio se guardó, pero no se pudo recargar la lista de permisos' });
-    } finally {
-      setEnCurso(null);
-    }
-  };
-
-  const forzar = (codigo, concedido) =>
-    ejecutar(
-      codigo,
-      () =>
-        api.post('/permisos/override', {
-          usuario_id: usuarioId,
-          permiso_codigo: codigo,
-          concedido,
-          motivo: MOTIVO_OVERRIDE,
-        }),
-      concedido ? 'Permiso concedido' : 'Permiso quitado',
-      'Error al modificar permiso',
-    );
-
-  const resetear = (codigo) =>
-    ejecutar(
-      codigo,
-      () => api.delete(`/permisos/override/${usuarioId}/${codigo}`),
-      'Vuelto al permiso base del rol',
-      'Error al resetear permiso',
-    );
-
-  const acciones = { puedeEditar, enCurso, forzar, resetear };
 
   return (
     <div className={styles.wrapper}>
@@ -324,7 +273,7 @@ function FilaPantalla({ item, expandida, onAlternar, acciones }) {
   );
 }
 
-function FilaPermiso({ permiso, acciones, mostrarCategoria = false }) {
+export function FilaPermiso({ permiso, acciones, mostrarCategoria = false }) {
   const { puedeEditar, enCurso, forzar, resetear } = acciones;
   const tieneOverride = permiso.override !== null && permiso.override !== undefined;
   const ocupado = enCurso !== null;

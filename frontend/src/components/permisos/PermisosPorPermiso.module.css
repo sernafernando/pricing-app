@@ -1,0 +1,42 @@
+/* "Por permiso" view: same console list as "Por pantalla", so every box is
+   composed from its module and the permission rows share its classes. */
+
+.wrapper {
+  composes: wrapper from './PermisosPorPantalla.module.css';
+}
+
+.toolbar {
+  composes: toolbar from './PermisosPorPantalla.module.css';
+}
+
+.search {
+  composes: search from './PermisosPorPantalla.module.css';
+}
+
+.lista {
+  composes: lista from './PermisosPorPantalla.module.css';
+}
+
+.vacio {
+  composes: vacio from './PermisosPorPantalla.module.css';
+}
+
+.grupo {
+  composes: grupo from './PermisosPorPantalla.module.css';
+}
+
+.grupoHeader {
+  composes: grupoHeader from './PermisosPorPantalla.module.css';
+}
+
+.grupoTitulo {
+  composes: grupoTitulo from './PermisosPorPantalla.module.css';
+}
+
+.grupoConteo {
+  composes: grupoConteo from './PermisosPorPantalla.module.css';
+}
+
+.detalleLista {
+  composes: detalleLista from './PermisosPorPantalla.module.css';
+}
