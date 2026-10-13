@@ -137,6 +137,55 @@ describe('PanelPermisos', () => {
     expect(screen.queryByRole('button', { name: 'Conceder acceso a Admin' })).not.toBeInTheDocument();
   });
 
+  describe('view switch', () => {
+    const vistas = () => screen.getByRole('group', { name: 'Ver permisos' });
+
+    it('starts on Por pantalla and switches to the per-permission view', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+
+      expect(await screen.findByText('/admin', { selector: 'code' })).toBeInTheDocument();
+      expect(within(vistas()).getByRole('button', { name: 'Por pantalla' })).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(within(vistas()).getByRole('button', { name: 'Por permiso' }));
+
+      const grupo = screen.getByRole('region', { name: 'Administración del sistema' });
+      expect(within(grupo).getByText('0 de 1 concedidos')).toBeInTheDocument();
+      expect(screen.queryByText('/admin', { selector: 'code' })).not.toBeInTheDocument();
+    });
+
+    it('keeps the chosen view when another user is selected', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(await screen.findByRole('button', { name: 'Por permiso' }));
+
+      await user.click(screen.getByText('Beto Gómez'));
+
+      const grupo = await screen.findByRole('region', { name: 'Administración del sistema' });
+      expect(await within(grupo).findByText('1 de 1 concedidos')).toBeInTheDocument();
+      expect(within(vistas()).getByRole('button', { name: 'Por permiso' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('grants from the per-permission view and reloads the user', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(await screen.findByRole('button', { name: 'Por permiso' }));
+
+      await user.click(screen.getByRole('button', { name: 'Conceder admin.ver_panel' }));
+
+      expect(api.post).toHaveBeenCalledWith('/permisos/override', expect.objectContaining({
+        usuario_id: 7, permiso_codigo: 'admin.ver_panel', concedido: true,
+      }));
+      await waitFor(() =>
+        expect(api.get.mock.calls.filter(([url]) => url === '/permisos/usuario/7')).toHaveLength(2),
+      );
+      expect(await screen.findByText('Permiso concedido')).toBeInTheDocument();
+    });
+  });
+
   describe('user list', () => {
     const lista = () => screen.getByRole('list', { name: 'Usuarios del sistema' });
     const filaUsuario = (nombre) => within(lista()).getByRole('button', { name: new RegExp(nombre) });

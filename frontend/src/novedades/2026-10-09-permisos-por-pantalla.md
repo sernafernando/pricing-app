@@ -47,3 +47,13 @@ Crear o editar un usuario ya no despliega un formulario dentro de la lista ni de
 - **Editar**, en el encabezado del usuario seleccionado, abre la misma ventana con sus datos cargados (sin contraseña: se cambia con **Password**).
 - Los errores (por ejemplo, un campo obligatorio vacío) se muestran dentro de la ventana, sin cerrarla.
 - Se cierra con **Cancelar**, con la **×** o con la tecla **Esc**. Hacer clic afuera no la cierra, para no perder lo cargado.
+
+## Vista por permiso
+
+Arriba de la lista hay un selector **Por pantalla | Por permiso**. **Por pantalla** es la vista de siempre; **Por permiso** muestra todos los permisos del usuario agrupados por categoría.
+
+- Cada categoría indica cuántos permisos tiene concedidos sobre el total.
+- Cada permiso muestra su código y nombre, si es **crítico**, si lo tiene o no y de dónde viene: del **rol**, de un **override** agregado o quitado, o si **falta**.
+- Los botones **Conceder**, **Quitar** y **Resetear** funcionan igual que en la vista por pantalla.
+- El buscador filtra por código o nombre del permiso (no importan las mayúsculas ni los acentos).
+- La vista elegida se mantiene al pasar de un usuario a otro.
