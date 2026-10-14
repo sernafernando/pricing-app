@@ -132,6 +132,15 @@ class TestBflxLandingRecomputesTheOrder:
 
         assert set(_dirty(slate)) == {_ORDER, _SIBLING}
 
+    def test_removing_a_link_of_another_sub_type_enqueues_nothing(self, slate) -> None:
+        _charge(slate, "T9I-9", "CFLX", "649.00")
+        _link(slate, "T9I-9", _ORDER)
+
+        slate.execute(text("DELETE FROM ml_billing_charge_orders WHERE detail_id = 'T9I-9'"))
+        slate.commit()
+
+        assert _dirty(slate) == {}
+
     def test_a_changed_amount_recomputes_but_an_identical_rewrite_does_not(self, slate) -> None:
         _charge(slate, "T9I-4", "BFLX")
         _link(slate, "T9I-4", _ORDER)
