@@ -27,6 +27,9 @@ def test_revision_is_registered_and_linked() -> None:
 
 
 def test_is_ancestor_of_current_head() -> None:
+    """Holds with one head or several (main has had divergent heads before)."""
     script = _script_directory()
-    (head,) = script.get_heads()
-    assert _REVISION in {rev.revision for rev in script.walk_revisions(base="base", head=head)}
+    assert any(
+        _REVISION in {rev.revision for rev in script.walk_revisions(base="base", head=head)}
+        for head in script.get_heads()
+    )

@@ -5,10 +5,15 @@ Servicio para gestión de roles del sistema.
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError
 from app.models.rol import Rol
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.usuario import Usuario
 from app.models.usuario_rol_adicional import UsuarioRolAdicional
+
+
+class ConflictoRolesAdicionales(Exception):
+    """Otro cambio de roles adicionales del mismo usuario ganó la carrera (unique violado)"""
 
 
 class RolesService:
@@ -305,8 +310,11 @@ class RolesService:
         Raises:
             ValueError: usuario o algún rol inexistente, SUPERADMIN (no se otorga como
                 adicional) o el propio rol principal. Si falla no se toca nada.
+            ConflictoRolesAdicionales: otro reemplazo concurrente del mismo usuario chocó con
+                `uq_usuario_rol_adicional`; se hace rollback y queda lo que guardó el otro.
         """
-        usuario = self.db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        # Bloquea la fila del usuario: dos reemplazos del mismo usuario se serializan
+        usuario = self.db.query(Usuario).filter(Usuario.id == usuario_id).with_for_update().first()
         if not usuario:
             raise ValueError(f"No existe el usuario con ID {usuario_id}")
 
@@ -323,7 +331,13 @@ class RolesService:
         self.db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.usuario_id == usuario_id).delete()
         for rol_id in sorted(ids):
             self.db.add(UsuarioRolAdicional(usuario_id=usuario_id, rol_id=rol_id, otorgado_por_id=otorgado_por_id))
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as e:
+            self.db.rollback()
+            raise ConflictoRolesAdicionales(
+                "Otra persona cambió los roles adicionales de este usuario al mismo tiempo; recargá y reintentá"
+            ) from e
         return self.obtener_roles_adicionales_usuario(usuario_id)
 
     def quitar_rol_adicional_redundante(self, usuario_id: int, rol_id: Optional[int]) -> None:

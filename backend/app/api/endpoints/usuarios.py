@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.models.rol import Rol
 from app.core.security import get_password_hash
-from app.services.roles_service import RolesService
+from app.services.roles_service import ConflictoRolesAdicionales, RolesService
 
 router = APIRouter()
 
@@ -296,7 +296,8 @@ def reemplazar_roles_adicionales(
 ):
     """
     Reemplaza los roles adicionales de un usuario. Un rol adicional suma sus permisos base;
-    no se acepta SUPERADMIN ni el rol principal del usuario (400).
+    no se acepta SUPERADMIN ni el rol principal del usuario (400). Un reemplazo concurrente
+    que choca con otro devuelve 409.
     """
     usuario = _usuario_para_roles_adicionales(db, usuario_id, current_user)
     try:
@@ -305,4 +306,6 @@ def reemplazar_roles_adicionales(
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except ConflictoRolesAdicionales as e:
+        raise HTTPException(409, str(e))
     return _roles_adicionales_response(usuario, roles)

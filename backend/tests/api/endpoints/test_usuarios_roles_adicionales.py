@@ -7,6 +7,7 @@ PRIMARY role must be ADMIN or SUPERADMIN, and only a SUPERADMIN touches a SUPERA
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.security import get_password_hash
 from app.models.rol import Rol
@@ -149,6 +150,21 @@ class TestReemplazo:
             "/api/usuarios/99999/roles-adicionales", json={"rol_ids": [compras.id]}, headers=_headers(admin_user)
         )
         assert resp.status_code == 404
+
+    def test_choque_concurrente_409(self, client, db, admin_user, vendedor, compras, monkeypatch):
+        commit_real = db.commit
+
+        def commit_con_choque():
+            if any(isinstance(obj, UsuarioRolAdicional) for obj in db.new):
+                raise IntegrityError("INSERT", {}, Exception("uq_usuario_rol_adicional"))
+            commit_real()
+
+        monkeypatch.setattr(db, "commit", commit_con_choque)
+
+        resp = client.put(_url(vendedor), json={"rol_ids": [compras.id]}, headers=_headers(admin_user))
+
+        assert resp.status_code == 409
+        assert "al mismo tiempo" in resp.text
 
 
 class TestCambioDeRolPrincipal:

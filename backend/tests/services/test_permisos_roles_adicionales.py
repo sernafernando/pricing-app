@@ -8,6 +8,7 @@ adds its base permissions to the union, and user overrides still apply last.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.security import get_password_hash
 from app.models.permiso import Permiso, UsuarioPermisoOverride
@@ -16,7 +17,7 @@ from app.models.usuario import AuthProvider, Usuario
 from app.models.usuario_rol_adicional import UsuarioRolAdicional
 from app.services.permisos_service import PermisosService
 from app.services.pm_scope import is_full_view
-from app.services.roles_service import RolesService
+from app.services.roles_service import ConflictoRolesAdicionales, RolesService
 
 
 def _rol(db, codigo: str, *, es_sistema: bool = False) -> Rol:
@@ -223,3 +224,33 @@ class TestAsignacion:
 
         assert service.set_roles_adicionales_usuario(vendedor.id, []) == []
         assert PermisosService(db).obtener_permisos_usuario(vendedor) == {"ventas.ver"}
+
+    def test_promover_un_adicional_a_principal_lo_saca_de_los_adicionales(self, db, vendedor, compras):
+        _adicional(db, vendedor, compras)
+
+        RolesService(db).asignar_rol_usuario(vendedor.id, compras.id)
+
+        assert db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.usuario_id == vendedor.id).count() == 0
+        db.refresh(vendedor)
+        assert vendedor.rol_id == compras.id
+
+    def test_choque_concurrente_hace_rollback_y_avisa_conflicto(self, db, vendedor, compras, monkeypatch):
+        """Two PUTs replacing at once can both insert the same pair; the loser hits
+        `uq_usuario_rol_adicional`. It must roll back cleanly and report a conflict."""
+        deposito = _rol(db, "DEPOSITO")
+        service = RolesService(db)
+        service.set_roles_adicionales_usuario(vendedor.id, [compras.id])
+        commit_real = db.commit
+
+        def commit_con_choque():
+            if any(isinstance(obj, UsuarioRolAdicional) for obj in db.new):
+                raise IntegrityError("INSERT", {}, Exception("uq_usuario_rol_adicional"))
+            commit_real()
+
+        monkeypatch.setattr(db, "commit", commit_con_choque)
+
+        with pytest.raises(ConflictoRolesAdicionales):
+            service.set_roles_adicionales_usuario(vendedor.id, [deposito.id])
+
+        monkeypatch.setattr(db, "commit", commit_real)
+        assert [r.codigo for r in service.obtener_roles_adicionales_usuario(vendedor.id)] == ["COMPRAS"]
