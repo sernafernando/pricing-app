@@ -64,7 +64,8 @@ billing-side shipping charges (`ml_billing_charges` with
 `detail_sub_type` in CXD/CFF/CSSTEC, joined through the
 `ml_billing_charge_orders` bridge) as a FALLBACK for orders whose payments
 carry no `shp_*` charge -- both channels report the SAME charge, so a
-billing row bridged to an order that already has one is skipped. NEVER `MlShipmentOps.sender_cost`:
+billing row bridged to an order that already has one is skipped (a `shp_*`
+charge refunded in full nets to zero and no longer counts as one). NEVER `MlShipmentOps.sender_cost`:
 verified live, 121 of 125 orders where that field is > 0 are
 `self_service` -- ML never charges anything for those, the seller pays
 its own carrier directly, and `sender_cost` would inflate every one of
@@ -1270,8 +1271,16 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         # NULL had been seen in production -- neither is true, and a
         # verified fact beats a repeated one.
         if (charge.name or "").startswith("shp_"):
-            orders_with_shp_charge.add(order_by_payment[charge.payment_id])
             amount = net_amount(charge)
+            # Only a charge that still NETS something reports the shipping:
+            # one refunded in full no longer does, and suppressing the
+            # billing row on its account would hide a shipping charge that
+            # billing still bills. `.get()`: a charge whose payment is not
+            # mapped must never turn a breakdown into a KeyError -- it just
+            # does not suppress anything.
+            charge_order_id = order_by_payment.get(charge.payment_id)
+            if amount != 0 and charge_order_id is not None:
+                orders_with_shp_charge.add(charge_order_id)
             shipping_total += amount
             label = shipping_label(charge.name)
             line_amounts[label] = line_amounts.get(label, Decimal("0")) + amount
@@ -1287,9 +1296,15 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # CXD 9590 in billing; 18,048 production orders carry both). Summing
     # both drew "Envíos (Colecta)" and "Envios" for one parcel. The billing
     # row only counts when NONE of the in-scope orders it is bridged to
-    # already has a `shp_*` charge -- which keeps it for the payments that
-    # carry none (7,453 of 12,528) and for a pack sibling whose shipping
-    # sits on another sibling's payment outside the requested scope.
+    # already has a `shp_*` charge with a non-zero net -- which keeps it
+    # for the payments that carry none (7,453 of 12,528) and for a payment
+    # whose shipping was refunded in full while billing still charges it.
+    #
+    # SCOPE-DEPENDENT by design: only the REQUESTED orders' payments are
+    # loaded. A pack sibling requested alone, whose shipping sits on
+    # another sibling's payment, sees no `shp_*` charge and shows the
+    # shared billing row as its "Envios"; the pack view (every member)
+    # shows the one `shp_*` line instead. Each view counts the charge once.
     billing_links = db.query(MlBillingChargeOrder).filter(MlBillingChargeOrder.order_id.in_(order_ids)).all()
     linked_detail_ids = {link.detail_id for link in billing_links}
     orders_by_detail_id: Dict[str, set] = {}

@@ -180,3 +180,40 @@ class TestBillingShippingStaysAsTheFallback:
         result = compute_breakdown(db, [order_a, order_b])
 
         assert _shipping_lines(result) == {COLECTA: Decimal("9590.00"), CONCEPTO_ENVIOS: Decimal("9590.00")}
+
+    def test_pack_sibling_alone_keeps_the_shared_billing_row(self, db) -> None:
+        """Scope-dependent BY DESIGN: the `shp_*` charge sits on order A's
+        payment, outside a request scoped to order B only. B's own view
+        cannot see it, so the shared billing row is B's shipping there --
+        the pack view (both orders) still shows it once."""
+        capture = _capture()
+        pack_id, order_a, order_b = 9400, 9401, 9402
+        _order(db, order_a, pack_id=pack_id, shipping_id=48248844452)
+        _order(db, order_b, pack_id=pack_id, shipping_id=48248844452)
+        _load_payment(db, capture["payment"], order_id=order_a, payment_id=97)
+        _load_payment(db, capture["payment"], order_id=order_b, payment_id=98, drop_shipping=True)
+        _load_billing(db, capture["billing_charge"], [order_a, order_b])
+        db.commit()
+
+        assert _shipping_lines(compute_breakdown(db, [order_b])) == {CONCEPTO_ENVIOS: Decimal("9590.00")}
+        assert _shipping_lines(compute_breakdown(db, [order_a])) == {COLECTA: Decimal("9590.00")}
+        assert _shipping_lines(compute_breakdown(db, [order_a, order_b])) == {COLECTA: Decimal("9590.00")}
+
+    def test_fully_refunded_shp_charge_does_not_suppress_the_billing_row(self, db) -> None:
+        """A `shp_*` charge refunded in full nets to zero on the payment: it
+        no longer reports the shipping, so the billing charge -- which still
+        bills it -- is the only channel left and must show."""
+        capture = _capture()
+        payment = capture["payment"]
+        for charge in payment["charges"]:
+            if charge["name"].startswith("shp_"):
+                charge["refunded"] = charge["amount"]
+        order_id = payment["order_id"]
+        _order(db, order_id, shipping_id=48248844452)
+        _load_payment(db, payment)
+        _load_billing(db, capture["billing_charge"], [order_id])
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert _shipping_lines(result) == {CONCEPTO_ENVIOS: Decimal("9590.00")}
