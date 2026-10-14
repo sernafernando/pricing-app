@@ -1,6 +1,7 @@
 import EventosTab from './EventosTab';
 import FullTab from './FullTab';
 import HistorialTab from './HistorialTab';
+import PreciosTab from './PreciosTab';
 import ProductoVinculadoTab from './ProductoVinculadoTab';
 import PromocionesTab from './PromocionesTab';
 import ResumenTab from './ResumenTab';
@@ -9,7 +10,7 @@ import VariacionesTab from './VariacionesTab';
 /**
  * The panel's tab registry. A tab is
  * `{ key, label, isVisible(context), Component }`:
- *  - `isVisible` gets `{ detail, canSeeMargin, canManage, canViewPromos }` (see
+ *  - `isVisible` gets `{ detail, canSeeMargin, canManage, canViewPromos, canViewPrices }` (see
  *    `PublicationPanel`), so a tab exists only for the data and the permission
  *    that make it worth opening;
  *  - `Component` gets `{ detail, itemId, canSeeMargin, dataState, onPromoApplied }`.
@@ -22,6 +23,12 @@ export const PANEL_TABS = [
   { key: 'variaciones', label: 'Variaciones', isVisible: ({ detail }) => detail.variationsCount > 0, Component: VariacionesTab },
   { key: 'full', label: 'Full', isVisible: ({ detail }) => detail.isFull || detail.replenishment != null, Component: FullTab },
   { key: 'promociones', label: 'Promos', isVisible: ({ canViewPromos }) => Boolean(canViewPromos), Component: PromocionesTab },
+  {
+    key: 'precios',
+    label: 'Precios',
+    isVisible: ({ detail, canViewPrices }) => Boolean(canViewPrices) && detail.product != null,
+    Component: PreciosTab,
+  },
   { key: 'eventos', label: 'Eventos', isVisible: () => true, Component: EventosTab },
   { key: 'historial', label: 'Historial', isVisible: () => true, Component: HistorialTab },
   { key: 'producto', label: 'Producto', isVisible: () => true, Component: ProductoVinculadoTab },

@@ -64,6 +64,7 @@ vi.mock('../../services/api', () => ({
   },
   publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), kpis: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
+  preciosAPI: { obtenerProducto: vi.fn(() => new Promise(() => {})) },
   registerAuthFailureHandler: vi.fn(),
 }));
 

@@ -376,6 +376,11 @@ export const pricingAPI = {
   setearPrecio: (data) => api.post('/precios/set', data),
 };
 
+// One product's stored prices and markups (ProductoResponse).
+export const preciosAPI = {
+  obtenerProducto: (itemId) => api.get(`/productos/${itemId}`),
+};
+
 // Sub-PM scope delegation (sub-pm-scope-marcas PR3). Non-admin titular-only
 // surface: a titular of a (marca, categoria) pair can grant/revoke sub-PMs on
 // their own pairs. `listarUsuariosPM` intentionally hits `/usuarios/pms` (NOT

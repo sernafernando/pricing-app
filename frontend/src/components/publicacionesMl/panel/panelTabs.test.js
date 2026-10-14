@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { PANEL_TABS, visibleTabs } from './panelTabs';
 import { readDetail } from './detailModel';
-import { DETAIL_RESPONSE, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
+import { DETAIL_RESPONSE, PRODUCT, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
 
 const keysFor = (raw, context = {}) => visibleTabs(PANEL_TABS, { detail: readDetail(raw), canSeeMargin: false, canManage: false, ...context }).map((tab) => tab.key);
 
@@ -37,5 +37,18 @@ describe('Promociones', () => {
 
   it('is labelled "Promos" so the strip keeps its slack', () => {
     expect(PANEL_TABS.find((tab) => tab.key === 'promociones').label).toBe('Promos');
+  });
+});
+
+describe('Precios', () => {
+  const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 0, is_full: false }, replenishment: null, product: PRODUCT });
+
+  it('exists only for who can see products, before Eventos', () => {
+    expect(keysFor(raw, { canViewPrices: false })).not.toContain('precios');
+    expect(keysFor(raw, { canViewPrices: true })).toEqual(['resumen', 'precios', 'eventos', 'historial', 'producto']);
+  });
+
+  it('does not exist without a linked product', () => {
+    expect(keysFor(makeDetail({ ...raw, product: null }), { canViewPrices: true })).not.toContain('precios');
   });
 });
