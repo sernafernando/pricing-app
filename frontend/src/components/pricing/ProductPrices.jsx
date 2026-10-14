@@ -292,6 +292,12 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
   // The product on screen: a write that finishes after a switch must not
   // re-read, report or show anything for the previous one.
   const shownItemRef = useRef(productItemId);
+  // The editor's version: every edit, mode switch, open or cancel bumps it, and
+  // a markup preview only lands if the editor is still the one it was asked for.
+  const editorVersionRef = useRef(0);
+  const touchEditor = () => {
+    editorVersionRef.current += 1;
+  };
 
   const load = useCallback(async () => (await preciosAPI.obtenerProducto(productItemId)).data, [productItemId]);
 
@@ -398,6 +404,8 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
       return;
     }
     const itemId = productItemId;
+    const version = editorVersionRef.current;
+    const isCurrent = () => isShown(itemId) && editorVersionRef.current === version;
     setSaving(true);
     setMessage(null);
     try {
@@ -407,7 +415,8 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
         markup_objetivo: markupObjetivo,
         adicional_markup: 0,
       });
-      if (!isShown(itemId)) return;
+      // A late answer for a markup the editor no longer holds is dropped.
+      if (!isCurrent()) return;
       const precio = typeof data?.precio === 'number' ? data.precio : NaN;
       if (!Number.isFinite(precio) || precio <= 0) {
         setMessage({ tone: 'error', text: 'No se pudo calcular un precio válido para ese markup.' });
@@ -417,7 +426,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
       const negative = markupObjetivo < 0 || markup < 0;
       setPending({ kind: negative ? 'negative' : 'markup', resolved: true, row, value, markup, precio });
     } catch (error) {
-      if (isShown(itemId)) setMessage({ tone: 'error', text: errorText(error, 'No se pudo calcular un precio para ese markup.') });
+      if (isCurrent()) setMessage({ tone: 'error', text: errorText(error, 'No se pudo calcular un precio para ese markup.') });
     } finally {
       if (isShown(itemId)) setSaving(false);
     }
@@ -426,6 +435,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
   const confirm = (current) => (current.resolved ? saveResolved(current) : save(current.row, current.value, true));
 
   const cancel = () => {
+    touchEditor();
     setEditing(null);
     setPending(null);
   };
@@ -482,11 +492,13 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
                     editing={editing}
                     saving={saving}
                     onStart={() => {
+                      touchEditor();
                       setPending(null);
                       setMessage(null);
                       setEditing({ id: row.id, mode: 'precio', value: editorValue(row, product, 'precio') });
                     }}
                     onToggleMode={() => {
+                      touchEditor();
                       setPending(null);
                       setMessage(null);
                       setEditing((current) => {
@@ -496,6 +508,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
                     }}
                     onChange={(value) => {
                       // A warning confirms the value it was raised for: a new value drops it.
+                      touchEditor();
                       setPending(null);
                       setEditing((current) => ({ ...current, value }));
                     }}

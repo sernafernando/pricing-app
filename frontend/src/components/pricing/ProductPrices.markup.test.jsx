@@ -5,7 +5,7 @@
  * it is written through the same set-rapido / set-cuota path as a typed price.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductPrices from './ProductPrices';
 import { pricePermissions } from './productPricePermissions';
@@ -168,6 +168,50 @@ describe('guards', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/markup debe ser un número válido/i);
     expect(preciosAPI.calcularPorMarkup).not.toHaveBeenCalled();
     expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+  });
+
+  it('drops a preview that comes back after the editor changed, so it cannot write a price for another markup', async () => {
+    // The input is disabled while the preview is asked; the change below
+    // stands for any edit that still reaches the editor meanwhile.
+    const user = userEvent.setup();
+    let resolve;
+    preciosAPI.calcularPorMarkup.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    renderPrices();
+    const row = await previewMarkup(user, 'Clásica', '25');
+    const input = within(row).getByRole('textbox', { name: 'Clásica markup objetivo' });
+    fireEvent.change(input, { target: { value: '30' } });
+    await act(async () => resolve({ data: { precio: 120000, markup_real: 25.01 } }));
+
+    expect(screen.queryByRole('button', { name: 'Guardar precio' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Precio resultante/)).not.toBeInTheDocument();
+    expect(input).toHaveValue('30');
+    expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+  });
+
+  it('drops a preview that comes back after the editor was cancelled', async () => {
+    const user = userEvent.setup();
+    let resolve;
+    preciosAPI.calcularPorMarkup.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    renderPrices();
+    const row = await previewMarkup(user, 'Clásica', '25');
+    fireEvent.keyDown(within(row).getByRole('textbox', { name: 'Clásica markup objetivo' }), { key: 'Escape' });
+    await act(async () => resolve({ data: { precio: 120000, markup_real: 25.01 } }));
+    expect(screen.queryByRole('button', { name: 'Guardar precio' })).not.toBeInTheDocument();
+    expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+  });
+
+  it('Enter in markup mode asks for the preview and never saves the typed markup as a price', async () => {
+    const user = userEvent.setup();
+    renderPrices();
+    const row = await openByMarkup(user, 'Clásica');
+    const input = within(row).getByRole('textbox', { name: 'Clásica markup objetivo' });
+    await user.clear(input);
+    await user.type(input, '25{Enter}');
+    expect(await screen.findByRole('status')).toHaveTextContent('$ 120.000,00');
+    expect(preciosAPI.calcularPorMarkup).toHaveBeenCalledWith({ item_id: 4101, pricelist_id: 4, markup_objetivo: 25, adicional_markup: 0 });
+    expect(preciosAPI.calcularMarkup).not.toHaveBeenCalled();
+    expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+    expect(preciosAPI.setCuota).not.toHaveBeenCalled();
   });
 
   it('shows the backend error and writes nothing', async () => {
