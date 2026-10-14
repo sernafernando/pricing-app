@@ -196,6 +196,27 @@ describe('PanelRoles edit role', () => {
     expect(await screen.findByText('Error al actualizar rol')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Editar Rol' })).toBeInTheDocument();
   });
+
+  it('clears the edit state on Cancelar so + Nuevo Rol opens an empty create form', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    expect(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)')).toHaveValue('VENTAS');
+    expect(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)')).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('heading', { name: 'Editar Rol' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+
+    expect(screen.getByRole('heading', { name: 'Nuevo Rol' })).toBeInTheDocument();
+    const codigo = screen.getByPlaceholderText('Codigo (ej: VENDEDOR)');
+    expect(codigo).toHaveValue('');
+    expect(codigo).toBeEnabled();
+    expect(screen.getByPlaceholderText('Nombre')).toHaveValue('');
+    expect(screen.getByPlaceholderText('Descripcion (opcional)')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Crear' })).toBeInTheDocument();
+  });
 });
 
 describe('PanelRoles delete role', () => {
