@@ -160,6 +160,35 @@ class TestLinkedProduct:
         assert page.items[0]["link"]["codigo"] is None
 
 
+class TestErpStock:
+    """The ERP stock of the linked product (depósito 1, as Productos shows it), apart from the ML stock block."""
+
+    def test_a_linked_product_gives_its_erp_stock_and_a_real_zero_stays_zero(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router", stock=7)
+        seed.add_product(conn, 71, "B1", "Switch", stock=0)
+        seed.add_item(conn, "MLA1", available_quantity=3)
+        seed.add_item(conn, "MLA2")
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_link(conn, "MLA2", 71, source="manual")
+        by_id = {row["item_id"]: row for row in run(db).items}
+        assert by_id["MLA1"]["erp_stock"] == {"quantity": 7}
+        assert by_id["MLA1"]["stock"]["available"] == 3  # the ML stock stays its own block
+        assert by_id["MLA2"]["erp_stock"] == {"quantity": 0}
+
+    def test_without_a_linked_product_the_erp_stock_is_unknown_never_zero(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router", stock=7)
+        seed.add_item(conn, "MLA1")  # never evaluated
+        seed.add_item(conn, "MLA2")
+        seed.add_link(conn, "MLA2", None, source="manual_none", match_status="no_product")
+        seed.add_item(conn, "MLA3")
+        seed.add_link(conn, "MLA3", None, match_status="conflict")
+        seed.add_item(conn, "MLA4")
+        seed.add_link(conn, "MLA4", 999)  # dangling: the product vanished
+        assert {row["item_id"]: row["erp_stock"] for row in run(db).items} == {
+            item_id: {"quantity": None} for item_id in ("MLA1", "MLA2", "MLA3", "MLA4")
+        }
+
+
 class TestPrice:
     def test_a_sale_price_wins_over_the_item_price(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", price=1000)
@@ -379,6 +408,17 @@ class TestFilters:
         assert ids(run(db, stock="sin_stock")) == ["MLA5"]
         assert ids(run(db, stock="full_sin_stock")) == ["MLA5"]
 
+    def test_erp_without_stock_matches_linked_products_at_or_below_zero_only(self, conn, db) -> None:
+        seed.add_product(conn, 80, "Z0", "Cero", stock=0)
+        seed.add_product(conn, 81, "ZN", "Negativo", stock=-2)
+        seed.add_product(conn, 82, "ZP", "Con stock", stock=4)
+        for item_id, product_id in (("MLA6", 80), ("MLA7", 81), ("MLA8", 82)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        # MLA1/MLA2 link products with no stock figure (unknown) and MLA3-MLA5 have no product: none of them match
+        assert sorted(ids(run(db, stock="erp_sin_stock"))) == ["MLA6", "MLA7"]
+        assert sorted(ids(run(db, stock="sin_stock,erp_sin_stock"))) == ["MLA5", "MLA6", "MLA7"]
+
     def test_full_without_stock_does_not_match_an_item_with_no_stock_row(self, conn, db) -> None:
         seed.add_item(conn, "MLA6", available_quantity=3, user_product_id="MLAU6")  # no stock row: unknown, not zero
         assert "MLA6" not in ids(run(db, stock="full_sin_stock"))
@@ -530,6 +570,16 @@ class TestSorting:
         assert ids(run(db, orden="titulo", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
         assert ids(run(db, orden="titulo", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
 
+    def test_erp_stock_is_highest_first_by_default_and_unknown_last_in_either_direction(self, conn, db) -> None:
+        for product_id, stock in ((70, 5), (71, 0), (72, 9)):
+            seed.add_product(conn, product_id, f"C{product_id}", "P", stock=stock)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        seed.add_item(conn, "MLA4")  # no product: unknown
+        assert ids(run(db, orden="stock_erp")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+        assert ids(run(db, orden="stock_erp", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+
     def test_full_stock_puts_unknown_last_and_a_real_zero_before_it(self, conn, db) -> None:
         for item_id, up, full in (("MLA1", "MLAU1", 5), ("MLA2", "MLAU2", 0), ("MLA3", "MLAU3", 9)):
             seed.add_item(conn, item_id, user_product_id=up)
@@ -642,8 +692,13 @@ class TestFacets:
             "marcas": {"TP-LINK": 1, "HIKVISION": 1},
             "listing": {"clasica": 1, "premium": 1, "catalogo": 1, "full": 1},
             "link": {"auto": 1, "manual": 1, "conflicto": 1, "no_evaluado": 2},
-            "stock": {"sin_stock": 1, "full_sin_stock": 1},
+            "stock": {"sin_stock": 1, "full_sin_stock": 1, "erp_sin_stock": 0},
         }
+
+    def test_the_erp_without_stock_count_is_what_selecting_it_lists(self, conn, db) -> None:
+        conn.execute(text("UPDATE productos_erp SET stock = 0 WHERE item_id = 70"))
+        count = listing.facets(db, parse_filter())["stock"]["erp_sin_stock"]
+        assert count == 1 and run(db, stock="erp_sin_stock").total == count
 
     def test_an_axis_ignores_its_own_selection_and_obeys_the_others(self, db) -> None:
         facets = listing.facets(db, parse_filter(estado="active", tiendas="2"))
@@ -685,7 +740,7 @@ class TestFacets:
             "marcas": {},
             "listing": {"clasica": 0, "premium": 0, "catalogo": 0, "full": 0},
             "link": {},
-            "stock": {"sin_stock": 0, "full_sin_stock": 0},
+            "stock": {"sin_stock": 0, "full_sin_stock": 0, "erp_sin_stock": 0},
         }
 
     def test_one_statement_per_axis_whatever_the_data(self, db) -> None:

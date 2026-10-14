@@ -30,6 +30,7 @@ from app.services.ml_publications.view.filters import (
     T,
     build_base_select,
     encode_key,
+    erp_stock,
     link_state,
     listing_clauses,
     normalized_text,
@@ -48,6 +49,7 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "precio": (price_amount, False),
     "titulo": (lambda: func.lower(T.i.title), False),
     "stock_full": (lambda: T.st.full_quantity, True),
+    "stock_erp": (erp_stock, True),
     "actualizado": (lambda: T.i.ml_last_updated, True),
 }
 DIRECTIONS = ("asc", "desc")
@@ -137,6 +139,7 @@ def row_columns() -> list[Any]:
         st.full_quantity,
         st.own_quantity,
         st.ml_last_updated.label("stock_as_of"),
+        erp_stock().label("erp_quantity"),
     ]
 
 
@@ -194,6 +197,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
             "own": row.own_quantity,
             "as_of": row.stock_as_of,
         },
+        "erp_stock": {"quantity": row.erp_quantity},  # the linked product's ERP stock, never merged with ML's
         "link": {
             "state": row.link_state,
             "producto_item_id": row.producto_item_id,

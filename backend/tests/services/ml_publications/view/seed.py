@@ -57,6 +57,7 @@ def add_product(
     marca: Optional[str] = None,
     categoria: Optional[str] = None,
     subcategoria_id: Optional[int] = None,
+    stock: Optional[int] = None,
 ) -> None:
     _insert(
         conn,
@@ -68,6 +69,7 @@ def add_product(
             "marca": marca,
             "categoria": categoria,
             "subcategoria_id": subcategoria_id,
+            "stock": stock,
         },
     )
 
