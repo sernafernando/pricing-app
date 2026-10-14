@@ -74,6 +74,9 @@ class LastDivergenceSummary(BaseModel):
     # an old summary written before this fix carries no `complete` key at
     # all -- treat that as unknown, never as clean.
     complete: Optional[bool] = None
+    # Orders (of groups) whose persisted `ml_sale_lines` differed from a live
+    # derivation and were re-enqueued: the self-heal of the table the board reads.
+    lines_divergent_count: Optional[int] = None
 
 
 class OrderMetricsHealthResponse(BaseModel):
@@ -88,6 +91,9 @@ class OrderMetricsHealthResponse(BaseModel):
     # ALREADY have a row and whose fresh compute came back empty -- that
     # one reads 0 on a completely un-backfilled database.
     missing_metrics_count: int
+    # Orders stored under an older formula version: the backfill still pending
+    # after a version bump (version 5 = the persisted sale lines). 0 = done.
+    stale_formula_count: int = 0
     # TRUE total of parked orders (`health.poisoned_count`, unlimited) --
     # NEVER `len(poisoned_orders)` (PR6 review fix J1: `poisoned_orders` is
     # capped at its own `limit` and silently undercounts a large backlog).
@@ -147,6 +153,7 @@ def get_order_metrics_health(
             missing_count=divergence_row.detail.get("missing_count"),
             checked_count=divergence_row.detail.get("checked_count"),
             complete=divergence_row.detail.get("complete"),
+            lines_divergent_count=divergence_row.detail.get("lines_divergent_count"),
         )
 
     return OrderMetricsHealthResponse(
@@ -154,6 +161,7 @@ def get_order_metrics_health(
         oldest_dirty_age_s=order_metrics_health.oldest_dirty_age_seconds(db),
         claimed_count=order_metrics_health.claimed_count(db),
         missing_metrics_count=order_metrics_health.missing_metrics_count(db),
+        stale_formula_count=order_metrics_health.stale_formula_count(db),
         poisoned_count=poisoned_total,
         poisoned_orders=[PoisonedOrderSummary(order_id=row.order_id, last_error=row.last_error) for row in poisoned],
         worker_heartbeat_at=heartbeat_at.isoformat() if heartbeat_at is not None else None,

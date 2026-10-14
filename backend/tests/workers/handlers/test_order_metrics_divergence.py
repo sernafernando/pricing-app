@@ -59,6 +59,11 @@ def _order_metrics_db_session(monkeypatch, pg_order_metrics_divergence_engine):
         conn.execute(text("DELETE FROM ml_venta_deducciones"))
         conn.execute(text("DELETE FROM ml_ops_divergence"))
         conn.execute(text("DELETE FROM worker_job_state"))
+        conn.execute(text("DELETE FROM ml_sale_lines"))
+        conn.execute(text("DELETE FROM ml_group_metrics"))
+        conn.execute(text("DELETE FROM ml_order_item_costos"))
+        conn.execute(text("DELETE FROM ml_order_items_ops"))
+        conn.execute(text("DELETE FROM ml_payments_ops"))
         conn.execute(text("DELETE FROM ml_order_metrics"))
         conn.execute(text("DELETE FROM ml_order_metrics_dirty"))
         conn.execute(text("DELETE FROM ml_orders_ops"))
@@ -480,3 +485,133 @@ class TestBumpDoesNotFloodDivergence:
             ).scalar()
         assert opened == order_metrics_handlers.DIVERGENCE_MAX_RECORDED_PER_RUN == 100
         assert requeued == 150
+
+
+def _seed_sold_order(engine, order_id: int, *, pack_id=None) -> None:
+    """An accredited order with one costed item, whose metrics and sale lines are
+    stored by the real writer (so they match a live derivation)."""
+    from app.services.order_metrics.store import recompute_order_metrics
+
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO ml_orders_ops (order_id, pack_id, seller_id, status, ml_last_updated, date_created) "
+                "VALUES (:oid, :pack, 999, 'paid', now(), now())"
+            ),
+            {"oid": order_id, "pack": pack_id},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO ml_order_items_ops (order_id, item_id, quantity, unit_price) VALUES (:oid, 'MLA600', 2, 100)"
+            ),
+            {"oid": order_id},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO ml_order_item_costos (order_id, item_id, costo_origen, moneda, costo_unitario_ars, "
+                "iva_pct, precio_unitario, fuente, producto_item_id) "
+                "VALUES (:oid, 'MLA600', 60, 'ARS', 60, 21, 100, 'test', 4242)"
+            ),
+            {"oid": order_id},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) "
+                "VALUES (:pid, :oid, 'approved', now())"
+            ),
+            {"pid": order_id * 10, "oid": order_id},
+        )
+        conn.commit()
+    with sessionmaker(bind=engine)() as session:
+        recompute_order_metrics(session, [order_id])
+        session.commit()
+
+
+@pytest.mark.postgres
+class TestDivergenceChecksThePersistedSaleLines:
+    """The self-heal of `ml_sale_lines`: the stored lines of an order's group are
+    compared with a live derivation in the same lap, and a mismatch re-enqueues
+    the group's orders and opens a divergence row (`field='sale_lines'`)."""
+
+    @pytest.fixture(autouse=True)
+    def _seller(self, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "ML_USER_ID", 999)
+
+    def _run(self):
+        return divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+    def _divergent(self, engine, order_id: int):
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT state FROM ml_ops_divergence WHERE order_id = :oid AND field = 'sale_lines'"),
+                {"oid": order_id},
+            ).fetchone()
+            queued = conn.execute(
+                text("SELECT reason FROM ml_order_metrics_dirty WHERE order_id = :oid"), {"oid": order_id}
+            ).fetchone()
+        return row, queued
+
+    def test_matching_lines_open_nothing(self, _order_metrics_db_session, pg_order_metrics_divergence_engine) -> None:
+        _seed_sold_order(pg_order_metrics_divergence_engine, 610001)
+
+        result = self._run()
+
+        assert result.detail["lines_divergent_count"] == 0
+        row, queued = self._divergent(pg_order_metrics_divergence_engine, 610001)
+        assert row is None and queued is None
+
+    @pytest.mark.parametrize(
+        "damage",
+        [
+            "UPDATE ml_sale_lines SET qty = 99 WHERE order_id = 610002",
+            "DELETE FROM ml_sale_lines WHERE order_id = 610002",
+            "UPDATE ml_sale_lines SET tg = tg + 1 WHERE order_id = 610002",
+            "UPDATE ml_order_item_costos SET producto_item_id = 4343 WHERE order_id = 610002",
+        ],
+        ids=["qty", "missing", "money", "product-changed-without-a-recompute"],
+    )
+    def test_a_mismatch_opens_a_divergence_and_reenqueues(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine, damage
+    ) -> None:
+        _seed_sold_order(pg_order_metrics_divergence_engine, 610002)
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            conn.execute(text(damage))
+            conn.commit()
+
+        result = self._run()
+
+        assert result.detail["lines_divergent_count"] == 1
+        row, queued = self._divergent(pg_order_metrics_divergence_engine, 610002)
+        assert row is not None and row.state == "open"
+        assert queued is not None and queued.reason == "divergence"
+
+    def test_a_group_with_an_order_in_the_queue_is_skipped(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        _seed_sold_order(pg_order_metrics_divergence_engine, 610003, pack_id=7100)
+        _seed_sold_order(pg_order_metrics_divergence_engine, 610004, pack_id=7100)
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            conn.execute(text("UPDATE ml_sale_lines SET qty = 99 WHERE order_id = 610003"))
+            conn.execute(text("INSERT INTO ml_order_metrics_dirty (order_id, version, reason) VALUES (610004, 1, 'x')"))
+            conn.commit()
+
+        result = self._run()
+
+        assert result.detail["lines_divergent_count"] == 0
+
+    def test_every_order_of_the_group_is_reenqueued(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        _seed_sold_order(pg_order_metrics_divergence_engine, 610005, pack_id=7101)
+        _seed_sold_order(pg_order_metrics_divergence_engine, 610006, pack_id=7101)
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            conn.execute(text("UPDATE ml_sale_lines SET qty = 99 WHERE order_id = 610005"))
+            conn.commit()
+
+        self._run()
+
+        for order_id in (610005, 610006):
+            _row, queued = self._divergent(pg_order_metrics_divergence_engine, order_id)
+            assert queued is not None, order_id

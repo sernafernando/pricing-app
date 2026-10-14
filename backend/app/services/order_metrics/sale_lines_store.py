@@ -23,7 +23,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import String, bindparam, delete, func, or_, select, text
+from sqlalchemy import String, bindparam, column, delete, except_, func, or_, select, text, union_all, values
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -45,6 +45,27 @@ COLUMNS = (
     "mtg",
     "mcosto",
 )
+
+
+def derive_sale_lines(group_keys: Sequence[str]):
+    """The lines of `group_keys` as `sale_lines` derives them now (a subquery
+    with `COLUMNS`): what the divergence check compares the stored lines with."""
+    keys = values(column("group_key", String), name="wanted").data([(key,) for key in group_keys])
+    return sale_lines(sqlite=False, groups=select(keys.c.group_key), queue=False, keyed=True, narrow=True)
+
+
+def diverging_groups(db, group_keys: Sequence[str]) -> list:
+    """The groups, among `group_keys`, whose stored lines differ from a live
+    derivation (a missing, an extra or a different line). Money is compared by
+    value."""
+    if not group_keys:
+        return []
+    table = MlSaleLine.__table__
+    derived = derive_sale_lines(group_keys)
+    live = select(*(derived.c[name] for name in COLUMNS))
+    stored = select(*(table.c[name] for name in COLUMNS)).where(table.c.group_key.in_(group_keys))
+    both = union_all(except_(live, stored), except_(stored, live)).subquery("diff")
+    return sorted(db.execute(select(both.c.group_key).distinct()).scalars().all())
 
 
 @lru_cache(maxsize=4)

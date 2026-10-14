@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from sqlalchemy import text
 
+from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 from app.services.order_metrics.queue import POISON_THRESHOLD
 from app.services.order_metrics.queue import poisoned_count as _queue_poisoned_count
 
@@ -89,6 +90,18 @@ def missing_metrics_count(db) -> int:
             """
         ),
         {"threshold": POISON_THRESHOLD},
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def stale_formula_count(db) -> int:
+    """Orders whose stored metrics (and, since version 5, persisted sale lines)
+    were written under an older `CURRENT_FORMULA_VERSION`: the backfill that
+    `order_metrics.reconcile` + the drain are still working through. It falls to
+    0 as the version bump drains, and stays there."""
+    row = db.execute(
+        text("SELECT count(*) FROM ml_order_metrics WHERE formula_version < :current"),
+        {"current": CURRENT_FORMULA_VERSION},
     ).fetchone()
     return int(row[0]) if row else 0
 
