@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from dataclasses import dataclass
 from types import SimpleNamespace
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -43,24 +44,47 @@ PUBLICATIONS = 6000
 GROUPS = 81000
 DENSE_GROUPS = 20000
 
-# One row per order: `g` (its group), `order_id`, `k` (its MLA's index).
-_MEMBERS = """
-(SELECT g, 3000000000000000 + g AS order_id, (g * 7919) % 6000 + 1 AS k FROM generate_series(CAST(1 AS BIGINT), :groups) AS g
- UNION ALL
- SELECT g, 3500000000000000 + g, (g * 104729) % 6000 + 1 FROM generate_series(CAST(10 AS BIGINT), :groups, 10) AS g) AS m
-"""
-# One row per sold item: every order sells its MLA; every 7th group's orders
-# sell a second one.
-_ITEMS = f"""
-(SELECT order_id, g, k, 1 + g % 3 AS qty, 1000 + (k % 50) * 10 AS price FROM {_MEMBERS}
- UNION ALL
- SELECT order_id, g, (k * 31) % 6000 + 1, 1, 500 FROM {_MEMBERS} WHERE g % 7 = 0) AS it
-"""
+
+@dataclass(frozen=True)
+class Scale:
+    """How big a seeded world is: `publications` MLAs (and the modulus of the
+    sold-MLA index), `products` ERP products, `groups` groups of which the
+    newest `dense` are spread over the last 90 days."""
+
+    products: int
+    publications: int
+    groups: int
+    dense: int
+
+
+FULL = Scale(PRODUCTS, PUBLICATIONS, GROUPS, DENSE_GROUPS)
+
 _MLA = "'MLA77' || lpad(CAST(k AS TEXT), 6, '0')"
 
 
-def _seed(session) -> None:
-    p = {"groups": GROUPS, "dense": DENSE_GROUPS, "now": NOW, "n": PUBLICATIONS, "p": PRODUCTS}
+def _members(scale: Scale) -> str:
+    """One row per order: `g` (its group), `order_id`, `k` (its MLA's index)."""
+    return f"""
+(SELECT g, 3000000000000000 + g AS order_id, (g * 7919) % {scale.publications} + 1 AS k FROM generate_series(CAST(1 AS BIGINT), :groups) AS g
+ UNION ALL
+ SELECT g, 3500000000000000 + g, (g * 104729) % {scale.publications} + 1 FROM generate_series(CAST(10 AS BIGINT), :groups, 10) AS g) AS m
+"""
+
+
+def _items(scale: Scale) -> str:
+    """One row per sold item: every order sells its MLA; every 7th group's
+    orders sell a second one."""
+    members = _members(scale)
+    return f"""
+(SELECT order_id, g, k, 1 + g % 3 AS qty, 1000 + (k % 50) * 10 AS price FROM {members}
+ UNION ALL
+ SELECT order_id, g, (k * 31) % {scale.publications} + 1, 1, 500 FROM {members} WHERE g % 7 = 0) AS it
+"""
+
+
+def _seed(session, scale: Scale = FULL) -> None:
+    members, items = _members(scale), _items(scale)
+    p = {"groups": scale.groups, "dense": scale.dense, "now": NOW, "n": scale.publications, "p": scale.products}
     session.execute(
         text(
             "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
@@ -103,14 +127,14 @@ def _seed(session) -> None:
             "currency_id) "
             "SELECT order_id, CASE WHEN g % 10 = 0 THEN 4000000000000000 + g END, "
             "CASE WHEN g % 40 = 0 THEN 'cancelled' ELSE 'paid' END, :now, :now, 999, 'ARS' "
-            f"FROM {_MEMBERS}"
+            f"FROM {members}"
         ),
         p,
     )
     session.execute(
         text(
             "INSERT INTO ml_order_items_ops (order_id, item_id, quantity, unit_price) "
-            f"SELECT order_id, {_MLA}, qty, price FROM {_ITEMS}"
+            f"SELECT order_id, {_MLA}, qty, price FROM {items}"
         ),
         p,
     )
@@ -119,7 +143,7 @@ def _seed(session) -> None:
             "INSERT INTO ml_order_item_costos (order_id, item_id, costo_origen, moneda, costo_unitario_ars, "
             "iva_pct, precio_unitario, fuente, producto_item_id) "
             f"SELECT order_id, {_MLA}, 600 + (k % 40) * 5, 'ARS', 600 + (k % 40) * 5, 21, price, 'vol', "
-            f"800001 + (k % :p) FROM {_ITEMS}"
+            f"800001 + (k % :p) FROM {items}"
         ),
         p,
     )
@@ -130,14 +154,14 @@ def _seed(session) -> None:
             "SELECT order_id, CASE WHEN g % 50 = 0 THEN NULL ELSE 150 + g % 100 END, "
             "CASE WHEN g % 50 = 0 THEN NULL ELSE 800 END, "
             "CASE WHEN g % 50 = 0 THEN 'unresolved' ELSE 'ok' END, 2, :now "
-            f"FROM {_MEMBERS}"
+            f"FROM {members}"
         ),
         p,
     )
     session.execute(
         text(
             "INSERT INTO ml_order_metrics_dirty (order_id, version, reason, attempts) "
-            f"SELECT order_id, 1, 'vol', 0 FROM {_MEMBERS} WHERE g % 97 = 0"
+            f"SELECT order_id, 1, 'vol', 0 FROM {members} WHERE g % 97 = 0"
         ),
         p,
     )
@@ -581,7 +605,7 @@ def test_ventas_product_option_lists_cost_on_volume(volume_session) -> None:
             "SELECT order_id * 10 + 1, order_id, 'approved', "
             ":now - make_interval(days => CAST(CASE WHEN g <= :dense THEN g % 90 ELSE 90 + (g - :dense) % 450 END AS INTEGER), "
             "secs => CAST((g * 37) % 86400 AS DOUBLE PRECISION)) "
-            f"FROM {_MEMBERS}"
+            f"FROM {_members(FULL)}"
         ),
         {"groups": GROUPS, "dense": DENSE_GROUPS, "now": NOW},
     )
