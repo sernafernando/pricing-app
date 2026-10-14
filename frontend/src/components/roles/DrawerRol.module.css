@@ -1,0 +1,69 @@
+/* Role side panel (Roles tab). A sticky column next to the matrix, not an
+   overlay: messages and the matrix stay visible and usable. Tokens only. */
+
+.drawer {
+  position: sticky;
+  top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: calc(100vh - 2 * var(--space-4));
+  padding: var(--space-4);
+  overflow-y: auto;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+/* Same breakpoint as PanelRoles .conDrawer: stacked, the drawer goes first. */
+@media (max-width: 1023px) {
+  .drawer {
+    position: static;
+    order: -1;
+    max-height: none;
+  }
+}
+
+.encabezado {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.titulo {
+  margin: 0;
+  font-size: var(--font-lg);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.titulo:focus {
+  outline: none;
+}
+
+.cerrar {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: var(--space-1);
+  color: var(--cf-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.cerrar:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+}
+
+.cerrar:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.cerrar:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

@@ -71,6 +71,17 @@ async function renderPanel() {
   await screen.findByRole('button', { name: '+ Nuevo Rol' });
 }
 
+// A role card is a button named by its content: '<nombre> [SISTEMA] <codigo> · N usuarios'.
+const tarjeta = (nombre) => screen.getByRole('button', { name: new RegExp(`^${nombre} `) });
+const drawer = (nombre) => screen.getByRole('dialog', { name: nombre });
+const queryDrawer = () => screen.queryByRole('dialog');
+
+/** Opens the role drawer from its card: role management lives there, not on the cards. */
+async function abrirRol(user, nombre) {
+  await user.click(tarjeta(nombre));
+  return drawer(nombre);
+}
+
 describe('PanelRoles create role', () => {
   it('posts the new role with the uppercased code and the next order, then reloads', async () => {
     const user = userEvent.setup();
@@ -151,17 +162,33 @@ describe('PanelRoles create role', () => {
 });
 
 describe('PanelRoles edit role', () => {
-  it('offers Editar and X only for non-system roles', async () => {
+  it('offers Editar and Eliminar only for non-system roles, and only inside the drawer', async () => {
+    const user = userEvent.setup();
     await renderPanel();
 
-    expect(screen.getAllByRole('button', { name: 'Editar' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'X' })).toHaveLength(1);
+    // The cards carry no management buttons any more.
+    for (const nombre of ['Editar', 'Eliminar rol', 'X', /^Clonar /]) {
+      expect(screen.queryByRole('button', { name: nombre })).not.toBeInTheDocument();
+    }
+
+    const ventas = await abrirRol(user, 'Ventas');
+    expect(within(ventas).getByRole('button', { name: 'Editar' })).toBeInTheDocument();
+    expect(within(ventas).getByRole('button', { name: 'Eliminar rol' })).toBeInTheDocument();
+
+    const admin = await abrirRol(user, 'Administrador');
+    expect(within(admin).queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+    expect(within(admin).queryByRole('button', { name: 'Eliminar rol' })).not.toBeInTheDocument();
+    expect(within(admin).getByRole('button', { name: 'Clonar Administrador' })).toBeInTheDocument();
+
+    const superAdmin = await abrirRol(user, 'Super Admin');
+    expect(within(superAdmin).queryByRole('button', { name: 'Clonar Super Admin' })).not.toBeInTheDocument();
   });
 
   it('patches name, description and order with the code locked, then reloads', async () => {
     const user = userEvent.setup();
     await renderPanel();
 
+    await abrirRol(user, 'Ventas');
     await user.click(screen.getByRole('button', { name: 'Editar' }));
     expect(screen.getByRole('heading', { name: 'Editar Rol' })).toBeInTheDocument();
     const codigo = screen.getByPlaceholderText('Codigo (ej: VENDEDOR)');
@@ -184,6 +211,7 @@ describe('PanelRoles edit role', () => {
     const user = userEvent.setup();
     await renderPanel();
 
+    await abrirRol(user, 'Ventas');
     await user.click(screen.getByRole('button', { name: 'Editar' }));
     await user.click(screen.getByRole('button', { name: 'Actualizar' }));
 
@@ -202,6 +230,7 @@ describe('PanelRoles edit role', () => {
     const user = userEvent.setup();
     await renderPanel();
 
+    await abrirRol(user, 'Ventas');
     await user.click(screen.getByRole('button', { name: 'Editar' }));
     await user.click(screen.getByRole('button', { name: 'Actualizar' }));
 
@@ -213,6 +242,7 @@ describe('PanelRoles edit role', () => {
     const user = userEvent.setup();
     await renderPanel();
 
+    await abrirRol(user, 'Ventas');
     await user.click(screen.getByRole('button', { name: 'Editar' }));
     expect(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)')).toHaveValue('VENTAS');
     expect(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)')).toBeDisabled();
@@ -234,7 +264,8 @@ describe('PanelRoles edit role', () => {
 const MENSAJE_ELIMINAR = '¿Eliminar el rol "Ventas"? Esta accion no se puede deshacer.';
 
 async function abrirConfirmacionEliminar(user) {
-  await user.click(screen.getByRole('button', { name: 'X' }));
+  await abrirRol(user, 'Ventas');
+  await user.click(screen.getByRole('button', { name: 'Eliminar rol' }));
   expect(screen.getByRole('heading', { name: 'Eliminar rol' })).toBeInTheDocument();
   expect(screen.getByText(MENSAJE_ELIMINAR)).toBeInTheDocument();
 }
@@ -262,6 +293,7 @@ describe('PanelRoles delete role', () => {
     expect(api.delete).toHaveBeenCalledWith('/roles/3');
     expect(await screen.findByText('Rol eliminado correctamente')).toBeInTheDocument();
     expect(screen.queryByText(MENSAJE_ELIMINAR)).not.toBeInTheDocument();
+    expect(queryDrawer()).not.toBeInTheDocument();
     await waitFor(() => expect(cargasDeRoles()).toBe(2));
   });
 
@@ -285,6 +317,8 @@ describe('PanelRoles delete role', () => {
 
     expect(screen.queryByText(MENSAJE_ELIMINAR)).not.toBeInTheDocument();
     expect(api.delete).not.toHaveBeenCalled();
+    // Escape closes only the confirmation: the drawer behind it stays open.
+    expect(drawer('Ventas')).toBeInTheDocument();
   });
 
   it('disables both buttons and ignores Escape and Cancelar while the delete is in flight', async () => {
@@ -301,6 +335,7 @@ describe('PanelRoles delete role', () => {
     expect(cancelar).toBeDisabled();
     await user.keyboard('{Escape}');
     expect(screen.getByText(MENSAJE_ELIMINAR)).toBeInTheDocument();
+    expect(drawer('Ventas')).toBeInTheDocument();
     expect(api.delete).toHaveBeenCalledTimes(1);
 
     await act(async () => resolver({ data: {} }));
@@ -335,9 +370,10 @@ describe('PanelRoles delete role', () => {
 });
 
 describe('PanelRoles clone role', () => {
-  // There is no selected role any more: each role card has its own Clonar button.
+  // Clonar lives in the role drawer, which stays open after the clone.
   async function abrirClonarVentas(user) {
     await renderPanel();
+    await abrirRol(user, 'Ventas');
     await user.click(screen.getByRole('button', { name: 'Clonar Ventas' }));
     expect(screen.getByRole('heading', { name: 'Clonar Rol: Ventas' })).toBeInTheDocument();
   }
@@ -685,23 +721,30 @@ describe('PanelRoles matrix', () => {
   });
 
   it('locks role management while a matrix save is in flight', async () => {
-    const { promesa, resolver } = diferido();
-    api.put.mockReturnValueOnce(promesa);
     const user = userEvent.setup();
     await renderMatriz();
 
-    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
-    await user.click(celda('Editar precios', 'Ventas'));
-    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+    // The drawer shows one thing at a time: first the create form, then a role's actions.
+    const fases = [
+      { abrir: () => user.click(screen.getByRole('button', { name: '+ Nuevo Rol' })), botones: ['+ Nuevo Rol', 'Crear'] },
+      { abrir: () => abrirRol(user, 'Ventas'), botones: ['+ Nuevo Rol', 'Clonar Ventas', 'Editar', 'Eliminar rol'] },
+    ];
+    for (const { abrir, botones } of fases) {
+      const { promesa, resolver } = diferido();
+      api.put.mockReturnValueOnce(promesa);
+      await abrir();
+      await user.click(celda('Editar precios', 'Ventas'));
+      await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
 
-    for (const nombre of ['+ Nuevo Rol', 'Clonar Ventas', 'Editar', 'X', 'Crear']) {
-      expect(screen.getByRole('button', { name: nombre })).toBeDisabled();
-    }
+      for (const nombre of botones) {
+        expect(screen.getByRole('button', { name: nombre })).toBeDisabled();
+      }
 
-    await act(async () => resolver({ data: { success: true } }));
-    expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
-    for (const nombre of ['+ Nuevo Rol', 'Clonar Ventas', 'Editar', 'X', 'Crear']) {
-      expect(screen.getByRole('button', { name: nombre })).toBeEnabled();
+      await act(async () => resolver({ data: { success: true } }));
+      expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
+      for (const nombre of botones) {
+        expect(screen.getByRole('button', { name: nombre })).toBeEnabled();
+      }
     }
   });
 
@@ -712,6 +755,7 @@ describe('PanelRoles matrix', () => {
     await renderMatriz();
 
     await user.click(celda('Editar precios', 'Ventas'));
+    await abrirRol(user, 'Ventas');
     await user.click(screen.getByRole('button', { name: 'Clonar Ventas' }));
     await user.type(screen.getByPlaceholderText('Codigo del nuevo rol'), 'VENTAS_WEB');
     await user.type(screen.getByPlaceholderText('Nombre del nuevo rol'), 'Ventas web');
@@ -809,5 +853,81 @@ describe('PanelRoles matrix', () => {
 
     expect(api.post).toHaveBeenCalledWith('/roles', expect.objectContaining({ codigo: 'COMPRAS', nombre: 'Compras' }));
     expect(await screen.findByText('Rol creado correctamente')).toBeInTheDocument();
+  });
+});
+
+describe('PanelRoles role drawer', () => {
+  it('opens from the role card with the role detail', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+    expect(queryDrawer()).not.toBeInTheDocument();
+
+    const admin = await abrirRol(user, 'Administrador');
+    expect(within(admin).getByRole('heading', { name: 'Administrador' })).toBeInTheDocument();
+    expect(within(admin).getByText('SISTEMA')).toBeInTheDocument();
+    const detalle = (termino) => within(admin).getByText(termino).nextElementSibling;
+    expect(detalle('Código')).toHaveTextContent('ADMIN');
+    expect(detalle('Descripción')).toHaveTextContent('Sin descripción');
+    expect(detalle('Usuarios')).toHaveTextContent('2');
+    expect(detalle('Permisos')).toHaveTextContent('2');
+
+    const superAdmin = await abrirRol(user, 'Super Admin');
+    expect(within(superAdmin).getByText('Permisos').nextElementSibling).toHaveTextContent('Todos');
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  });
+
+  it('opens in create mode from + Nuevo Rol', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+
+    expect(within(drawer('Nuevo Rol')).getByPlaceholderText('Codigo (ej: VENDEDOR)')).toBeEnabled();
+  });
+
+  it('closes with the close button and with Escape', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(screen.getByRole('button', { name: 'Cerrar panel del rol' }));
+    expect(queryDrawer()).not.toBeInTheDocument();
+
+    await abrirRol(user, 'Ventas');
+    await user.keyboard('{Escape}');
+    expect(queryDrawer()).not.toBeInTheDocument();
+  });
+
+  it('cannot be closed while a role save is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.patch.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+
+    expect(screen.getByRole('button', { name: 'Cerrar panel del rol' })).toBeDisabled();
+    expect(tarjeta('Administrador')).toBeDisabled();
+    await user.keyboard('{Escape}');
+    expect(drawer('Editar Rol')).toBeInTheDocument();
+
+    await act(async () => resolver({ data: {} }));
+    expect(await screen.findByText('Rol actualizado correctamente')).toBeInTheDocument();
+    // Back to the role detail, closable again.
+    expect(drawer('Ventas')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cerrar panel del rol' })).toBeEnabled();
+  });
+
+  it('ignores Escape while the clone dialog is open on top of it', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(screen.getByRole('button', { name: 'Clonar Ventas' }));
+    await user.keyboard('{Escape}');
+
+    expect(drawer('Ventas')).toBeInTheDocument();
   });
 });

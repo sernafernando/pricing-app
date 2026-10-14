@@ -62,9 +62,19 @@ Arriba de la lista hay un selector **Por pantalla | Por permiso**. **Por pantall
 
 La pestaña **Roles** ahora muestra todos los permisos de todos los roles en una sola **matriz**: cada fila es un permiso (agrupado por categoría) y cada columna es un rol. Ya no hace falta abrir rol por rol para comparar.
 
-- Arriba quedan las tarjetas de los roles con **+ Nuevo Rol**, **Editar** y **X** (eliminar, con confirmación), como antes. **Clonar** ahora está en la tarjeta de cada rol: ya no hace falta seleccionarlo primero.
+- Arriba quedan las tarjetas de los roles y el botón **+ Nuevo Rol**. La gestión de cada rol se hace desde su panel lateral (ver abajo).
 - Marcá o desmarcá una casilla para dar o sacar un permiso a un rol. La casilla queda **resaltada** como cambio pendiente; si la volvés a tocar, vuelve a como estaba y deja de estar pendiente.
 - Mientras haya cambios sin guardar, abajo aparece una barra con **N cambios pendientes** y los botones **Descartar** (vuelve todo atrás) y **Guardar**.
 - **Guardar** guarda solo los roles que cambiaste. Si algo falla, se muestra el error y los cambios de ese rol siguen pendientes para reintentar.
 - La columna **SUPERADMIN** es de solo lectura: tiene todos los permisos siempre.
 - El buscador filtra los permisos por código o nombre (no importan las mayúsculas ni los acentos).
+
+## Panel lateral de cada rol
+
+Hacé clic en la tarjeta de un rol y se abre un **panel a la derecha** con su detalle, sin tapar la matriz:
+
+- **Código**, **descripción**, cantidad de **usuarios** con ese rol y cantidad de **permisos** guardados (SUPERADMIN dice **Todos**). Los roles de sistema llevan la etiqueta **SISTEMA**.
+- Desde el panel se **edita** (nombre y descripción), se **clona** y se **elimina** el rol (con confirmación). Las tarjetas ya no tienen botones.
+- Los roles de sistema no se pueden editar ni eliminar, pero sí clonar; sus permisos se siguen cambiando en la matriz. SUPERADMIN no se puede modificar.
+- **+ Nuevo Rol** abre el mismo panel con el formulario vacío.
+- Se cierra con la **×** o con la tecla **Esc**. Mientras se guarda o elimina un rol, el panel no se cierra ni se puede pasar a otro rol, para no perder la respuesta.
