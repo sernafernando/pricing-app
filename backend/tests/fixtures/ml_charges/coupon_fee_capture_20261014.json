@@ -1,0 +1,173 @@
+{
+  "182717438169": {
+    "payment_id": 182717438169,
+    "order_id": 2000018934645332,
+    "status": "cancelled",
+    "transaction_amount": 56030.0,
+    "shipping_amount": 0.0,
+    "coupon_amount": 8404.5,
+    "total_paid_amount": 47625.5,
+    "net_received_amount": 0.0,
+    "transaction_amount_refunded": 0.0,
+    "taxes_amount": 0.0,
+    "charges": [
+      {
+        "name": "coupon_code",
+        "type": "coupon",
+        "amount": 8404.5,
+        "refunded": 0.0
+      },
+      {
+        "name": "coupon_fee",
+        "type": "coupon",
+        "amount": 8404.5,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 336.18,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_sirtac-rio_negro",
+        "type": "tax",
+        "amount": 168.09,
+        "refunded": 0.0
+      }
+    ],
+    "items": [
+      {
+        "item_id": "MLA3489625994",
+        "quantity": 1,
+        "unit_price": 56030.0
+      }
+    ]
+  },
+  "183096662957": {
+    "payment_id": 183096662957,
+    "order_id": 2000018975965664,
+    "status": "approved",
+    "transaction_amount": 51200.0,
+    "shipping_amount": 0.0,
+    "coupon_amount": 0.0,
+    "total_paid_amount": 51200.0,
+    "net_received_amount": 29671.04,
+    "transaction_amount_refunded": 0.0,
+    "taxes_amount": 0.0,
+    "charges": [
+      {
+        "name": "coupon_fee",
+        "type": "coupon",
+        "amount": 2560.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "financing_add_on_fee",
+        "type": "fee",
+        "amount": 4328.96,
+        "refunded": 0.0
+      },
+      {
+        "name": "flat_fee",
+        "type": "fee",
+        "amount": 6640.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 7539.2,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 307.2,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_sirtac-cordoba",
+        "type": "tax",
+        "amount": 153.6,
+        "refunded": 0.0
+      }
+    ],
+    "items": [
+      {
+        "item_id": "MLA2290463846",
+        "quantity": 2,
+        "unit_price": 25600.0
+      }
+    ]
+  },
+  "183081084229": {
+    "payment_id": 183081084229,
+    "order_id": 2000018974364736,
+    "status": "approved",
+    "transaction_amount": 23123.0,
+    "shipping_amount": 2396.0,
+    "coupon_amount": 2033.95,
+    "total_paid_amount": 23485.05,
+    "net_received_amount": 17637.36,
+    "transaction_amount_refunded": 0.0,
+    "taxes_amount": 0.0,
+    "charges": [
+      {
+        "name": "coupon_code",
+        "type": "coupon",
+        "amount": 1109.95,
+        "refunded": 0.0
+      },
+      {
+        "name": "coupon_fee",
+        "type": "coupon",
+        "amount": 1109.95,
+        "refunded": 0.0
+      },
+      {
+        "name": "coupon_rebate",
+        "type": "coupon",
+        "amount": 924.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "flat_fee",
+        "type": "fee",
+        "amount": 2740.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 3412.02,
+        "refunded": 0.0
+      },
+      {
+        "name": "shp_self_service_tech",
+        "type": "shipping",
+        "amount": 390.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 153.11,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_sirtac-caba",
+        "type": "tax",
+        "amount": 76.56,
+        "refunded": 0.0
+      }
+    ],
+    "items": [
+      {
+        "item_id": "MLA1421835641",
+        "quantity": 1,
+        "unit_price": 23123.0
+      }
+    ]
+  }
+}

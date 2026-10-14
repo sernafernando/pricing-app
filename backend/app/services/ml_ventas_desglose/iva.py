@@ -70,6 +70,15 @@ bonificación is its own component (`fuera_del_pago=True`) that adds its gross
 to `neto` and its base to `neto_sin_iva`. A gap in the payment can never be
 absorbed by the bonificación, and no tolerance is introduced.
 
+## The seller-funded coupon is a charge without IVA
+
+`coupon_fee` (`type == 'coupon'`) is the part of a buyer's coupon the seller
+funds; ML deducts it from `net_received_amount`. The sale is still invoiced at
+the full price, so the goods line does not shrink: the fee is one more
+payment-side deduction, at 0% because ML does not invoice it (no IVA credit).
+The buyer-side `coupon_code` and ML's `coupon_rebate` stay out -- the
+full-price goods line already carries them.
+
 Nothing here performs fiscal crediting or builds a libro IVA (D13) -- the
 per-component, per-rate figures are a free byproduct of the decomposition,
 not a feature built for a consumer that does not exist yet.
@@ -90,10 +99,12 @@ from app.services.ml_ventas_desglose.bonificacion_flex import resolve_bonificaci
 from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
     CONCEPTO_BONIFICACION_ENVIO,
+    CONCEPTO_CUPON_VENDEDOR,
     RELEVANT_PAYMENT_STATUSES,
     debitos_creditos_total,
     is_recoverable_withholding,
     is_seller_charge,
+    is_seller_coupon_fee,
     net_amount,
     payment_effective_net,
     shipping_label,
@@ -107,6 +118,11 @@ IVA_ML_PCT = Decimal("21")
 IVA_ML_DIVISOR = Decimal("1") + IVA_ML_PCT / Decimal("100")
 
 CONCEPTO_VENTA_ITEM = "Venta"
+
+# The seller-funded coupon carries no IVA credit: ML does not invoice it
+# (owner's accounting decision, 2026-10-14). Zero, not `None`: the rate IS
+# known, it is simply nil -- `None` means "no rate applies / unknown".
+IVA_CUPON_VENDEDOR_PCT = Decimal("0")
 
 # A seller charge that is neither a known fee/freight nor a `type='tax'`
 # withholding. Reported, never dropped (task 4.12) -- mirrors `tax_label`'s
@@ -302,11 +318,13 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
 
         neto = Decimal("0")
         seller_charges: List[MlPaymentCharge] = []
+        coupon_fees: List[MlPaymentCharge] = []
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             order_seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
             neto += payment_effective_net(payment, order_seller_charges)
             seller_charges.extend(order_seller_charges)
+            coupon_fees.extend(c for c in payment_charges if is_seller_coupon_fee(c.type, c.name))
 
         componentes: List[ComponenteIVA] = []
         razones: List[str] = []
@@ -460,6 +478,26 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                 base, iva = _passthrough(bruto)
                 componentes.append(
                     ComponenteIVA(concepto=CONCEPTO_IVA_NO_DETERMINADO, alicuota=None, bruto=bruto, base=base, iva=iva)
+                )
+
+        # The seller-funded coupon (`coupon_fee`): ML deducted it from
+        # `net_received_amount`, so the payment side cannot close without it
+        # (payment 183096662957 missed by exactly its 2560). The sale is
+        # invoiced at the FULL price -- the goods line above stays
+        # `unit_price * quantity` -- and this is a seller cost ML does not
+        # invoice: no IVA credit, so 0% and all of it is base. Inside the
+        # payment sum, never `fuera_del_pago` nor `informativo`.
+        for charge in coupon_fees:
+            bruto = -net_amount(charge)
+            if bruto != 0:
+                componentes.append(
+                    ComponenteIVA(
+                        concepto=CONCEPTO_CUPON_VENDEDOR,
+                        alicuota=IVA_CUPON_VENDEDOR_PCT,
+                        bruto=bruto,
+                        base=bruto,
+                        iva=Decimal("0"),
+                    )
                 )
 
         # R2: the débitos/créditos tax is paid a SECOND time on withdrawal
