@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import UTC, datetime
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_algun_permiso
 from app.core.database import get_db
 from app.services.envio_real_service import resolver_costo_envio
 
@@ -30,6 +30,23 @@ from app.services.pricing_calculator import (
 
 
 router = APIRouter()
+
+# Permission sets mirror the frontend gates that expose each price-writing
+# control, so enforcing them server-side does not break a flow the UI allows.
+# Productos.jsx `puedeEditar` (inline clasica/cuota edits, pricing modal).
+PERMISOS_EDITAR_PRODUCTOS = [
+    "productos.editar_precio_clasica",
+    "productos.editar_precio_cuotas",
+    "productos.toggle_rebate",
+    "productos.toggle_web_transferencia",
+]
+# Tienda.jsx `puedeEditar` (inline cuota edits, pricing modal).
+PERMISOS_EDITAR_TIENDA = [
+    "tienda.editar_precio_gremio",
+    "tienda.editar_precio_web_transf",
+    "productos.editar_precio_cuotas",
+]
+PERMISOS_EDITAR_PRODUCTOS_O_TIENDA = list(dict.fromkeys(PERMISOS_EDITAR_PRODUCTOS + PERMISOS_EDITAR_TIENDA))
 
 
 def obtener_markup_adicional_cuotas(db: Session) -> float:
@@ -273,7 +290,7 @@ class SetPrecioRequest(BaseModel):
     precio_12_cuotas: Optional[float] = None
 
 
-@router.post("/precios/set")
+@router.post("/precios/set", dependencies=[Depends(require_algun_permiso(PERMISOS_EDITAR_PRODUCTOS_O_TIENDA))])
 def setear_precio(request: SetPrecioRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Setea el precio de lista ML para un producto"""
 
@@ -570,7 +587,7 @@ def calcular_precios_completos(
     return resultado
 
 
-@router.post("/precios/set-rapido")
+@router.post("/precios/set-rapido", dependencies=[Depends(require_algun_permiso(PERMISOS_EDITAR_PRODUCTOS))])
 def setear_precio_rapido(
     item_id: int,
     precio: float = Query(ge=0, le=999999999.99),  # Permitir 0 para borrar precios
@@ -925,7 +942,7 @@ def setear_precio_rapido(
     return response
 
 
-@router.post("/precios/recalcular-cuotas")
+@router.post("/precios/recalcular-cuotas", dependencies=[Depends(require_algun_permiso(PERMISOS_EDITAR_PRODUCTOS))])
 def recalcular_cuotas_desde_clasica(
     item_id: int,
     lista_tipo: str = Query("web", pattern="^(web|pvp)$", description="Tipo de lista: web o pvp"),
@@ -1099,7 +1116,7 @@ def recalcular_cuotas_desde_clasica(
     return response
 
 
-@router.post("/precios/set-cuota")
+@router.post("/precios/set-cuota", dependencies=[Depends(require_algun_permiso(PERMISOS_EDITAR_PRODUCTOS_O_TIENDA))])
 def setear_precio_cuota(
     item_id: int,
     tipo_cuota: str = Query(pattern="^(clasica|3|6|9|12)$"),  # Acepta clasica, 3, 6, 9 o 12
@@ -1109,6 +1126,16 @@ def setear_precio_cuota(
     current_user=Depends(get_current_user),
 ):
     """Setea el precio de un tipo de cuota específico (web o pvp) y calcula su markup. Si precio=0, borra la cuota."""
+    from app.services.permisos_service import PermisosService
+
+    # Tienda codes only cover what the Tienda screen writes here: the ML list
+    # cuotas (3/6/9/12), shared with Productos ("web" is the ML list's lista_tipo).
+    # The clasica price and the PVP list need a Productos code.
+    escribe_solo_cuota_ml = lista_tipo == "web" and tipo_cuota != "clasica"
+    if not escribe_solo_cuota_ml and not PermisosService(db).tiene_algun_permiso(
+        current_user, PERMISOS_EDITAR_PRODUCTOS
+    ):
+        raise HTTPException(status_code=403, detail="No tienes permiso para editar este precio")
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:

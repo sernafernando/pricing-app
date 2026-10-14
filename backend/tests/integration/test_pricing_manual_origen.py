@@ -14,8 +14,22 @@ test here.
 
 from unittest.mock import patch
 
+import pytest
+
+from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.producto_precio_origen import ProductoPrecioOrigen
+
+
+@pytest.fixture(autouse=True)
+def _grant_price_edit_permissions(db, rol_ventas):
+    """These endpoints are permission-gated; grant the codes the Productos UI uses."""
+    for codigo in ("productos.editar_precio_clasica", "productos.editar_precio_cuotas"):
+        permiso = Permiso(codigo=codigo, nombre=codigo, descripcion="", categoria="productos", orden=999)
+        db.add(permiso)
+        db.flush()
+        db.add(RolPermisoBase(rol_id=rol_ventas.id, permiso_id=permiso.id))
+    db.commit()
 
 
 def _make_producto(db, item_id: int = 2001) -> ProductoERP:
