@@ -88,19 +88,27 @@ def fetch_publication_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str
     if not mla_ids:
         return {}
 
+    # The read runs on the CALLER's session, inside its own SAVEPOINT: a failure
+    # rolls back only that savepoint, so the caller's pending objects, loaded
+    # (non-expired) objects and transaction all survive — on Postgres a failed
+    # statement would otherwise leave the whole transaction aborted.
+    savepoint = None
     try:
+        savepoint = db.begin_nested()
         rows = (
             db.query(MlItem.item_id, MlItem.status, MlItem.sub_status, MlItem.gone_at, MlItem.never_existed)
             .filter(MlItem.item_id.in_(mla_ids))
             .all()
         )
+        savepoint.commit()
         found = {item_id: _classify(status, sub, gone_at, never) for item_id, status, sub, gone_at, never in rows}
     except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
         logger.warning("ml_items status unavailable for %d MLAs; degrading without status: %s", len(mla_ids), exc)
-        try:
-            db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+        if savepoint is not None and savepoint.is_active:
+            try:
+                savepoint.rollback()
+            except Exception:  # noqa: BLE001
+                pass
         return {}
 
     return {mla: found.get(mla, MlPublicationStatus(NO_ML_DATA)) for mla in mla_ids}

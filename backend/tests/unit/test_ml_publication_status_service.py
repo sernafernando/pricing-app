@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
+
 from app.models.ml_publications import MlItem
 from app.services.ml_publication_status_service import (
     GONE,
@@ -104,3 +106,60 @@ class TestFetchPublicationStatusByMla:
     def test_store_read_failure_is_fail_open(self, db) -> None:
         with patch.object(db, "query", side_effect=RuntimeError("store down")):
             assert fetch_publication_status_by_mla(db, ["MLA_ST_A"]) == {}
+
+
+class TestFailedReadLeavesTheCallerSessionAlone:
+    """The read runs on the CALLER's session (the flat productos endpoint, the
+    tree assembly, the promotions banner). A failing `ml_items` read must roll
+    back only its own SAVEPOINT — never the caller's transaction, which would
+    drop its pending objects and expire everything it already loaded."""
+
+    def test_pending_and_loaded_objects_survive_a_failed_read(self, db) -> None:
+        _seed_ml_item(db, "MLA_ST_LOADED", status="active")
+        db.commit()
+        loaded = db.query(MlItem).filter(MlItem.item_id == "MLA_ST_LOADED").one()
+        loaded.title = "edited, not flushed"
+        pending = MlItem(item_id="MLA_ST_PENDING", status="paused")
+        db.add(pending)
+
+        real_query = db.query
+
+        def failing_ml_items_read(*entities, **kwargs):
+            if entities and getattr(entities[0], "class_", None) is MlItem:
+                raise RuntimeError("ml_items unavailable")
+            return real_query(*entities, **kwargs)
+
+        with patch.object(db, "query", side_effect=failing_ml_items_read):
+            assert fetch_publication_status_by_mla(db, ["MLA_ST_LOADED"]) == {}
+
+        assert pending in db
+        assert loaded in db
+        assert "title" in loaded.__dict__, "the caller's loaded object was expired"
+        assert loaded.title == "edited, not flushed"
+        db.flush()
+        assert db.query(MlItem).filter(MlItem.item_id == "MLA_ST_PENDING").one().status == "paused"
+
+
+@pytest.mark.postgres
+def test_postgres_aborted_read_keeps_the_caller_transaction_usable(pg_db) -> None:
+    """On Postgres a failed statement aborts the whole transaction unless it ran
+    inside a SAVEPOINT: the caller's already-flushed work must survive and its
+    session must stay usable after a failed `ml_items` read."""
+    from sqlalchemy import text
+
+    from app.models.item_transaction import ItemTransaction
+
+    pg_db.add(ItemTransaction(it_transaction=987654321, item_id=42))
+    pg_db.flush()
+
+    real_query = pg_db.query
+
+    def aborting_read(*entities, **kwargs):
+        pg_db.execute(text("SELECT 1/0"))  # a real server-side error
+        return real_query(*entities, **kwargs)
+
+    with patch.object(pg_db, "query", side_effect=aborting_read):
+        assert fetch_publication_status_by_mla(pg_db, ["MLA_ST_PG"]) == {}
+
+    survivor = pg_db.execute(text("SELECT item_id FROM tb_item_transactions WHERE it_transaction = 987654321"))
+    assert survivor.scalar_one() == 42
