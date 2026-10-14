@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.models.rol import Rol
 from app.core.security import get_password_hash
+from app.services.roles_service import ConflictoRolesAdicionales, RolesService
 
 router = APIRouter()
 
@@ -123,7 +124,8 @@ def actualizar_usuario(
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
 
-    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    # Bloquea la fila: un PUT de roles adicionales concurrente espera a este cambio
+    usuario = RolesService(db).bloquear_usuario(usuario_id)
     if not usuario:
         raise HTTPException(404, "Usuario no encontrado")
 
@@ -149,6 +151,8 @@ def actualizar_usuario(
             raise HTTPException(400, f"Rol '{datos.rol}' no existe")
         usuario.rol = None  # Deprecado, usar rol_id
         usuario.rol_id = rol_obj.id
+        # Si el nuevo rol principal estaba como adicional, deja de serlo
+        RolesService(db).quitar_rol_adicional_redundante(usuario.id, rol_obj.id)
 
     if datos.username is not None:
         # Verificar que el username no esté en uso por otro usuario
@@ -226,3 +230,83 @@ def eliminar_usuario(usuario_id: int, db: Session = Depends(get_db), current_use
     db.commit()
 
     return {"message": "Usuario eliminado"}
+
+
+# =============================================================================
+# ROLES ADICIONALES (solo permisos; el rol principal decide la identidad)
+# =============================================================================
+
+
+class RolResumen(BaseModel):
+    id: int
+    codigo: str
+    nombre: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RolesAdicionalesResponse(BaseModel):
+    usuario_id: int
+    rol_principal: Optional[RolResumen]
+    roles_adicionales: List[RolResumen]
+
+
+class RolesAdicionalesUpdate(BaseModel):
+    rol_ids: List[int]
+
+
+def _usuario_para_roles_adicionales(db: Session, usuario_id: int, current_user: Usuario) -> Usuario:
+    """Mismo guard que asignar el rol principal (PATCH /usuarios/{id}): rol principal
+    ADMIN o SUPERADMIN, y solo un SUPERADMIN toca a otro SUPERADMIN."""
+    if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(403, "No tienes permisos")
+
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(404, "Usuario no encontrado")
+
+    if usuario.rol_codigo == "SUPERADMIN" and current_user.rol_codigo != "SUPERADMIN":
+        raise HTTPException(403, "No puedes modificar un superadministrador")
+
+    return usuario
+
+
+def _roles_adicionales_response(usuario: Usuario, roles: List[Rol]) -> RolesAdicionalesResponse:
+    return RolesAdicionalesResponse(
+        usuario_id=usuario.id,
+        rol_principal=RolResumen.model_validate(usuario.rol_obj) if usuario.rol_obj else None,
+        roles_adicionales=[RolResumen.model_validate(r) for r in roles],
+    )
+
+
+@router.get("/usuarios/{usuario_id}/roles-adicionales", response_model=RolesAdicionalesResponse)
+def obtener_roles_adicionales(
+    usuario_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    """Rol principal y roles adicionales de un usuario (los adicionales solo suman permisos)"""
+    usuario = _usuario_para_roles_adicionales(db, usuario_id, current_user)
+    return _roles_adicionales_response(usuario, RolesService(db).obtener_roles_adicionales_usuario(usuario.id))
+
+
+@router.put("/usuarios/{usuario_id}/roles-adicionales", response_model=RolesAdicionalesResponse)
+def reemplazar_roles_adicionales(
+    usuario_id: int,
+    datos: RolesAdicionalesUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Reemplaza los roles adicionales de un usuario. Un rol adicional suma sus permisos base;
+    no se acepta SUPERADMIN ni el rol principal del usuario (400). Un reemplazo concurrente
+    que choca con otro devuelve 409.
+    """
+    usuario = _usuario_para_roles_adicionales(db, usuario_id, current_user)
+    try:
+        roles = RolesService(db).set_roles_adicionales_usuario(
+            usuario.id, datos.rol_ids, otorgado_por_id=current_user.id
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except ConflictoRolesAdicionales as e:
+        raise HTTPException(409, str(e))
+    return _roles_adicionales_response(usuario, roles)
