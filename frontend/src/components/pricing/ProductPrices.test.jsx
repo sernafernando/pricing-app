@@ -57,11 +57,35 @@ beforeEach(() => {
 });
 
 describe('ProductPrices', () => {
+  const LEGEND = 'El precio es del producto: cambiarlo afecta a todas sus publicaciones.';
+
   it('shows the product-wide legend while it loads and after', async () => {
     preciosAPI.obtenerProducto.mockReturnValue(new Promise(() => {}));
-    render(<ProductPrices productItemId={4101} />);
-    expect(screen.getByRole('note')).toHaveTextContent('El precio es del producto: cambiarlo afecta a todas sus publicaciones.');
+    const { unmount } = render(<ProductPrices productItemId={4101} />);
+    expect(screen.getByRole('note')).toHaveTextContent(LEGEND);
     expect(screen.getByRole('status')).toHaveTextContent('Cargando precios');
+    unmount();
+
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
+    render(<ProductPrices productItemId={4101} />);
+    await rowOf('Clásica');
+    expect(screen.getByRole('note')).toHaveTextContent(LEGEND);
+  });
+
+  it('keeps the legend when the read fails', async () => {
+    preciosAPI.obtenerProducto.mockRejectedValue(new Error('Network Error'));
+    render(<ProductPrices productItemId={4101} />);
+    await screen.findByRole('alert');
+    expect(screen.getByRole('note')).toHaveTextContent(LEGEND);
+  });
+
+  it.each([
+    ['a network error (no response)', new Error('Network Error')],
+    ['a validation error (array detail)', { response: { data: { detail: [{ msg: 'bad', loc: ['path', 'item_id'] }] } } }],
+  ])('shows the generic message on %s', async (_, error) => {
+    preciosAPI.obtenerProducto.mockRejectedValue(error);
+    render(<ProductPrices productItemId={4101} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los precios del producto.');
   });
 
   it('reads the product by item_id and shows each price with its markup', async () => {
