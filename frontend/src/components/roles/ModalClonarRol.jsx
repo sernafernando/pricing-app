@@ -2,6 +2,7 @@
  * Modal to clone `rol` into a new role (nuevo_codigo, nuevo_nombre, descripcion).
  * Controlled: the parent owns `datos` and the API call. Render it only while open.
  * `bloqueado` disables the submit while another save (the permissions matrix) is in flight.
+ * While `guardando`, Cancelar is disabled too, so the modal cannot vanish mid-request.
  */
 export default function ModalClonarRol({ rol, datos, onChange, guardando, bloqueado = false, onClonar, onCancelar }) {
   return (
@@ -59,6 +60,7 @@ export default function ModalClonarRol({ rol, datos, onChange, guardando, bloque
             </button>
             <button
               onClick={onCancelar}
+              disabled={guardando}
               className="btn-tesla ghost"
             >
               Cancelar

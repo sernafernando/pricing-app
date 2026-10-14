@@ -67,6 +67,9 @@ export default function PanelRoles() {
   const mensajeTimerRef = useRef(null);
   // Generation of the latest permissions load: an older load resolving late is ignored.
   const cargaPermisosRef = useRef(0);
+  // Latest roles list fetched. The reload after a matrix save reads it instead of the `roles` its click
+  // closed over: a role created meanwhile would otherwise be dropped from the matrix (locked column).
+  const rolesRef = useRef([]);
 
   useEffect(() => {
     cargarDatos();
@@ -124,6 +127,7 @@ export default function PanelRoles() {
         api.get('/permisos/catalogo')
       ]);
 
+      rolesRef.current = rolesRes.data;
       setRoles(rolesRes.data);
       setCatalogo(catalogoRes.data || {});
       const fallidos = await cargarPermisosRoles(rolesRes.data);
@@ -203,7 +207,7 @@ export default function PanelRoles() {
 
     let falloRecarga;
     try {
-      falloRecarga = (await cargarPermisosRoles(roles)).length > 0;
+      falloRecarga = (await cargarPermisosRoles(rolesRef.current)).length > 0;
     } catch (error) {
       console.error('Error recargando permisos de los roles:', error);
       falloRecarga = true;
