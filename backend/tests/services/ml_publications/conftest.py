@@ -84,6 +84,7 @@ def mlpub_pg(monkeypatch):
     from sqlalchemy.orm import sessionmaker
 
     from app.models import ml_publications as models
+    from app.models.promo_refresh_reactivation import PromoRefreshReactivation
     from tests.conftest import (
         POSTGRES_TEST_URL,
         _patch_pg_types_for_sqlite,
@@ -131,6 +132,8 @@ def mlpub_pg(monkeypatch):
         with ctx.begin_transaction(), Operations.context(ctx):
             for migration in migrations:
                 migration.upgrade()
+    # The reactivation queue (its own migration, 20261018) that `events_store.write_events` feeds.
+    PromoRefreshReactivation.__table__.create(bind=eng)
     monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=eng, autocommit=False, autoflush=False))
     try:
         yield eng

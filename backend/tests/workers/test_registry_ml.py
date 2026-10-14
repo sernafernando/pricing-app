@@ -33,6 +33,7 @@ class TestMlPublicationsRegistry:
             "ml_publications.missed_feeds",
             "ml_publications.sweep",
             "ml_publications.verify",
+            "ml_publications.promo_refresh",
             "ml_ads.ingest",
             "ml_billing.sweep",
         ]
@@ -43,8 +44,9 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[4] is ml_publications.missed_feeds
         assert registry.ML_PUBLICATIONS_REGISTRY[5] is ml_publications.sweep
         assert registry.ML_PUBLICATIONS_REGISTRY[6] is ml_publications.verify
-        assert registry.ML_PUBLICATIONS_REGISTRY[7] is ml_ads.ads
-        assert registry.ML_PUBLICATIONS_REGISTRY[8] is ml_billing.billing
+        assert registry.ML_PUBLICATIONS_REGISTRY[7].name == "ml_publications.promo_refresh"
+        assert registry.ML_PUBLICATIONS_REGISTRY[8] is ml_ads.ads
+        assert registry.ML_PUBLICATIONS_REGISTRY[9] is ml_billing.billing
 
     def test_intake_runs_every_fifteen_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[1]
@@ -94,5 +96,5 @@ class TestProcessIsolation:
         assert self._run(code) == (
             "['ml_publications.refresh', 'ml_publications.intake', 'ml_publications.relink', "
             "'ml_publications.scan', 'ml_publications.missed_feeds', 'ml_publications.sweep', "
-            "'ml_publications.verify', 'ml_ads.ingest', 'ml_billing.sweep'] True"
+            "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'ml_billing.sweep'] True"
         )
