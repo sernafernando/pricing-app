@@ -4,7 +4,7 @@
 
 ## Resumen ejecutivo
 
-En **Publicaciones ML**, la vista **Agrupado** ahora te deja elegir **cómo agrupar** las publicaciones, igual que en **Métricas ML**: por **Marca** (como hasta ahora), por **Categoría** o por **Subcategoría**.
+En **Publicaciones ML**, la vista **Agrupado** ahora te deja elegir **cómo agrupar** las publicaciones, igual que en **Métricas ML**: por **Marca** (como hasta ahora), **Categoría**, **Subcategoría**, **Tienda** o **PM**.
 
 Qué tenés que saber:
 
@@ -13,10 +13,11 @@ Qué tenés que saber:
 - **Al cambiar la agrupación, el árbol se vuelve a cargar cerrado.**
 - **Con familias** sigue funcionando con cualquier agrupación.
 - **La agrupación queda en el link.** Si compartís la dirección de la página o la recargás, se ve con la misma agrupación.
-- **Próximamente** también se va a poder agrupar por tienda y por PM.
+- **Por Tienda**, las tiendas que comparten la misma clave se ven juntas, en un solo grupo.
+- **Por PM**, si una marca y categoría tiene dos PMs, se cuenta una sola vez: en el PM de menor número, igual que en Métricas ML.
 
 ## Cómo se usa
 
 1. Abrí **Reportes → Publicaciones ML** y pasá a la vista **Agrupado**.
-2. En **Agrupar por**, elegí **Marca**, **Categoría** o **Subcategoría**.
+2. En **Agrupar por**, elegí **Marca**, **Categoría**, **Subcategoría**, **Tienda** o **PM**.
 3. Abrí los grupos del árbol para llegar a los productos y sus publicaciones.
