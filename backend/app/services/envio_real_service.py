@@ -134,16 +134,18 @@ def _active_mlas_by_item(db: Session, item_ids: Sequence[int]) -> dict[int, list
     The MLAs of the ACTIVE publications of each product, read as two plain columns in ONE statement.
 
     Loading `PublicacionML` entities builds every column of every publication (~24k objects, ~0.5 s on a
-    25k-publication store) to read `mla` and `activo`. The ids travel as one array parameter.
+    25k-publication store) to read `mla` and `activo`. On PostgreSQL the ids travel as one array parameter.
     """
     found: dict[int, list[str]] = {}
     # A read-only lookup: it must not flush the caller's pending objects as a side effect.
+    ids = list(item_ids)
+    if db.get_bind().dialect.name == "postgresql":
+        in_ids = PublicacionML.item_id == any_(literal(ids, ARRAY(Integer)))  # ONE array parameter, not N binds
+    else:
+        in_ids = PublicacionML.item_id.in_(ids)  # portable (SQLite in tests): expanding bind, still one statement
     with db.no_autoflush:
         rows = db.execute(
-            select(PublicacionML.item_id, PublicacionML.mla).where(
-                PublicacionML.item_id == any_(literal(list(item_ids), ARRAY(Integer))),
-                PublicacionML.activo.is_(True),
-            )
+            select(PublicacionML.item_id, PublicacionML.mla).where(in_ids, PublicacionML.activo.is_(True))
         ).all()
     for item_id, mla in rows:
         found.setdefault(item_id, []).append(mla)
