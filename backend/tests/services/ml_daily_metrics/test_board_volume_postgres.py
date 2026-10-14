@@ -283,8 +283,8 @@ class TestBoardOnVolume:
         print(f"board empty page: {len(emptied.statements)} statements, {elapsed_ms:.0f} ms")
 
         assert counts[10] == counts[50] == counts[200] == len(recorder.statements)
-        # The search text is looked up (+3: titles, sold ids, products; this one matches
-        # everything, so it bounds nothing). Clearing an
+        # The search text is looked up (up to +3: products, titles, sold ids; this one matches
+        # every product, so it stops after the first and bounds nothing). Clearing an
         # axis that HAS a filter (stores, brand, status here) reads the
         # pairs differently, so it materializes its own rows and members (CREATE +
         # ANALYZE each); an axis with no filter shares the unfiltered tables.

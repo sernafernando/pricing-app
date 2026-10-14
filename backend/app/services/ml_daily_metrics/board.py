@@ -718,12 +718,18 @@ class Board:
         def has(col: Any) -> Any:
             return func.lower(func.coalesce(col, "")).contains(needle, autoescape=True)
 
+        # Cheapest first, and stop at the first one too broad to bound the read:
+        # the sold items are the only lookup that scans a big table (~30 ms).
+        products = self._small(select(P.item_id).where(or_(has(P.descripcion), has(P.codigo), has(P.marca))).distinct())
+        if products is None:
+            return []
         titles = self._small(
             select(M.mlp_publicationID).where(M.mlp_publicationID.isnot(None), has(M.mlp_itemTitle)).distinct()
         )
+        if titles is None:
+            return []
         ids = self._small(select(MlOrderItemOps.item_id).where(has(MlOrderItemOps.item_id)).distinct())
-        products = self._small(select(P.item_id).where(or_(has(P.descripcion), has(P.codigo), has(P.marca))).distinct())
-        if titles is None or ids is None or products is None:
+        if ids is None:
             return []
         mlas = sorted({*titles, *ids})
         return [
