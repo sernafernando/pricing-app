@@ -57,6 +57,14 @@ describe('VariationRows', () => {
     expect(within(first).getByText('14')).toBeInTheDocument();
   });
 
+  it('leaves the ERP stock to the publication row: a variation sub-row shows none', async () => {
+    mount();
+    await screen.findByText('Router Archer AX55 negro');
+    const index = buildColumns({ eventsEnabled: false, canSeeMargin: true }).findIndex((c) => c.key === 'stock_erp');
+    expect(index).toBeGreaterThan(0);
+    expect(rowOf('Router Archer AX55 negro').children[index]).toBeEmptyDOMElement();
+  });
+
   it('highlights a negative markup, and only that one', async () => {
     mount();
     await screen.findByText('Router Archer AX55 negro');

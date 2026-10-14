@@ -2,6 +2,7 @@ import PublicationCell from './PublicationCell';
 import PublicationStatusPill from './PublicationStatusPill';
 import PriceCell from './PriceCell';
 import StockCell from './StockCell';
+import ErpStockCell from './ErpStockCell';
 import LinkBadge from './LinkBadge';
 import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
@@ -24,6 +25,7 @@ export const DEFAULT_DIRECTION = {
   titulo: 'asc',
   precio: 'asc',
   stock_full: 'desc',
+  stock_erp: 'desc',
   // Worst variation first: the most negative markup on top.
   markup: 'asc',
 };
@@ -128,7 +130,29 @@ export function buildColumns({
     ...(canSeeSales && canSeeMargin
       ? [{ key: 'markup_30d', header: 'Markup 30d', width: 120, align: 'right', render: (item) => <Markup30dCell sales={item.sales_30d} /> }]
       : []),
-    { key: 'stock_full', header: 'Stock', width: 140, sortable: true, align: 'right', render: (item) => <StockCell stock={item.stock} /> },
+    {
+      // ML's stock, from ML: the figure is what is available, the sort is the Full stock (the header says so).
+      key: 'stock_full',
+      header: (
+        <>
+          Stock ML <span className={styles.sortHint}>orden Full</span>
+        </>
+      ),
+      label: 'Stock ML',
+      width: 140,
+      sortable: true,
+      align: 'right',
+      render: (item) => <StockCell stock={item.stock} />,
+    },
+    {
+      // The ERP's stock of the linked product, from the ERP: never merged with ML's.
+      key: 'stock_erp',
+      header: 'Stock ERP',
+      width: 120,
+      sortable: true,
+      align: 'right',
+      render: (item) => <ErpStockCell erpStock={item.erp_stock} />,
+    },
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },
     { key: 'actividad', header: 'Última actividad', width: 150, sortable: true, render: (item) => <ActivityCell item={item} /> },

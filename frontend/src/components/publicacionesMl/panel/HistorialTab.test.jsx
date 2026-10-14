@@ -50,7 +50,7 @@ describe('the business fields', () => {
   it('says which resource changed and when', async () => {
     renderTab();
     const stock = (await screen.findByText('Stock por ubicación')).closest('li');
-    expect(within(stock).getByText('Stock')).toBeInTheDocument();
+    expect(within(stock).getByText('Stock ML')).toBeInTheDocument();
     expect(within(stock).getByText(/\d{2}\/\d{2}\/\d{4}/)).toBeInTheDocument();
     expect(stock).toHaveTextContent('24');
     expect(stock).toHaveTextContent('20');

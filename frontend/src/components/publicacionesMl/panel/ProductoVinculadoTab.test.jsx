@@ -29,6 +29,19 @@ describe('the linked product', () => {
     expect(valueOf('Producto', 'Subcategoría')).toHaveTextContent('Wi-Fi 6');
   });
 
+  it('shows the product\'s ERP stock (depósito 1) apart from the ML stock, and "—" when unknown', () => {
+    renderTab({ ...LINKED, product: { ...LINKED.product, stock: 12 } });
+    expect(valueOf('Producto', 'Stock ERP (depósito 1)')).toHaveTextContent('12');
+  });
+
+  it('keeps a real ERP zero as 0 and an unknown ERP stock as "—"', () => {
+    const { unmount } = renderTab({ ...LINKED, product: { ...LINKED.product, stock: 0 } });
+    expect(valueOf('Producto', 'Stock ERP (depósito 1)')).toHaveTextContent('0');
+    unmount();
+    renderTab();
+    expect(valueOf('Producto', 'Stock ERP (depósito 1)')).toHaveTextContent('—');
+  });
+
   it('shows the list prices by name, and "—" for a list with no price', () => {
     renderTab();
     expect(valueOf('Precios de lista', 'Clásica')).toHaveTextContent('98.500,50');

@@ -17,7 +17,7 @@ const RESOURCE_LABELS = {
   prices: 'Precios',
   sale_price: 'Precio de venta',
   promotions: 'Promociones',
-  stock: 'Stock',
+  stock: 'Stock ML',
   product_link: 'Producto vinculado',
   competition: 'Competencia de catálogo',
   user_product: 'Producto de usuario',

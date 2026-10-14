@@ -230,6 +230,43 @@ describe('sorting and paging', () => {
   });
 });
 
+describe('ML stock and ERP stock apart', () => {
+  const cellUnder = (header, itemId) => {
+    const index = screen.getAllByRole('columnheader').findIndex((th) => header.test(th.textContent));
+    return screen.getByText(itemId).closest('tr').children[index];
+  };
+
+  it('shows the ERP stock in its own column, "—" when the publication has no product', async () => {
+    respond({
+      ...ITEMS_RESPONSE,
+      facets: FACETS,
+      items: ITEMS.map((item, i) => ({ ...item, erp_stock: { quantity: i === 0 ? 12 : null } })),
+    });
+    await page();
+    expect(screen.getByRole('columnheader', { name: /^Stock ML/ })).toBeInTheDocument();
+    expect(cellUnder(/^Stock ERP/, 'MLA1100000001')).toHaveTextContent('12');
+    expect(cellUnder(/^Stock ML/, 'MLA1100000001')).toHaveTextContent('34');
+    expect(cellUnder(/^Stock ERP/, ITEMS[1].item_id)).toHaveTextContent('—');
+  });
+
+  it('the ML column says it sorts by the Full stock, and the ERP column sorts by ERP stock, highest first', async () => {
+    await page();
+    expect(screen.getByRole('columnheader', { name: /^Stock ML/ })).toHaveTextContent(/orden Full/);
+    await userEvent.click(screen.getByRole('button', { name: /^Stock ERP/ }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_erp', dir: 'desc' }));
+  });
+
+  it('offers "Sin stock ERP" apart from the ML stock chips, with its count', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, stock: { ...FACETS.stock, erp_sin_stock: 9 } } });
+    await page();
+    const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
+    expect(within(stock).getByRole('button', { name: /Sin stock ML.*14/ })).toBeInTheDocument();
+    expect(within(stock).getByRole('button', { name: /Full sin stock.*6/ })).toBeInTheDocument();
+    await userEvent.click(within(stock).getByRole('button', { name: /Sin stock ERP.*9/ }));
+    await waitFor(() => expect(lastParams().stock).toBe('erp_sin_stock'));
+  });
+});
+
 describe('page size', () => {
   it('comes from the URL, so a reload keeps the rows per page and the page', async () => {
     await page('/ml-publicaciones?limite=100&pagina=2');

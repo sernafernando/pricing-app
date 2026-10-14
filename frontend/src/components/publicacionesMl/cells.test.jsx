@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import PriceCell from './PriceCell';
 import StockCell from './StockCell';
+import ErpStockCell from './ErpStockCell';
 import LinkBadge from './LinkBadge';
 import LastEventCell from './LastEventCell';
 import PublicationStatusPill from './PublicationStatusPill';
@@ -35,6 +36,27 @@ describe('PriceCell', () => {
 
   it('renders "—" when there is no amount', () => {
     render(<PriceCell price={EMPTY.price} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+});
+
+describe('ErpStockCell', () => {
+  it('shows the ERP quantity of the linked product', () => {
+    render(<ErpStockCell erpStock={{ quantity: 12 }} />);
+    expect(screen.getByText('12')).toBeInTheDocument();
+  });
+
+  it('keeps a real zero (or less) as the figure and marks it as out of ERP stock', () => {
+    render(<ErpStockCell erpStock={{ quantity: 0 }} />);
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.getByText('Sin stock ERP')).toBeInTheDocument();
+  });
+
+  it('renders "—" without a linked product, and for a backend that does not send it yet', () => {
+    const { unmount } = render(<ErpStockCell erpStock={{ quantity: null }} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+    unmount();
+    render(<ErpStockCell erpStock={undefined} />);
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 });

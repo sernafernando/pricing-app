@@ -1,6 +1,6 @@
 import { getPublicationTypeLabel } from '../../../constants/mlPublicationTypes';
 import cellStyles from '../cells.module.css';
-import { amount, date, orNull } from './format';
+import { amount, count, date, orNull } from './format';
 import { Field, Fields, Section } from './PanelParts';
 import { LINK_STATE_LABELS, label } from './labels';
 import styles from './panel.module.css';
@@ -20,6 +20,7 @@ function ProductSection({ product }) {
         <Field label="Marca">{orNull(product.marca)}</Field>
         <Field label="Categoría">{orNull(product.categoria)}</Field>
         <Field label="Subcategoría">{orNull(product.subcategoria)}</Field>
+        <Field label="Stock ERP (depósito 1)">{count(product.stock)}</Field>
       </Fields>
     </Section>
   );
