@@ -21,7 +21,8 @@ Rules worth knowing before reading the code:
 * Families are optional (`familias`, off by default). With them on, a product that has a family of two or more
   publications stops being a leaf; opening it lists those families as nodes, and the publications that share their
   family with no other publication of the product stay as `item` nodes (an MLA is not a family of one).
-* The statement count is fixed: one page query and one count of the level, whatever the number of nodes.
+* The statement count is fixed whatever the number of nodes: one page query, which carries the count of the level in
+  a window column; a second, count-only statement runs only when the page is empty (an offset past the end).
 * With a `MarkupQuery` (the caller may see margins) each node also carries `negative_count`, `markup_min` and
   `markup_max` (owner decision 7: no average, no Ads sum). They are aggregated in Python from P6's
   computation (`compute_markups`: one inputs pass and one shipping batch, Ads applied when asked) over the
@@ -104,6 +105,21 @@ class GroupsPage:
     ads_failed: bool = False  # the Ads provider raised: the figures are the plain markup
 
 
+def _nodes_in_level() -> Any:
+    """The number of nodes of the level, as a column of its page query: a window over the grouped rows is computed
+    before `LIMIT`/`OFFSET` cut the page, so every row of the page carries it and no second pass over the base select
+    is needed to count."""
+    return func.count().over().label("nodes_in_level")
+
+
+def _total(db: Session, page: list[Any], key: Any) -> int:
+    """Nodes of the level: read off the page's rows, or counted on its own when the page is empty (an offset past
+    the end carries no row to read it from)."""
+    if page:
+        return page[0][-1]
+    return db.execute(select(func.count(func.distinct(key)))).scalar_one()
+
+
 def _dimensions() -> dict[str, Dimension]:
     return {
         name: dimension_of(
@@ -175,11 +191,15 @@ def _group_level(db: Session, f: PublicationFilter, path: list[str], level: str,
     shown = func.min(func.trim(rows.c.t).collate("C"))
     ordered = (rows.c.k == NO_GROUP, func.lower(shown), rows.c.k)  # "Sin ..." last, then by name
     page = db.execute(
-        select(rows.c.k, shown, func.count()).group_by(rows.c.k).order_by(*ordered).limit(limit).offset(offset)
+        select(rows.c.k, shown, func.count(), _nodes_in_level())
+        .group_by(rows.c.k)
+        .order_by(*ordered)
+        .limit(limit)
+        .offset(offset)
     ).all()
-    total = db.execute(select(func.count(func.distinct(rows.c.k)))).scalar_one()
+    total = _total(db, page, rows.c.k)
     nodes = []
-    for raw, label, count in page:
+    for raw, label, count, _total_nodes in page:
         key = _wire_key(level, raw)
         nodes.append(Node(level, key, label, count, False, _params(path, level, key)))
     return GroupsPage(level, nodes, total)
@@ -240,13 +260,13 @@ def _products(
         label_c, code_c, pid_c = rows.c.t, rows.c.codigo, rows.c.pid
     key_c = source.c.k
     page = db.execute(
-        select(key_c, func.max(label_c), func.max(code_c), func.max(pid_c), count, shared)
+        select(key_c, func.max(label_c), func.max(code_c), func.max(pid_c), count, shared, _nodes_in_level())
         .group_by(key_c)
         .order_by(key_c == NO_GROUP, func.lower(func.max(label_c)), key_c)
         .limit(limit)
         .offset(offset)
     ).all()
-    total = db.execute(select(func.count(func.distinct(rows.c.k)))).scalar_one()
+    total = _total(db, page, rows.c.k)
     nodes = [
         Node(
             KIND_PRODUCT,
@@ -258,7 +278,7 @@ def _products(
             producto_item_id=pid,
             codigo=codigo,
         )
-        for key, label, codigo, pid, n, has_family in page
+        for key, label, codigo, pid, n, has_family, _total_nodes in page
     ]
     return GroupsPage(KIND_PRODUCT, nodes, total)
 
@@ -283,15 +303,15 @@ def _families(db: Session, f: PublicationFilter, path: list[str], limit: int, of
         else_=func.coalesce(func.min(rows.c.title), func.min(rows.c.item_id)),
     )
     page = db.execute(
-        select(rows.c.fk, members, func.min(rows.c.item_id), label)
+        select(rows.c.fk, members, func.min(rows.c.item_id), label, _nodes_in_level())
         .group_by(rows.c.fk)
         .order_by(members < FAMILY_MIN_SIZE, func.lower(label), rows.c.fk)  # families first, then single MLAs
         .limit(limit)
         .offset(offset)
     ).all()
-    total = db.execute(select(func.count(func.distinct(rows.c.fk)))).scalar_one()
+    total = _total(db, page, rows.c.fk)
     nodes = []
-    for key, count, item_id, name in page:
+    for key, count, item_id, name, _total_nodes in page:
         if count >= FAMILY_MIN_SIZE:
             # two or more rows share one key only when it is a family id: the fallback key (the item id) is unique and
             # the base select never repeats a publication, so `int(key)` is safe

@@ -402,11 +402,31 @@ class TestStatementCount:
             seed.add_item(conn, f"MLC{n:04d}", title="t")
             seed.add_link(conn, f"MLC{n:04d}", 2000 + n)
         many = self.count_statements(env, lambda: tree(db, "TP-LINK", "REDES", "10"))
-        assert few == many and many <= 2  # one page query and one count
+        assert few == many and many == 1  # the page query carries the count of the level
         assert len(tree(db, "TP-LINK", "REDES", "10").nodes) == 100
 
     def test_every_level_costs_the_same_fixed_number_of_statements(self, env, conn, db) -> None:  # noqa: F811
         seed_catalog(conn)
         paths = [(), ("TP-LINK",), ("TP-LINK", "REDES"), ("TP-LINK", "REDES", "10"), ("TP-LINK", "REDES", "10", "70")]
         counts = {path: self.count_statements(env, lambda p=path: tree(db, *p, familias=True)) for path in paths}
-        assert set(counts.values()) == {2}, counts
+        assert set(counts.values()) == {1}, counts
+
+    def test_a_page_past_the_end_still_reports_the_total_of_the_level(self, env, conn, db) -> None:  # noqa: F811
+        """The total comes with the rows of the page; an empty page has none, so it is counted on its own."""
+        seed_catalog(conn)
+        whole = tree(db)
+        past = groups.list_groups(db, parse_filter(), [], offset=whole.total + 5)
+        assert past.nodes == [] and past.total == whole.total > 0
+        assert self.count_statements(env, lambda: groups.list_groups(db, parse_filter(), [], offset=50)) == 2
+
+    @pytest.mark.parametrize("path", [(), ("TP-LINK",), ("TP-LINK", "REDES", "10")])
+    def test_every_page_of_a_level_reports_the_number_of_nodes_of_the_whole_level(self, conn, db, path) -> None:  # noqa: F811
+        seed_catalog(conn)
+        every = groups.list_groups(db, parse_filter(), list(path), limit=100).nodes
+        assert every
+        seen: list[str] = []
+        for offset in range(0, len(every) + 1, 2):
+            page = groups.list_groups(db, parse_filter(), list(path), limit=2, offset=offset)
+            seen += [node.key for node in page.nodes]
+            assert page.total == len(every)
+        assert seen == [node.key for node in every]

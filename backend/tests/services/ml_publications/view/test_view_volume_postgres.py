@@ -401,7 +401,7 @@ class TestGroupsVolume:
         finally:
             event.remove(session.get_bind(), "before_cursor_execute", record)
         print(f"\nstatements per level: {counts}")
-        assert set(counts.values()) == {2}
+        assert set(counts.values()) == {1}
 
     def test_timings(self, session) -> None:
         path = self.deepest(session)
