@@ -93,8 +93,11 @@ def test_with_the_flag_true_the_current_set_is_scheduled(scheduled, monkeypatch)
     assert sorted(scheduled) == sorted(TASK_FACTORIES)
 
 
-def test_by_default_the_current_set_is_scheduled(scheduled) -> None:
-    assert settings.BACKGROUND_TASKS_ENABLED is True
+def test_by_default_the_current_set_is_scheduled(scheduled, monkeypatch) -> None:
+    # The declared default, whatever the local environment sets.
+    monkeypatch.setattr(
+        settings, "BACKGROUND_TASKS_ENABLED", type(settings).model_fields["BACKGROUND_TASKS_ENABLED"].default
+    )
     run_lifespan()
     assert sorted(scheduled) == sorted(TASK_FACTORIES)
 
