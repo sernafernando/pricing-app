@@ -35,7 +35,7 @@ from app.models.ml_publications import (
     MlUserProductStock,
 )
 from app.models.producto import ProductoERP
-from app.services.ml_daily_metrics.groups import NO_GROUP
+from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.events import EVENT_TYPES as real_event_types
 
 MAX_Q_LENGTH = 100
@@ -92,6 +92,10 @@ class PublicationFilter:
     # by `listing.resolve_pm_pairs`.
     # `None` while unresolved; an empty tuple means the PMs own no pair, which matches nothing.
     pm_pairs: Optional[tuple[tuple[str, str], ...]] = None
+    # A PM node of the Agrupado tree: the products whose (marca, categoria) pair the tree gives to this user id
+    # (the lowest id of the pair, `pm_pairs`), or `NO_GROUP` for the products with no PM. Unlike `pms`, a pair listed
+    # for several PMs belongs to exactly ONE of them, so the node and its publications agree.
+    pm_group: Optional[str] = None
     family_id: Optional[int] = None
     # A node of the Agrupado tree (P7a): one linked product, or the publications with no product at all.
     producto: Optional[int] = None
@@ -185,6 +189,17 @@ def _producto(raw: Optional[str]) -> Optional[int]:
     return _integer("producto", tokens[0])
 
 
+def _pm_group(raw: Optional[str]) -> Optional[str]:
+    tokens = _tokens(raw, "pm_grupo")
+    if not tokens:
+        return None
+    if len(tokens) > 1:
+        raise FilterError("pm_grupo", "a single user id, or __none__")
+    if tokens[0] == NO_GROUP:
+        return NO_GROUP
+    return str(_integer("pm_grupo", tokens[0]))
+
+
 def _family(raw: Optional[str]) -> Optional[int]:
     tokens = _tokens(raw, "familia")
     if not tokens:
@@ -215,6 +230,7 @@ def parse_filter(
     categorias: Optional[str] = None,
     subcategorias: Optional[str] = None,
     pms: Optional[str] = None,
+    pm_grupo: Optional[str] = None,
     familia: Optional[str] = None,
     producto: Optional[str] = None,
     sin_producto: Optional[bool] = None,
@@ -240,6 +256,7 @@ def parse_filter(
         subcategorias=subcategorias_,
         no_subcategoria=no_subcategoria,
         pms=_integers("pms", pms),
+        pm_group=_pm_group(pm_grupo),
         family_id=_family(familia),
         producto=_producto(producto),
         sin_producto=bool(sin_producto),
@@ -540,6 +557,19 @@ def _pm(f: PublicationFilter) -> ColumnElement:
     return tuple_(normalized_text(T.p.marca), normalized_text(T.p.categoria)).in_(list(f.pm_pairs))
 
 
+def _pm_group_in(group: str) -> ColumnElement:
+    """`pm_grupo`: the rule of the tree's PM level (`ml_daily_metrics.groups.pm_pairs`, the very same subquery), so
+    a PM node's filter selects exactly the publications the node counts."""
+    pairs = pm_pairs("pm_group_pairs")
+    owns = select(1).where(
+        pairs.c.marca == func.upper(T.p.marca),
+        pairs.c.categoria == func.upper(T.p.categoria),
+    )
+    if group == NO_GROUP:
+        return ~exists(owns)
+    return exists(owns.where(pairs.c.usuario_id == int(group)))
+
+
 def _event(f: PublicationFilter) -> ColumnElement:
     where = [T.e.item_id == T.i.item_id, T.e.event_type.in_(f.event_types)]
     if f.event_since is not None:
@@ -570,6 +600,8 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
         where.append(T.p.item_id.is_(None))
     if f.pms:
         where.append(_pm(f))
+    if f.pm_group is not None:
+        where.append(_pm_group_in(f.pm_group))
     if f.family_id is not None:
         where.append(T.i.family_id == f.family_id)
     if f.listing and skip != "listing":
