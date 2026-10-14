@@ -27,9 +27,9 @@
  ],
  "filters": [
   "5e83f8362ed730b5 SAVEPOINT sa_savepoint_3",
-  "5d45bbc3061b6946 SELECT DISTINCT tb_mercadolibre_items_publicados.mlp_publicationid FRO",
-  "c727b60e272fc036 SELECT DISTINCT ml_order_items_ops.item_id FROM ml_order_items_ops WHE",
   "74e6990eff53b7b5 SELECT DISTINCT productos_erp.item_id FROM productos_erp WHERE (lower(",
+  "946b767afc301598 SELECT DISTINCT tb_mercadolibre_items_publicados.mlp_publicationid FRO",
+  "c727b60e272fc036 SELECT DISTINCT ml_order_items_ops.item_id FROM ml_order_items_ops WHE",
   "64bec8f1ce3d06b5 CREATE TEMPORARY TABLE board_touched_groups ON COMMIT DROP AS SELECT C",
   "85301c7b3d1fad4c ANALYZE board_touched_groups (group_key)",
   "c21df107c5f3a5db CREATE TEMPORARY TABLE board_lines ON COMMIT DROP AS SELECT lines.prod",
