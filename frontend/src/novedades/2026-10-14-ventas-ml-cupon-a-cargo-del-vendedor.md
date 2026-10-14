@@ -12,6 +12,7 @@ Qué tenés que saber:
 - **La venta se sigue declarando a precio completo**, sin descontar el cupón, como pide Mercado Libre para facturar. El IVA débito y la base de IIBB se calculan sobre el precio completo.
 - **El desglose vuelve a cerrar.** Esas ventas dejan de figurar como "no reconcilia".
 - **El Total Gauss y el neto ahora se calculan** en esas ventas (antes quedaban sin resolver). El cupón los reduce por su monto completo, porque no tiene IVA.
+- **Ventas devueltas con cupón: neto 0.** Antes mostraban un neto negativo igual al cupón (por ejemplo, **-20.000**) aunque Mercado Libre había devuelto todo. Ahora muestran neto **0**, como cualquier devolución completa, y siguen marcadas como **venta con devolución**.
 - **Las ventas anteriores se recalculan solas**, dentro de la hora siguiente a la actualización. Mientras tanto, alguna puede seguir mostrando el aviso.
 
 ## Cómo se usa
