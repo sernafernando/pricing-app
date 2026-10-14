@@ -18,6 +18,7 @@ from sqlalchemy import event, update
 
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
+from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_publications.view import sales_summary
 from tests.services.ml_daily_metrics.conftest import board_pg, board_pg_engine  # noqa: F401
 from tests.services.ml_daily_metrics.test_board_sale_lines_postgres import populate_sale_lines
@@ -88,6 +89,13 @@ class TestSummary:
             accredited=datetime(2026, 9, 1, 2, 59, tzinfo=timezone.utc),
         )
         assert summary(board_pg, ["MLA1"])["MLA1"].units == 1
+
+    def test_an_exact_half_tie_rounds_like_the_board_displays_it(self, board_pg) -> None:
+        """1.15 % exactly: the board shows `round_pp` (the float's round, 1.1 -- 1.15 is 1.1499... as a float), not
+        the Decimal's half-even 1.2. The same sales must read the same number on both screens."""
+        priced(board_pg, 1, [("MLA1", None, 1)], tg="1.15", costo="100")
+        markup = summary(board_pg, ["MLA1"])["MLA1"].markup
+        assert markup == kpi_strip.round_pp(board.markup_of(Decimal("1.15"), Decimal("100"))) == 1.1
 
     def test_no_cost_means_no_markup_never_zero(self, board_pg) -> None:
         priced(board_pg, 1, [("MLA1", None, 2)], tg="10", costo="0")

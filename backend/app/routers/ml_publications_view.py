@@ -596,8 +596,7 @@ def _attach_sales(items: list[dict[str, Any]], summaries: dict[str, Any], with_m
             "gross": float(found.gross) if found else 0.0,
         }
         if with_markup:
-            markup = found.markup if found else None
-            out["markup"] = None if markup is None else float(markup)
+            out["markup"] = found.markup if found else None
         item["sales_30d"] = out
 
 

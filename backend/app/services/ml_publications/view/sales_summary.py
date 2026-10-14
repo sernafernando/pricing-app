@@ -19,7 +19,7 @@ from typing import Dict, Optional, Sequence, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.services.ml_daily_metrics import board, sales
+from app.services.ml_daily_metrics import board, kpi_strip, sales
 
 WINDOW_DAYS = 30
 
@@ -32,10 +32,10 @@ class SalesSummary:
     mcosto: Decimal
 
     @property
-    def markup(self) -> Optional[Decimal]:
-        """Percent, one decimal (what the board shows); `None` without cost."""
-        value = board.markup_of(self.mtg, self.mcosto)
-        return None if value is None else value.quantize(Decimal("0.1"))
+    def markup(self) -> Optional[float]:
+        """Percent, one decimal, rounded exactly as the board displays it (`kpi_strip.round_pp`); `None` without
+        cost."""
+        return kpi_strip.round_pp(board.markup_of(self.mtg, self.mcosto))
 
 
 def window(today: date) -> Tuple[date, date]:
