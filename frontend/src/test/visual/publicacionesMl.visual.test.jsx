@@ -252,6 +252,11 @@ const renderMarginPage = async ({ width, height, theme }) => {
     </MemoryRouter>,
   );
   await expect.element(screen.getByText('MLA1100000005')).toBeVisible();
+  // The worst-variation column starts hidden when "Markup 30d" replaces it: the picker turns it on.
+  await screen.getByRole('button', { name: /Columnas/ }).click();
+  await screen.getByRole('checkbox', { name: 'Markup', exact: true }).click();
+  await screen.getByRole('button', { name: /Columnas/ }).click();
+  await expect.element(screen.getByRole('columnheader', { name: /peor variación/ })).toBeVisible();
   return screen;
 };
 
