@@ -21,10 +21,10 @@ One `type == "coupon"` charge IS the seller's money, though: `coupon_fee`,
 the part of the buyer's coupon the seller funds (measured 2026-10-14: in
 692 of 961 approved payments carrying it, it equals the buyer's
 `coupon_code`). ML deducts it from `net_received_amount`. It stays OUTSIDE
-`is_seller_charge` on purpose -- that predicate also feeds the refund
-identity of `payment_effective_net`, verified without it, and `neto` must
-not move -- and is recognised on its own by `is_seller_coupon_fee`, so the
-panel and the IVA decomposition can show the deduction ML already made.
+`is_seller_charge` -- that predicate also decides which charges are LINES and
+which IVA components are fees/withholdings -- and is recognised on its own by
+`is_seller_coupon_fee`: the panel and the IVA decomposition show it, and
+`payment_effective_net` adds back its refund (`coupon_fees`).
 
 ## Net of a sale
 
@@ -44,6 +44,11 @@ verified 20/20 against real data:
 means the effective, POST-RETURN net of a payment is:
 
     net_received_amount - transaction_amount_refunded + sum(refunded of seller charges)
+
+where "seller charges" here also covers the seller-funded `coupon_fee`
+(below): ML deducted it from the net, so its refund comes back too. Without
+it a fully returned sale read a Neto of exactly -coupon_fee instead of zero
+(payment 183064613761: 400309.13 - 499999 + 79689.87 = -20000).
 
 which is `net_received_amount` unchanged when nothing was refunded, and
 collapses to exactly ZERO for a payment refunded in full -- one formula,
@@ -869,6 +874,10 @@ def is_seller_coupon_fee(charge_type: Optional[str], charge_name: Optional[str])
     return charge_type == "coupon" and charge_name == _SELLER_COUPON_FEE_NAME
 
 
+def _coupon_fees(payment_charges: Sequence[MlPaymentCharge]) -> List[MlPaymentCharge]:
+    return [c for c in payment_charges if is_seller_coupon_fee(c.type, c.name)]
+
+
 def net_amount(charge: MlPaymentCharge) -> Decimal:
     """A charge's amount net of whatever ML already refunded on it."""
     amount = Decimal(str(charge.amount)) if charge.amount is not None else Decimal("0")
@@ -998,7 +1007,12 @@ def bonificacion_bruta_by_order_ids(db: Session, order_ids: Sequence[int]) -> Di
     }
 
 
-def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
+def payment_effective_net(
+    payment: MlPaymentOps,
+    seller_charges: Sequence[MlPaymentCharge],
+    *,
+    coupon_fees: Sequence[MlPaymentCharge],
+) -> Decimal:
     """`net_received_amount`, corrected for whatever was refunded -- see
     module docstring -- PLUS the non-refunded amount of any IIBB SIRTAC
     withholding charge, which is a recoverable tax credit the seller gets
@@ -1007,7 +1021,12 @@ def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaym
     whatever SIRTAC survived the refund. Every caller of this function
     (`compute_neto_by_order_ids`, `compute_breakdown`, `descomponer_neto`)
     shares it, which is what keeps the three Neto paths agreeing by
-    construction rather than by a test alone."""
+    construction rather than by a test alone.
+
+    `coupon_fees` (the payment's `is_seller_coupon_fee` charges) only matter
+    on a refund: ML deducted them from the net, so their refunded share is
+    added back exactly like a seller charge's. Keyword-only and required so
+    no caller can silently leave them out."""
     net = Decimal(str(payment.net_received_amount)) if payment.net_received_amount is not None else Decimal("0")
     refunded_total = (
         Decimal(str(payment.transaction_amount_refunded))
@@ -1017,7 +1036,7 @@ def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaym
     if refunded_total == 0:
         return net + recoverable_withholding_total(seller_charges)
     seller_refunded = sum(
-        (Decimal(str(c.refunded)) if c.refunded is not None else Decimal("0")) for c in seller_charges
+        (Decimal(str(c.refunded)) if c.refunded is not None else Decimal("0")) for c in (*seller_charges, *coupon_fees)
     )
     return net - refunded_total + seller_refunded + recoverable_withholding_total(seller_charges)
 
@@ -1082,7 +1101,7 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
-            neto += payment_effective_net(payment, seller_charges)
+            neto += payment_effective_net(payment, seller_charges, coupon_fees=_coupon_fees(payment_charges))
         result[order_id] = neto + bonificacion_by_order.get(order_id, Decimal("0"))
 
     return result
@@ -1133,7 +1152,10 @@ def compute_neto_desglose_by_order_ids(
             # `payment_effective_net` already carries the SIRTAC add-back
             # (D2); subtracting it back off gives exactly what ML deposited.
             recuperable_here = recoverable_withholding_total(seller_charges)
-            depositado += payment_effective_net(payment, seller_charges) - recuperable_here
+            depositado += (
+                payment_effective_net(payment, seller_charges, coupon_fees=_coupon_fees(payment_charges))
+                - recuperable_here
+            )
             recuperable += recuperable_here
         result[order_id] = (depositado, recuperable)
 
@@ -1187,7 +1209,7 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     for payment in relevant_payments:
         payment_charges = charges_by_payment.get(payment.payment_id, [])
         seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
-        neto += payment_effective_net(payment, seller_charges)
+        neto += payment_effective_net(payment, seller_charges, coupon_fees=_coupon_fees(payment_charges))
         retenciones_recuperables_total += recoverable_withholding_total(seller_charges)
 
     # ventas-ml-bonificacion-en-neto: only the orders whose payments count,

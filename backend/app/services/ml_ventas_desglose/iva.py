@@ -322,9 +322,10 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             order_seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
-            neto += payment_effective_net(payment, order_seller_charges)
+            order_coupon_fees = [c for c in payment_charges if is_seller_coupon_fee(c.type, c.name)]
+            neto += payment_effective_net(payment, order_seller_charges, coupon_fees=order_coupon_fees)
             seller_charges.extend(order_seller_charges)
-            coupon_fees.extend(c for c in payment_charges if is_seller_coupon_fee(c.type, c.name))
+            coupon_fees.extend(order_coupon_fees)
 
         componentes: List[ComponenteIVA] = []
         razones: List[str] = []

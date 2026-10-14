@@ -21,7 +21,11 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.ml_ventas_desglose.breakdown_service import compute_breakdown, compute_neto_by_order_ids
+from app.services.ml_ventas_desglose.breakdown_service import (
+    compute_breakdown,
+    compute_neto_by_order_ids,
+    compute_neto_desglose_by_order_ids,
+)
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 
 from ._coupon_fee_capture import (
@@ -166,25 +170,35 @@ class TestAMediatedSaleClosesLikeAnApprovedOne:
 
 
 @pytest.mark.parametrize(
-    ("payment_id", "neto", "diferencia"),
+    ("payment_id", "diferencia"),
     [
-        # Pinned to what main computed for these orders BEFORE the coupon
-        # change -- the change must not move a single figure of a refunded sale.
-        #
-        # The negative `neto` (exactly -coupon_fee) is PRE-EXISTING and NOT
-        # touched here: `payment_effective_net` adds back only the refunds of
-        # `is_seller_charge` charges, and `coupon_fee` is not one, so its
-        # refund is missing from the identity. Pinned so a fix there is a
-        # deliberate, visible change.
-        (REFUNDED_FINANCING_COUPON_FEE, Decimal("-20000.00"), Decimal("-519999.00")),
-        (REFUNDED_COUPON_FEE_REBATE, Decimal("-1579.95"), Decimal("-34494.95")),
+        (REFUNDED_FINANCING_COUPON_FEE, Decimal("-499999.00")),
+        (REFUNDED_COUPON_FEE_REBATE, Decimal("-32915.00")),
     ],
 )
-class TestARefundedSaleIsUnchanged:
-    """Every captured refunded payment refunds its `coupon_fee` in full, so its
-    net amount is zero and it adds no component and no panel line."""
+class TestARefundedSaleNetsZero:
+    """Every captured refunded payment refunds its `coupon_fee` in full. ML
+    deducted the fee from `net_received_amount`, so its refund has to be added
+    back like any other seller charge's: before, these sales read a Neto of
+    exactly -coupon_fee (-20000.00 / -1579.95) instead of 0.
 
-    def test_the_decomposition_is_what_it_was_before(self, db, payment_id, neto, diferencia) -> None:
+    Payment 183064613761: 400309.13 - 499999 + 79689.87 (seller refunds)
+    + 20000 (coupon_fee refund) == 0."""
+
+    def test_neto_is_zero_on_every_path(self, db, payment_id, diferencia) -> None:
+        order_id = seed_capture(db, payment_id)
+
+        breakdown = compute_breakdown(db, [order_id])
+
+        assert compute_neto_by_order_ids(db, [order_id])[order_id] == Decimal("0.00")
+        assert compute_neto_desglose_by_order_ids(db, [order_id])[order_id] == (Decimal("0.00"), Decimal("0.00"))
+        assert breakdown.neto == Decimal("0.00")
+        assert breakdown.neto_depositado == Decimal("0.00")
+
+    def test_the_decomposition_still_says_it_was_returned(self, db, payment_id, diferencia) -> None:
+        """A returned sale cannot be split per rate (we do not know which items
+        came back), so it keeps its named reason; only `diferencia` follows the
+        corrected Neto. The fully refunded fee adds no component."""
         order_id = seed_capture(db, payment_id)
 
         result = descomponer_neto(db, [order_id])[order_id]
@@ -194,9 +208,8 @@ class TestARefundedSaleIsUnchanged:
         assert result.diferencia == diferencia
         assert result.neto_sin_iva is None
         assert all(c.concepto != CUPON_VENDEDOR for c in result.componentes)
-        assert compute_neto_by_order_ids(db, [order_id])[order_id] == neto
 
-    def test_a_fully_refunded_coupon_fee_shows_no_panel_line(self, db, payment_id, neto, diferencia) -> None:
+    def test_a_fully_refunded_coupon_fee_shows_no_panel_line(self, db, payment_id, diferencia) -> None:
         """Panel and IVA decomposition agree: no zero `Cupón a cargo del
         vendedor` row on either surface."""
         order_id = seed_capture(db, payment_id)
@@ -204,4 +217,26 @@ class TestARefundedSaleIsUnchanged:
         breakdown = compute_breakdown(db, [order_id])
 
         assert all(line.concepto != CUPON_VENDEDOR for line in breakdown.lines)
+
+
+@pytest.mark.parametrize(
+    ("payment_id", "neto", "depositado"),
+    [
+        # Pinned to what main computes today: nothing refunded, so the refund
+        # identity is not involved and the Neto must not move.
+        (APPROVED_COUPON_FEE_ONLY, Decimal("29824.64"), Decimal("29671.04")),
+        (APPROVED_COUPON_CODE_FEE_REBATE, Decimal("17713.92"), Decimal("17637.36")),
+        (IN_MEDIATION_COUPON_FEE, Decimal("32268.38"), Decimal("32146.88")),
+        (CANCELLED_COUPON_CODE_AND_FEE, None, None),
+    ],
+)
+class TestANonRefundedSaleKeepsItsNeto:
+    def test_neto_is_unchanged_on_every_path(self, db, payment_id, neto, depositado) -> None:
+        order_id = seed_capture(db, payment_id)
+
+        breakdown = compute_breakdown(db, [order_id])
+
+        assert compute_neto_by_order_ids(db, [order_id])[order_id] == neto
         assert breakdown.neto == neto
+        assert breakdown.neto_depositado == depositado
+        assert compute_neto_desglose_by_order_ids(db, [order_id])[order_id][0] == depositado
