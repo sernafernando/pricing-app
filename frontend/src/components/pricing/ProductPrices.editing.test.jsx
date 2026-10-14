@@ -203,3 +203,103 @@ describe('permissions mirror the backend', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
+
+describe('reading the typed price strictly (es-AR)', () => {
+  it.each([
+    ['120.000', 120000],
+    ['120.000,50', 120000.5],
+  ])('saves %j as %d', async (typed, precio) => {
+    const user = userEvent.setup();
+    renderPrices();
+    await editRow(user, 'Clásica', typed);
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ precio })));
+  });
+
+  it.each(['12abc', '120000.5', '120,5,5'])('rejects %j without calling the backend', async (typed) => {
+    const user = userEvent.setup();
+    renderPrices();
+    await editRow(user, '3 cuotas', typed);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/número válido/i);
+    expect(preciosAPI.calcularMarkup).not.toHaveBeenCalled();
+    expect(preciosAPI.setCuota).not.toHaveBeenCalled();
+  });
+
+  it('opens the editor with the stored price in es-AR, so saving it untouched keeps it', async () => {
+    const user = userEvent.setup();
+    renderPrices();
+    const row = await rowOf('Clásica');
+    await user.click(within(row).getByRole('button', { name: 'Editar Clásica' }));
+    expect(within(row).getByRole('textbox', { name: 'Clásica' })).toHaveValue('98500,5');
+    await user.click(within(row).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ precio: 98500.5 })));
+  });
+});
+
+describe('a price of 0 clears it, as in Productos, after an inline confirmation', () => {
+  it('asks before clearing the clásica (which clears the whole list) and sends 0 only when confirmed', async () => {
+    const user = userEvent.setup();
+    renderPrices();
+    await editRow(user, 'Clásica', '0');
+    const warning = await screen.findByRole('alert');
+    expect(warning).toHaveTextContent('Esto borra el precio de la lista');
+    expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+    expect(preciosAPI.calcularMarkup).not.toHaveBeenCalled();
+    await user.click(within(warning).getByRole('button', { name: 'Borrar el precio' }));
+    await waitFor(() =>
+      expect(preciosAPI.setRapido).toHaveBeenCalledWith({ item_id: 4101, precio: 0, recalcular_cuotas: true }),
+    );
+  });
+
+  it('asks before clearing one instalment and writes nothing when cancelled', async () => {
+    const user = userEvent.setup();
+    renderPrices();
+    await editRow(user, 'PVP 3 cuotas', '0');
+    const warning = await screen.findByRole('alert');
+    expect(warning).toHaveTextContent('Esto borra el precio de PVP 3 cuotas');
+    await user.click(within(warning).getByRole('button', { name: 'Cancelar' }));
+    expect(preciosAPI.setCuota).not.toHaveBeenCalled();
+  });
+});
+
+describe('the warning always confirms what is on screen', () => {
+  it('editing the value while a warning is open drops the warning, so the old value cannot be confirmed', async () => {
+    preciosAPI.calcularMarkup.mockResolvedValueOnce({ data: { markup: -3 } }).mockResolvedValue({ data: { markup: 10 } });
+    const user = userEvent.setup();
+    renderPrices();
+    await editRow(user, 'Clásica', '50000');
+    await screen.findByRole('alert');
+    const input = within(await rowOf('Clásica')).getByRole('textbox', { name: 'Clásica' });
+    await user.clear(input);
+    await user.type(input, '90000');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Guardar de todas formas' })).not.toBeInTheDocument();
+    await user.type(input, '{Enter}');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ precio: 90000 })));
+    expect(preciosAPI.setRapido).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('switching product while a save is in flight', () => {
+  it('does not re-read nor report the previous product once another one is shown', async () => {
+    let resolveWrite;
+    preciosAPI.setRapido.mockReturnValue(new Promise((resolve) => (resolveWrite = resolve)));
+    const user = userEvent.setup();
+    const onWritten = vi.fn();
+    const { rerender } = render(<ProductPrices productItemId={4101} permissions={ALL} onWritten={onWritten} />);
+    await editRow(user, 'Clásica', '120000');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledTimes(1));
+
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, item_id: 4102, codigo: 'OTRO-4102' } });
+    rerender(<ProductPrices productItemId={4102} permissions={ALL} onWritten={onWritten} />);
+    expect(await screen.findByText('OTRO-4102')).toBeInTheDocument();
+
+    resolveWrite({ data: { item_id: 4101 } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2);
+    expect(preciosAPI.obtenerProducto).toHaveBeenLastCalledWith(4102);
+    expect(onWritten).not.toHaveBeenCalled();
+    expect(screen.getByText('OTRO-4102')).toBeInTheDocument();
+    expect(screen.queryByText('Precio guardado.')).not.toBeInTheDocument();
+  });
+});

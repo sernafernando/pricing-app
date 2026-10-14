@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Info, Pencil, X } from 'lucide-react';
 import { preciosAPI } from '../../services/api';
+import { formatPrecioInput, parsePrecioInput } from '../../utils/precioInput';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import styles from './ProductPrices.module.css';
 
@@ -86,6 +87,17 @@ function recalcularCuotasPreference() {
 /** Same rule as Productos: the product's own setting wins over the preference. */
 const recalcularCuotas = (product) =>
   isBlank(product.recalcular_cuotas_auto) ? recalcularCuotasPreference() : product.recalcular_cuotas_auto;
+
+/** What the inline warning says before a negative markup or a cleared price is saved. */
+function warningText(pending) {
+  const { row } = pending;
+  if (pending.kind === 'zero') {
+    return row.write === 'rapido'
+      ? `Esto borra el precio de la lista ${row.listaTipo === 'pvp' ? 'PVP' : 'ML'} y todas sus cuotas.`
+      : `Esto borra el precio de ${row.label}.`;
+  }
+  return `Markup negativo en ${row.label}: ${formatAmount(pending.markup)}%. El precio queda por debajo del costo más comisiones.`;
+}
 
 function writePrice(row, itemId, precio, product) {
   if (row.write === 'rapido') {
@@ -189,14 +201,19 @@ export default function ProductPrices({ productItemId, permissions, onWritten })
   const [pending, setPending] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  // The product on screen: a write that finishes after a switch must not
+  // re-read, report or show anything for the previous one.
+  const shownItemRef = useRef(productItemId);
 
   const load = useCallback(async () => (await preciosAPI.obtenerProducto(productItemId)).data, [productItemId]);
 
   useEffect(() => {
     let active = true;
+    shownItemRef.current = productItemId;
     setState({ status: 'loading', product: null, error: null });
     setEditing(null);
     setPending(null);
+    setSaving(false);
     setMessage(null);
     load()
       .then((product) => active && setState({ status: 'ready', product, error: null }))
@@ -204,48 +221,61 @@ export default function ProductPrices({ productItemId, permissions, onWritten })
     return () => {
       active = false;
     };
-  }, [load]);
+  }, [load, productItemId]);
 
   const { status, product } = state;
   const editable = LISTS.some((list) => list.rows.some((row) => permissions?.[row.perm]));
 
   // After a write the stored prices and markups are the backend's: read them again.
-  const afterWrite = async () => {
+  const isShown = (itemId) => shownItemRef.current === itemId;
+
+  const afterWrite = async (itemId) => {
     setMessage({ tone: 'ok', text: 'Precio guardado.' });
     try {
-      setState({ status: 'ready', product: await load(), error: null });
+      const fresh = await load();
+      if (!isShown(itemId)) return;
+      setState({ status: 'ready', product: fresh, error: null });
     } catch {
+      if (!isShown(itemId)) return;
       setMessage({ tone: 'error', text: 'Precio guardado, pero no se pudieron releer los precios.' });
     }
     onWritten?.();
   };
 
   const save = async (row, value, force = false) => {
-    const precio = parseFloat(String(value).replace(',', '.'));
-    if (!Number.isFinite(precio) || precio < 0) {
-      setMessage({ tone: 'error', text: 'El precio debe ser un número válido mayor o igual a 0.' });
+    const precio = parsePrecioInput(value);
+    if (precio === null) {
+      setMessage({ tone: 'error', text: 'El precio debe ser un número válido mayor o igual a 0 (ej. 120.000,50).' });
       return;
     }
+    if (!force && precio === 0) {
+      // 0 clears the price in the backend, as in Productos: confirm it first.
+      setPending({ kind: 'zero', row, value });
+      return;
+    }
+    const itemId = productItemId;
     setSaving(true);
     setMessage(null);
     try {
-      if (!force && precio > 0) {
+      if (!force) {
         // Productos asks before saving a price under cost + fees; a failed check does not block the save.
-        const check = await preciosAPI.calcularMarkup({ item_id: productItemId, precio, pricelist_id: row.pricelist }).catch(() => null);
+        const check = await preciosAPI.calcularMarkup({ item_id: itemId, precio, pricelist_id: row.pricelist }).catch(() => null);
+        if (!isShown(itemId)) return;
         const markup = check?.data?.markup;
         if (typeof markup === 'number' && markup < 0) {
-          setPending({ row, value, markup });
+          setPending({ kind: 'negative', row, value, markup });
           return;
         }
       }
-      await writePrice(row, productItemId, precio, product);
+      await writePrice(row, itemId, precio, product);
+      if (!isShown(itemId)) return;
       setEditing(null);
       setPending(null);
-      await afterWrite();
+      await afterWrite(itemId);
     } catch (error) {
-      setMessage({ tone: 'error', text: errorText(error, 'No se pudo guardar el precio.') });
+      if (isShown(itemId)) setMessage({ tone: 'error', text: errorText(error, 'No se pudo guardar el precio.') });
     } finally {
-      setSaving(false);
+      if (isShown(itemId)) setSaving(false);
     }
   };
 
@@ -307,9 +337,13 @@ export default function ProductPrices({ productItemId, permissions, onWritten })
                     onStart={() => {
                       setPending(null);
                       setMessage(null);
-                      setEditing({ id: row.id, value: isBlank(product[row.precio]) ? '' : String(product[row.precio]) });
+                      setEditing({ id: row.id, value: formatPrecioInput(product[row.precio]) });
                     }}
-                    onChange={(value) => setEditing((current) => ({ ...current, value }))}
+                    onChange={(value) => {
+                      // A warning confirms the value it was raised for: a new value drops it.
+                      setPending(null);
+                      setEditing((current) => ({ ...current, value }));
+                    }}
                     onSave={() => save(row, editing.value)}
                     onCancel={cancel}
                   />
@@ -320,13 +354,13 @@ export default function ProductPrices({ productItemId, permissions, onWritten })
 
           {pending && (
             <div className={styles.warning} role="alert">
-              <span>{`Markup negativo en ${pending.row.label}: ${formatAmount(pending.markup)}%. El precio queda por debajo del costo más comisiones.`}</span>
+              <span>{warningText(pending)}</span>
               <div className={styles.warningActions}>
                 <button type="button" className="btn-tesla outline sm" onClick={() => setPending(null)} disabled={saving}>
                   Cancelar
                 </button>
                 <button type="button" className="btn-tesla outline-subtle-danger sm" onClick={() => save(pending.row, pending.value, true)} disabled={saving}>
-                  Guardar de todas formas
+                  {pending.kind === 'zero' ? 'Borrar el precio' : 'Guardar de todas formas'}
                 </button>
               </div>
             </div>
