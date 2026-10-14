@@ -199,3 +199,18 @@ class TestTheMlwebhookQuery:
 
         monkeypatch.setattr(envio_real_service, "get_mlwebhook_engine", down)
         assert envio_real_service._fetch_list_cost_by_mla(["MLA1"]) == {}
+
+
+class TestTheReadDoesNotFlush:
+    def test_pending_objects_of_the_caller_are_not_flushed(self, env, conn, requested) -> None:  # noqa: F811
+        seed_publications(conn)
+        db = sessionmaker(bind=env, autocommit=False, autoflush=True)()  # the default of the app's sessions
+        pending = PublicacionML(mla="MLA_PENDING", item_id=70, codigo="C", item_title="t", pricelist_id=4, activo=True)
+        db.add(pending)
+        try:
+            resolver_costos_envio_batch(db, [70, 71])
+            assert pending in db.new  # still pending: the read did not autoflush the caller's session
+            assert all("MLA_PENDING" not in asked for asked in requested)
+        finally:
+            db.rollback()
+            db.close()

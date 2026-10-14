@@ -137,12 +137,14 @@ def _active_mlas_by_item(db: Session, item_ids: Sequence[int]) -> dict[int, list
     25k-publication store) to read `mla` and `activo`. The ids travel as one array parameter.
     """
     found: dict[int, list[str]] = {}
-    rows = db.execute(
-        select(PublicacionML.item_id, PublicacionML.mla).where(
-            PublicacionML.item_id == any_(literal(list(item_ids), ARRAY(Integer))),
-            PublicacionML.activo.is_(True),
-        )
-    )
+    # A read-only lookup: it must not flush the caller's pending objects as a side effect.
+    with db.no_autoflush:
+        rows = db.execute(
+            select(PublicacionML.item_id, PublicacionML.mla).where(
+                PublicacionML.item_id == any_(literal(list(item_ids), ARRAY(Integer))),
+                PublicacionML.activo.is_(True),
+            )
+        ).all()
     for item_id, mla in rows:
         found.setdefault(item_id, []).append(mla)
     return found
