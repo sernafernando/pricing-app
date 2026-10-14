@@ -15,6 +15,7 @@ import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns, columnChoicesOver, defau
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
+  AGRUPAR_DIMENSIONS,
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
@@ -25,6 +26,7 @@ import {
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
+import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import styles from './PublicacionesML.module.css';
 
 /**
@@ -38,8 +40,9 @@ import styles from './PublicacionesML.module.css';
  * Ctrl/Cmd+click opens the publication in Mercado Libre; a plain click selects
  * the row, which opens the detail panel beside the table (`sel`, `tab` in the URL).
  *
- * `vista=agrupado` swaps the list for the tree (marca > categoría > subcategoría
- * > producto > [familia] > publicación, `AgrupadoTable`): the tree loads its own
+ * `vista=agrupado` swaps the list for the tree (the levels of the `agrupar`
+ * dimension, marca > categoría > subcategoría by default, > producto > [familia]
+ * > publicación, `AgrupadoTable`): the tree loads its own
  * levels from `/view/groups`, so `/items` is asked only for what the screen
  * shares (the honest-state block and the facet counts, one row).
  */
@@ -74,6 +77,9 @@ const VISTA_OPTIONS = [
   { value: 'publicacion', label: 'Publicaciones' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
+
+// Métricas ML's dimension picker, limited to the dimensions the tree's `/groups` takes.
+const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.includes(option.value));
 
 /** What to tell the operator when a request fails (S69.1). */
 function describeError(error) {
@@ -202,8 +208,17 @@ export default function PublicacionesML() {
   const eventsEnabled = data?.events_enabled ?? false;
   const columns = useMemo(
     () =>
-      buildColumns({ eventsEnabled, canSeeMargin, canSeeSales, expandedIds, onToggleVariations: toggleVariations, agrupado }),
-    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado],
+      buildColumns({
+        eventsEnabled,
+        canSeeMargin,
+        canSeeSales,
+        expandedIds,
+        onToggleVariations: toggleVariations,
+        agrupado,
+        dimension: filters.agrupar,
+        familias: filters.familias === '1',
+      }),
+    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, filters.agrupar, filters.familias],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
@@ -298,6 +313,14 @@ export default function PublicacionesML() {
             value={filters.vista}
             onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value })}
           />
+          {agrupado && (
+            <SegmentedControl
+              label="Agrupar por"
+              options={AGRUPAR_OPTIONS}
+              value={filters.agrupar}
+              onChange={(value) => setFilters({ agrupar: value === AGRUPAR_DIMENSIONS[0] ? '' : value })}
+            />
+          )}
           {agrupado && (
             <SwitchChip
               label="Con familias"
@@ -421,6 +444,7 @@ export default function PublicacionesML() {
                 columns={visibleColumns}
                 filters={filters}
                 familias={filters.familias === '1'}
+                dimension={filters.agrupar}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}

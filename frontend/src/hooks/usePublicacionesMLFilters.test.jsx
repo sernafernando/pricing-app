@@ -223,3 +223,35 @@ describe('markup filters (publicaciones-ml-vista P11b.T2)', () => {
     expect(params).not.toHaveProperty('markup_max');
   });
 });
+
+describe('the tree dimension (`agrupar`)', () => {
+  it('defaults to marca', () => {
+    expect(setup('/').result.current.hook.filters.agrupar).toBe('marca');
+  });
+
+  it('reads a dimension the tree is grouped by', () => {
+    expect(setup('/?agrupar=categoria').result.current.hook.filters.agrupar).toBe('categoria');
+    expect(setup('/?agrupar=subcategoria').result.current.hook.filters.agrupar).toBe('subcategoria');
+  });
+
+  it('falls back to marca on a dimension the tree is not grouped by', () => {
+    expect(setup('/?agrupar=otra').result.current.hook.filters.agrupar).toBe('marca');
+    expect(setup('/?agrupar=pm').result.current.hook.filters.agrupar).toBe('marca');
+  });
+
+  it('is not a filter: never sent to /items, and "Limpiar filtros" keeps it', () => {
+    const { result } = setup('/?vista=agrupado&agrupar=categoria&estado=active');
+    expect(buildItemsParams(result.current.hook.filters)).not.toHaveProperty('agrupar');
+    expect(FILTER_KEYS).not.toContain('agrupar');
+    act(() => result.current.hook.resetFilters());
+    expect(new URLSearchParams(result.current.search).get('agrupar')).toBe('categoria');
+  });
+
+  it('changing it closes the selection, like the view', () => {
+    const { result } = setup('/?vista=agrupado&sel=MLA1&tab=eventos');
+    act(() => result.current.hook.setFilters({ agrupar: 'subcategoria' }));
+    const params = new URLSearchParams(result.current.search);
+    expect(params.get('agrupar')).toBe('subcategoria');
+    expect(params.has('sel')).toBe(false);
+  });
+});

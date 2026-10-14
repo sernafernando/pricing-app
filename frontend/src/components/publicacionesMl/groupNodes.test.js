@@ -138,6 +138,12 @@ describe('buildGroupsParams', () => {
     expect(params.familias).toBe(true);
     expect(params.offset).toBe(0);
   });
+
+  it('sends the dimension the tree is grouped by', () => {
+    expect(buildGroupsParams(filters, { path: [], familias: false, dimension: 'subcategoria', offset: 0 }).dimension).toBe(
+      'subcategoria',
+    );
+  });
 });
 
 describe('buildLeafParams', () => {

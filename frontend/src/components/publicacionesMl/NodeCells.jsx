@@ -8,6 +8,8 @@ const KIND_LABELS = {
   marca: 'Marca',
   categoria: 'Categoría',
   subcategoria: 'Subcategoría',
+  // "<subcategoría> · <categoría>" (the tree grouped by subcategoría): the label already names the categoría.
+  subcategoria_categoria: 'Subcategoría',
   producto: 'Producto',
   familia: 'Familia',
   item: 'Publicación',
