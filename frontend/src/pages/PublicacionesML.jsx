@@ -11,7 +11,7 @@ import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStr
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
-import { DEFAULT_COLUMN_VISIBILITY, DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns } from '../components/publicacionesMl/columns';
+import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
@@ -127,7 +127,17 @@ export default function PublicacionesML() {
     keepExpanded.current = latestRequest.current + 1;
     setReloadToken((token) => token + 1);
   }, []);
-  const [columnVisibility, setColumnVisibility] = useState(DEFAULT_COLUMN_VISIBILITY);
+  // The user's own picks from the column picker, over a permission-based
+  // default (permissions may load after the first render).
+  const [columnChoices, setColumnChoices] = useState({});
+  const columnVisibility = useMemo(
+    () => ({ ...defaultColumnVisibility({ canSeeSales, canSeeMargin }), ...columnChoices }),
+    [canSeeSales, canSeeMargin, columnChoices],
+  );
+  const setColumnVisibility = useCallback(
+    (updater) => setColumnChoices(typeof updater === 'function' ? updater(columnVisibility) : updater),
+    [columnVisibility],
+  );
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const toggleVariations = useCallback(

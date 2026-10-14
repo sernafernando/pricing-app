@@ -28,11 +28,14 @@ export const DEFAULT_DIRECTION = {
 };
 
 /**
- * Columns hidden until the user turns them on in the picker: the 30-day sales
- * summary replaces the worst-variation markup on screen, but that column (and
- * the markup filters and sort that depend on it) stays available.
+ * Columns hidden until the user turns them on in the picker: when "Markup 30d"
+ * is on screen it replaces the worst-variation markup, but that column (and
+ * the markup filters and sort that depend on it) stays available. A user who
+ * cannot see "Markup 30d" keeps the worst-variation markup visible.
  */
-export const DEFAULT_COLUMN_VISIBILITY = { markup: false };
+export function defaultColumnVisibility({ canSeeSales = false, canSeeMargin = false } = {}) {
+  return canSeeSales && canSeeMargin ? { markup: false } : {};
+}
 
 /**
  * `eventsEnabled` false drops the last-event column altogether (S56.2).
