@@ -41,6 +41,7 @@ from app.services.ml_publications.view.markup import (
     unit_markup,
 )
 from app.services.ml_publications.view.markup_inputs import PublicationInputs, fetch_inputs
+from app.services.ml_publications.view.markup_shipping import ActivePublications
 from app.services.ml_publications.view.units_sold import UnitsSoldProvider
 from app.services.pricing_context import PricingContext, build_pricing_context
 
@@ -166,6 +167,16 @@ def _priceable_products(publications: Sequence[PublicationInputs]) -> list[int]:
     return sorted(found)
 
 
+def _shipping(pricing_db: Session, products: Sequence[int]) -> Mapping[int, float]:
+    """The real shipping cost of each priceable product (absent when it has none). The publications the resolver
+    reads come as plain columns (`ActivePublications`), not as one ORM entity each."""
+    if not products:
+        return {}
+    return resolver_costos_envio_batch(
+        pricing_db, list(products), pubs_by_item=ActivePublications(pricing_db, products)
+    )
+
+
 def price_publication(ctx: PricingContext, inputs: PublicationInputs, envio: Mapping[int, float]) -> PublicationMarkup:
     """One publication: its item-level unit and each variation, priced and aggregated."""
     item_unit = unit_markup(ctx, inputs.item_unit, envio)
@@ -215,7 +226,7 @@ def compute_markups(
         publications = list(inputs.values())
         products = _priceable_products(publications)
     # Not inside the pause: these read the database and build few objects.
-    envio: Mapping[int, float] = resolver_costos_envio_batch(pricing_db, products) if products else {}
+    envio = _shipping(pricing_db, products)
     ctx = ctx or build_pricing_context(pricing_db)
     with gc_paused():
         plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
@@ -279,7 +290,7 @@ def compute_detail(
     if publication is None:
         return None
     products = _priceable_products([publication])
-    envio: Mapping[int, float] = resolver_costos_envio_batch(pricing_db, products) if products else {}
+    envio = _shipping(pricing_db, products)
     ctx = ctx or build_pricing_context(pricing_db)
     markup = price_publication(ctx, publication, envio)
     unit, variation_id = _worst_unit(publication, markup)

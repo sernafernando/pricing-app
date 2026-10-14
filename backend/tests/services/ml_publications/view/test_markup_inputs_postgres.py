@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import event, text
@@ -196,6 +197,30 @@ class TestUnitInputsLayout:
             "envio",
             "subcategoria_id",
         )
+
+
+class TestPricesAsFloats:
+    """The two `numeric(16,2)` prices are cast to double in the statement (the driver builds a `Decimal` per value
+    otherwise, 50k of them on a big set); the double must be the one `float(Decimal)` makes of the stored value."""
+
+    @pytest.mark.parametrize("amount", ["0.10", "1234.56", "90000.10", "19999.99", "99999999999999.99", "0.01"])
+    def test_the_cast_is_the_float_python_makes_of_the_decimal(self, conn, db, amount) -> None:
+        seed.add_item(conn, "MLA1", price=amount)
+        seed.add_sale_price(conn, "MLA1", amount)
+        for got in (
+            markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit,
+            markup_inputs.fetch_inputs(db, f=parse_filter())["MLA1"].item_unit,
+        ):
+            assert got.item_price == float(Decimal(amount)) and got.sale_price == float(Decimal(amount))
+            assert isinstance(got.item_price, float) and isinstance(got.sale_price, float)
+
+    def test_the_currency_of_the_cost_is_the_plain_code(self, conn, db) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        seed.add_cost(conn, 70, 10.0, moneda_costo="USD")
+        seed.add_item(conn, "MLA1", price=100)
+        seed.add_link(conn, "MLA1", 70)
+        assert markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit.moneda_costo == "USD"
+        assert markup_inputs.fetch_inputs(db, f=parse_filter())["MLA1"].item_unit.moneda_costo == "USD"
 
 
 class TestCampaign:
