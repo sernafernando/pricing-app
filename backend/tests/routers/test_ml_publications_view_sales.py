@@ -1,7 +1,8 @@
-"""`GET /api/ml-publications/view/items`: each row's 30-day sales summary (`sales_30d`) and its permissions.
+"""`GET /api/ml-publications/view/items`: each row's Métricas ML figures (`metrics`, and the older `sales_30d`) and
+their permissions.
 
 Same harness as the KPI strip's (`test_ml_publications_view_kpis.py`): the store and the Board's tables in one
-throwaway Postgres schema. The arithmetic is pinned in `view/test_sales_summary_postgres.py`; this file pins the
+throwaway Postgres schema. The arithmetic is pinned in `view/test_row_metrics_postgres.py`; this file pins the
 HTTP surface: the units and the gross need `ml_metricas.ver`, the markup also `ml_metricas.ver_ganancia`.
 """
 
@@ -59,3 +60,49 @@ class TestSales30d:
         grant(db, rol_admin, VER, METRICAS, GANANCIA)
         got = rows(client, admin_auth_headers)
         assert got["MLA2"]["sales_30d"] == {"units": 0, "gross": 0.0, "markup": None}
+
+
+class TestMetrics:
+    """`metrics`: Métricas ML's publication row over the last 30 business days (the Board's own figures, pinned in
+    `view/test_row_metrics_postgres.py`). Units, gross, series, last sale and ageing need `ml_metricas.ver`; the
+    markup, its trend and Total Gauss also `ml_metricas.ver_ganancia` -- absent, never zero, without it."""
+
+    MARGIN = {"total_gauss_30d", "markup_30d", "markup_delta_pp", "series_markup_90d"}
+
+    def test_without_ml_metricas_ver_there_are_no_metrics(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, GANANCIA)
+        assert all("metrics" not in row for row in rows(client, admin_auth_headers).values())
+
+    def test_sales_and_rotation_with_ml_metricas_ver_and_no_margin_without_ver_ganancia(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ):
+        grant(db, rol_admin, VER, METRICAS)
+        got = rows(client, admin_auth_headers)["MLA1"]["metrics"]
+        assert (got["units_7d"], got["units_30d"], got["gross_30d"]) == (5, 5, 50.0)
+        assert len(got["series_units_90d"]) == 90 and sum(got["series_units_90d"]) == 5
+        assert got["last_sale_at"] is not None and got["ageing_days"] in (0, 1)
+        assert self.MARGIN.isdisjoint(got)
+
+    def test_the_margin_comes_with_ver_ganancia(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        got = rows(client, admin_auth_headers)["MLA1"]["metrics"]
+        # every seeded order: Total Gauss 1 over cost 1
+        assert (got["total_gauss_30d"], got["markup_30d"]) == (2.0, 100.0)
+        assert len(got["series_markup_90d"]) == 90 and 100.0 in got["series_markup_90d"]
+        assert "markup_delta_pp" in got
+
+    def test_a_publication_metricas_has_no_row_for_reads_null(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        got = rows(client, admin_auth_headers)
+        assert got["MLA2"]["metrics"] is None
+        assert got["MLA2"]["sales_30d"] == {"units": 0, "gross": 0.0, "markup": None}  # unchanged for older screens
+
+    def test_one_board_for_the_whole_page(self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch):
+        from app.services.ml_daily_metrics import board
+
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        entered: list = []
+        real = board.Board.__enter__
+        monkeypatch.setattr(board.Board, "__enter__", lambda self: entered.append(self.f.group_by) or real(self))
+        rows(client, admin_auth_headers)
+        assert entered == ["publication"]

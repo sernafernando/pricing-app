@@ -830,8 +830,14 @@ class Board:
         what every period/window total, the KPI series and the 90-day
         sparklines read. `u24` is the part accredited in the last 24h -- a
         SUBSET of the day's units by construction."""
+        # The MLA set also bounds the persisted read INSIDE its table scan (the live one is bounded by the touched
+        # groups): never rely on Postgres pushing the outer filter below into the lines subquery.
         lines = lines_source(
-            sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id, groups=self._touched()
+            sqlite=self.sqlite,
+            ranges=self._ranges(),
+            product=self.product_item_id,
+            groups=self._touched(),
+            mlas=None if self.mla_set is None else select(self.mla_set.c.mla),
         )
         return self._in_mla_set(
             select(
