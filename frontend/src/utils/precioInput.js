@@ -27,5 +27,6 @@ export function parsePrecioInput(text) {
  */
 export function formatPrecioInput(value) {
   if (value === null || value === undefined) return '';
-  return String(value).replace('.', ',');
+  // Cents only: a stored 98500.123 (or 0.1 + 0.2) opens as text the parser accepts.
+  return String(Math.round(Number(value) * 100) / 100).replace('.', ',');
 }

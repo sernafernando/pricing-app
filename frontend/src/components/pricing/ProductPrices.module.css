@@ -139,7 +139,11 @@
   color: var(--cf-text-primary);
 }
 
-.iconButton:focus-visible,
+.iconButton:focus-visible {
+  outline: 2px solid var(--tone-info-border);
+  outline-offset: 1px;
+}
+
 .iconButton:disabled {
   cursor: default;
   opacity: 0.5;

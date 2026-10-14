@@ -60,4 +60,12 @@ describe('formatPrecioInput', () => {
     expect(formatPrecioInput(value)).toBe(text);
     if (value != null) expect(parsePrecioInput(text)).toBe(value);
   });
+
+  it.each([
+    [98500.123, '98500,12'],
+    [0.1 + 0.2, '0,3'],
+  ])('rounds %j to 2 decimals (%j) so an untouched save is never refused', (value, text) => {
+    expect(formatPrecioInput(value)).toBe(text);
+    expect(parsePrecioInput(text)).not.toBeNull();
+  });
 });
