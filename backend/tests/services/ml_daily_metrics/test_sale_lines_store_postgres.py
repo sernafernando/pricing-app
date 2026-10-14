@@ -190,7 +190,7 @@ class TestSaleLinesStore:
 
         def write(_):
             with sessionmaker(bind=board_pg_engine)() as session:
-                # Both hold the group before either writes: the lock is what orders them.
+                # Both start before either writes: the group lock is what orders them.
                 session.execute(text("SELECT 1"))
                 barrier.wait()
                 store_sale_lines(session, [810], ["o:810"])

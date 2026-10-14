@@ -51,7 +51,6 @@ def board_pg_engine():
 
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
     from app.models.ml_group_metrics import MlGroupMetrics
-    from app.models.ml_sale_line import MlSaleLine
     from app.models.ml_order_item_costo import MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
     from app.models.ml_orders_ops import (
@@ -63,6 +62,7 @@ def board_pg_engine():
     )
     from app.models.rma_claim_ml import RmaClaimML
     from app.models.ml_payments import MlPaymentOps
+    from app.models.ml_sale_line import MlSaleLine
     from app.models.ml_tienda_oficial import MlTiendaOficial
     from app.models.ml_venta_deduccion import MlVentaDeduccion
 
