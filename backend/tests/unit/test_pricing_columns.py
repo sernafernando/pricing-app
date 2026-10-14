@@ -62,3 +62,12 @@ def test_cuotas_for_pricelist_clasica_and_unknown_are_none():
 def test_pricelist_ids_clasica_y_cuotas_order():
     # Order matters: this is the exact loop order at productos_listing.py L1357.
     assert pc.PRICELIST_IDS_CLASICA_Y_CUOTAS == [4, 17, 14, 13, 23]
+
+
+def test_ml_cuota_prices_reads_each_instalment_column_in_order():
+    from types import SimpleNamespace
+
+    from app.services.pricing_columns import ml_cuota_prices
+
+    pricing = SimpleNamespace(precio_3_cuotas=10, precio_6_cuotas=20, precio_9_cuotas=None, precio_12_cuotas=40)
+    assert ml_cuota_prices(pricing) == [(10, 17, "3"), (20, 14, "6"), (None, 13, "9"), (40, 23, "12")]

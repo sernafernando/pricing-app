@@ -14,6 +14,9 @@ from datetime import date
 
 import pytest
 
+import logging
+
+from app.models.comision_config import SubcategoriaGrupo
 from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.producto import ProductoERP, ProductoPricing
 
@@ -102,3 +105,95 @@ def test_detail_instalment_markups_match_the_listing(client, auth_headers, db, p
             assert detail[key] is None
         else:
             assert detail[key] == pytest.approx(row[key], abs=0.01), key
+
+
+@pytest.fixture()
+def producto_sin_envio_sobre_tier3(db) -> ProductoERP:
+    """A product without ERP shipping whose instalment prices are above monto_tier3
+    (33000 without a constants row), in a grupo whose two subcategories have
+    different product counts: the grupo-average fallback applies, and the
+    listing's average of subcategory averages (2000) differs from an average
+    over all products (2500)."""
+    version = ComisionVersion(nombre="Test", fecha_desde=date(2000, 1, 1), activo=True)
+    db.add(version)
+    db.flush()
+    db.add(ComisionBase(version_id=version.id, grupo_id=1, comision_base=12.0))
+    db.add(SubcategoriaGrupo(subcat_id=9310, grupo_id=1, nombre_subcategoria="Sub A", nombre_categoria="Cat"))
+    db.add(SubcategoriaGrupo(subcat_id=9320, grupo_id=1, nombre_subcategoria="Sub B", nombre_categoria="Cat"))
+    vecinos = [(9311, 9310, 1000.0), (9321, 9320, 3000.0), (9322, 9320, 3000.0), (9323, 9320, 3000.0)]
+    for item_id, subcat, envio in vecinos:
+        db.add(
+            ProductoERP(
+                item_id=item_id,
+                codigo=f"VECINO-{item_id}",
+                descripcion="Vecino con envio",
+                costo=1000.0,
+                moneda_costo="ARS",
+                iva=21.0,
+                activo=True,
+                envio=envio,
+                subcategoria_id=subcat,
+            )
+        )
+    p = ProductoERP(
+        item_id=9302,
+        codigo="TEST-DETAIL-TIER3",
+        descripcion="Producto sin envio sobre tier3",
+        costo=20000.0,
+        moneda_costo="ARS",
+        iva=21.0,
+        activo=True,
+        envio=0.0,
+        subcategoria_id=9310,
+    )
+    db.add(p)
+    db.flush()
+    db.add(
+        ProductoPricing(
+            item_id=p.item_id,
+            precio_lista_ml=45000.0,
+            precio_3_cuotas=50000.0,
+            precio_6_cuotas=52000.0,
+            precio_9_cuotas=54000.0,
+            precio_12_cuotas=56000.0,
+        )
+    )
+    db.flush()
+    return p
+
+
+def test_detail_instalment_markups_match_the_listing_with_the_grupo_shipping_fallback(
+    client, auth_headers, db, producto_sin_envio_sobre_tier3
+):
+    _guard_incompatible_raw_sql(db)
+    item_id = producto_sin_envio_sobre_tier3.item_id
+    detail = client.get(f"/api/productos/{item_id}", headers=auth_headers).json()
+    listing = client.get("/api/productos?page=1&page_size=50", headers=auth_headers).json()["productos"]
+    row = next(p for p in listing if p["item_id"] == item_id)
+
+    for cuota in CUOTAS:
+        key = f"markup_{cuota}_cuotas"
+        assert row[key] is not None, key
+        assert detail[key] == pytest.approx(row[key], abs=0.01), key
+
+
+def test_a_failing_instalment_markup_is_logged_and_left_empty(
+    client, auth_headers, producto_con_cuotas, monkeypatch, caplog
+):
+    from app.api.endpoints import productos_listing
+    from app.services.pricing_context import PricingContext
+
+    def _boom(self, pricelist_id, grupo_id):
+        raise ValueError("comision rota")
+
+    # Only the instalment loop resolves commissions through the pricing context.
+    monkeypatch.setattr(PricingContext, "comision", _boom)
+
+    with caplog.at_level(logging.DEBUG, logger=productos_listing.logger.name):
+        response = client.get(f"/api/productos/{producto_con_cuotas.item_id}", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["markup_3_cuotas"] is None
+    assert any("comision rota" in record.getMessage() and "3" in record.getMessage() for record in caplog.records), [
+        r.getMessage() for r in caplog.records
+    ]

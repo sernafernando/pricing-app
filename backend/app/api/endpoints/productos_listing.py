@@ -39,6 +39,7 @@ from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
     PRICELIST_IDS_CLASICA_Y_CUOTAS,
     PVP_TO_WEB_PRICELIST,
+    ml_cuota_prices,
 )
 from app.services.pricing_context import build_pricing_context, resolve_envio
 import logging
@@ -1198,10 +1199,8 @@ def listar_productos(
 
         if producto_pricing:
             cuotas_config = [
-                (producto_pricing.precio_3_cuotas, 17, "3_cuotas"),
-                (producto_pricing.precio_6_cuotas, 14, "6_cuotas"),
-                (producto_pricing.precio_9_cuotas, 13, "9_cuotas"),
-                (producto_pricing.precio_12_cuotas, 23, "12_cuotas"),
+                (precio, pricelist_id, f"{cuotas}_cuotas")
+                for precio, pricelist_id, cuotas in ml_cuota_prices(producto_pricing)
             ]
 
             costo_cuota = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
@@ -2635,12 +2634,7 @@ def listar_productos_tienda(
             tc_cuota = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
             cc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_cuota)
 
-            for precio_cuota, pricelist_id, nombre in [
-                (producto_pricing.precio_3_cuotas, 17, "3"),
-                (producto_pricing.precio_6_cuotas, 14, "6"),
-                (producto_pricing.precio_9_cuotas, 13, "9"),
-                (producto_pricing.precio_12_cuotas, 23, "12"),
-            ]:
+            for precio_cuota, pricelist_id, nombre in ml_cuota_prices(producto_pricing):
                 if precio_cuota and float(precio_cuota) > 0:
                     try:
                         cb = _lookup_comision_t(pricelist_id, grupo_id)
@@ -2902,42 +2896,44 @@ def obtener_producto(
             )
             ppp_d.record(PPP_KEY_CLASICA, limpio_clasica_d)
 
-    # Markups of the ML instalment prices, as the listing computes them.
-    markups_cuotas_ml = {cuota: None for cuota in ("3", "6", "9", "12")}
-    if producto_pricing:
-        cuotas_ml_config = [
-            (producto_pricing.precio_3_cuotas, 17, "3"),
-            (producto_pricing.precio_6_cuotas, 14, "6"),
-            (producto_pricing.precio_9_cuotas, 13, "9"),
-            (producto_pricing.precio_12_cuotas, 23, "12"),
-        ]
-        for precio_cuota_ml, pricelist_id_ml, cuota_ml in cuotas_ml_config:
+    # Markups of the ML instalment prices, with the listing's inputs (pricing
+    # context, real-or-grupo-average shipping per price) so both always match.
+    markups_cuotas_ml = {str(cuota): None for cuota in CUOTAS_BY_PRICELIST.values()}
+    if producto_pricing and any(precio for precio, _, _ in ml_cuota_prices(producto_pricing)):
+        ctx_cuotas = build_pricing_context(db)
+        grupo_id_cuotas = ctx_cuotas.grupo_of(producto_erp.subcategoria_id)
+        costo_cuotas = ctx_cuotas.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+        envio_real_cuotas = resolver_costos_envio_batch(db, [producto_erp.item_id])
+        for precio_cuota_ml, pricelist_id_ml, cuota_ml in ml_cuota_prices(producto_pricing):
             if not precio_cuota_ml or float(precio_cuota_ml) <= 0:
                 continue
             try:
-                tipo_cambio_cuota_ml = (
-                    obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
-                )
-                costo_cuota_ml = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_ml)
-                grupo_id_cuota_ml = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-                comision_base_cuota_ml = obtener_comision_base(db, pricelist_id_ml, grupo_id_cuota_ml)
+                comision_base_cuota_ml = ctx_cuotas.comision(pricelist_id_ml, grupo_id_cuotas)
                 if not comision_base_cuota_ml:
                     continue
                 comisiones_cuota_ml = calcular_comision_ml_total(
-                    float(precio_cuota_ml), comision_base_cuota_ml, producto_erp.iva, db=db
+                    float(precio_cuota_ml), comision_base_cuota_ml, producto_erp.iva, constantes=ctx_cuotas.constantes
+                )
+                envio_cuota_ml = resolve_envio(
+                    ctx_cuotas,
+                    envio_real_cuotas,
+                    producto_erp.item_id,
+                    producto_erp.envio or 0,
+                    grupo_id_cuotas,
+                    float(precio_cuota_ml),
                 )
                 limpio_cuota_ml = calcular_limpio(
                     float(precio_cuota_ml),
                     producto_erp.iva,
-                    costo_envio_producto,
+                    envio_cuota_ml,
                     comisiones_cuota_ml["comision_total"],
-                    db=db,
-                    grupo_id=grupo_id_cuota_ml,
+                    constantes=ctx_cuotas.constantes,
                 )
-                markups_cuotas_ml[cuota_ml] = round(calcular_markup(limpio_cuota_ml, costo_cuota_ml) * 100, 2)
+                markups_cuotas_ml[cuota_ml] = round(calcular_markup(limpio_cuota_ml, costo_cuotas) * 100, 2)
                 ppp_d.record(ppp_key_cuota_clasica(cuota_ml), limpio_cuota_ml)
-            except Exception:
-                pass
+            except Exception as exc:
+                # The markup stays empty, as before; leave a trace of why.
+                logger.debug("Markup de %s cuotas no calculado para item %s: %s", cuota_ml, producto_erp.item_id, exc)
 
     # Calcular markups PVP
     markup_pvp = None
