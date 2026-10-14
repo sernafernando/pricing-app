@@ -3,11 +3,13 @@ Servicio de verificación de permisos.
 Implementa el sistema híbrido: rol base + overrides por usuario.
 """
 
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
+from app.models.rol import Rol
 from app.models.usuario import Usuario
+from app.models.usuario_rol_adicional import UsuarioRolAdicional
 
 
 class PermisosService:
@@ -20,7 +22,8 @@ class PermisosService:
     def obtener_permisos_usuario(self, usuario: Usuario) -> Set[str]:
         """
         Obtiene todos los permisos efectivos de un usuario.
-        Combina permisos del rol base con overrides personalizados.
+        Une los permisos del rol principal con los de sus roles adicionales y después
+        aplica los overrides personalizados. Solo el rol principal decide SUPERADMIN.
 
         Returns:
             Set de códigos de permisos que el usuario tiene
@@ -35,6 +38,8 @@ class PermisosService:
             permisos_rol = self._obtener_permisos_rol_por_id(usuario.rol_id)
         else:
             permisos_rol = self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS")
+
+        permisos_rol = set(permisos_rol) | set(self._obtener_permisos_roles_adicionales(usuario))
 
         # Obtener overrides del usuario (con permiso eager-loaded para evitar N+1)
         overrides = (
@@ -88,6 +93,30 @@ class PermisosService:
             return []
 
         return self._obtener_permisos_rol_por_id(rol.id)
+
+    def _obtener_permisos_roles_adicionales(self, usuario: Usuario) -> Dict[str, List[str]]:
+        """
+        Permisos base de los roles adicionales del usuario: {permiso_codigo: [rol_codigo, ...]}.
+
+        Una sola query sobre la tabla (no la relación: `get_current_user` carga al usuario con
+        `raiseload("*")`). Ignora SUPERADMIN y el propio rol principal: un rol adicional nunca
+        cambia la identidad del usuario, solo suma permisos.
+        """
+        filas = (
+            self.db.query(Permiso.codigo, Rol.codigo, Rol.id)
+            .join(RolPermisoBase, RolPermisoBase.permiso_id == Permiso.id)
+            .join(Rol, Rol.id == RolPermisoBase.rol_id)
+            .join(UsuarioRolAdicional, UsuarioRolAdicional.rol_id == Rol.id)
+            .filter(UsuarioRolAdicional.usuario_id == usuario.id, Rol.codigo != "SUPERADMIN")
+            .all()
+        )
+
+        resultado: Dict[str, List[str]] = {}
+        for permiso_codigo, rol_codigo, rol_id in filas:
+            if rol_id == usuario.rol_id:
+                continue
+            resultado.setdefault(permiso_codigo, []).append(rol_codigo)
+        return {codigo: sorted(set(roles)) for codigo, roles in resultado.items()}
 
     def tiene_permiso(self, usuario: Usuario, permiso_codigo: str) -> bool:
         """
@@ -261,6 +290,8 @@ class PermisosService:
         else:
             permisos_rol = set(self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS"))
 
+        permisos_adicionales = {} if es_superadmin else self._obtener_permisos_roles_adicionales(usuario)
+
         # `joinedload` (not a bare `join`): reading `o.permiso.codigo` below would otherwise
         # emit one extra SELECT per override. Same pattern as `obtener_permisos_usuario`.
         overrides = {
@@ -280,7 +311,9 @@ class PermisosService:
                 resultado[categoria] = []
 
             # SUPERADMIN tiene todos los permisos por rol por definición
-            tiene_por_rol = True if es_superadmin else p.codigo in permisos_rol
+            roles_adicionales = permisos_adicionales.get(p.codigo, [])
+            tiene_por_rol_principal = p.codigo in permisos_rol
+            tiene_por_rol = True if es_superadmin else (tiene_por_rol_principal or bool(roles_adicionales))
             override = overrides.get(p.codigo)
 
             # Calcular estado efectivo
@@ -293,7 +326,12 @@ class PermisosService:
                 origen = "override_agregado" if override else "override_quitado"
             else:
                 efectivo = tiene_por_rol
-                origen = "rol" if tiene_por_rol else "sin_permiso"
+                if tiene_por_rol_principal:
+                    origen = "rol"
+                elif roles_adicionales:
+                    origen = "rol_adicional"
+                else:
+                    origen = "sin_permiso"
 
             resultado[categoria].append(
                 {
@@ -305,6 +343,8 @@ class PermisosService:
                     "override": override,
                     "efectivo": efectivo,
                     "origen": origen,
+                    # Roles adicionales que otorgan el permiso ("rol adicional <codigo>" en la UI)
+                    "roles_adicionales": roles_adicionales,
                 }
             )
 

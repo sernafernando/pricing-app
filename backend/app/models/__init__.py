@@ -44,6 +44,7 @@ from app.models.offset_individual_consumo import OffsetIndividualConsumo, Offset
 from app.models.markup_tienda import MarkupTiendaBrand
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.rol import Rol
+from app.models.usuario_rol_adicional import UsuarioRolAdicional
 from app.models.pedido_preparacion_cache import PedidoPreparacionCache
 from app.models.export_87_snapshot import Export87Snapshot
 from app.models.produccion_banlist import ProduccionBanlist, ProduccionPrearmado
@@ -274,6 +275,7 @@ __all__ = [
     "RolPermisoBase",
     "UsuarioPermisoOverride",
     "Rol",
+    "UsuarioRolAdicional",
     "PedidoPreparacionCache",
     "Export87Snapshot",
     "ProduccionBanlist",

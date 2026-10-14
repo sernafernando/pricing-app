@@ -53,7 +53,8 @@ class PermisoDetalladoResponse(BaseModel):
     tiene_por_rol: bool
     override: Optional[bool]
     efectivo: bool
-    origen: str
+    origen: str  # superadmin | override_agregado | override_quitado | rol | rol_adicional | sin_permiso
+    roles_adicionales: List[str] = []
 
 
 class PermisosUsuarioResponse(BaseModel):

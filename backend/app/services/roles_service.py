@@ -4,10 +4,11 @@ Servicio para gestión de roles del sistema.
 
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from app.models.rol import Rol
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.usuario import Usuario
+from app.models.usuario_rol_adicional import UsuarioRolAdicional
 
 
 class RolesService:
@@ -94,8 +95,8 @@ class RolesService:
         if rol.es_sistema:
             raise ValueError(f"No se puede eliminar el rol de sistema '{rol.codigo}'")
 
-        # Verificar si hay usuarios con este rol
-        usuarios_con_rol = self.db.query(Usuario).filter(Usuario.rol_id == rol_id).count()
+        # Verificar si hay usuarios con este rol (principal o adicional)
+        usuarios_con_rol = self.contar_usuarios_rol(rol_id)
         if usuarios_con_rol > 0:
             raise ValueError(
                 f"No se puede eliminar el rol '{rol.codigo}' porque tiene {usuarios_con_rol} usuarios asignados"
@@ -254,14 +255,81 @@ class RolesService:
             raise ValueError(f"No existe el rol con ID {rol_id}")
 
         usuario.rol_id = rol_id
+        self.quitar_rol_adicional_redundante(usuario_id, rol_id)
         self.db.commit()
         return True
 
+    def _filtro_usuarios_rol(self, rol_id: int):
+        """Usuarios con el rol como principal o como adicional"""
+        adicionales = self.db.query(UsuarioRolAdicional.usuario_id).filter(UsuarioRolAdicional.rol_id == rol_id)
+        return or_(Usuario.rol_id == rol_id, Usuario.id.in_(adicionales))
+
     def obtener_usuarios_rol(self, rol_id: int) -> List[dict]:
-        """Obtiene los usuarios que tienen un rol específico"""
-        usuarios = self.db.query(Usuario).filter(Usuario.rol_id == rol_id).all()
-        return [{"id": u.id, "email": u.email, "nombre": u.nombre, "activo": u.activo} for u in usuarios]
+        """Obtiene los usuarios que tienen un rol, como principal o como adicional"""
+        usuarios = self.db.query(Usuario).filter(self._filtro_usuarios_rol(rol_id)).order_by(Usuario.id).all()
+        return [
+            {
+                "id": u.id,
+                "email": u.email,
+                "nombre": u.nombre,
+                "activo": u.activo,
+                "asignacion": "principal" if u.rol_id == rol_id else "adicional",
+            }
+            for u in usuarios
+        ]
 
     def contar_usuarios_rol(self, rol_id: int) -> int:
-        """Cuenta cuántos usuarios tienen un rol específico"""
-        return self.db.query(Usuario).filter(Usuario.rol_id == rol_id).count()
+        """Cuenta usuarios distintos que tienen el rol como principal o como adicional"""
+        return self.db.query(Usuario.id).filter(self._filtro_usuarios_rol(rol_id)).count()
+
+    # ==========================================================================
+    # Roles adicionales (solo permisos; el rol principal decide la identidad)
+    # ==========================================================================
+
+    def obtener_roles_adicionales_usuario(self, usuario_id: int) -> List[Rol]:
+        """Roles adicionales de un usuario, ordenados como en los selectores"""
+        return (
+            self.db.query(Rol)
+            .join(UsuarioRolAdicional, UsuarioRolAdicional.rol_id == Rol.id)
+            .filter(UsuarioRolAdicional.usuario_id == usuario_id)
+            .order_by(Rol.orden, Rol.codigo)
+            .all()
+        )
+
+    def set_roles_adicionales_usuario(
+        self, usuario_id: int, rol_ids: List[int], otorgado_por_id: Optional[int] = None
+    ) -> List[Rol]:
+        """
+        Reemplaza el conjunto de roles adicionales de un usuario.
+
+        Raises:
+            ValueError: usuario o algún rol inexistente, SUPERADMIN (no se otorga como
+                adicional) o el propio rol principal. Si falla no se toca nada.
+        """
+        usuario = self.db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not usuario:
+            raise ValueError(f"No existe el usuario con ID {usuario_id}")
+
+        ids = set(rol_ids)
+        roles = self.db.query(Rol).filter(Rol.id.in_(ids)).all() if ids else []
+        faltantes = ids - {r.id for r in roles}
+        if faltantes:
+            raise ValueError(f"No existen los roles con ID {sorted(faltantes)}")
+        if any(r.codigo == "SUPERADMIN" for r in roles):
+            raise ValueError("SUPERADMIN no se puede asignar como rol adicional")
+        if usuario.rol_id in ids:
+            raise ValueError("El rol principal del usuario no puede ser también rol adicional")
+
+        self.db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.usuario_id == usuario_id).delete()
+        for rol_id in sorted(ids):
+            self.db.add(UsuarioRolAdicional(usuario_id=usuario_id, rol_id=rol_id, otorgado_por_id=otorgado_por_id))
+        self.db.commit()
+        return self.obtener_roles_adicionales_usuario(usuario_id)
+
+    def quitar_rol_adicional_redundante(self, usuario_id: int, rol_id: Optional[int]) -> None:
+        """Si el nuevo rol principal estaba como adicional, lo saca (sin commit)"""
+        if rol_id is None:
+            return
+        self.db.query(UsuarioRolAdicional).filter(
+            UsuarioRolAdicional.usuario_id == usuario_id, UsuarioRolAdicional.rol_id == rol_id
+        ).delete()
