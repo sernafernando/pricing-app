@@ -28,6 +28,9 @@ from ._coupon_fee_capture import (
     APPROVED_COUPON_CODE_FEE_REBATE,
     APPROVED_COUPON_FEE_ONLY,
     CANCELLED_COUPON_CODE_AND_FEE,
+    IN_MEDIATION_COUPON_FEE,
+    REFUNDED_COUPON_FEE_REBATE,
+    REFUNDED_FINANCING_COUPON_FEE,
     capture,
     coupon_fee_amount,
     seed_capture,
@@ -139,3 +142,66 @@ class TestACancelledPaymentContributesNothing:
         assert result.componentes == []
         assert result.diferencia is None
         assert all(line.concepto != CUPON_VENDEDOR for line in compute_breakdown(db, [order_id]).lines)
+
+
+class TestAMediatedSaleClosesLikeAnApprovedOne:
+    """`in_mediation` is money collected and held (nothing refunded), so the
+    same identity as `neto` applies. Payment 183792389650:
+
+        40500 (goods) - 5963.62 (fee) - 243 (débitos/créditos) - 2025 (coupon_fee)
+        - 243 (retiro) == 32025.38 == 32146.88 + 121.50 (SIRTAC) - 243
+
+    Without the coupon fee it missed by exactly -2025."""
+
+    def test_it_reconciles_with_the_coupon_fee(self, db) -> None:
+        order_id = seed_capture(db, IN_MEDIATION_COUPON_FEE)
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert result.diferencia == Decimal("0")
+        assert result.reconcilia is True
+        assert result.razones == []
+        assert [c.bruto for c in result.componentes if c.concepto == CUPON_VENDEDOR] == [Decimal("-2025.00")]
+        assert compute_neto_by_order_ids(db, [order_id])[order_id] == Decimal("32268.38")
+
+
+@pytest.mark.parametrize(
+    ("payment_id", "neto", "diferencia"),
+    [
+        # Pinned to what main computed for these orders BEFORE the coupon
+        # change -- the change must not move a single figure of a refunded sale.
+        #
+        # The negative `neto` (exactly -coupon_fee) is PRE-EXISTING and NOT
+        # touched here: `payment_effective_net` adds back only the refunds of
+        # `is_seller_charge` charges, and `coupon_fee` is not one, so its
+        # refund is missing from the identity. Pinned so a fix there is a
+        # deliberate, visible change.
+        (REFUNDED_FINANCING_COUPON_FEE, Decimal("-20000.00"), Decimal("-519999.00")),
+        (REFUNDED_COUPON_FEE_REBATE, Decimal("-1579.95"), Decimal("-34494.95")),
+    ],
+)
+class TestARefundedSaleIsUnchanged:
+    """Every captured refunded payment refunds its `coupon_fee` in full, so its
+    net amount is zero and it adds no component and no panel line."""
+
+    def test_the_decomposition_is_what_it_was_before(self, db, payment_id, neto, diferencia) -> None:
+        order_id = seed_capture(db, payment_id)
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert result.razones == ["venta_con_devolucion"]
+        assert result.reconcilia is False
+        assert result.diferencia == diferencia
+        assert result.neto_sin_iva is None
+        assert all(c.concepto != CUPON_VENDEDOR for c in result.componentes)
+        assert compute_neto_by_order_ids(db, [order_id])[order_id] == neto
+
+    def test_a_fully_refunded_coupon_fee_shows_no_panel_line(self, db, payment_id, neto, diferencia) -> None:
+        """Panel and IVA decomposition agree: no zero `Cupón a cargo del
+        vendedor` row on either surface."""
+        order_id = seed_capture(db, payment_id)
+
+        breakdown = compute_breakdown(db, [order_id])
+
+        assert all(line.concepto != CUPON_VENDEDOR for line in breakdown.lines)
+        assert breakdown.neto == neto

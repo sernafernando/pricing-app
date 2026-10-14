@@ -169,5 +169,182 @@
         "unit_price": 23123.0
       }
     ]
+  },
+  "183792389650": {
+    "payment_id": 183792389650,
+    "order_id": 2000018940051108,
+    "status": "in_mediation",
+    "transaction_amount": 40500.0,
+    "shipping_amount": 0.0,
+    "coupon_amount": 2025.0,
+    "total_paid_amount": 38475.0,
+    "net_received_amount": 32146.88,
+    "transaction_amount_refunded": 0.0,
+    "taxes_amount": 0.0,
+    "charges": [
+      {
+        "name": "coupon_code",
+        "type": "coupon",
+        "amount": 2025.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "coupon_fee",
+        "type": "coupon",
+        "amount": 2025.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 5963.62,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 243.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_sirtac-buenos_aires",
+        "type": "tax",
+        "amount": 121.5,
+        "refunded": 0.0
+      }
+    ],
+    "items": [
+      {
+        "item_id": "MLA1399930633",
+        "quantity": 1,
+        "unit_price": 40500.0
+      }
+    ]
+  },
+  "183064613761": {
+    "payment_id": 183064613761,
+    "order_id": 2000018972682384,
+    "status": "refunded",
+    "transaction_amount": 499999.0,
+    "shipping_amount": 0.0,
+    "coupon_amount": 20000.0,
+    "total_paid_amount": 875470.18,
+    "net_received_amount": 400309.13,
+    "transaction_amount_refunded": 499999.0,
+    "taxes_amount": 0.0,
+    "charges": [
+      {
+        "name": "coupon_code",
+        "type": "coupon",
+        "amount": 20000.0,
+        "refunded": 20000.0
+      },
+      {
+        "name": "coupon_fee",
+        "type": "coupon",
+        "amount": 20000.0,
+        "refunded": 20000.0
+      },
+      {
+        "name": "financing_fee",
+        "type": "fee",
+        "amount": 395471.18,
+        "refunded": 395471.18
+      },
+      {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 59999.88,
+        "refunded": 59999.88
+      },
+      {
+        "name": "shp_cross_docking",
+        "type": "shipping",
+        "amount": 15190.0,
+        "refunded": 15190.0
+      },
+      {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 2999.99,
+        "refunded": 2999.99
+      },
+      {
+        "name": "tax_withholding_sirtac-buenos_aires",
+        "type": "tax",
+        "amount": 1500.0,
+        "refunded": 1500.0
+      }
+    ],
+    "items": [
+      {
+        "item_id": "MLA1517212855",
+        "quantity": 1,
+        "unit_price": 499999.0
+      }
+    ]
+  },
+  "183057933001": {
+    "payment_id": 183057933001,
+    "order_id": 2000018971963318,
+    "status": "refunded",
+    "transaction_amount": 32915.0,
+    "shipping_amount": 0.0,
+    "coupon_amount": 2895.95,
+    "total_paid_amount": 30019.05,
+    "net_received_amount": 22861.88,
+    "transaction_amount_refunded": 32915.0,
+    "taxes_amount": 0.0,
+    "charges": [
+      {
+        "name": "coupon_code",
+        "type": "coupon",
+        "amount": 1579.95,
+        "refunded": 1579.95
+      },
+      {
+        "name": "coupon_fee",
+        "type": "coupon",
+        "amount": 1579.95,
+        "refunded": 1579.95
+      },
+      {
+        "name": "coupon_rebate",
+        "type": "coupon",
+        "amount": 1316.0,
+        "refunded": 1316.0
+      },
+      {
+        "name": "flat_fee",
+        "type": "fee",
+        "amount": 3320.0,
+        "refunded": 3320.0
+      },
+      {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 4856.93,
+        "refunded": 4856.93
+      },
+      {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 197.49,
+        "refunded": 197.49
+      },
+      {
+        "name": "tax_withholding_sirtac-caba",
+        "type": "tax",
+        "amount": 98.75,
+        "refunded": 98.75
+      }
+    ],
+    "items": [
+      {
+        "item_id": "MLA1150587086",
+        "quantity": 1,
+        "unit_price": 32915.0
+      }
+    ]
   }
 }

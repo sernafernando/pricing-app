@@ -1,6 +1,7 @@
 """Loads the REAL captures of payments carrying a `coupon_fee` charge
 (`tests/fixtures/ml_charges/coupon_fee_capture_20261014.json`, captured
-2026-10-14 from production: the payment row, every `ml_payment_charges` row
+2026-10-14 from production -- approved, cancelled, in_mediation and refunded
+payments: the payment row, every `ml_payment_charges` row
 and the order items, untouched).
 
 `coupon_fee` (`type='coupon'`) is the SELLER-funded part of a buyer's coupon.
@@ -31,6 +32,9 @@ FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "ml_charges" / "cou
 CANCELLED_COUPON_CODE_AND_FEE = 182717438169  # cancelled; coupon_code == coupon_fee == 8404.5
 APPROVED_COUPON_FEE_ONLY = 183096662957  # approved; coupon_fee 2560 is the whole gap
 APPROVED_COUPON_CODE_FEE_REBATE = 183081084229  # approved; coupon_code + coupon_fee + coupon_rebate + Flex charge
+IN_MEDIATION_COUPON_FEE = 183792389650  # in_mediation; coupon_code == coupon_fee == 2025, nothing refunded
+REFUNDED_FINANCING_COUPON_FEE = 183064613761  # refunded in full; coupon_fee 20000 refunded in full
+REFUNDED_COUPON_FEE_REBATE = 183057933001  # refunded in full; coupon_fee 1579.95 + coupon_rebate refunded in full
 
 ITEM_IVA_PCT = Decimal("21")
 

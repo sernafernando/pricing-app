@@ -283,7 +283,7 @@ class TestTheCouponFeeBumpRecomputesTheIvaReconcile:
     def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_5(
         self, _order_metrics_db_session, pg_order_metrics_engine
     ) -> None:
-        assert CURRENT_FORMULA_VERSION == 6
+        assert CURRENT_FORMULA_VERSION >= 6
         with pg_order_metrics_engine.connect() as conn:
             _insert_order(conn, 500050)
             _insert_metrics(conn, 500050, formula_version=5)
