@@ -49,6 +49,7 @@ from app.models.ml_group_metrics import MlGroupMetrics
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
+from app.models.ml_sale_line import MlSaleLine
 
 BUSINESS_TZ = ZoneInfo(BUSINESS_TIMEZONE)
 NO_PRODUCT = 0
@@ -326,3 +327,53 @@ def last_sales(
     if product is not None:
         q = q.where(product_col == product)
     return q.group_by(product_col, I.item_id)
+
+
+def _in_ranges(column, ranges: Optional[Iterable[Range]]):
+    """`column` inside any of `ranges` (`[start, end)`, `end=None` open)."""
+    return or_(*(and_(column >= start, column < end) if end is not None else column >= start for start, end in ranges))
+
+
+def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[int] = None):
+    """The same lines as `sale_lines` (same columns, same numbers), read from the
+    persisted `ml_sale_lines` instead of derived: no joins, no windows. The table
+    is written as if every order were settled; the recompute queue is applied here,
+    as the live derivation does: an order being recalculated has no gross and no
+    Total Gauss, and its group takes no part in the markup (no `mtg`, no `mcosto`)."""
+    L = MlSaleLine
+    o2 = aliased(MlOrdersOps)
+    queued_orders = select(D.order_id)
+    queued_groups = select(group_key_expr(o2)).select_from(o2).join(D, D.order_id == o2.order_id)
+    order_queued, group_queued = L.order_id.in_(queued_orders), L.group_key.in_(queued_groups)
+    q = select(
+        L.product,
+        L.mla,
+        L.group_date,
+        L.day,
+        L.qty,
+        case((order_queued, 0), else_=L.gross).label("gross"),
+        case((order_queued, 0), else_=L.tg).label("tg"),
+        case((group_queued, 0), else_=L.mtg).label("mtg"),
+        case((group_queued, 0), else_=L.mcosto).label("mcosto"),
+    )
+    if ranges is not None:
+        q = q.where(_in_ranges(L.group_date, ranges))
+    if product is not None:
+        q = q.where(L.product == product)
+    return q.subquery("lines")
+
+
+def persisted_last_sales(
+    *, product: Optional[int] = None, ranges: Optional[List[Range]] = None, mlas: Optional[Any] = None
+):
+    """`last_sales` from the persisted lines: `product`, `mla`, `last_at`, over ALL
+    history (or only `ranges`). `mlas` (a one-column select) limits it to those MLAs."""
+    L = MlSaleLine
+    q = select(L.product.label("product"), L.mla.label("mla"), func.max(L.group_date).label("last_at"))
+    if ranges is not None:
+        q = q.where(_in_ranges(L.group_date, ranges))
+    if product is not None:
+        q = q.where(L.product == product)
+    if mlas is not None:
+        q = q.where(L.mla.in_(mlas))
+    return q.group_by(L.product, L.mla)

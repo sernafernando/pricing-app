@@ -118,6 +118,13 @@ class Settings(BaseSettings):
     # explicitly enabled per environment. Consumed by the write-orchestration
     # service (PR2); the read path never checks this flag.
     PROMOS_WRITE_ENABLED: bool = False
+    # The Métricas ML board reads the persisted sold lines (`ml_sale_lines`,
+    # written by the order metrics drain) instead of computing `sale_lines` and
+    # `last_sales` live. Default OFF: turn it on only after the backfill has
+    # finished (`stale_formula_count` and `missing_metrics_count` both 0 in
+    # `GET /ml-ops/order-metrics/health`) and the divergence lap reports no
+    # `lines_divergent_count`. OFF leaves the board's SQL exactly as it was.
+    METRICAS_SALE_LINES_ENABLED: bool = False
     # Kill-switch for the ML PxQ (wholesale price-by-quantity) write path.
     # Default OFF, checked FIRST inside `ml_pxq_write_service.sync_pxq_tiers`
     # -- before permission, eligibility, or any ML call (design D4/spec

@@ -102,6 +102,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
+from app.core.config import settings
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_ads import MlAdsDayLedger, MlAdsItemDay
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps
@@ -118,6 +119,8 @@ from app.services.ml_daily_metrics.sales import (
     day_bounds,
     groups_touching,
     last_sales,
+    persisted_last_sales,
+    persisted_lines,
     sale_lines,
 )
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
@@ -606,6 +609,9 @@ class Board:
         self._member_tables: Dict[Tuple[str, bool], Any] = {}
         self._table_seq = 0
         self.sqlite = db.get_bind().dialect.name == "sqlite"
+        # Read the persisted sold lines (`ml_sale_lines`) instead of deriving them
+        # live: behind a flag, PostgreSQL only (the table is written by the drain).
+        self.use_lines = bool(settings.METRICAS_SALE_LINES_ENABLED) and not self.sqlite
         # The rows' unit is the PRODUCT in the product and "group" views (the
         # latter sums them afterwards); only "publication" rows are MLAs.
         self.by_pub = f.group_by == "publication"
@@ -778,9 +784,12 @@ class Board:
         what every period/window total, the KPI series and the 90-day
         sparklines read. `u24` is the part accredited in the last 24h -- a
         SUBSET of the day's units by construction."""
-        lines = sale_lines(
-            sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id, groups=self._touched()
-        )
+        if self.use_lines:
+            lines = persisted_lines(ranges=self._ranges(), product=self.product_item_id)
+        else:
+            lines = sale_lines(
+                sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id, groups=self._touched()
+            )
         return self._in_mla_set(
             select(
                 lines.c.product,
@@ -833,13 +842,18 @@ class Board:
         # the request's accreditation window, never the whole history (their
         # ageing/last sale looks back over that window only).
         history = self._ranges() if self.product_item_id == NO_PRODUCT else None
-        last_query = last_sales(
-            sqlite=self.sqlite, product=self.product_item_id, ranges=history, groups=self._touched()
-        )
-        if self.mla_set is not None:
-            # Restricted BEFORE the aggregation: the history of the MLAs outside the set is never read, so a small
-            # set costs its own sales, not the whole store's (filtering the aggregate afterwards is what it was).
-            last_query = last_query.where(MlOrderItemOps.item_id.in_(select(self.mla_set.c.mla)))
+        mlas = None if self.mla_set is None else select(self.mla_set.c.mla)
+        if self.use_lines:
+            last_query = persisted_last_sales(product=self.product_item_id, ranges=history, mlas=mlas)
+        else:
+            last_query = last_sales(
+                sqlite=self.sqlite, product=self.product_item_id, ranges=history, groups=self._touched()
+            )
+            if mlas is not None:
+                # Restricted BEFORE the aggregation: the history of the MLAs outside the set is never read, so a
+                # small set costs its own sales, not the whole store's (filtering the aggregate afterwards is what
+                # it was).
+                last_query = last_query.where(MlOrderItemOps.item_id.in_(mlas))
         last = last_query.cte("last_sale")
         published = select(M.item_id, M.mlp_publicationID).where(M.item_id.isnot(None), M.mlp_publicationID.isnot(None))
         if self.product_item_id is not None:
@@ -1033,7 +1047,8 @@ class Board:
             # First: the lines and the pairs read it. Same savepoint, so it is
             # rolled back with them and never reaches another pooled client.
             self.mla_set = self._materialize(MLA_SET_TABLE, mla_set_query(self.f.mla_source), analyze=("mla",))
-        predicates = self._line_predicates()
+        # The persisted lines are independent rows: the pair filters bound the read, no lookups needed.
+        predicates = None if self.use_lines else self._line_predicates()
         if predicates is not None:
             self.touched = self._materialize(TOUCHED_TABLE, groups_touching(predicates), analyze=("group_key",))
         self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()}, LINES_STATS)
