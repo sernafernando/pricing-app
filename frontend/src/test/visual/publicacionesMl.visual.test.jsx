@@ -75,7 +75,6 @@ vi.mock('../../services/api', () => ({
   },
   offsetsGananciaAPI: {
     vigentes: vi.fn(() => new Promise(() => {})),
-    tipoCambioHoy: vi.fn(() => new Promise(() => {})),
     grupoFiltros: vi.fn(() => new Promise(() => {})),
   },
   registerAuthFailureHandler: vi.fn(),
@@ -781,7 +780,6 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         offsetsGananciaAPI.vigentes.mockResolvedValue({
           data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
         });
-        offsetsGananciaAPI.tipoCambioHoy.mockResolvedValue({ data: { tipo_cambio: 1000 } });
         try {
           const screen = await renderWithPanel({ width, height, theme, tab: 'precios', linked: true, margin: true });
           await expect.element(screen.getByText('$ 57.600,00')).toBeVisible();
@@ -822,7 +820,6 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         } finally {
           preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
           offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
-          offsetsGananciaAPI.tipoCambioHoy.mockImplementation(() => new Promise(() => {}));
         }
       });
     }

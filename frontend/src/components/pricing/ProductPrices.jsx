@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Info, Pencil, Percent, X } from 'lucide-react';
 import { preciosAPI } from '../../services/api';
 import { useOffsetsVigentes } from '../../hooks/useOffsetsVigentes';
-import { costoConOffset, markupConOffset } from '../../utils/offsetsGanancia';
+import { costoConOffset, markupConOffset, requiereTipoCambio } from '../../utils/offsetsGanancia';
 import { formatMarkupInput, formatPrecioInput, parseMarkupInput, parsePrecioInput } from '../../utils/precioInput';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import { markupTone } from '../../utils/ventasMlTone';
@@ -143,8 +143,8 @@ const formatRate = (value) => new Intl.NumberFormat('es-AR', { maximumFractionDi
 
 /**
  * The current USD rate (`venta`, the one pricing converts costs with), read
- * only when a USD cost is going to be shown: undefined while it loads, null
- * when there is none.
+ * only when the cost shown needs it (a USD cost or a USD per-unit offset):
+ * undefined while it loads, null when there is none.
  */
 function useUsdRate(enabled) {
   const [rate, setRate] = useState(undefined);
@@ -205,7 +205,7 @@ function OffsetCost({ product, offsets, needsRate, rate, costo }) {
  * cost is converted with the current rate (`rate`, venta) and keeps its
  * original amount beside it; the cost with offset uses that same rate.
  */
-function ProductFacts({ product, showCost, isUsd, rate, offsets, costo }) {
+function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, costo }) {
 
   let cost = <Empty />;
   if (isUsd) {
@@ -228,7 +228,7 @@ function ProductFacts({ product, showCost, isUsd, rate, offsets, costo }) {
           <div className={styles.fact}>
             <dt className={styles.factLabel}>Costo con offset</dt>
             <dd className={styles.factValue}>
-              <OffsetCost product={product} offsets={offsets} needsRate={isUsd} rate={rate} costo={costo} />
+              <OffsetCost product={product} offsets={offsets} needsRate={needsRate} rate={rate} costo={costo} />
             </dd>
           </div>
         </>
@@ -405,13 +405,17 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
   const editable = LISTS.some((list) => list.rows.some((row) => permissions?.[row.perm]));
   // The offsets are about the cost: read and shown only to who may see it.
   const offsets = useOffsetsVigentes(showCost);
-  // A USD cost: ONE rate (venta, the one pricing converts with) for the cost and
-  // the cost with offset, never the offsets' own rate.
-  const isUsd = product?.moneda_costo === 'USD' && !isBlank(product?.costo);
-  const rate = useUsdRate(showCost && isUsd);
   // This is the Mercado Libre channel: offsets that do not apply to it are left out.
-  const costo =
-    product && offsets && (!isUsd || rate) ? costoConOffset(product, { ...offsets, ...(isUsd ? { tipoCambio: rate } : {}), canal: 'ml' }) : null;
+  const contexto = offsets ? { ...offsets, canal: 'ml' } : null;
+  const isUsd = product?.moneda_costo === 'USD' && !isBlank(product?.costo);
+  // ONE rate for everything this tab converts -- the USD cost AND the USD
+  // per-unit offsets: /tipo-cambio/actual venta, the rate pricing converts costs
+  // with and the one the Costo line shows. Productos converts offsets with
+  // /tipo-cambio-hoy instead (same latest venta, but with a CurExchHistory and
+  // a 1000 fallback); here a missing rate is said, never assumed.
+  const needsRate = isUsd || Boolean(product && contexto && requiereTipoCambio(product, contexto));
+  const rate = useUsdRate(showCost && needsRate);
+  const costo = product && contexto && (!needsRate || rate) ? costoConOffset(product, { ...contexto, tipoCambio: needsRate ? rate : null }) : null;
 
   // After a write the stored prices and markups are the backend's: read them again.
   const isShown = (itemId) => shownItemRef.current === itemId;
@@ -558,7 +562,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
             <span className={styles.code}>{product.codigo}</span>
             <span>{product.descripcion}</span>
           </div>
-          <ProductFacts product={product} showCost={showCost} isUsd={isUsd} rate={rate} offsets={offsets} costo={costo} />
+          <ProductFacts product={product} showCost={showCost} isUsd={isUsd} needsRate={needsRate} rate={rate} offsets={offsets} costo={costo} />
           {editable && (
             <p className={styles.hint}>
               <Percent size={14} aria-hidden="true" />

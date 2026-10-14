@@ -21,7 +21,7 @@ vi.mock('../../services/api', () => ({
     setRapido: vi.fn(),
     setCuota: vi.fn(),
   },
-  offsetsGananciaAPI: { vigentes: vi.fn(), tipoCambioHoy: vi.fn(), grupoFiltros: vi.fn() },
+  offsetsGananciaAPI: { vigentes: vi.fn(), grupoFiltros: vi.fn() },
 }));
 
 // PRODUCTO: TP-LINK / ROUTERS, ARS cost 64.000.
@@ -30,6 +30,8 @@ const OFFSETS = [
   { id: 8, item_id: 4101, tipo_offset: 'monto_por_unidad', monto: 600, moneda: 'ARS', descripcion: null, grupo_id: null },
   { id: 9, marca: 'OTRA', tipo_offset: 'porcentaje_costo', porcentaje: 50, descripcion: 'No aplica', grupo_id: null },
 ];
+
+const USD_PER_UNIT = { id: 11, item_id: 4101, tipo_offset: 'monto_por_unidad', monto: 2, moneda: 'USD', descripcion: 'Bonificación USD', grupo_id: null };
 
 const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
 const facts = () => screen.findByRole('group', { name: 'Referencias del producto' });
@@ -40,7 +42,6 @@ beforeEach(() => {
   window.localStorage.clear();
   preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
   offsetsGananciaAPI.vigentes.mockResolvedValue({ data: OFFSETS });
-  offsetsGananciaAPI.tipoCambioHoy.mockResolvedValue({ data: { tipo_cambio: 1000 } });
   offsetsGananciaAPI.grupoFiltros.mockResolvedValue({ data: [] });
 });
 
@@ -108,8 +109,7 @@ describe('cost and markup with offset', () => {
     it('converts the cost and the cost with offset with the SAME rate (venta), not the offsets one', async () => {
       preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
       preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
-      offsetsGananciaAPI.tipoCambioHoy.mockResolvedValue({ data: { tipo_cambio: 1000 } });
-      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0]] });
+          offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [OFFSETS[0]] });
       render(<ProductPrices productItemId={4101} showCost />);
       const group = await facts();
       // USD 50 x 1280 = 64.000; minus 10% = 57.600 (with the offsets rate it would be 45.000)
@@ -126,8 +126,49 @@ describe('cost and markup with offset', () => {
       render(<ProductPrices productItemId={4101} showCost />);
       const group = await facts();
       await waitFor(() => expect(group).toHaveTextContent('Sin tipo de cambio para el offset'));
-      expect(group).not.toHaveTextContent('Offsets aplicados');
+      expect(within(group).queryByRole('list', { name: 'Offsets aplicados' })).not.toBeInTheDocument();
       expect(offsetCell(await rowOf('Clásica'))).toHaveTextContent('—');
+    });
+
+    it('converts a USD per-unit offset with that same rate (venta) too', async () => {
+      preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
+      preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
+      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [USD_PER_UNIT] });
+      render(<ProductPrices productItemId={4101} showCost />);
+      const group = await facts();
+      // USD 50 x 1280 = 64.000; USD 2 x 1280 = 2.560; 64.000 - 2.560 = 61.440
+      await waitFor(() => expect(group).toHaveTextContent('$ 61.440,00'));
+      expect(within(group).getByRole('list', { name: 'Offsets aplicados' })).toHaveTextContent('$ 2.560,00');
+      // clásica 18,4% -> 1.184 x 64.000 / 61.440 - 1 = 23,33%
+      expect(offsetCell(await rowOf('Clásica'))).toHaveTextContent('23,33%');
+    });
+  });
+
+  describe('an ARS cost with a USD per-unit offset', () => {
+    it('converts the offset with the venta rate', async () => {
+      preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
+      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [USD_PER_UNIT] });
+      render(<ProductPrices productItemId={4101} showCost />);
+      const group = await facts();
+      await waitFor(() => expect(group).toHaveTextContent('$ 61.440,00'));
+      expect(offsetCell(await rowOf('Clásica'))).toHaveTextContent('23,33%');
+    });
+
+    it('never falls back to an assumed rate: without venta it says so and shows no markup with offset', async () => {
+      preciosAPI.tipoCambioActual.mockResolvedValue({ data: { error: 'No hay tipo de cambio disponible' } });
+      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [USD_PER_UNIT] });
+      render(<ProductPrices productItemId={4101} showCost />);
+      const group = await facts();
+      await waitFor(() => expect(group).toHaveTextContent('Sin tipo de cambio para el offset'));
+      expect(group).toHaveTextContent('$ 64.000,00');
+      expect(within(group).queryByRole('list', { name: 'Offsets aplicados' })).not.toBeInTheDocument();
+      expect(offsetCell(await rowOf('Clásica'))).toHaveTextContent('—');
+    });
+
+    it('asks for no rate when no USD amount is involved', async () => {
+      render(<ProductPrices productItemId={4101} showCost />);
+      await waitFor(async () => expect(offsetCell(await rowOf('Clásica'))).toHaveTextContent('32,94%'));
+      expect(preciosAPI.tipoCambioActual).not.toHaveBeenCalled();
     });
   });
 

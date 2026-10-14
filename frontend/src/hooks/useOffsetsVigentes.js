@@ -5,8 +5,9 @@ import { cargarOffsetsVigentes } from '../utils/offsetsGanancia';
 /**
  * The current profit offsets (the ones Productos applies to its "markup con
  * offsets"), read only when `enabled`: undefined while they load, null when
- * they cannot be read, else `{ offsets, grupoFiltros, tipoCambio }` for
- * `costoConOffset` (utils/offsetsGanancia).
+ * they cannot be read, else `{ offsets, grupoFiltros, tipoCambio: null }` for
+ * `costoConOffset` (utils/offsetsGanancia). No rate is read here: the caller
+ * converts with its own, never with an assumed one.
  */
 export function useOffsetsVigentes(enabled) {
   const [contexto, setContexto] = useState(undefined);
@@ -16,7 +17,6 @@ export function useOffsetsVigentes(enabled) {
     setContexto(undefined);
     cargarOffsetsVigentes({
       offsets: () => offsetsGananciaAPI.vigentes(),
-      tipoCambio: () => offsetsGananciaAPI.tipoCambioHoy(),
       grupoFiltros: (id) => offsetsGananciaAPI.grupoFiltros(id),
     })
       .then((loaded) => active && setContexto(loaded))

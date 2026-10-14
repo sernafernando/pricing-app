@@ -4,7 +4,7 @@
  * Precios tab shows exactly the same figures.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { cargarOffsetsVigentes, costoConOffset, markupConOffset, offsetsSinLimite } from './offsetsGanancia';
+import { cargarOffsetsVigentes, costoConOffset, markupConOffset, offsetsSinLimite, requiereTipoCambio } from './offsetsGanancia';
 
 const PRODUCTO = {
   item_id: 4101,
@@ -139,6 +139,24 @@ describe('costoConOffset', () => {
   });
 });
 
+describe('requiereTipoCambio', () => {
+  const usd = offset({ id: 2, item_id: 4101, tipo_offset: 'monto_por_unidad', monto: 2, moneda: 'USD' });
+
+  it('needs a rate for a USD cost', () => {
+    expect(requiereTipoCambio({ ...PRODUCTO, moneda_costo: 'USD' }, ctx([]))).toBe(true);
+  });
+
+  it('needs a rate for a USD per-unit offset that reaches the product on the channel', () => {
+    expect(requiereTipoCambio(PRODUCTO, ctx([usd]))).toBe(true);
+    expect(requiereTipoCambio(PRODUCTO, { ...ctx([{ ...usd, aplica_ml: false }]), canal: 'ml' })).toBe(false);
+    expect(requiereTipoCambio(PRODUCTO, ctx([{ ...usd, item_id: 9999 }]))).toBe(false);
+  });
+
+  it('needs none for an ARS cost with ARS or percentage offsets', () => {
+    expect(requiereTipoCambio(PRODUCTO, ctx([offset({ marca: 'TP-LINK', porcentaje: 10 }), { ...usd, moneda: 'ARS' }]))).toBe(false);
+  });
+});
+
 describe('markupConOffset', () => {
   it('recomputes the markup over the adjusted cost, rounded to 2 decimals', () => {
     // limpio = 1.184 * 64000 = 75776; 75776 / 57600 - 1 = 31.555...%
@@ -155,6 +173,7 @@ describe('markupConOffset', () => {
 
   it('is null without a markup or without an offset cost', () => {
     expect(markupConOffset(null, { costoARS: 100, costoAjustado: 80 })).toBeNull();
+    expect(markupConOffset('', { costoARS: 100, costoAjustado: 80 })).toBeNull();
     expect(markupConOffset(undefined, { costoARS: 100, costoAjustado: 80 })).toBeNull();
     expect(markupConOffset(18.4, null)).toBeNull();
   });
@@ -192,6 +211,11 @@ describe('cargarOffsetsVigentes', () => {
     expect(loaded.offsets.map((o) => o.id)).toEqual([1, 2]);
     expect(loaded.grupoFiltros).toEqual({});
     expect(loaded.tipoCambio).toBe(1100);
+  });
+
+  it('without a rate fetcher reads no rate and assumes none (no 1000 fallback)', async () => {
+    const loaded = await cargarOffsetsVigentes({ offsets: vi.fn().mockResolvedValue({ data: [] }), grupoFiltros: vi.fn() });
+    expect(loaded.tipoCambio).toBeNull();
   });
 
   it('falls back to 1000 without a rate and asks no group filters without groups', async () => {

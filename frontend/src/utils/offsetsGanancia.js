@@ -28,10 +28,14 @@ export function offsetsSinLimite(offsets) {
  * Reads the current offsets, today's USD rate and the filters of every group
  * those offsets use. `fetchers` are the calls to make (each resolves to an
  * axios-like `{ data }`): `offsets()`, `tipoCambio()` and `grupoFiltros(id)`.
+ *
+ * With a `tipoCambio` fetcher a missing rate falls back to 1000 (Productos'
+ * behaviour). Without one no rate is read and `tipoCambio` is null: the caller
+ * brings its own and never gets an assumed one.
  */
 export async function cargarOffsetsVigentes(fetchers) {
-  const [offsetsRes, tcRes] = await Promise.all([fetchers.offsets(), fetchers.tipoCambio()]);
-  const tipoCambio = tcRes?.data?.tipo_cambio || DEFAULT_TIPO_CAMBIO;
+  const [offsetsRes, tcRes] = await Promise.all([fetchers.offsets(), fetchers.tipoCambio ? fetchers.tipoCambio() : null]);
+  const tipoCambio = fetchers.tipoCambio ? tcRes?.data?.tipo_cambio || DEFAULT_TIPO_CAMBIO : null;
   const offsets = offsetsSinLimite(offsetsRes?.data);
 
   const grupoIds = [...new Set(offsets.filter((o) => o.grupo_id).map((o) => o.grupo_id))];
@@ -69,6 +73,21 @@ function aplica(offset, producto, grupoFiltros) {
   );
 }
 
+/** The offsets that reach the product on the channel (all of them without one). */
+function offsetsQueAplican(producto, { offsets, grupoFiltros, canal }) {
+  const flag = canal ? CANAL_FLAG[canal] : null;
+  return (offsets || []).filter((offset) => !(flag && offset[flag] === false) && aplica(offset, producto, grupoFiltros || {}));
+}
+
+/**
+ * Whether the cost with offset needs a USD rate: a USD cost, or a USD
+ * per-unit offset that reaches the product (on `canal`, when given).
+ */
+export function requiereTipoCambio(producto, contexto) {
+  if (producto?.moneda_costo === 'USD') return true;
+  return offsetsQueAplican(producto, contexto).some((o) => o.tipo_offset === 'monto_por_unidad' && o.moneda === 'USD');
+}
+
 /**
  * The product's cost in ARS with the offsets that reach it discounted:
  * `{ costoARS, descuento, costoAjustado, aplicados: [{ id, descripcion, monto }] }`
@@ -90,10 +109,7 @@ export function costoConOffset(producto, { offsets, grupoFiltros, tipoCambio, ca
 
   const aplicados = [];
   let descuento = 0;
-  const flag = canal ? CANAL_FLAG[canal] : null;
-  for (const offset of offsets) {
-    if (flag && offset[flag] === false) continue;
-    if (!aplica(offset, producto, grupoFiltros || {})) continue;
+  for (const offset of offsetsQueAplican(producto, { offsets, grupoFiltros, canal })) {
     let monto = 0;
     if (offset.tipo_offset === 'porcentaje_costo') {
       monto = costoARS * ((offset.porcentaje || 0) / 100);
@@ -116,7 +132,7 @@ export function costoConOffset(producto, { offsets, grupoFiltros, tipoCambio, ca
  * without a markup (0 is a real one) or without an offset cost.
  */
 export function markupConOffset(markup, costo) {
-  if (markup === null || markup === undefined || !costo) return null;
+  if (markup === null || markup === undefined || markup === '' || !costo) return null;
   const limpio = (Number(markup) / 100 + 1) * costo.costoARS;
   const markupNuevo = (limpio / costo.costoAjustado - 1) * 100;
   return Math.round(markupNuevo * 100) / 100;

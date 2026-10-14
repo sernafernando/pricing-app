@@ -380,8 +380,6 @@ export const pricingAPI = {
 // (utils/offsetsGanancia.cargarOffsetsVigentes).
 export const offsetsGananciaAPI = {
   vigentes: () => api.get('/offsets-ganancia', { params: { solo_vigentes: true } }),
-  // { tipo_cambio } -- the rate offsets convert USD costs and amounts with.
-  tipoCambioHoy: () => api.get('/tipo-cambio-hoy'),
   grupoFiltros: (grupoId) => api.get(`/offset-grupos/${grupoId}/filtros`),
 };
 
