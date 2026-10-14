@@ -23,8 +23,9 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import String, bindparam, delete, func, insert, or_, select, text
+from sqlalchemy import String, bindparam, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
 from app.models.ml_sale_line import MlSaleLine
@@ -55,7 +56,13 @@ def _insert_statement(seller: Optional[str]):
     seller filter is read from the settings while the statement is built."""
     wanted = func.unnest(bindparam("keys", type_=ARRAY(String))).column_valued("group_key")
     lines = sale_lines(sqlite=False, groups=select(wanted), queue=False, keyed=True, narrow=True)
-    return insert(MlSaleLine.__table__).from_select(list(COLUMNS), select(*(lines.c[name] for name in COLUMNS)))
+    statement = pg_insert(MlSaleLine.__table__).from_select(list(COLUMNS), select(*(lines.c[name] for name in COLUMNS)))
+    # A sibling that JOINS the group is derived with it while its own lines are
+    # still stored under its previous group: the line moves instead of colliding.
+    return statement.on_conflict_do_update(
+        index_elements=["item_row_id"],
+        set_={name: statement.excluded[name] for name in COLUMNS if name != "item_row_id"},
+    )
 
 
 def store_sale_lines(db, order_ids: Iterable[int], group_keys: Sequence[str]) -> None:

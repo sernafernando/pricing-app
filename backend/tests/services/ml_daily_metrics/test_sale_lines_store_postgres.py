@@ -132,6 +132,18 @@ class TestSaleLinesStore:
 
         assert _stored(board_pg) == _live(board_pg)
 
+    def test_orders_that_join_a_pack_move_their_lines_even_when_only_one_is_stored(self, board_pg):
+        """Two standalone orders with lines join a pack and only one of them is
+        stored: the group is derived with BOTH, and the other one's lines (still under
+        its old group) move instead of colliding on the primary key."""
+        _seed_world(board_pg)
+        board_pg.execute(text("UPDATE ml_orders_ops SET pack_id = 902 WHERE order_id IN (3, 5)"))
+
+        store_order_metrics(board_pg, {3: _metrics(3)})
+
+        assert {row[2] for row in _stored(board_pg) if row[1] in (3, 5)} == {"p:902"}
+        assert _stored(board_pg) == _live(board_pg)
+
     def test_deleting_an_order_deletes_its_lines(self, board_pg):
         _seed_world(board_pg)
 
