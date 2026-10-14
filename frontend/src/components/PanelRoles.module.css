@@ -30,6 +30,31 @@
   gap: var(--space-1);
 }
 
+.accion {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  border: none;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.accion:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.accionEditar {
+  composes: accion;
+  color: var(--info-text);
+  background: var(--info-bg);
+}
+
+.accionEliminar {
+  composes: accion;
+  color: var(--error-text);
+  background: var(--error-bg);
+}
+
 .mensaje {
   margin-bottom: var(--space-4);
   padding: var(--space-3) var(--space-4);

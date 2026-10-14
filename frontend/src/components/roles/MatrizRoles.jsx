@@ -78,11 +78,13 @@ export default function MatrizRoles({
                 {grupo.visibles.map((permiso) => (
                   <tr key={permiso.codigo} className={styles.fila}>
                     <th scope="row" className={styles.permiso}>
-                      <span className={styles.permisoNombre}>
-                        {permiso.nombre}
-                        {permiso.es_critico && <span className={styles.critico}>Crítico</span>}
-                      </span>
-                      <code className={styles.codigo}>{permiso.codigo}</code>
+                      <div className={styles.permisoContenido}>
+                        <span className={styles.permisoNombre}>
+                          {permiso.nombre}
+                          {permiso.es_critico && <span className={styles.critico}>Crítico</span>}
+                        </span>
+                        <code className={styles.codigo}>{permiso.codigo}</code>
+                      </div>
                     </th>
                     {roles.map((rol) => {
                       const soloLectura = esSoloLectura(rol);
