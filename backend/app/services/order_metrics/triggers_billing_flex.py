@@ -37,18 +37,23 @@ _FUNCTION_SQL = """
 CREATE OR REPLACE FUNCTION order_metrics_enqueue_billing_flex() RETURNS TRIGGER AS $trg$
 DECLARE
     ids BIGINT[];
+    only_order BIGINT := NULL;
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM ml_billing_charges WHERE detail_id = NEW.detail_id AND detail_sub_type = 'BFLX'
     ) THEN
         RETURN NEW;
     END IF;
+    -- A new link only concerns ITS order (and that order's shipment siblings).
+    IF TG_TABLE_NAME = 'ml_billing_charge_orders' THEN
+        only_order := NEW.order_id;
+    END IF;
     SELECT COALESCE(array_agg(DISTINCT o.order_id), ARRAY[]::BIGINT[]) INTO ids
     FROM ml_billing_charge_orders l
     JOIN ml_orders_ops linked ON linked.order_id = l.order_id
     JOIN ml_orders_ops o ON o.order_id = linked.order_id
         OR (linked.shipping_id IS NOT NULL AND o.shipping_id = linked.shipping_id)
-    WHERE l.detail_id = NEW.detail_id;
+    WHERE l.detail_id = NEW.detail_id AND (only_order IS NULL OR l.order_id = only_order);
     PERFORM order_metrics_enqueue(ids, 'ml_billing_flex');
     RETURN NEW;
 END;

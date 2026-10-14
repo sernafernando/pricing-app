@@ -100,6 +100,16 @@ class TestBflxLandingRecomputesTheOrder:
 
         assert set(_dirty(slate)) == {_STRANGER}
 
+    def test_a_new_link_enqueues_only_its_own_order_not_the_charges_other_links(self, slate) -> None:
+        _charge(slate, "T9I-6", "BFLX")
+        _link(slate, "T9I-6", _ORDER)
+        slate.execute(text("DELETE FROM ml_order_metrics_dirty"))
+        slate.commit()
+
+        _link(slate, "T9I-6", _STRANGER)
+
+        assert set(_dirty(slate)) == {_STRANGER}
+
     def test_a_changed_amount_recomputes_but_an_identical_rewrite_does_not(self, slate) -> None:
         _charge(slate, "T9I-4", "BFLX")
         _link(slate, "T9I-4", _ORDER)
