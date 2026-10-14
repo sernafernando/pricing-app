@@ -381,6 +381,7 @@ describe('PanelRoles clone role', () => {
 
     expect(screen.getByRole('button', { name: 'Clonando...' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Clonar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
 
     await act(async () => resolver({ data: {} }));
 
@@ -756,6 +757,45 @@ describe('PanelRoles matrix', () => {
 
     expect(celda('Editar precios', 'Ventas')).toBeChecked();
     expect(celda('Editar precios', 'Ventas').closest('td').className).not.toMatch(/pendiente/);
+  });
+
+  it('loads the new role column when a matrix save started before the role reload finished', async () => {
+    const user = userEvent.setup();
+    const servidor = servidorConEstado();
+    servidor.estado[4] = ['productos.ver'];
+    const COMPRAS = { ...ROLES[2], id: 4, codigo: 'COMPRAS', nombre: 'Compras', orden: 3 };
+    await renderMatriz();
+
+    // The role reload after the create stays in flight while the matrix save starts.
+    const recargaRoles = diferido();
+    const getServidor = api.get.getMockImplementation();
+    api.get.mockImplementation((url) => {
+      if (url === '/roles') return recargaRoles.promesa;
+      if (url === '/roles/4/permisos') return Promise.resolve({ data: { ...permisosDeRol(3, servidor.estado[4]), rol_id: 4 } });
+      return getServidor(url);
+    });
+    const put = diferido();
+    api.put.mockReturnValueOnce(put.promesa);
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    await user.type(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)'), 'COMPRAS');
+    await user.type(screen.getByPlaceholderText('Nombre'), 'Compras');
+    await user.click(screen.getByRole('button', { name: 'Crear' }));
+    expect(await screen.findByText('Rol creado correctamente')).toBeInTheDocument();
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    await act(async () => recargaRoles.resolver({ data: [...ROLES, COMPRAS] }));
+    await waitFor(() => expect(celda('Ver productos', 'Compras')).toBeChecked());
+    await act(async () => put.resolver({ data: { success: true } }));
+
+    expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
+    expect(celda('Ver productos', 'Compras')).toBeChecked();
+    expect(celda('Ver productos', 'Compras')).toBeEnabled();
+    expect(screen.getByRole('columnheader', { name: 'Compras' })).not.toHaveAttribute(
+      'title',
+      'No se pudieron cargar los permisos de este rol',
+    );
   });
 
   it('keeps the create role flow working', async () => {
