@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from app.models.permiso import Permiso, RolPermisoBase
+from app.models.producto import ProductoPricing
 
 # Productos.jsx: puedeEditar = clasica || cuotas || toggle_rebate || toggle_web_transferencia
 PRODUCTOS_EDITAR = (
@@ -142,3 +143,70 @@ def test_unrelated_permission_does_not_open_price_writes(client, auth_headers, d
     )
 
     assert response.status_code == 403, response.text
+
+
+# --- set-cuota: Tienda codes only cover what the Tienda screen writes -------
+# useTiendaPricing.guardarCuota posts /precios/set-cuota with tipo_cuota 3/6/9/12
+# and no lista_tipo (default "web"). The clasica price and the PVP list are
+# written only from Productos, so a Tienda-only user must not reach them.
+
+TIENDA_ONLY = ("tienda.editar_precio_gremio", "tienda.editar_precio_web_transf")
+
+
+@pytest.mark.parametrize("codigo", TIENDA_ONLY)
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param({"tipo_cuota": "clasica", "lista_tipo": "web"}, id="clasica-web"),
+        pytest.param({"tipo_cuota": "3", "lista_tipo": "pvp"}, id="cuota-pvp"),
+        pytest.param({"tipo_cuota": "clasica", "lista_tipo": "pvp"}, id="clasica-pvp"),
+    ],
+)
+def test_tienda_only_user_cannot_write_productos_only_set_cuota_fields(
+    client, auth_headers, db, rol_ventas, codigo, params
+) -> None:
+    _grant(db, rol_ventas, codigo)
+    db.commit()
+
+    response = client.post(
+        "/api/precios/set-cuota",
+        params={"item_id": MISSING_ITEM, "precio": 1000.0, **params},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.parametrize("codigo", TIENDA_ONLY)
+def test_tienda_only_user_can_still_save_web_cuotas_like_the_tienda_screen(
+    client, auth_headers, db, rol_ventas, codigo
+) -> None:
+    from tests.integration.test_pricing_manual_origen import _make_producto, _PatchedPricingDeps
+
+    _grant(db, rol_ventas, codigo)
+    _make_producto(db, item_id=4101)
+
+    with _PatchedPricingDeps():
+        response = client.post(
+            "/api/precios/set-cuota",
+            params={"item_id": 4101, "tipo_cuota": "6", "precio": 1500.0},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200, response.text
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == 4101).one()
+    assert float(pricing.precio_6_cuotas) == 1500.0
+
+
+@pytest.mark.parametrize("codigo", PRODUCTOS_EDITAR)
+def test_productos_codes_keep_full_set_cuota_access(client, auth_headers, db, rol_ventas, codigo) -> None:
+    _grant(db, rol_ventas, codigo)
+    db.commit()
+
+    response = client.post(
+        "/api/precios/set-cuota",
+        params={"item_id": MISSING_ITEM, "tipo_cuota": "clasica", "precio": 1000.0, "lista_tipo": "pvp"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404, response.text

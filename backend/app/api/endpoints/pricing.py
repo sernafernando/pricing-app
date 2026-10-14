@@ -1126,6 +1126,15 @@ def setear_precio_cuota(
     current_user=Depends(get_current_user),
 ):
     """Setea el precio de un tipo de cuota específico (web o pvp) y calcula su markup. Si precio=0, borra la cuota."""
+    from app.services.permisos_service import PermisosService
+
+    # Tienda codes only cover what the Tienda screen writes here: web cuotas
+    # (3/6/9/12). The clasica price and the PVP list need a Productos code.
+    escribe_solo_cuota_web = lista_tipo == "web" and tipo_cuota != "clasica"
+    if not escribe_solo_cuota_web and not PermisosService(db).tiene_algun_permiso(
+        current_user, PERMISOS_EDITAR_PRODUCTOS
+    ):
+        raise HTTPException(status_code=403, detail="No tienes permiso para editar este precio")
 
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
