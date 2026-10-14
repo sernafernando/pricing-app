@@ -4,7 +4,7 @@
 
 ## Resumen ejecutivo
 
-En **Publicaciones ML**, el panel de una publicación vinculada a un producto tiene una pestaña nueva: **Precios**. Muestra los precios del producto con el markup de cada uno, sin tener que ir a Productos. Por ahora es **solo de lectura**: próximamente se va a poder editar desde ahí.
+En **Publicaciones ML**, el panel de una publicación vinculada a un producto tiene una pestaña nueva: **Precios**. Muestra los precios del producto con el markup de cada uno, sin tener que ir a Productos. Los precios también se pueden editar desde esta pestaña (ver **Publicaciones ML: editá los precios del producto desde el panel**).
 
 Qué tenés que saber:
 

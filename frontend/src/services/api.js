@@ -379,6 +379,14 @@ export const pricingAPI = {
 // One product's stored prices and markups (ProductoResponse).
 export const preciosAPI = {
   obtenerProducto: (itemId) => api.get(`/productos/${itemId}`),
+  // Writes, the same calls Productos makes inline (useProductosInlineEditing);
+  // every write recomputes the stored markups.
+  // { item_id, precio, pricelist_id } -> { markup, ... }
+  calcularMarkup: (params) => api.get('/precios/calcular-markup', { params }),
+  // { item_id, precio, recalcular_cuotas, lista_tipo? } -- precio 0 clears the list.
+  setRapido: (params) => api.post('/precios/set-rapido', null, { params }),
+  // { item_id, tipo_cuota, precio, lista_tipo }
+  setCuota: (params) => api.post('/precios/set-cuota', null, { params }),
 };
 
 // Sub-PM scope delegation (sub-pm-scope-marcas PR3). Non-admin titular-only
