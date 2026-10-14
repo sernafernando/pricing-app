@@ -666,6 +666,7 @@ def pg_order_metrics_engine():
         )
 
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
+    from app.models.ml_sale_line import MlSaleLine as _MlSaleLine
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
@@ -696,6 +697,7 @@ def pg_order_metrics_engine():
         # table too, or every real-Postgres store call in this file fails
         # with `UndefinedTable`.
         _MlGroupMetrics.__table__,
+        _MlSaleLine.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
 
@@ -869,6 +871,7 @@ def pg_order_metrics_triggers_engine():
 
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
+    from app.models.ml_sale_line import MlSaleLine as _MlSaleLine
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
     from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
@@ -893,6 +896,7 @@ def pg_order_metrics_triggers_engine():
         # fire -- a missing table would make every write to `ml_orders_ops` fail,
         # not just the group bookkeeping.
         _MlGroupMetrics.__table__,
+        _MlSaleLine.__table__,
         _MlOrderMetricsDirty.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
@@ -965,6 +969,7 @@ def pg_order_metrics_divergence_engine():
         )
 
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
+    from app.models.ml_sale_line import MlSaleLine as _MlSaleLine
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
@@ -991,6 +996,7 @@ def pg_order_metrics_divergence_engine():
         # ventas-ml-rediseno PR20: `store_order_metrics` writes the
         # affected order's group row in the SAME transaction (T11/T12).
         _MlGroupMetrics.__table__,
+        _MlSaleLine.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
 
@@ -1088,6 +1094,7 @@ def pg_order_metrics_config_triggers_engine():
     from app.models.logistica_costo_cordon import LogisticaCostoCordon as _LogisticaCostoCordon
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
+    from app.models.ml_sale_line import MlSaleLine as _MlSaleLine
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
     from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
@@ -1113,6 +1120,7 @@ def pg_order_metrics_config_triggers_engine():
         # fire -- a missing table would make every write to `ml_orders_ops` fail,
         # not just the group bookkeeping.
         _MlGroupMetrics.__table__,
+        _MlSaleLine.__table__,
         _MlOrderMetricsDirty.__table__,
     ]
     _restore_pristine_pg_types(own_tables)

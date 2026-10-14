@@ -25,8 +25,12 @@ History of the value:
   ML's neto, not a deduction of the Total Gauss chain: the stored `neto` grows
   by its gross and `neto_sin_iva` by its base, and the `bonificacion_envio`
   chain line is gone. The Total Gauss itself is unchanged. Same backfill as 3.
+- 5: ml_sale_lines. No Gauss formula changed: the drain now also writes the
+  order's persisted sale lines (`ml_sale_lines`) in the same transaction, and
+  the bump is what makes `order_metrics.reconcile` re-enqueue every order so
+  its lines get written (the backfill of the table).
 """
 
 from __future__ import annotations
 
-CURRENT_FORMULA_VERSION = 4
+CURRENT_FORMULA_VERSION = 5

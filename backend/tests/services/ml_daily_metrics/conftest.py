@@ -51,6 +51,7 @@ def board_pg_engine():
 
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
     from app.models.ml_group_metrics import MlGroupMetrics
+    from app.models.ml_sale_line import MlSaleLine
     from app.models.ml_order_item_costo import MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
     from app.models.ml_orders_ops import (
@@ -72,6 +73,7 @@ def board_pg_engine():
         MlOrderMetrics.__table__,
         MlOrderMetricsDirty.__table__,
         MlGroupMetrics.__table__,
+        MlSaleLine.__table__,
         MercadoLibreItemPublicado.__table__,
         MlOpsSyncCursor.__table__,
         # Ventas ML's KPI aggregate (the parity checks) reads these too.

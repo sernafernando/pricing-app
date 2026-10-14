@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import settings
 from app.workers.context import WorkerContext
 from app.workers.handlers.order_metrics import drain
 from app.workers.heartbeat import HeartbeatThread
@@ -68,6 +69,11 @@ def _order_metrics_db_session(monkeypatch, pg_order_metrics_engine):
         conn.execute(text("DELETE FROM ml_venta_deducciones"))
         conn.execute(text("DELETE FROM ml_order_metrics"))
         conn.execute(text("DELETE FROM ml_order_metrics_dirty"))
+        conn.execute(text("DELETE FROM ml_sale_lines"))
+        conn.execute(text("DELETE FROM ml_group_metrics"))
+        conn.execute(text("DELETE FROM ml_order_item_costos"))
+        conn.execute(text("DELETE FROM ml_order_items_ops"))
+        conn.execute(text("DELETE FROM ml_payments_ops"))
         conn.execute(text("DELETE FROM ml_orders_ops"))
         conn.commit()
 
@@ -117,6 +123,51 @@ class TestDrainClaimComputeStore:
         assert dirty is None
         assert metrics is not None
         assert ctx.held_tokens == set()  # every token released after the pass
+
+    def test_the_drain_writes_the_orders_sale_lines_with_its_metrics(
+        self, _order_metrics_db_session, pg_order_metrics_engine, monkeypatch
+    ) -> None:
+        """`ml_sale_lines` is written in the transaction that stores the metrics:
+        the drained order leaves the queue with its lines in place."""
+        monkeypatch.setattr(settings, "ML_USER_ID", 999)
+        order_id = 500005
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_order(conn, order_id)
+            conn.execute(
+                text(
+                    "INSERT INTO ml_order_items_ops (order_id, item_id, quantity, unit_price) "
+                    "VALUES (:oid, 'MLA500', 2, 100)"
+                ),
+                {"oid": order_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO ml_order_item_costos (order_id, item_id, costo_origen, moneda, costo_unitario_ars, "
+                    "iva_pct, precio_unitario, fuente, producto_item_id) "
+                    "VALUES (:oid, 'MLA500', 60, 'ARS', 60, 21, 100, 'test', 4242)"
+                ),
+                {"oid": order_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) "
+                    "VALUES (:pid, :oid, 'approved', now())"
+                ),
+                {"pid": order_id * 10, "oid": order_id},
+            )
+            _insert_dirty(conn, order_id)
+            conn.commit()
+
+        result = drain.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        assert result.detail["processed"] == 1
+        with pg_order_metrics_engine.connect() as conn:
+            lines = conn.execute(
+                text("SELECT group_key, product, mla, qty FROM ml_sale_lines WHERE order_id = :oid"), {"oid": order_id}
+            ).all()
+            queued = conn.execute(text("SELECT count(*) FROM ml_order_metrics_dirty")).scalar()
+        assert [tuple(line) for line in lines] == [(f"o:{order_id}", 4242, "MLA500", 2)]
+        assert queued == 0
 
     def test_multiple_dirty_orders_all_drained_in_one_pass(
         self, _order_metrics_db_session, pg_order_metrics_engine
