@@ -384,7 +384,8 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Active promo')).toBeInTheDocument());
-    expect(screen.getAllByRole('button', { name: /^desaplicar$/i })).toHaveLength(2);
+    // The controls unlock once the background pull settles.
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^desaplicar$/i })).toHaveLength(2));
   });
 
   it('shows an enabled Aplicar button for a candidate PRE_NEGOTIATED promo', async () => {
@@ -406,7 +407,8 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Pre-negotiated promo')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+    // The controls unlock once the background pull settles.
+    expect(await screen.findByRole('button', { name: /^aplicar$/i })).toBeEnabled();
   });
 
   it('shows a Desaplicar button for a started PRE_NEGOTIATED promo', async () => {
@@ -428,7 +430,7 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Pre-negotiated promo')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: /^desaplicar$/i })).toBeEnabled();
   });
 
   it('shows an "En espera" badge for a pending promo (REQ-4), mutually exclusive with Aplicada/Programada', async () => {
@@ -650,7 +652,9 @@ describe('MlaPromocionesPanel', () => {
     render(<MlaPromocionesPanel mla="MLA001" promosCacheRef={promosCacheRef} />);
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
 
-    expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2);
+    // Each open reads the mirror and pulls once (then re-reads it after the pull).
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(4));
   });
 
   it('does not call reload/getPromocionesItem again after unmounting before either post-apply reload fires (~5s, ~65s)', async () => {
@@ -662,7 +666,7 @@ describe('MlaPromocionesPanel', () => {
     });
     promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
 
-    const { unmount } = renderPanel();
+    const { unmount } = renderPanel({ pullOnOpen: false });
     // Fake timers don't stop native Promise microtasks from flushing, so
     // waitFor's polling (setInterval-based) still needs the fake clock
     // nudged; flush via act on the resolved fetcher promise instead.
@@ -705,7 +709,7 @@ describe('MlaPromocionesPanel', () => {
     });
     promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
 
-    renderPanel();
+    renderPanel({ pullOnOpen: false });
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();

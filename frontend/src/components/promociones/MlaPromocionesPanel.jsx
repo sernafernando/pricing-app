@@ -99,74 +99,93 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   const { tienePermiso } = usePermisos();
   const canPull = tienePermiso('promos.ver');
 
-  // Opening the panel pulls fresh state from MercadoLibre first, then reads
-  // the mirror the server just updated.
+  // Opening the panel shows the mirror we ALREADY have, immediately, and pulls fresh state from
+  // MercadoLibre in the BACKGROUND (see the effect below). The pull used to run first and block
+  // the first paint: one ML round trip per MLA behind a proxy shared with sales-webhook
+  // processing, 25-30 s on the first open of a 50-MLA product.
   //
-  // This REVERSES the earlier product decision that kept refreshes manual
-  // because the ML throttle is shared with sales-webhook processing. The
-  // product owner asked for it explicitly: seeing stale promotions without
-  // knowing they are stale was the worse failure. The cost is real — every
-  // open competes for that shared throttle — and it is a deliberate trade,
-  // not an oversight.
+  // Pulling on open is still a deliberate product decision (the owner asked for it: seeing stale
+  // promotions without knowing they are stale was the worse failure). Only the ORDER changed: read,
+  // show, then pull and re-read. While the pull is in flight apply/remove are locked and an
+  // "Actualizando desde ML…" state is visible, so nobody acts on a row the pull may be about to change.
   //
-  // `alwaysRefetch` makes a collapse/re-expand genuinely refetch instead of
-  // serving the cached mirror, which would defeat the whole point. The cache
-  // is still WRITTEN — the promo filter bar derives its types from those
+  // `alwaysRefetch` makes a collapse/re-expand genuinely re-read instead of serving the cached
+  // mirror. The cache is still WRITTEN — the promo filter bar derives its types from those
   // entries — so bypassing it is not an option, only re-reading it is.
   //
-  // The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing
-  // route all come back as HTTP 200 `{ok: false}`, never as a rejection. So
-  // `.catch` alone would almost never fire and the panel would show the old
-  // mirror as if it had just been refreshed — the very failure this pull
-  // exists to prevent. `ok` is the only honest signal, and both it and the
-  // rejection path feed the same `refreshFailed` flag the panel surfaces.
-  const fetchFreshThenRead = useCallback(
-    (id) =>
-      Promise.resolve(promocionesAPI.refreshItemPromociones(id))
-        .then((r) => ({ ok: r?.data?.ok === true, motivo: r?.data?.motivo || null }))
-        // A failed refresh degrades to the stored mirror rather than blanking
-        // the panel: stale data on a working screen beats an error and
-        // nothing. The mirror is still whatever the server last confirmed.
-        .catch(() => ({ ok: false, motivo: null }))
-        .then((refresh) =>
-          promocionesAPI
-            .getPromocionesItem(id)
-            .then((r) => ({ ...r.data, refreshFailed: !refresh.ok, refreshMotivo: refresh.motivo })),
-        ),
-    [],
-  );
-
-  // `reload()` reads the mirror WITHOUT pulling from ML again. The post-apply
-  // timers and the error-state retry both go through it, and each of those
-  // firing a refresh would have added three more ML calls per apply on a
-  // throttle shared with sales-webhook processing — a cost nobody asked for
-  // and that the "refresh on open" request does not imply.
   const readMirror = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
 
-  // Whether this mount should pull from ML is the PARENT's call, because only
-  // it knows why the panel is mounting: a user opening it (pull), a global
-  // "Expandir todo" mounting twenty at once (do not — one click must not
-  // become twenty concurrent pulls on a throttle shared with sales-webhook
-  // processing), or a remount right after the refresh button already pulled
-  // (do not — that would pull twice for one click).
-  const { data, loading, error, reload } = useLazyResource(
-    promosCacheRef,
-    mla,
-    pullOnOpen && canPull ? fetchFreshThenRead : readMirror,
-    { alwaysRefetch: true, reloadFetcher: readMirror },
-  );
+  // Whether this mount should pull from ML is the PARENT's call, because only it knows why the panel
+  // is mounting: a user opening it (pull), a global "Expandir todo" mounting twenty at once (do not —
+  // one click must not become twenty concurrent pulls on a throttle shared with sales-webhook
+  // processing), or a remount right after the refresh button already pulled (do not — that would
+  // pull twice for one click). The post-apply timers and the error-state retry re-read the mirror
+  // only: each of those pulling would have added three more ML calls per apply.
+  const { data: mirror, loading, error, reload } = useLazyResource(promosCacheRef, mla, readMirror, {
+    alwaysRefetch: true,
+  });
 
-  // The error-state retry pulls, because the user opened this expecting fresh
-  // state — re-reading the mirror under a button labelled "Reintentar" would
-  // not retry what actually failed. A user without `promos.ver` never had a
-  // pull to retry, so for them the retry is a plain re-read.
-  const retry = useCallback(
-    () =>
-      canPull
-        ? Promise.resolve(promocionesAPI.refreshItemPromociones(mla)).catch(() => null).then(() => reload())
-        : reload(),
-    [mla, reload, canPull],
-  );
+  // Background pull state. `data` is what the panel shows: the pulled-and-re-read mirror once the
+  // pull settled FOR THE MIRROR IT STARTED FROM, otherwise the hook's mirror (a later `reload()`
+  // yields a newer object, which wins).
+  const [pull, setPull] = useState(null); // { forMla, status: 'running' | 'done', forMirror?, data? }
+  const pulledForRef = useRef(null);
+  const aliveRef = useRef(true);
+  // Id of the latest pull started; a pull that is not the latest when it settles is ignored (the panel
+  // moved to another MLA, even one it already pulled before).
+  const pullSeqRef = useRef(0);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+  const pullSettled = pull?.forMla === mla && pull.status === 'done' && pull.forMirror === mirror;
+  const data = pullSettled ? pull.data : mirror;
+  // The pull is "in flight" from the moment the mirror lands (the effect below starts it in the same
+  // commit), so nothing — the ML confirmation, the apply controls — acts in the gap before it.
+  const shouldPull = pullOnOpen && canPull;
+  const pullPending =
+    shouldPull && Boolean(mirror) && !loading && !error && !mirror.motivo_sin_actualizacion && pull?.forMla !== mla;
+  const refreshing = (pull?.forMla === mla && pull.status === 'running') || pullPending;
+  // The store says ML must not be asked about this publication (not active): show the mirror
+  // read-only with the reason and never pull. Absent for active / not-yet-stored publications.
+  const motivoSinActualizacion = data?.motivo_sin_actualizacion || null;
+
+  useEffect(() => {
+    if (!shouldPull || !mirror || loading || error || mirror.motivo_sin_actualizacion) return;
+    if (pulledForRef.current === mla) return;
+    pulledForRef.current = mla;
+    pullSeqRef.current += 1;
+    const pullId = pullSeqRef.current;
+    setPull({ forMla: mla, status: 'running' });
+    // The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing route all come back
+    // as HTTP 200 `{ok: false}`, never as a rejection. So `.catch` alone would almost never fire and
+    // the panel would show the old mirror as if it had just been refreshed. `ok` is the only honest
+    // signal, and both it and the rejection path feed the same `refreshFailed` flag.
+    Promise.resolve(promocionesAPI.refreshItemPromociones(mla))
+      .then((r) => ({ ok: r?.data?.ok === true, motivo: r?.data?.motivo || null }))
+      // A failed refresh degrades to the stored mirror rather than blanking the panel: stale data
+      // on a working screen beats an error and nothing.
+      .catch(() => ({ ok: false, motivo: null }))
+      .then((refresh) => {
+        const flags = { refreshFailed: !refresh.ok, refreshMotivo: refresh.motivo };
+        return readMirror(mla)
+          .then((fresh) => ({ ...fresh, ...flags }))
+          .catch(() => ({ ...mirror, ...flags }));
+      })
+      .then((merged) => {
+        // Unmounted, or the panel was pointed at another MLA while this pull was in flight.
+        if (!aliveRef.current || pullSeqRef.current !== pullId) return;
+        // The filter bar derives its promo types from these entries.
+        promosCacheRef.current.set(mla, { status: 'ok', data: merged });
+        setPull({ forMla: mla, status: 'done', forMirror: mirror, data: merged });
+      });
+  }, [shouldPull, mirror, loading, error, mla, promosCacheRef, readMirror]);
+
+  // The error-state retry re-reads the mirror; once it lands, the background pull above runs for it
+  // (when this mount is meant to pull), so a retry still refreshes from ML without pulling twice.
+  const retry = reload;
   // After our own enroll/remove write the server refreshes on its own
   // (immediate + a ~60s retry-queue drain), and the panel just re-READS that
   // mirror at two points: ~5s (fast SELLER_CAMPAIGN/DEAL/consistency) and ~65s
@@ -223,7 +242,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   // read counts as 'checking' for the current one.
   const [mlCheck, setMlCheck] = useState(null); // { forData, status, promosEnMl }
   const mirrorEmpty = Boolean(data) && !loading && !error && (data.promotions || []).length === 0;
-  const needsMlCheck = mirrorEmpty && !data.refreshFailed;
+  const needsMlCheck = mirrorEmpty && !data.refreshFailed && !refreshing && !motivoSinActualizacion;
   const mlCheckState = !needsMlCheck ? 'idle' : mlCheck?.forData === data ? mlCheck.status : 'checking';
   const promosEnMl = mlCheckState === 'unconfirmed' ? mlCheck.promosEnMl : null;
   useEffect(() => {
@@ -281,11 +300,46 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
     </div>
   ) : null;
 
+  // Not active (per the store): ML is not asked about it, so what we show is the last state we have.
+  const readOnlyNotice = motivoSinActualizacion ? (
+    <div className={styles.staleNotice}>{`${motivoSinActualizacion}. Mostrando el último estado conocido (solo lectura).`}</div>
+  ) : null;
+  const refreshingNotice = refreshing ? (
+    <div className={styles.panelState} role="status">
+      Actualizando desde ML…
+    </div>
+  ) : null;
+  const notices = (
+    <>
+      {refreshingNotice}
+      {readOnlyNotice}
+      {staleNotice}
+    </>
+  );
+  // Apply/remove stay locked while the pull may still change the rows, and for a not-active publication.
+  const controlsLockedLabel = refreshing ? 'Actualizando desde ML…' : motivoSinActualizacion ? 'Solo lectura' : null;
+
   if (promociones.length === 0) {
     // An empty mirror is only "no promos" when ML agrees. If the refresh
     // failed, or ML reports promos (or could not be asked), saying
     // "Sin promociones" would be a confident lie — the mirror had 0 rows for
     // an MLA with 9 live promos in the 2026-10-05 incident.
+    if (refreshing) {
+      return (
+        <>
+          {notices}
+          <div className={styles.panelState}>Sin promociones en el espejo — se confirma al terminar de actualizar.</div>
+        </>
+      );
+    }
+    if (motivoSinActualizacion) {
+      return (
+        <>
+          {notices}
+          <div className={styles.panelState}>Sin promociones en el último estado conocido.</div>
+        </>
+      );
+    }
     if (!data?.refreshFailed && mlCheckState === 'checking') {
       return <div className={styles.panelState}>Sin promociones en el espejo — confirmando con ML…</div>;
     }
@@ -317,7 +371,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   if (filteredPromociones.length === 0) {
     return (
       <>
-        {staleNotice}
+        {notices}
         <div className={styles.filterMessage}>Sin promos del tipo filtrado.</div>
       </>
     );
@@ -325,7 +379,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
 
   return (
     <>
-      {staleNotice}
+      {notices}
       <ul className={styles.promoList}>
         {filteredPromociones.map((promo) => {
           const applicable = APPLICABLE_TYPES.has(promo.promotion_type);
@@ -385,7 +439,12 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
                   actualizado {age}
                 </span>
               )}
-              {applicable && (
+              {applicable && controlsLockedLabel && (
+                <button type="button" className={styles.applySlot} disabled title={controlsLockedLabel}>
+                  {controlsLockedLabel}
+                </button>
+              )}
+              {applicable && !controlsLockedLabel && (
                 <PromoApplyControl
                   mla={mla}
                   promotion={promo}

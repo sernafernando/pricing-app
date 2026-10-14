@@ -53,19 +53,20 @@ beforeEach(() => {
 });
 
 describe('reading the promotions', () => {
-  it('pulls from ML on opening, then reads the mirror of the selected publication', async () => {
+  it('shows the mirror of the selected publication first, then pulls from ML in the background', async () => {
     renderTab();
     expect(await screen.findByText('Smart promo')).toBeInTheDocument();
-    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA1100000001');
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA1100000001'));
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledWith('MLA1100000001');
-    expect(promocionesAPI.refreshItemPromociones.mock.invocationCallOrder[0]).toBeLessThan(promocionesAPI.getPromocionesItem.mock.invocationCallOrder[0]);
+    expect(promocionesAPI.getPromocionesItem.mock.invocationCallOrder[0]).toBeLessThan(promocionesAPI.refreshItemPromociones.mock.invocationCallOrder[0]);
   });
 
   it('a view-only user (no promos.escribir) still reads the promotions and sees the apply control disabled', async () => {
     permisosMock.denied = ['promos.escribir'];
     renderTab();
     expect(await screen.findByText('Smart promo')).toBeInTheDocument();
-    expect(screen.getAllByText('Sin permiso').length).toBeGreaterThan(0);
+    // The apply controls appear once the background pull settles.
+    expect((await screen.findAllByText('Sin permiso')).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: /aplicar/i })).not.toBeInTheDocument();
   });
 
