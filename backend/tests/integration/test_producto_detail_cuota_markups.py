@@ -287,3 +287,25 @@ def test_detail_ppp_markups_match_the_listing_with_the_grupo_shipping_fallback(
     assert "clasica" in listing_markups
     for key, value in listing_markups.items():
         assert detail_markups.get(key) == pytest.approx(value, abs=0.01), key
+
+
+@pytest.mark.parametrize("target", ["build_pricing_context", "resolver_costos_envio_batch"])
+def test_a_failing_markup_input_leaves_markups_empty_and_the_detail_still_answers(
+    client, auth_headers, producto_con_cuotas, monkeypatch, caplog, target
+):
+    from app.api.endpoints import productos_listing
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("sin cotizacion")
+
+    monkeypatch.setattr(productos_listing, target, _boom)
+
+    with caplog.at_level(logging.DEBUG, logger=productos_listing.logger.name):
+        response = client.get(f"/api/productos/{producto_con_cuotas.item_id}", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["precio_3_cuotas"] == 1500.0
+    assert data["markup_3_cuotas"] is None
+    assert data["markup_6_cuotas"] is None
+    assert any("sin cotizacion" in record.getMessage() for record in caplog.records)

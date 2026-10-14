@@ -1284,7 +1284,8 @@ def rol_ventas(db) -> Rol:
 
 @pytest.fixture()
 def grant_permiso(db):
-    """`grant(rol, codigo)`: give a role one permission code (creating the code if missing)."""
+    """`grant(rol, codigo)`: give a role one permission code (creating the code if
+    missing); granting a code the role already has is a no-op."""
     from app.models.permiso import Permiso, RolPermisoBase
 
     def grant(rol: Rol, codigo: str) -> None:
@@ -1293,7 +1294,13 @@ def grant_permiso(db):
             permiso = Permiso(codigo=codigo, nombre=codigo, descripcion="", categoria=codigo.split(".")[0], orden=999)
             db.add(permiso)
             db.flush()
-        db.add(RolPermisoBase(rol_id=rol.id, permiso_id=permiso.id))
+        ya_tiene = (
+            db.query(RolPermisoBase)
+            .filter(RolPermisoBase.rol_id == rol.id, RolPermisoBase.permiso_id == permiso.id)
+            .first()
+        )
+        if ya_tiene is None:
+            db.add(RolPermisoBase(rol_id=rol.id, permiso_id=permiso.id))
         db.commit()
 
     return grant

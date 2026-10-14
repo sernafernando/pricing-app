@@ -2893,10 +2893,16 @@ def obtener_producto(
     ]
     precios_markup = [(precio, pl, cuota) for precio, pl, cuota in precios_markup if precio and float(precio) > 0]
     if precios_markup:
-        ctx_markups = build_pricing_context(db)
-        grupo_id_markups = ctx_markups.grupo_of(producto_erp.subcategoria_id)
-        costo_markups = ctx_markups.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
-        envio_real_markups = resolver_costos_envio_batch(db, [producto_erp.item_id])
+        try:
+            ctx_markups = build_pricing_context(db)
+            grupo_id_markups = ctx_markups.grupo_of(producto_erp.subcategoria_id)
+            costo_markups = ctx_markups.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
+            envio_real_markups = resolver_costos_envio_batch(db, [producto_erp.item_id])
+        except Exception as exc:
+            # Without its inputs no markup is priced: the detail still answers
+            # with the prices and empty markups, as when one price fails.
+            logger.debug("Markups no calculados para item %s: %s", producto_erp.item_id, exc)
+            precios_markup = []
         for precio_markup, pricelist_id_markup, cuota_ml in precios_markup:
             try:
                 comision_base_markup = ctx_markups.comision(pricelist_id_markup, grupo_id_markups)

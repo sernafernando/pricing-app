@@ -18,7 +18,16 @@ from unittest.mock import patch
 
 import pytest
 
+from datetime import date
+
+from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.producto import ProductoERP, ProductoPricing
+from app.services.pricing_calculator import (
+    calcular_comision_ml_total,
+    calcular_limpio,
+    calcular_markup,
+    obtener_constantes_pricing,
+)
 
 import app.models.item_transaction  # noqa: F401
 import app.models.commercial_transaction  # noqa: F401
@@ -90,11 +99,21 @@ class TestObtenerProductoUsesResolver:
         assert len(args) >= 2
         assert list(args[1]) == [producto_single.item_id]
 
-    def test_obtener_producto_does_not_crash_with_sentinel_envio(self, client, auth_headers, producto_single):
+    def test_the_resolved_shipping_prices_the_pvp_markup(self, client, auth_headers, db, producto_single):
         """
-        Endpoint must not crash when resolver returns a value != producto_erp.envio.
-        The resolved value flows into the PVP markup pricing.
+        The cost the resolver returns (not producto_erp.envio) is the shipping
+        the PVP markup is priced with.
         """
+        version = ComisionVersion(nombre="Test", fecha_desde=date(2000, 1, 1), activo=True)
+        db.add(version)
+        db.flush()
+        db.add(ComisionBase(version_id=version.id, grupo_id=1, comision_base=12.0))
+        db.flush()
+        constantes = obtener_constantes_pricing(db)
+        comision = calcular_comision_ml_total(50000.0, 12.0, 21.0, constantes=constantes)
+        limpio = calcular_limpio(50000.0, 21.0, SENTINEL_ENVIO, comision["comision_total"], constantes=constantes)
+        expected = round(calcular_markup(limpio, 15000.0) * 100, 2)
+
         with patch(
             "app.api.endpoints.productos_listing.resolver_costos_envio_batch",
             side_effect=lambda db, item_ids, **kw: {item_id: SENTINEL_ENVIO for item_id in item_ids},
@@ -107,3 +126,4 @@ class TestObtenerProductoUsesResolver:
         assert response.status_code == 200
         data = response.json()
         assert data["item_id"] == producto_single.item_id
+        assert data["markup_pvp"] == pytest.approx(expected, abs=0.01)

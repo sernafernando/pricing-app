@@ -37,3 +37,9 @@ def test_who_sees_products_or_edits_their_prices_passes(client, auth_headers, gr
     grant_permiso(rol_ventas, codigo)
     response = client.get(URL, headers=auth_headers)
     assert response.status_code == 404, response.text
+
+
+def test_granting_a_code_twice_is_harmless(client, auth_headers, grant_permiso, rol_ventas):
+    grant_permiso(rol_ventas, "productos.ver")
+    grant_permiso(rol_ventas, "productos.ver")
+    assert client.get(URL, headers=auth_headers).status_code == 404
