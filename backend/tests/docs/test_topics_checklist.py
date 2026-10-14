@@ -68,10 +68,9 @@ def test_the_fallback_coverage_is_stated(doc) -> None:
     assert "rescans" in lowered
 
 
-def test_topics_without_a_fixed_pattern_are_documented_as_such(doc) -> None:
-    unmapped = [t for t in OPTIONAL_TOPICS if t not in TOPIC_PATTERNS]
-    assert unmapped == ["stock-locations", "user-products-families"]
-    assert "real `webhook_latest` row" in doc
+def test_every_optional_topic_has_a_pattern_fixed_from_a_real_row() -> None:
+    # `stock-locations` and `user-products-families` were fixed from bridge rows captured on 2026-10-14.
+    assert [t for t in OPTIONAL_TOPICS if t not in TOPIC_PATTERNS] == []
 
 
 def test_enabling_the_price_fetchers_is_documented_with_its_gate_ages_and_rollback(doc) -> None:
@@ -174,16 +173,15 @@ def test_enabling_the_quality_resources_is_documented_with_gates_applicability_a
         assert needle in section, needle
 
 
-def test_the_stock_and_family_topics_stay_unmapped_until_a_real_row_fixes_their_pattern(doc) -> None:
+def test_the_stock_and_family_topics_map_only_their_own_entity_and_resource(doc) -> None:
     section = user_products_section(doc)
-    for topic in ("stock-locations", "user-products-families"):
+    expected = {"stock-locations": ("user_product", "stock"), "user-products-families": ("family", "family")}
+    for topic, (kind, resource) in expected.items():
         assert f"`{topic}`" in section
-        for kind in ("user_product", "family"):  # even a well-formed entry cannot be read without a pattern
-            assert topic_mappings({topic: {"kind": kind, "resources": ["stock"]}}) == []
-    assert "SELECT topic, resource FROM webhook_latest WHERE topic IN ('stock-locations','user-products-families')" in (
-        section
-    )
-    assert "NOT mapped" in section
+        (mapping,) = topic_mappings({topic: {"kind": kind, "resources": [resource]}})
+        assert (mapping.kind, mapping.resources) == (kind, (resource,))
+        for other_kind in {"item", "user_product", "family"} - {kind}:  # a stock row never names an item
+            assert topic_mappings({topic: {"kind": other_kind, "resources": [resource]}}) == []
 
 
 def test_a_stale_competition_row_is_explained_with_how_to_read_it(doc) -> None:

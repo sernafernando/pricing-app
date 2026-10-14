@@ -1,0 +1,134 @@
+{
+  "captured_at": "2026-10-14T17:35:00+00:00",
+  "source": "read-only SELECT on the bridge mlwebhook.webhooks (production), 2026-10-14. `received_at` is stored there as timestamp WITHOUT time zone in UTC; it is written here with an explicit +00:00. `webhook_id` is payload._id, as in webhook_latest. Payloads are verbatim.",
+  "volume_since_subscription": [
+    {
+      "topic": "stock-locations",
+      "rows": 567220,
+      "first_received_at": "2025-09-04 12:34:06.166537+00:00",
+      "last_received_at": "2026-10-14 17:33:31.619452+00:00"
+    },
+    {
+      "topic": "user-products-families",
+      "rows": 36437,
+      "first_received_at": "2025-09-04 12:38:04.415148+00:00",
+      "last_received_at": "2026-10-14 17:12:49.986325+00:00"
+    }
+  ],
+  "samples": [
+    {
+      "topic": "stock-locations",
+      "resource": "/user-products/MLAU585139618/stock",
+      "webhook_id": "03026c8b-c150-4b75-9ead-5bdae37cdef4",
+      "received_at": "2026-10-14 17:33:31.619452+00:00",
+      "payload": {
+        "_id": "03026c8b-c150-4b75-9ead-5bdae37cdef4",
+        "sent": "2026-10-14T17:33:31.457Z",
+        "topic": "stock-locations",
+        "actions": [
+          "type:selling_address"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-14T17:33:31.227Z",
+        "resource": "/user-products/MLAU585139618/stock",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "stock-locations",
+      "resource": "/user-products/MLAU585139618/stock",
+      "webhook_id": "a630d61d-c639-44ff-ad06-6bbd7709bd0b",
+      "received_at": "2026-10-14 17:33:29.605605+00:00",
+      "payload": {
+        "_id": "a630d61d-c639-44ff-ad06-6bbd7709bd0b",
+        "sent": "2026-10-14T17:33:29.487Z",
+        "topic": "stock-locations",
+        "actions": [
+          "type:selling_address"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-14T17:33:29.254Z",
+        "resource": "/user-products/MLAU585139618/stock",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "stock-locations",
+      "resource": "/user-products/MLAU585139618/stock",
+      "webhook_id": "8b738549-7b57-485f-8e2a-92312f81d2a2",
+      "received_at": "2026-10-14 17:32:17.369048+00:00",
+      "payload": {
+        "_id": "8b738549-7b57-485f-8e2a-92312f81d2a2",
+        "sent": "2026-10-14T17:32:17.034Z",
+        "topic": "stock-locations",
+        "actions": [
+          "type:selling_address"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-14T17:32:16.418Z",
+        "resource": "/user-products/MLAU585139618/stock",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "stock-locations",
+      "resource": "/user-products/MLAU358501504/stock",
+      "webhook_id": "3a55e574-e063-4eae-8be0-b4e02b9810fa",
+      "received_at": "2026-10-14 17:32:17.191203+00:00",
+      "payload": {
+        "_id": "3a55e574-e063-4eae-8be0-b4e02b9810fa",
+        "sent": "2026-10-14T17:32:17.057Z",
+        "topic": "stock-locations",
+        "actions": [
+          "type:selling_address"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-14T17:32:16.692Z",
+        "resource": "/user-products/MLAU358501504/stock",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "user-products-families",
+      "resource": "/sites/GBL/user-products-families/5090769959408719",
+      "webhook_id": "dc9c9261-11ca-44db-8593-5fad3421bc9b",
+      "received_at": "2026-10-14 17:12:49.986325+00:00",
+      "payload": {
+        "_id": "dc9c9261-11ca-44db-8593-5fad3421bc9b",
+        "sent": "2026-10-14T17:12:49.89Z",
+        "topic": "user-products-families",
+        "actions": [
+          "create"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-14T17:12:49.562Z",
+        "resource": "/sites/GBL/user-products-families/5090769959408719",
+        "application_id": 7211863044554429
+      }
+    },
+    {
+      "topic": "user-products-families",
+      "resource": "/sites/MLA/user-products-families/1355178774418065",
+      "webhook_id": "0b7c1bc3-25b2-4895-ad06-2126681ac4fc",
+      "received_at": "2026-10-14 17:12:49.799621+00:00",
+      "payload": {
+        "_id": "0b7c1bc3-25b2-4895-ad06-2126681ac4fc",
+        "sent": "2026-10-14T17:12:49.676Z",
+        "topic": "user-products-families",
+        "actions": [
+          "create"
+        ],
+        "user_id": 413658225,
+        "attempts": 1,
+        "received": "2026-10-14T17:12:49.459Z",
+        "resource": "/sites/MLA/user-products-families/1355178774418065",
+        "application_id": 7211863044554429
+      }
+    }
+  ]
+}
