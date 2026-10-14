@@ -1,5 +1,5 @@
-"""The Agrupado tree of `/ml-publications/view/groups` by DIMENSION (Métricas ML's own: marca, categoria,
-subcategoria, tienda, pm), on Postgres.
+"""The Agrupado tree of `/ml-publications/view/groups` by DIMENSION (three of Métricas ML's own: marca, categoria,
+subcategoria; tienda and pm come next), on Postgres.
 
 Each dimension is Métricas' hierarchy of group levels (`ml_daily_metrics.groups.HIERARCHIES`) with the products (and
 the families) below, exactly like the default `marca` tree. The key test is the same as the default tree's: the
