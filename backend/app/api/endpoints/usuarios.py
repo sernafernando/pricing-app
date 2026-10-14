@@ -124,7 +124,8 @@ def actualizar_usuario(
     if current_user.rol_codigo not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(403, "No tienes permisos")
 
-    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    # Bloquea la fila: un PUT de roles adicionales concurrente espera a este cambio
+    usuario = RolesService(db).bloquear_usuario(usuario_id)
     if not usuario:
         raise HTTPException(404, "Usuario no encontrado")
 

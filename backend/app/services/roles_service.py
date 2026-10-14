@@ -16,6 +16,13 @@ class ConflictoRolesAdicionales(Exception):
     """Otro cambio de roles adicionales del mismo usuario ganó la carrera (unique violado)"""
 
 
+def _es_choque_del_par(error: IntegrityError) -> bool:
+    """True si el IntegrityError viene de `uq_usuario_rol_adicional` (y no, p. ej., de una FK)"""
+    diag = getattr(error.orig, "diag", None)
+    nombre = getattr(diag, "constraint_name", None) or str(error.orig)
+    return "uq_usuario_rol_adicional" in nombre
+
+
 class RolesService:
     """Servicio para CRUD de roles y asignación de permisos"""
 
@@ -251,7 +258,7 @@ class RolesService:
 
     def asignar_rol_usuario(self, usuario_id: int, rol_id: int) -> bool:
         """Asigna un rol a un usuario"""
-        usuario = self.db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        usuario = self.bloquear_usuario(usuario_id)
         if not usuario:
             raise ValueError(f"No existe el usuario con ID {usuario_id}")
 
@@ -313,8 +320,7 @@ class RolesService:
             ConflictoRolesAdicionales: otro reemplazo concurrente del mismo usuario chocó con
                 `uq_usuario_rol_adicional`; se hace rollback y queda lo que guardó el otro.
         """
-        # Bloquea la fila del usuario: dos reemplazos del mismo usuario se serializan
-        usuario = self.db.query(Usuario).filter(Usuario.id == usuario_id).with_for_update().first()
+        usuario = self.bloquear_usuario(usuario_id)
         if not usuario:
             raise ValueError(f"No existe el usuario con ID {usuario_id}")
 
@@ -335,15 +341,28 @@ class RolesService:
             self.db.commit()
         except IntegrityError as e:
             self.db.rollback()
-            raise ConflictoRolesAdicionales(
-                "Otra persona cambió los roles adicionales de este usuario al mismo tiempo; recargá y reintentá"
-            ) from e
+            if _es_choque_del_par(e):
+                mensaje = (
+                    "Otra persona cambió los roles adicionales de este usuario al mismo tiempo; recargá y reintentá"
+                )
+            else:
+                mensaje = "Uno de los roles cambió o ya no existe; recargá y reintentá"
+            raise ConflictoRolesAdicionales(mensaje) from e
         return self.obtener_roles_adicionales_usuario(usuario_id)
 
+    def bloquear_usuario(self, usuario_id: int) -> Optional[Usuario]:
+        """Carga el usuario con FOR UPDATE: cambios de rol principal y de roles adicionales
+        del mismo usuario se serializan (no queda un rol como principal y adicional a la vez)"""
+        return self.db.query(Usuario).filter(Usuario.id == usuario_id).with_for_update().first()
+
     def quitar_rol_adicional_redundante(self, usuario_id: int, rol_id: Optional[int]) -> None:
-        """Si el nuevo rol principal estaba como adicional, lo saca (sin commit)"""
+        """Si el nuevo rol principal estaba como adicional, lo saca (sin commit).
+
+        Hace flush antes: el UPDATE de `rol_id` queda escrito antes del DELETE, en la misma
+        transacción y con la fila del usuario ya bloqueada por quien llama."""
         if rol_id is None:
             return
+        self.db.flush()
         self.db.query(UsuarioRolAdicional).filter(
             UsuarioRolAdicional.usuario_id == usuario_id, UsuarioRolAdicional.rol_id == rol_id
         ).delete()

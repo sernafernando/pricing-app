@@ -177,7 +177,8 @@ class TestConteoYBorradoDeRoles:
         _usuario(db, rol_ventas, "ajeno")
 
         assert RolesService(db).contar_usuarios_rol(compras.id) == 2
-        assert {u["id"] for u in RolesService(db).obtener_usuarios_rol(compras.id)} == {principal.id, adicional.id}
+        asignaciones = {u["id"]: u["asignacion"] for u in RolesService(db).obtener_usuarios_rol(compras.id)}
+        assert asignaciones == {principal.id: "principal", adicional.id: "adicional"}
 
     def test_no_se_borra_un_rol_asignado_solo_como_adicional(self, db, vendedor, compras):
         _adicional(db, vendedor, compras)
@@ -254,3 +255,59 @@ class TestAsignacion:
 
         monkeypatch.setattr(db, "commit", commit_real)
         assert [r.codigo for r in service.obtener_roles_adicionales_usuario(vendedor.id)] == ["COMPRAS"]
+
+    def test_otro_integrity_error_avisa_que_un_rol_cambio(self, db, vendedor, compras, monkeypatch):
+        """A FK violation (a role deleted between the check and the commit) is not
+        "someone else changed the user": the message must say a role changed or is gone."""
+        service = RolesService(db)
+        commit_real = db.commit
+
+        def commit_con_fk_rota():
+            if any(isinstance(obj, UsuarioRolAdicional) for obj in db.new):
+                raise IntegrityError("INSERT", {}, Exception("usuarios_roles_adicionales_rol_id_fkey"))
+            commit_real()
+
+        monkeypatch.setattr(db, "commit", commit_con_fk_rota)
+
+        with pytest.raises(ConflictoRolesAdicionales, match="ya no existe") as error:
+            service.set_roles_adicionales_usuario(vendedor.id, [compras.id])
+
+        assert "al mismo tiempo" not in str(error.value)
+        monkeypatch.setattr(db, "commit", commit_real)
+        assert service.obtener_roles_adicionales_usuario(vendedor.id) == []
+
+    def test_asignar_rol_principal_bloquea_al_usuario_y_borra_despues_del_update(
+        self, db, vendedor, compras, query_counter, monkeypatch
+    ):
+        """Same lock as the PUT replace, and the redundant row is deleted only after the
+        rol_id UPDATE, so a concurrent PUT cannot leave the role as primary and additional."""
+        _adicional(db, vendedor, compras)
+        bloqueos = _espiar_with_for_update(monkeypatch)
+
+        with query_counter() as counter:
+            RolesService(db).asignar_rol_usuario(vendedor.id, compras.id)
+
+        assert "usuarios" in bloqueos
+        _assert_update_antes_del_delete(counter.statements)
+        assert db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.usuario_id == vendedor.id).count() == 0
+
+
+def _espiar_with_for_update(monkeypatch) -> list:
+    """Table names of every query that asked for `with_for_update()`."""
+    from sqlalchemy.orm import Query
+
+    original = Query.with_for_update
+    bloqueos: list = []
+
+    def espia(self, *args, **kwargs):
+        bloqueos.extend(getattr(d.get("entity"), "__tablename__", "") for d in self.column_descriptions)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Query, "with_for_update", espia)
+    return bloqueos
+
+
+def _assert_update_antes_del_delete(statements: list) -> None:
+    update = next(i for i, sql in enumerate(statements) if sql.lstrip().startswith("update usuarios "))
+    delete = next(i for i, sql in enumerate(statements) if "delete from usuarios_roles_adicionales" in sql)
+    assert update < delete

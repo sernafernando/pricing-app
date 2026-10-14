@@ -178,3 +178,26 @@ class TestCambioDeRolPrincipal:
 
         assert resp.status_code == 200
         assert db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.usuario_id == vendedor.id).count() == 0
+
+    def test_patch_bloquea_al_usuario_y_borra_despues_del_update(
+        self, client, db, admin_user, vendedor, compras, query_counter, monkeypatch
+    ):
+        from tests.services.test_permisos_roles_adicionales import (
+            _assert_update_antes_del_delete,
+            _espiar_with_for_update,
+        )
+
+        db.add(UsuarioRolAdicional(usuario_id=vendedor.id, rol_id=compras.id))
+        db.commit()
+        headers = _headers(admin_user)
+        bloqueos = _espiar_with_for_update(monkeypatch)
+
+        with query_counter() as counter:
+            resp = client.patch(f"/api/usuarios/{vendedor.id}", json={"rol": "COMPRAS"}, headers=headers)
+
+        assert resp.status_code == 200
+        assert "usuarios" in bloqueos
+        _assert_update_antes_del_delete(counter.statements)
+        db.refresh(vendedor)
+        assert vendedor.rol_id == compras.id
+        assert db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.rol_id == vendedor.rol_id).count() == 0
