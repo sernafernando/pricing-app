@@ -12,6 +12,11 @@ const detalleError = (error, fallback) => error?.response?.data?.detail || fallb
  * replaces the whole set. SUPERADMIN and the user's primary role are not
  * offered (the backend rejects them with 400).
  *
+ * `roles` is the `/roles` list, or null while it is not available: then the
+ * section is read-only. Additional roles the user has that are not in the
+ * list (e.g. an inactive role) show by code and are always sent back as is,
+ * so a save never drops them.
+ *
  * Mount it keyed by user (and primary role) so a switch always reloads it.
  * After a successful save it calls `onGuardado()` so the parent reloads the
  * user's permissions.
@@ -22,9 +27,12 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
   const [seleccion, setSeleccion] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [errorGuardado, setErrorGuardado] = useState(null);
+  // Bumped by "Reintentar" to run the load again.
+  const [intento, setIntento] = useState(0);
 
   useEffect(() => {
     let vigente = true;
+    setErrorCarga(null);
     api
       .get(`/usuarios/${usuarioId}/roles-adicionales`)
       .then((res) => {
@@ -36,11 +44,15 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
     return () => {
       vigente = false;
     };
-  }, [usuarioId]);
+  }, [usuarioId, intento]);
 
   const editando = seleccion !== null;
   const codigoPrincipal = datos?.rol_principal?.codigo;
-  const opciones = roles.filter((rol) => rol.codigo !== 'SUPERADMIN' && rol.codigo !== codigoPrincipal);
+  const opciones = (roles || []).filter((rol) => rol.codigo !== 'SUPERADMIN' && rol.codigo !== codigoPrincipal);
+  const idsEditables = new Set(opciones.map((rol) => rol.id));
+  // Pill label: the name from the roles list, or the server's code when the list lacks it.
+  const nombreDe = (rolAdicional) =>
+    (roles || []).find((rol) => rol.id === rolAdicional.id)?.nombre || rolAdicional.codigo;
 
   const iniciarEdicion = () => {
     setErrorGuardado(null);
@@ -61,7 +73,11 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
     setErrorGuardado(null);
     try {
       // Sent in the options' order so the request does not depend on click order.
-      const rolIds = opciones.filter((rol) => seleccion.has(rol.id)).map((rol) => rol.id);
+      // Roles not editable here are kept untouched.
+      const rolIds = [
+        ...opciones.filter((rol) => seleccion.has(rol.id)).map((rol) => rol.id),
+        ...datos.roles_adicionales.filter((rol) => !idsEditables.has(rol.id)).map((rol) => rol.id),
+      ];
       const res = await api.put(`/usuarios/${usuarioId}/roles-adicionales`, { rol_ids: rolIds });
       setDatos(res.data);
       setSeleccion(null);
@@ -76,9 +92,12 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
   let contenido;
   if (errorCarga) {
     contenido = (
-      <p className={styles.error} role="alert">
-        {errorCarga}
-      </p>
+      <div className={styles.errorCarga} role="alert">
+        <span className={styles.error}>{errorCarga}</span>
+        <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={() => setIntento((n) => n + 1)}>
+          Reintentar
+        </button>
+      </div>
     );
   } else if (!datos) {
     contenido = <span className={styles.muted}>Cargando...</span>;
@@ -128,13 +147,19 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
         ) : (
           datos.roles_adicionales.map((rol) => (
             <StatusPill key={rol.id} tone="neutral" variant="soft">
-              {rol.nombre}
+              {nombreDe(rol)}
             </StatusPill>
           ))
         )}
-        <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={iniciarEdicion}>
+        <button
+          type="button"
+          className="btn-tesla outline-subtle-primary sm"
+          onClick={iniciarEdicion}
+          disabled={!roles}
+        >
           Editar roles adicionales
         </button>
+        {!roles && <span className={styles.muted}>La lista de roles no está disponible.</span>}
       </div>
     );
   }

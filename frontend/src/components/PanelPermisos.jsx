@@ -20,6 +20,8 @@ const VISTAS = [
 export default function PanelPermisos() {
   const [usuarios, setUsuarios] = useState([]);
   const [roles, setRoles] = useState([]);
+  // False until `/roles` answered with a list: additional roles stay read-only.
+  const [rolesCargados, setRolesCargados] = useState(false);
   const [usuarioSeleccionado, setUsuarioSeleccionado] = useState(null);
   const [permisosUsuario, setPermisosUsuario] = useState(null);
   const [, setCatalogo] = useState({});
@@ -77,6 +79,7 @@ export default function PanelPermisos() {
       setUsuarios(usuariosFiltrados);
       setCatalogo(catalogoRes.data || {});
       setRoles(rolesRes.data || []);
+      setRolesCargados(Array.isArray(rolesRes.data));
     } catch (error) {
       setMensaje({ tipo: 'error', texto: `Error al cargar datos: ${error.response?.data?.detail || error.message}` });
     } finally {
@@ -438,7 +441,7 @@ export default function PanelPermisos() {
                   <RolesAdicionales
                     key={`${usuarioSeleccionado.id}:${usuarioSeleccionado.rol}`}
                     usuarioId={usuarioSeleccionado.id}
-                    roles={roles}
+                    roles={rolesCargados ? roles : null}
                     onGuardado={() => {
                       mostrarMensajeDeUsuario(usuarioSeleccionado.id, {
                         tipo: 'success',
