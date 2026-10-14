@@ -8,7 +8,7 @@ and period. Without `can_see_margin` the profit figures (Total Gauss, markup) co
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
@@ -121,11 +121,11 @@ def delta_pct(now, before) -> Optional[float]:
     return round((float(now) - float(before)) / float(before) * 100, 1)
 
 
-def _ratio(numerator, denominator, scale: int = 1) -> Optional[float]:
+def _ratio(numerator: Any, denominator: Any, scale: int = 1) -> Optional[float]:
     return round(float(numerator) * scale / float(denominator), 2) if denominator else None
 
 
-def _kpi_ads(a: board.AdsKpis, gross) -> KpiAds:
+def _kpi_ads(a: board.AdsKpis, gross: Any) -> KpiAds:
     attributed = a.direct_amount + a.indirect_amount
     return KpiAds(
         cost_total=round_money(a.cost_total),
