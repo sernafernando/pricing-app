@@ -21,7 +21,10 @@
 }
 
 .scroll {
-  overflow-x: auto;
+  /* Bounded height so the sticky header row has a scroll container to stick in;
+     the sticky save bar lives outside it and stays visible. */
+  max-height: min(70vh, 720px);
+  overflow: auto;
   background: var(--cf-bg-card);
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-md);
@@ -73,13 +76,17 @@
 }
 
 .permiso {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
   padding: var(--space-2) var(--space-3);
   text-align: left;
   font-weight: var(--font-medium);
   border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+/* The flex layout lives on an inner div: `display: flex` on the <th> drops its table-cell behaviour. */
+.permisoContenido {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .permisoNombre {
