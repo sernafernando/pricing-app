@@ -155,6 +155,11 @@ def producto_sin_envio_sobre_tier3(db) -> ProductoERP:
             precio_6_cuotas=52000.0,
             precio_9_cuotas=54000.0,
             precio_12_cuotas=56000.0,
+            precio_pvp=46000.0,
+            precio_pvp_3_cuotas=51000.0,
+            precio_pvp_6_cuotas=53000.0,
+            precio_pvp_9_cuotas=55000.0,
+            precio_pvp_12_cuotas=57000.0,
         )
     )
     db.flush()
@@ -196,3 +201,17 @@ def test_a_failing_instalment_markup_is_logged_and_left_empty(
     assert any(
         "comision rota" in record.getMessage() and "3 cuotas" in record.getMessage() for record in caplog.records
     ), [r.getMessage() for r in caplog.records]
+
+
+def test_detail_pvp_markups_match_the_listing_with_the_grupo_shipping_fallback(
+    client, auth_headers, db, producto_sin_envio_sobre_tier3
+):
+    _guard_incompatible_raw_sql(db)
+    item_id = producto_sin_envio_sobre_tier3.item_id
+    detail = client.get(f"/api/productos/{item_id}", headers=auth_headers).json()
+    listing = client.get("/api/productos?page=1&page_size=50", headers=auth_headers).json()["productos"]
+    row = next(p for p in listing if p["item_id"] == item_id)
+
+    for key in ["markup_pvp"] + [f"markup_pvp_{cuota}_cuotas" for cuota in CUOTAS]:
+        assert row[key] is not None, key
+        assert detail[key] == pytest.approx(row[key], abs=0.01), key
