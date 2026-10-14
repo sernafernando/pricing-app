@@ -349,8 +349,12 @@ export default function PanelRoles() {
     setFormRol(FORM_ROL_VACIO);
   };
 
+  // While a role request is in flight or the create/edit form is open, the cards and + Nuevo Rol are
+  // locked: switching would drop the request's panel or what was typed. Leave with Cancelar, X or Esc.
+  const cambioDeRolBloqueado = gestionandoRoles || mostrarFormRol;
+
   const abrirRol = (rol) => {
-    if (gestionandoRoles) return;
+    if (cambioDeRolBloqueado) return;
     cerrarFormRol();
     setRolAbiertoId(rol.id);
   };
@@ -402,7 +406,7 @@ export default function PanelRoles() {
               <h3 className={styles.tituloRoles}>Roles</h3>
               <button
                 onClick={abrirNuevoRol}
-                disabled={guardandoPermisos || gestionandoRoles}
+                disabled={guardandoPermisos || cambioDeRolBloqueado}
                 className="btn-tesla outline-subtle-primary sm"
               >
                 + Nuevo Rol
@@ -416,7 +420,7 @@ export default function PanelRoles() {
                   type="button"
                   className={rol.id === rolAbiertoId ? styles.tarjetaRolAbierta : styles.tarjetaRol}
                   onClick={() => abrirRol(rol)}
-                  disabled={gestionandoRoles}
+                  disabled={cambioDeRolBloqueado}
                   aria-haspopup="dialog"
                   aria-expanded={rol.id === rolAbiertoId}
                 >

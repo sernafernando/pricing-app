@@ -77,4 +77,4 @@ Hacé clic en la tarjeta de un rol y se abre un **panel a la derecha** con su de
 - Desde el panel se **edita** (nombre y descripción), se **clona** y se **elimina** el rol (con confirmación). Las tarjetas ya no tienen botones.
 - Los roles de sistema no se pueden editar ni eliminar, pero sí clonar; sus permisos se siguen cambiando en la matriz. SUPERADMIN no se puede modificar.
 - **+ Nuevo Rol** abre el mismo panel con el formulario vacío.
-- Se cierra con la **×** o con la tecla **Esc**. Mientras se guarda o elimina un rol, el panel no se cierra ni se puede pasar a otro rol, para no perder la respuesta.
+- Se cierra con la **×** o con la tecla **Esc**. Mientras se guarda o elimina un rol, el panel no se cierra ni se puede pasar a otro rol, para no perder la respuesta. Con el formulario abierto tampoco se puede pasar a otro rol ni a **+ Nuevo Rol**: salí con **Cancelar**, la **×** o **Esc**, así no se pierde lo que escribiste.

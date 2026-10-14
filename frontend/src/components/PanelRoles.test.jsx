@@ -732,8 +732,15 @@ describe('PanelRoles matrix', () => {
 
     // The drawer shows one thing at a time: first the create form, then a role's actions.
     const fases = [
-      { abrir: () => user.click(screen.getByRole('button', { name: '+ Nuevo Rol' })), botones: ['+ Nuevo Rol', 'Crear'] },
-      { abrir: () => abrirRol(user, 'Ventas'), botones: ['+ Nuevo Rol', 'Clonar Ventas', 'Editar', 'Eliminar rol'] },
+      { abrir: () => user.click(screen.getByRole('button', { name: '+ Nuevo Rol' })), botones: ['Crear'] },
+      {
+        // Leave the create form first: the cards are locked while a form is open.
+        abrir: async () => {
+          await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+          await abrirRol(user, 'Ventas');
+        },
+        botones: ['+ Nuevo Rol', 'Clonar Ventas', 'Editar', 'Eliminar rol'],
+      },
     ];
     for (const { abrir, botones } of fases) {
       const { promesa, resolver } = diferido();
@@ -918,6 +925,42 @@ describe('PanelRoles role drawer', () => {
     await user.click(screen.getByPlaceholderText('Nombre'));
     await user.keyboard('{Escape}');
     expect(queryDrawer()).not.toBeInTheDocument();
+  });
+
+  it('locks the role cards and + Nuevo Rol while the edit form is open, so typed input is never discarded', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    await user.type(screen.getByPlaceholderText('Descripcion (opcional)'), 'Mostrador');
+
+    expect(tarjeta('Administrador')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '+ Nuevo Rol' })).toBeDisabled();
+    await user.click(tarjeta('Administrador'));
+    expect(drawer('Editar Rol')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Descripcion (opcional)')).toHaveValue('Mostrador');
+
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(tarjeta('Administrador')).toBeEnabled();
+    expect(screen.getByRole('button', { name: '+ Nuevo Rol' })).toBeEnabled();
+  });
+
+  it('locks the role cards while the create form is open', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    await user.type(screen.getByPlaceholderText('Nombre'), 'Compras');
+
+    expect(tarjeta('Ventas')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '+ Nuevo Rol' })).toBeDisabled();
+    await user.click(tarjeta('Ventas'));
+    expect(drawer('Nuevo Rol')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Nombre')).toHaveValue('Compras');
+
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(tarjeta('Ventas')).toBeEnabled();
   });
 
   it('cannot be closed while a role save is in flight', async () => {
