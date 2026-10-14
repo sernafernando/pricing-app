@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import event, update
 
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
@@ -107,3 +107,22 @@ class TestSummary:
 
         assert summary(board_pg, ["MLA1", "MLA2"]) == live
         assert reads, "with the flag on the persisted table is the source"
+
+    def test_the_persisted_read_is_restricted_to_the_mlas_inside_the_table_scan(self, board_pg, monkeypatch) -> None:
+        """The MLAs bound the read of `ml_sale_lines` itself, not only the aggregate over it: the plan must not rely
+        on Postgres pushing an outer filter down into the lines subquery."""
+        monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, parameters, context, executemany) -> None:
+            statements.append(" ".join(statement.split()))
+
+        engine = board_pg.get_bind().engine
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            summary(board_pg, ["MLA1", "MLA2"])
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+
+        (sql,) = [s for s in statements if "ml_sale_lines" in s]
+        assert "ml_sale_lines.mla IN" in sql

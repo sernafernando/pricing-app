@@ -334,12 +334,14 @@ def _in_ranges(column, ranges: Optional[Iterable[Range]]):
     return or_(*(and_(column >= start, column < end) if end is not None else column >= start for start, end in ranges))
 
 
-def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[int] = None):
+def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[int] = None, mlas: Optional[Any] = None):
     """The same lines as `sale_lines` (same columns, same numbers), read from the
     persisted `ml_sale_lines` instead of derived: no joins, no windows. The table
     is written as if every order were settled; the recompute queue is applied here,
     as the live derivation does: an order being recalculated has no gross and no
-    Total Gauss, and its group takes no part in the markup (no `mtg`, no `mcosto`)."""
+    Total Gauss, and its group takes no part in the markup (no `mtg`, no `mcosto`).
+    `mlas` (a list or a one-column select) limits it to those MLAs: each line is
+    independent, so no other line of the group is needed."""
     L = MlSaleLine
     o2 = aliased(MlOrdersOps)
     queued_orders = select(D.order_id)
@@ -360,6 +362,8 @@ def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[i
         q = q.where(_in_ranges(L.group_date, ranges))
     if product is not None:
         q = q.where(L.product == product)
+    if mlas is not None:
+        q = q.where(L.mla.in_(mlas))
     return q.subquery("lines")
 
 
@@ -376,12 +380,14 @@ def lines_source(
     ranges: Optional[List[Range]] = None,
     product: Optional[int] = None,
     groups: Optional[Any] = None,
+    mlas: Optional[Any] = None,
 ):
     """The sold lines (`sale_lines` columns) from the source `reads_persisted_lines`
-    picks. `groups` bounds only the live derivation: the persisted lines are
-    independent rows, so the caller's own filters already bound that read."""
+    picks. `groups` bounds only the live derivation and `mlas` only the persisted
+    read: the persisted lines are independent rows, while the live ones need their
+    whole groups (the caller still keeps the lines of its MLAs there)."""
     if reads_persisted_lines(sqlite):
-        return persisted_lines(ranges=ranges, product=product)
+        return persisted_lines(ranges=ranges, product=product, mlas=mlas)
     return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups)
 
 

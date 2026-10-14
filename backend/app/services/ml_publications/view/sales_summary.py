@@ -53,7 +53,7 @@ def summary_by_mla(db: Session, mlas: Sequence[str], today: Optional[date] = Non
     groups = None
     if not sales.reads_persisted_lines(sqlite):
         groups = sales.groups_touching([lambda item, cost: item.item_id.in_(mlas)])
-    lines = sales.lines_source(sqlite=sqlite, ranges=[sales.day_bounds(first, last)], groups=groups)
+    lines = sales.lines_source(sqlite=sqlite, ranges=[sales.day_bounds(first, last)], groups=groups, mlas=mlas)
     query = (
         select(
             lines.c.mla,
