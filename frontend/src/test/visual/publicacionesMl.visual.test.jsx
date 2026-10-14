@@ -17,9 +17,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
-import { setTheme, tokenColor } from './visualHelpers';
+import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { offsetsGananciaAPI, preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { PRODUCTO } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
   DATA_STATE_OK,
@@ -71,6 +72,10 @@ vi.mock('../../services/api', () => ({
     calcularPorMarkup: vi.fn(),
     setRapido: vi.fn(),
     setCuota: vi.fn(),
+  },
+  offsetsGananciaAPI: {
+    vigentes: vi.fn(() => new Promise(() => {})),
+    grupoFiltros: vi.fn(() => new Promise(() => {})),
   },
   registerAuthFailureHandler: vi.fn(),
 }));
@@ -763,6 +768,59 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
         screen.unmount();
+      });
+    }
+  }
+
+  // Precios: cost card, one accented card per list, markup chips by the app scale (markupTone).
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset, both markups as toned chips and fits the panel`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
+        offsetsGananciaAPI.vigentes.mockResolvedValue({
+          data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
+        });
+        try {
+          const screen = await renderWithPanel({ width, height, theme, tab: 'precios', linked: true, margin: true });
+          await expect.element(screen.getByText('$ 57.600,00')).toBeVisible();
+          const panel = panelOf();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+
+          const facts = panel.querySelector('[aria-label="Referencias del producto"]');
+          expect(getComputedStyle(facts).backgroundColor).toBe(tokenColor('--tone-neutral-bg'));
+
+          const groups = [...panel.querySelectorAll('section[data-list]')];
+          expect(groups.map((g) => getComputedStyle(g).borderLeftColor)).toEqual([tokenColor('--tone-info-fg'), tokenColor('--tone-purple-fg')]);
+
+          const row = (label) => [...panel.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('th').textContent === label);
+          const chip = (label, col) => row(label).querySelector(`[data-col="${col}"] [data-tone]`);
+          expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
+          expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
+          expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
+          expect(chip('Clásica', 'markup-offset').textContent).toBe('31,56%');
+          // Readable on the card in both themes.
+          const card = getComputedStyle(groups[0]).backgroundColor;
+          for (const label of ['Clásica', '12 cuotas']) {
+            expect(contrastRatio(getComputedStyle(chip(label, 'markup')).color, card)).toBeGreaterThanOrEqual(3);
+          }
+
+          // Figures on one line, every cell's content inside the panel.
+          const figures = [...panel.querySelectorAll('tbody td')].filter((td) => /\d/.test(td.textContent));
+          expect(figures.filter((td) => getComputedStyle(td).whiteSpace !== 'nowrap').map((td) => td.textContent)).toEqual([]);
+          expect(wrapped(panel.querySelectorAll('section[data-list] [data-tone]'))).toEqual([]);
+          const box = rect(panel);
+          for (const el of panel.querySelectorAll('section[data-list] *')) {
+            const r = rect(el);
+            if (r.width === 0) continue;
+            expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
+          }
+          // Editing by markup is offered on every row, not hidden behind the price editor.
+          expect(panel.querySelectorAll('button[aria-label$=" por markup"]')).toHaveLength(10);
+          screen.unmount();
+        } finally {
+          preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
       });
     }
   }
