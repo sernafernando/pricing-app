@@ -18,7 +18,7 @@ All proxy calls go through a fake `ml_webhook_client` — no network, no DB.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -461,7 +461,10 @@ class _OnlyRead:
 @pytest.fixture()
 def read_only_client() -> Any:
     app.dependency_overrides[get_current_user] = _fake_user
-    app.dependency_overrides[get_db] = lambda: object()
+    # A session stand-in whose store lookup (`ml_items`) finds nothing: not in the store -> ML is asked.
+    store_empty = MagicMock()
+    store_empty.query.return_value.filter.return_value.first.return_value = None
+    app.dependency_overrides[get_db] = lambda: store_empty
     with patch("app.routers.ml_promotions.PermisosService", return_value=_OnlyRead()):
         yield TestClient(app)
     app.dependency_overrides.pop(get_current_user, None)

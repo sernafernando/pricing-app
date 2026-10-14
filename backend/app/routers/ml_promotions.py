@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.models.ml_publications import MlItem
 from app.models.usuario import Usuario
 from app.services.ml_catalog_competition_service import (
     obtener_ultimo_snapshot,
@@ -130,6 +131,10 @@ class ItemPromotionsList(BaseModel):
     mla: str
     count: int
     promotions: List[ItemPromotion]
+    # Why ML is NOT asked about this publication's promotions (it is not active: paused, under
+    # review, inactive, closed, gone). `None` = active or not in the store yet. The panel shows the
+    # mirror read-only with this reason and skips the refresh pull. Spanish, ready to display.
+    motivo_sin_actualizacion: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -446,6 +451,44 @@ def listar_promociones(
         )
 
 
+# Only ACTIVE publications are queried against ML for promotions (owner decision). Reasons are shown
+# to the operator as-is, so they say what to wait for.
+_MOTIVO_POR_ESTADO = {
+    "paused": "Publicación pausada: las promos se actualizan cuando se reactive",
+    "under_review": "Publicación en revisión: las promos se actualizan cuando vuelva a estar activa",
+    "inactive": "Publicación inactiva: las promos se actualizan cuando se reactive",
+    "closed": "Publicación cerrada: no se consultan promociones en ML",
+}
+
+
+def motivo_sin_consulta_ml(db: Session, mla_id: str) -> Optional[str]:
+    """Why ML must NOT be asked about `mla_id`'s promotions, from the ML publications store
+    (`ml_items`); `None` when it may be (active, or not in the store yet / status unknown).
+
+    FAIL-OPEN: a store read that fails returns `None`, so today's behaviour is kept — the store
+    being unreachable must not disable the refresh button."""
+    try:
+        row = db.query(MlItem.status, MlItem.gone_at, MlItem.never_existed).filter(MlItem.item_id == mla_id).first()
+    except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
+        logger.warning("ml_items status unavailable for %s; not skipping the ML query: %s", mla_id, exc)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+    if row is None:
+        return None
+    if row.never_existed:
+        return "La publicación no existe en ML: no se consultan promociones"
+    if row.gone_at is not None:
+        return "Publicación dada de baja en ML: no se consultan promociones"
+    if row.status is None or row.status == "active":
+        return None
+    return _MOTIVO_POR_ESTADO.get(
+        row.status, f"Publicación en estado {row.status}: solo se consultan promociones de publicaciones activas"
+    )
+
+
 _ESTADOS_ACTIVOS_LIVE = {"candidate", "started", "pending"}
 
 # Short on purpose: this read sits behind a panel the operator is looking at.
@@ -456,6 +499,7 @@ CONFIRMACION_ML_TIMEOUT_SECONDS = 2.5
 def confirmar_sin_promos_con_ml(
     mla_id: str,
     current_user: Usuario = Depends(require_promos_read()),
+    db: Session = Depends(get_db),
 ) -> ConfirmacionML:
     """
     ¿ML confirma que el item NO tiene promociones activas? El panel lo pide
@@ -470,6 +514,9 @@ def confirmar_sin_promos_con_ml(
     200 con `sin_promos_confirmado=false` (no se pudo confirmar). Lectura
     pura, sin escrituras en ML. Requiere permiso: promos.ver
     """
+    if motivo_sin_consulta_ml(db, mla_id):
+        # Not active: ML is not asked about it. "Not confirmed" is the honest answer.
+        return ConfirmacionML(sin_promos_confirmado=False, promos_en_ml=None)
     try:
         live = resolve_maybe_async(
             ml_webhook_client.get_item_promotions(mla_id, timeout=CONFIRMACION_ML_TIMEOUT_SECONDS)
@@ -491,7 +538,7 @@ def confirmar_sin_promos_con_ml(
 def obtener_promociones_item(
     mla_id: str,
     current_user: Usuario = Depends(require_promos_read()),
-    db=Depends(get_db),
+    db: Session = Depends(get_db),
 ) -> ItemPromotionsList:
     """
     Lista las promociones aplicables a un item desde ml_item_promotions
@@ -511,7 +558,12 @@ def obtener_promociones_item(
         # derived here.
         promotions = derivar_application_status(promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
-        return ItemPromotionsList(mla=mla_id, count=len(promotions), promotions=promotions)
+        return ItemPromotionsList(
+            mla=mla_id,
+            count=len(promotions),
+            promotions=promotions,
+            motivo_sin_actualizacion=motivo_sin_consulta_ml(db, mla_id),
+        )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
         raise HTTPException(
@@ -579,6 +631,7 @@ def listar_items_de_promocion(
 def refrescar_promociones_item(
     mla_id: str,
     current_user: Usuario = Depends(require_promos_read()),
+    db: Session = Depends(get_db),
 ) -> RefreshResult:
     """
     Dispara un reconcile server-side (point-refresh) del espejo de
@@ -600,12 +653,20 @@ def refrescar_promociones_item(
     pantalla sólo podía decir "no se pudo actualizar", y una publicación
     cerrada se leía igual que un proxy caído o un token vencido.
 
+    SOLO publicaciones ACTIVAS (según el store `ml_items`): pausada, en revisión,
+    inactiva, cerrada o dada de baja devuelven `{ok: false, motivo}` SIN llamar al
+    proxy. Una publicación que el store aún no conoce se refresca como siempre.
+
     Requiere permiso: promos.ver. Es una LECTURA (reconcilia nuestro espejo
     desde ML, nunca escribe en ML), así que un usuario de solo lectura que
     abre el panel también ve datos frescos — antes estaba gateado por
     promos.escribir y esos usuarios veían el espejo sin actualizar
     (incidente 2026-10-05).
     """
+    motivo = motivo_sin_consulta_ml(db, mla_id)
+    if motivo:
+        # Not active (per the store): ML is NOT asked. The mirror stays as it is.
+        return RefreshResult(ok=False, motivo=motivo)
     outcome = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
     return RefreshResult(ok=outcome.ok, motivo=outcome.motivo)
 
