@@ -45,7 +45,7 @@ def _existing_triggers(conn: Connection) -> set[str]:
 
 
 def _function_exists(conn: Connection) -> bool:
-    return bool(conn.exec_driver_sql(f"SELECT 1 FROM pg_proc WHERE proname = '{_FUNCTION}'").all())
+    return bool(conn.exec_driver_sql("SELECT 1 FROM pg_proc WHERE proname = %(name)s", {"name": _FUNCTION}).all())
 
 
 class TestMigrationGraph:
