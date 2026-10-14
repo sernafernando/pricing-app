@@ -1,0 +1,154 @@
+/* Roles x permissions matrix: dense console table, tokens only
+   (`--cf-*` surfaces/text, `--tone-*` status colours carry dark-mode values). */
+
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.search {
+  width: 100%;
+}
+
+.vacio {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--cf-text-secondary);
+  border: 1px dashed var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.scroll {
+  overflow-x: auto;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.colPermiso,
+.colRol {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  padding: var(--space-2) var(--space-3);
+  background: var(--cf-bg-card);
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.colPermiso {
+  text-align: left;
+  min-width: 260px;
+}
+
+.colRol {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.categoria {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.fila:hover {
+  background: var(--cf-bg-hover);
+}
+
+.permiso {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-weight: var(--font-medium);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.permisoNombre {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.codigo {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: normal;
+  color: var(--cf-text-secondary);
+}
+
+.critico {
+  padding: 0 var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-full);
+}
+
+.celda {
+  padding: var(--space-2);
+  text-align: center;
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+/* A cell whose value differs from what is saved for that role. */
+.pendiente {
+  composes: celda;
+  background: var(--tone-warning-bg);
+  box-shadow: inset 0 0 0 1px var(--tone-warning-border);
+}
+
+.casilla {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--cf-accent-blue);
+  cursor: pointer;
+}
+
+.casilla:disabled {
+  cursor: not-allowed;
+}
+
+.barra {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.barraTexto {
+  font-weight: var(--font-semibold);
+  color: var(--tone-warning-fg);
+}
+
+.barraAcciones {
+  display: flex;
+  gap: var(--space-2);
+}
