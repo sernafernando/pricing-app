@@ -163,12 +163,6 @@ export default function VentasML() {
   const [goodsStatusFilter, setGoodsStatusFilter] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
   const { tiendas, getLabel } = useTiendasOficiales();
-  // No default range: unlike the métricas dashboard this list starts
-  // unfiltered by date, so `dateRangeFiltro` stays `null` until the
-  // operator picks a preset or a custom range.
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
-  const [dateRangeFiltro, setDateRangeFiltro] = useState(null);
 
   const [facets, setFacets] = useState({
     operation_status: {},
@@ -255,8 +249,13 @@ export default function VentasML() {
     setSearchQuery,
     productFilters,
     setProductFilters,
-    clearProductFilters,
+    dateRange,
+    setDateRange,
+    clearUrlFilters,
   } = useVentasMLFilters();
+  // The range lives in the URL (see `useVentasMLFilters`): with none there it
+  // is the current month, so opening the screen does not pull every sale.
+  const { desde: fechaDesde, hasta: fechaHasta, filtro: dateRangeFiltro } = dateRange;
 
   // Visible to everyone who can see this page — the modal itself decides
   // read-only vs. read+write once open, per product decision (see
@@ -389,22 +388,21 @@ export default function VentasML() {
     [setProductFilters],
   );
 
-  const handleDateRangeChange = useCallback(({ desde, hasta, filtro }) => {
-    setFechaDesde(desde);
-    setFechaHasta(hasta);
-    setDateRangeFiltro(filtro);
-    setOffset(0);
-  }, []);
+  const handleDateRangeChange = useCallback(
+    (range) => {
+      setDateRange(range);
+      setOffset(0);
+    },
+    [setDateRange],
+  );
 
   const clearFilters = useCallback(() => {
     setOperationStatusFilter('');
     setGoodsStatusFilter('');
     setStoreFilter('');
-    setFechaDesde('');
-    setFechaHasta('');
-    setDateRangeFiltro(null);
-    setSearchQuery('');
-    clearProductFilters();
+    // Search, product filters and the range (explicitly "todo", not the
+    // default month) live in the URL: one update, see `clearUrlFilters`.
+    clearUrlFilters();
     setIncludeUnknown(true);
     setIncludeInDispute(true);
     setIncludeMixed(true);
@@ -412,7 +410,7 @@ export default function VentasML() {
     setIncludeCancelled(true);
     setOnlyAlerts(false);
     setOffset(0);
-  }, [setSearchQuery, clearProductFilters]);
+  }, [clearUrlFilters]);
 
   // T4/T5: a single fan-out so a toggle change always reaches both the
   // list and the KPI request (they read the same state) and never drifts

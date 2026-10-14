@@ -1,5 +1,47 @@
 import { useSearchParams } from 'react-router-dom';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { calcularRangoPreset } from '../utils/dateRangePresets';
+
+const BUSINESS_TZ = 'America/Argentina/Buenos_Aires';
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+// Presets the date control highlights; an active range is matched against
+// them so the highlight is never a claim the URL cannot back up. Month first:
+// on the 14th, 14d and the month start coincide and the default must read as it is.
+const PRESET_KEYS = ['mesActual', 'hoy', 'ayer', '3d', '7d', '14d', '30d', '3m'];
+
+/**
+ * Today's calendar day in Argentina as a local-midnight `Date`, so the shared
+ * preset arithmetic (which reads local getters) computes against the business
+ * day. `new Date()` + local getters would be the browser's day, which differs
+ * for anyone not in UTC-3, and `toISOString()` is UTC, which is already
+ * tomorrow from 21:00 Argentina.
+ */
+function businessToday(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  return new Date(get('year'), get('month') - 1, get('day'));
+}
+
+/** First of the current month up to today, Argentina time. */
+export function currentMonthRange(now = new Date()) {
+  return calcularRangoPreset('mesActual', businessToday(now));
+}
+
+function presetFor(desde, hasta) {
+  const hoy = businessToday();
+  return (
+    PRESET_KEYS.find((key) => {
+      const r = calcularRangoPreset(key, hoy);
+      return r && r.desde === desde && r.hasta === hasta;
+    }) ?? 'custom'
+  );
+}
 
 /**
  * useVentasMLFilters — selection state for the `VentasML` sale detail panel
@@ -26,6 +68,14 @@ import { useCallback, useMemo } from 'react';
  * (or a member row directly) opens the order-scoped panel (`selectOrder`).
  * Each setter clears the other param so the two never disagree about
  * what is selected.
+ *
+ * The DATE RANGE lives here too (`desde`/`hasta`, or `rango=todo` for an
+ * explicit "no date filter"). With neither in the URL the screen opens on the
+ * current month in Argentina time instead of loading every sale (~80k
+ * orders); the URL always wins, so a shared link, a reload and back/forward
+ * keep the range the operator was looking at. The default is computed once
+ * per mount: a page left open across midnight must not shift its range under
+ * the operator's feet.
  */
 export function useVentasMLFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -39,6 +89,39 @@ export function useVentasMLFilters() {
   const categoriasParam = searchParams.get('categorias');
   const subcategoriasParam = searchParams.get('subcategorias');
   const pmsParam = searchParams.get('pms');
+
+  const desdeParam = searchParams.get('desde');
+  const hastaParam = searchParams.get('hasta');
+  const rangoParam = searchParams.get('rango');
+  const [defaultRange] = useState(() => currentMonthRange());
+
+  const dateRange = useMemo(() => {
+    if (rangoParam === 'todo') return { desde: '', hasta: '', filtro: null };
+    const desde = desdeParam && ISO_DAY.test(desdeParam) ? desdeParam : '';
+    const hasta = hastaParam && ISO_DAY.test(hastaParam) ? hastaParam : '';
+    if (desde || hasta) return { desde, hasta, filtro: presetFor(desde, hasta) };
+    return { ...defaultRange, filtro: 'mesActual' };
+  }, [desdeParam, hastaParam, rangoParam, defaultRange]);
+
+  const setDateRange = useCallback(
+    ({ desde, hasta }) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('desde');
+          next.delete('hasta');
+          next.delete('rango');
+          if (desde) next.set('desde', desde);
+          if (hasta) next.set('hasta', hasta);
+          // Cleared: say so, or the absence would read as "use the default".
+          if (!desde && !hasta) next.set('rango', 'todo');
+          return next;
+        },
+        { replace: false },
+      );
+    },
+    [setSearchParams],
+  );
 
   const productFilters = useMemo(
     () => ({
@@ -175,6 +258,25 @@ export function useVentasMLFilters() {
     );
   }, [setSearchParams]);
 
+  // "Limpiar filtros" in ONE updater. react-router's functional form does not
+  // queue: every call derives from the same render-time params, so separate
+  // calls (search, product filters, range) overwrite each other and the last
+  // one silently resurrects what the others cleared. The date range goes to
+  // an explicit "todo" -- the operator asked for no filters.
+  const clearUrlFilters = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        ['q', 'marcas', 'categorias', 'subcategorias', 'pms', 'desde', 'hasta'].forEach((key) =>
+          next.delete(key),
+        );
+        next.set('rango', 'todo');
+        return next;
+      },
+      { replace: false },
+    );
+  }, [setSearchParams]);
+
   return {
     selectedOrderId,
     selectOrder,
@@ -186,5 +288,8 @@ export function useVentasMLFilters() {
     productFilters,
     setProductFilters,
     clearProductFilters,
+    dateRange,
+    setDateRange,
+    clearUrlFilters,
   };
 }
