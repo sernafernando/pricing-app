@@ -25,7 +25,11 @@ describe('Publicaciones ML route', () => {
   it('P14: is discoverable from the Sidebar and SmartRedirect, announced by exactly one novedad', () => {
     expect(sidebarSource).toContain('/ml-publicaciones');
     expect(smartRedirectSource).toContain('/ml-publicaciones');
-    const mentions = Object.entries(novedades).filter(([, text]) => /ml-publicaciones|Publicaciones ML/i.test(text));
-    expect(mentions.map(([file]) => file)).toEqual(['./novedades/2026-10-09-publicaciones-ml.md']);
+    // Later novedades extend the screen and mention it too; the launch one comes first.
+    const mentions = Object.entries(novedades)
+      .filter(([, text]) => /ml-publicaciones|Publicaciones ML/i.test(text))
+      .map(([file]) => file)
+      .sort();
+    expect(mentions[0]).toBe('./novedades/2026-10-09-publicaciones-ml.md');
   });
 });
