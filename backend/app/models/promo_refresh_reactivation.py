@@ -8,7 +8,7 @@ the ML publications store (`events_store.write_events`) and drained only by `ml_
 
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, Index, Integer, String
+from sqlalchemy import Column, DateTime, Index, Integer, String, UniqueConstraint
 from sqlalchemy.sql import func
 
 from app.core.database import Base
@@ -19,13 +19,16 @@ class PromoRefreshReactivation(Base):
 
     __tablename__ = "promo_refresh_reactivation"
 
-    id = Column(Integer, primary_key=True, index=True)
-    mla = Column(String(32), nullable=False, unique=True)
+    id = Column(Integer, primary_key=True)
+    mla = Column(String(32), nullable=False)
     due_at = Column(DateTime(timezone=True), nullable=False)
     attempts = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    __table_args__ = (Index("ix_promo_refresh_reactivation_due_at", "due_at"),)
+    __table_args__ = (
+        UniqueConstraint("mla", name="uq_promo_refresh_reactivation_mla"),
+        Index("ix_promo_refresh_reactivation_due_at", "due_at"),
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         return f"<PromoRefreshReactivation mla={self.mla!r} due_at={self.due_at!r} attempts={self.attempts!r}>"

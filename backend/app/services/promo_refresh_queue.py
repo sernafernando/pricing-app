@@ -1,8 +1,8 @@
 """Queue helpers of the promotions-mirror refresh that follows a publication reactivation.
 
-Rows live in `promo_refresh_reactivation` (one per MLA; the panel's own `promo_refresh_pending` queue is left to its
-own drainer, see `app/models/promo_refresh_reactivation.py`). The store enqueues an MLA when its status goes back to `active`
-(`events_store.write_events`); the `ml_publications.promo_refresh` worker handler drains the table.
+Rows live in `promo_refresh_reactivation` (one per MLA; the panel's own `promo_refresh_pending` queue is left
+to its own drainer, see `app/models/promo_refresh_reactivation.py`). The store enqueues an MLA when its status
+goes back to `active` (`events_store.write_events`); the `ml_publications.promo_refresh` worker handler drains the table.
 
 Every function takes the caller's session and never commits: the enqueue joins the transaction that
 wrote the event, and the handler wraps each step in its own short `get_background_db()` block.

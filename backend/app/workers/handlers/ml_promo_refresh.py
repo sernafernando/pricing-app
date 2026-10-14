@@ -72,7 +72,7 @@ class PromoRefreshHandler:
         if config["promo_refresh.enabled"].value is not True:
             return disabled_outcome()
         per_minute = config["promo_refresh.rate_per_min"].value
-        detail: Dict[str, int] = {"refreshed": 0, "dropped": 0, "failed": 0, "quarantined": 0}
+        detail: Dict[str, Any] = {"refreshed": 0, "dropped": 0, "failed": 0, "quarantined": 0}
         stopped: Optional[str] = None
         while _utcnow() < ctx.deadline:
             if self._budget(per_minute) == 0:
@@ -97,7 +97,7 @@ class PromoRefreshHandler:
             self._calls.append(self._monotonic())
             self._settle(claim, self._refresh(claim.mla), detail)
         if stopped:
-            detail["stopped"] = stopped  # type: ignore[assignment]
+            detail["stopped"] = stopped
         return JobResult(success=True, detail=detail)
 
     @staticmethod
@@ -109,7 +109,7 @@ class PromoRefreshHandler:
             logger.warning("promo_refresh: refresh_item_promotions raised for %s", mla, exc_info=True)
             return None
 
-    def _settle(self, claim: queue.Claim, outcome: Optional[RefreshOutcome], detail: Dict[str, int]) -> None:
+    def _settle(self, claim: queue.Claim, outcome: Optional[RefreshOutcome], detail: Dict[str, Any]) -> None:
         with self._session_factory() as db:
             if outcome is not None and outcome.ok:
                 queue.drop(db, claim)
