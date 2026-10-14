@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Markup30dCell, Sales30dCell } from './SalesCells';
-import { buildColumns, defaultColumnVisibility } from './columns';
+import { buildColumns, columnChoicesOver, defaultColumnVisibility } from './columns';
 
 describe('Sales30dCell', () => {
   it('shows the units and the gross revenue', () => {
@@ -79,5 +79,12 @@ describe('the 30-day columns', () => {
   it('keep the worst-variation markup visible when Markup 30d is not shown', () => {
     expect(defaultColumnVisibility({ canSeeSales: false, canSeeMargin: true })).toEqual({});
     expect(defaultColumnVisibility({ canSeeSales: true, canSeeMargin: false })).toEqual({});
+  });
+
+  it('keep only what the user changed from the default, so the default can follow permissions', () => {
+    const defaults = { markup: false };
+    expect(columnChoicesOver({ markup: false, stock_full: false }, defaults)).toEqual({ stock_full: false });
+    expect(columnChoicesOver({ markup: true }, defaults)).toEqual({ markup: true });
+    expect(columnChoicesOver({ markup: false, stock_full: true }, {})).toEqual({ markup: false });
   });
 });

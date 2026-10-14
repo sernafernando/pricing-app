@@ -38,6 +38,17 @@ export function defaultColumnVisibility({ canSeeSales = false, canSeeMargin = fa
 }
 
 /**
+ * The entries of `visibility` that differ from `defaults` (a column missing
+ * from either is visible): the user's own picks, kept apart so the default
+ * can still follow permissions that load or change later.
+ */
+export function columnChoicesOver(visibility, defaults) {
+  return Object.fromEntries(
+    Object.entries(visibility).filter(([key, visible]) => visible !== (defaults[key] ?? true)),
+  );
+}
+
+/**
  * `eventsEnabled` false drops the last-event column altogether (S56.2).
  * `canSeeMargin` (`ml_metricas.ver_ganancia`) is what lets the markup column
  * exist at all: without it there is no column, not a column of dashes.
