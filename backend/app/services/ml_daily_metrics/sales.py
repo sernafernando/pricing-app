@@ -206,6 +206,9 @@ def sale_lines(
     ranges: Optional[List[Range]] = None,
     product: Optional[int] = None,
     groups: Optional[Any] = None,
+    queue: bool = True,
+    keyed: bool = False,
+    narrow: bool = False,
 ):
     """One row per sold item line of every accredited group in `ranges`
     (all history when None), restricted to `product` if given: `product`,
@@ -217,17 +220,29 @@ def sale_lines(
     `groups` (a one-column select of group keys, see `groups_touching`) limits
     the read to those groups BELOW the windows: a small selection reads its own
     orders, not every order of the period. The groups come whole, with their
-    other lines too: the caller keeps filtering the lines it wants."""
+    other lines too: the caller keeps filtering the lines it wants.
+
+    `queue=False` ignores the recompute queue (`ml_order_metrics_dirty`): an
+    order is then settled when it HAS stored metrics, whether or not it is being
+    recalculated -- the persisted `ml_sale_lines` are written that way, and the
+    board puts the queue back at read time. `keyed=True` adds the columns that
+    identify a line (`item_row_id`, `order_id`, `group_key`); `narrow=True`
+    reaches the orders of a small `groups` set through their indexes instead of
+    hashing every order."""
     qty = func.coalesce(I.quantity, 0)
     weight = C.costo_unitario_ars * qty
     # (group, order): the same partitions as by order alone, but sorted the
     # same way as the group window -- one sort serves both windows.
     by_order = {"partition_by": (G.group_key, O.order_id)}
-    settled = and_(D.order_id.is_(None), MT.order_id.isnot(None))
+    settled = and_(D.order_id.is_(None), MT.order_id.isnot(None)) if queue else MT.order_id.isnot(None)
     has_gauss = and_(settled, MT.gauss_status.in_(GAUSS_STATUSES), MT.total_gauss.isnot(None))
     candidate = case((and_(has_gauss, MT.costo_mercaderia.isnot(None)), 1), else_=0)
-    inner = _scope(
+    identity = (
+        [I.id.label("item_row_id"), O.order_id.label("order_id"), G.group_key.label("group_key")] if keyed else []
+    )
+    source = (
         select(
+            *identity,
             func.coalesce(C.producto_item_id, NO_PRODUCT).label("product"),
             I.item_id.label("mla"),
             G.group_date.label("group_date"),
@@ -248,15 +263,14 @@ def sale_lines(
             func.min(candidate).over(partition_by=G.group_key).label("eligible"),
         )
         .select_from(G)
-        .join(O, _members_of_group(narrow=product is not None))
+        .join(O, _members_of_group(narrow=narrow or product is not None))
         .join(I, I.order_id == O.order_id)
         .outerjoin(C, frozen_cost_of_item())
         .outerjoin(MT, MT.order_id == O.order_id)
-        .outerjoin(D, D.order_id == O.order_id),
-        ranges,
-        product,
-        groups,
-    ).subquery("sold")
+    )
+    if queue:
+        source = source.outerjoin(D, D.order_id == O.order_id)
+    inner = _scope(source, ranges, product, groups).subquery("sold")
     x = inner.c
     # NUMERIC in every branch: one float branch makes Postgres resolve the
     # whole CASE -- and every money sum after it -- to double precision.
@@ -268,6 +282,7 @@ def sale_lines(
     )
     eligible = x.eligible == 1
     q = select(
+        *([x.item_row_id, x.order_id, x.group_key] if keyed else []),
         x.product,
         x.mla,
         x.group_date,

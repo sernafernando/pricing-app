@@ -233,7 +233,6 @@ class TestTheBonificacionEnNetoBumpSelectsRowsStoredUnderFormula3:
     def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_3(
         self, _order_metrics_db_session, pg_order_metrics_engine
     ) -> None:
-        assert CURRENT_FORMULA_VERSION == 4
         with pg_order_metrics_engine.connect() as conn:
             _insert_order(conn, 500030)
             _insert_metrics(conn, 500030, formula_version=3)
@@ -249,6 +248,29 @@ class TestTheBonificacionEnNetoBumpSelectsRowsStoredUnderFormula3:
         assert stale is not None
         assert stale.reason == "reconcile"
         assert current is None
+
+
+@pytest.mark.postgres
+class TestTheSaleLinesBumpBackfillsThePersistedLines:
+    """`ml_sale_lines` is written by the drain along with the metrics, so the
+    backfill of an existing history IS the version bump (5): reconcile re-enqueues
+    every order stored under version 4 -- at the low `reconcile` priority, so live
+    work is claimed first -- and the drain writes its lines."""
+
+    def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_4(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        assert CURRENT_FORMULA_VERSION == 5
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_order(conn, 500040)
+            _insert_metrics(conn, 500040, formula_version=4)
+            conn.commit()
+
+        reconcile.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        with pg_order_metrics_engine.connect() as conn:
+            row = _dirty_row(conn, 500040)
+        assert row is not None and row.reason == "reconcile"
 
 
 @pytest.mark.postgres

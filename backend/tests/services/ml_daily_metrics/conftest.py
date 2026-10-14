@@ -62,6 +62,7 @@ def board_pg_engine():
     )
     from app.models.rma_claim_ml import RmaClaimML
     from app.models.ml_payments import MlPaymentOps
+    from app.models.ml_sale_line import MlSaleLine
     from app.models.ml_tienda_oficial import MlTiendaOficial
     from app.models.ml_venta_deduccion import MlVentaDeduccion
 
@@ -72,6 +73,7 @@ def board_pg_engine():
         MlOrderMetrics.__table__,
         MlOrderMetricsDirty.__table__,
         MlGroupMetrics.__table__,
+        MlSaleLine.__table__,
         MercadoLibreItemPublicado.__table__,
         MlOpsSyncCursor.__table__,
         # Ventas ML's KPI aggregate (the parity checks) reads these too.

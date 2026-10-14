@@ -196,3 +196,11 @@ def store_order_metrics(db: Session, metrics_by_order: Dict[int, OrderMetrics]) 
         # row and still holds the group back.
         group_metrics = recompute_group_metrics(db, group_keys, just_stored_order_ids=order_ids)
         store_group_metrics(db, group_metrics)
+
+        # The persisted sale lines of those groups (`ml_sale_lines`), same
+        # transaction: whatever invalidates an order's metrics invalidates its
+        # lines. Written even for a group whose own metrics were held back by a
+        # dirty member: the stored order's lines changed all the same.
+        from app.services.order_metrics.sale_lines_store import store_sale_lines
+
+        store_sale_lines(db, order_ids, group_keys)
