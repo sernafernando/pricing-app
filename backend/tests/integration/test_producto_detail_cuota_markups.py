@@ -10,11 +10,10 @@ show the same markups Productos shows for the same product.
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 import pytest
-
-import logging
 
 from app.models.comision_config import SubcategoriaGrupo
 from app.models.comision_versionada import ComisionBase, ComisionVersion
