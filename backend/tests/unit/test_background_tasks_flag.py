@@ -58,6 +58,12 @@ def run_lifespan() -> None:
     asyncio.run(go())
 
 
+def test_the_list_above_is_every_task_factory_main_imports() -> None:
+    """A task added to `lifespan` must be listed in TASK_FACTORIES, or the tests would start the real one."""
+    imported = {name for name in vars(main) if name.endswith("_task") and callable(getattr(main, name))}
+    assert imported == set(TASK_FACTORIES)
+
+
 def test_the_flag_defaults_to_true() -> None:
     assert type(settings).model_fields["BACKGROUND_TASKS_ENABLED"].default is True
 
