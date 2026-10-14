@@ -26,6 +26,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.endpoints.productos_detail import obtener_datos_ml_producto
+from app.services.ml_publication_status_service import MlPublicationStatus
 
 
 def _make_db(pub_row) -> MagicMock:
@@ -70,6 +71,35 @@ class TestMercadolibreLiteParam:
         assert publicaciones[0]["mla"] == "MLA9101"
         assert publicaciones[0]["lista_nombre"] == "Clásica"
         assert publicaciones[0]["pricelist_id"] == 4
+
+    def test_publication_status_comes_from_ml_items(self) -> None:
+        """The flat panel's status chip reads the ML publications store
+        (`ml_items`, owner's source of truth), through the same batch
+        function as the tree — never the ERP mirror."""
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+        statuses = {"MLA9101": MlPublicationStatus("paused", ["paused_by_seller"])}
+
+        with patch(
+            "app.api.endpoints.productos_detail.fetch_publication_status_by_mla", return_value=statuses
+        ) as mock_fetch:
+            result = asyncio.run(obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True))
+
+        mock_fetch.assert_called_once_with(db, ["MLA9101"])
+        pub = result["publicaciones_ml"][0]
+        assert pub["publication_status"] == "paused"
+        assert pub["publication_sub_status"] == ["paused_by_seller"]
+
+    def test_publication_status_read_failure_leaves_the_fields_absent(self) -> None:
+        db = _make_db(_pub_row())
+        current_user = SimpleNamespace(id=1)
+
+        with patch("app.api.endpoints.productos_detail.fetch_publication_status_by_mla", return_value={}):
+            result = asyncio.run(obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True))
+
+        pub = result["publicaciones_ml"][0]
+        assert "publication_status" not in pub
+        assert "publication_sub_status" not in pub
 
     def test_lite_absent_still_calls_live_batch(self) -> None:
         db = _make_db(_pub_row())

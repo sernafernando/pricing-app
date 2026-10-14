@@ -3,6 +3,7 @@ import api from '../services/api';
 import '../styles/ModalInfoProducto.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 import { usePermisos } from '../contexts/PermisosContext';
+import PublicationStatusPill from './publicacionesMl/PublicationStatusPill';
 
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
@@ -475,17 +476,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                               {pub.precio_ml ? `$${pub.precio_ml.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '-'}
                             </td>
                             <td style={{ fontSize: '11px' }}>
-                              {pub.publication_status === 'active' ? (
-                                <span style={{ color: '#22c55e', fontWeight: '600' }}>✓ Activa</span>
-                              ) : pub.publication_status === 'paused' ? (
-                                <span style={{ color: '#f59e0b', fontWeight: '600' }}>⏸ Pausada</span>
-                              ) : pub.publication_status === 'closed' ? (
-                                <span style={{ color: '#ef4444', fontWeight: '600' }}>✕ Cerrada</span>
-                              ) : pub.publication_status === 'under_review' ? (
-                                <span style={{ color: '#3b82f6', fontWeight: '600' }}>⏳ En revisión</span>
-                              ) : (
-                                <span style={{ color: 'var(--text-secondary)' }}>-</span>
-                              )}
+                              <PublicationStatusPill status={pub.publication_status} subStatus={pub.publication_sub_status} />
                             </td>
                             <td>
                               {pub.catalog_product_id && pub.catalog_status ? (
