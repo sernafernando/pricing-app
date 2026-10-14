@@ -114,7 +114,6 @@ def replace_relations(db: Session, mla: str, item_relations: List[Dict]) -> None
         )
 
 
-_LinkFields = Tuple[Optional[str], Optional[str], Optional[str], bool, Optional[str]]
 _Edge = Tuple[str, Optional[int], Optional[str]]
 
 

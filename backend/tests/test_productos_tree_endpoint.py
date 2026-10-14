@@ -11,10 +11,10 @@ trip to keep the link-sync / promo-resolver mocking simple and explicit.
 Spec coverage:
   - keeps the existing flat endpoint untouched (separate route).
   - returns the recursive node JSON described by the design.
-  - lazy-fill: the endpoint calls `sync_links_from_store` (pool-safe, decoupled
-    from the request `db` session — see review fix 1/4) before assembly.
+  - link convergence: the endpoint calls `sync_links_from_store` with the
+    REQUEST `db` session (local reads only, no ml-webhook call) before assembly.
   - graceful degradation: `sync_links_from_store` never raises (fail-open by
-    contract) so a proxy failure never surfaces as a 500/503 here.
+    contract) so a convergence failure never surfaces as a 500/503 here.
   - partial-data fail-open: one mla lacking a link row still returns a
     best-effort tree (plain leaf), no 500.
 """
@@ -39,7 +39,7 @@ def _make_db(pubs) -> MagicMock:
     return db
 
 
-class TestTreeEndpointLazyFill:
+class TestTreeEndpointLinkSync:
     def test_calls_sync_links_from_store_before_assembly(self) -> None:
         db = _make_db([_pub("MLA1")])
         current_user = SimpleNamespace(id=1)
