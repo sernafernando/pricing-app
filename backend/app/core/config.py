@@ -113,6 +113,11 @@ class Settings(BaseSettings):
     # Base host of the internal ml-webhook microservice (render/preview API).
     # Extracted from three hardcoded call sites (audit M-3). Override per env.
     ML_WEBHOOK_BASE_URL: str = "https://ml-webhook.gaussonline.com.ar"
+    # Master switch for the in-process background tasks started by the API lifespan (ML bot ingest/draft/publish,
+    # order syncs, reconcilers...). Default TRUE: production behaviour is unchanged. Set it to false on any copy of
+    # the API that shares a database with production (staging, a second host): the per-host lock cannot see another
+    # host, so both would run the same loops against the same rows (e.g. double bot replies to customers).
+    BACKGROUND_TASKS_ENABLED: bool = True
     # Kill-switch for the ML Seller Promotions write path (enroll/remove).
     # Default OFF: writes to ML Central de Promociones are disabled until
     # explicitly enabled per environment. Consumed by the write-orchestration
