@@ -1,5 +1,5 @@
-"""The Agrupado tree of `/ml-publications/view/groups` by DIMENSION (three of Métricas ML's own: marca, categoria,
-subcategoria; tienda and pm come next), on Postgres.
+"""The Agrupado tree of `/ml-publications/view/groups` by DIMENSION (exactly Métricas ML's own: marca, categoria,
+subcategoria, tienda, pm), on Postgres.
 
 Each dimension is Métricas' hierarchy of group levels (`ml_daily_metrics.groups.HIERARCHIES`) with the products (and
 the families) below, exactly like the default `marca` tree. The key test is the same as the default tree's: the
@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.comision_config import SubcategoriaGrupo
+from app.services.ml_daily_metrics import groups as metricas_groups
 from app.services.ml_daily_metrics.groups import NO_GROUP
 from app.services.ml_publications.view import groups
 from app.services.ml_publications.view.filters import FilterError, parse_filter
@@ -285,6 +286,9 @@ class TestDimension:
         seed_catalog(conn)
         default = groups.list_groups(db, parse_filter(), [])
         assert default == tree(db, "marca") and default.level == "marca"
+
+    def test_the_dimensions_are_exactly_metricas_ones(self) -> None:
+        assert groups.DIMENSIONS == metricas_groups.DIMENSIONS
 
     def test_the_levels_of_each_dimension_are_metricas_hierarchy_then_the_products(self) -> None:
         assert groups.levels_of("marca") == ("marca", "categoria", "subcategoria", "producto")

@@ -3,16 +3,17 @@
 The tree is grouped by a DIMENSION, exactly the ones the Métricas ML board offers (owner: "Publicaciones must work like
 Métricas ML": `marca`, `categoria`, `subcategoria`, `tienda`, `pm`): the group levels of `HIERARCHIES[dimension]`, then
 `producto > [familia] > MLA`. This replaces the old rule "the store is never a level": under `tienda` the store is
-the top level (a clave groups its store ids, like Métricas), and under every dimension it is still a filter too. The default, `marca`,
-is the original tree (owner decision 1): `marca > categoria > subcategoria > producto > [familia] > MLA`. A node is
-identified by the keys of its ancestors (the request's `path`) plus its own, and the page lists the children of the
-node the path names, lazily, one level per request.
+the top level (a clave groups its store ids, like Métricas), and under every dimension it is still a filter too.
+The default, `marca`, is the original tree (owner decision 1): `marca > categoria > subcategoria > producto >
+[familia] > MLA`. A node is identified by the keys of its ancestors (the request's `path`) plus its own, and the page
+lists the children of the node the path names, lazily, one level per request.
 
 Reused from the Métricas ML board (`app/services/ml_daily_metrics/groups.py`), not rewritten: `HIERARCHIES` fixes
 the group levels above the products, `dimension_of` builds each level's key and label (trimmed and upper-cased text,
 the subcategory id and its name, the subcategory in its category, the store or its clave, the PM of the product's
-pair), `title_of` the display name and its "Sin ..." fallbacks, and `NO_GROUP` (`__none__`) is the key of "no brand / category / subcategory / product". Two levels are
-new: the product (the linked product of the publication) and the family.
+pair), `title_of` the display name and its "Sin ..." fallbacks, and `NO_GROUP` (`__none__`) is the key of "no brand /
+category / subcategory / product". Two levels are new: the product (the linked product of the publication) and the
+family.
 
 Rules worth knowing before reading the code:
 
