@@ -40,8 +40,9 @@ def world(board_pg_engine):
     transaction = connection.begin()
     session = sessionmaker(bind=connection)()
     volume._seed(session, characterization.SCALE)
-    settings.ML_USER_ID = 999
-    assert populate_sale_lines(session) > 1000
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "ML_USER_ID", 999)
+        assert populate_sale_lines(session) > 1000
     yield session
     session.close()
     transaction.rollback()

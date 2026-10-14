@@ -891,6 +891,53 @@ length, to size the backlog. A gate review must still look at the sample
 list explicitly for the `last_error` detail: those orders failed five
 times and nothing will retry them until a real input write arrives.
 
+### Métricas ML board: reading the persisted sale lines (`ml_sale_lines`)
+
+The board used to derive its per-sold-line base (`sales.sale_lines`, `sales.last_sales`) on
+every request: groups x orders x items x frozen costs x metrics with two window functions,
+about half of a 1 s request. `order_metrics.drain` now writes that base into `ml_sale_lines`
+in the same transaction that stores an order's metrics, and the board reads it when
+`METRICAS_SALE_LINES_ENABLED` is on (default OFF; OFF is the old behaviour, byte for byte).
+
+**Steps, in order**
+
+1. Deploy the release and migrate (creates the empty table):
+   `cd backend && alembic upgrade head`.
+2. Do nothing else: the release bumps `CURRENT_FORMULA_VERSION` to 5, so
+   `order_metrics.reconcile` (every 10 minutes) enqueues every order at the low `reconcile`
+   priority and `order_metrics.drain` rewrites its metrics and lines. Live work is claimed
+   first. At ~25 orders/s about 85k orders take ~1 hour (a little more than a plain
+   recompute: the lines add ~2-5 ms per order). Deploy outside the peak.
+3. Watch the backfill (any of these):
+   - `GET /api/ml-ops/order-metrics/health` (needs `ml_ops.ver`):
+     `curl -s -H "Authorization: Bearer $TOKEN" https://<host>/api/ml-ops/order-metrics/health | jq '{queue_depth, stale_formula_count, missing_metrics_count, poisoned_count, sale_lines_ready, last_divergence}'`
+     `stale_formula_count` falls to 0 as the backfill drains; `sale_lines_ready` turns `true`
+     when it is 0 AND no order lacks metrics AND none is parked.
+   - SQL: `SELECT formula_version, count(*) FROM ml_order_metrics GROUP BY 1;`
+     `SELECT reason, count(*) FROM ml_order_metrics_dirty GROUP BY 1;`
+     `SELECT count(*) FROM ml_sale_lines;` (~ one row per sold item line, ~100k).
+4. Check the divergence report. Run a lap (`POST /api/ml-ops/order-metrics/divergence/run`,
+   needs `ml_ops.gestionar`; it also runs daily at 04:00 and every 2 minutes while a lap is
+   unfinished) and wait for `last_divergence.complete = true`. Then
+   `last_divergence.lines_divergent_count` should be 0, or fall to 0 on the next lap (the
+   mismatches are re-enqueued, which is the self-heal). Open items:
+   `SELECT order_id FROM ml_ops_divergence WHERE kind = 'stored_metrics_mismatch' AND field = 'sale_lines' AND state = 'open';`
+5. Flip the flag: set `METRICAS_SALE_LINES_ENABLED=true` in the API's environment and
+   restart the API (the board reads it per request from the settings). Turning it OFF again is
+   the same change in reverse; nothing else needs undoing.
+
+**Why `sale_lines_ready` must be true first.** An order with no stored metrics (not yet
+computed, or parked after repeated failures) has no persisted lines, while the live derivation
+still counts its units. With the flag on those orders would drop out of the board's units, last
+sale and ageing. `poisoned_orders` in the health response lists the parked ones; an input write
+to an order un-parks it.
+
+**What the table holds.** One row per sold item line, as `sale_lines` derives it with the
+recompute queue ignored; the board applies the queue at read time (an order being recalculated
+has no gross or Total Gauss, and its group takes no part in the markup), exactly as the live
+derivation does. The same function (`sales.sale_lines`) produces both, and the test suite
+checks that the board gives identical rows, totals, KPIs and facets with the flag on and off.
+
 ### Recomputing every stored Total Gauss (bumping `CURRENT_FORMULA_VERSION`)
 
 The Total Gauss is persisted in `ml_order_metrics`. When the formula changes,
