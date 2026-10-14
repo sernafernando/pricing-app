@@ -5,7 +5,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import PriceCell from './PriceCell';
-import StockCell from './StockCell';
 import ErpStockCell from './ErpStockCell';
 import LinkBadge from './LinkBadge';
 import LastEventCell from './LastEventCell';
@@ -57,27 +56,6 @@ describe('ErpStockCell', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
     unmount();
     render(<ErpStockCell erpStock={undefined} />);
-    expect(screen.getByText('—')).toBeInTheDocument();
-  });
-});
-
-describe('StockCell', () => {
-  it('shows available, and Full / Propio when known', () => {
-    render(<StockCell stock={ROUTER.stock} />);
-    expect(screen.getByText('34')).toBeInTheDocument();
-    expect(screen.getByText(/Full 20/)).toBeInTheDocument();
-    expect(screen.getByText(/Propio 14/)).toBeInTheDocument();
-  });
-
-  it('keeps a real zero as 0 (not "—") and marks it as out of stock', () => {
-    render(<StockCell stock={EPSON.stock} />);
-    expect(screen.getByText('0')).toBeInTheDocument();
-    expect(screen.getByText('Sin stock')).toBeInTheDocument();
-    expect(screen.queryByText(/Full/)).not.toBeInTheDocument();
-  });
-
-  it('renders "—" when nothing is known', () => {
-    render(<StockCell stock={EMPTY.stock} />);
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 });

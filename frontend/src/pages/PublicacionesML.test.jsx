@@ -124,15 +124,19 @@ describe('the list', () => {
     expect(within(row).queryByText('0')).not.toBeInTheDocument();
   });
 
-  it('has no "Último evento" column while the events flag is off (S56.2)', async () => {
+  it('has no "Último evento" column while the events flag is off, not even in the picker (S56.2)', async () => {
     respond({ ...ITEMS_RESPONSE_EVENTS_OFF, facets: FACETS });
     await page();
-    expect(screen.queryByRole('columnheader', { name: /Último evento/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /Última actividad/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    expect(screen.queryByRole('checkbox', { name: 'Último evento' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Última actividad' })).toBeInTheDocument();
   });
 
-  it('shows the last event column while events are on', async () => {
+  it('offers the last event column while events are on: hidden at first, the picker shows it', async () => {
     await page();
+    expect(screen.queryByRole('columnheader', { name: /Último evento/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Último evento' }));
     expect(screen.getByRole('columnheader', { name: /Último evento/ })).toBeInTheDocument();
     expect(screen.getByText('Precio modificado')).toBeInTheDocument();
   });
@@ -224,46 +228,105 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'desc' }));
   });
 
-  it('defaults to activity, newest first', async () => {
+  it('defaults to activity, newest first (its column is in the picker)', async () => {
     await page();
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Última actividad' }));
     expect(screen.getByRole('columnheader', { name: /Última actividad/ })).toHaveAttribute('aria-sort', 'descending');
   });
 });
 
-describe('ML stock and ERP stock apart', () => {
-  const cellUnder = (header, itemId) => {
-    const index = screen.getAllByRole('columnheader').findIndex((th) => header.test(th.textContent));
-    return screen.getByText(itemId).closest('tr').children[index];
-  };
+describe('stock: our own, Full and the ERP, three columns never summed', () => {
+  const cellUnder = (key, itemId) => screen.getByText(itemId).closest('tr').querySelector(`td[data-column="${key}"]`);
+  const sortButton = (name) => within(screen.getByRole('columnheader', { name })).getByRole('button');
 
-  it('shows the ERP stock in its own column, "—" when the publication has no product', async () => {
+  it('shows each stock under STOCK in its own column, never the available sum', async () => {
     respond({
       ...ITEMS_RESPONSE,
       facets: FACETS,
       items: ITEMS.map((item, i) => ({ ...item, erp_stock: { quantity: i === 0 ? 12 : null } })),
     });
     await page();
-    expect(screen.getByRole('columnheader', { name: /^Stock ML/ })).toBeInTheDocument();
-    expect(cellUnder(/^Stock ERP/, 'MLA1100000001')).toHaveTextContent('12');
-    expect(cellUnder(/^Stock ML/, 'MLA1100000001')).toHaveTextContent('34');
-    expect(cellUnder(/^Stock ERP/, ITEMS[1].item_id)).toHaveTextContent('—');
+    expect(screen.getByRole('columnheader', { name: 'Stock' })).toHaveAttribute('colspan', '3');
+    expect(cellUnder('stock_propio', 'MLA1100000001')).toHaveTextContent('14');
+    expect(cellUnder('stock_full', 'MLA1100000001')).toHaveTextContent('20');
+    expect(cellUnder('stock_erp', 'MLA1100000001')).toHaveTextContent('12');
+    expect(screen.getByText('MLA1100000001').closest('tr')).not.toHaveTextContent('34');
+    // The cartridge: a real zero of our own, no Full figure, no product.
+    expect(cellUnder('stock_propio', ITEMS[1].item_id)).toHaveTextContent('0');
+    expect(cellUnder('stock_full', ITEMS[1].item_id)).toHaveTextContent('—');
+    expect(cellUnder('stock_erp', ITEMS[1].item_id)).toHaveTextContent('—');
+    expect(screen.queryByRole('columnheader', { name: /Stock ML/ })).not.toBeInTheDocument();
   });
 
-  it('the ML column says it sorts by the Full stock, and the ERP column sorts by ERP stock, highest first', async () => {
+  it('each stock column sorts by its own figure, highest first', async () => {
     await page();
-    expect(screen.getByRole('columnheader', { name: /^Stock ML/ })).toHaveTextContent(/orden Full/);
-    await userEvent.click(screen.getByRole('button', { name: /^Stock ERP/ }));
+    await userEvent.click(sortButton(/^Propio/));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_propio', dir: 'desc' }));
+    await userEvent.click(sortButton(/^Full/));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_full', dir: 'desc' }));
+    await userEvent.click(sortButton(/^ERP/));
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'stock_erp', dir: 'desc' }));
   });
 
-  it('offers "Sin stock ERP" apart from the ML stock chips, with its count', async () => {
-    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, stock: { ...FACETS.stock, erp_sin_stock: 9 } } });
+  it('offers "Sin stock propio", "Full sin stock" and "Sin stock ERP", each with its count', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, stock: { propio_sin_stock: 3, full_sin_stock: 6, erp_sin_stock: 9 } } });
     await page();
     const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
-    expect(within(stock).getByRole('button', { name: /Sin stock ML.*14/ })).toBeInTheDocument();
+    expect(within(stock).queryByRole('button', { name: /Sin stock ML/ })).not.toBeInTheDocument();
     expect(within(stock).getByRole('button', { name: /Full sin stock.*6/ })).toBeInTheDocument();
-    await userEvent.click(within(stock).getByRole('button', { name: /Sin stock ERP.*9/ }));
-    await waitFor(() => expect(lastParams().stock).toBe('erp_sin_stock'));
+    expect(within(stock).getByRole('button', { name: /Sin stock ERP.*9/ })).toBeInTheDocument();
+    await userEvent.click(within(stock).getByRole('button', { name: /Sin stock propio.*3/ }));
+    await waitFor(() => expect(lastParams().stock).toBe('propio_sin_stock'));
+  });
+});
+
+describe('Métricas ML figures (the owner-approved layout)', () => {
+  const METRICS = {
+    units_7d: 14,
+    units_30d: 1234,
+    series_units_90d: Array.from({ length: 90 }, () => 1),
+    gross_30d: 98500.5,
+    last_sale_at: '2026-10-14T13:05:00Z',
+    ageing_days: 45,
+    total_gauss_30d: 15000,
+    markup_30d: 18.5,
+    markup_delta_pp: 1.2,
+    series_markup_90d: Array.from({ length: 90 }, () => 18.5),
+  };
+  const cellUnder = (key, itemId) => screen.getByText(itemId).closest('tr').querySelector(`td[data-column="${key}"]`);
+  const withMetrics = () => respond({ ...ITEMS_RESPONSE, facets: FACETS, items: [{ ...ITEMS[0], metrics: METRICS }, ...ITEMS.slice(1)] });
+
+  it('groups the columns under Métricas’ own headings', async () => {
+    canSeeMargin = true;
+    withMetrics();
+    await page();
+    for (const name of ['Ventas (unidades)', 'Markup', 'Resultado financiero', 'Rotación', 'Stock']) {
+      expect(screen.getByRole('columnheader', { name })).toHaveAttribute('scope', 'colgroup');
+    }
+  });
+
+  it('shows the row’s Métricas figures, and "—" for a publication Métricas has no row for', async () => {
+    canSeeMargin = true;
+    withMetrics();
+    await page();
+    expect(cellUnder('units_7d', 'MLA1100000001')).toHaveTextContent('14');
+    expect(cellUnder('units_30d', 'MLA1100000001')).toHaveTextContent('1.234');
+    expect(cellUnder('markup_30d', 'MLA1100000001')).toHaveTextContent('18,5%');
+    expect(cellUnder('gross_30d', 'MLA1100000001')).toHaveTextContent('$ 98.500,50');
+    expect(cellUnder('total_gauss_30d', 'MLA1100000001')).toHaveTextContent('$ 15.000,00');
+    expect(cellUnder('ageing', 'MLA1100000001')).toHaveTextContent('45 d');
+    for (const key of ['units_30d', 'markup_30d', 'gross_30d', 'last_sale', 'ageing']) {
+      expect(cellUnder(key, ITEMS[1].item_id)).toHaveTextContent('—');
+    }
+  });
+
+  it('without ml_metricas.ver there are no Métricas figures at all', async () => {
+    canSeeKpis = false;
+    withMetrics();
+    await page();
+    expect(screen.queryByRole('columnheader', { name: 'Ventas (unidades)' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Rotación' })).not.toBeInTheDocument();
   });
 });
 
@@ -281,13 +344,22 @@ describe('page size', () => {
 });
 
 describe('columns', () => {
-  it('the picker hides and shows a column', async () => {
+  it('Vínculo and Tienda start hidden: the store and the link sit in the Publicación cell', async () => {
+    await page();
+    expect(screen.queryByRole('columnheader', { name: 'Vínculo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Tienda' })).not.toBeInTheDocument();
+    const row = screen.getByText('MLA1100000001').closest('tr');
+    expect(within(row).getByLabelText('Tienda: TP-Link')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Vínculo: Automático')).toHaveTextContent('ARCHER-AX55');
+  });
+
+  it('the picker shows and hides a column', async () => {
     await page();
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Tienda' }));
-    expect(screen.queryByRole('columnheader', { name: 'Tienda' })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Tienda' }));
     expect(screen.getByRole('columnheader', { name: 'Tienda' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Tienda' }));
+    expect(screen.queryByRole('columnheader', { name: 'Tienda' })).not.toBeInTheDocument();
   });
 
   it('the publication column cannot be hidden', async () => {
@@ -495,12 +567,8 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     });
     return page(entry);
   };
-  // The worst-variation column is hidden by default (the 30-day columns replace it): the picker turns it on.
-  const showMarkupColumn = async () => {
-    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
-  };
-  const WORST_HEADER = { name: /peor variación/ };
+  // MARKUP's "Actual": the markup at today's price, the worst variation (what the sort and the filters use).
+  const WORST_HEADER = { name: /^Actual/ };
 
   it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
     await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');
@@ -513,32 +581,29 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
       expect(params).not.toHaveProperty('orden');
     }
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
-    expect(screen.queryByRole('checkbox', { name: 'Markup' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Markup actual' })).not.toBeInTheDocument();
   });
 
-  it('with ver_ganancia the column shows the range, and the sort is labelled "peor variación"', async () => {
+  it('with ver_ganancia MARKUP\'s "Actual" shows the range of today\'s markup, from the start', async () => {
     await withMargin();
-    expect(screen.queryByRole('columnheader', WORST_HEADER)).not.toBeInTheDocument();
-    await showMarkupColumn();
     expect(screen.getByText('-4,0% – 12,0%')).toBeInTheDocument();
-    const header = screen.getByRole('columnheader', WORST_HEADER);
-    expect(within(header).getByText('peor variación')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', WORST_HEADER)).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /peor variación/ })).not.toBeInTheDocument();
   });
 
   it('clicking the header sorts by orden=markup, worst first', async () => {
     await withMargin();
-    await showMarkupColumn();
-    await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
+    const sortButton = () => within(screen.getByRole('columnheader', WORST_HEADER)).getByRole('button');
+    await userEvent.click(sortButton());
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup', dir: 'asc' }));
-    await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
+    await userEvent.click(sortButton());
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup', dir: 'desc' }));
   });
 
-  it('the picker lists the markup column under its plain name', async () => {
+  it('the picker lists the markup column under a name that stands alone', async () => {
     await withMargin();
-    await showMarkupColumn();
-    expect(screen.getByRole('columnheader', WORST_HEADER)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup actual' }));
     expect(screen.queryByRole('columnheader', WORST_HEADER)).not.toBeInTheDocument();
   });
 
@@ -669,9 +734,6 @@ describe('variation sub-rows (publicaciones-ml-vista P11b.T3)', () => {
   it('with ver_ganancia they show cost and markup, the negative one highlighted', async () => {
     canSeeMargin = true;
     await withVariations();
-    // The worst-variation markup column is hidden by default: turn it on.
-    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
     await userEvent.click(toggle());
     await screen.findByText('Router Archer AX55 negro');
     expect(screen.getByText('41.000,50')).toBeInTheDocument();
