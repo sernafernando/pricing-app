@@ -35,6 +35,12 @@ import app.models.tb_supplier  # noqa: F401
 import app.models.precio_gremio_override  # noqa: F401 (only imported inside listar_productos_tienda otherwise)
 
 
+@pytest.fixture(autouse=True)
+def _ventas_ve_productos(grant_permiso, rol_ventas):
+    """GET /productos/{item_id} requires productos.ver (or a price-edit code)."""
+    grant_permiso(rol_ventas, "productos.ver")
+
+
 def _guard_incompatible_raw_sql(db):
     """Stub the two Postgres-only `= ANY(:ids)` raw-SQL lookups (Tienda Nube
     prices, ML catalog status) that `listar_productos`/`listar_productos_tienda`

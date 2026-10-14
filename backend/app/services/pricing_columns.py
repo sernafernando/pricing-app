@@ -10,7 +10,7 @@ duplicate copies previously living in
 values are unchanged from the inline copies they replace.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 # Web (non-PVP) pricelist ids -> ProductoPricing column ("campo_precio").
 # 4 = clasica -> precio_lista_ml; 17/14/13/23 = 3/6/9/12 cuotas.
@@ -67,6 +67,18 @@ def resolve_pvp_to_web(pricelist_id: int) -> int:
     Non-PVP ids (or unrecognized ids) are returned unchanged.
     """
     return PVP_TO_WEB_PRICELIST.get(pricelist_id, pricelist_id)
+
+
+def ml_cuota_prices(pricing: Any) -> list[tuple[Any, int, str]]:
+    """`(price, pricelist_id, cuotas)` of the ML list's instalments, 3 to 12.
+
+    `cuotas` is the number as text ("3"); `price` is read from the matching
+    `ProductoPricing` column, so the pricelist ids live only in this module.
+    """
+    return [
+        (getattr(pricing, PRICELIST_TO_CAMPO[pricelist_id]), pricelist_id, str(cuotas))
+        for pricelist_id, cuotas in CUOTAS_BY_PRICELIST.items()
+    ]
 
 
 def cuotas_for_pricelist(pricelist_id: int) -> Optional[int]:
