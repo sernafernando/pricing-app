@@ -781,7 +781,7 @@ describe('the Agrupado view (P12a)', () => {
       await user.click(screen.getByRole('button', { name: 'Agrupado' }));
       await screen.findByText('EPSON');
       const options = within(picker()).getAllByRole('button');
-      expect(options.map((button) => button.textContent)).toEqual(['Marca', 'Categoría', 'Subcategoría']);
+      expect(options.map((button) => button.textContent)).toEqual(['Marca', 'Categoría', 'Subcategoría', 'Tienda', 'PM']);
       expect(within(picker()).getByRole('button', { name: 'Marca' })).toHaveAttribute('aria-pressed', 'true');
     });
 
@@ -828,6 +828,38 @@ describe('the Agrupado view (P12a)', () => {
       expect(groupCalls()[0].dimension).toBe('subcategoria');
       expect(screen.getByRole('columnheader', { name: /^Subcategoría › Producto/ })).toBeInTheDocument();
       expect(screen.getByText('Subcategoría', { selector: 'span' })).toBeInTheDocument();
+    });
+
+    it('groups by tienda: the stores on top, tagged Tienda, and the header starts at the store', async () => {
+      publicacionesMlAPI.groups.mockResolvedValue({
+        data: groupsResponse('tienda', [
+          { kind: 'tienda', key: 'c:GAUSS', label: 'GAUSS', count: 5, leaf: false, params: { tiendas: '57997,61000' } },
+          { kind: 'tienda', key: '__none__', label: 'Sin tienda', count: 2, leaf: false, params: { tiendas: 'none' } },
+        ]),
+      });
+      renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado&agrupar=tienda'] });
+      expect(await screen.findByText('GAUSS')).toBeInTheDocument();
+      expect(groupCalls()[0].dimension).toBe('tienda');
+      expect(
+        screen.getByRole('columnheader', { name: /^Tienda › Marca › Categoría › Subcategoría › Producto › Publicación/ }),
+      ).toBeInTheDocument();
+      expect(screen.getAllByText('Tienda', { selector: 'span' })).toHaveLength(2);
+    });
+
+    it('groups by PM: the PMs on top, tagged PM, and the header starts at the PM', async () => {
+      publicacionesMlAPI.groups.mockResolvedValue({
+        data: groupsResponse('pm', [
+          { kind: 'pm', key: '7', label: 'Ana Pérez', count: 5, leaf: false, params: { pm_grupo: '7' } },
+          { kind: 'pm', key: '__none__', label: 'Sin PM', count: 2, leaf: false, params: { pm_grupo: '__none__' } },
+        ]),
+      });
+      renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado&agrupar=pm&familias=1'] });
+      expect(await screen.findByText('Ana Pérez')).toBeInTheDocument();
+      expect(groupCalls()[0]).toMatchObject({ dimension: 'pm', familias: true });
+      expect(
+        screen.getByRole('columnheader', { name: /^PM › Marca › Categoría › Subcategoría › Producto › Familia › Publicación/ }),
+      ).toBeInTheDocument();
+      expect(screen.getAllByText('PM', { selector: 'span' })).toHaveLength(2);
     });
 
     it('keeps the family toggle working under another dimension', async () => {

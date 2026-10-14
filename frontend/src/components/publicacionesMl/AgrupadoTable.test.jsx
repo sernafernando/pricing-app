@@ -239,6 +239,39 @@ describe('leaves', () => {
     expect(rowOf('Router A').style.getPropertyValue('--indent')).toBe('4');
   });
 
+  it("fetches a PM tree's leaf with the PM's pm_grupo, as the backend wrote it", async () => {
+    const user = userEvent.setup();
+    const pmTree = {
+      '': groupsResponse('pm', [makeNode({ kind: 'pm', key: '7', label: 'Ana Pérez', count: 3, params: { pm_grupo: '7' } })]),
+      7: groupsResponse('producto', [
+        makeNode({ kind: 'producto', key: '4101', label: 'Router Archer AX55', count: 3, leaf: true, params: { pm_grupo: '7', producto: '4101' } }),
+      ]),
+    };
+    publicacionesMlAPI.groups.mockImplementation(({ path = '' }) => Promise.resolve({ data: pmTree[path] }));
+    render(<Harness />);
+    await open(user, /Abrir Ana Pérez/);
+    await open(user, /Abrir Router Archer AX55/);
+    await screen.findByText('Router A');
+    expect(itemCalls().at(-1)).toEqual({ tiendas: '57997', pm_grupo: '7', producto: '4101', limit: 100, offset: 0 });
+  });
+
+  it("fetches a tienda clave's leaf with the clave's store ids as tiendas, over the user's", async () => {
+    const user = userEvent.setup();
+    const storeTree = {
+      '': groupsResponse('tienda', [makeNode({ kind: 'tienda', key: 'c:GAUSS', label: 'GAUSS', count: 3, params: { tiendas: '57997,61000' } })]),
+      'c:GAUSS': groupsResponse('producto', [
+        makeNode({ kind: 'producto', key: '4101', label: 'Router Archer AX55', count: 3, leaf: true, params: { tiendas: '57997,61000', producto: '4101' } }),
+      ]),
+    };
+    publicacionesMlAPI.groups.mockImplementation(({ path = '' }) => Promise.resolve({ data: storeTree[path] }));
+    render(<Harness />);
+    await open(user, /Abrir GAUSS/);
+    await open(user, /Abrir Router Archer AX55/);
+    await screen.findByText('Router A');
+    expect(groupCalls().at(-1).path).toBe('c:GAUSS');
+    expect(itemCalls().at(-1)).toEqual({ tiendas: '57997,61000', producto: '4101', limit: 100, offset: 0 });
+  });
+
   it('opens "Sin producto" with sin_producto', async () => {
     const user = userEvent.setup();
     render(<Harness />);
