@@ -30,6 +30,7 @@ from fastapi import HTTPException
 
 
 PERMISO_MARCAR_COLOR = "productos.marcar_color"
+PERMISO_MARCAR_COLOR_LOTE = "productos.marcar_color_lote"
 
 
 def _make_usuario(db, username: str, rol_id: int) -> Usuario:
@@ -55,12 +56,12 @@ def _make_producto(db, item_id: int) -> ProductoERP:
     return producto
 
 
-def _grant_marcar_color(db, rol_id: int) -> Permiso:
-    permiso = db.query(Permiso).filter(Permiso.codigo == PERMISO_MARCAR_COLOR).first()
+def _grant_marcar_color(db, rol_id: int, codigo: str = PERMISO_MARCAR_COLOR) -> Permiso:
+    permiso = db.query(Permiso).filter(Permiso.codigo == codigo).first()
     if permiso is None:
         permiso = Permiso(
-            codigo=PERMISO_MARCAR_COLOR,
-            nombre="Marcar color",
+            codigo=codigo,
+            nombre=codigo,
             categoria="productos",
         )
         db.add(permiso)
@@ -316,6 +317,7 @@ class TestSseEmissionOnColorWrite:
     def test_lote_ml_emits_sse_with_all_item_ids(self, client, db, rol_ventas) -> None:
         equipo_global = _global_equipo(db)
         _grant_marcar_color(db, rol_ventas.id)
+        _grant_marcar_color(db, rol_ventas.id, PERMISO_MARCAR_COLOR_LOTE)
         user = _make_usuario(db, "sse_u4", rol_ventas.id)
         _make_producto(db, 304)
         _make_producto(db, 305)
@@ -450,6 +452,7 @@ class TestBatchColorSecurity:
     def test_lote_ml_happy_path_global_with_permiso_dual_writes_legacy(self, client, db, rol_ventas) -> None:
         equipo_global = _global_equipo(db)
         _grant_marcar_color(db, rol_ventas.id)
+        _grant_marcar_color(db, rol_ventas.id, PERMISO_MARCAR_COLOR_LOTE)
         user = _make_usuario(db, "global_batch", rol_ventas.id)
         _make_producto(db, 207)
         db.commit()
@@ -488,3 +491,49 @@ class TestBatchColorSecurity:
 
         row = db.query(ProductoColor).filter(ProductoColor.equipo_id == equipo.id, ProductoColor.item_id == 208).first()
         assert row is not None and row.color_tienda == "purpura"
+
+
+class TestBatchColorGlobalLayerRequiresLotePermiso:
+    """The Productos/Tienda UI only shows the batch-paint bar to users with
+    `productos.marcar_color_lote`; the global layer of the batch endpoints
+    must enforce that code, not just the single-item `productos.marcar_color`.
+    Team layers keep their membership rule (covered above).
+    """
+
+    @pytest.mark.parametrize(
+        "url", ["/api/productos/actualizar-color-lote", "/api/productos/actualizar-color-tienda-lote"]
+    )
+    def test_global_lote_with_only_marcar_color_is_forbidden(self, client, db, rol_ventas, url) -> None:
+        _global_equipo(db)
+        _grant_marcar_color(db, rol_ventas.id)
+        user = _make_usuario(db, "solo_marcar_color", rol_ventas.id)
+        _make_producto(db, 401)
+        db.commit()
+
+        resp = client.post(url, json={"item_ids": [401], "color": "rojo"}, headers=auth_headers_for(user))
+
+        assert resp.status_code == 403
+        assert db.query(ProductoColor).filter(ProductoColor.item_id == 401).count() == 0
+        assert db.query(ProductoPricing).filter(ProductoPricing.item_id == 401).first() is None
+
+    def test_global_tienda_lote_with_lote_permiso_succeeds(self, client, db, rol_ventas) -> None:
+        equipo_global = _global_equipo(db)
+        _grant_marcar_color(db, rol_ventas.id)
+        _grant_marcar_color(db, rol_ventas.id, PERMISO_MARCAR_COLOR_LOTE)
+        user = _make_usuario(db, "con_marcar_lote", rol_ventas.id)
+        _make_producto(db, 402)
+        db.commit()
+
+        resp = client.post(
+            "/api/productos/actualizar-color-tienda-lote",
+            json={"item_ids": [402], "color": "verde"},
+            headers=auth_headers_for(user),
+        )
+
+        assert resp.status_code == 200
+        row = (
+            db.query(ProductoColor)
+            .filter(ProductoColor.equipo_id == equipo_global.id, ProductoColor.item_id == 402)
+            .first()
+        )
+        assert row is not None and row.color_tienda == "verde"

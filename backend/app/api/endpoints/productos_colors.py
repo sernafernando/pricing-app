@@ -70,6 +70,21 @@ def _resolver_equipo_id(db: Session, equipo_id: Optional[int]) -> int:
     return equipo_id if equipo_id is not None else get_global_equipo_id(db)
 
 
+def _puede_escribir_layer_lote(db: Session, user: Usuario, equipo_id: int) -> None:
+    """Batch variant of `puede_escribir_layer`.
+
+    Team layers keep the membership rule. The global layer additionally
+    requires `productos.marcar_color_lote`, the code the Productos/Tienda UI
+    uses to show the batch-paint bar (the global equipo has no explicit
+    members, so this only narrows the permission path).
+    """
+    from app.services.permisos_service import verificar_permiso
+
+    puede_escribir_layer(db, user, equipo_id)
+    if equipo_id == get_global_equipo_id(db) and not verificar_permiso(db, user, "productos.marcar_color_lote"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para marcar colores en lote")
+
+
 @router.patch("/productos/{item_id}/color")
 def actualizar_color_producto(
     item_id: int,
@@ -161,7 +176,7 @@ def actualizar_color_productos_lote(
     _validar_color(request.color)
 
     equipo_id = _resolver_equipo_id(db, request.equipo_id)
-    puede_escribir_layer(db, current_user, equipo_id)
+    _puede_escribir_layer_lote(db, current_user, equipo_id)
 
     es_global = equipo_id == get_global_equipo_id(db)
 
@@ -198,7 +213,7 @@ def actualizar_color_productos_tienda_lote(
     _validar_color(request.color)
 
     equipo_id = _resolver_equipo_id(db, request.equipo_id)
-    puede_escribir_layer(db, current_user, equipo_id)
+    _puede_escribir_layer_lote(db, current_user, equipo_id)
 
     es_global = equipo_id == get_global_equipo_id(db)
 
