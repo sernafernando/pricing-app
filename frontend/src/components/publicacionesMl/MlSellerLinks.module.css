@@ -1,0 +1,20 @@
+/* Compact icon links, sized like the compact copy button beside the MLA. */
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: var(--radius-sm, 4px);
+  color: var(--cf-text-tertiary);
+}
+
+.link:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}

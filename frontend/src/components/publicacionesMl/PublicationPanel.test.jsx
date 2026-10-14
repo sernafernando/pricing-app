@@ -89,6 +89,19 @@ describe('loading the detail', () => {
     expect(screen.getByText('MLA1100000001')).toBeInTheDocument();
   });
 
+  it('links the header to the ML seller panel and its promotions, even while loading', () => {
+    publicacionesMlAPI.detail.mockReturnValue(new Promise(() => {}));
+    renderPanel();
+    expect(screen.getByRole('link', { name: 'Ver en el panel de ML' })).toHaveAttribute(
+      'href',
+      'https://vendedores.mercadolibre.com.ar/publicaciones?page=1&sort=DEFAULT&search=1100000001',
+    );
+    expect(screen.getByRole('link', { name: 'Ver promociones en ML' })).toHaveAttribute(
+      'href',
+      'https://vendedores.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=1100000001',
+    );
+  });
+
   it('a publication without a title still has a heading', async () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row: ITEMS[2] }) });
     renderPanel({ itemId: 'MLA1100000003' });
