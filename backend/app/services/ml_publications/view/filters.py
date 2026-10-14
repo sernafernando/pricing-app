@@ -46,7 +46,7 @@ STATUS_VALUES = ("active", "paused", "closed", "under_review", "inactive")
 STATUS_GONE = "gone"  # not an ML status: the item vanished from ML (`gone_at` set)
 LISTING_VALUES = ("clasica", "premium", "catalogo", "full")
 LINK_VALUES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
-STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock")
+STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock", "propio_sin_stock")
 NO_STORE = "none"
 NO_STATUS = "sin_estado"
 
@@ -497,10 +497,12 @@ def erp_stock() -> ColumnElement:
 def stock_clauses() -> dict[str, ColumnElement]:
     # `full_sin_stock` is a real zero: a user product without a stock row has an unknown Full stock, not none.
     # `erp_sin_stock` likewise: a row without a linked product (unknown ERP stock) never matches.
+    # `propio_sin_stock` is our own warehouse stock at ML (never the Full one, never the sum): a real zero too.
     return {
         "sin_stock": T.i.available_quantity == 0,
         "full_sin_stock": T.st.full_quantity == 0,
         "erp_sin_stock": erp_stock() <= 0,
+        "propio_sin_stock": T.st.own_quantity == 0,
     }
 
 

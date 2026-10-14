@@ -49,6 +49,7 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "precio": (price_amount, False),
     "titulo": (lambda: func.lower(T.i.title), False),
     "stock_full": (lambda: T.st.full_quantity, True),
+    "stock_propio": (lambda: T.st.own_quantity, True),
     "stock_erp": (erp_stock, True),
     "actualizado": (lambda: T.i.ml_last_updated, True),
 }

@@ -169,7 +169,7 @@ class TestCsvParams:
         [
             ("tipo", "listing", "clasica,premium,catalogo,full"),
             ("vinculo", "link", "auto,manual,sin_producto,conflicto,no_evaluado"),
-            ("stock", "stock", "sin_stock,full_sin_stock,erp_sin_stock"),
+            ("stock", "stock", "sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
         ],
     )
     def test_closed_vocabularies_accept_every_documented_value_and_reject_the_rest(

@@ -574,7 +574,7 @@ def filter_query(
     sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
     tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
     vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
-    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock"),
+    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
 ) -> PublicationFilter:
@@ -673,7 +673,7 @@ def get_items(
     f: PublicationFilter = Depends(filter_query),
     orden: Optional[str] = Query(
         None,
-        description="actividad (default), precio, titulo, stock_full, stock_erp, actualizado, markup (ver_ganancia)",
+        description="actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup (ver_ganancia)",
     ),
     direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia)"),

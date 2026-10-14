@@ -419,6 +419,14 @@ class TestFilters:
         assert sorted(ids(run(db, stock="erp_sin_stock"))) == ["MLA6", "MLA7"]
         assert sorted(ids(run(db, stock="sin_stock,erp_sin_stock"))) == ["MLA5", "MLA6", "MLA7"]
 
+    def test_own_without_stock_is_a_real_zero_of_our_own_stock_never_the_full_one(self, conn, db) -> None:
+        seed.add_item(conn, "MLA6", available_quantity=4, user_product_id="MLAU6")
+        seed.add_stock(conn, "MLAU6", full=4, own=0)  # Full has stock, ours is out: it matches
+        seed.add_item(conn, "MLA7", available_quantity=3, user_product_id="MLAU7")  # no stock row: unknown, not zero
+        # MLA5 has Full at 0 but 3 of our own: it does not match
+        assert ids(run(db, stock="propio_sin_stock")) == ["MLA6"]
+        assert listing.facets(db, parse_filter())["stock"]["propio_sin_stock"] == 1
+
     def test_full_without_stock_does_not_match_an_item_with_no_stock_row(self, conn, db) -> None:
         seed.add_item(conn, "MLA6", available_quantity=3, user_product_id="MLAU6")  # no stock row: unknown, not zero
         assert "MLA6" not in ids(run(db, stock="full_sin_stock"))
@@ -588,6 +596,14 @@ class TestSorting:
         assert ids(run(db, orden="stock_full", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
         assert ids(run(db, orden="stock_full", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
 
+    def test_own_stock_puts_unknown_last_and_a_real_zero_before_it(self, conn, db) -> None:
+        for item_id, up, own in (("MLA1", "MLAU1", 5), ("MLA2", "MLAU2", 0), ("MLA3", "MLAU3", 9)):
+            seed.add_item(conn, item_id, user_product_id=up)
+            seed.add_stock(conn, up, full=0, own=own)
+        seed.add_item(conn, "MLA4", user_product_id="MLAU4")  # no stock row: unknown
+        assert ids(run(db, orden="stock_propio")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+        assert ids(run(db, orden="stock_propio", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
+
     def test_updated_orders_by_the_ml_last_update_newest_first_by_default(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", ml_last_updated=seed.hours_ago(9))
         seed.add_item(conn, "MLA2", ml_last_updated=seed.hours_ago(2))
@@ -692,7 +708,7 @@ class TestFacets:
             "marcas": {"TP-LINK": 1, "HIKVISION": 1},
             "listing": {"clasica": 1, "premium": 1, "catalogo": 1, "full": 1},
             "link": {"auto": 1, "manual": 1, "conflicto": 1, "no_evaluado": 2},
-            "stock": {"sin_stock": 1, "full_sin_stock": 1, "erp_sin_stock": 0},
+            "stock": {"sin_stock": 1, "full_sin_stock": 1, "erp_sin_stock": 0, "propio_sin_stock": 0},
         }
 
     def test_the_erp_without_stock_count_is_what_selecting_it_lists(self, conn, db) -> None:
@@ -740,7 +756,7 @@ class TestFacets:
             "marcas": {},
             "listing": {"clasica": 0, "premium": 0, "catalogo": 0, "full": 0},
             "link": {},
-            "stock": {"sin_stock": 0, "full_sin_stock": 0, "erp_sin_stock": 0},
+            "stock": {"sin_stock": 0, "full_sin_stock": 0, "erp_sin_stock": 0, "propio_sin_stock": 0},
         }
 
     def test_one_statement_per_axis_whatever_the_data(self, db) -> None:
