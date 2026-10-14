@@ -27,6 +27,7 @@ from app.api.endpoints.productos_shared import (
     resolver_layer_activo,
 )
 from app.models.equipo import Equipo, EquipoMiembro, ProductoColor
+from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.core.security import get_password_hash
@@ -51,6 +52,19 @@ def _make_usuario(db, username: str, rol_id: int) -> Usuario:
     db.add(user)
     db.flush()
     return user
+
+
+def _grant_calcular_web_masivo(db, rol_id: int) -> None:
+    """calcular-web-masivo is gated by productos.calcular_web_masivo; grant it so
+    these tests still exercise the team-layer rules behind that gate."""
+    codigo = "productos.calcular_web_masivo"
+    permiso = db.query(Permiso).filter(Permiso.codigo == codigo).first()
+    if permiso is None:
+        permiso = Permiso(codigo=codigo, nombre=codigo, categoria="productos")
+        db.add(permiso)
+        db.flush()
+    db.add(RolPermisoBase(rol_id=rol_id, permiso_id=permiso.id))
+    db.flush()
 
 
 def _make_producto(db, item_id: int, **kwargs) -> ProductoERP:
@@ -448,6 +462,7 @@ class TestMembership403OtherEndpoints:
         _global_equipo(db)
         equipo = _make_equipo(db, "Equipo Pricing Aislado")
         user = _make_usuario(db, "pri1", rol_ventas.id)
+        _grant_calcular_web_masivo(db, rol_ventas.id)
         db.commit()
 
         resp = client.post(
@@ -575,6 +590,7 @@ class TestCoerceEquipoId:
     def test_masivo_endpoint_rejects_garbage_equipo_id_with_422(self, client, db, rol_ventas) -> None:
         _global_equipo(db)
         user = _make_usuario(db, "coerce2", rol_ventas.id)
+        _grant_calcular_web_masivo(db, rol_ventas.id)
         db.commit()
 
         resp = client.post(

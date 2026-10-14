@@ -6,7 +6,7 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
 from datetime import UTC, datetime
 from app.models.auditoria_precio import AuditoriaPrecio
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permiso
 from app.services.envio_real_service import resolver_costos_envio_batch
 import logging
 
@@ -268,7 +268,7 @@ def actualizar_web_transferencia(
     }
 
 
-@router.post("/productos/calcular-web-masivo")
+@router.post("/productos/calcular-web-masivo", dependencies=[Depends(require_permiso("productos.calcular_web_masivo"))])
 def calcular_web_masivo(
     request: CalculoWebMasivoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
@@ -597,7 +597,7 @@ def calcular_web_masivo(
     }
 
 
-@router.post("/productos/calcular-pvp-masivo")
+@router.post("/productos/calcular-pvp-masivo", dependencies=[Depends(require_permiso("productos.calcular_pvp_masivo"))])
 def calcular_pvp_masivo(
     request: CalculoPVPMasivoRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
@@ -857,7 +857,9 @@ def calcular_pvp_masivo(
     }
 
 
-@router.post("/productos/recalcular-cuotas-masivo")
+@router.post(
+    "/productos/recalcular-cuotas-masivo", dependencies=[Depends(require_permiso("productos.editar_precio_cuotas"))]
+)
 def recalcular_cuotas_masivo(
     request: RecalcularCuotasMasivoRequest,
     db: Session = Depends(get_db),
@@ -1162,7 +1164,9 @@ def recalcular_cuotas_masivo(
     }
 
 
-@router.post("/productos/limpiar-rebate")
+# The bulk "limpiar" actions live in the Admin panel, whose route is gated by
+# admin.ver_panel in the frontend; enforce the same code here.
+@router.post("/productos/limpiar-rebate", dependencies=[Depends(require_permiso("admin.ver_panel"))])
 def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Desactiva rebate en todos los productos"""
     from app.services.auditoria_service import registrar_auditoria
@@ -1187,7 +1191,7 @@ def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depend
     return {"mensaje": "Rebate desactivado en todos los productos", "productos_actualizados": count}
 
 
-@router.post("/productos/limpiar-web-transferencia")
+@router.post("/productos/limpiar-web-transferencia", dependencies=[Depends(require_permiso("admin.ver_panel"))])
 def limpiar_web_transferencia(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Desactiva web transferencia en todos los productos"""
     from app.services.auditoria_service import registrar_auditoria
