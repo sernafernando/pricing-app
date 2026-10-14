@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Loader2 } from 'lucide-react';
+import { RefreshCw, Loader2, Eraser } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import styles from './Admin.module.css';
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 import PanelComisiones from '../components/PanelComisiones';
 import PanelConstantesPricing from '../components/PanelConstantesPricing';
 import PanelEmpresas from '../components/PanelEmpresas';
@@ -32,6 +34,7 @@ export default function Admin() {
   const { tienePermiso } = usePermisos();
   // The bulk cleanup endpoints require admin.limpieza_masiva, not just panel access.
   const puedeLimpiezaMasiva = tienePermiso('admin.limpieza_masiva');
+  const { toast, showToast, hideToast } = useToast(4000);
   const [tabActiva, setTabActiva] = useState('general');
   const [sincronizando, setSincronizando] = useState(false);
   const [sincronizandoIva, setSincronizandoIva] = useState(false);
@@ -159,7 +162,7 @@ export default function Admin() {
   const confirmarLimpieza = async () => {
     // Verificar palabra
     if (palabraVerificacion.toUpperCase() !== palabraObjetivo.toUpperCase()) {
-      alert('La palabra de verificación no coincide');
+      showToast('La palabra de verificación no coincide', 'error');
       return;
     }
 
@@ -170,7 +173,7 @@ export default function Admin() {
 
       const response = await api.post(endpoint, {});
 
-      alert(`✓ ${response.data.mensaje}\nProductos actualizados: ${response.data.productos_actualizados}`);
+      showToast(`${response.data.mensaje}. Productos actualizados: ${response.data.productos_actualizados}`);
 
       // Cerrar modal
       setMostrarModalLimpieza(false);
@@ -179,7 +182,7 @@ export default function Admin() {
       setPalabraObjetivo('');
     } catch (error) {
       console.error('Error:', error);
-      alert('Error al realizar la limpieza');
+      showToast('Error al realizar la limpieza', 'error');
     }
   };
 
@@ -354,14 +357,14 @@ export default function Admin() {
 	  	      onClick={() => abrirModalLimpieza('rebate')}
 	  	      className="btn-tesla outline-subtle-danger sm"
 	  	    >
-	  	      🧹 Limpiar Rebate
+	  	      <Eraser size={16} aria-hidden="true" /> Limpiar Rebate
 	  	    </button>
 
 	  	    <button
 	  	      onClick={() => abrirModalLimpieza('web-transferencia')}
 	  	      className="btn-tesla outline-subtle-warning sm"
 	  	    >
-	  	      🧹 Limpiar Web Transferencia
+	  	      <Eraser size={16} aria-hidden="true" /> Limpiar Web Transferencia
 	  	    </button>
 	  	  </div>
 	  	</div>
@@ -450,6 +453,8 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }
