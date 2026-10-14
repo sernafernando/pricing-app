@@ -65,7 +65,11 @@ SUBRESOURCE_KEYS = {
 }
 
 # Resources whose captured non-2xx answer is a state (spec "negative answers"), by registry name.
-NEGATIVE_STATES = {"performance": {400: "not_applicable"}, "moderation": {404: "no_moderation"}}
+NEGATIVE_STATES = {
+    "performance": {400: "not_applicable"},
+    "moderation": {404: "no_moderation"},
+    "promotions": {400: "not_eligible"},
+}
 
 
 @pytest.mark.parametrize("name", sorted(SUBRESOURCE_FIXTURES))

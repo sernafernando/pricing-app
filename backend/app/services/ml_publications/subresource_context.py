@@ -135,7 +135,7 @@ def competition_entries(raw: Any) -> Optional[dict]:
 
 
 def moderation_entries(raw: Any) -> Optional[dict]:
-    if not isinstance(raw, Mapping):
+    if not isinstance(raw, (Mapping, list)):
         return None
     return {"has_moderation": map_moderation(raw)["has_moderation"]}
 

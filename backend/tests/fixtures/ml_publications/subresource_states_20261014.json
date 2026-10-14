@@ -1,0 +1,130 @@
+{
+  "source": "prod ml_item_* rows recorded as errors (http status + error body as stored), 2026-10-14",
+  "captured_at": "2026-10-14",
+  "note": "bodies copied unchanged from the stored JSONB; a 204 has no body (null)",
+  "calls": [
+    {
+      "name": "performance_MLA1100694747_400",
+      "resource": "performance",
+      "item_id": "MLA1100694747",
+      "path": "/item/MLA1100694747/performance",
+      "status": 400,
+      "body": {
+        "error": "bad_request",
+        "status": 400,
+        "message": "Entity not calculated: Only status active is supported"
+      }
+    },
+    {
+      "name": "performance_MLA1512362506_400",
+      "resource": "performance",
+      "item_id": "MLA1512362506",
+      "path": "/item/MLA1512362506/performance",
+      "status": 400,
+      "body": {
+        "error": "bad_request",
+        "status": 400,
+        "message": "Entity not calculated: Item does not have marketplace channel"
+      }
+    },
+    {
+      "name": "moderation_MLA1508345743_200",
+      "resource": "moderation",
+      "item_id": "MLA1508345743",
+      "path": "/moderations/last_moderation/MLA1508345743-ITM",
+      "status": 200,
+      "body": [
+        {
+          "id": "9730806370",
+          "name": "EXACT_DUPLICATE_CATALOG",
+          "evidence": [
+            {
+              "section_name": "item",
+              "text_matched": "3685949154"
+            }
+          ],
+          "wordings": [
+            {
+              "type": "REASON",
+              "value": "Era igual a otra de tus publicaciones."
+            }
+          ],
+          "date_created": "2026-07-29T02:11:01.000-0400"
+        }
+      ]
+    },
+    {
+      "name": "moderation_MLA2125544731_200",
+      "resource": "moderation",
+      "item_id": "MLA2125544731",
+      "path": "/moderations/last_moderation/MLA2125544731-ITM",
+      "status": 200,
+      "body": [
+        {
+          "id": "10645855006",
+          "name": "EXACT_DUPLICATE_CATALOG",
+          "evidence": [
+            {
+              "section_name": "item",
+              "text_matched": "1468093795"
+            }
+          ],
+          "wordings": [
+            {
+              "type": "REASON",
+              "value": "Era igual a otra de tus publicaciones."
+            }
+          ],
+          "date_created": "2026-09-28T02:15:02.000-0400"
+        }
+      ]
+    },
+    {
+      "name": "moderation_MLA2461088796_204",
+      "resource": "moderation",
+      "item_id": "MLA2461088796",
+      "path": "/moderations/last_moderation/MLA2461088796-ITM",
+      "status": 204,
+      "body": null
+    },
+    {
+      "name": "promotions_MLA1508345743_400",
+      "resource": "promotions",
+      "item_id": "MLA1508345743",
+      "path": "/seller-promotions/items/MLA1508345743?app_version=v2",
+      "status": 400,
+      "body": {
+        "cause": [],
+        "error": "bad_request",
+        "status": 400,
+        "message": "Item status is not allowed (under_review)"
+      }
+    },
+    {
+      "name": "promotions_MLA1687965415_400",
+      "resource": "promotions",
+      "item_id": "MLA1687965415",
+      "path": "/seller-promotions/items/MLA1687965415?app_version=v2",
+      "status": 400,
+      "body": {
+        "cause": [],
+        "error": "bad_request",
+        "status": 400,
+        "message": "The item condition must be new"
+      }
+    },
+    {
+      "name": "promotions_MLA1528343333_400",
+      "resource": "promotions",
+      "item_id": "MLA1528343333",
+      "path": "/seller-promotions/items/MLA1528343333?app_version=v2",
+      "status": 400,
+      "body": {
+        "cause": [],
+        "error": "bad_request",
+        "status": 400,
+        "message": "Item status is not allowed (closed)"
+      }
+    }
+  ]
+}

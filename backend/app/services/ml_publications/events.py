@@ -381,9 +381,12 @@ def _promotion_transition(
 
 
 def _promotions_events(row: ChangeRow) -> list[Event]:
-    """Offered / activated / finished / price changed, per promotion entry (design D16)."""
+    """Offered / activated / finished / price changed, per promotion entry (design D16).
+
+    A side with no entries (the item was not eligible: `parsers/seller_promotions.py`) raises nothing: its
+    promotions did not end or start, the item's eligibility changed."""
     old, new = _entries(row)
-    if old is None and new is None:
+    if old is None or new is None:
         return []
     old, new = old or {}, new or {}
     events: list[Event] = []
