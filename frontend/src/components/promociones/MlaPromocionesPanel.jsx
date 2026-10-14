@@ -131,8 +131,9 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   const [pull, setPull] = useState(null); // { forMla, status: 'running' | 'done', forMirror?, data? }
   const pulledForRef = useRef(null);
   const aliveRef = useRef(true);
-  const currentMlaRef = useRef(mla);
-  currentMlaRef.current = mla;
+  // Id of the latest pull started; a pull that is not the latest when it settles is ignored (the panel
+  // moved to another MLA, even one it already pulled before).
+  const pullSeqRef = useRef(0);
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -155,6 +156,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
     if (!shouldPull || !mirror || loading || error || mirror.motivo_sin_actualizacion) return;
     if (pulledForRef.current === mla) return;
     pulledForRef.current = mla;
+    pullSeqRef.current += 1;
+    const pullId = pullSeqRef.current;
     setPull({ forMla: mla, status: 'running' });
     // The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing route all come back
     // as HTTP 200 `{ok: false}`, never as a rejection. So `.catch` alone would almost never fire and
@@ -173,7 +176,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
       })
       .then((merged) => {
         // Unmounted, or the panel was pointed at another MLA while this pull was in flight.
-        if (!aliveRef.current || currentMlaRef.current !== mla) return;
+        if (!aliveRef.current || pullSeqRef.current !== pullId) return;
         // The filter bar derives its promo types from these entries.
         promosCacheRef.current.set(mla, { status: 'ok', data: merged });
         setPull({ forMla: mla, status: 'done', forMirror: mirror, data: merged });
