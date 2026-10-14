@@ -133,11 +133,13 @@ export default function PublicacionesML() {
   const columnDefaults = useMemo(() => defaultColumnVisibility({ canSeeSales, canSeeMargin }), [canSeeSales, canSeeMargin]);
   const columnVisibility = useMemo(() => ({ ...columnDefaults, ...columnChoices }), [columnDefaults, columnChoices]);
   const setColumnVisibility = useCallback(
-    (updater) => {
-      const next = typeof updater === 'function' ? updater(columnVisibility) : updater;
-      setColumnChoices(columnChoicesOver(next, columnDefaults));
-    },
-    [columnVisibility, columnDefaults],
+    (updater) =>
+      setColumnChoices((choices) => {
+        const current = { ...columnDefaults, ...choices };
+        const next = typeof updater === 'function' ? updater(current) : updater;
+        return columnChoicesOver(next, columnDefaults);
+      }),
+    [columnDefaults],
   );
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
