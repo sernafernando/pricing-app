@@ -8,7 +8,7 @@ En la pestaña **Precios** del panel de **Publicaciones ML**, cada precio ahora 
 
 Qué tenés que saber:
 
-- **Botón %:** al editar un precio (con el lápiz), aparece el botón **%** al lado de guardar y cancelar. Con él pasás de escribir el precio a escribir el markup, y al revés.
+- **Dos botones en cada fila, siempre visibles:** el **lápiz** para escribir el precio y el **%** para fijar el markup y calcular el precio. Mientras editás, el **%** te deja pasar de un modo al otro.
 - **Al escribir un markup, se calcula el precio** y aparece **"Precio resultante para *lista* con markup *X*%: $ *precio*"**, con el botón **Guardar precio**. El markup que muestra es el que realmente queda con ese precio.
 - **No se guarda nada hasta que confirmes** con **Guardar precio**.
 - **El precio que sale es redondo**, sin centavos.
@@ -22,7 +22,7 @@ Qué tenés que saber:
 
 1. Abrí **Reportes → Publicaciones ML** y hacé clic en una publicación vinculada a un producto.
 2. Entrá a la pestaña **Precios**.
-3. Hacé clic en el lápiz del precio que querés cambiar y después en **%**.
+3. Hacé clic en el **%** del precio que querés cambiar.
 4. Escribí el markup que buscás y apretá **Enter**.
 5. Revisá el precio resultante y, si te sirve, hacé clic en **Guardar precio**.
 
