@@ -78,3 +78,37 @@ describe('PublicationCell MLA modifier shortcuts', () => {
     expect(screen.getByText('MLA1173065146')).toHaveAttribute('title', expect.stringMatching(/Alt\+clic.*Mayús\+clic/));
   });
 });
+
+// The Tienda and Vínculo columns left the table: both now live in this cell, compact.
+describe('PublicationCell store and link', () => {
+  const cell = (overrides) => render(<PublicationCell item={makeItem({ item_id: 'MLA1', title: 'Router', ...overrides })} />);
+
+  it('names the official store, or its id when it has no label, and nothing without one', () => {
+    const { unmount } = cell({ store_label: 'TP-Link', official_store_id: 471846 });
+    expect(screen.getByLabelText('Tienda: TP-Link')).toHaveTextContent('TP-Link');
+    unmount();
+    const second = cell({ store_label: null, official_store_id: 99 });
+    expect(screen.getByLabelText('Tienda: Tienda 99')).toBeInTheDocument();
+    second.unmount();
+    cell({ store_label: null, official_store_id: null });
+    expect(screen.queryByLabelText(/^Tienda:/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['auto', 'Automático', 'success'],
+    ['manual', 'Manual', 'info'],
+    ['sin_producto', 'Sin producto', 'warning'],
+    ['conflicto', 'Conflicto', 'danger'],
+    ['no_evaluado', 'Sin evaluar', 'neutral'],
+  ])('shows the link state %s as a toned icon named "Vínculo: %s"', (state, label, tone) => {
+    cell({ link: { state, producto_item_id: null, codigo: null, descripcion: null, marca: null } });
+    expect(screen.getByLabelText(`Vínculo: ${label}`)).toHaveAttribute('data-tone', tone);
+  });
+
+  it('a linked publication shows its product code, the description in the tooltip', () => {
+    cell({ link: { state: 'manual', producto_item_id: 4102, codigo: 'EP-544-BK', descripcion: 'Tinta Epson 544', marca: 'EPSON' } });
+    const link = screen.getByLabelText('Vínculo: Manual');
+    expect(link).toHaveTextContent('EP-544-BK');
+    expect(link).toHaveAttribute('title', 'Vínculo: Manual · EP-544-BK Tinta Epson 544');
+  });
+});
