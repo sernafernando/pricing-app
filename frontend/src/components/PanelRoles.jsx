@@ -45,7 +45,8 @@ export default function PanelRoles() {
   const [permisosPorRol, setPermisosPorRol] = useState({});
   const [pendientes, setPendientes] = useState({});
   const [loading, setLoading] = useState(true);
-  // Role create/edit/clone in flight, and matrix save in flight: independent so one never locks the other.
+  // Role create/edit/clone in flight, and matrix save in flight. They are mutually exclusive: while one
+  // runs the other's controls are disabled, so a role reload never lands in the middle of a matrix save.
   const [guardando, setGuardando] = useState(false);
   const [guardandoPermisos, setGuardandoPermisos] = useState(false);
   const [mensaje, setMensaje] = useState(null);
@@ -64,6 +65,8 @@ export default function PanelRoles() {
   const [clonarData, setClonarData] = useState(CLONAR_VACIO);
 
   const mensajeTimerRef = useRef(null);
+  // Generation of the latest permissions load: an older load resolving late is ignored.
+  const cargaPermisosRef = useRef(0);
 
   useEffect(() => {
     cargarDatos();
@@ -84,10 +87,13 @@ export default function PanelRoles() {
   /**
    * Loads each editable role on its own, so one failing GET never blanks the others.
    * A failed role keeps the base it already had (if any). Returns the roles that failed.
+   * Only the latest load started is applied: a superseded one changes nothing and returns [].
    */
   const cargarPermisosRoles = async (listaRoles) => {
+    const generacion = ++cargaPermisosRef.current;
     const editables = listaRoles.filter((rol) => !esSoloLectura(rol));
     const respuestas = await Promise.allSettled(editables.map((rol) => api.get(`/roles/${rol.id}/permisos`)));
+    if (generacion !== cargaPermisosRef.current) return [];
     const cargados = {};
     const fallidos = [];
     editables.forEach((rol, i) => {
@@ -132,6 +138,9 @@ export default function PanelRoles() {
     }
   };
 
+  const gestionandoRoles = guardando || eliminando;
+  const matrizBloqueada = guardandoPermisos || gestionandoRoles;
+
   const tienePermiso = (rol, codigo) => {
     if (esSoloLectura(rol)) return true;
     const pendiente = pendientes[rol.id]?.[codigo];
@@ -143,7 +152,7 @@ export default function PanelRoles() {
   const sinCargar = (rol) => !esSoloLectura(rol) && !permisosPorRol[rol.id];
 
   const togglePermiso = (rol, codigo) => {
-    if (esSoloLectura(rol) || sinCargar(rol) || guardandoPermisos) return;
+    if (esSoloLectura(rol) || sinCargar(rol) || matrizBloqueada) return;
     const nuevo = !tienePermiso(rol, codigo);
     const guardado = (permisosPorRol[rol.id] || []).includes(codigo);
     setPendientes((prev) => {
@@ -171,7 +180,7 @@ export default function PanelRoles() {
 
   const guardarCambios = async () => {
     const sucios = roles.filter((rol) => !esSoloLectura(rol) && !sinCargar(rol) && pendientes[rol.id]);
-    if (sucios.length === 0) return;
+    if (sucios.length === 0 || matrizBloqueada) return;
 
     setGuardandoPermisos(true);
     const enviados = sucios.map((rol) => permisosResultantes(rol));
@@ -352,6 +361,7 @@ export default function PanelRoles() {
                 setEditandoRol(null);
                 setFormRol({ ...FORM_ROL_VACIO, orden: roles.length });
               }}
+              disabled={guardandoPermisos}
               className="btn-tesla outline-subtle-primary sm"
             >
               + Nuevo Rol
@@ -365,6 +375,7 @@ export default function PanelRoles() {
               onChange={setFormRol}
               esEdicion={!!editandoRol}
               guardando={guardando}
+              bloqueado={guardandoPermisos}
               onGuardar={editandoRol ? actualizarRol : crearRol}
               onCancelar={() => {
                 setMostrarFormRol(false);
@@ -402,6 +413,7 @@ export default function PanelRoles() {
                     {!esSoloLectura(rol) && (
                       <button
                         onClick={() => setRolAClonar(rol)}
+                        disabled={guardandoPermisos}
                         aria-label={`Clonar ${rol.nombre}`}
                         className="btn-tesla ghost sm"
                       >
@@ -412,6 +424,7 @@ export default function PanelRoles() {
                       <>
                         <button
                           onClick={() => iniciarEdicion(rol)}
+                          disabled={guardandoPermisos}
                           title="Editar"
                           style={{
                             padding: '4px 8px',
@@ -427,6 +440,7 @@ export default function PanelRoles() {
                         </button>
                         <button
                           onClick={() => pedirEliminarRol(rol)}
+                          disabled={guardandoPermisos}
                           title="Eliminar"
                           style={{
                             padding: '4px 8px',
@@ -465,11 +479,12 @@ export default function PanelRoles() {
             esPendiente={esPendiente}
             sinCargar={sinCargar}
             onToggle={togglePermiso}
-            deshabilitado={guardandoPermisos}
+            deshabilitado={matrizBloqueada}
           />
           <BarraCambios
             cantidad={cantidadPendientes}
             guardando={guardandoPermisos}
+            bloqueado={gestionandoRoles}
             onDescartar={() => setPendientes({})}
             onGuardar={guardarCambios}
           />
@@ -482,6 +497,7 @@ export default function PanelRoles() {
           datos={clonarData}
           onChange={setClonarData}
           guardando={guardando}
+          bloqueado={guardandoPermisos}
           onClonar={clonarRol}
           onCancelar={() => {
             setRolAClonar(null);
@@ -494,6 +510,7 @@ export default function PanelRoles() {
         <ModalConfirmarEliminarRol
           rol={rolAEliminar}
           eliminando={eliminando}
+          bloqueado={guardandoPermisos}
           onConfirmar={eliminarRol}
           onCancelar={() => setRolAEliminar(null)}
         />
