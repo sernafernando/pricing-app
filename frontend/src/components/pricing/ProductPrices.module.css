@@ -32,6 +32,29 @@
   color: var(--cf-text-primary);
 }
 
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs) var(--spacing-lg);
+  margin: 0;
+  font-size: var(--font-sm);
+}
+
+.fact {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.factLabel {
+  color: var(--cf-text-secondary);
+}
+
+.factValue {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+}
+
 .code {
   font-weight: var(--font-semibold);
 }

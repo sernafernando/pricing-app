@@ -66,6 +66,7 @@ vi.mock('../../services/api', () => ({
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
+    tipoCambioActual: vi.fn(() => new Promise(() => {})),
     calcularMarkup: vi.fn(),
     setRapido: vi.fn(),
     setCuota: vi.fn(),

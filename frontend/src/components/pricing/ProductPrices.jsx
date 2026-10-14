@@ -107,6 +107,69 @@ function writePrice(row, itemId, precio, product) {
   return preciosAPI.setCuota({ item_id: itemId, tipo_cuota: row.cuota, precio, lista_tipo: row.listaTipo });
 }
 
+const formatRate = (value) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(Number(value));
+
+/**
+ * The current USD rate (`venta`, the one pricing converts costs with), read
+ * only when a USD cost is going to be shown: undefined while it loads, null
+ * when there is none.
+ */
+function useUsdRate(enabled) {
+  const [rate, setRate] = useState(undefined);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let active = true;
+    setRate(undefined);
+    preciosAPI
+      .tipoCambioActual()
+      .then((response) => {
+        const venta = Number(response?.data?.venta);
+        if (active) setRate(Number.isFinite(venta) && venta > 0 ? venta : null);
+      })
+      .catch(() => active && setRate(null));
+    return () => {
+      active = false;
+    };
+  }, [enabled]);
+  return rate;
+}
+
+/**
+ * What to keep in mind while setting a price: the product's IVA rate
+ * (anyone who sees the prices) and its cost in ARS (only `showCost`, the
+ * caller's ml_metricas.ver_ganancia). A USD cost is converted with the current
+ * rate and keeps its original amount beside it.
+ */
+function ProductFacts({ product, showCost }) {
+  const isUsd = product.moneda_costo === 'USD' && !isBlank(product.costo);
+  const rate = useUsdRate(showCost && isUsd);
+
+  let cost = <Empty />;
+  if (isUsd) {
+    const original = `USD ${formatAmount(product.costo)}`;
+    if (rate === undefined) cost = original;
+    else if (rate === null) cost = `${original} (sin tipo de cambio)`;
+    else cost = `$ ${formatAmount(product.costo * rate)} (${original} × ${formatAmount(rate)})`;
+  } else if (!isBlank(product.costo_ars ?? product.costo)) {
+    cost = `$ ${formatAmount(product.costo_ars ?? product.costo)}`;
+  }
+
+  return (
+    <dl className={styles.facts} role="group" aria-label="Referencias del producto">
+      {showCost && (
+        <div className={styles.fact}>
+          <dt className={styles.factLabel}>Costo</dt>
+          <dd className={styles.factValue}>{cost}</dd>
+        </div>
+      )}
+      <div className={styles.fact}>
+        <dt className={styles.factLabel}>IVA</dt>
+        <dd className={styles.factValue}>{isBlank(product.iva) ? <Empty /> : `${formatRate(product.iva)}%`}</dd>
+      </div>
+    </dl>
+  );
+}
+
 function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, onChange, onSave, onCancel }) {
   const price = product[row.precio];
   const markup = product[row.markup];
@@ -194,8 +257,9 @@ function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, o
  * @param {number} props.productItemId
  * @param {ReturnType<typeof import('./productPricePermissions').pricePermissions>} [props.permissions]
  * @param {() => void} [props.onWritten] Called after every successful write.
+ * @param {boolean} [props.showCost] Show the product cost (ml_metricas.ver_ganancia).
  */
-export default function ProductPrices({ productItemId, permissions, onWritten }) {
+export default function ProductPrices({ productItemId, permissions, onWritten, showCost = false }) {
   const [state, setState] = useState({ status: 'loading', product: null, error: null });
   const [editing, setEditing] = useState(null);
   const [pending, setPending] = useState(null);
@@ -309,6 +373,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten })
             <span className={styles.code}>{product.codigo}</span>
             <span>{product.descripcion}</span>
           </div>
+          <ProductFacts product={product} showCost={showCost} />
           {LISTS.map((list) => (
             <table key={list.title} className={styles.table}>
               <caption className={styles.caption}>{list.title}</caption>
