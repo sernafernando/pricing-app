@@ -379,6 +379,8 @@ export const pricingAPI = {
 // One product's stored prices and markups (ProductoResponse).
 export const preciosAPI = {
   obtenerProducto: (itemId) => api.get(`/productos/${itemId}`),
+  // Latest USD rate -> { moneda, compra, venta, fecha } or { error }; pricing converts costs with `venta`.
+  tipoCambioActual: () => api.get('/tipo-cambio/actual'),
   // Writes, the same calls Productos makes inline (useProductosInlineEditing);
   // every write recomputes the stored markups.
   // { item_id, precio, pricelist_id } -> { markup, ... }

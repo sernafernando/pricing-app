@@ -4,13 +4,13 @@
  * the view is read-only (editing: ProductPrices.editing.test.jsx).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import ProductPrices from './ProductPrices';
 import { preciosAPI } from '../../services/api';
 import { PRODUCTO } from './ProductPrices.fixtures';
 
 vi.mock('../../services/api', () => ({
-  preciosAPI: { obtenerProducto: vi.fn() },
+  preciosAPI: { obtenerProducto: vi.fn(), tipoCambioActual: vi.fn() },
 }));
 
 const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
@@ -108,5 +108,76 @@ describe('ProductPrices', () => {
     rerender(<ProductPrices productItemId={4102} />);
     expect(screen.queryByText('ARCHER-AX55')).not.toBeInTheDocument();
     expect(preciosAPI.obtenerProducto).toHaveBeenLastCalledWith(4102);
+  });
+});
+
+describe('cost and IVA next to the prices', () => {
+  const facts = () => screen.findByRole('group', { name: 'Referencias del producto' });
+  const USD_PRODUCT = { ...PRODUCTO, moneda_costo: 'USD', costo: 50, costo_ars: null };
+
+  it('shows the IVA rate to anyone who sees the prices, and no cost without permission', async () => {
+    render(<ProductPrices productItemId={4101} />);
+    const group = await facts();
+    expect(group).toHaveTextContent('IVA');
+    expect(group).toHaveTextContent('21%');
+    expect(group).not.toHaveTextContent('Costo');
+    expect(group).not.toHaveTextContent('64.000');
+  });
+
+  it('writes a fractional IVA rate in es-AR', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, iva: 10.5 } });
+    render(<ProductPrices productItemId={4101} />);
+    expect(await facts()).toHaveTextContent('10,5%');
+  });
+
+  it('shows the cost in ARS to who may see it', async () => {
+    render(<ProductPrices productItemId={4101} showCost />);
+    const group = await facts();
+    expect(group).toHaveTextContent('Costo');
+    expect(group).toHaveTextContent('$ 64.000,00');
+    expect(preciosAPI.tipoCambioActual).not.toHaveBeenCalled();
+  });
+
+  it('converts a USD cost to ARS with the current exchange rate (venta), showing the original', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
+    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1250, venta: 1280, fecha: '2026-10-14' } });
+    render(<ProductPrices productItemId={4101} showCost />);
+    const group = await facts();
+    await waitFor(() => expect(group).toHaveTextContent('$ 64.000,00'));
+    expect(group).toHaveTextContent('USD 50,00');
+    expect(group).toHaveTextContent('1.280,00');
+  });
+
+  it('without an exchange rate shows the USD cost and says it is not converted', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
+    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { error: 'No hay tipo de cambio disponible' } });
+    render(<ProductPrices productItemId={4101} showCost />);
+    const group = await facts();
+    await waitFor(() => expect(group).toHaveTextContent('sin tipo de cambio'));
+    expect(group).toHaveTextContent('USD 50,00');
+  });
+
+  it('a failed exchange-rate read does not break the prices', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
+    preciosAPI.tipoCambioActual.mockRejectedValue(new Error('Network Error'));
+    render(<ProductPrices productItemId={4101} showCost />);
+    const group = await facts();
+    await waitFor(() => expect(group).toHaveTextContent('sin tipo de cambio'));
+    expect(await rowOf('Clásica')).toHaveTextContent('98.500,50');
+  });
+
+  it('never asks for the exchange rate when the cost is not shown', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: USD_PRODUCT });
+    render(<ProductPrices productItemId={4101} />);
+    expect(await facts()).not.toHaveTextContent('USD');
+    expect(preciosAPI.tipoCambioActual).not.toHaveBeenCalled();
+  });
+
+  it('a missing cost or IVA is "—", never 0', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, costo: null, costo_ars: null, iva: null } });
+    render(<ProductPrices productItemId={4101} showCost />);
+    const group = await facts();
+    expect(group).toHaveTextContent('—');
+    expect(group).not.toHaveTextContent('$ 0');
   });
 });

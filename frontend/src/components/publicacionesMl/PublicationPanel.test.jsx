@@ -22,7 +22,7 @@ vi.mock('../../services/api', () => ({
     postPromocionItem: vi.fn(),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
-  preciosAPI: { obtenerProducto: vi.fn(), calcularMarkup: vi.fn(), setRapido: vi.fn(), setCuota: vi.fn() },
+  preciosAPI: { obtenerProducto: vi.fn(), tipoCambioActual: vi.fn(), calcularMarkup: vi.fn(), calcularPorMarkup: vi.fn(), setRapido: vi.fn(), setCuota: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -451,6 +451,19 @@ describe('the Precios tab', () => {
     await waitFor(() => expect(onListReload).toHaveBeenCalledTimes(1));
     expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101 }));
     expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the product cost only with ml_metricas.ver_ganancia, the IVA rate always', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { item_id: 4101, codigo: 'ARCHER-AX55', moneda_costo: 'ARS', costo: 64000, costo_ars: 64000, iva: 21 } });
+    const { unmount } = renderPanel({ tab: 'precios' });
+    const hidden = await screen.findByRole('group', { name: 'Referencias del producto' });
+    expect(hidden).toHaveTextContent('21%');
+    expect(hidden).not.toHaveTextContent('64.000');
+    unmount();
+
+    canSeeMargin = true;
+    renderPanel({ tab: 'precios' });
+    expect(await screen.findByRole('group', { name: 'Referencias del producto' })).toHaveTextContent('$ 64.000,00');
   });
 
   it('who only sees products gets no edit control', async () => {
