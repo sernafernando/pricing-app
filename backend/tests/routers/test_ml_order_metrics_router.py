@@ -111,6 +111,22 @@ class TestHealthReportsOrdersWithNoMetricsRow:
 
         assert body["stale_formula_count"] == 11
 
+    def test_the_sale_lines_are_ready_only_when_nothing_is_pending(
+        self, db, client, admin_auth_headers, rol_admin, monkeypatch
+    ) -> None:
+        _grant(db, rol_admin, "ml_ops.ver")
+        url = "/api/ml-ops/order-metrics/health"
+
+        assert client.get(url, headers=admin_auth_headers).json()["sale_lines_ready"] is False
+
+        monkeypatch.setattr(order_metrics_health, "stale_formula_count", lambda db: 0)
+        monkeypatch.setattr(order_metrics_health, "missing_metrics_count", lambda db: 0)
+        monkeypatch.setattr(order_metrics_health, "poisoned_count", lambda db: 1)
+        assert client.get(url, headers=admin_auth_headers).json()["sale_lines_ready"] is False
+
+        monkeypatch.setattr(order_metrics_health, "poisoned_count", lambda db: 0)
+        assert client.get(url, headers=admin_auth_headers).json()["sale_lines_ready"] is True
+
     def test_missing_metrics_count_is_surfaced(self, db, client, admin_auth_headers, rol_admin) -> None:
         _grant(db, rol_admin, "ml_ops.ver")
 

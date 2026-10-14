@@ -94,6 +94,11 @@ class OrderMetricsHealthResponse(BaseModel):
     # Orders stored under an older formula version: the backfill still pending
     # after a version bump (version 5 = the persisted sale lines). 0 = done.
     stale_formula_count: int = 0
+    # The persisted sale lines (`ml_sale_lines`) cover every order, so the board can
+    # read them (`METRICAS_SALE_LINES_ENABLED`): nothing stored under an older
+    # version, no order without metrics, no parked order. Orders without stored
+    # metrics have no lines, and would drop out of the board's units.
+    sale_lines_ready: bool = False
     # TRUE total of parked orders (`health.poisoned_count`, unlimited) --
     # NEVER `len(poisoned_orders)` (PR6 review fix J1: `poisoned_orders` is
     # capped at its own `limit` and silently undercounts a large backlog).
@@ -156,12 +161,15 @@ def get_order_metrics_health(
             lines_divergent_count=divergence_row.detail.get("lines_divergent_count"),
         )
 
+    stale_formula_count = order_metrics_health.stale_formula_count(db)
+    missing_metrics_count = order_metrics_health.missing_metrics_count(db)
     return OrderMetricsHealthResponse(
         queue_depth=order_metrics_health.queue_depth(db),
         oldest_dirty_age_s=order_metrics_health.oldest_dirty_age_seconds(db),
         claimed_count=order_metrics_health.claimed_count(db),
-        missing_metrics_count=order_metrics_health.missing_metrics_count(db),
-        stale_formula_count=order_metrics_health.stale_formula_count(db),
+        missing_metrics_count=missing_metrics_count,
+        stale_formula_count=stale_formula_count,
+        sale_lines_ready=stale_formula_count == 0 and missing_metrics_count == 0 and poisoned_total == 0,
         poisoned_count=poisoned_total,
         poisoned_orders=[PoisonedOrderSummary(order_id=row.order_id, last_error=row.last_error) for row in poisoned],
         worker_heartbeat_at=heartbeat_at.isoformat() if heartbeat_at is not None else None,
