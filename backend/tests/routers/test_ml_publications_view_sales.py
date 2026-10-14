@@ -45,7 +45,7 @@ class TestSales30d:
         grant(db, rol_admin, VER, METRICAS)
         got = rows(client, admin_auth_headers)
         assert got["MLA1"]["sales_30d"] == {"units": 5, "gross": 50.0}
-        assert "markup" not in str(got["MLA1"]["sales_30d"])
+        assert "markup" not in got["MLA1"]["sales_30d"]
 
     def test_the_markup_comes_with_ver_ganancia(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS, GANANCIA)

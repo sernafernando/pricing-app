@@ -62,6 +62,7 @@ from app.services.ml_publications.view.filters import (
     parse_markup_filter,
 )
 from app.services.ml_publications.view.markup_service import AdsPlan, MarkupQuery
+from app.services.ml_publications.view.sales_summary import SalesSummary
 from app.services.ml_publications.view.timing import Timer
 from app.services.permisos_service import PermisosService
 
@@ -587,7 +588,7 @@ def _ads_plan(provider: AdsCostProvider, status_: AdsStatus) -> Optional[AdsPlan
     return AdsPlan(provider, formula, status_.date_from, status_.date_to)
 
 
-def _attach_sales(items: list[dict[str, Any]], summaries: dict[str, Any], with_markup: bool) -> None:
+def _attach_sales(items: list[dict[str, Any]], summaries: dict[str, SalesSummary], with_markup: bool) -> None:
     """`sales_30d` on every row of the page: zero without sales, the markup only for who may see it."""
     for item in items:
         found = summaries.get(item["item_id"])
