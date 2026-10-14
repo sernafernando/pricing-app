@@ -42,6 +42,7 @@ def upgrade() -> None:
         sa.Column("tg", sa.Numeric(), nullable=False),
         sa.Column("mtg", sa.Numeric(), nullable=False),
         sa.Column("mcosto", sa.Numeric(), nullable=False),
+        sa.ForeignKeyConstraint(["item_row_id"], ["ml_order_items_ops.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("item_row_id"),
     )
     op.create_index("ix_ml_sale_lines_group_date", "ml_sale_lines", ["group_date"])

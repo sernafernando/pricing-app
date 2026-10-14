@@ -1,6 +1,7 @@
 """The single writer of `ml_sale_lines` (see `app.models.ml_sale_line`).
 
-Called by `store_order_metrics`, inside the transaction that stores an order's
+Called by `store_order_metrics` -- so by the drain, and by every other caller
+of it (`recompute_order_metrics`, `persistir_total_gauss`) -- inside the transaction that stores an order's
 metrics: for the groups of the orders just stored it deletes their lines and
 inserts what `sales.sale_lines` returns for those groups -- the very function
 the board used to run live, with `queue=False` (the recompute queue is applied
@@ -9,6 +10,12 @@ handful of groups is reached through the `pack_id` / `order_id` indexes, never
 by hashing every order: the drain stores ~25 orders a second).
 
 NEVER commits. PostgreSQL only, like the queue it hangs from.
+
+The OLD group of an order that moved packs is not rewritten here: the capture
+trigger (`order_metrics_enqueue_orders_ops`, PR20) already enqueues every
+surviving member of the pack the order left, and each of them rewrites its group
+when the drain stores it. A deleted order's lines go with it (the foreign key
+below cascades).
 """
 
 from __future__ import annotations
@@ -16,7 +23,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import String, bindparam, column, delete, func, insert, or_, select, values
+from sqlalchemy import String, bindparam, delete, func, insert, or_, select, text
 from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.core.config import settings
@@ -37,14 +44,6 @@ COLUMNS = (
     "mtg",
     "mcosto",
 )
-
-
-def derive_sale_lines(group_keys: Sequence[str]):
-    """The lines of `group_keys` as `sale_lines` derives them now (a subquery
-    with `COLUMNS`). The one place the persisted shape is defined: the writer
-    inserts it, the divergence check compares against it."""
-    keys = values(column("group_key", String), name="wanted").data([(key,) for key in group_keys])
-    return sale_lines(sqlite=False, groups=select(keys.c.group_key), queue=False, keyed=True, narrow=True)
 
 
 @lru_cache(maxsize=4)
@@ -70,6 +69,20 @@ def store_sale_lines(db, order_ids: Iterable[int], group_keys: Sequence[str]) ->
     if not order_ids and not group_keys:
         return
     table = MlSaleLine.__table__
+    # Two transactions storing members of the same pack rewrite the same group:
+    # without a lock the second DELETE could miss the first one's uncommitted
+    # INSERT and then collide with it on the primary key. One transaction-scoped
+    # advisory lock per group (and per group an order is leaving), always taken in
+    # sorted order, so they queue instead of deadlocking.
+    db.execute(
+        text(
+            "SELECT pg_advisory_xact_lock(hashtextextended('ml_sale_lines:' || k, 0)) FROM ("
+            "SELECT k FROM unnest(CAST(:keys AS text[])) AS k "
+            "UNION SELECT group_key FROM ml_sale_lines WHERE order_id = ANY(CAST(:orders AS bigint[])) "
+            "ORDER BY 1) AS locked"
+        ),
+        {"keys": group_keys, "orders": order_ids},
+    )
     db.execute(delete(table).where(or_(table.c.group_key.in_(group_keys), table.c.order_id.in_(order_ids))))
     if group_keys:
         db.execute(_insert_statement(settings.ML_USER_ID), {"keys": group_keys})

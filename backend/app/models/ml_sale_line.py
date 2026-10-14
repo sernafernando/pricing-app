@@ -4,8 +4,8 @@ One row per sold item line of every accredited group: EXACTLY the output of
 `app.services.ml_daily_metrics.sales.sale_lines` (the single definition of the
 day, product, cancellation and money rules), computed with `queue=False` and
 written by `app.services.order_metrics.sale_lines_store` in the SAME
-transaction that stores an order's metrics (`order_metrics.drain`). Nothing
-else writes it. Whatever invalidates an order's metrics therefore invalidates
+transaction that stores an order's metrics (`store_order_metrics`, so the
+`order_metrics.drain` and any other caller of it). Nothing else writes it. Whatever invalidates an order's metrics therefore invalidates
 its lines, and a `CURRENT_FORMULA_VERSION` bump re-derives all of them through
 `order_metrics.reconcile`.
 
@@ -31,7 +31,7 @@ Indexes, each with its plan:
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, Date, DateTime, Index, Integer, Numeric, String
+from sqlalchemy import BigInteger, Column, Date, DateTime, ForeignKey, Index, Integer, Numeric, String
 
 from app.core.database import Base
 
@@ -45,8 +45,11 @@ class MlSaleLine(Base):
         Index("ix_ml_sale_lines_product_group_date", "product", "group_date"),
     )
 
-    # `ml_order_items_ops.id`: one line per sold item row.
-    item_row_id = Column(Integer, primary_key=True, autoincrement=False)
+    # `ml_order_items_ops.id`: one line per sold item row. A deleted item (or
+    # order) takes its line with it.
+    item_row_id = Column(
+        Integer, ForeignKey("ml_order_items_ops.id", ondelete="CASCADE"), primary_key=True, autoincrement=False
+    )
     order_id = Column(BigInteger, nullable=False)
     group_key = Column(String(32), nullable=False)
     product = Column(Integer, nullable=False)

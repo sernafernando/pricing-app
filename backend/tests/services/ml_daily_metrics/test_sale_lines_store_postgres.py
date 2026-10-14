@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.models.ml_sale_line import MlSaleLine
@@ -119,6 +120,98 @@ class TestSaleLinesStore:
 
         keys = {row[2] for row in _stored(board_pg) if row[1] == 2}
         assert keys == {"p:901"}
+
+    def test_the_pack_an_order_left_is_rewritten_when_its_siblings_are_stored(self, board_pg):
+        """The capture trigger enqueues the surviving siblings of the pack an order
+        left; storing one of them rewrites the group without the departed member."""
+        _seed_world(board_pg)
+        board_pg.execute(text("UPDATE ml_orders_ops SET pack_id = 901 WHERE order_id = 2"))
+        store_order_metrics(board_pg, {2: _metrics(2)})
+
+        store_order_metrics(board_pg, {1: _metrics(1)})
+
+        assert _stored(board_pg) == _live(board_pg)
+
+    def test_deleting_an_order_deletes_its_lines(self, board_pg):
+        _seed_world(board_pg)
+
+        board_pg.execute(text("DELETE FROM ml_order_items_ops WHERE order_id = 3"))
+
+        assert 3 not in {row[1] for row in _stored(board_pg)}
+
+    def test_two_transactions_storing_one_group_do_not_collide(self, board_pg_engine):
+        """The second writer waits for the first one's group lock and then replaces
+        its lines, instead of colliding with them on the primary key."""
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+
+        with board_pg_engine.connect() as setup:
+            setup.execute(
+                text(
+                    "INSERT INTO ml_orders_ops (order_id, seller_id, status, ml_last_updated, date_created) "
+                    "VALUES (810, 999, 'paid', now(), now())"
+                )
+            )
+            setup.execute(
+                text(
+                    "INSERT INTO ml_order_items_ops (id, order_id, item_id, quantity, unit_price) VALUES (8100, 810, 'MLA810', 1, 10)"
+                )
+            )
+            setup.execute(
+                text(
+                    "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) VALUES (8101, 810, 'approved', now())"
+                )
+            )
+            setup.execute(
+                text(
+                    "INSERT INTO ml_order_metrics (order_id, gauss_status, formula_version, computed_at, neto) VALUES (810, 'ok', 5, now(), 0)"
+                )
+            )
+            setup.execute(
+                text(
+                    "INSERT INTO ml_group_metrics (group_key, gauss_status, member_order_ids, group_date, formula_version, computed_at) "
+                    "VALUES ('o:810', 'ok', ARRAY[810]::bigint[], now(), 5, now())"
+                )
+            )
+            setup.commit()
+        barrier = Barrier(2)
+
+        def write(_):
+            with sessionmaker(bind=board_pg_engine)() as session:
+                # Both hold the group before either writes: the lock is what orders them.
+                session.execute(text("SELECT 1"))
+                barrier.wait()
+                store_sale_lines(session, [810], ["o:810"])
+                session.commit()
+
+        try:
+            with ThreadPoolExecutor(2) as pool:
+                list(pool.map(write, range(2)))
+            with board_pg_engine.connect() as conn:
+                assert conn.execute(text("SELECT count(*) FROM ml_sale_lines WHERE order_id = 810")).scalar() == 1
+        finally:
+            with board_pg_engine.connect() as conn:
+                for table in (
+                    "ml_sale_lines",
+                    "ml_group_metrics",
+                    "ml_order_metrics",
+                    "ml_payments_ops",
+                    "ml_order_items_ops",
+                    "ml_orders_ops",
+                ):
+                    conn.execute(
+                        text(
+                            f"DELETE FROM {table} WHERE "
+                            + (
+                                "group_key = 'o:810'"
+                                if table == "ml_group_metrics"
+                                else "order_id = 810"
+                                if table != "ml_payments_ops"
+                                else "payment_id = 8101"
+                            )
+                        )
+                    )
+                conn.commit()
 
     def test_the_writer_ignores_the_recompute_queue(self, board_pg):
         """Money is written as if every order were settled; the board applies the
