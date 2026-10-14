@@ -66,7 +66,7 @@ class TestSummary:
         assert got.units == 5
         assert got.gross == Decimal("50.00")  # unit price 10
         # (30 + 30) / (100 + 300): 15 %, not the 20 % average of 30 % and 10 %
-        assert got.markup == Decimal("15.0")
+        assert got.markup == 15.0
 
     def test_a_publication_without_sales_is_absent(self, board_pg) -> None:
         priced(board_pg, 1, [("MLA1", None, 1)], tg="1", costo="1")
