@@ -1,17 +1,19 @@
 """The nodes of the Agrupado tree of the Publicaciones screen (`GET /ml-publications/view/groups`), counts only.
 
-The tree is grouped by a DIMENSION of the Métricas ML board (owner: "Publicaciones must work like Métricas ML"; here
-`marca`, `categoria` and `subcategoria`): the group levels of `HIERARCHIES[dimension]`, then
-`producto > [familia] > MLA`. The store stays a FILTER of the request. The default, `marca`,
-is the original tree (owner decision 1): `marca > categoria > subcategoria > producto > [familia] > MLA`. A node is
-identified by the keys of its ancestors (the request's `path`) plus its own, and the page lists the children of the
-node the path names, lazily, one level per request.
+The tree is grouped by a DIMENSION, exactly the ones the Métricas ML board offers (owner: "Publicaciones must work like
+Métricas ML": `marca`, `categoria`, `subcategoria`, `tienda`, `pm`): the group levels of `HIERARCHIES[dimension]`, then
+`producto > [familia] > MLA`. This replaces the old rule "the store is never a level": under `tienda` the store is
+the top level (a clave groups its store ids, like Métricas), and under every dimension it is still a filter too.
+The default, `marca`, is the original tree (owner decision 1): `marca > categoria > subcategoria > producto >
+[familia] > MLA`. A node is identified by the keys of its ancestors (the request's `path`) plus its own, and the page
+lists the children of the node the path names, lazily, one level per request.
 
 Reused from the Métricas ML board (`app/services/ml_daily_metrics/groups.py`), not rewritten: `HIERARCHIES` fixes
 the group levels above the products, `dimension_of` builds each level's key and label (trimmed and upper-cased text,
-the subcategory id and its name, the subcategory in its category), `title_of` the display name and its "Sin ..."
-fallbacks, and `NO_GROUP` (`__none__`) is the key of "no brand / category / subcategory / product". Two levels are
-new: the product (the linked product of the publication) and the family.
+the subcategory id and its name, the subcategory in its category, the store or its clave, the PM of the product's
+pair), `title_of` the display name and its "Sin ..." fallbacks, and `NO_GROUP` (`__none__`) is the key of "no brand /
+category / subcategory / product". Two levels are new: the product (the linked product of the publication) and the
+family.
 
 Rules worth knowing before reading the code:
 
@@ -21,6 +23,10 @@ Rules worth knowing before reading the code:
 * A node's `count` is the `/items` total with the node's own filters (`params`): the node is built from the SAME
   base select (`filters.build_base_select`) the list is, so the two cannot disagree. `params` is what the screen
   appends to the user's filters to fetch the publications of a node; the leaves are never served by this module.
+* Two levels need care for their `params` to select exactly the node: a `tienda` key `c:<clave>` covers every store
+  id of the clave, so its `tiendas` are those ids (narrowed to the stores the user filtered by, one lookup per
+  request); a `pm` node uses `pm_grupo`, the tree's own PM rule (a pair listed for several PMs is the lowest id's),
+  never `pms`, which matches the pairs of ANY listed PM.
 * Families are optional (`familias`, off by default). With them on, a product that has a family of two or more
   publications stops being a leaf; opening it lists those families as nodes, and the publications that share their
   family with no other publication of the product stay as `item` nodes (an MLA is not a family of one).
@@ -43,9 +49,12 @@ from typing import Any, Optional
 from sqlalchemy import String, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session
 
+from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.services.ml_daily_metrics.groups import (
+    CLAVE_KEY_PREFIX,
     HIERARCHIES,
     NO_GROUP,
+    STORE_KEY_PREFIX,
     SUBCATEGORIA_IN_CATEGORIA,
     SUBCATEGORIA_KEY_SEPARATOR,
     Dimension,
@@ -53,6 +62,7 @@ from app.services.ml_daily_metrics.groups import (
     title_of,
 )
 from app.services.ml_publications.view.filters import (
+    NO_STORE,
     FilterError,
     PublicationFilter,
     T,
@@ -69,7 +79,7 @@ KIND_ITEM = "item"
 DEFAULT_DIMENSION = "marca"
 # The dimensions of the Métricas board this tree is grouped by; the group levels of each are the board's own
 # hierarchy (`HIERARCHIES`) and the tree adds the products (and the families) below them.
-DIMENSIONS = ("marca", "categoria", "subcategoria")
+DIMENSIONS = ("marca", "categoria", "subcategoria", "tienda", "pm")
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 100
 NO_PRODUCT_LABEL = "Sin producto"
@@ -79,7 +89,10 @@ ITEM_IDS_MAX = 5_000  # most publications priced by an id list; above it the who
 # /items parameter of each level (`params` of a node); the leaves are fetched with them
 PARAM_OF = {"marca": "marcas", "categoria": "categorias", "subcategoria": "subcategorias"}
 # the keys of these levels are ids, `NO_GROUP` for none
-ID_LEVELS = ("subcategoria", KIND_PRODUCT)
+ID_LEVELS = ("subcategoria", "pm", KIND_PRODUCT)
+KIND_STORE = "tienda"
+PARAM_STORES = "tiendas"
+PARAM_PM_GROUP = "pm_grupo"
 PARAM_NO_PRODUCT = "sin_producto"
 PARAM_PRODUCT = "producto"
 PARAM_FAMILY = "familia"
@@ -182,7 +195,7 @@ def level_of(tree: Tree, path: list[str], familias: bool) -> str:
 
 
 # the levels whose keys hold free text (a brand, a category), and so travel percent-escaped
-TEXT_LEVELS = ("marca", "categoria", SUBCATEGORIA_IN_CATEGORIA)
+TEXT_LEVELS = ("marca", "categoria", SUBCATEGORIA_IN_CATEGORIA, KIND_STORE)
 
 
 def _wire_key(level: str, key: str) -> str:
@@ -206,6 +219,11 @@ def _valid_key(level: str, key: str) -> bool:
     if level == SUBCATEGORIA_IN_CATEGORIA:
         subcategoria, separator, categoria = key.partition(SUBCATEGORIA_KEY_SEPARATOR)
         return bool(separator) and _is_id(subcategoria) and bool(categoria)
+    if level == KIND_STORE:
+        if key.startswith(STORE_KEY_PREFIX):
+            store = key[len(STORE_KEY_PREFIX) :]
+            return store.isascii() and store.isdigit()
+        return key == NO_GROUP or (key.startswith(CLAVE_KEY_PREFIX) and len(key) > len(CLAVE_KEY_PREFIX))
     return True
 
 
@@ -269,11 +287,49 @@ def _param(level: str, key: str) -> dict[str, str]:
         # `<id>|<category>`: the id holds no separator, so the first one splits it (the category may hold more)
         subcategoria, _separator, categoria = key.partition(SUBCATEGORIA_KEY_SEPARATOR)
         return {PARAM_OF["subcategoria"]: subcategoria, PARAM_OF["categoria"]: categoria}
+    if level == KIND_STORE:
+        # the store key itself, made concrete store ids by `_with_store_ids` once the whole page is known
+        return {PARAM_STORES: key}
+    if level == "pm":
+        return {PARAM_PM_GROUP: key}
     if level == KIND_PRODUCT:
         return {PARAM_NO_PRODUCT: "true"} if key == NO_GROUP else {PARAM_PRODUCT: key}
     if level == KIND_FAMILY:
         return {PARAM_FAMILY: key}
     return {PARAM_ITEM: key}
+
+
+def _with_store_ids(db: Session, f: PublicationFilter, page: GroupsPage) -> GroupsPage:
+    """The `tiendas` of every node of a `tienda` tree: the store key made the `/items` store filter. `__none__` is
+    `none` and `s:<id>` its id; `c:<clave>` is every store id of the clave (one lookup for the whole page), narrowed to
+    the stores the user filtered by, so the node's filter, put over the user's, never widens it."""
+    keys = {node.params[PARAM_STORES] for node in page.nodes if PARAM_STORES in node.params}
+    claves = {_raw_key(KIND_STORE, key)[len(CLAVE_KEY_PREFIX) :] for key in keys if key.startswith(CLAVE_KEY_PREFIX)}
+    ids_of: dict[str, list[int]] = {}
+    if claves:
+        clave = func.trim(MlTiendaOficial.clave)  # the dimension's own key of a clave (`dimension_of("tienda")`)
+        rows = db.execute(
+            select(clave, MlTiendaOficial.store_id).where(clave.in_(sorted(claves))).order_by(MlTiendaOficial.store_id)
+        ).all()
+        for name, store_id in rows:
+            ids_of.setdefault(name, []).append(store_id)
+    if f.stores or f.no_store:
+        ids_of = {name: [i for i in ids if i in f.stores] or ids for name, ids in ids_of.items()}
+
+    def stores(key: str) -> str:
+        if key == NO_GROUP:
+            return NO_STORE
+        if key.startswith(STORE_KEY_PREFIX):
+            return key[len(STORE_KEY_PREFIX) :]
+        return ",".join(str(i) for i in ids_of.get(_raw_key(KIND_STORE, key)[len(CLAVE_KEY_PREFIX) :], []))
+
+    nodes = [
+        replace(node, params={**node.params, PARAM_STORES: stores(node.params[PARAM_STORES])})
+        if PARAM_STORES in node.params
+        else node
+        for node in page.nodes
+    ]
+    return replace(page, nodes=nodes)
 
 
 def _product_columns() -> list[Any]:
@@ -465,6 +521,8 @@ def list_groups(
         page = _products(db, f, tree, path, familias, limit, offset)
     else:
         page = _group_level(db, f, tree, path, level, limit, offset)
+    if KIND_STORE in tree.levels and page.nodes:
+        page = _with_store_ids(db, f, page)
     if markup is None or not page.nodes:
         return page
     return _with_markup(db, f, tree, path, page, markup)

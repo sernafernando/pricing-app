@@ -22,6 +22,7 @@ from tests.routers.test_ml_publications_view import (  # noqa: F401
 )
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
+from tests.services.ml_publications.view.test_groups_dimensions_postgres import seed_stores_and_pms
 from tests.services.ml_publications.view.test_groups_postgres import seed_catalog
 
 pytestmark = pytest.mark.postgres
@@ -145,11 +146,12 @@ class TestDimension:
         body = get(client, reader, dimension="categoria", familias="true").json()
         assert body["levels"] == ["categoria", "subcategoria", "producto", "familia"]
 
-    @pytest.mark.parametrize("dimension", ["categoria", "subcategoria"])
+    @pytest.mark.parametrize("dimension", ["categoria", "subcategoria", "tienda", "pm"])
     def test_the_node_params_of_every_dimension_fetch_exactly_the_node_publications(
         self, client, pg, reader, dimension
     ) -> None:
         seed_rows(pg, seed_catalog)
+        seed_rows(pg, seed_stores_and_pms)
         checked = 0
         pending = [[]]
         while pending:
@@ -166,6 +168,11 @@ class TestDimension:
     def test_an_unknown_dimension_is_422_naming_it(self, client, pg, reader) -> None:
         response = get(client, reader, dimension="producto")
         assert response.status_code == 422 and response.json()["error"]["field"] == "dimension"
+
+    def test_the_pm_node_filter_is_one_user_id_or_none_in_the_list_too(self, client, pg, reader) -> None:
+        for url_get in (get, get_items):
+            response = url_get(client, reader, pm_grupo="7,8")
+            assert response.status_code == 422 and response.json()["error"]["field"] == "pm_grupo"
 
 
 class TestKeysWithSeparators:

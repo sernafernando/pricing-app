@@ -186,8 +186,11 @@ def _tienda_dimension(store_id: Any) -> Dimension:
     return Dimension(key, named.c.nombre, [(named, named.c.store_id == store_id)])
 
 
-def _pm_dimension(marca: Any, categoria: Any) -> Dimension:
-    pairs = (
+def pm_pairs(name: str = "pm_pairs") -> Any:
+    """The ONE PM of each (marca, categoría) pair of `marcas_pm`, upper-cased: the lowest user id when the pair is
+    listed for several. A product's PM is the row whose `marca`/`categoria` equal its own upper-cased; none matches
+    for a product with no PM. Shared with the filters that must select exactly the products of one PM node."""
+    return (
         select(
             func.upper(MarcaPM.marca).label("marca"),
             func.upper(MarcaPM.categoria).label("categoria"),
@@ -195,7 +198,11 @@ def _pm_dimension(marca: Any, categoria: Any) -> Dimension:
         )
         .where(MarcaPM.usuario_id.isnot(None))
         .group_by(func.upper(MarcaPM.marca), func.upper(MarcaPM.categoria))
-    ).subquery("pm_pairs")
+    ).subquery(name)
+
+
+def _pm_dimension(marca: Any, categoria: Any) -> Dimension:
+    pairs = pm_pairs()
     pms = aliased(Usuario)
     key = case((pairs.c.usuario_id.is_(None), literal(NO_GROUP)), else_=cast(pairs.c.usuario_id, String))
     return Dimension(
@@ -294,6 +301,7 @@ __all__ = [
     "Dimension",
     "dimension_of",
     "grouped_pairs",
+    "pm_pairs",
     "stock_table",
     "title_of",
 ]
