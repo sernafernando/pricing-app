@@ -205,7 +205,8 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+    // The mirror renders before the background pull settles; the controls unlock only after it.
+    await waitFor(() => expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled());
   });
 
   it('shows the backend-computed markup when nuestro_markup is a number', async () => {
@@ -479,7 +480,8 @@ describe('MlaPromocionesPanel', () => {
     await waitFor(() => expect(screen.getByText('Price matching promo')).toBeInTheDocument());
     expect(screen.getByText(/costo vendedor: 30%/i)).toBeInTheDocument();
     expect(screen.getByText(/cofinanciación ml: 20%/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+    // The mirror renders before the background pull settles; the controls unlock only after it.
+    await waitFor(() => expect(screen.getByRole('button', { name: /^aplicar$/i })).toBeEnabled());
   });
 
   it('shows a Desaplicar button for a pending PRICE_MATCHING promo (REQ-7/REQ-6)', async () => {
@@ -501,7 +503,8 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Price matching promo')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeEnabled();
+    // The mirror renders before the background pull settles; the controls unlock only after it.
+    await waitFor(() => expect(screen.getByRole('button', { name: /^desaplicar$/i })).toBeEnabled());
   });
 
   it('never renders an apply control for PRICE_MATCHING_MELI_ALL, in any status (REQ-9 guard)', async () => {
