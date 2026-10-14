@@ -3,6 +3,9 @@ import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
 import SearchInput from './SearchInput';
 import styles from './PanelPermisos.module.css';
+import FormularioRol from './roles/FormularioRol';
+import ModalClonarRol from './roles/ModalClonarRol';
+import ModalConfirmarEliminarRol from './roles/ModalConfirmarEliminarRol';
 
 const CATEGORIAS_NOMBRE = {
   productos: 'Productos',
@@ -35,6 +38,8 @@ export default function PanelRoles() {
   });
 
   // Estado para clonar rol
+  const [rolAEliminar, setRolAEliminar] = useState(null);
+  const [eliminando, setEliminando] = useState(false);
   const [mostrarClonar, setMostrarClonar] = useState(false);
   const [clonarData, setClonarData] = useState({
     nuevo_codigo: '',
@@ -164,16 +169,17 @@ export default function PanelRoles() {
     }
   };
 
-  const eliminarRol = async (rol) => {
+  const pedirEliminarRol = (rol) => {
     if (rol.es_sistema) {
       setMensaje({ tipo: 'error', texto: 'No se pueden eliminar roles de sistema' });
       return;
     }
+    setRolAEliminar(rol);
+  };
 
-    if (!confirm(`¿Eliminar el rol "${rol.nombre}"? Esta accion no se puede deshacer.`)) {
-      return;
-    }
-
+  const eliminarRol = async () => {
+    const rol = rolAEliminar;
+    setEliminando(true);
     try {
       await api.delete(`/roles/${rol.id}`);
 
@@ -187,6 +193,9 @@ export default function PanelRoles() {
     } catch (error) {
       console.error('Error eliminando rol:', error);
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al eliminar rol' });
+    } finally {
+      setEliminando(false);
+      setRolAEliminar(null);
     }
   };
 
@@ -268,67 +277,18 @@ export default function PanelRoles() {
 
           {/* Form crear/editar rol */}
           {mostrarFormRol && (
-            <div style={{
-              background: 'var(--bg-secondary)',
-              padding: '16px',
-              borderRadius: '8px',
-              marginBottom: '16px',
-              border: '1px solid var(--border-primary)'
-            }}>
-              <h4 style={{ margin: '0 0 12px 0', color: 'var(--text-primary)' }}>
-                {editandoRol ? 'Editar Rol' : 'Nuevo Rol'}
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <input
-                  type="text"
-                  placeholder="Codigo (ej: VENDEDOR)"
-                  value={formRol.codigo}
-                  onChange={(e) => setFormRol({ ...formRol, codigo: e.target.value.toUpperCase() })}
-                  disabled={!!editandoRol}
-                  style={{
-                    padding: '8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-secondary)',
-                    background: editandoRol ? 'var(--bg-tertiary)' : 'var(--bg-primary)',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-                <input
-                  type="text"
-                  placeholder="Nombre"
-                  value={formRol.nombre}
-                  onChange={(e) => setFormRol({ ...formRol, nombre: e.target.value })}
-                  style={{ padding: '8px', borderRadius: '4px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                />
-                <textarea
-                  placeholder="Descripcion (opcional)"
-                  value={formRol.descripcion}
-                  onChange={(e) => setFormRol({ ...formRol, descripcion: e.target.value })}
-                  rows={2}
-                  style={{ padding: '8px', borderRadius: '4px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)', resize: 'vertical' }}
-                />
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={editandoRol ? actualizarRol : crearRol}
-                    disabled={guardando}
-                    className="btn-tesla outline-subtle-success"
-                    style={{ flex: 1 }}
-                  >
-                    {guardando ? 'Guardando...' : (editandoRol ? 'Actualizar' : 'Crear')}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMostrarFormRol(false);
-                      setEditandoRol(null);
-                      setFormRol({ codigo: '', nombre: '', descripcion: '', orden: 0 });
-                    }}
-                    className="btn-tesla outline-subtle-danger"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            </div>
+            <FormularioRol
+              form={formRol}
+              onChange={setFormRol}
+              esEdicion={!!editandoRol}
+              guardando={guardando}
+              onGuardar={editandoRol ? actualizarRol : crearRol}
+              onCancelar={() => {
+                setMostrarFormRol(false);
+                setEditandoRol(null);
+                setFormRol({ codigo: '', nombre: '', descripcion: '', orden: 0 });
+              }}
+            />
           )}
 
           {/* Lista de roles */}
@@ -384,7 +344,7 @@ export default function PanelRoles() {
                         Editar
                       </button>
                       <button
-                        onClick={() => eliminarRol(rol)}
+                        onClick={() => pedirEliminarRol(rol)}
                         title="Eliminar"
                         style={{
                           padding: '4px 8px',
@@ -457,71 +417,17 @@ export default function PanelRoles() {
 
               {/* Modal Clonar */}
               {mostrarClonar && (
-                <div style={{
-                  position: 'fixed',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: 'rgba(0,0,0,0.5)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 1000
-                }}>
-                  <div style={{
-                    background: 'var(--bg-primary)',
-                    padding: '24px',
-                    borderRadius: '12px',
-                    width: '400px',
-                    maxWidth: '90%',
-                    border: '1px solid var(--border-primary)'
-                  }}>
-                    <h3 style={{ margin: '0 0 16px', color: 'var(--text-primary)' }}>Clonar Rol: {rolSeleccionado.nombre}</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <input
-                        type="text"
-                        placeholder="Codigo del nuevo rol"
-                        value={clonarData.nuevo_codigo}
-                        onChange={(e) => setClonarData({ ...clonarData, nuevo_codigo: e.target.value.toUpperCase() })}
-                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                      />
-                      <input
-                        type="text"
-                        placeholder="Nombre del nuevo rol"
-                        value={clonarData.nuevo_nombre}
-                        onChange={(e) => setClonarData({ ...clonarData, nuevo_nombre: e.target.value })}
-                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-                      />
-                      <textarea
-                        placeholder="Descripcion (opcional)"
-                        value={clonarData.descripcion}
-                        onChange={(e) => setClonarData({ ...clonarData, descripcion: e.target.value })}
-                        rows={2}
-                        style={{ padding: '10px', borderRadius: '6px', border: '1px solid var(--border-secondary)', background: 'var(--bg-primary)', color: 'var(--text-primary)', resize: 'vertical' }}
-                      />
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                        <button
-                          onClick={clonarRol}
-                          disabled={guardando}
-                          className="btn-tesla outline-subtle-primary"
-                          style={{ flex: 1 }}
-                        >
-                          {guardando ? 'Clonando...' : 'Clonar'}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setMostrarClonar(false);
-                            setClonarData({ nuevo_codigo: '', nuevo_nombre: '', descripcion: '' });
-                          }}
-                          className="btn-tesla ghost"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <ModalClonarRol
+                  rol={rolSeleccionado}
+                  datos={clonarData}
+                  onChange={setClonarData}
+                  guardando={guardando}
+                  onClonar={clonarRol}
+                  onCancelar={() => {
+                    setMostrarClonar(false);
+                    setClonarData({ nuevo_codigo: '', nuevo_nombre: '', descripcion: '' });
+                  }}
+                />
               )}
 
               {/* Lista de permisos por categoria */}
@@ -636,6 +542,15 @@ export default function PanelRoles() {
           )}
         </div>
       </div>
+
+      {rolAEliminar && (
+        <ModalConfirmarEliminarRol
+          rol={rolAEliminar}
+          eliminando={eliminando}
+          onConfirmar={eliminarRol}
+          onCancelar={() => setRolAEliminar(null)}
+        />
+      )}
     </div>
   );
 }
