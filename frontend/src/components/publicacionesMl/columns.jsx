@@ -7,6 +7,7 @@ import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
+import { Markup30dCell, Sales30dCell } from './SalesCells';
 import VariationsToggle from './VariationsToggle';
 import styles from './cells.module.css';
 
@@ -27,6 +28,27 @@ export const DEFAULT_DIRECTION = {
 };
 
 /**
+ * Columns hidden until the user turns them on in the picker: when "Markup 30d"
+ * is on screen it replaces the worst-variation markup, but that column (and
+ * the markup filters and sort that depend on it) stays available. A user who
+ * cannot see "Markup 30d" keeps the worst-variation markup visible.
+ */
+export function defaultColumnVisibility({ canSeeSales = false, canSeeMargin = false } = {}) {
+  return canSeeSales && canSeeMargin ? { markup: false } : {};
+}
+
+/**
+ * The entries of `visibility` that differ from `defaults` (a column missing
+ * from either is visible): the user's own picks, kept apart so the default
+ * can still follow permissions that load or change later.
+ */
+export function columnChoicesOver(visibility, defaults) {
+  return Object.fromEntries(
+    Object.entries(visibility).filter(([key, visible]) => visible !== (defaults[key] ?? true)),
+  );
+}
+
+/**
  * `eventsEnabled` false drops the last-event column altogether (S56.2).
  * `canSeeMargin` (`ml_metricas.ver_ganancia`) is what lets the markup column
  * exist at all: without it there is no column, not a column of dashes.
@@ -35,8 +57,17 @@ export const DEFAULT_DIRECTION = {
  * `agrupado` (the tree view) adds the node figures -- publication count and,
  * with the margin, negatives -- and names the markup column for what a node
  * shows (a range, not the "peor variación" sort); the page makes it unsortable.
+ * `canSeeSales` (`ml_metricas.ver`) adds "Ventas 30d"; with `canSeeMargin`
+ * too, "Markup 30d" -- the real markup of those sales, from Métricas ML.
  */
-export function buildColumns({ eventsEnabled, canSeeMargin = false, expandedIds, onToggleVariations, agrupado = false }) {
+export function buildColumns({
+  eventsEnabled,
+  canSeeMargin = false,
+  canSeeSales = false,
+  expandedIds,
+  onToggleVariations,
+  agrupado = false,
+}) {
   const columns = [
     {
       key: 'titulo',
@@ -84,6 +115,12 @@ export function buildColumns({ eventsEnabled, canSeeMargin = false, expandedIds,
             render: (item) => <MarkupCell markup={item.markup} />,
           },
         ]
+      : []),
+    ...(canSeeSales
+      ? [{ key: 'ventas_30d', header: 'Ventas 30d', width: 140, align: 'right', render: (item) => <Sales30dCell sales={item.sales_30d} /> }]
+      : []),
+    ...(canSeeSales && canSeeMargin
+      ? [{ key: 'markup_30d', header: 'Markup 30d', width: 120, align: 'right', render: (item) => <Markup30dCell sales={item.sales_30d} /> }]
       : []),
     { key: 'stock_full', header: 'Stock', width: 140, sortable: true, align: 'right', render: (item) => <StockCell stock={item.stock} /> },
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
