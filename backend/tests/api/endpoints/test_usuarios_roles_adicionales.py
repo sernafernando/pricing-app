@@ -177,6 +177,23 @@ class TestReemplazo:
         assert db.query(UsuarioRolAdicional).count() == 0
 
 
+class TestPermisosDetallados:
+    def test_el_detalle_http_trae_el_origen_rol_adicional(
+        self, client, db, admin_user, vendedor, compras, grant_permiso
+    ):
+        grant_permiso(admin_user.rol_obj, "admin.gestionar_permisos")
+        db.add(UsuarioRolAdicional(usuario_id=vendedor.id, rol_id=compras.id))
+        db.commit()
+
+        resp = client.get(f"/api/permisos/usuario/{vendedor.id}", headers=_headers(admin_user))
+
+        assert resp.status_code == 200
+        filas = {p["codigo"]: p for permisos in resp.json()["permisos_detallados"].values() for p in permisos}
+        assert filas["compras.ver"]["origen"] == "rol_adicional"
+        assert filas["compras.ver"]["roles_adicionales"] == ["COMPRAS"]
+        assert filas["compras.ver"]["efectivo"] is True
+
+
 class TestCambioDeRolPrincipal:
     def test_promover_un_adicional_a_principal_lo_saca_de_los_adicionales(
         self, client, db, admin_user, vendedor, compras
