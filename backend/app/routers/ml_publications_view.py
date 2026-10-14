@@ -22,6 +22,9 @@ joins it).
 - `GET /ml-publications/view/kpis` (`ml_ops.ver` AND `ml_metricas.ver`): Métricas ML's KPI strip over the MLAs the same
   filters select, for its own period (`periodo` 7/15/30/60/90 or `desde`/`hasta`, default the last 30 days) and
   `comparar_con`. The profit figures only with `ml_metricas.ver_ganancia` (omitted otherwise). No PM scoping.
+- `/items` also sorts by Métricas ML's figures (`orden` facturado_30d, unidades_7d, unidades_30d, with
+  `ml_metricas.ver`; markup_30d and total_gauss_30d also with `ml_metricas.ver_ganancia`; 403 otherwise): the WHOLE
+  filtered set ranked by the Board over the last 30 business days, then paged; no sales (or no cost) last.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
   422 that names the offending query parameter. Nothing here calls Mercado Libre and nothing writes.
@@ -64,6 +67,7 @@ from app.services.ml_publications.view.filters import (
     parse_markup_filter,
 )
 from app.services.ml_publications.view.markup_service import AdsPlan, MarkupQuery
+from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin
 from app.services.ml_publications.view.timing import Timer
 from app.services.permisos_service import PermisosService
 
@@ -673,7 +677,11 @@ def get_items(
     f: PublicationFilter = Depends(filter_query),
     orden: Optional[str] = Query(
         None,
-        description="actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup (ver_ganancia)",
+        description=(
+            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup "
+            "(ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
+            "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia)"
+        ),
     ),
     direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia)"),
@@ -702,12 +710,20 @@ def get_items(
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
+    sort_name = (orden or "").strip()
+    if sort_name in METRIC_SORTS and not can_see_sales:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_METRICAS} para ordenar por las cifras de Métricas ML",
+        )
     asks_for_margin = bool(
         markup_neg
         or restar_publicidad
         or (markup_min or "").strip()
         or (markup_max or "").strip()
-        or (orden or "").strip() == "markup"
+        or sort_name == "markup"
+        or (sort_name in METRIC_SORTS and needs_margin(sort_name))
     )  # blank values are absent parameters and the sort name is trimmed, here as in the parsers
     if not can_see_margin and asks_for_margin:
         raise api_error(
@@ -727,7 +743,9 @@ def get_items(
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)  # once: the list and the facets share the resolved pairs
         with timer.stage("list"):
-            page = listing.list_items(db, f, sort, limit, offset, events=events_enabled, markup=markup)
+            page = listing.list_items(
+                db, f, sort, limit, offset, events=events_enabled, markup=markup, can_see_margin=can_see_margin
+            )
         if can_see_sales:
             with timer.stage("metrics"):
                 by_mla = row_metrics.metrics_by_mla(db, [item["item_id"] for item in page.items])

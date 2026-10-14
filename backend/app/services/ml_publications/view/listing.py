@@ -39,6 +39,7 @@ from app.services.ml_publications.view.filters import (
     stock_clauses,
 )
 from app.services.ml_publications.view.markup_service import ItemMarkup, MarkupQuery, MarkupStats, compute_markups
+from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin, ranked_page
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
@@ -76,12 +77,16 @@ class ItemsPage:
 
 def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     key = (orden or "").strip() or SORT_ACTIVITY
-    if key not in SORT_COLUMNS and key != SORT_MARKUP:
-        raise FilterError("orden", f"unknown value {key!r}; known: {', '.join([*SORT_COLUMNS, SORT_MARKUP])}")
+    known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
+    if key not in known:
+        raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(known)}")
     wanted = (direction or "").strip().lower()
     if wanted and wanted not in DIRECTIONS:
         raise FilterError("dir", f"unknown value {wanted!r}; known: {', '.join(DIRECTIONS)}")
-    default_descending = False if key == SORT_MARKUP else SORT_COLUMNS[key][1]  # markup: the worst first
+    if key in METRIC_SORTS:
+        default_descending = True  # Métricas' figures: highest first, as Métricas orders them
+    else:
+        default_descending = False if key == SORT_MARKUP else SORT_COLUMNS[key][1]  # markup: the worst first
     return Sort(key, descending=(wanted == "desc") if wanted else default_descending)
 
 
@@ -332,19 +337,25 @@ def _list_by_markup(
             if markup.filter.accepts(item.markup.worst, item.markup.any_negative)
         ]
         total = len(accepted)
-        page_ids = (
-            list(
-                db.execute(
-                    build_base_select(f, T.i.item_id)
-                    .where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
-                    .order_by(*_order_by(sort))
-                    .limit(limit)
-                    .offset(offset)
-                ).scalars()
+        if sort.key in METRIC_SORTS:
+            only_accepted = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
+            page_ids = (
+                ranked_page(db, only_accepted, sort.key, sort.descending, limit, offset) if offset < total else []
             )
-            if offset < total
-            else []
-        )
+        else:
+            page_ids = (
+                list(
+                    db.execute(
+                        build_base_select(f, T.i.item_id)
+                        .where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
+                        .order_by(*_order_by(sort))
+                        .limit(limit)
+                        .offset(offset)
+                    ).scalars()
+                )
+                if offset < total
+                else []
+            )
     if not page_ids:
         return ItemsPage([], total, result.stats, result.ads_failed)
     rows = db.execute(build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text)))))
@@ -363,12 +374,16 @@ def list_items(
     *,
     events: bool,
     markup: Optional[MarkupQuery] = None,
+    can_see_margin: bool = False,
 ) -> ItemsPage:
     """One page of publications. `events` is the `events.enabled` flag: the event filter needs it and the last
     event is only read while it is on. `markup` (the caller may see margins) adds each row's markup; sorting by
-    it or filtering on it prices the whole filtered set first."""
+    it or filtering on it prices the whole filtered set first. A Métricas sort (`METRIC_SORTS`) ranks the whole
+    filtered set by the Board's figures; the margin ones need `can_see_margin` (fail closed: it defaults to no)."""
     if f.needs_events and not events:
         raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+    if sort.key in METRIC_SORTS and needs_margin(sort.key) and not can_see_margin:
+        raise FilterError("orden", f"{sort.key} requires the ml_metricas.ver_ganancia permission")
     f = resolve_pm_pairs(db, f)
     if markup is not None and (sort.key == SORT_MARKUP or markup.filter.active):
         return _list_by_markup(db, f, sort, limit, offset, events, markup)
@@ -377,7 +392,19 @@ def list_items(
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
-    rows = db.execute(build_base_select(f, *row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)).all()
+    if sort.key in METRIC_SORTS:
+        page_ids = ranked_page(db, build_base_select(f, T.i.item_id), sort.key, sort.descending, limit, offset)
+        by_id = {
+            row.item_id: row
+            for row in db.execute(
+                build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text))))
+            )
+        }
+        rows = [by_id[i] for i in page_ids if i in by_id]
+    else:
+        rows = db.execute(
+            build_base_select(f, *row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)
+        ).all()
     items = _assemble(db, rows, events)
     if markup is None:
         return ItemsPage(items, total)

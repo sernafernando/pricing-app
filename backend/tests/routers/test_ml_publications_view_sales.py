@@ -157,3 +157,50 @@ class TestRoundingAndBusinessDay:
         got = rows(client, admin_auth_headers)["MLA1"]
         assert got["metrics"]["units_30d"] == got["sales_30d"]["units"] == 2
         assert got["metrics"]["gross_30d"] == got["sales_30d"]["gross"] == 20.0
+
+
+class TestSortingByMetricas:
+    """`orden` by Métricas' figures ranks the whole filtered set (pinned in `view/test_metrics_sort_postgres.py`);
+    here, the HTTP surface: who may ask for which sort, and the order across pages."""
+
+    @pytest.fixture()
+    def ranked(self, pg):
+        seed_rows(pg, fill)
+        sell(pg, (1, [("MLA2", None, 4)]), (2, [("MLA1", None, 1)]), accredited=seed.real_hours_ago(1))
+        return pg
+
+    @staticmethod
+    def page(client, headers, **params):
+        return client.get(URL, headers=headers, params=params)
+
+    @pytest.mark.parametrize("orden", ["facturado_30d", "unidades_7d", "unidades_30d", "markup_30d", "total_gauss_30d"])
+    def test_without_ml_metricas_ver_every_metricas_sort_is_403(
+        self, client, ranked, db, rol_admin, admin_auth_headers, orden
+    ):
+        grant(db, rol_admin, VER, GANANCIA)
+        response = self.page(client, admin_auth_headers, orden=orden)
+        assert response.status_code == 403
+        assert METRICAS in response.json()["error"]["message"]
+
+    @pytest.mark.parametrize("orden", ["markup_30d", "total_gauss_30d"])
+    def test_the_margin_sorts_also_need_ver_ganancia(self, client, ranked, db, rol_admin, admin_auth_headers, orden):
+        grant(db, rol_admin, VER, METRICAS)
+        response = self.page(client, admin_auth_headers, orden=orden)
+        assert response.status_code == 403
+        assert GANANCIA in response.json()["error"]["message"]
+
+    def test_the_whole_set_is_ranked_then_paged(self, client, ranked, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS)
+        first = self.page(client, admin_auth_headers, orden="facturado_30d", limit=1)
+        second = self.page(client, admin_auth_headers, orden="facturado_30d", limit=1, offset=1)
+        third = self.page(client, admin_auth_headers, orden="facturado_30d", dir="asc", limit=1)
+        assert [r.status_code for r in (first, second, third)] == [200, 200, 200]
+        assert first.json()["items"][0]["item_id"] == "MLA2"  # 4 u. over 1
+        assert second.json()["items"][0]["item_id"] == "MLA1"
+        assert third.json()["items"][0]["item_id"] == "MLA1"  # ascending, the unsold MLA3 still last
+        assert first.json()["total"] == 3
+
+    def test_the_margin_sorts_answer_with_ver_ganancia(self, client, ranked, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        for orden in ("markup_30d", "total_gauss_30d"):
+            assert self.page(client, admin_auth_headers, orden=orden).status_code == 200
