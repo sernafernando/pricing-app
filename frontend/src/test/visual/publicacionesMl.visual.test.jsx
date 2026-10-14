@@ -306,14 +306,14 @@ describe('Publicaciones ML (visual)', () => {
         }
         // Each group opens with a divider down to the last row.
         const lastRow = [...scroller.querySelectorAll('tbody tr')].at(-1);
-        const opening = lastRow.querySelector('td[data-column="units_7d"]');
+        const opening = lastRow.querySelector('td[data-column="unidades_7d"]');
         expect(getComputedStyle(opening).borderLeftColor).toBe(tokenColor('--ventas-divider'));
         expect(getComputedStyle(opening).borderLeftWidth).toBe('1px');
         // Scrolled down, the group row and the leaf row both stay on top, in that order.
         scroller.scrollTo({ top: 400, left: 0 });
         await frame();
         const ventas = rect(groups[0]);
-        const leaf = rect(scroller.querySelector('thead th[data-column="units_7d"]'));
+        const leaf = rect(scroller.querySelector('thead th[data-column="unidades_7d"]'));
         expect(Math.abs(ventas.top - rect(scroller).top)).toBeLessThanOrEqual(2);
         expect(Math.abs(leaf.top - ventas.bottom)).toBeLessThanOrEqual(2);
         // The title spans both header rows.

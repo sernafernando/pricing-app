@@ -7,7 +7,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { COLUMN_GROUPS } from '../metricasMl/metricasMlColumns';
-import { DEFAULT_DIRECTION, buildColumns, columnChoicesOver, defaultColumnVisibility } from './columns';
+import { DEFAULT_DIRECTION } from '../../hooks/usePublicacionesMLFilters';
+import { buildColumns, columnChoicesOver, defaultColumnVisibility } from './columns';
 
 const groupLabel = (id) => COLUMN_GROUPS.find((group) => group.id === id).label;
 const keys = (options) => buildColumns({ eventsEnabled: false, ...options }).map((column) => column.key);
@@ -17,13 +18,13 @@ const ALL = [
   'titulo',
   'estado',
   'precio',
-  'units_7d',
-  'units_30d',
+  'unidades_7d',
+  'unidades_30d',
   'units_trend',
   'markup',
   'markup_30d',
   'markup_trend',
-  'gross_30d',
+  'facturado_30d',
   'total_gauss_30d',
   'last_sale',
   'ageing',
@@ -46,9 +47,9 @@ describe('layout', () => {
     expect(['titulo', 'estado', 'precio', 'vinculo', 'tienda', 'actividad', 'evento'].map((key) => columns[key].group)).toEqual(
       Array(7).fill(undefined),
     );
-    expect(['units_7d', 'units_30d', 'units_trend'].map((key) => columns[key].group)).toEqual(Array(3).fill(groupLabel('ventas')));
+    expect(['unidades_7d', 'unidades_30d', 'units_trend'].map((key) => columns[key].group)).toEqual(Array(3).fill(groupLabel('ventas')));
     expect(['markup', 'markup_30d', 'markup_trend'].map((key) => columns[key].group)).toEqual(Array(3).fill(groupLabel('markup')));
-    expect(['gross_30d', 'total_gauss_30d'].map((key) => columns[key].group)).toEqual(Array(2).fill(groupLabel('resultado')));
+    expect(['facturado_30d', 'total_gauss_30d'].map((key) => columns[key].group)).toEqual(Array(2).fill(groupLabel('resultado')));
     expect(['last_sale', 'ageing'].map((key) => columns[key].group)).toEqual(Array(2).fill(groupLabel('rotacion')));
     expect(['stock_propio', 'stock_full', 'stock_erp'].map((key) => columns[key].group)).toEqual(Array(3).fill('Stock'));
   });
@@ -56,9 +57,9 @@ describe('layout', () => {
   it('names the leaves as owner-approved, and gives the picker names that stand alone', () => {
     const columns = byKey({ canSeeSales: true, canSeeMargin: true });
     const headers = (list) => list.map((key) => columns[key].header);
-    expect(headers(['units_7d', 'units_30d', 'units_trend'])).toEqual(['7D', '30D', 'Tendencia']);
+    expect(headers(['unidades_7d', 'unidades_30d', 'units_trend'])).toEqual(['7D', '30D', 'Tendencia']);
     expect(headers(['markup', 'markup_30d', 'markup_trend'])).toEqual(['Actual', 'Real 30D', 'Tendencia']);
-    expect(headers(['gross_30d', 'total_gauss_30d', 'last_sale', 'ageing'])).toEqual(['Facturado 30D', 'Total Gauss 30D', 'Última venta', 'Ageing']);
+    expect(headers(['facturado_30d', 'total_gauss_30d', 'last_sale', 'ageing'])).toEqual(['Facturado 30D', 'Total Gauss 30D', 'Última venta', 'Ageing']);
     expect(headers(['stock_propio', 'stock_full', 'stock_erp'])).toEqual(['Propio', 'Full', 'ERP']);
     const labels = (list) => list.map((key) => columns[key].label);
     expect(labels(['units_trend', 'markup', 'markup_trend', 'stock_propio', 'stock_full', 'stock_erp'])).toEqual([
@@ -71,12 +72,28 @@ describe('layout', () => {
     ]);
   });
 
-  it('sorts only what /items sorts: the current markup and each stock on its own', () => {
+  it('sorts what /items sorts: Métricas’ figures over the whole set, the current markup, each stock on its own', () => {
     const sortable = buildColumns({ eventsEnabled: true, canSeeSales: true, canSeeMargin: true })
       .filter((column) => column.sortable)
       .map((column) => column.key);
-    expect(sortable).toEqual(['titulo', 'precio', 'markup', 'stock_propio', 'stock_full', 'stock_erp', 'actividad']);
+    expect(sortable).toEqual([
+      'titulo',
+      'precio',
+      'unidades_7d',
+      'unidades_30d',
+      'markup',
+      'markup_30d',
+      'facturado_30d',
+      'total_gauss_30d',
+      'stock_propio',
+      'stock_full',
+      'stock_erp',
+      'actividad',
+    ]);
     expect(DEFAULT_DIRECTION.stock_propio).toBe('desc');
+    for (const key of ['unidades_7d', 'unidades_30d', 'markup_30d', 'facturado_30d', 'total_gauss_30d']) {
+      expect(DEFAULT_DIRECTION[key]).toBe('desc');
+    }
   });
 });
 
@@ -88,7 +105,7 @@ describe('permissions', () => {
 
   it('with ml_metricas.ver but no ver_ganancia: units, gross and rotation, no markup and no Total Gauss', () => {
     const got = keys({ canSeeSales: true });
-    expect(got).toEqual(expect.arrayContaining(['units_7d', 'units_30d', 'units_trend', 'gross_30d', 'last_sale', 'ageing']));
+    expect(got).toEqual(expect.arrayContaining(['unidades_7d', 'unidades_30d', 'units_trend', 'facturado_30d', 'last_sale', 'ageing']));
     expect(got).not.toEqual(expect.arrayContaining(['markup']));
     for (const key of ['markup', 'markup_30d', 'markup_trend', 'total_gauss_30d']) expect(got).not.toContain(key);
   });

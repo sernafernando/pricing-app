@@ -27,23 +27,13 @@ import styles from './cells.module.css';
 /**
  * Columns of the Publicaciones ML table (`TableShell` shape), grouped like
  * Métricas ML's board (owner-approved layout). A sortable column's `key` IS
- * the backend's `orden` value, so a header click needs no translation table.
- * `DEFAULT_DIRECTION` mirrors the backend's default per sort. `label` is the
+ * the backend's `orden` value, so a header click needs no translation table;
+ * Métricas' figures sort the whole filtered set, like Métricas does.
+ * The sorts' default directions live with the list's params
+ * (`hooks/usePublicacionesMLFilters` `DEFAULT_DIRECTION`). `label` is the
  * name the column picker shows when the header alone (7D, Tendencia...) only
  * makes sense under its group.
  */
-export const DEFAULT_SORT = 'actividad';
-
-export const DEFAULT_DIRECTION = {
-  actividad: 'desc',
-  titulo: 'asc',
-  precio: 'asc',
-  stock_propio: 'desc',
-  stock_full: 'desc',
-  stock_erp: 'desc',
-  // Worst variation first: the most negative markup on top.
-  markup: 'asc',
-};
 
 // Métricas' own group names: the same figures read under the same headings on both screens.
 const groupOf = (id) => COLUMN_GROUPS.find((group) => group.id === id).label;
@@ -133,13 +123,23 @@ export function buildColumns({
     },
     { key: 'precio', header: 'Precio', width: 150, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
     ...withSales([
-      { key: 'units_7d', group: VENTAS, header: '7D', label: 'Ventas 7D', width: 70, align: 'right', render: (item) => <UnitsCell value={item.metrics?.units_7d} /> },
       {
-        key: 'units_30d',
+        key: 'unidades_7d',
+        group: VENTAS,
+        header: '7D',
+        label: 'Ventas 7D',
+        width: 70,
+        sortable: true,
+        align: 'right',
+        render: (item) => <UnitsCell value={item.metrics?.units_7d} />,
+      },
+      {
+        key: 'unidades_30d',
         group: VENTAS,
         header: '30D',
         label: 'Ventas 30D',
         width: 80,
+        sortable: true,
         align: 'right',
         render: (item) => <UnitsCell value={item.metrics?.units_30d} strong />,
       },
@@ -171,6 +171,7 @@ export function buildColumns({
           header: 'Real 30D',
           label: 'Markup real 30D',
           width: 100,
+          sortable: true,
           align: 'right',
           render: (item) => <MarkupRealCell metrics={item.metrics} />,
         },
@@ -187,10 +188,11 @@ export function buildColumns({
     ]),
     ...withSales([
       {
-        key: 'gross_30d',
+        key: 'facturado_30d',
         group: RESULTADO,
         header: 'Facturado 30D',
         width: 170,
+        sortable: true,
         align: 'right',
         render: (item) => <GrossCell metrics={item.metrics} />,
       },
@@ -200,6 +202,7 @@ export function buildColumns({
           group: RESULTADO,
           header: 'Total Gauss 30D',
           width: 170,
+          sortable: true,
           align: 'right',
           render: (item) => <TotalGaussCell metrics={item.metrics} />,
         },

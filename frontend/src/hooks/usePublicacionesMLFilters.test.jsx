@@ -11,6 +11,7 @@ import {
   AGRUPAR_DIMENSIONS,
   FILTER_KEYS,
   PAGE_SIZE,
+  effectiveSort,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
@@ -266,5 +267,40 @@ describe('the tree dimension (`agrupar`)', () => {
     const params = new URLSearchParams(result.current.search);
     expect(params.get('agrupar')).toBe('subcategoria');
     expect(params.has('sel')).toBe(false);
+  });
+});
+
+describe('sorting by Métricas ML figures', () => {
+  const base = setup('/').result.current.hook.filters;
+  const SALES = { canSeeSales: true };
+  const ALL = { canSeeSales: true, canSeeMargin: true };
+
+  it('defaults to Facturado 30D, highest first, for a user who sees the sales -- as Métricas does', () => {
+    expect(effectiveSort(base, SALES)).toEqual({ key: 'facturado_30d', dir: 'desc' });
+    expect(buildItemsParams(base, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d' });
+  });
+
+  it('keeps the activity default (no orden sent) for a user who does not see the sales', () => {
+    expect(effectiveSort(base, {})).toEqual({ key: 'actividad', dir: 'desc' });
+    expect(buildItemsParams(base)).not.toHaveProperty('orden');
+  });
+
+  it('sends a Métricas sort only to who may ask for it: a shared link falls back on the default', () => {
+    const units = { ...base, orden: 'unidades_7d', dir: 'asc' };
+    expect(buildItemsParams(units, PAGE_SIZE, SALES)).toMatchObject({ orden: 'unidades_7d', dir: 'asc' });
+    expect(buildItemsParams(units)).not.toHaveProperty('orden');
+    expect(buildItemsParams(units)).not.toHaveProperty('dir');
+    for (const orden of ['markup_30d', 'total_gauss_30d']) {
+      const margin = { ...base, orden, dir: 'asc' };
+      expect(buildItemsParams(margin, PAGE_SIZE, ALL)).toMatchObject({ orden, dir: 'asc' });
+      expect(buildItemsParams(margin, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d' });
+      expect(buildItemsParams(margin, PAGE_SIZE, SALES)).not.toHaveProperty('dir');
+      expect(effectiveSort(margin, SALES)).toEqual({ key: 'facturado_30d', dir: 'desc' });
+    }
+  });
+
+  it('a column sort stays what it was for everyone', () => {
+    expect(buildItemsParams({ ...base, orden: 'precio', dir: 'asc' }, PAGE_SIZE, SALES)).toMatchObject({ orden: 'precio', dir: 'asc' });
+    expect(effectiveSort({ ...base, orden: 'precio' }, SALES)).toEqual({ key: 'precio', dir: 'asc' });
   });
 });

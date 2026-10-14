@@ -52,6 +52,47 @@ const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
 const VIEW_KEYS = ['pagina', 'sel', 'tab'];
 
+/**
+ * The sorts of the list. A column sort's key IS the backend's `orden`; `DEFAULT_DIRECTION` mirrors the backend's
+ * default per sort. The Métricas ML sorts rank the whole filtered set by Métricas' figures and are the backend's
+ * too: `ml_metricas.ver` for all of them, `ml_metricas.ver_ganancia` also for the margin ones (403 otherwise).
+ */
+export const DEFAULT_DIRECTION = {
+  actividad: 'desc',
+  titulo: 'asc',
+  precio: 'asc',
+  stock_propio: 'desc',
+  stock_full: 'desc',
+  stock_erp: 'desc',
+  // Worst variation first: the most negative markup on top.
+  markup: 'asc',
+  // Métricas' figures: highest first, as Métricas orders them.
+  unidades_7d: 'desc',
+  unidades_30d: 'desc',
+  markup_30d: 'desc',
+  facturado_30d: 'desc',
+  total_gauss_30d: 'desc',
+};
+
+const SALES_SORTS = new Set(['unidades_7d', 'unidades_30d', 'facturado_30d', 'markup_30d', 'total_gauss_30d']);
+const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d']);
+
+/** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
+export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');
+
+const mayAsk = (orden, { canSeeSales = false, canSeeMargin = false }) =>
+  (!SALES_SORTS.has(orden) || canSeeSales) && (!MARGIN_SORTS.has(orden) || canSeeMargin);
+
+/**
+ * The sort the list really applies: the URL's when the user may ask for it, else the default -- a link shared by
+ * someone with more permissions still opens the list. Its direction is the URL's only with the URL's sort.
+ */
+export function effectiveSort(filters, permissions = {}) {
+  const asked = filters.orden && mayAsk(filters.orden, permissions) ? filters.orden : '';
+  const key = asked || defaultSortFor(permissions);
+  return { key, dir: (asked && filters.dir) || DEFAULT_DIRECTION[key] || 'desc' };
+}
+
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
 
 function readFilters(params) {
@@ -85,22 +126,29 @@ const isEmpty = (value) => value === null || value === undefined || value === ''
  * the store chips' vocabulary (`sin_tienda`); the backend's is `none`.
  * `vista`, `sel`, `tab` and `pagina` never reach the backend as such.
  *
- * The markup filters and the markup sort are sent only with `canSeeMargin`
- * (`ml_metricas.ver_ganancia`): the backend refuses them with a 403 otherwise,
- * and a link shared by someone who has the permission must still open the list
- * for someone who has not.
+ * The markup filters and the margin sorts are sent only with `canSeeMargin`
+ * (`ml_metricas.ver_ganancia`), the Métricas sorts only with `canSeeSales`
+ * (`ml_metricas.ver`): the backend refuses them with a 403 otherwise, and a
+ * link shared by someone who has the permission must still open the list for
+ * someone who has not (with the default sort, see `effectiveSort`).
  */
-export function buildItemsParams(filters, pageSize = filters.limite ?? PAGE_SIZE, { canSeeMargin = false } = {}) {
+export function buildItemsParams(
+  filters,
+  pageSize = filters.limite ?? PAGE_SIZE,
+  { canSeeMargin = false, canSeeSales = false } = {},
+) {
   const params = {};
   const q = filters.q.trim();
   if (q) params.q = q;
   for (const key of ['familia', 'evento_desde']) {
     if (filters[key]) params[key] = filters[key];
   }
-  if (canSeeMargin || filters.orden !== 'markup') {
-    for (const key of ['orden', 'dir']) {
-      if (filters[key]) params[key] = filters[key];
-    }
+  if (filters.orden && mayAsk(filters.orden, { canSeeMargin, canSeeSales })) {
+    params.orden = filters.orden;
+    if (filters.dir) params.dir = filters.dir;
+  } else if (canSeeSales) {
+    // Métricas' default sort has to be asked for: the backend's own default is the activity.
+    params.orden = defaultSortFor({ canSeeSales });
   }
   if (canSeeMargin) {
     if (filters.markup_neg) params.markup_neg = true;

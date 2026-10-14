@@ -95,7 +95,7 @@ afterAll(resetTiendasOficiales);
 describe('the list', () => {
   it('asks for the first page of 50, with facets, and renders one row per MLA', async () => {
     await page();
-    expect(lastParams()).toEqual({ limit: 50, offset: 0, facets: true });
+    expect(lastParams()).toEqual({ orden: 'facturado_30d', limit: 50, offset: 0, facets: true });
     expect(screen.getByText(/Router TP-Link Archer AX55/)).toBeInTheDocument();
     expect(screen.getByText('MLA1100000004')).toBeInTheDocument();
     expect(screen.getByText('mostrando 1-50 de 235 publicaciones')).toBeInTheDocument();
@@ -228,11 +228,44 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'desc' }));
   });
 
-  it('defaults to activity, newest first (its column is in the picker)', async () => {
+  it('defaults to Facturado 30D, highest first, like Métricas: the whole set ranked by the backend', async () => {
     await page();
+    expect(lastParams()).toMatchObject({ orden: 'facturado_30d' });
+    expect(screen.getByRole('columnheader', { name: /Facturado 30D/ })).toHaveAttribute('aria-sort', 'descending');
+  });
+
+  it('without ml_metricas.ver the default stays the activity, newest first (its column is in the picker)', async () => {
+    canSeeKpis = false;
+    await page();
+    expect(lastParams()).not.toHaveProperty('orden');
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Última actividad' }));
     expect(screen.getByRole('columnheader', { name: /Última actividad/ })).toHaveAttribute('aria-sort', 'descending');
+  });
+
+  it('each Métricas figure sorts the list, highest first', async () => {
+    canSeeMargin = true;
+    await page();
+    const sortBy = (header) => userEvent.click(within(screen.getByRole('columnheader', { name: header })).getByRole('button'));
+    await sortBy(/^7D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
+    await sortBy(/^30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'unidades_30d', dir: 'desc' }));
+    await sortBy(/^Real 30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup_30d', dir: 'desc' }));
+    await sortBy(/^Total Gauss 30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'total_gauss_30d', dir: 'desc' }));
+    await sortBy(/^Facturado 30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' }));
+    await sortBy(/^Facturado 30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'asc' }));
+  });
+
+  it('a shared link with a margin sort opens with the default sort for who cannot see margins', async () => {
+    await page('/ml-publicaciones?orden=markup_30d&dir=asc');
+    expect(lastParams()).toMatchObject({ orden: 'facturado_30d' });
+    expect(lastParams()).not.toHaveProperty('dir');
+    expect(screen.getByRole('columnheader', { name: /Facturado 30D/ })).toHaveAttribute('aria-sort', 'descending');
   });
 });
 
@@ -310,13 +343,13 @@ describe('Métricas ML figures (the owner-approved layout)', () => {
     canSeeMargin = true;
     withMetrics();
     await page();
-    expect(cellUnder('units_7d', 'MLA1100000001')).toHaveTextContent('14');
-    expect(cellUnder('units_30d', 'MLA1100000001')).toHaveTextContent('1.234');
+    expect(cellUnder('unidades_7d', 'MLA1100000001')).toHaveTextContent('14');
+    expect(cellUnder('unidades_30d', 'MLA1100000001')).toHaveTextContent('1.234');
     expect(cellUnder('markup_30d', 'MLA1100000001')).toHaveTextContent('18,5%');
-    expect(cellUnder('gross_30d', 'MLA1100000001')).toHaveTextContent('$ 98.500,50');
+    expect(cellUnder('facturado_30d', 'MLA1100000001')).toHaveTextContent('$ 98.500,50');
     expect(cellUnder('total_gauss_30d', 'MLA1100000001')).toHaveTextContent('$ 15.000,00');
     expect(cellUnder('ageing', 'MLA1100000001')).toHaveTextContent('45 d');
-    for (const key of ['units_30d', 'markup_30d', 'gross_30d', 'last_sale', 'ageing']) {
+    for (const key of ['unidades_30d', 'markup_30d', 'facturado_30d', 'last_sale', 'ageing']) {
       expect(cellUnder(key, ITEMS[1].item_id)).toHaveTextContent('—');
     }
   });
@@ -578,7 +611,8 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     for (const params of calls()) {
       expect(params).not.toHaveProperty('markup_neg');
       expect(params).not.toHaveProperty('markup_min');
-      expect(params).not.toHaveProperty('orden');
+      // The markup sort is dropped: the list asks for its default (Facturado 30D, the user sees the sales).
+      expect(params.orden).toBe('facturado_30d');
     }
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
     expect(screen.queryByRole('checkbox', { name: 'Markup actual' })).not.toBeInTheDocument();

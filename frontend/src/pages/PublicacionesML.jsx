@@ -11,16 +11,18 @@ import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStr
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
-import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
+import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
   AGRUPAR_DIMENSIONS,
+  DEFAULT_DIRECTION,
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
   buildItemsParams,
   buildKpiParams,
+  effectiveSort,
   hasMarkupFilter,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
@@ -168,11 +170,12 @@ export default function PublicacionesML() {
   const facetsFor = useRef(null);
 
   // What `/items` is asked with. The selection and the tab are not part of it: choosing a row asks for nothing.
-  // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts.
+  // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts; nor is it
+  // sorted, so its one-row facets request never asks for a Métricas sort (a ranking of the whole set).
   const requestKey = JSON.stringify(
     agrupado
       ? { ...buildItemsParams(filters, 1, { canSeeMargin: false }), offset: 0 }
-      : buildItemsParams(filters, pageSize, { canSeeMargin }),
+      : buildItemsParams(filters, pageSize, { canSeeMargin, canSeeSales }),
   );
 
   useEffect(() => {
@@ -237,10 +240,9 @@ export default function PublicacionesML() {
   });
   const visibleColumns = columns.filter((column) => columnVisibility[column.key] !== false);
 
-  // A shared link may carry the markup sort; without the permission it is the default one.
-  const requestedSort = filters.orden === 'markup' && !canSeeMargin ? '' : filters.orden;
-  const sortKey = requestedSort || DEFAULT_SORT;
-  const sort = { key: sortKey, dir: (requestedSort && filters.dir) || DEFAULT_DIRECTION[sortKey] || 'desc' };
+  // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
+  // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
+  const sort = effectiveSort(filters, { canSeeSales, canSeeMargin });
   const closePanel = () => setFilters({ sel: '', tab: '' });
   const changeTab = (tab) => setFilters({ tab });
   const handleSort = (key) => {
