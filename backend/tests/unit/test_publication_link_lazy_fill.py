@@ -17,9 +17,8 @@ Spec coverage:
           simply absent from the payload.
   REQ-4 — an mla the proxy returned nothing for is skipped entirely: no
           crash, existing row (if any) untouched, no partial wipe.
-  REQ-5 — `get_stale_or_missing_mlas` returns mlas with no row or a row
-          older than the freshness window; freshly-fetched rows are
-          excluded.
+  (The staleness helper and `lazy_fill_links` were removed: the tree request
+  converges from the ML publications store, see test_productos_tree_store_source.)
 """
 
 from __future__ import annotations
@@ -155,23 +154,3 @@ class TestSyncPublicationLinks:
 
         assert updated == 0
         mock_batch.assert_not_called()
-
-
-class TestGetStaleOrMissingMlas:
-    def test_missing_mla_is_stale(self, db) -> None:
-        result = svc.get_stale_or_missing_mlas(db, ["MLA_NEW"])
-        assert result == ["MLA_NEW"]
-
-    def test_old_row_is_stale(self, db) -> None:
-        old = datetime.now(timezone.utc) - (svc.FRESHNESS_WINDOW + timedelta(hours=1))
-        db.add(MlPublicationLink(mla="MLA_OLD", item_id=1, fetched_at=old))
-        db.commit()
-
-        assert svc.get_stale_or_missing_mlas(db, ["MLA_OLD"]) == ["MLA_OLD"]
-
-    def test_fresh_row_is_excluded(self, db) -> None:
-        fresh = datetime.now(timezone.utc) - timedelta(minutes=5)
-        db.add(MlPublicationLink(mla="MLA_FRESH", item_id=1, fetched_at=fresh))
-        db.commit()
-
-        assert svc.get_stale_or_missing_mlas(db, ["MLA_FRESH"]) == []

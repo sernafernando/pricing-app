@@ -1,111 +1,40 @@
-"""Publication-link sync/backfill service (productos-catalog-family-tree PR1b).
+"""Publication-link service (productos-catalog-family-tree PR1b, reworked for the store).
 
-Fetches the FULL ML item (via `MLWebhookClient.get_items_full_batch`,
-`/render`) for a set of MLAs and persists the link fields into
-`ml_publication_links` (scalar snapshot, UPSERT by `mla`) plus the item's
-`item_relations` into `ml_item_relations` (a full REPLACE per refresh — an
-mla's item_relations is a complete set each time ML reports it, not an
-accumulating log, so stale edges must be deleted before the fresh set is
-inserted).
+Owns `ml_publication_links` (scalar snapshot, one row per `mla`) and
+`ml_item_relations` (the item's `item_relations` edges, a full REPLACE per
+refresh: an mla's relations are a complete set each time, not an accumulating
+log, so stale edges must be deleted before the fresh set is inserted).
 
-Used by two callers (both outside this module's scope for PR1b):
-  - Lazy-fill: PR2's tree endpoint calls `sync_publication_links` for a
-    product's MLAs when the tree is expanded, filling missing/stale rows
-    on demand.
-  - Cron sweep: `app/scripts/sync_publication_links.py` calls this on a
-    slow cadence to keep already-filled rows fresh.
+Two writers:
+  - `sync_links_from_store` (the tree request): converges both tables to the
+    ML publications store (`ml_items`), which ingests every publication
+    continuously. LOCAL database reads only -- the tree request makes NO
+    ml-webhook call. The old per-request `lazy_fill_links` was removed because
+    it rendered one `get_item_full` per stale MLA sequentially (25-30 s on the
+    first open of a 50-MLA product) and nothing else needed it.
+  - `sync_publication_links` (cron sweep, `app/scripts/sync_publication_links.py`):
+    fetches the full item through the proxy, kept for MLAs the store does not
+    have yet.
 
-Graceful degradation: `get_items_full_batch` never raises and simply
-omits any MLA the proxy couldn't serve — this service mirrors that by
-skipping such MLAs entirely (no crash, no partial wipe of existing data).
-
-DB-safety: this module's public functions expect an ALREADY-OPEN
-`Session` and do the HTTP fetch (`get_items_full_batch`) BEFORE any DB
-writes here — callers that batch across many MLAs (the cron sweep) must
-keep the HTTP round-trip outside any DB session per this repo's
-pool-exhaustion lesson (see `app/scripts/drain_promo_refresh.py`); this
-service itself performs only the (fast) DB upsert step.
+DB-safety: the public functions expect an ALREADY-OPEN `Session`; the proxy
+fetch in `sync_publication_links` happens BEFORE any DB write here.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_background_db
 from app.models.ml_item_relation import MlItemRelation
 from app.models.ml_publication_link import MlPublicationLink
+from app.models.ml_publications import MlItem
 from app.services.ml_webhook_client import ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
 
 logger = logging.getLogger(__name__)
-
-# How long a fetched row is considered fresh before it's due for refresh.
-# Hybrid backfill design: lazy-fill on view + this cadence for the cron sweep.
-FRESHNESS_WINDOW = timedelta(hours=6)
-
-# Constant advisory-lock key1 for the per-item_id lazy-fill lock (combined
-# with item_id as key2 via the two-arg `pg_try_advisory_lock(key1, key2)`
-# form). Distinct from drain_promo_refresh's (84_217_001) and
-# sync_publication_links.py's (84_217_002) constants so the three never
-# collide.
-_LAZY_FILL_LOCK_KEY1 = 84_217_003
-
-
-def _try_acquire_item_lock(db: Session, item_id: int) -> bool:
-    """Session-level Postgres advisory lock scoped to `item_id` so two
-    concurrent requests for the SAME product can't both hit the ml-webhook
-    proxy at once. Released automatically when the session closes."""
-    return bool(
-        db.execute(
-            text("SELECT pg_try_advisory_lock(:key1, :key2)"),
-            {"key1": _LAZY_FILL_LOCK_KEY1, "key2": item_id},
-        ).scalar()
-    )
-
-
-def get_stale_or_missing_mlas(db: Session, mlas: List[str]) -> List[str]:
-    """Returns the subset of `mlas` that have no `ml_publication_links` row
-    yet, or whose row is older than `FRESHNESS_WINDOW`.
-
-    Args:
-        db: Open SQLAlchemy session.
-        mlas: Candidate MLA ids to check.
-
-    Returns:
-        The subset needing a (re)fetch, in the same relative order as
-        `mlas`. Empty input -> empty output.
-    """
-    if not mlas:
-        return []
-
-    now = datetime.now(timezone.utc)
-    threshold = now - FRESHNESS_WINDOW
-
-    existing_rows = db.query(MlPublicationLink).filter(MlPublicationLink.mla.in_(mlas)).all()
-    fetched_at_by_mla: Dict[str, datetime] = {}
-    for row in existing_rows:
-        fetched_at_by_mla[row.mla] = row.fetched_at
-
-    stale_or_missing: List[str] = []
-    for mla in mlas:
-        fetched_at = fetched_at_by_mla.get(mla)
-        if fetched_at is None:
-            stale_or_missing.append(mla)
-            continue
-
-        # sqlite (tests) strips tzinfo on round-trip; Postgres (prod) keeps it.
-        if fetched_at.tzinfo is None:
-            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-
-        if fetched_at < threshold:
-            stale_or_missing.append(mla)
-
-    return stale_or_missing
 
 
 def sync_publication_links(db: Session, mlas: List[str], item_id: int) -> int:
@@ -185,70 +114,105 @@ def replace_relations(db: Session, mla: str, item_relations: List[Dict]) -> None
         )
 
 
-def lazy_fill_links(mla_ids: List[str], item_id: int) -> None:
-    """Pool-safe lazy-fill for a single product's MLAs, called by the tree
-    endpoint on view. NEVER uses the request's `get_db` session and NEVER
-    raises (fail-open) — mirrors `drain_promo_refresh.py` /
-    `sync_publication_links.py`'s decoupled-session shape so the slow
-    ml-webhook HTTP round-trip never pins a pooled request connection (this
-    repo's PR #811 pool-exhaustion incident).
+_LinkFields = Tuple[Optional[str], Optional[str], Optional[str], bool, Optional[str]]
+_Edge = Tuple[str, Optional[int], Optional[str]]
 
-    Mechanism:
-      1. A per-`item_id` advisory lock is acquired FIRST, on a short-lived
-         `get_background_db()` session; if another request already holds
-         it (concurrent lazy-fill for the same product), this call skips
-         entirely — no stale-read, no HTTP (also avoids double-hitting the
-         proxy for the same product).
-      2. The stale/missing MLAs are read on that SAME session (fast query,
-         no HTTP yet).
-      3. The HTTP fetch (`get_items_full_batch`) runs with NO db session
-         open — the lock session is held (idle) across the round-trip, but
-         it issues no query during that window, matching the sweep
-         script's DB-safety shape.
-      4. Each fetched mla is persisted in its OWN short-lived
-         `get_background_db()` session, so one poison mla's DB error can't
-         hold a connection open or abort the rest.
 
-    Args:
-        mla_ids: This product's MLA ids (all of them — staleness is
-            checked internally).
-        item_id: The ERP product id, used both as the lock's key2 and the
-            `item_id` stored on each persisted link row.
+def _text_or_none(value) -> Optional[str]:
+    return None if value is None else str(value)
+
+
+def _store_edges(item_relations) -> List[_Edge]:
+    """`(related_mla, stock_relation, variation_id)` in ML's order, deduped by related_mla --
+    the same normalisation `replace_relations` applies on write."""
+    edges: List[_Edge] = []
+    seen: set = set()
+    for relation in item_relations if isinstance(item_relations, list) else []:
+        related_mla = relation.get("id") if isinstance(relation, dict) else None
+        if not related_mla or related_mla in seen:
+            continue
+        seen.add(related_mla)
+        edges.append((related_mla, relation.get("stock_relation"), _text_or_none(relation.get("variation_id"))))
+    return edges
+
+
+def sync_links_from_store(db: Session, mlas: List[str], item_id: int) -> int:
+    """Converges `ml_publication_links` + `ml_item_relations` to the ML publications store.
+
+    The tree reads those two tables; the store (`ml_items`) is their source of truth now:
+    `family_id`, `user_product_id`, `inventory_id`, `catalog_listing` and `catalog_product_id`
+    are typed columns, `item_relations` lives in the raw body. No ml-webhook call.
+
+    Only MLAs with a stored body (`raw` and `fetched_at` set) are touched; a closed or gone item
+    keeps its last body, so it still renders. An MLA the store has never fetched keeps whatever
+    link rows it already has (fallback), or none (plain leaf) -- never an inline fetch. Rows are
+    written only when they differ, so the steady state is two SELECTs and zero writes.
+
+    Fail-open like the lazy-fill it replaces: any error is logged, the session rolled back, and
+    0 returned -- the tree degrades to whatever is already persisted.
+
+    Returns:
+        Number of MLAs whose link row or edge set was written.
     """
-    if not mla_ids:
-        return
-
+    if not mlas:
+        return 0
     try:
-        with get_background_db() as lock_db:
-            if not _try_acquire_item_lock(lock_db, item_id):
-                logger.info("lazy_fill_links: another request already filling item_id=%s — skipping", item_id)
-                return
+        store = {
+            row.item_id: row
+            for row in db.query(
+                MlItem.item_id,
+                MlItem.family_id,
+                MlItem.user_product_id,
+                MlItem.inventory_id,
+                MlItem.catalog_listing,
+                MlItem.catalog_product_id,
+                MlItem.raw["item_relations"].label("item_relations"),
+            ).filter(MlItem.item_id.in_(mlas), MlItem.raw.isnot(None), MlItem.fetched_at.isnot(None))
+        }
+        if not store:
+            return 0
 
-            stale_mlas = get_stale_or_missing_mlas(lock_db, mla_ids)
-            if not stale_mlas:
-                return
+        links = {r.mla: r for r in db.query(MlPublicationLink).filter(MlPublicationLink.mla.in_(list(store)))}
+        current_edges: Dict[str, List[_Edge]] = {}
+        for edge in (
+            db.query(MlItemRelation).filter(MlItemRelation.mla.in_(list(store))).order_by(MlItemRelation.id).all()
+        ):
+            current_edges.setdefault(edge.mla, []).append((edge.related_mla, edge.stock_relation, edge.variation_id))
 
-            # HTTP fetch happens here, with NO query in flight on lock_db —
-            # it only holds the (idle) advisory lock across the round-trip.
-            fetched = resolve_maybe_async(ml_webhook_client.get_items_full_batch(stale_mlas))
-            if not fetched:
-                return
-
-            now = datetime.now(timezone.utc)
-            for mla, item_data in fetched.items():
-                try:
-                    with get_background_db() as write_db:
-                        upsert_link(write_db, mla, item_data, item_id, now)
-                        replace_relations(write_db, mla, item_data.get("item_relations") or [])
-                        write_db.commit()
-                except Exception:
-                    # Per-item isolation: one poison mla must never abort
-                    # the batch or the request that triggered this fill.
-                    logger.error(
-                        "lazy_fill_links: unhandled error persisting mla=%s (item_id=%s)",
-                        mla,
-                        item_id,
-                        exc_info=True,
-                    )
-    except Exception as exc:  # noqa: BLE001 — fail-open: any lazy-fill error must degrade, never surface to the request
-        logger.warning("lazy_fill_links: lazy-fill unavailable for item_id=%s: %s", item_id, exc)
+        now = datetime.now(timezone.utc)
+        written = 0
+        for mla, row in store.items():
+            fields = {
+                "family_id": _text_or_none(row.family_id),
+                "user_product_id": row.user_product_id,
+                "inventory_id": row.inventory_id,
+                "catalog_listing": bool(row.catalog_listing),
+                "catalog_product_id": row.catalog_product_id,
+            }
+            link = links.get(mla)
+            link_differs = (
+                link is None
+                or link.item_id != item_id
+                or any(getattr(link, column) != value for column, value in fields.items())
+            )
+            edges = _store_edges(row.item_relations)
+            edges_differ = current_edges.get(mla, []) != edges
+            if not (link_differs or edges_differ):
+                continue
+            if link_differs:
+                upsert_link(db, mla, fields, item_id, now)
+            if edges_differ:
+                replace_relations(
+                    db, mla, [{"id": rel, "stock_relation": stock, "variation_id": var} for rel, stock, var in edges]
+                )
+            written += 1
+        if written:
+            db.commit()
+        return written
+    except Exception as exc:  # noqa: BLE001 -- fail-open: a convergence error must degrade the tree, never fail it
+        logger.warning("sync_links_from_store: unavailable for item_id=%s: %s", item_id, exc)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return 0

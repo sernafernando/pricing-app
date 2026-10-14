@@ -106,7 +106,7 @@ def _run_tree(**kwargs):
         SimpleNamespace(mla="MLA_B"),
     ]
     with (
-        patch("app.api.endpoints.productos_detail.lazy_fill_links"),
+        patch("app.api.endpoints.productos_detail.sync_links_from_store"),
         patch("app.api.endpoints.productos_detail.fetch_promo_node_summary_by_mla", return_value={}),
         patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
     ):
