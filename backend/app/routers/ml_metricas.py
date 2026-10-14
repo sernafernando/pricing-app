@@ -38,10 +38,10 @@ from app.services.ml_daily_metrics.kpi_strip import (
     MAX_BOARD_DATE,
     MAX_PERIOD_DAYS,
     MIN_BOARD_DATE,
-    BoardKpis,
+    BoardKpisWithAds,
     BoardPeriod,
     KpiAgeing,  # noqa: F401 -- part of this router's public surface (its tests import it from here)
-    build_kpis,
+    build_board_kpis,
     round_money,
     round_pp,
 )
@@ -155,7 +155,7 @@ class BoardResponse(BaseModel):
     offset: int
     can_see_margin: bool
     refreshed_at: Optional[datetime] = None
-    kpis: BoardKpis
+    kpis: BoardKpisWithAds
     facets: BoardFacets
     rows: List[BoardRow]
 
@@ -434,7 +434,7 @@ def build_board_response(
         offset=offset,
         can_see_margin=can_see_margin,
         refreshed_at=board.refreshed_at(db),
-        kpis=build_kpis(kpis, can_see_margin),
+        kpis=build_board_kpis(kpis, can_see_margin),
         facets=_facets(facets, can_see_margin),
         rows=[_row_out(row, can_see_margin, group_view=grouped) for row in rows],
     )

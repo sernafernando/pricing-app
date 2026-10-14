@@ -67,6 +67,28 @@ class KpiAgeing(BaseModel):
     over_60: int
 
 
+class KpiAds(BaseModel):
+    """Product Ads of the KPI rows (only with `restar_publicidad` and `ver_ganancia`). Informational context:
+    the ratios use the API cost basis and are never linked to specific sales; `cost_total` is the net-of-IVA
+    amount already subtracted from `total_gauss` and `markup`. A zero denominator gives null."""
+
+    cost_total: float
+    cost_api: float
+    impressions: int
+    clicks: int
+    direct_amount: float
+    indirect_amount: float
+    direct_units: int
+    indirect_units: int
+    organic_units: int
+    organic_amount: float
+    acos_pct: Optional[float] = None
+    roas: Optional[float] = None
+    tacos_pct: Optional[float] = None
+    cpc: Optional[float] = None
+    ctr_pct: Optional[float] = None
+
+
 class BoardKpis(BaseModel):
     units: KpiUnits
     gross: KpiMoney
@@ -76,6 +98,13 @@ class BoardKpis(BaseModel):
     # when the board is grouped by publication.
     rows_with_sales: KpiShare
     ageing: KpiAgeing
+
+
+class BoardKpisWithAds(BoardKpis):
+    """The Métricas board's strip: the shared one plus the ads block (null with the toggle OFF). Publicaciones
+    keeps `BoardKpis`, so its strip never carries the field."""
+
+    ads: Optional[KpiAds] = None
 
 
 def round_money(value) -> Optional[float]:
@@ -90,6 +119,31 @@ def delta_pct(now, before) -> Optional[float]:
     if not before:
         return None
     return round((float(now) - float(before)) / float(before) * 100, 1)
+
+
+def _ratio(numerator, denominator, scale: int = 1) -> Optional[float]:
+    return round(float(numerator) * scale / float(denominator), 2) if denominator else None
+
+
+def _kpi_ads(a: board.AdsKpis, gross) -> KpiAds:
+    attributed = a.direct_amount + a.indirect_amount
+    return KpiAds(
+        cost_total=round_money(a.cost_total),
+        cost_api=round_money(a.cost_api),
+        impressions=a.prints,
+        clicks=a.clicks,
+        direct_amount=round_money(a.direct_amount),
+        indirect_amount=round_money(a.indirect_amount),
+        direct_units=a.direct_units,
+        indirect_units=a.indirect_units,
+        organic_units=a.organic_units,
+        organic_amount=round_money(a.organic_amount),
+        acos_pct=_ratio(a.cost_api, attributed, 100),
+        roas=_ratio(attributed, a.cost_api),
+        tacos_pct=_ratio(a.cost_api, gross, 100),
+        cpc=_ratio(a.cost_api, a.clicks),
+        ctr_pct=_ratio(a.clicks, a.prints, 100),
+    )
 
 
 def build_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
@@ -130,3 +184,9 @@ def build_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
             over_60=k.over_60,
         ),
     )
+
+
+def build_board_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpisWithAds:
+    """`build_kpis` plus the ads block: present only with the toggle ON and the profit-view permission."""
+    ads = _kpi_ads(k.ads, k.gross) if can_see_margin and k.ads is not None else None
+    return BoardKpisWithAds(**build_kpis(k, can_see_margin).model_dump(), ads=ads)

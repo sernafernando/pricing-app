@@ -133,7 +133,8 @@ def _board_response(session, name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
     data = response.model_dump()
     return {
         "meta": {k: v for k, v in data.items() if k not in ("kpis", "facets", "rows")},
-        "kpis": data["kpis"],
+        # The additive `kpis.ads` (null with the toggle OFF) is not part of what these digests pin.
+        "kpis": {k: v for k, v in data["kpis"].items() if k != "ads" or v is not None},
         "facets": data["facets"],
         "rows": data["rows"],
     }
