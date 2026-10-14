@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock, PauseCircle, RefreshCw, XCircle } from 'lucide-react';
+import { CheckCircle2, CircleHelp, Clock, PauseCircle, RefreshCw, XCircle } from 'lucide-react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import CatalogCompetitionPanel from './CatalogCompetitionPanel';
 import PxqPanel from './PxqPanel';
 import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
 import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
+import { publicationStatusInfo, subStatusTitle } from '../publicacionesMl/publicationStatus';
 import { useTiendasOficiales } from '../../hooks/useTiendasOficiales';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -38,19 +39,25 @@ const KIND_BADGE_CLASS = {
   publicacion: styles.badgeKindPublicacion,
 };
 
-// Per-MLA publication status badge (restores the old flat MLA panel's status
-// pill). The wording matches `ModalInfoProducto.jsx` so both views read the
-// same for the same `publication_status`, but the glyph is a `lucide-react`
-// icon instead of that legacy component's emoji (AGENTS.md: no emoji as
-// icons), and the color comes from semantic tokens instead of hardcoded
-// hexes. A status outside this map (e.g. the backend's `status_{id}` fallback
-// for an unmapped ERP id) renders nothing — no empty pill in a dense tree.
-const STATUS_BADGES = {
-  active: { label: 'Activa', Icon: CheckCircle2, className: styles.badgeStatusActive },
-  paused: { label: 'Pausada', Icon: PauseCircle, className: styles.badgeStatusPaused },
-  closed: { label: 'Cerrada', Icon: XCircle, className: styles.badgeStatusClosed },
-  under_review: { label: 'En revisión', Icon: Clock, className: styles.badgeStatusUnderReview },
+// Per-MLA publication status badge. Status comes from the ML publications
+// store (`ml_items.status`, the same field the promotions panel's banner
+// reads), labelled by the shared Publicaciones ML map so every view reads the
+// same. The glyph is a `lucide-react` icon (AGENTS.md: no emoji as icons) and
+// the color comes from semantic tokens, both picked by the label's tone.
+const STATUS_BADGE_BY_TONE = {
+  success: { Icon: CheckCircle2, className: styles.badgeStatusActive },
+  warning: { Icon: PauseCircle, className: styles.badgeStatusPaused },
+  danger: { Icon: XCircle, className: styles.badgeStatusClosed },
+  info: { Icon: Clock, className: styles.badgeStatusUnderReview },
+  neutral: { Icon: CircleHelp, className: styles.badgeReadonly },
 };
+
+function statusBadgeFor(node) {
+  const info = publicationStatusInfo(node.publication_status);
+  if (!info) return null;
+  const { Icon, className } = STATUS_BADGE_BY_TONE[info.tone] || STATUS_BADGE_BY_TONE.neutral;
+  return { label: info.label, Icon, className, title: subStatusTitle(node.publication_sub_status) };
+}
 
 // Subtle per-kind row tint (design's requested "group band" read) — one level
 // down in weight from the badge hues above, so the row reads as a group
@@ -225,10 +232,11 @@ function TreeNode({
     ? node.lista_nombre || (node.pricelist_id != null ? getPublicationTypeLabel(node.pricelist_id) : null)
     : null;
 
-  // Publication status badge (restores the old flat panel's per-MLA status)
-  // — grouping nodes never carry one, and an absent/unknown status renders
-  // nothing (fail-open, same treatment as the lista badge above).
-  const statusBadge = bearsMla ? STATUS_BADGES[node.publication_status] : null;
+  // Publication status badge (from `ml_items.status`) — grouping nodes never
+  // carry one; an absent status (the store read failed) renders nothing, an
+  // MLA the store has no row for says "Sin datos de ML", and an unknown ML
+  // status is shown verbatim.
+  const statusBadge = bearsMla ? statusBadgeFor(node) : null;
 
   // Official store badge (promos-catalog-prices-and-official-store, slice A)
   // — grouping nodes never carry one. NULL/unknown store still renders an
@@ -286,7 +294,7 @@ function TreeNode({
             <span className={styles.treeNodeLabel}>{displayLabel}</span>
             {listaLabel && <span className={`${styles.badge} ${styles.badgeReadonly}`}>{listaLabel}</span>}
             {statusBadge && (
-              <span className={`${styles.badge} ${statusBadge.className}`}>
+              <span className={`${styles.badge} ${statusBadge.className}`} title={statusBadge.title}>
                 <statusBadge.Icon size={12} aria-hidden="true" />
                 {statusBadge.label}
               </span>

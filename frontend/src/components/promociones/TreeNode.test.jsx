@@ -587,7 +587,7 @@ describe('TreeNode price-list badge (restores old flat panel lista_nombre)', () 
   });
 });
 
-describe('TreeNode publication status badge (restores old flat panel publication_status)', () => {
+describe('TreeNode publication status badge (from ml_items.status)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTienePermiso.mockReturnValue(true);
@@ -612,29 +612,45 @@ describe('TreeNode publication status badge (restores old flat panel publication
     expect(screen.getByText(/pausada/i)).toBeInTheDocument();
   });
 
-  it('uses the same labels as ModalInfoProducto for every known status', () => {
+  it('uses the shared Publicaciones ML labels for every ml_items status', () => {
     const cases = [
-      ['active', /activa/i],
-      ['closed', /cerrada/i],
-      ['under_review', /en revisión/i],
+      ['active', 'Activa'],
+      ['closed', 'Cerrada'],
+      ['under_review', 'En revisión'],
+      ['inactive', 'Inactiva'],
+      ['gone', 'Eliminada'],
+      ['never_existed', 'No existe en ML'],
     ];
-    cases.forEach(([status, matcher]) => {
+    cases.forEach(([status, label]) => {
       const { unmount } = renderNode(buildStatusNode(status));
-      expect(screen.getByText(matcher)).toBeInTheDocument();
+      expect(screen.getByText(label)).toBeInTheDocument();
       unmount();
     });
   });
 
-  it('renders no status badge when publication_status is absent', () => {
-    renderNode(buildStatusNode(undefined));
+  it('says "Sin datos de ML" (never "Activa") when ml_items has no row for the MLA', () => {
+    renderNode(buildStatusNode('no_ml_data'));
 
-    expect(screen.queryByText(/activa|pausada|cerrada|en revisión/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Sin datos de ML')).toBeInTheDocument();
+    expect(screen.queryByText('Activa')).not.toBeInTheDocument();
   });
 
-  it('renders no status badge for an unknown status (backend status_{id} fallback)', () => {
-    renderNode(buildStatusNode('status_999'));
+  it('shows the ML sub_status reasons as the chip tooltip', () => {
+    renderNode({ ...buildStatusNode('paused'), publication_sub_status: ['paused_by_seller'] });
 
-    expect(screen.queryByText(/status_999/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Pausada').closest('span')).toHaveAttribute('title', 'paused_by_seller');
+  });
+
+  it('renders no status badge when publication_status is absent (store read failed)', () => {
+    renderNode(buildStatusNode(undefined));
+
+    expect(screen.queryByText(/activa|pausada|cerrada|en revisión|sin datos de ml/i)).not.toBeInTheDocument();
+  });
+
+  it('shows an unknown ML status verbatim instead of hiding it', () => {
+    renderNode(buildStatusNode('payment_required'));
+
+    expect(screen.getByText('payment_required')).toBeInTheDocument();
   });
 
   it('never renders a status badge on a familia grouping node', () => {
