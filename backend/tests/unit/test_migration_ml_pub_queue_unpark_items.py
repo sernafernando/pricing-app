@@ -95,7 +95,8 @@ class TestMigrationData:
                 module.upgrade()  # idempotent
                 assert _state(conn) == after
 
-        for entity_id, lane in (("MLA1", 1), ("MLA2", 1), ("MLA3", 0)):
+        # Backlog lane (3) so 8.5k recoveries never delay live notifications; a manual entry keeps lane 0.
+        for entity_id, lane in (("MLA1", 3), ("MLA2", 3), ("MLA3", 0)):
             assert after[entity_id] == {
                 "entity_id": entity_id,
                 "resources": ["bundle"],

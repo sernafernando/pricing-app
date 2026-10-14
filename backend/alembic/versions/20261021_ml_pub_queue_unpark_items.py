@@ -12,7 +12,8 @@ The parsers now store those answers as states and a `core`/`bundle` trigger supe
 (`queue.CORE_TRIGGERS`); this revision puts the entries already parked back in circulation once.
 
 Every parked, unclaimed `item` entry becomes a fresh `bundle` refresh (the item core plus the enabled
-sub-resources, each subject to its minimum age), with no attempts, due now, on the notification lane at worst.
+sub-resources, each subject to its minimum age), with no attempts, due now, on the backfill lane (3) so the
+backlog never delays live notifications (a manual entry keeps lane 0; a later notification lifts it to 1).
 Idempotent: a rerun only touches entries parked again since. Downgrade is a no-op: re-parking entries would
 freeze the items again, and which ones were parked is still in `last_error`.
 """
@@ -32,7 +33,7 @@ UNPARK_SQL = """
         attempts = 0,
         resources = ARRAY['bundle']::text[],
         not_before = now(),
-        lane = LEAST(lane, 1),
+        lane = CASE WHEN lane = 0 THEN 0 ELSE 3 END,
         version = version + 1
     WHERE kind = 'item' AND parked_at IS NOT NULL AND claimed_at IS NULL
 """
