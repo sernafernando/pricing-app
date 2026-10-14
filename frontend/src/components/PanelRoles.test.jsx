@@ -99,6 +99,7 @@ describe('PanelRoles create role', () => {
     });
     expect(await screen.findByText('Rol creado correctamente')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Nuevo Rol' })).not.toBeInTheDocument();
+    expect(queryDrawer()).not.toBeInTheDocument();
     await waitFor(() => expect(cargasDeRoles()).toBe(2));
   });
 
@@ -115,6 +116,8 @@ describe('PanelRoles create role', () => {
 
     expect(screen.getByRole('button', { name: 'Guardando...' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Crear' })).not.toBeInTheDocument();
+    // Cancelar would unmount the drawer while the POST is pending.
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
 
     await act(async () => resolver({ data: {} }));
 
@@ -217,6 +220,8 @@ describe('PanelRoles edit role', () => {
 
     expect(screen.getByRole('button', { name: 'Guardando...' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Actualizar' })).not.toBeInTheDocument();
+    // Cancelar would discard the form before the PATCH resolves (nothing left to retry from).
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
 
     await act(async () => resolver({ data: {} }));
 
@@ -392,6 +397,7 @@ describe('PanelRoles clone role', () => {
     });
     expect(await screen.findByText('Rol clonado correctamente')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Clonar Rol: Ventas' })).not.toBeInTheDocument();
+    expect(drawer('Ventas')).toBeInTheDocument();
     await waitFor(() => expect(cargasDeRoles()).toBe(2));
   });
 
@@ -894,6 +900,22 @@ describe('PanelRoles role drawer', () => {
     expect(queryDrawer()).not.toBeInTheDocument();
 
     await abrirRol(user, 'Ventas');
+    await user.keyboard('{Escape}');
+    expect(queryDrawer()).not.toBeInTheDocument();
+  });
+
+  it('closes on Escape only when it comes from inside the drawer, not from the matrix search', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    await user.type(screen.getByPlaceholderText('Nombre'), 'Compras');
+    await user.click(screen.getByPlaceholderText(/Buscá un permiso/));
+    await user.keyboard('{Escape}');
+    expect(drawer('Nuevo Rol')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Nombre')).toHaveValue('Compras');
+
+    await user.click(screen.getByPlaceholderText('Nombre'));
     await user.keyboard('{Escape}');
     expect(queryDrawer()).not.toBeInTheDocument();
   });

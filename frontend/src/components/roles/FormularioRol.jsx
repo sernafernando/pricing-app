@@ -5,6 +5,7 @@ import styles from './FormularioRol.module.css';
  * drawer, whose title says "Nuevo Rol" / "Editar Rol". Controlled: the parent
  * owns `form` and the API calls. In edit mode the codigo is locked. `bloqueado`
  * disables the submit while another save (the permissions matrix) is in flight.
+ * While `guardando`, Cancelar is disabled too, so the form cannot vanish mid-request.
  */
 export default function FormularioRol({ form, onChange, esEdicion, guardando, bloqueado = false, onGuardar, onCancelar }) {
   return (
@@ -41,6 +42,7 @@ export default function FormularioRol({ form, onChange, esEdicion, guardando, bl
         </button>
         <button
           onClick={onCancelar}
+          disabled={guardando}
           className="btn-tesla outline-subtle-danger"
         >
           Cancelar
