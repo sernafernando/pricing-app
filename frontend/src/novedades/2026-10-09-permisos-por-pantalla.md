@@ -57,3 +57,14 @@ Arriba de la lista hay un selector **Por pantalla | Por permiso**. **Por pantall
 - Los botones **Conceder**, **Quitar** y **Resetear** funcionan igual que en la vista por pantalla.
 - El buscador filtra por código o nombre del permiso (no importan las mayúsculas ni los acentos).
 - La vista elegida se mantiene al pasar de un usuario a otro.
+
+## Roles en una matriz
+
+La pestaña **Roles** ahora muestra todos los permisos de todos los roles en una sola **matriz**: cada fila es un permiso (agrupado por categoría) y cada columna es un rol. Ya no hace falta abrir rol por rol para comparar.
+
+- Arriba quedan las tarjetas de los roles con **+ Nuevo Rol**, **Editar** y **X** (eliminar, con confirmación), como antes. **Clonar** ahora está en la tarjeta de cada rol: ya no hace falta seleccionarlo primero.
+- Marcá o desmarcá una casilla para dar o sacar un permiso a un rol. La casilla queda **resaltada** como cambio pendiente; si la volvés a tocar, vuelve a como estaba y deja de estar pendiente.
+- Mientras haya cambios sin guardar, abajo aparece una barra con **N cambios pendientes** y los botones **Descartar** (vuelve todo atrás) y **Guardar**.
+- **Guardar** guarda solo los roles que cambiaste. Si algo falla, se muestra el error y los cambios de ese rol siguen pendientes para reintentar.
+- La columna **SUPERADMIN** es de solo lectura: tiene todos los permisos siempre.
+- El buscador filtra los permisos por código o nombre (no importan las mayúsculas ni los acentos).
