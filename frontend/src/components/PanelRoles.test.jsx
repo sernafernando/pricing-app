@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import api from '../services/api';
 import PanelRoles from './PanelRoles';
@@ -21,6 +21,14 @@ const CATALOGO = {
 };
 
 const errorConDetalle = (detail) => Object.assign(new Error('Request failed'), { response: { data: { detail } } });
+
+const diferido = () => {
+  let resolver;
+  const promesa = new Promise((resolve) => {
+    resolver = resolve;
+  });
+  return { promesa, resolver };
+};
 
 const cargasDeRoles = () => api.get.mock.calls.filter(([url]) => url === '/roles').length;
 
@@ -69,6 +77,27 @@ describe('PanelRoles create role', () => {
     expect(await screen.findByText('Rol creado correctamente')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Nuevo Rol' })).not.toBeInTheDocument();
     await waitFor(() => expect(cargasDeRoles()).toBe(2));
+  });
+
+  it('disables the button and shows Guardando... while the create is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.post.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    await user.type(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)'), 'COMPRAS');
+    await user.type(screen.getByPlaceholderText('Nombre'), 'Compras');
+    await user.click(screen.getByRole('button', { name: 'Crear' }));
+
+    expect(screen.getByRole('button', { name: 'Guardando...' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Crear' })).not.toBeInTheDocument();
+
+    await act(async () => resolver({ data: {} }));
+
+    expect(await screen.findByText('Rol creado correctamente')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    expect(screen.getByRole('button', { name: 'Crear' })).toBeEnabled();
   });
 
   it('requires code and name before posting', async () => {
@@ -135,6 +164,25 @@ describe('PanelRoles edit role', () => {
     expect(api.patch).toHaveBeenCalledWith('/roles/3', { nombre: 'Ventas mostrador', descripcion: '', orden: 2 });
     expect(await screen.findByText('Rol actualizado correctamente')).toBeInTheDocument();
     await waitFor(() => expect(cargasDeRoles()).toBe(2));
+  });
+
+  it('disables the button and shows Guardando... while the update is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.patch.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+
+    expect(screen.getByRole('button', { name: 'Guardando...' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Actualizar' })).not.toBeInTheDocument();
+
+    await act(async () => resolver({ data: {} }));
+
+    expect(await screen.findByText('Rol actualizado correctamente')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    expect(screen.getByRole('button', { name: 'Actualizar' })).toBeEnabled();
   });
 
   it('shows the fallback error when the update fails without detail', async () => {
@@ -219,6 +267,26 @@ describe('PanelRoles clone role', () => {
 
     expect(screen.getByText('Codigo y nombre son requeridos')).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('disables the button and shows Clonando... while the clone is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.post.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await abrirClonarVentas(user);
+
+    await user.type(screen.getByPlaceholderText('Codigo del nuevo rol'), 'COPIA');
+    await user.type(screen.getByPlaceholderText('Nombre del nuevo rol'), 'Copia');
+    await user.click(screen.getByRole('button', { name: 'Clonar' }));
+
+    expect(screen.getByRole('button', { name: 'Clonando...' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Clonar' })).not.toBeInTheDocument();
+
+    await act(async () => resolver({ data: {} }));
+
+    expect(await screen.findByText('Rol clonado correctamente')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clonar Rol' }));
+    expect(screen.getByRole('button', { name: 'Clonar' })).toBeEnabled();
   });
 
   it('shows the fallback error and keeps the modal open when the clone fails', async () => {
