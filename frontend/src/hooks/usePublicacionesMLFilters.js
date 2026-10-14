@@ -44,7 +44,8 @@ export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS];
 
 const VISTAS = ['publicacion', 'agrupado'];
 // The dimensions `GET /ml-publications/view/groups` takes, the default first; the picker offers exactly these.
-export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria'];
+// They are Métricas ML's five, in its order (`DIMENSION_OPTIONS`).
+export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria', 'tienda', 'pm'];
 // How the result is shown, not what it is made of: kept by "Limpiar filtros".
 const SHAPE_KEYS = ['vista', 'familias', 'agrupar'];
 const DIRECTIONS = ['asc', 'desc'];

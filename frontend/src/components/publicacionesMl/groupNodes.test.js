@@ -183,4 +183,27 @@ describe('buildLeafParams', () => {
       offset: 100,
     });
   });
+
+  // Under agrupar=pm / agrupar=tienda the backend writes the node's group as `pm_grupo` / concrete `tiendas` ids:
+  // they reach /items exactly as sent, over the user's own `tiendas`.
+  it("passes a pm node's pm_grupo through untouched, '__none__' included", () => {
+    const pmLeaf = { params: { pm_grupo: '7', marcas: 'EPSON', producto: '4101' } };
+    expect(buildLeafParams(filters, pmLeaf, 0)).toMatchObject({ pm_grupo: '7', marcas: 'EPSON', producto: '4101' });
+    const noPm = { params: { pm_grupo: '__none__', sin_producto: 'true' } };
+    expect(buildLeafParams(filters, noPm, 0)).toMatchObject({ pm_grupo: '__none__', sin_producto: 'true' });
+  });
+
+  it("sends a tienda clave node's store ids as tiendas, over the user's", () => {
+    const claveLeaf = { params: { tiendas: '57997,61000', marcas: 'EPSON', producto: '4101' } };
+    expect(buildLeafParams(filters, claveLeaf, 0)).toEqual({
+      q: 'router',
+      estado: 'active',
+      tiendas: '57997,61000',
+      marcas: 'EPSON',
+      producto: '4101',
+      limit: GROUPS_PAGE,
+      offset: 0,
+    });
+    expect(buildLeafParams(filters, { params: { tiendas: 'none', producto: '4101' } }, 0).tiendas).toBe('none');
+  });
 });

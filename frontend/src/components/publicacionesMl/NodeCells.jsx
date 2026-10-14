@@ -1,15 +1,14 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import MarkupCell from './MarkupCell';
 import { describeTreeError } from './groupTree';
+import { LEVEL_LABELS } from '../../utils/metricasMlLevels';
 import styles from './NodeCells.module.css';
 import cellStyles from './cells.module.css';
 
+// The group levels are Métricas ML's (`marca`, `categoria`, `subcategoria`, `subcategoria_categoria`, `tienda`, `pm`),
+// named as Métricas names them; the levels below them are the tree's own.
 const KIND_LABELS = {
-  marca: 'Marca',
-  categoria: 'Categoría',
-  subcategoria: 'Subcategoría',
-  // "<subcategoría> · <categoría>" (the tree grouped by subcategoría): the label already names the categoría.
-  subcategoria_categoria: 'Subcategoría',
+  ...LEVEL_LABELS,
   producto: 'Producto',
   familia: 'Familia',
   item: 'Publicación',

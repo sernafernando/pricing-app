@@ -5,7 +5,14 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { usePublicacionesMLFilters, buildItemsParams, FILTER_KEYS, PAGE_SIZE } from './usePublicacionesMLFilters';
+import {
+  usePublicacionesMLFilters,
+  buildItemsParams,
+  AGRUPAR_DIMENSIONS,
+  FILTER_KEYS,
+  PAGE_SIZE,
+} from './usePublicacionesMLFilters';
+import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
 const setup = (url = '/') => {
   const wrapper = ({ children }) => <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>;
@@ -232,11 +239,17 @@ describe('the tree dimension (`agrupar`)', () => {
   it('reads a dimension the tree is grouped by', () => {
     expect(setup('/?agrupar=categoria').result.current.hook.filters.agrupar).toBe('categoria');
     expect(setup('/?agrupar=subcategoria').result.current.hook.filters.agrupar).toBe('subcategoria');
+    expect(setup('/?agrupar=tienda').result.current.hook.filters.agrupar).toBe('tienda');
+    expect(setup('/?agrupar=pm').result.current.hook.filters.agrupar).toBe('pm');
+  });
+
+  it("offers exactly Métricas ML's dimensions, in Métricas' order", () => {
+    expect(AGRUPAR_DIMENSIONS).toEqual(DIMENSION_OPTIONS.map((option) => option.value));
   });
 
   it('falls back to marca on a dimension the tree is not grouped by', () => {
     expect(setup('/?agrupar=otra').result.current.hook.filters.agrupar).toBe('marca');
-    expect(setup('/?agrupar=pm').result.current.hook.filters.agrupar).toBe('marca');
+    expect(setup('/?agrupar=producto').result.current.hook.filters.agrupar).toBe('marca');
   });
 
   it('is not a filter: never sent to /items, and "Limpiar filtros" keeps it', () => {

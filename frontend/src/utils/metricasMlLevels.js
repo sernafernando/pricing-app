@@ -16,7 +16,7 @@ export const DIMENSION_LEVELS = {
 
 /** The "Agrupado" dimensions: the backend `dimension` value and the name shown
  * on the picker. Shared by Métricas ML and Publicaciones ML (which offers the
- * subset its `/groups` takes). */
+ * ones its `/groups` takes: today all five). */
 export const DIMENSION_OPTIONS = [
   { value: 'marca', label: 'Marca' },
   { value: 'categoria', label: 'Categoría' },
