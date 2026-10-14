@@ -81,6 +81,18 @@ def actualizar_precio(
     return producto
 
 
+def _recalcular_markup_rebate(db: Session, item_id: int, pricing: ProductoPricing):
+    """markup_rebate for `pricing` as it stands now (None when not applicable)."""
+    from app.services.envio_real_service import resolver_costo_envio
+    from app.services.pricing_calculator import calcular_markup_rebate, obtener_tipo_cambio_actual
+
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        return None
+    tipo_cambio = obtener_tipo_cambio_actual(db, "USD") if producto.moneda_costo == "USD" else None
+    return calcular_markup_rebate(db, producto, pricing, tipo_cambio, costo_envio=resolver_costo_envio(db, producto))
+
+
 @router.patch("/productos/{item_id}/rebate")
 def actualizar_rebate(
     item_id: int, datos: RebateUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)
@@ -115,6 +127,10 @@ def actualizar_rebate(
         pricing.participa_rebate = datos.participa_rebate
         pricing.porcentaje_rebate = datos.porcentaje_rebate
         pricing.fecha_modificacion = datetime.now(UTC)
+
+    # markup_rebate depends on participa_rebate/porcentaje_rebate and list
+    # filters read the stored column: recompute it in this same transaction.
+    pricing.markup_rebate = _recalcular_markup_rebate(db, item_id, pricing)
 
     db.commit()
     db.refresh(pricing)
@@ -1174,7 +1190,8 @@ def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depend
 
     count = db.query(ProductoPricing).filter(ProductoPricing.participa_rebate == True).count()
 
-    db.query(ProductoPricing).update({ProductoPricing.participa_rebate: False})
+    # markup_rebate only applies while participa_rebate is on; clear it in the same write.
+    db.query(ProductoPricing).update({ProductoPricing.participa_rebate: False, ProductoPricing.markup_rebate: None})
     db.commit()
 
     # Registrar auditoría
