@@ -428,6 +428,36 @@ async function renderMatriz() {
 
 const barra = () => screen.queryByRole('region', { name: 'Cambios pendientes' });
 
+/**
+ * Fake backend that remembers each PUT, so a reload returns what was saved.
+ * `fallaGet` / `fallaPut` decide per role id whether that call fails; both can
+ * be swapped on the returned object between steps.
+ */
+function servidorConEstado({ fallaGet = () => false, fallaPut = () => false } = {}) {
+  const servidor = {
+    estado: { 2: ['productos.ver', 'admin.ver_panel'], 3: ['productos.ver'] },
+    fallaGet,
+    fallaPut,
+  };
+  const rolDe = (url) => Number(url.match(/^\/roles\/(\d+)\/permisos$/)?.[1]);
+  api.get.mockImplementation((url) => {
+    if (url === '/roles') return Promise.resolve({ data: ROLES });
+    if (url === '/permisos/catalogo') return Promise.resolve({ data: CATALOGO });
+    const rolId = rolDe(url);
+    if (servidor.estado[rolId] && !servidor.fallaGet(rolId)) {
+      return Promise.resolve({ data: permisosDeRol(rolId, servidor.estado[rolId]) });
+    }
+    return Promise.reject(new Error(`GET ${url} falló`));
+  });
+  api.put.mockImplementation((url, body) => {
+    const rolId = rolDe(url);
+    if (servidor.fallaPut(rolId)) return Promise.reject(errorConDetalle('Error de red'));
+    servidor.estado[rolId] = body.permisos;
+    return Promise.resolve({ data: { success: true } });
+  });
+  return servidor;
+}
+
 describe('PanelRoles matrix', () => {
   it('renders roles as columns and permissions grouped by category with their state', async () => {
     await renderMatriz();
@@ -557,6 +587,100 @@ describe('PanelRoles matrix', () => {
     await user.type(screen.getByPlaceholderText(/Buscá un permiso/), 'editar_precios');
     expect(celda('Editar precios', 'Ventas')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Ver productos para Ventas' })).not.toBeInTheDocument();
+  });
+
+  it('marks only the roles that failed when one of two dirty roles fails to save', async () => {
+    const user = userEvent.setup();
+    const servidor = servidorConEstado({ fallaPut: (rolId) => rolId === 2 });
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(celda('Ver productos', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(
+      await screen.findByText('Se guardaron los permisos de Ventas, pero fallaron los de Administrador: Error de red'),
+    ).toBeInTheDocument();
+    expect(servidor.estado[3]).toEqual(['productos.editar_precios', 'productos.ver']);
+    // Ventas saved: no longer pending and showing the new state.
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Editar precios', 'Ventas').closest('td').className).not.toMatch(/pendiente/);
+    // Administrador failed: its change stays pending.
+    expect(celda('Ver productos', 'Administrador')).not.toBeChecked();
+    expect(celda('Ver productos', 'Administrador').closest('td').className).toMatch(/pendiente/);
+    expect(within(barra()).getByText('1 cambio pendiente')).toBeInTheDocument();
+  });
+
+  it('keeps the saved state as the base when the reload after saving fails', async () => {
+    const user = userEvent.setup();
+    const servidor = servidorConEstado();
+    await renderMatriz();
+    servidor.fallaGet = (rolId) => rolId === 3;
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(
+      await screen.findByText('Permisos guardados, pero no se pudieron recargar. Actualizá la página.'),
+    ).toBeInTheDocument();
+    expect(barra()).not.toBeInTheDocument();
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Ver productos', 'Ventas')).toBeChecked();
+
+    // A second save must start from what was saved, not from the pre-save state.
+    await user.click(celda('Ver productos', 'Ventas'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(2));
+    expect(api.put).toHaveBeenLastCalledWith('/roles/3/permisos', { permisos: ['productos.editar_precios'] });
+  });
+
+  it('does not claim the permissions were saved when a save and the reload both fail', async () => {
+    const user = userEvent.setup();
+    const servidor = servidorConEstado({ fallaPut: (rolId) => rolId === 2 });
+    await renderMatriz();
+    servidor.fallaGet = () => true;
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(celda('Ver productos', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(
+      await screen.findByText(
+        'Se guardaron los permisos de Ventas, pero fallaron los de Administrador: Error de red. ' +
+          'No se pudieron recargar los permisos; actualizá la página.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^Permisos guardados/)).not.toBeInTheDocument();
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Ver productos', 'Administrador').closest('td').className).toMatch(/pendiente/);
+  });
+
+  it('locks the column of a role whose permissions failed to load and never saves it', async () => {
+    const user = userEvent.setup();
+    servidorConEstado({ fallaGet: (rolId) => rolId === 3 });
+    render(<PanelRoles />);
+    await screen.findByRole('table', { name: 'Matriz de roles y permisos' });
+    await waitFor(() => expect(celda('Ver productos', 'Administrador')).toBeChecked());
+
+    expect(await screen.findByText('No se pudieron cargar los permisos de: Ventas')).toBeInTheDocument();
+    for (const nombre of ['Ver productos', 'Editar precios', 'Ver panel de administración']) {
+      expect(celda(nombre, 'Ventas')).toBeDisabled();
+      expect(celda(nombre, 'Ventas')).toHaveAttribute('title', 'No se pudieron cargar los permisos de este rol');
+    }
+    expect(screen.getByRole('columnheader', { name: 'Ventas' })).toHaveAttribute(
+      'title',
+      'No se pudieron cargar los permisos de este rol',
+    );
+
+    await user.click(celda('Editar precios', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    expect(api.put).toHaveBeenCalledWith('/roles/2/permisos', {
+      permisos: ['admin.ver_panel', 'productos.editar_precios', 'productos.ver'],
+    });
+    expect(api.put).not.toHaveBeenCalledWith('/roles/3/permisos', expect.anything());
   });
 
   it('keeps the create role flow working', async () => {

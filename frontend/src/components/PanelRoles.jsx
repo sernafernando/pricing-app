@@ -14,10 +14,18 @@ const esSoloLectura = (rol) => rol.codigo === 'SUPERADMIN';
 const FORM_ROL_VACIO = { codigo: '', nombre: '', descripcion: '', orden: 0 };
 const CLONAR_VACIO = { nuevo_codigo: '', nuevo_nombre: '', descripcion: '' };
 
-/** Drops pending cells that already match what is saved for their role. */
-function podarPendientes(pendientes, permisosPorRol) {
+/**
+ * Drops pending cells that already match what is saved for their role. Roles in
+ * `conservar` (their reload failed) keep their pending cells untouched; roles
+ * with no saved state at all lose them, they cannot be edited.
+ */
+function podarPendientes(pendientes, permisosPorRol, conservar = new Set()) {
   const resultado = {};
   for (const [rolId, cambios] of Object.entries(pendientes)) {
+    if (conservar.has(rolId)) {
+      resultado[rolId] = cambios;
+      continue;
+    }
     const base = permisosPorRol[rolId];
     if (!base) continue;
     const vigentes = Object.entries(cambios).filter(([codigo, valor]) => base.includes(codigo) !== valor);
@@ -26,10 +34,14 @@ function podarPendientes(pendientes, permisosPorRol) {
   return resultado;
 }
 
+const nombresDe = (lista) => lista.map((rol) => rol.nombre).join(', ');
+
 export default function PanelRoles() {
   const [roles, setRoles] = useState([]);
   const [catalogo, setCatalogo] = useState({});
   // Saved permission codes per role id, and unsaved cells per role id: { [rolId]: { [codigo]: boolean } }.
+  // A role with no entry in permisosPorRol has an UNKNOWN saved state (its GET failed), never an empty
+  // one: its column is read-only and it is never saved, because the PUT replaces the whole set.
   const [permisosPorRol, setPermisosPorRol] = useState({});
   const [pendientes, setPendientes] = useState({});
   const [loading, setLoading] = useState(true);
@@ -69,14 +81,34 @@ export default function PanelRoles() {
     }
   };
 
+  /**
+   * Loads each editable role on its own, so one failing GET never blanks the others.
+   * A failed role keeps the base it already had (if any). Returns the roles that failed.
+   */
   const cargarPermisosRoles = async (listaRoles) => {
     const editables = listaRoles.filter((rol) => !esSoloLectura(rol));
-    const respuestas = await Promise.all(editables.map((rol) => api.get(`/roles/${rol.id}/permisos`)));
-    const base = Object.fromEntries(
-      editables.map((rol, i) => [rol.id, respuestas[i].data.permisos.map((p) => p.codigo)]),
-    );
-    setPermisosPorRol(base);
-    setPendientes((prev) => podarPendientes(prev, base));
+    const respuestas = await Promise.allSettled(editables.map((rol) => api.get(`/roles/${rol.id}/permisos`)));
+    const cargados = {};
+    const fallidos = [];
+    editables.forEach((rol, i) => {
+      if (respuestas[i].status === 'fulfilled') {
+        cargados[rol.id] = respuestas[i].value.data.permisos.map((p) => p.codigo);
+      } else {
+        console.error(`Error cargando permisos del rol ${rol.codigo}:`, respuestas[i].reason);
+        fallidos.push(rol);
+      }
+    });
+    const idsFallidos = new Set(fallidos.map((rol) => String(rol.id)));
+
+    setPermisosPorRol((prev) => {
+      const siguiente = { ...cargados };
+      for (const rolId of idsFallidos) {
+        if (prev[rolId]) siguiente[rolId] = prev[rolId];
+      }
+      return siguiente;
+    });
+    setPendientes((prev) => podarPendientes(prev, cargados, idsFallidos));
+    return fallidos;
   };
 
   const cargarDatos = async () => {
@@ -88,7 +120,10 @@ export default function PanelRoles() {
 
       setRoles(rolesRes.data);
       setCatalogo(catalogoRes.data || {});
-      await cargarPermisosRoles(rolesRes.data);
+      const fallidos = await cargarPermisosRoles(rolesRes.data);
+      if (fallidos.length > 0) {
+        mostrarMensaje({ tipo: 'error', texto: `No se pudieron cargar los permisos de: ${nombresDe(fallidos)}` });
+      }
     } catch (error) {
       console.error('Error cargando datos:', error);
       mostrarMensaje({ tipo: 'error', texto: `Error al cargar datos: ${error.response?.data?.detail || error.message}` });
@@ -105,8 +140,10 @@ export default function PanelRoles() {
 
   const esPendiente = (rol, codigo) => pendientes[rol.id]?.[codigo] !== undefined;
 
+  const sinCargar = (rol) => !esSoloLectura(rol) && !permisosPorRol[rol.id];
+
   const togglePermiso = (rol, codigo) => {
-    if (esSoloLectura(rol) || guardandoPermisos) return;
+    if (esSoloLectura(rol) || sinCargar(rol) || guardandoPermisos) return;
     const nuevo = !tienePermiso(rol, codigo);
     const guardado = (permisosPorRol[rol.id] || []).includes(codigo);
     setPendientes((prev) => {
@@ -133,31 +170,53 @@ export default function PanelRoles() {
   };
 
   const guardarCambios = async () => {
-    const sucios = roles.filter((rol) => !esSoloLectura(rol) && pendientes[rol.id]);
+    const sucios = roles.filter((rol) => !esSoloLectura(rol) && !sinCargar(rol) && pendientes[rol.id]);
     if (sucios.length === 0) return;
 
     setGuardandoPermisos(true);
+    const enviados = sucios.map((rol) => permisosResultantes(rol));
     const resultados = await Promise.allSettled(
-      sucios.map((rol) => api.put(`/roles/${rol.id}/permisos`, { permisos: permisosResultantes(rol) })),
+      sucios.map((rol, i) => api.put(`/roles/${rol.id}/permisos`, { permisos: enviados[i] })),
     );
-    const guardados = new Set(sucios.filter((_, i) => resultados[i].status === 'fulfilled').map((rol) => String(rol.id)));
-    setPendientes((prev) => Object.fromEntries(Object.entries(prev).filter(([rolId]) => !guardados.has(rolId))));
-    const fallo = resultados.find((r) => r.status === 'rejected');
+    const guardados = sucios.filter((_, i) => resultados[i].status === 'fulfilled');
+    const noGuardados = sucios.filter((_, i) => resultados[i].status === 'rejected');
+    const idsGuardados = new Set(guardados.map((rol) => String(rol.id)));
 
+    // What was sent is now the saved state: correct even if the reload below fails.
+    setPermisosPorRol((prev) => {
+      const siguiente = { ...prev };
+      sucios.forEach((rol, i) => {
+        if (idsGuardados.has(String(rol.id))) siguiente[rol.id] = enviados[i];
+      });
+      return siguiente;
+    });
+    setPendientes((prev) => Object.fromEntries(Object.entries(prev).filter(([rolId]) => !idsGuardados.has(rolId))));
+
+    let falloRecarga;
     try {
-      await cargarPermisosRoles(roles);
-      if (fallo) {
-        console.error('Error guardando permisos:', fallo.reason);
-        mostrarMensaje({ tipo: 'error', texto: fallo.reason?.response?.data?.detail || 'Error al guardar permisos' });
-      } else {
-        mostrarMensaje({ tipo: 'success', texto: 'Permisos guardados correctamente' });
-      }
+      falloRecarga = (await cargarPermisosRoles(roles)).length > 0;
     } catch (error) {
       console.error('Error recargando permisos de los roles:', error);
-      mostrarMensaje({ tipo: 'error', texto: 'Permisos guardados, pero no se pudieron recargar. Actualizá la página.' });
+      falloRecarga = true;
     } finally {
       setGuardandoPermisos(false);
     }
+
+    if (noGuardados.length === 0) {
+      mostrarMensaje(falloRecarga
+        ? { tipo: 'error', texto: 'Permisos guardados, pero no se pudieron recargar. Actualizá la página.' }
+        : { tipo: 'success', texto: 'Permisos guardados correctamente' });
+      return;
+    }
+
+    const fallo = resultados.find((r) => r.status === 'rejected');
+    console.error('Error guardando permisos:', fallo.reason);
+    const detalle = fallo.reason?.response?.data?.detail || 'Error al guardar permisos';
+    let texto = guardados.length > 0
+      ? `Se guardaron los permisos de ${nombresDe(guardados)}, pero fallaron los de ${nombresDe(noGuardados)}: ${detalle}`
+      : detalle;
+    if (falloRecarga) texto += '. No se pudieron recargar los permisos; actualizá la página.';
+    mostrarMensaje({ tipo: 'error', texto });
   };
 
   const crearRol = async () => {
@@ -404,6 +463,7 @@ export default function PanelRoles() {
             esSoloLectura={esSoloLectura}
             tienePermiso={tienePermiso}
             esPendiente={esPendiente}
+            sinCargar={sinCargar}
             onToggle={togglePermiso}
             deshabilitado={guardandoPermisos}
           />

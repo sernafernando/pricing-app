@@ -8,12 +8,23 @@ function coincide(permiso, q) {
   return !q || `${normalizar(permiso.codigo)} ${normalizar(permiso.nombre)}`.includes(q);
 }
 
+const AVISO_SIN_CARGAR = 'No se pudieron cargar los permisos de este rol';
+
+function tituloColumna(rol, soloLectura, noCargado) {
+  if (soloLectura) return `${rol.nombre} tiene todos los permisos (solo lectura)`;
+  if (noCargado) return AVISO_SIN_CARGAR;
+  return rol.codigo;
+}
+
 /**
  * Roles x permissions matrix: one row per catalog permission (grouped by
  * category), one checkbox column per role. Purely presentational: the cell
- * state, the pending mark and the toggle come from `PanelRoles`.
+ * state, the pending mark and the toggle come from `PanelRoles`. A role whose
+ * saved permissions could not be loaded (`sinCargar`) gets a locked column.
  */
-export default function MatrizRoles({ catalogo, roles, esSoloLectura, tienePermiso, esPendiente, onToggle, deshabilitado }) {
+export default function MatrizRoles({
+  catalogo, roles, esSoloLectura, tienePermiso, esPendiente, sinCargar, onToggle, deshabilitado,
+}) {
   const [busqueda, setBusqueda] = useState('');
 
   const q = normalizar(busqueda).trim();
@@ -50,7 +61,7 @@ export default function MatrizRoles({ catalogo, roles, esSoloLectura, tienePermi
                     key={rol.id}
                     scope="col"
                     className={styles.colRol}
-                    title={esSoloLectura(rol) ? `${rol.nombre} tiene todos los permisos (solo lectura)` : rol.codigo}
+                    title={tituloColumna(rol, esSoloLectura(rol), sinCargar(rol))}
                   >
                     {rol.nombre}
                   </th>
@@ -75,6 +86,7 @@ export default function MatrizRoles({ catalogo, roles, esSoloLectura, tienePermi
                     </th>
                     {roles.map((rol) => {
                       const soloLectura = esSoloLectura(rol);
+                      const noCargado = sinCargar(rol);
                       const pendiente = esPendiente(rol, permiso.codigo);
                       return (
                         <td key={rol.id} className={pendiente ? styles.pendiente : styles.celda}>
@@ -84,7 +96,8 @@ export default function MatrizRoles({ catalogo, roles, esSoloLectura, tienePermi
                             aria-label={`${permiso.nombre} para ${rol.nombre}`}
                             checked={tienePermiso(rol, permiso.codigo)}
                             onChange={() => onToggle(rol, permiso.codigo)}
-                            disabled={deshabilitado || soloLectura}
+                            title={noCargado ? AVISO_SIN_CARGAR : undefined}
+                            disabled={deshabilitado || soloLectura || noCargado}
                           />
                         </td>
                       );
