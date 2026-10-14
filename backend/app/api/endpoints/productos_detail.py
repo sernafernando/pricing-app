@@ -27,7 +27,7 @@ from app.services.ml_promotions_service import (
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.services.ml_publication_link_service import sync_links_from_store
-from app.services.ml_publication_status_service import resolve_publication_status
+from app.services.ml_publication_status_service import fetch_publication_status_by_mla
 from app.services.ml_publication_tree_service import assemble_publication_tree
 from app.schemas.productos_tree import ProductTreeResponse
 from app.api.endpoints.productos_shared import (
@@ -384,24 +384,16 @@ async def obtener_datos_ml_producto(
                 publicaciones_dict[mla]["catalog_winner_mla"] = winner
                 publicaciones_dict[mla]["catalog_winner_price"] = float(winner_price) if winner_price else None
 
-    # Obtener estado de las publicaciones. El mapeo status_id/is_active ->
-    # etiqueta vive en `ml_publication_status_service.resolve_publication_status`
-    # (misma fuente que el árbol recursivo, así ambas vistas nunca muestran
-    # estados distintos). Solo se asigna `publication_status` a las MLAs
-    # presentes en la tabla: una MLA ausente no recibe la clave.
+    # Estado de las publicaciones: sale del store de publicaciones ML
+    # (`ml_items`, fuente de verdad del estado), por la misma función que el
+    # árbol y el banner de promociones, así ninguna vista muestra un estado
+    # distinto. Una MLA sin fila en `ml_items` viene como `no_ml_data`; si la
+    # lectura falla (fail-open) no se asigna ninguna clave.
     if mla_ids:
-        pub_statuses = db.execute(
-            text("""
-            SELECT mlp_publicationid, mlp_laststatusid, mlp_active
-            FROM tb_mercadolibre_items_publicados
-            WHERE mlp_publicationid = ANY(:mla_ids)
-        """),
-            {"mla_ids": mla_ids},
-        ).fetchall()
-
-        for mla, status_id, is_active in pub_statuses:
+        for mla, found in fetch_publication_status_by_mla(db, mla_ids).items():
             if mla in publicaciones_dict:
-                publicaciones_dict[mla]["publication_status"] = resolve_publication_status(status_id, is_active)
+                publicaciones_dict[mla]["publication_status"] = found.status
+                publicaciones_dict[mla]["publication_sub_status"] = found.sub_status
 
     # Calcular ventas de los últimos 7, 15 y 30 días
     # Usamos MLVentaMetrica (misma fuente que el dashboard)

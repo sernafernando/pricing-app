@@ -59,14 +59,16 @@ class TreeNode(BaseModel):
     and an optional `matches_filter` (fail-open promo filter, same
     dispatch as the flat lite endpoint).
 
-    `publication_status` restores the per-publication status badge the
-    old flat MLA panel showed ("active"/"paused"/"closed"/
-    "under_review", or `status_{id}` for an unmapped ERP id) — see
-    `ml_publication_status_service.resolve_publication_status`. Like
-    `lista_nombre`, it is only ever set on MLA-bearing nodes; grouping
-    nodes ("producto"/"familia") always leave it `None`, and so does any
-    MLA the ERP mirror does not know about (fail-open: no badge, never a
-    fabricated one).
+    `publication_status` is the per-publication status badge, read from
+    the ML publications store (`ml_items`, the owner's source of truth —
+    the same field the promotions banner reads): ML's own value
+    ("active"/"paused"/"under_review"/"inactive"/"closed"/...), or
+    "gone"/"never_existed", or "no_ml_data" when the store has no row for
+    the MLA — see `ml_publication_status_service`. `publication_sub_status`
+    is ML's reason list verbatim (e.g. `["paused_by_seller"]`). Like
+    `lista_nombre`, both are only ever set on MLA-bearing nodes; grouping
+    nodes ("producto"/"familia") always leave them `None`, and so does a
+    failed store read (fail-open: no badge, never a fabricated one).
 
     Promos are INTENTIONALLY NOT assembled server-side here (design
     decision, PR2): the FE fetches them per-MLA via the existing,
@@ -86,6 +88,7 @@ class TreeNode(BaseModel):
     lista_nombre: Optional[str] = None
     pricelist_id: Optional[int] = None
     publication_status: Optional[str] = None
+    publication_sub_status: Optional[List[str]] = None
     official_store_id: Optional[int] = None
     children: List["TreeNode"] = Field(default_factory=list)
 

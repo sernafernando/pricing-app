@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.models.ml_publications import MlItem
 from app.models.usuario import Usuario
 from app.services.ml_catalog_competition_service import (
     obtener_ultimo_snapshot,
@@ -39,6 +38,7 @@ from app.services.ml_promotions_service import (
     fetch_promotions,
 )
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
+from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
 from app.utils.async_bridge import resolve_maybe_async
@@ -465,27 +465,18 @@ def motivo_sin_consulta_ml(db: Session, mla_id: str) -> Optional[str]:
     """Why ML must NOT be asked about `mla_id`'s promotions, from the ML publications store
     (`ml_items`); `None` when it may be (active, or not in the store yet / status unknown).
 
-    FAIL-OPEN: a store read that fails returns `None`, so today's behaviour is kept — the store
-    being unreachable must not disable the refresh button."""
-    try:
-        row = db.query(MlItem.status, MlItem.gone_at, MlItem.never_existed).filter(MlItem.item_id == mla_id).first()
-    except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
-        logger.warning("ml_items status unavailable for %s; not skipping the ML query: %s", mla_id, exc)
-        try:
-            db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+    Reads the SAME field as the publication status chip (`fetch_publication_status_by_mla`), so the
+    banner and the chip can never disagree. FAIL-OPEN: a store read that fails returns `None`, so
+    today's behaviour is kept — the store being unreachable must not disable the refresh button."""
+    found = fetch_publication_status_by_mla(db, [mla_id]).get(mla_id)
+    if found is None or found.status in (NO_ML_DATA, "active"):
         return None
-    if row is None:
-        return None
-    if row.never_existed:
+    if found.status == NEVER_EXISTED:
         return "La publicación no existe en ML: no se consultan promociones"
-    if row.gone_at is not None:
+    if found.status == GONE:
         return "Publicación dada de baja en ML: no se consultan promociones"
-    if row.status is None or row.status == "active":
-        return None
     return _MOTIVO_POR_ESTADO.get(
-        row.status, f"Publicación en estado {row.status}: solo se consultan promociones de publicaciones activas"
+        found.status, f"Publicación en estado {found.status}: solo se consultan promociones de publicaciones activas"
     )
 
 

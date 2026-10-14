@@ -1,33 +1,38 @@
 """
-Per-MLA publication status (`active`/`paused`/`closed`/`under_review`),
-resolved from the ERP-mirrored `tb_mercadolibre_items_publicados` table.
+Per-MLA publication status, read from the ML publications store (`ml_items`).
 
-Extracted VERBATIM from the flat `GET /productos/{item_id}/mercadolibre`
-endpoint (`productos_detail.py`), which is the historical source of truth
-for the per-publication status badge the old flat MLA panel rendered. The
-recursive publication tree (`ml_publication_tree_service.py`) dropped that
-badge on migration; both callers now share this single implementation so
-the two views can never disagree.
+Owner decision: `ml_items` is the source of truth for a publication's
+status everywhere. The status chip used to come from the ERP mirror
+(`tb_mercadolibre_items_publicados`, synced by the ERP and often months
+stale) while the promotions panel's "Publicación pausada" banner came from
+`ml_items`, so the same MLA could show "Activa" and the paused banner at
+once (prod, MLA1391137819). Every caller now resolves status here:
 
-The table lives in the MAIN application DB (the same `Session` every
-caller already holds) — it is NOT the cross-DB ml-webhook mirror, so no
-pool-safety dance (short-lived background session / proxy call) is
-needed here, just one batched query on the caller's existing session.
+- the recursive publication tree (`ml_publication_tree_service.py`);
+- the flat `GET /productos/{item_id}/mercadolibre` endpoint
+  (`productos_detail.py`);
+- the promotions banner (`ml_promotions.motivo_sin_consulta_ml`).
+
+`ml_items` lives in the MAIN application DB (the same `Session` every
+caller already holds), so this is one batched query on that session.
 """
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+from app.models.ml_publications import MlItem
+
+logger = logging.getLogger(__name__)
 
 # ERP `optval`-style status ids as mirrored in
-# `tb_mercadolibre_items_publicados.mlp_laststatusid`. An unknown id is
-# NOT swallowed: `resolve_publication_status` surfaces it as
-# `status_{id}` so a new ERP state shows up instead of silently reading
-# as "no status".
+# `tb_mercadolibre_items_publicados.mlp_laststatusid`. NOT used for the
+# status chip any more (that reads `ml_items`); kept because the Métricas ML
+# board (`ml_daily_metrics/board.py`) still filters the ERP mirror by them.
 ML_PUBLICATION_STATUS_MAP: Dict[int, str] = {
     153: "active",
     154: "paused",
@@ -35,65 +40,67 @@ ML_PUBLICATION_STATUS_MAP: Dict[int, str] = {
     156: "under_review",
 }
 
-
-def resolve_publication_status(status_id: Optional[int], is_active: Optional[bool]) -> Optional[str]:
-    """Resolves one publication's status string from its ERP columns.
-
-    Business precedence (unchanged from the flat endpoint — do NOT
-    reorder, the two branches disagree for paused-but-active rows):
-      1. A truthy `mlp_laststatusid` wins: it is ML's own last reported
-         state, the most specific signal available. Ids outside
-         `ML_PUBLICATION_STATUS_MAP` degrade to `status_{status_id}`
-         rather than to `None`.
-      2. Otherwise, a non-null `mlp_active` boolean is the fallback:
-         the ERP only tracks the coarse active/paused distinction here.
-      3. Both absent -> `None` (genuinely unknown; callers render no
-         badge rather than guessing).
-
-    Args:
-        status_id: `mlp_laststatusid` (may be `None`, or `0` which is
-            treated as absent — falsy, same as the original code).
-        is_active: `mlp_active` (may be `None`).
-
-    Returns:
-        The status string, or `None` when nothing is known.
-    """
-    if status_id:
-        return ML_PUBLICATION_STATUS_MAP.get(status_id, f"status_{status_id}")
-    if is_active is not None:
-        return "active" if is_active else "paused"
-    return None
+# Statuses this module adds on top of ML's own (`active`, `paused`,
+# `under_review`, `inactive`, `closed`, ...), each winning over the row's
+# last known status in this order.
+NEVER_EXISTED = "never_existed"  # ML answered that the item does not exist
+GONE = "gone"  # the item vanished from ML (`gone_at` set)
+NO_ML_DATA = "no_ml_data"  # no `ml_items` row, or the row was never fetched
 
 
-def fetch_publication_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str, Optional[str]]:
-    """Batch-resolves `publication_status` for `mla_ids` (ONE query).
+@dataclass(frozen=True)
+class MlPublicationStatus:
+    """One publication's status as the ML publications store knows it.
 
-    Only MLAs that actually have a `tb_mercadolibre_items_publicados`
-    row are keyed in the result: an MLA missing from the ERP mirror is
-    ABSENT from the dict, never keyed to `None`. Callers therefore keep
-    the ability to distinguish "not tracked in the ERP" from "tracked
-    but with no resolvable status" (the flat endpoint relies on this —
-    it only ever emits the `publication_status` field for MLAs the table
-    knows about).
+    `status` is ML's own value (or one of the module's sentinels above);
+    `sub_status` is ML's reason list verbatim (e.g. `["paused_by_seller"]`),
+    `None` when the store has none."""
+
+    status: str
+    sub_status: Optional[List[str]] = None
+
+
+def _classify(status: Optional[str], sub_status, gone_at, never_existed: Optional[bool]) -> MlPublicationStatus:
+    if never_existed:
+        return MlPublicationStatus(NEVER_EXISTED)
+    if gone_at is not None:
+        return MlPublicationStatus(GONE)
+    if not status:
+        return MlPublicationStatus(NO_ML_DATA)
+    return MlPublicationStatus(status, list(sub_status) if sub_status is not None else None)
+
+
+def fetch_publication_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str, MlPublicationStatus]:
+    """Batch-resolves every MLA's status from `ml_items` (ONE query).
+
+    When the read succeeds, EVERY requested MLA is keyed: one without an
+    `ml_items` row is `NO_ML_DATA` ("Sin datos de ML"), never "active".
+
+    FAIL-OPEN: a failing read is logged and returns `{}` — callers render
+    no status at all rather than break (the chip is decoration, and the
+    banner must not disable the refresh button when the store is down). An
+    absent key therefore means "unknown", distinct from `NO_ML_DATA`.
 
     Args:
         db: Open SQLAlchemy session on the MAIN app DB. Read-only.
-        mla_ids: MLA ids to resolve. An empty list short-circuits and
-            issues NO query at all.
-
-    Returns:
-        `{mla: status_or_None}` for the MLAs present in the table.
+        mla_ids: MLA ids to resolve. An empty list issues NO query.
     """
     if not mla_ids:
         return {}
 
-    rows = (
-        db.query(
-            MercadoLibreItemPublicado.mlp_publicationID,
-            MercadoLibreItemPublicado.mlp_lastStatusID,
-            MercadoLibreItemPublicado.mlp_Active,
+    try:
+        rows = (
+            db.query(MlItem.item_id, MlItem.status, MlItem.sub_status, MlItem.gone_at, MlItem.never_existed)
+            .filter(MlItem.item_id.in_(mla_ids))
+            .all()
         )
-        .filter(MercadoLibreItemPublicado.mlp_publicationID.in_(mla_ids))
-        .all()
-    )
-    return {mla: resolve_publication_status(status_id, is_active) for mla, status_id, is_active in rows}
+        found = {item_id: _classify(status, sub, gone_at, never) for item_id, status, sub, gone_at, never in rows}
+    except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
+        logger.warning("ml_items status unavailable for %d MLAs; degrading without status: %s", len(mla_ids), exc)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+
+    return {mla: found.get(mla, MlPublicationStatus(NO_ML_DATA)) for mla in mla_ids}
