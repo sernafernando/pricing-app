@@ -8,6 +8,7 @@ minimal `productos_pricing` (only the price columns the fallback reads). The ser
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from sqlalchemy import event, text
@@ -205,6 +206,37 @@ class TestCampaign:
     def test_a_campaign_tag_wins_and_the_sale_term_is_not_extracted(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", tags=["3x_campaign"], raw=terms("12x_campaign"))
         assert markup_inputs.fetch_inputs(db, item_ids=["MLA1"])["MLA1"].item_unit.sale_terms_campaign is None
+
+    def test_the_campaign_is_the_typed_column_not_the_raw_body(self, conn, db) -> None:
+        """The body is not read at all: a row with the column set and no `raw` has the campaign, and a row whose
+        `raw` still carries a term but whose column is empty has none."""
+        seed.add_item(conn, "MLA1", installments_campaign="9x_campaign")
+        seed.add_item(conn, "MLA2", raw=terms("12x_campaign"), installments_campaign=None)
+        got = markup_inputs.fetch_inputs(db, item_ids=["MLA1", "MLA2"])
+        assert got["MLA1"].item_unit.sale_terms_campaign == "9x_campaign"
+        assert got["MLA2"].item_unit.sale_terms_campaign is None
+
+    def test_no_statement_of_the_inputs_names_the_raw_body(self, conn, db) -> None:
+        """Structural: reading `raw` detoasts ~7 KB per item, ~190 MB for the store, on every set-wide request."""
+        seed.add_product(conn, 70, "A1", "Router")
+        seed.add_item(conn, "MLA1", tags=["good_quality_picture"], installments_campaign="12x_campaign")
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_variation(conn, "MLA1", 11)
+        recorded: list[str] = []
+
+        def record(connection, cursor, statement, *rest) -> None:
+            recorded.append(statement)
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            markup_inputs.fetch_inputs(db, f=parse_filter())
+            markup_inputs.fetch_inputs(db, item_ids=["MLA1"])
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert recorded
+        assert [s for s in recorded if re.search(r"\braw\b", s)] == []
+        assert [s for s in recorded if "jsonb_path" in s] == []
 
     def test_no_tags_no_sale_terms_is_no_campaign(self, conn, db) -> None:
         seed.add_item(conn, "MLA1")

@@ -72,6 +72,8 @@ class MlItem(Base):
     status = Column(Text)
     sub_status = Column(ARRAY(Text))
     tags = Column(ARRAY(Text))
+    # The `INSTALLMENTS_CAMPAIGN` sale term (migration 20261017): the markup reads it here, never from `raw`.
+    installments_campaign = Column(Text)
     listing_type_id = Column(Text)
     buying_mode = Column(Text)
     condition = Column(Text)

@@ -7,6 +7,7 @@ JSON text so no binary-float noise reaches `numeric` columns.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
@@ -60,6 +61,28 @@ def attribute_value_name(attributes: Any, attribute_id: str) -> Optional[str]:
     return None
 
 
+INSTALLMENTS_CAMPAIGN_TERM = "INSTALLMENTS_CAMPAIGN"
+
+
+def installments_campaign(sale_terms: Any) -> Optional[str]:
+    """`value_name` of the item's `INSTALLMENTS_CAMPAIGN` sale term, or None.
+
+    The markup reads the installments campaign here when the item carries no campaign tag. Same result as the
+    JSON path it replaces (`$.sale_terms[*] ? (@.id == "INSTALLMENTS_CAMPAIGN").value_name`, first result, as text):
+    the first matching term that HAS a `value_name` decides, a null `value_name` is no campaign, and (lax mode) a
+    single term object stands for a one-element list.
+    """
+    if isinstance(sale_terms, Mapping):
+        sale_terms = [sale_terms]
+    if not isinstance(sale_terms, list):
+        return None
+    for term in sale_terms:
+        if isinstance(term, Mapping) and term.get("id") == INSTALLMENTS_CAMPAIGN_TERM and "value_name" in term:
+            value = term["value_name"]
+            return value if value is None or isinstance(value, str) else json.dumps(value)
+    return None
+
+
 def map_item(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Typed columns of an `ml_items` row from one full `/items` body."""
     attributes = raw.get("attributes")
@@ -80,6 +103,7 @@ def map_item(raw: Mapping[str, Any]) -> dict[str, Any]:
         "status": raw.get("status"),
         "sub_status": raw.get("sub_status"),
         "tags": raw.get("tags"),
+        "installments_campaign": installments_campaign(raw.get("sale_terms")),
         "listing_type_id": raw.get("listing_type_id"),
         "buying_mode": raw.get("buying_mode"),
         "condition": raw.get("condition"),
