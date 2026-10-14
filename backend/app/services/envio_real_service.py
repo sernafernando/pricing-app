@@ -17,10 +17,11 @@ Design decisions (ADR):
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import text
+from sqlalchemy import ARRAY, Integer, any_, literal, select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_mlwebhook_engine
@@ -43,6 +44,9 @@ def _fetch_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
     Returns an empty dict on any error (DB unreachable, table missing, etc.).
 
     list_cost is stored WITH IVA — returned as-is; caller decides what to do with it.
+
+    The ids travel as ONE JSON text parameter, unnested server side (as `fetch_inputs` does): bound as an array of
+    N text elements the driver quotes and the server parses N literals, and ~24k MLAs make that visible.
     """
     result: dict[str, float] = {}
     if not mla_ids:
@@ -56,13 +60,13 @@ def _fetch_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
                     """
                     SELECT mla_id, list_cost
                     FROM ml_seller_shipping_costs
-                    WHERE mla_id = ANY(:ids)
+                    WHERE mla_id = ANY(ARRAY(SELECT jsonb_array_elements_text(CAST(:ids AS jsonb))))
                       AND list_cost IS NOT NULL
                       AND list_cost > 0
                       AND currency_id = 'ARS'
                     """
                 ),
-                {"ids": mla_ids},
+                {"ids": json.dumps(mla_ids)},
             ).fetchall()
         for row in rows:
             result[row.mla_id] = float(row.list_cost)
@@ -125,6 +129,25 @@ def resolver_costo_envio(
     return max(costs.values())
 
 
+def _active_mlas_by_item(db: Session, item_ids: Sequence[int]) -> dict[int, list[str]]:
+    """
+    The MLAs of the ACTIVE publications of each product, read as two plain columns in ONE statement.
+
+    Loading `PublicacionML` entities builds every column of every publication (~24k objects, ~0.5 s on a
+    25k-publication store) to read `mla` and `activo`. The ids travel as one array parameter.
+    """
+    found: dict[int, list[str]] = {}
+    rows = db.execute(
+        select(PublicacionML.item_id, PublicacionML.mla).where(
+            PublicacionML.item_id == any_(literal(list(item_ids), ARRAY(Integer))),
+            PublicacionML.activo.is_(True),
+        )
+    )
+    for item_id, mla in rows:
+        found.setdefault(item_id, []).append(mla)
+    return found
+
+
 # ---------------------------------------------------------------------------
 # Batch resolver
 # ---------------------------------------------------------------------------
@@ -134,7 +157,7 @@ def resolver_costos_envio_batch(
     db: Session,
     item_ids: list[int],
     *,
-    pubs_by_item: Optional[dict[int, list[PublicacionML]]] = None,
+    pubs_by_item: Optional[Mapping[int, Sequence[Any]]] = None,
 ) -> dict[int, float]:
     """
     Return resolved shipping costs for a batch of products.
@@ -149,8 +172,8 @@ def resolver_costos_envio_batch(
     Args:
         db: Main application DB session.
         item_ids: List of item IDs to resolve.
-        pubs_by_item: Pre-computed {item_id: [PublicacionML, ...]} mapping.
-                      When provided, no main-DB query is issued.
+        pubs_by_item: Pre-computed {item_id: [publication, ...]} mapping; each publication needs
+                      `mla` and `activo`. When provided, no main-DB query is issued.
 
     Returns:
         {item_id: max_list_cost} for items that have a resolvable real cost.
@@ -159,22 +182,19 @@ def resolver_costos_envio_batch(
         return {}
 
     # Step 1: build active MLA sets per item
-    if pubs_by_item is None:
-        all_pubs: list[PublicacionML] = db.query(PublicacionML).filter(PublicacionML.item_id.in_(item_ids)).all()
-        pubs_by_item = {}
-        for pub in all_pubs:
-            pubs_by_item.setdefault(pub.item_id, []).append(pub)
-
-    # Collect all active MLA IDs (deduped) and remember item→mla mapping
     item_to_active_mlas: dict[int, list[str]] = {}
     all_active_mlas: list[str] = []
 
-    for item_id in item_ids:
-        pubs = pubs_by_item.get(item_id, [])
-        active_ids = [p.mla for p in pubs if p.activo]
-        if active_ids:
-            item_to_active_mlas[item_id] = active_ids
-            all_active_mlas.extend(active_ids)
+    if pubs_by_item is None:
+        item_to_active_mlas = _active_mlas_by_item(db, item_ids)
+        for mlas in item_to_active_mlas.values():
+            all_active_mlas.extend(mlas)
+    else:
+        for item_id in item_ids:
+            active_ids = [p.mla for p in pubs_by_item.get(item_id, []) if p.activo]
+            if active_ids:
+                item_to_active_mlas[item_id] = active_ids
+                all_active_mlas.extend(active_ids)
 
     if not all_active_mlas:
         return {}
