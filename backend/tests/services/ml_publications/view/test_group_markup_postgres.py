@@ -378,3 +378,76 @@ class TestMarkupByDimension:
         roots = {node.key: node for node in nodes if node.kind != "producto"}
         assert {key: roots[key].negative_count for key in expected_negatives} == expected_negatives
         assert all(roots[key].markup_min is not None for key in expected_negatives)
+
+
+def seed_stores_and_pms(conn) -> None:
+    """Products 70 (positive) and 71 (negative) are Alfa/Redes, 72 (negative) Beta/Redes, 73 (positive) Alfa/Video.
+
+    Stores: MLA1 in store 1 and MLA2 in store 3, which share the clave `A,B` (a comma: the key travels escaped);
+    MLA5 in store 2, with no row; MLA6 in no store. PMs: Alfa/Redes is listed for PM 7 AND (another spelling) PM 5,
+    so the tree gives it to the lowest id (5) only; Beta/Redes is PM 7's; Alfa/Video has no PM.
+    """
+    brands = {70: ("Alfa", "Redes"), 71: ("Alfa", "Redes"), 72: ("Beta", "Redes"), 73: ("Alfa", "Video")}
+    for item_id, (marca, categoria) in brands.items():
+        seed.add_product(conn, item_id, f"C{item_id}", f"Producto {item_id}", marca=marca, categoria=categoria)
+        seed.add_cost(conn, item_id, COST[item_id])
+    stores = {"MLA1": 1, "MLA2": 3, "MLA5": 2}
+    for number in range(1, 7):
+        item_id = f"MLA{number}"
+        seed.add_item(
+            conn,
+            item_id,
+            listing_type_id="gold_pro",
+            tags=["9x_campaign"],
+            price=90000,
+            official_store_id=stores.get(item_id),
+        )
+        seed.add_sale_price(conn, item_id, 100000)
+    for item_id, product in (("MLA1", 70), ("MLA2", 71), ("MLA5", 72), ("MLA6", 73)):
+        seed.add_link(conn, item_id, product)
+    for store_id, nombre in ((1, "Coma"), (3, "Coma Outlet")):
+        conn.execute(
+            text("INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden) VALUES (:s, :n, 'A,B', :s)"),
+            {"s": store_id, "n": nombre},
+        )
+    conn.execute(text("CREATE TABLE marcas_pm (id serial PRIMARY KEY, marca text, categoria text, usuario_id integer)"))
+    conn.execute(text("CREATE TABLE usuarios (id integer PRIMARY KEY, nombre text)"))
+    conn.execute(
+        text(
+            "INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES "
+            "('Alfa', 'Redes', 7), ('ALFA', 'REDES', 5), ('Beta', 'Redes', 7)"
+        )
+    )
+    conn.execute(text("INSERT INTO usuarios (id, nombre) VALUES (5, 'Ana'), (7, 'Beto')"))
+
+
+class TestMarkupByStoreAndPm(TestMarkupByDimension):
+    """The same contract under `tienda` (a clave node covers several store ids) and `pm` (a pair listed for two PMs
+    belongs to one): the figures are those of the node's `/items` set, `tiendas` and `pm_grupo` included."""
+
+    @pytest.mark.parametrize(
+        "dimension, expected_negatives",
+        [
+            ("tienda", {"c:A%2CB": 1, "s:2": 1}),  # MLA2 is negative and MLA1 positive; MLA5 negative
+            ("pm", {"5": 1, "7": 1}),  # 5: MLA1 and MLA2 (never 7's too); 7: MLA5
+        ],
+    )
+    def test_every_node_has_the_figures_of_its_items_set(  # type: ignore[override]
+        self, conn, db, envio_calls, dimension, expected_negatives
+    ) -> None:
+        seed_stores_and_pms(conn)
+        nodes = list(self.walk(db, dimension, MarkupQuery(db)))
+        for node in nodes:
+            shown = (
+                node.negative_count,
+                None if node.markup_min is None else round(node.markup_min, 2),
+                None if node.markup_max is None else round(node.markup_max, 2),
+            )
+            assert shown == self.items_figures(db, node.params), (node.kind, node.key)
+        roots = {node.key: node for node in nodes if node.kind == dimension}
+        assert {key: roots[key].negative_count for key in expected_negatives} == expected_negatives
+        assert all(roots[key].markup_min is not None for key in expected_negatives)
+        if dimension == "tienda":
+            assert roots["c:A%2CB"].params == {"tiendas": "1,3"} and roots["c:A%2CB"].count == 2
+        else:
+            assert (roots["5"].count, roots["7"].count) == (2, 1)
