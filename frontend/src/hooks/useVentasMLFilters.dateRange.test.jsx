@@ -101,6 +101,15 @@ describe('explicit URL wins', () => {
   });
 });
 
+describe('impossible dates', () => {
+  it('ignores a well-shaped date that does not exist, like 2026-13-45 or 2026-02-30', () => {
+    at('2026-10-14T15:00:00Z');
+    const { result } = setup('/?desde=2026-13-45&hasta=2026-02-30');
+    expect(result.current.dateRange.desde).toBe('2026-10-01');
+    expect(result.current.dateRange.hasta).toBe('2026-10-14');
+  });
+});
+
 describe('setDateRange', () => {
   it('writes the range to the URL so it survives a reload and back/forward', () => {
     at('2026-10-14T15:00:00Z');

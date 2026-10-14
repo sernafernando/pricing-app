@@ -5,6 +5,13 @@ import { calcularRangoPreset } from '../utils/dateRangePresets';
 const BUSINESS_TZ = 'America/Argentina/Buenos_Aires';
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/** A real calendar day: `2026-13-45` has the right shape and is not one. */
+function isRealDay(value) {
+  if (!value || !ISO_DAY.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 // Presets the date control highlights; an active range is matched against
 // them so the highlight is never a claim the URL cannot back up. Month first:
 // on the 14th, 14d and the month start coincide and the default must read as it is.
@@ -33,13 +40,18 @@ export function currentMonthRange(now = new Date()) {
   return calcularRangoPreset('mesActual', businessToday(now));
 }
 
+// The date control computes its presets from the BROWSER's day, this hook from
+// Argentina's: near midnight outside UTC-3 they differ, so a click on "7d"
+// must still highlight "7d". Either day matching is enough.
 function presetFor(desde, hasta) {
-  const hoy = businessToday();
+  const days = [businessToday(), new Date()];
   return (
-    PRESET_KEYS.find((key) => {
-      const r = calcularRangoPreset(key, hoy);
-      return r && r.desde === desde && r.hasta === hasta;
-    }) ?? 'custom'
+    PRESET_KEYS.find((key) =>
+      days.some((hoy) => {
+        const r = calcularRangoPreset(key, hoy);
+        return r && r.desde === desde && r.hasta === hasta;
+      }),
+    ) ?? 'custom'
   );
 }
 
@@ -97,8 +109,8 @@ export function useVentasMLFilters() {
 
   const dateRange = useMemo(() => {
     if (rangoParam === 'todo') return { desde: '', hasta: '', filtro: null };
-    const desde = desdeParam && ISO_DAY.test(desdeParam) ? desdeParam : '';
-    const hasta = hastaParam && ISO_DAY.test(hastaParam) ? hastaParam : '';
+    const desde = isRealDay(desdeParam) ? desdeParam : '';
+    const hasta = isRealDay(hastaParam) ? hastaParam : '';
     if (desde || hasta) return { desde, hasta, filtro: presetFor(desde, hasta) };
     return { ...defaultRange, filtro: 'mesActual' };
   }, [desdeParam, hastaParam, rangoParam, defaultRange]);
