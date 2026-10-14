@@ -203,8 +203,15 @@ async def lifespan(app: FastAPI):
         app.state.sse_heartbeat_seconds = 30
 
     # ── Background tasks (only on ONE worker) ─────────────────────
-    bg_lock_fd = _try_acquire_bg_lock()
+    # BACKGROUND_TASKS_ENABLED=false: this instance starts none (the lock is not even taken). For API copies that
+    # share a database with production, where the per-host lock cannot prevent duplicated loops.
+    bg_lock_fd = None
     bg_tasks = []
+
+    if not settings.BACKGROUND_TASKS_ENABLED:
+        logger.warning("BACKGROUND_TASKS_ENABLED=false: background tasks are disabled on this instance")
+    else:
+        bg_lock_fd = _try_acquire_bg_lock()
 
     if bg_lock_fd:
         import os
@@ -228,7 +235,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(vikunja_reconcile_task()),
             asyncio.create_task(oc_match_reclaim_task()),
         ]
-    else:
+    elif settings.BACKGROUND_TASKS_ENABLED:
         import os
 
         logger.info("This worker (pid=%d) skips background tasks (another worker owns them)", os.getpid())
