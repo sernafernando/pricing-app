@@ -10,7 +10,7 @@ Qué tenés que saber:
 
 - **Lista ML:** precio clásico y en **3, 6, 9 y 12 cuotas**, cada uno con su markup.
 - **PVP:** **PVP clásica** y en **3, 6, 9 y 12 cuotas**, también con su markup.
-- **Los markups negativos se destacan**, para ver de un vistazo qué precio está perdiendo plata.
+- **Los markups negativos se ven en rojo**, para ver de un vistazo qué precio está perdiendo plata.
 - **Si un precio o un markup no está disponible**, se ve **—**.
 - **El precio es del producto, no de la publicación.** Por eso arriba aparece el aviso: cambiarlo afecta a todas sus publicaciones.
 - **Quién la ve:** quien puede ver Productos o quien tiene permiso para editar precios (de Productos o de Tienda). Solo aparece en publicaciones vinculadas a un producto.
