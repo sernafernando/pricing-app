@@ -16,6 +16,7 @@ export default function DrawerRol({ titulo, puedeCerrar, onCerrar, children }) {
   const tituloRef = useRef(null);
   const drawerRef = useRef(null);
 
+  // Mount-only: the parent keys the drawer by its subject, so each new role or mode remounts it.
   useEffect(() => {
     tituloRef.current?.focus();
   }, []);

@@ -889,6 +889,28 @@ describe('PanelRoles role drawer', () => {
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
   });
 
+  it('moves focus into the drawer when it switches to another role, so Escape still closes it', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirRol(user, 'Ventas');
+    await abrirRol(user, 'Administrador');
+    expect(drawer('Administrador')).toContainElement(document.activeElement);
+
+    await user.keyboard('{Escape}');
+    expect(queryDrawer()).not.toBeInTheDocument();
+  });
+
+  it('says Sin cargar for a role whose permissions failed to load', async () => {
+    const user = userEvent.setup();
+    servidorConEstado({ fallaGet: (rolId) => rolId === 3 });
+    await renderPanel();
+    expect(await screen.findByText('No se pudieron cargar los permisos de: Ventas')).toBeInTheDocument();
+
+    const ventas = await abrirRol(user, 'Ventas');
+    expect(within(ventas).getByText('Permisos').nextElementSibling).toHaveTextContent('Sin cargar');
+  });
+
   it('opens in create mode from + Nuevo Rol', async () => {
     const user = userEvent.setup();
     await renderPanel();

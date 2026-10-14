@@ -379,6 +379,10 @@ export default function PanelRoles() {
   const drawerAbierto = mostrarFormRol || rolAbierto !== null;
   let tituloDrawer = rolAbierto?.nombre;
   if (mostrarFormRol) tituloDrawer = editandoRol ? 'Editar Rol' : 'Nuevo Rol';
+  // A new subject (another role, or detail <-> form) remounts the drawer so its title takes focus:
+  // focus left on a card outside it would make Escape do nothing.
+  let sujetoDrawer = `detalle-${rolAbiertoId}`;
+  if (mostrarFormRol) sujetoDrawer = editandoRol ? `editar-${editandoRol.id}` : 'nuevo';
 
   if (loading) {
     return (
@@ -461,7 +465,7 @@ export default function PanelRoles() {
         </div>
 
         {drawerAbierto && (
-          <DrawerRol titulo={tituloDrawer} puedeCerrar={puedeCerrarDrawer} onCerrar={cerrarDrawer}>
+          <DrawerRol key={sujetoDrawer} titulo={tituloDrawer} puedeCerrar={puedeCerrarDrawer} onCerrar={cerrarDrawer}>
             {mostrarFormRol ? (
               <FormularioRol
                 form={formRol}
