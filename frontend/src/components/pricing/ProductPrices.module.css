@@ -9,7 +9,8 @@
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-sm);
-  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid var(--tone-info-border);
@@ -27,36 +28,128 @@
 .product {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--spacing-sm);
   font-size: var(--font-sm);
   color: var(--cf-text-primary);
 }
 
+.code {
+  padding: 0 var(--spacing-sm);
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-sm);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Summary card: cost, cost with offset and IVA, the references for a price. */
 .facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs) var(--spacing-lg);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--spacing-md);
+  align-self: stretch;
+  box-sizing: border-box;
   margin: 0;
-  font-size: var(--font-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-md);
+  background: var(--tone-neutral-bg);
 }
 
 .fact {
   display: flex;
-  gap: var(--spacing-xs);
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .factLabel {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--cf-text-secondary);
 }
 
 .factValue {
   margin: 0;
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
   font-variant-numeric: tabular-nums;
   color: var(--cf-text-primary);
 }
 
-.code {
-  font-weight: var(--font-semibold);
+.offsetCost {
+  color: var(--tone-success-fg);
+}
+
+.offsetList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--spacing-xs) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+}
+
+.offsetItem {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.offsetName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+}
+
+.offsetAmount {
+  flex-shrink: 0;
+  color: var(--tone-success-fg);
+}
+
+.muted {
+  font-size: var(--font-sm);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-secondary);
+}
+
+.hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  align-self: stretch;
+  box-sizing: border-box;
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.hint svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--tone-info-fg);
+}
+
+/* One card per list, told apart by its accent: ML is info blue, PVP purple. */
+.group {
+  align-self: stretch;
+  box-sizing: border-box;
+  overflow-x: auto;
+  border: 1px solid var(--cf-border-default);
+  border-left: 3px solid var(--tone-info-fg);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.group[data-list='pvp'] {
+  border-left-color: var(--tone-purple-fg);
 }
 
 .table {
@@ -66,11 +159,24 @@
 }
 
 .caption {
-  margin-bottom: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
   text-align: left;
-  font-size: var(--font-xs);
+}
+
+.captionTitle {
+  display: block;
+  font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-  text-transform: uppercase;
+  color: var(--tone-info-fg);
+}
+
+.group[data-list='pvp'] .captionTitle {
+  color: var(--tone-purple-fg);
+}
+
+.captionSub {
+  display: block;
+  font-size: var(--font-xs);
   color: var(--cf-text-secondary);
 }
 
@@ -80,6 +186,7 @@
   text-align: right;
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
+  white-space: nowrap;
   color: var(--cf-text-secondary);
 }
 
@@ -87,8 +194,16 @@
   text-align: left;
 }
 
-.table tbody tr + tr {
+.row + .row {
   border-top: 1px solid var(--cf-border-default);
+}
+
+.row:hover {
+  background: var(--cf-bg-hover);
+}
+
+.row[data-editing] {
+  background: var(--tone-info-bg);
 }
 
 .table td,
@@ -100,6 +215,7 @@
 .label {
   text-align: left;
   font-weight: var(--font-medium);
+  white-space: nowrap;
   color: var(--cf-text-secondary);
 }
 
@@ -107,10 +223,36 @@
 .markup {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--cf-text-primary);
 }
 
-.markup[data-negative] {
+.price {
+  font-weight: var(--font-semibold);
+}
+
+/* Markup chip, painted by markupTone (utils/ventasMlTone). */
+.chip {
+  display: inline-block;
+  padding: 0 var(--spacing-sm);
+  border-radius: var(--radius-md);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  font-weight: var(--font-semibold);
+}
+
+.chip[data-tone='good'] {
+  background: var(--tone-success-bg);
+  color: var(--tone-success-fg);
+}
+
+.chip[data-tone='low'] {
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+}
+
+.chip[data-tone='negative'] {
+  background: var(--tone-danger-bg);
   color: var(--tone-danger-fg);
 }
 
@@ -145,47 +287,17 @@
   text-align: right;
 }
 
-.iconButton {
+.entry {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-xs);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--cf-text-secondary);
-  cursor: pointer;
-}
-
-.iconButton:hover:not(:disabled) {
-  background: var(--cf-bg-hover);
-  color: var(--cf-text-primary);
-}
-
-.iconButton:focus-visible {
-  outline: 2px solid var(--tone-info-border);
-  outline-offset: 1px;
-}
-
-.modeButton {
-  composes: iconButton;
-}
-
-.modeButton[aria-pressed='true'] {
-  background: var(--tone-info-bg);
-  color: var(--tone-info-fg);
-}
-
-.iconButton:disabled {
-  cursor: default;
-  opacity: 0.5;
+  gap: var(--spacing-xs);
 }
 
 .warning {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid var(--tone-danger-border);
   border-radius: var(--radius-md);
@@ -198,7 +310,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
-  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
   padding: var(--spacing-sm) var(--spacing-md);
   border: 1px solid var(--tone-info-border);
   border-radius: var(--radius-md);

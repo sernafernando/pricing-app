@@ -376,6 +376,15 @@ export const pricingAPI = {
   setearPrecio: (data) => api.post('/precios/set', data),
 };
 
+// Current profit offsets, as Productos reads them for its "markup con offsets"
+// (utils/offsetsGanancia.cargarOffsetsVigentes).
+export const offsetsGananciaAPI = {
+  vigentes: () => api.get('/offsets-ganancia', { params: { solo_vigentes: true } }),
+  // { tipo_cambio } -- the rate offsets convert USD costs and amounts with.
+  tipoCambioHoy: () => api.get('/tipo-cambio-hoy'),
+  grupoFiltros: (grupoId) => api.get(`/offset-grupos/${grupoId}/filtros`),
+};
+
 // One product's stored prices and markups (ProductoResponse).
 export const preciosAPI = {
   obtenerProducto: (itemId) => api.get(`/productos/${itemId}`),

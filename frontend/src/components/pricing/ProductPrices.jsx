@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Info, Pencil, Percent, X } from 'lucide-react';
 import { preciosAPI } from '../../services/api';
+import { useOffsetsVigentes } from '../../hooks/useOffsetsVigentes';
+import { costoConOffset, markupConOffset } from '../../utils/offsetsGanancia';
 import { formatMarkupInput, formatPrecioInput, parseMarkupInput, parsePrecioInput } from '../../utils/precioInput';
 import { formatAmount } from '../../utils/ventasMlFormat';
+import { markupTone } from '../../utils/ventasMlTone';
 import styles from './ProductPrices.module.css';
 
 /**
@@ -30,7 +33,9 @@ const PVP_CUOTAS = [
 
 const LISTS = [
   {
+    id: 'ml',
     title: 'Lista ML',
+    subtitle: 'Precio de las publicaciones en Mercado Libre',
     rows: [
       { id: 'ml-clasica', label: 'Clásica', precio: 'precio_lista_ml', markup: 'markup', pricelist: 4, write: 'rapido', listaTipo: 'web', perm: 'canEditClasica' },
       ...ML_CUOTAS.map(([cuota, pricelist]) => ({
@@ -47,7 +52,9 @@ const LISTS = [
     ],
   },
   {
+    id: 'pvp',
     title: 'PVP',
+    subtitle: 'Precio de venta al público',
     rows: [
       { id: 'pvp-clasica', label: 'PVP clásica', precio: 'precio_pvp', markup: 'markup_pvp', pricelist: 12, write: 'rapido', listaTipo: 'pvp', perm: 'canEditPvp' },
       ...PVP_CUOTAS.map(([cuota, pricelist]) => ({
@@ -73,6 +80,20 @@ const errorText = (error, fallback) => {
 };
 
 const Empty = () => <span className={styles.empty}>—</span>;
+
+/**
+ * A markup painted by the app's markup scale (`markupTone`: negative, low
+ * under 6%, good), the same cut points as the Métricas and Publicaciones ML
+ * markups. Unknown is "—" with no colour, never 0.
+ */
+function MarkupChip({ value }) {
+  if (isBlank(value)) return <Empty />;
+  return (
+    <span className={styles.chip} data-tone={markupTone(value) ?? undefined}>
+      {formatAmount(value)}%
+    </span>
+  );
+}
 
 /** The user's Productos preference for recalculating instalments, default on. */
 function recalcularCuotasPreference() {
@@ -145,13 +166,45 @@ function useUsdRate(enabled) {
   return rate;
 }
 
+/** "Rebate TP-Link" or, without a description, the offset's id. */
+const offsetLabel = (aplicado) => aplicado.descripcion || `Offset #${aplicado.id}`;
+
+/**
+ * The cost with the profit offsets that reach the product discounted, as
+ * Productos applies them to its "markup con offsets": the amount and, below,
+ * each offset that applied with its discount in ARS.
+ */
+function OffsetCost({ product, offsets, costo }) {
+  if (isBlank(product.costo)) return <Empty />;
+  if (offsets === undefined) return <span className={styles.muted}>Cargando offsets…</span>;
+  if (offsets === null) return <span className={styles.muted}>No se pudieron leer los offsets</span>;
+  if (!costo) return <span className={styles.muted}>Sin offsets vigentes</span>;
+  const detalle = costo.aplicados.map((a) => `${offsetLabel(a)}: -$ ${formatAmount(a.monto)}`).join('\n');
+  return (
+    <>
+      <span className={styles.offsetCost} title={detalle}>
+        $ {formatAmount(costo.costoAjustado)}
+      </span>
+      <ul className={styles.offsetList} aria-label="Offsets aplicados">
+        {costo.aplicados.map((a) => (
+          <li key={a.id} className={styles.offsetItem}>
+            <span className={styles.offsetName}>{offsetLabel(a)}</span>
+            <span className={styles.offsetAmount}>-$ {formatAmount(a.monto)}</span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 /**
  * What to keep in mind while setting a price: the product's IVA rate
- * (anyone who sees the prices) and its cost in ARS (only `showCost`, the
- * caller's ml_metricas.ver_ganancia). A USD cost is converted with the current
- * rate and keeps its original amount beside it.
+ * (anyone who sees the prices) and, only for `showCost` (the caller's
+ * ml_metricas.ver_ganancia), its cost in ARS and its cost with offset. A USD
+ * cost is converted with the current rate and keeps its original amount
+ * beside it.
  */
-function ProductFacts({ product, showCost }) {
+function ProductFacts({ product, showCost, offsets, costo }) {
   const isUsd = product.moneda_costo === 'USD' && !isBlank(product.costo);
   const rate = useUsdRate(showCost && isUsd);
 
@@ -168,10 +221,18 @@ function ProductFacts({ product, showCost }) {
   return (
     <dl className={styles.facts} role="group" aria-label="Referencias del producto">
       {showCost && (
-        <div className={styles.fact}>
-          <dt className={styles.factLabel}>Costo</dt>
-          <dd className={styles.factValue}>{cost}</dd>
-        </div>
+        <>
+          <div className={styles.fact}>
+            <dt className={styles.factLabel}>Costo</dt>
+            <dd className={styles.factValue}>{cost}</dd>
+          </div>
+          <div className={styles.fact}>
+            <dt className={styles.factLabel}>Costo con offset</dt>
+            <dd className={styles.factValue}>
+              <OffsetCost product={product} offsets={offsets} costo={costo} />
+            </dd>
+          </div>
+        </>
       )}
       <div className={styles.fact}>
         <dt className={styles.factLabel}>IVA</dt>
@@ -181,7 +242,7 @@ function ProductFacts({ product, showCost }) {
   );
 }
 
-function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, onChange, onToggleMode, onSave, onCancel }) {
+function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, saving, onStart, onChange, onToggleMode, onSave, onCancel }) {
   const price = product[row.precio];
   const markup = product[row.markup];
   const isEditing = editing?.id === row.id;
@@ -199,7 +260,7 @@ function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, o
   };
 
   return (
-    <tr>
+    <tr className={styles.row} data-editing={isEditing ? '' : undefined}>
       <th scope="row" className={styles.label}>
         {row.label}
       </th>
@@ -224,36 +285,60 @@ function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, o
           `$ ${formatAmount(price)}`
         )}
       </td>
-      <td className={styles.markup} data-negative={!isBlank(markup) && Number(markup) < 0 ? '' : undefined}>
-        {isBlank(markup) ? <Empty /> : `${formatAmount(markup)}%`}
+      <td className={styles.markup} data-col="markup" data-negative={!isBlank(markup) && Number(markup) < 0 ? '' : undefined}>
+        <MarkupChip value={markup} />
       </td>
+      {showCost && (
+        <td className={styles.markup} data-col="markup-offset">
+          <MarkupChip value={markupConOffset(markup, costo)} />
+        </td>
+      )}
       {editable && (
         <td className={styles.actions}>
           {isEditing ? (
-            <>
+            <span className={styles.entry}>
               <button
                 type="button"
-                className={styles.modeButton}
-                aria-label="Por markup"
+                className={`btn-tesla xs ${byMarkup ? 'outline-subtle-info' : 'outline'}`}
                 aria-pressed={byMarkup}
-                title={byMarkup ? 'Editar por precio' : 'Editar por markup'}
+                title={byMarkup ? 'Volver a editar el precio' : 'Fijar el markup y calcular el precio'}
                 onClick={onToggleMode}
                 disabled={saving}
               >
-                <Percent size={14} aria-hidden="true" />
+                <Percent size={12} aria-hidden="true" />
+                Por markup
               </button>
-              <button type="button" className={styles.iconButton} aria-label="Guardar" onClick={onSave} disabled={saving}>
+              <button type="button" className="btn-tesla outline-subtle-success icon-only xs" aria-label="Guardar" onClick={onSave} disabled={saving}>
                 <Check size={14} aria-hidden="true" />
               </button>
-              <button type="button" className={styles.iconButton} aria-label="Cancelar" onClick={onCancel} disabled={saving}>
+              <button type="button" className="btn-tesla ghost icon-only xs" aria-label="Cancelar" onClick={onCancel} disabled={saving}>
                 <X size={14} aria-hidden="true" />
               </button>
-            </>
+            </span>
           ) : (
             canEdit && (
-              <button type="button" className={styles.iconButton} aria-label={`Editar ${row.label}`} onClick={onStart} disabled={saving}>
-                <Pencil size={14} aria-hidden="true" />
-              </button>
+              <span className={styles.entry}>
+                <button
+                  type="button"
+                  className="btn-tesla ghost icon-only xs"
+                  aria-label={`Editar ${row.label}`}
+                  title="Editar el precio"
+                  onClick={() => onStart('precio')}
+                  disabled={saving}
+                >
+                  <Pencil size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="btn-tesla outline-subtle-info icon-only xs"
+                  aria-label={`Editar ${row.label} por markup`}
+                  title="Fijar el markup y calcular el precio"
+                  onClick={() => onStart('markup')}
+                  disabled={saving}
+                >
+                  <Percent size={14} aria-hidden="true" />
+                </button>
+              </span>
             )
           )}
         </td>
@@ -319,6 +404,9 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
 
   const { status, product } = state;
   const editable = LISTS.some((list) => list.rows.some((row) => permissions?.[row.perm]));
+  // The offsets are about the cost: read and shown only to who may see it.
+  const offsets = useOffsetsVigentes(showCost);
+  const costo = product && offsets ? costoConOffset(product, offsets) : null;
 
   // After a write the stored prices and markups are the backend's: read them again.
   const isShown = (itemId) => shownItemRef.current === itemId;
@@ -465,59 +553,73 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
             <span className={styles.code}>{product.codigo}</span>
             <span>{product.descripcion}</span>
           </div>
-          <ProductFacts product={product} showCost={showCost} />
+          <ProductFacts product={product} showCost={showCost} offsets={offsets} costo={costo} />
+          {editable && (
+            <p className={styles.hint}>
+              <Percent size={14} aria-hidden="true" />
+              <span>Cada precio se edita por monto o al fijar su markup: el precio resultante se calcula y se confirma antes de guardarlo.</span>
+            </p>
+          )}
           {LISTS.map((list) => (
-            <table key={list.title} className={styles.table}>
-              <caption className={styles.caption}>{list.title}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Lista</th>
-                  <th scope="col">Precio</th>
-                  <th scope="col">Markup</th>
-                  {editable && (
-                    <th scope="col">
-                      <span className={styles.srOnly}>Acciones</span>
-                    </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {list.rows.map((row) => (
-                  <PriceRow
-                    key={row.id}
-                    row={row}
-                    product={product}
-                    editable={editable}
-                    canEdit={Boolean(permissions?.[row.perm])}
-                    editing={editing}
-                    saving={saving}
-                    onStart={() => {
-                      touchEditor();
-                      setPending(null);
-                      setMessage(null);
-                      setEditing({ id: row.id, mode: 'precio', value: editorValue(row, product, 'precio') });
-                    }}
-                    onToggleMode={() => {
-                      touchEditor();
-                      setPending(null);
-                      setMessage(null);
-                      setEditing((current) => {
-                        const mode = current.mode === 'markup' ? 'precio' : 'markup';
-                        return { ...current, mode, value: editorValue(row, product, mode) };
-                      });
-                    }}
-                    onChange={(value) => {
-                      // A warning confirms the value it was raised for: a new value drops it.
-                      touchEditor();
-                      setPending(null);
-                      setEditing((current) => ({ ...current, value }));
-                    }}
-                    onSave={() => (editing.mode === 'markup' ? previewMarkup(row, editing.value) : save(row, editing.value))}
-                    onCancel={cancel}
-                  />
-                ))}
-              </tbody>
-            </table>
+            <section key={list.id} className={styles.group} data-list={list.id}>
+              <table className={styles.table}>
+                <caption className={styles.caption}>
+                  <span className={styles.captionTitle}>{list.title}</span>
+                  <span className={styles.captionSub}>{list.subtitle}</span>
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Lista</th>
+                    <th scope="col">Precio</th>
+                    <th scope="col">Markup</th>
+                    {showCost && <th scope="col">Markup con offset</th>}
+                    {editable && (
+                      <th scope="col">
+                        <span className={styles.srOnly}>Acciones</span>
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.rows.map((row) => (
+                    <PriceRow
+                      key={row.id}
+                      row={row}
+                      product={product}
+                      costo={costo}
+                      showCost={showCost}
+                      editable={editable}
+                      canEdit={Boolean(permissions?.[row.perm])}
+                      editing={editing}
+                      saving={saving}
+                      onStart={(mode) => {
+                        touchEditor();
+                        setPending(null);
+                        setMessage(null);
+                        setEditing({ id: row.id, mode, value: editorValue(row, product, mode) });
+                      }}
+                      onToggleMode={() => {
+                        touchEditor();
+                        setPending(null);
+                        setMessage(null);
+                        setEditing((current) => {
+                          const mode = current.mode === 'markup' ? 'precio' : 'markup';
+                          return { ...current, mode, value: editorValue(row, product, mode) };
+                        });
+                      }}
+                      onChange={(value) => {
+                        // A warning confirms the value it was raised for: a new value drops it.
+                        touchEditor();
+                        setPending(null);
+                        setEditing((current) => ({ ...current, value }));
+                      }}
+                      onSave={() => (editing.mode === 'markup' ? previewMarkup(row, editing.value) : save(row, editing.value))}
+                      onCancel={cancel}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </section>
           ))}
 
           {pending && (
