@@ -13,8 +13,15 @@ import pytest
 from sqlalchemy import event, text
 
 from app.core.config import settings
-from app.services.ml_publications import intake, queue
-from tests.services.ml_publications.conftest import load_fixture, put_webhook, webhook_row, WEBHOOK_SAMPLES
+from app.services.ml_publications import bundle, intake, queue, subresource_store
+from app.services.ml_publications.resources import REFRESH_RESOURCES, RESOURCES
+from tests.services.ml_publications.conftest import (
+    STOCK_FAMILY_SAMPLES,
+    WEBHOOK_SAMPLES,
+    load_fixture,
+    put_webhook,
+    webhook_row,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -127,7 +134,8 @@ class TestTopicMap:
         mappings = intake.topic_mappings(
             {
                 "items_prices": {"kind": "item", "resources": ["prices", "sale_price"]},
-                "stock-locations": {"kind": "user_product", "resources": ["stock"]},  # no sampled pattern yet
+                "stock-locations": {"kind": "item", "resources": ["bundle"]},  # a stock row names a user product
+                "user-products-families": {"kind": "family", "resources": ["stock"]},  # a user-product resource
                 "price_suggestion": {"kind": "item", "resources": ["bundle"]},  # never mapped
                 "public_offers": {"kind": "item", "resources": ["nonsense"]},  # unknown resource name
                 "items": "not-an-object",
@@ -636,3 +644,211 @@ class TestPromotionTopics:
         assert queued(pricing) == {}
         assert result.stats.rows_read == 0
         assert [m.topic for m in intake.topic_mappings(settings.ML_PUB_INTAKE_TOPICS)] == ["items"]
+
+
+STOCK_FAMILY_TOPICS = {
+    "stock-locations": {"kind": "user_product", "resources": ["stock"]},
+    "user-products-families": {"kind": "family", "resources": ["family"]},
+}
+
+
+def captured(topic: str) -> list[dict]:
+    """The real rows of `topic` captured from the bridge on 2026-10-14."""
+    return [r for r in load_fixture(STOCK_FAMILY_SAMPLES)["samples"] if r["topic"] == topic]
+
+
+def stock_row(index: int, seconds: float, **overrides):
+    """Real captured `stock-locations` row (real payload, received_at changed)."""
+    return webhook_row(
+        "stock-locations", index, fixture=STOCK_FAMILY_SAMPLES, received_at=str(at(seconds)), **overrides
+    )
+
+
+def family_row(index: int, seconds: float, **overrides):
+    """Real captured `user-products-families` row (real payload, received_at changed). Index 0 is a
+    `/sites/GBL/...` family, index 1 a `/sites/MLA/...` one."""
+    return webhook_row(
+        "user-products-families", index, fixture=STOCK_FAMILY_SAMPLES, received_at=str(at(seconds)), **overrides
+    )
+
+
+def put_state(engine, table: str, key_column: str, key, fetched_started: datetime | None) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"INSERT INTO {table} ({key_column}, fetched_request_started_at) VALUES (:k, :f)"),
+            {"k": key, "f": fetched_started},
+        )
+
+
+class TestStockAndFamilyPatterns:
+    """`stock-locations` and `user-products-families`, fixed from the rows captured on 2026-10-14."""
+
+    def test_every_captured_stock_resource_parses_to_its_user_product_id(self) -> None:
+        rows = captured("stock-locations")
+        assert rows
+        for row in rows:
+            user_product_id = intake.parse_resource("stock-locations", row["resource"])
+            assert user_product_id is not None and user_product_id.startswith("MLAU") and user_product_id[4:].isdigit()
+            assert row["resource"] == f"/user-products/{user_product_id}/stock"
+
+    def test_an_mla_family_resource_parses_to_its_family_id(self) -> None:
+        assert (
+            intake.parse_resource("user-products-families", "/sites/MLA/user-products-families/1355178774418065")
+            == "1355178774418065"
+        )
+
+    def test_a_global_family_is_not_parsed(self) -> None:
+        """The family fetcher reads `/sites/MLA/...`; a `GBL` family id was never fetched through it, so it
+        is counted as unparsed instead of being enqueued against an endpoint not known to serve it."""
+        (gbl,) = [r for r in captured("user-products-families") if "/sites/GBL/" in r["resource"]]
+        assert intake.parse_resource("user-products-families", gbl["resource"]) is None
+
+    @pytest.mark.parametrize(
+        ("topic", "resource"),
+        [
+            ("stock-locations", "/user-products/MLAU585139618"),
+            ("stock-locations", "/items/MLA3510129282"),
+            ("stock-locations", "/user-products/MLA585139618/stock"),
+            ("user-products-families", "/sites/MLA/user-products-families/abc"),
+            ("user-products-families", "/user-products/MLAU585139618/stock"),
+        ],
+    )
+    def test_a_resource_off_the_pattern_does_not_parse(self, topic, resource) -> None:
+        assert intake.parse_resource(topic, resource) is None
+
+    def test_both_topics_map_to_their_own_entity_kind(self) -> None:
+        mappings = {m.topic: m for m in intake.topic_mappings(STOCK_FAMILY_TOPICS)}
+        assert (mappings["stock-locations"].kind, mappings["stock-locations"].resources) == ("user_product", ("stock",))
+        assert (mappings["user-products-families"].kind, mappings["user-products-families"].resources) == (
+            "family",
+            ("family",),
+        )
+
+    def test_a_fetcher_of_the_entity_with_no_state_model_is_not_accepted(self, monkeypatch) -> None:
+        """The satisfied filter reads each resource's state model: a resource with a fetcher but no model
+        would pass validation and then fail every classify (the cursor would never move)."""
+        fetchers = dict(bundle.FETCHERS)
+        fetchers["stock"] = bundle.SubFetcher("stock", "/user-products/{id}/stock", entity="user_product")
+        monkeypatch.setattr(bundle, "FETCHERS", fetchers)
+        monkeypatch.delitem(subresource_store.MODELS, "stock")
+        assert intake.topic_mappings({"stock-locations": STOCK_FAMILY_TOPICS["stock-locations"]}) == []
+
+    @pytest.mark.parametrize("kind", ["user_product", "family"])
+    def test_every_resource_accepted_for_a_non_item_kind_has_a_state_model(self, kind) -> None:
+        topic = {"user_product": "stock-locations", "family": "user-products-families"}[kind]
+        accepted = [r for r in REFRESH_RESOURCES if intake.topic_mappings({topic: {"kind": kind, "resources": [r]}})]
+        assert accepted
+        assert all(r in subresource_store.MODELS and r in RESOURCES for r in accepted), accepted
+
+
+class TestStockAndFamilyIntake:
+    def test_captured_stock_rows_enqueue_a_stock_refresh_of_their_user_product(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "stock-locations", -100)
+        for index, row in enumerate(captured("stock-locations")):  # 4 deliveries, 2 user products
+            put_webhook(bridge, stock_row(index, -50 + index))
+        result = run(bridge, topics={"stock-locations": STOCK_FAMILY_TOPICS["stock-locations"]})
+        assert result.error is None and result.stats.unparsed == 0
+        entries = queued(pricing)
+        assert sorted(entries) == ["MLAU358501504", "MLAU585139618"]
+        for entry in entries.values():
+            assert entry["kind"] == "user_product"
+            assert entry["resources"] == ["stock"]
+            assert entry["lane"] == queue.LANE_NOTIFICATION
+            assert entry["not_before"] <= entry["last_enqueued_at"]  # no debounce: claimable at once
+
+    def test_a_burst_of_stock_notifications_of_one_user_product_is_one_entry(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "stock-locations", -100)
+        topics = {"stock-locations": STOCK_FAMILY_TOPICS["stock-locations"]}
+        for n in range(5):  # the bridge collapses on (topic, resource); every pass re-enqueues the same key
+            put_webhook(bridge, stock_row(0, -50 + n))
+            run(bridge, topics=topics)
+        entries = queued(pricing)
+        assert list(entries) == ["MLAU585139618"]
+        assert entries["MLAU585139618"]["resources"] == ["stock"]
+
+    def test_an_mla_family_row_is_enqueued_and_a_global_one_is_counted_unparsed(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "user-products-families", -100)
+        put_webhook(bridge, family_row(0, -50))  # /sites/GBL/...
+        put_webhook(bridge, family_row(1, -40))  # /sites/MLA/...
+        result = run(bridge, topics={"user-products-families": STOCK_FAMILY_TOPICS["user-products-families"]})
+        assert result.stats.unparsed == 1
+        (entry,) = queued(pricing).values()
+        assert (entry["kind"], entry["entity_id"], entry["resources"]) == ("family", "1355178774418065", ["family"])
+
+    def test_a_stock_row_is_judged_by_the_stock_state_not_by_the_item_core(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "stock-locations", -100)
+        put_webhook(bridge, stock_row(0, -50))  # MLAU585139618: its stock was fetched after the notification
+        put_webhook(bridge, stock_row(3, -40))  # MLAU358501504: its stock was fetched before it
+        put_state(pricing, "ml_user_product_stock", "user_product_id", "MLAU585139618", at(-49))
+        put_state(pricing, "ml_user_product_stock", "user_product_id", "MLAU358501504", at(-41))
+        result = run(bridge, topics={"stock-locations": STOCK_FAMILY_TOPICS["stock-locations"]})
+        assert list(queued(pricing)) == ["MLAU358501504"]
+        assert result.stats.skipped_satisfied == 1
+
+    def test_a_fresh_user_product_row_does_not_satisfy_a_stock_notification(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "stock-locations", -100)
+        put_webhook(bridge, stock_row(0, -50))
+        put_state(pricing, "ml_user_products", "user_product_id", "MLAU585139618", at(-10))  # not the stock row
+        run(bridge, topics={"stock-locations": STOCK_FAMILY_TOPICS["stock-locations"]})
+        assert list(queued(pricing)) == ["MLAU585139618"]
+
+    def test_a_family_row_is_judged_by_the_family_state(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "user-products-families", -100)
+        put_webhook(bridge, family_row(1, -50))
+        put_state(pricing, "ml_user_product_families", "family_id", 1355178774418065, at(-50))
+        result = run(bridge, topics={"user-products-families": STOCK_FAMILY_TOPICS["user-products-families"]})
+        assert queued(pricing) == {} and result.stats.skipped_satisfied == 1
+
+    def test_a_never_fetched_state_row_does_not_satisfy_a_notification(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "stock-locations", -100)
+        put_webhook(bridge, stock_row(0, -50))
+        put_state(pricing, "ml_user_product_stock", "user_product_id", "MLAU585139618", None)
+        result = run(bridge, topics={"stock-locations": STOCK_FAMILY_TOPICS["stock-locations"]})
+        assert list(queued(pricing)) == ["MLAU585139618"] and result.stats.skipped_satisfied == 0
+
+    @pytest.mark.parametrize(
+        ("stock_started", "user_product_started", "satisfied"),
+        [(-49, -49, True), (-49, -51, False), (-51, -49, False), (-49, None, False)],
+    )
+    def test_a_multi_resource_entry_is_satisfied_only_when_every_resource_was_fetched_after_it(
+        self, env, stock_started, user_product_started, satisfied
+    ) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "stock-locations", -100)
+        put_webhook(bridge, stock_row(0, -50))
+        put_state(pricing, "ml_user_product_stock", "user_product_id", "MLAU585139618", at(stock_started))
+        if user_product_started is not None:
+            put_state(pricing, "ml_user_products", "user_product_id", "MLAU585139618", at(user_product_started))
+        topics = {"stock-locations": {"kind": "user_product", "resources": ["stock", "user_product"]}}
+        result = run(bridge, topics=topics)
+        assert result.stats.skipped_satisfied == (1 if satisfied else 0)
+        assert list(queued(pricing)) == ([] if satisfied else ["MLAU585139618"])
+
+    def test_a_family_id_its_column_cannot_hold_is_enqueued_not_fatal(self, env) -> None:
+        """Past BIGINT the state column cannot be read by it: not judged, enqueued (the handler charges it)."""
+        pricing, bridge = env
+        set_cursor(pricing, "user-products-families", -100)
+        put_webhook(bridge, family_row(1, -50, resource="/sites/MLA/user-products-families/99999999999999999999"))
+        result = run(bridge, topics={"user-products-families": STOCK_FAMILY_TOPICS["user-products-families"]})
+        assert result.error is None
+        assert list(queued(pricing)) == ["99999999999999999999"]
+
+    def test_enabling_the_stock_topic_does_not_replay_its_history(self, env) -> None:
+        """No cursor row for a newly enabled topic: it starts at now minus the overlap window, so the
+        months of stock notifications already in the bridge are never enqueued (rescans cover them)."""
+        pricing, bridge = env
+        set_cursor(pricing, "items", -30 * 86400)  # an old cursor of another topic does not leak into this one
+        put_webhook(bridge, stock_row(0, -30 * 86400))  # a month old
+        put_webhook(bridge, stock_row(3, -121))  # just outside the 120 s overlap window
+        put_webhook(bridge, stock_row(1, -60, resource="/user-products/MLAU100000001/stock"))
+        result = run(bridge, topics={"stock-locations": STOCK_FAMILY_TOPICS["stock-locations"]})
+        assert result.stats.rows_read == 1
+        assert list(queued(pricing)) == ["MLAU100000001"]
+        assert cursor(pricing, "stock-locations")["cursor_received_at"] == at(-60)

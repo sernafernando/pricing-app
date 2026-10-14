@@ -255,14 +255,16 @@ def missed_body(name: str) -> Any:
 # --- Bridge `webhook_latest` (captured 2026-10-06) -----------------------------------------
 
 WEBHOOK_SAMPLES = "webhook_latest_samples.json"
+# Real `stock-locations` / `user-products-families` rows, captured from the bridge on 2026-10-14.
+STOCK_FAMILY_SAMPLES = "webhook_stock_families_20261014.json"
 BRIDGE_DDL = "bridge_webhook_latest.sql"
 
 
-def webhook_row(topic: str, index: int = 0, **overrides: Any) -> dict:
-    """One real captured `webhook_latest` row of `topic` (deep copy). `overrides` replace top-level
-    columns (real payload, `received_at`/`resource` changed to place it on a test timeline); a
+def webhook_row(topic: str, index: int = 0, *, fixture: str = WEBHOOK_SAMPLES, **overrides: Any) -> dict:
+    """One real captured `webhook_latest` row of `topic` (deep copy) from `fixture`. `overrides` replace
+    top-level columns (real payload, `received_at`/`resource` changed to place it on a test timeline); a
     changed `resource` is mirrored into the payload."""
-    rows = [r for r in load_fixture(WEBHOOK_SAMPLES)["samples"] if r["topic"] == topic]
+    rows = [r for r in load_fixture(fixture)["samples"] if r["topic"] == topic]
     row = copy.deepcopy(rows[index])
     row.update(overrides)
     if "resource" in overrides:

@@ -10,8 +10,9 @@ read-only bridge transaction:
    committed late (`received_at` is the bridge transaction's start time). It never moves the
    cursor; rows beyond its limit are left to rescans and counted as `overlap_truncated`.
 
-The pricing side then parses the resource into an item id, drops other sellers' rows and rows
-whose state was already fetched after the notification, and enqueues the rest (lane 1). The
+The pricing side then parses the resource into the id of the entry's entity (an item, a user product
+or a family), drops other sellers' rows and rows whose state was already fetched after the
+notification, and enqueues the rest (lane 1). The
 cursor moves in the SAME transaction as the enqueue, so a failed enqueue re-reads the rows.
 
 Intake NEVER writes to the bridge: its connection is a `READ ONLY` transaction.
@@ -32,13 +33,17 @@ from sqlalchemy.orm import Session
 
 from app.core import database
 from app.core.config import settings
-from app.services.ml_publications import queue
+from app.services.ml_publications import bundle, queue
 from app.services.ml_publications.resources import (
     BUNDLE_RESOURCE,
     CORE_RESOURCE,
+    FAMILY_KIND,
     PROMOTIONS_RESOURCE,
     REFRESH_RESOURCES,
+    USER_PRODUCT_KIND,
+    RESOURCES,
 )
+from app.services.ml_publications.subresource_store import MODELS, InvalidKey, typed_key
 
 logger = logging.getLogger(__name__)
 
@@ -47,19 +52,30 @@ BRIDGE_STATEMENT_TIMEOUT = "10s"
 ERROR_BRIDGE_UNAVAILABLE = "bridge_unavailable"
 ERROR_SELLER_NOT_CONFIGURED = "seller_not_configured"
 
-# Exact production topic names and the resource strings captured for them (2026-10-06). `stock-locations`
-# and `user-products-families` are deliberately absent: the capture has no sample of either, so their
-# pattern must be fixed from a real row before they can be mapped (spec "Intake from webhook_latest").
+# Exact production topic names and the resource strings captured for them (2026-10-06; `stock-locations`
+# and `user-products-families` from the bridge on 2026-10-14, spec "Intake from webhook_latest").
 TOPIC_PATTERNS: Mapping[str, "re.Pattern[str]"] = {
     "items": re.compile(r"^/items/(MLA\d+)$"),
     "items_prices": re.compile(r"^/items/(MLA\d+)/prices$"),
     "catalog_item_competition_status": re.compile(r"^/items/(MLA\d+)/price_to_win$"),
     "public_offers": re.compile(r"^/seller-promotions/offers/OFFER-(MLA\d+)-\d+$"),
     "public_candidates": re.compile(r"^/seller-promotions/candidates/CANDIDATE-(MLA\d+)-\d+$"),
+    "stock-locations": re.compile(r"^/user-products/(MLAU\d+)/stock$"),
+    # Only MLA families: the family fetcher reads `/sites/MLA/user-products-families/{id}`, and the `GBL`
+    # families the topic also delivers were never fetched through it, so they are counted as unparsed.
+    "user-products-families": re.compile(r"^/sites/MLA/user-products-families/(\d+)$"),
+}
+
+# The entity a topic's resource names (default: the item). A topic of another entity may only ask for
+# that entity's own fetchers (`bundle.FETCHERS[name].entity`).
+TOPIC_KINDS: Mapping[str, str] = {
+    "stock-locations": USER_PRODUCT_KIND,
+    "user-products-families": FAMILY_KIND,
 }
 
 # Entries whose resources are covered by the item core fetch can be judged "already satisfied" from
-# `ml_items.fetched_request_started_at`; sub-resources have no state of their own in this PR.
+# `ml_items.fetched_request_started_at`. A user product or family entry is judged by the state rows of its
+# own resources (e.g. `ml_user_product_stock`); item sub-resource topics are not filtered.
 _CORE_COVERED = frozenset({BUNDLE_RESOURCE, CORE_RESOURCE})
 
 
@@ -71,7 +87,7 @@ class TopicMapping:
 
     @property
     def core_covered(self) -> bool:
-        return set(self.resources) <= _CORE_COVERED
+        return self.kind == ITEM_KIND and set(self.resources) <= _CORE_COVERED
 
     @property
     def debounce(self) -> Optional[timedelta]:
@@ -83,21 +99,38 @@ class TopicMapping:
         return timedelta(seconds=seconds) if seconds > 0 and self.resources == (PROMOTIONS_RESOURCE,) else None
 
 
+def _resource_fits(resource: Any, kind: str) -> bool:
+    if not (isinstance(resource, str) and resource in REFRESH_RESOURCES):
+        return False
+    if kind == ITEM_KIND:
+        return True
+    # A non-item entry is judged "already satisfied" from the resource's own state model (`_fetched_at`):
+    # without one, every classify of the topic would fail and its cursor would never move.
+    return (
+        bundle.has_fetcher(resource)
+        and bundle.FETCHERS[resource].entity == kind
+        and resource in MODELS
+        and resource in RESOURCES
+    )
+
+
 def topic_mappings(setting_value: Any) -> List[TopicMapping]:
-    """Validate the `intake.topics` setting into mappings. A topic with no known pattern, a bad entry
-    or an unknown resource name is skipped with a warning: it can never be read."""
+    """Validate the `intake.topics` setting into mappings. A topic with no known pattern, a kind other
+    than the topic's entity, a bad entry or a resource name that entity cannot fetch is skipped with a
+    warning: it can never be read."""
     mappings: List[TopicMapping] = []
     if not isinstance(setting_value, Mapping):
         return mappings
     for topic, entry in setting_value.items():
+        kind = TOPIC_KINDS.get(topic, ITEM_KIND)
         resources = entry.get("resources") if isinstance(entry, Mapping) else None
         valid = (
             (
                 topic in TOPIC_PATTERNS
-                and entry.get("kind") == ITEM_KIND
+                and entry.get("kind") == kind
                 and isinstance(resources, list)
                 and resources
-                and all(isinstance(r, str) and r in REFRESH_RESOURCES for r in resources)
+                and all(_resource_fits(r, kind) for r in resources)
             )
             if isinstance(entry, Mapping)
             else False
@@ -105,12 +138,13 @@ def topic_mappings(setting_value: Any) -> List[TopicMapping]:
         if not valid:
             logger.warning("intake topic %r is not mappable (no fixed pattern or invalid entry); skipped", topic)
             continue
-        mappings.append(TopicMapping(topic=topic, kind=ITEM_KIND, resources=tuple(sorted(set(resources)))))
+        mappings.append(TopicMapping(topic=topic, kind=kind, resources=tuple(sorted(set(resources)))))
     return mappings
 
 
 def parse_resource(topic: str, resource: str) -> Optional[str]:
-    """The item id a notification resource points at, or None when it does not match the topic's pattern."""
+    """The entity id (item, user product or family) a notification resource points at, or None when it
+    does not match the topic's pattern."""
     pattern = TOPIC_PATTERNS.get(topic)
     match = pattern.match(resource or "") if pattern else None
     return match.group(1) if match else None
@@ -235,6 +269,30 @@ _ADVANCE_CURSOR = text(
 _FETCHED = text("SELECT item_id, fetched_request_started_at FROM ml_items WHERE item_id = ANY(:ids)")
 
 
+def _fetched_at(session: Session, mapping: TopicMapping, ids: Sequence[str]) -> Dict[str, Optional[datetime]]:
+    """Per entity id, the start of the latest fetch that covers every resource of `mapping` (the oldest of
+    them), or no key when one of them was never fetched. Item core topics read `ml_items`; a user product
+    or family topic reads its own resources' state rows. Item sub-resource topics are not judged."""
+    if mapping.core_covered:
+        return {r.item_id: r.fetched_request_started_at for r in session.execute(_FETCHED, {"ids": list(ids)})}
+    if mapping.kind == ITEM_KIND:
+        return {}
+    oldest: Optional[Dict[str, Optional[datetime]]] = None
+    for resource in mapping.resources:
+        model = MODELS[resource]
+        column = getattr(model, RESOURCES[resource].key_columns[0])
+        keys = {}
+        for entity_id in ids:
+            try:
+                keys[typed_key(resource, entity_id)] = entity_id
+            except InvalidKey:
+                continue
+        rows = session.query(column, model.fetched_request_started_at).filter(column.in_(list(keys))).all()
+        found = {keys[key]: started for key, started in rows if started is not None}
+        oldest = found if oldest is None else {i: min(oldest[i], found[i]) for i in oldest.keys() & found.keys()}
+    return oldest or {}
+
+
 @dataclass
 class Classified:
     entries: List[queue.EnqueueEntry] = field(default_factory=list)
@@ -259,24 +317,23 @@ def classify(
         if row.user_id != seller_id:
             out.foreign += 1
             continue
-        item_id = parse_resource(mapping.topic, row.resource)
-        if item_id is None:
+        entity_id = parse_resource(mapping.topic, row.resource)
+        if entity_id is None:
             out.unparsed += 1
             continue
-        candidates.append((item_id, row))
+        candidates.append((entity_id, row))
     fetched: Dict[str, Optional[datetime]] = {}
-    if candidates and mapping.core_covered:
-        ids = sorted({item_id for item_id, _ in candidates})
-        fetched = {r.item_id: r.fetched_request_started_at for r in session.execute(_FETCHED, {"ids": ids})}
-    for item_id, row in candidates:
-        started = fetched.get(item_id)
+    if candidates:
+        fetched = _fetched_at(session, mapping, sorted({entity_id for entity_id, _ in candidates}))
+    for entity_id, row in candidates:
+        started = fetched.get(entity_id)
         if started is not None and started >= row.received_at:
             out.satisfied += 1
             continue
         out.entries.append(
             queue.EnqueueEntry(
                 kind=mapping.kind,
-                entity_id=item_id,
+                entity_id=entity_id,
                 lane=lane,
                 resources=mapping.resources,
                 source_received_at=row.received_at,
