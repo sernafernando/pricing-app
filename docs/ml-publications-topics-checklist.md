@@ -19,7 +19,7 @@ Nothing has to be subscribed in the ML panel to ship the first PRs.
 | `public_offers` | optional | `/seller-promotions/offers/OFFER-MLA<n>-<n>` | item promotions | 24 |
 | `public_candidates` | optional | `/seller-promotions/candidates/CANDIDATE-MLA<n>-<n>` | item promotions | 144 |
 | `stock-locations` | optional | `/user-products/MLAU<n>/stock` | user product stock | 58 |
-| `user-products-families` | optional | `/sites/MLA/user-products-families/<n>` (GBL rows are not fetchable and are counted as unparsed) | user products family | 6 |
+| `user-products-families` | optional | `/sites/MLA/user-products-families/<n>` (GBL rows are counted as unparsed: never fetched through the MLA family endpoint; not known whether that endpoint serves them) | user products family | 6 |
 
 There is no `user_products` topic: user product changes arrive through `items`, `stock-locations`
 and `user-products-families`.
@@ -157,7 +157,8 @@ per-endpoint 429 counters in `worker_job_state.detail`.
 
 Topics: `stock-locations` (resource `/user-products/MLAU<n>/stock`) and `user-products-families`
 (resource `/sites/MLA/user-products-families/<n>`) are mapped from real rows captured on 2026-10-14. Before that,
-567k stock notifications since 2025-09 were ignored and stock was 4-7 days stale for most user products,
+567k stock notifications since 2025-09 were ignored and stock was 4-7 days stale for most user products (measured
+2026-10-14 in prod `ml_user_product_stock.fetched_at`: 5,171 of 6,555 rows 4-7 days old),
 refreshed only as a side effect of `items` notifications and rescans past their minimum age.
 
 Rollback: remove the names from `bundle_resources`; nothing already stored is deleted.

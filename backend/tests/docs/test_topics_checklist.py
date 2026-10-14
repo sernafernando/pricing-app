@@ -180,7 +180,7 @@ def test_the_stock_and_family_topics_map_only_their_own_entity_and_resource(doc)
         assert f"`{topic}`" in section
         (mapping,) = topic_mappings({topic: {"kind": kind, "resources": [resource]}})
         assert (mapping.kind, mapping.resources) == (kind, (resource,))
-        for other_kind in {"item", "user_product", "family"} - {kind}:  # a stock row never names an item
+        for other_kind in {"item", "user_product", "family"} - {kind}:  # each topic accepts only its own entity kind
             assert topic_mappings({topic: {"kind": other_kind, "resources": [resource]}}) == []
 
 

@@ -102,7 +102,16 @@ class TopicMapping:
 def _resource_fits(resource: Any, kind: str) -> bool:
     if not (isinstance(resource, str) and resource in REFRESH_RESOURCES):
         return False
-    return kind == ITEM_KIND or (bundle.has_fetcher(resource) and bundle.FETCHERS[resource].entity == kind)
+    if kind == ITEM_KIND:
+        return True
+    # A non-item entry is judged "already satisfied" from the resource's own state model (`_fetched_at`):
+    # without one, every classify of the topic would fail and its cursor would never move.
+    return (
+        bundle.has_fetcher(resource)
+        and bundle.FETCHERS[resource].entity == kind
+        and resource in MODELS
+        and resource in RESOURCES
+    )
 
 
 def topic_mappings(setting_value: Any) -> List[TopicMapping]:
@@ -308,23 +317,23 @@ def classify(
         if row.user_id != seller_id:
             out.foreign += 1
             continue
-        item_id = parse_resource(mapping.topic, row.resource)
-        if item_id is None:
+        entity_id = parse_resource(mapping.topic, row.resource)
+        if entity_id is None:
             out.unparsed += 1
             continue
-        candidates.append((item_id, row))
+        candidates.append((entity_id, row))
     fetched: Dict[str, Optional[datetime]] = {}
     if candidates:
-        fetched = _fetched_at(session, mapping, sorted({item_id for item_id, _ in candidates}))
-    for item_id, row in candidates:
-        started = fetched.get(item_id)
+        fetched = _fetched_at(session, mapping, sorted({entity_id for entity_id, _ in candidates}))
+    for entity_id, row in candidates:
+        started = fetched.get(entity_id)
         if started is not None and started >= row.received_at:
             out.satisfied += 1
             continue
         out.entries.append(
             queue.EnqueueEntry(
                 kind=mapping.kind,
-                entity_id=item_id,
+                entity_id=entity_id,
                 lane=lane,
                 resources=mapping.resources,
                 source_received_at=row.received_at,
