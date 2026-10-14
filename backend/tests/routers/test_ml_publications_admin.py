@@ -133,7 +133,8 @@ class TestContract:
 
         # `ml_ads.ingest` and `ml_billing.sweep` are gated by env flags (ML_ADS_ENABLED, ML_BILLING_ENABLED), not by an
         # admin setting: they have no admin job.
-        env_gated = {"ml_ads.ingest", "ml_billing.sweep"}
+        # `ml_publications.promo_refresh` drains a queue every 15 s behind `promo_refresh.enabled`: nothing to request.
+        env_gated = {"ml_ads.ingest", "ml_billing.sweep", "ml_publications.promo_refresh"}
         registered = {h.name for h in ML_PUBLICATIONS_REGISTRY if h.name not in env_gated}
         assert {handler for handler, _ in admin.JOBS.values()} == registered
 

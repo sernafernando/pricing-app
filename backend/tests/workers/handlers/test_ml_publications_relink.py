@@ -508,4 +508,5 @@ class TestRegistry:
             "ml_publications.missed_feeds",
             "ml_publications.sweep",
             "ml_publications.verify",
+            "ml_publications.promo_refresh",
         ]

@@ -10,13 +10,18 @@ deletes anything.
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.ml_publications import MlChangeLog, MlItemEvent
+from app.services import promo_refresh_queue
 from app.services.ml_publications.events import ChangeRow, Event, dedupe_key, derive_events
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BATCH_SIZE = 500
 # One INSERT per batch: a row yields at most a handful of events of 14 columns each, so the cap keeps the
@@ -45,23 +50,39 @@ def _values(row: ChangeRow, event: Event) -> dict:
     }
 
 
-def _insert(db, rows: list[ChangeRow]) -> int:
-    """One INSERT for the events of every row given; returns how many were new."""
+def _insert(db, rows: list[ChangeRow]) -> list:
+    """One INSERT for the events of every row given; returns the new ones (type, item, payload)."""
     values = [_values(row, event) for row in rows for event in derive_events(row)]
     if not values:
-        return 0
+        return []
     statement = (
         pg_insert(MlItemEvent)
         .values(values)
         .on_conflict_do_nothing(index_elements=["dedupe_key"])
-        .returning(MlItemEvent.id)
+        .returning(MlItemEvent.event_type, MlItemEvent.item_id, MlItemEvent.payload)
     )
-    return len(db.execute(statement).all())
+    return list(db.execute(statement).all())
 
 
 def write_events(db, entry: MlChangeLog) -> int:
-    """Insert the events of one change-log row; returns how many were new."""
-    return _insert(db, [ChangeRow.from_model(entry)])
+    """Insert the events of one change-log row; returns how many were new.
+
+    A NEW `status_activated` event that is a reactivation also queues the item's promotions-mirror refresh,
+    in this same transaction (the owner's rule: promotions are asked about again once the item is active
+    again). Only here: `rederive_events` replays history and must not refresh anything."""
+    created = _insert(db, [ChangeRow.from_model(entry)])
+    reactivated = [
+        event.item_id
+        for event in created
+        if event.event_type == "status_activated" and (event.payload or {}).get("is_reactivation") is True
+    ]
+    if reactivated:
+        try:
+            with db.begin_nested():  # a queue problem must never roll back the change-log row and its events
+                promo_refresh_queue.enqueue(db, reactivated, datetime.now(timezone.utc))
+        except Exception:  # noqa: BLE001
+            logger.exception("promo refresh enqueue failed for %s; the events are kept", reactivated)
+    return len(created)
 
 
 def batch_query(db, *, item_id: Optional[str], last_id: int, batch_size: int):
@@ -90,6 +111,6 @@ def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFA
         if not entries:
             db.commit()  # close the transaction opened by the batch's SET LOCAL
             return created
-        created += _insert(db, [ChangeRow.from_model(entry) for entry in entries])
+        created += len(_insert(db, [ChangeRow.from_model(entry) for entry in entries]))
         last_id = entries[-1].id
         db.commit()  # ends the batch transaction; also expires the loaded rows (bounded identity map)
