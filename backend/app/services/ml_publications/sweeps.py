@@ -100,8 +100,9 @@ _ELIGIBLE_USER_PRODUCT = (
       {parked}
 """
 )
-# A parked entry (failed past its attempts) leaves the queue only through a manual enqueue, so the sweep cannot
-# reach that entity: it is not eligible, which also keeps the batch size from counting it.
+# A parked entry (failed past its attempts) leaves the queue only through a manual enqueue or a `core`/`bundle`
+# trigger (`queue.CORE_TRIGGERS`); a sweep names one auxiliary resource, so it cannot reach that entity: it is not
+# eligible, which also keeps the batch size from counting it.
 _NOT_PARKED = (
     "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue p "
     "WHERE p.kind = '{kind}' AND p.entity_id = {id} AND p.parked_at IS NOT NULL)"

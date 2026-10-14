@@ -100,12 +100,12 @@ class TestEnqueue:
         assert stored["lane"] == 1
         assert stored["not_before"] > NOW() + timedelta(minutes=30)
 
-    def test_a_notification_enqueue_does_not_unpark_a_parked_entry_but_a_manual_one_does(self, mlpub_pg) -> None:
-        enqueue([entry("MLA1", lane=1)])
+    def test_a_notification_naming_only_auxiliaries_does_not_unpark_but_a_manual_one_does(self, mlpub_pg) -> None:
+        enqueue([entry("MLA1", lane=1, resources=("performance",))])
         sql(mlpub_pg, "UPDATE ml_pub_refresh_queue SET parked_at = now(), attempts = 8, last_error = 'boom'")
-        enqueue([entry("MLA1", lane=1)])
+        enqueue([entry("MLA1", lane=1, resources=("prices",))])
         assert row(mlpub_pg, "MLA1")["parked_at"] is not None
-        enqueue([entry("MLA1", lane=0)])
+        enqueue([entry("MLA1", lane=0, resources=("prices",))])
         stored = row(mlpub_pg, "MLA1")
         assert (stored["parked_at"], stored["attempts"], stored["lane"]) == (None, 0, 0)
 
@@ -120,6 +120,69 @@ class TestEnqueue:
     def test_kinds_do_not_collide(self, mlpub_pg) -> None:
         enqueue([EnqueueEntry("item", "X1", 1), EnqueueEntry("user_product", "X1", 1)])
         assert count(mlpub_pg) == 2
+
+
+class TestCoreTriggerSupersedesFailures:
+    """A trigger naming `core` or `bundle` asks for the item itself: on an entry that is failing (backed off or
+    parked) it un-parks it, resets its attempts, makes it due now and drops the failed auxiliary resources it
+    still holds (the bundle plan fetches them again). An auxiliary failure can then never hold a core refresh
+    back (prod 2026-10-14: 8.5k items parked on performance/moderation/promotions answers)."""
+
+    @staticmethod
+    def failing(engine, resources, *, parked: bool, attempts: int = 8) -> None:
+        enqueue([entry("MLA1", lane=1, resources=resources)])
+        sql(
+            engine,
+            "UPDATE ml_pub_refresh_queue SET attempts = :a, last_error = 'performance: HTTP 400', "
+            "not_before = now() + interval '6 hours', parked_at = CASE WHEN :p THEN now() END",
+            a=attempts,
+            p=parked,
+        )
+
+    @pytest.mark.parametrize("lane", [1, 2, 3, 4])
+    @pytest.mark.parametrize("trigger", [("core",), ("bundle",)])
+    def test_unparks_a_parked_auxiliary_failure_on_any_lane(self, mlpub_pg, lane, trigger) -> None:
+        self.failing(mlpub_pg, ("moderation", "performance"), parked=True)
+        enqueue([entry("MLA1", lane=lane, resources=trigger)])
+        stored = row(mlpub_pg, "MLA1")
+        assert (stored["parked_at"], stored["attempts"], list(stored["resources"])) == (None, 0, list(trigger))
+        assert stored["not_before"] <= NOW()
+        assert stored["lane"] == 1  # never downgraded
+
+    def test_a_backed_off_auxiliary_failure_does_not_delay_the_core(self, mlpub_pg) -> None:
+        self.failing(mlpub_pg, ("performance",), parked=False, attempts=5)
+        enqueue([entry("MLA1", lane=3, resources=("core",))])
+        stored = row(mlpub_pg, "MLA1")
+        assert (stored["attempts"], list(stored["resources"])) == (0, ["core"])
+        assert stored["not_before"] <= NOW()
+        assert claim_one("MLA1").resources == ("core",)
+
+    def test_a_failing_core_stays_queued_beside_the_new_trigger(self, mlpub_pg) -> None:
+        self.failing(mlpub_pg, ("core", "performance"), parked=True)
+        enqueue([entry("MLA1", lane=1, resources=("bundle",))])
+        stored = row(mlpub_pg, "MLA1")
+        assert (stored["parked_at"], stored["attempts"], list(stored["resources"])) == (None, 0, ["bundle", "core"])
+
+    def test_an_entry_that_is_not_failing_still_merges_its_named_resources(self, mlpub_pg) -> None:
+        enqueue([entry("MLA1", lane=1, resources=("prices",))])
+        enqueue([entry("MLA1", lane=1, resources=("core",))])
+        assert list(row(mlpub_pg, "MLA1")["resources"]) == ["core", "prices"]
+
+    def test_a_claimed_entry_keeps_its_resources_and_charged_attempts(self, mlpub_pg) -> None:
+        """The worker holding it settles it: its claim token fences `complete`, which adds back what failed."""
+        enqueue([entry("MLA1", lane=1, resources=("performance",))])
+        claim_one("MLA1")
+        sql(mlpub_pg, "UPDATE ml_pub_refresh_queue SET attempts = 2")
+        enqueue([entry("MLA1", lane=1, resources=("core",))])
+        stored = row(mlpub_pg, "MLA1")
+        assert (stored["attempts"], list(stored["resources"])) == (2, ["core", "performance"])
+
+    def test_an_auxiliary_trigger_on_a_failing_entry_keeps_the_backoff(self, mlpub_pg) -> None:
+        self.failing(mlpub_pg, ("performance",), parked=False, attempts=5)
+        enqueue([entry("MLA1", lane=1, resources=("prices",))])
+        stored = row(mlpub_pg, "MLA1")
+        assert (stored["attempts"], list(stored["resources"])) == (5, ["performance", "prices"])
+        assert stored["not_before"] > NOW() + timedelta(hours=5)
 
 
 class TestClaim:

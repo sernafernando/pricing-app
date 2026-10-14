@@ -7,7 +7,8 @@ Every function runs in its OWN short transaction through `get_background_db()`
 Lifecycle of an entry, keyed `(kind, entity_id)`:
 
 - `enqueue` is idempotent and collapses repeats: resources are merged, the lane
-  only ever moves to a higher priority, `version` is bumped.
+  only ever moves to a higher priority, `version` is bumped. A `core`/`bundle`
+  trigger supersedes the failure state of an unclaimed entry (`CORE_TRIGGERS`).
 - `claim` hands out entries single-flight (`SKIP LOCKED`) under a fresh
   `claim_token`; a claim older than the lease is charged one attempt and becomes
   claimable again (crash recovery).
@@ -90,21 +91,43 @@ class LaneFairness:
         return self._calls % self._period == 0
 
 
+# A trigger naming the item itself (`core`, or `bundle` which includes it) supersedes the failure state of an
+# entry no worker holds: the entry is un-parked, its attempts reset, it is due now, and the auxiliary resources
+# it still holds (the ones that failed) are dropped; the core or bundle it already held stays. Failures of
+# auxiliary resources (performance, moderation, promotions, ...) back off and park their entry, but never hold
+# a later refresh of the item back: before this rule a parked entry swallowed every notification into its
+# resources and was never claimed again (prod 2026-10-14: 8.5k items frozen). A failing core is retried from
+# zero by each new trigger, which is a real change to fetch. A claimed entry is left to its worker, whose
+# fenced `complete` charges what failed. A trigger naming only auxiliaries un-parks nothing (manual lane aside).
+CORE_TRIGGERS: Tuple[str, ...] = ("bundle", "core")
+
+_SUPERSEDES = (
+    "(EXCLUDED.resources && CAST(:core_triggers AS text[]) AND q.claimed_at IS NULL "
+    "AND (q.parked_at IS NOT NULL OR q.attempts > 0))"
+)
+
 _ENQUEUE_SQL = text(
-    """
+    f"""
     INSERT INTO ml_pub_refresh_queue AS q
         (kind, entity_id, resources, lane, source_received_at, not_before)
     VALUES (:kind, :entity_id, CAST(:resources AS text[]), :lane, :source_received_at, COALESCE(:not_before, now()))
     ON CONFLICT (kind, entity_id) DO UPDATE SET
-        resources = ARRAY(SELECT x FROM unnest(q.resources || EXCLUDED.resources) AS x GROUP BY x ORDER BY x),
+        resources = CASE WHEN {_SUPERSEDES}
+            THEN ARRAY(SELECT x FROM unnest(EXCLUDED.resources || q.resources) AS x
+                       WHERE x = ANY(EXCLUDED.resources) OR x = ANY(CAST(:core_triggers AS text[]))
+                       GROUP BY x ORDER BY x)
+            ELSE ARRAY(SELECT x FROM unnest(q.resources || EXCLUDED.resources) AS x GROUP BY x ORDER BY x) END,
         lane = LEAST(q.lane, EXCLUDED.lane),
         version = q.version + 1,
         last_enqueued_at = now(),
         source_received_at = LEAST(q.source_received_at, EXCLUDED.source_received_at),
-        not_before = CASE WHEN EXCLUDED.lane < q.lane THEN LEAST(q.not_before, EXCLUDED.not_before)
+        not_before = CASE WHEN {_SUPERSEDES} THEN LEAST(EXCLUDED.not_before, now())
+                          WHEN EXCLUDED.lane < q.lane THEN LEAST(q.not_before, EXCLUDED.not_before)
                           ELSE q.not_before END,
-        parked_at = CASE WHEN EXCLUDED.lane = 0 THEN NULL ELSE q.parked_at END,
-        attempts = CASE WHEN EXCLUDED.lane = 0 AND q.parked_at IS NOT NULL THEN 0 ELSE q.attempts END
+        parked_at = CASE WHEN EXCLUDED.lane = 0 OR {_SUPERSEDES} THEN NULL ELSE q.parked_at END,
+        attempts = CASE WHEN {_SUPERSEDES} THEN 0
+                        WHEN EXCLUDED.lane = 0 AND q.parked_at IS NOT NULL THEN 0
+                        ELSE q.attempts END
     """
 )
 
@@ -124,6 +147,7 @@ def enqueue(entries: Sequence[EnqueueEntry], session: Optional[Session] = None) 
             "lane": e.lane,
             "source_received_at": e.source_received_at,
             "not_before": e.not_before,
+            "core_triggers": list(CORE_TRIGGERS),
         }
         for e in entries
     ]
