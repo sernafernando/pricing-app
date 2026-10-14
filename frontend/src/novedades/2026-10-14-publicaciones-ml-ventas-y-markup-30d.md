@@ -12,7 +12,7 @@ Qué tenés que saber:
 - **Markup 30d** es el markup real de esas ventas, calculado igual que en **Métricas ML**. Se calcula sobre el total vendido, así que las ventas más grandes pesan más (no es un promedio simple).
 - **Sin ventas en el período**, las dos columnas muestran **—**.
 - **Permisos:** **Ventas 30d** la ves si tenés acceso a Métricas ML. **Markup 30d** pide además el permiso de ver ganancia.
-- **La columna Markup de antes** (la de la peor variación, calculada con el precio actual) queda oculta, pero no desaparece: la podés volver a mostrar desde **Columnas**. Los filtros por markup siguen funcionando igual.
+- **La columna Markup de antes** (la de la peor variación, calculada con el precio actual) queda oculta solo si ves **Markup 30d**, y la podés volver a mostrar desde **Columnas**. Si tenés el permiso de ver ganancia pero no acceso a Métricas ML, la seguís viendo como siempre. Los filtros por markup siguen funcionando igual.
 - **En la vista Agrupado**, las filas que agrupan dejan estas columnas vacías: los números están en las filas de cada publicación.
 
 ## Cómo se usa
