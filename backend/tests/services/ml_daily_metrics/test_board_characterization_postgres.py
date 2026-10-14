@@ -16,7 +16,7 @@ import hashlib
 import json
 import os
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -90,8 +90,19 @@ def _frozen_world(monkeypatch):
     monkeypatch.setattr(settings, "ML_USER_ID", 999)
 
 
+def _plain(value: Any) -> Any:
+    """JSON for what `json` cannot write. A timestamp is written in UTC: the driver
+    returns it in the SESSION time zone of the server, which differs between
+    machines (the instant is what the board reports)."""
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone(timezone.utc).isoformat()
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
+
+
 def _digest(value: Any) -> str:
-    text = json.dumps(value, sort_keys=True, default=str, ensure_ascii=True)
+    text = json.dumps(value, sort_keys=True, default=_plain, ensure_ascii=True)
     return hashlib.sha256(text.encode()).hexdigest()[:20]
 
 
@@ -99,7 +110,7 @@ def _dump(name: str, section: str, value: Any) -> None:
     target = os.environ.get("BOARD_GOLDEN_DUMP")
     if target:
         Path(target).mkdir(parents=True, exist_ok=True)
-        Path(target, f"{name}.{section}.json").write_text(json.dumps(value, sort_keys=True, default=str, indent=1))
+        Path(target, f"{name}.{section}.json").write_text(json.dumps(value, sort_keys=True, default=_plain, indent=1))
 
 
 def _mla_source(kind: str):
@@ -119,7 +130,7 @@ def _board_response(session, name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
     response = build_board_response(
         session, f, limit=limit, offset=offset, can_see_margin=True, scope_pairs=scope_pairs
     )
-    data = response.model_dump(mode="json")
+    data = response.model_dump()
     return {
         "meta": {k: v for k, v in data.items() if k not in ("kpis", "facets", "rows")},
         "kpis": data["kpis"],
