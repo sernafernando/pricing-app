@@ -4,7 +4,9 @@ unit has no price of its own), whatever the size.
 SQL only extracts; the maths is `markup.unit_markup` (P2). For each publication the statements read:
 
 1. the item: listing type, tags, the price inputs (current sale price and `ml_items.price`) and the installments
-   campaign sale term, which is read ONLY when no campaign tag is present (the tag wins, see `pricelist_resolver`);
+   campaign (the typed column the item mapper fills from the `INSTALLMENTS_CAMPAIGN` sale term), used ONLY when no
+   campaign tag is present (the tag wins, see `pricelist_resolver`). The `raw` body is never read: detoasting it
+   for every item cost ~190 MB of buffer traffic on a set-wide request;
 2. its live variations;
 3. every `linked` unit (item level and per variation) with the linked product's cost fields;
 4. only when some unit has no usable price (neither the sale price nor `ml_items.price`): the Productos list prices
@@ -26,8 +28,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import ARRAY, Integer, Text, and_, case, cast, func, literal, literal_column, select, type_coerce
-from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
+from sqlalchemy import ARRAY, Integer, Text, and_, case, cast, func, literal, select, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, aliased, join as orm_join
 from sqlalchemy.types import NullType
 
@@ -44,8 +46,6 @@ from app.services.ml_publications.view.filters import (
 from app.services.ml_publications.view.markup import UnitInputs
 from app.services.pricing_columns import PRICELIST_TO_CAMPO
 
-# The installments campaign of an item that carries no campaign tag: the `INSTALLMENTS_CAMPAIGN` sale term.
-CAMPAIGN_SALE_TERM = '$.sale_terms[*] ? (@.id == "INSTALLMENTS_CAMPAIGN").value_name'
 FALLBACK_COLUMNS = tuple(PRICELIST_TO_CAMPO.values())
 DEFAULT_IVA = 21.0
 _NO_PRICES: Mapping[str, Optional[float]] = MappingProxyType({})  # a unit with a price of its own
@@ -75,11 +75,12 @@ def _ids_param(ids: Sequence[str]) -> Any:
 
 
 def _campaign(item: Any) -> Any:
-    """The sale-term campaign, evaluated only when no campaign tag is present."""
-    term = func.jsonb_path_query_first(item.raw, cast(literal(CAMPAIGN_SALE_TERM), JSONPATH)).op("#>>")(
-        literal_column("'{}'")
+    """The installments campaign of the item's sale terms (`ml_items.installments_campaign`), unless a campaign tag
+    is present: the tag wins, so the column is then not extracted."""
+    return case(
+        (func.coalesce(item.tags, literal([], ARRAY(Text))).overlap(list(CAMPAIGN_TAGS)), None),
+        else_=item.installments_campaign,
     )
-    return case((func.coalesce(item.tags, literal([], ARRAY(Text))).overlap(list(CAMPAIGN_TAGS)), None), else_=term)
 
 
 def _tags(item: Any) -> Any:

@@ -14,6 +14,8 @@ from typing import Any, Optional
 
 from sqlalchemy import text
 
+from app.services.ml_publications.mappers import installments_campaign
+
 NOW = datetime(2026, 10, 8, 12, 0, tzinfo=timezone.utc)
 _counter = itertools.count(1)
 
@@ -25,6 +27,10 @@ def _insert(conn, table: str, row: dict[str, Any]) -> None:
 
 
 def add_item(conn, item_id: str, **columns: Any) -> None:
+    """An `ml_items` row. A `raw` body given as JSON text fills `installments_campaign` the way the item mapper
+    does at ingest (the markup reads the column, never `raw`), unless the test sets that column itself."""
+    if isinstance(columns.get("raw"), str) and "installments_campaign" not in columns:
+        columns["installments_campaign"] = installments_campaign(json.loads(columns["raw"]).get("sale_terms"))
     _insert(conn, "ml_items", {"item_id": item_id, **columns})
 
 
