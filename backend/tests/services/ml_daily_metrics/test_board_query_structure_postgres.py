@@ -90,4 +90,5 @@ def test_the_surviving_keys_are_a_semi_join_inside_the_pairs_not_a_cte_joined_af
     statements = _statements(world, marcas=("Samsung",))
 
     assert not any(re.search(r"\bkeys_\w+ AS", s) for s in statements)
-    assert not any("keys_" in s for s in statements)
+    members = _created(statements, "board_members_")
+    assert members and all(" IN (SELECT " in s for s in members)
