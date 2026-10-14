@@ -15,7 +15,7 @@ const DISABLED_MESSAGE =
 function StockSection({ row, detail }) {
   const stock = row.stock ?? {};
   return (
-    <Section title="Stock">
+    <Section title="Stock ML">
       <Fields>
         <Field label="Full">{count(stock.full)}</Field>
         <Field label="Propio">{count(stock.own)}</Field>

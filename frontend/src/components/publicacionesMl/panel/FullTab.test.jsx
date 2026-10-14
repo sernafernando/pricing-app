@@ -21,9 +21,9 @@ const withReplenishment = (overrides) => makeDetail({ replenishment: { ...REPLEN
 describe('stock', () => {
   it('shows Full and Propio and when they were read', () => {
     renderTab();
-    expect(valueOf('Stock', 'Full')).toHaveTextContent('20');
-    expect(valueOf('Stock', 'Propio')).toHaveTextContent('14');
-    expect(valueOf('Stock', 'Actualizado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    expect(valueOf('Stock ML', 'Full')).toHaveTextContent('20');
+    expect(valueOf('Stock ML', 'Propio')).toHaveTextContent('14');
+    expect(valueOf('Stock ML', 'Actualizado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 });
 

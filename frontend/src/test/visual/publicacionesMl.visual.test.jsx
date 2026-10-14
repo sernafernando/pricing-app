@@ -75,11 +75,17 @@ vi.mock('../../services/api', () => ({
 }));
 
 // 50 rows so the scroller really has something to scroll vertically.
-const MANY = Array.from({ length: 50 }, (_, i) => ({ ...ITEMS[i % ITEMS.length], item_id: `MLA${1100000100 + i}` }));
+// Each row carries an ERP stock apart from its ML one: a big figure, a real zero, unknown (no product), a small one.
+const ERP_QUANTITIES = [12500, 0, null, 7];
+const MANY = Array.from({ length: 50 }, (_, i) => ({
+  ...ITEMS[i % ITEMS.length],
+  item_id: `MLA${1100000100 + i}`,
+  erp_stock: { quantity: ERP_QUANTITIES[i % ERP_QUANTITIES.length] },
+}));
 const RESPONSE = {
   ...ITEMS_RESPONSE,
   items: MANY,
-  facets: FACETS,
+  facets: { ...FACETS, stock: { ...FACETS.stock, erp_sin_stock: 9 } },
   data_state: {
     ...DATA_STATE_OK,
     degraded: true,
@@ -216,6 +222,24 @@ describe('Publicaciones ML (visual)', () => {
         for (const band of document.querySelectorAll('div[class*="filterBand"]')) {
           expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
         }
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: ML and ERP stock sit in their own columns, headers and figures on one line`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        const scroller = scrollerOf();
+        const headers = [...scroller.querySelectorAll('thead th')];
+        const ml = headers.find((th) => th.textContent.startsWith('Stock ML'));
+        const erp = headers.find((th) => th.textContent.startsWith('Stock ERP'));
+        expect(ml).toBeDefined();
+        expect(erp).toBeDefined();
+        expect(ml.textContent).toContain('orden Full');
+        expect(wrapped([ml.querySelector('button'), erp.querySelector('button')])).toEqual([]);
+        const notes = [...scroller.querySelectorAll('tbody td span')].filter((el) => el.textContent === 'Sin stock ERP');
+        expect(notes.length).toBeGreaterThan(0);
+        expect(wrapped(notes)).toEqual([]);
+        expect(overflowingCells(scroller)).toEqual([]);
+        await expect.element(screen.getByRole('button', { name: /Sin stock ERP/ })).toBeVisible();
         screen.unmount();
       });
 

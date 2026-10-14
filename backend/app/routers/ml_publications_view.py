@@ -109,6 +109,13 @@ class StockOut(BaseModel):
     as_of: Optional[datetime] = None
 
 
+class ErpStockOut(BaseModel):
+    """The linked product's ERP stock (depósito 1, as Productos shows it), never merged with the ML `stock`;
+    `quantity` is null when the row has no linked product (unknown, not zero)."""
+
+    quantity: Optional[int] = None
+
+
 class LinkOut(BaseModel):
     state: str
     producto_item_id: Optional[int] = None
@@ -198,6 +205,7 @@ class ItemRowOut(BaseModel):
     gone_at: Optional[datetime] = None
     price: PriceOut
     stock: StockOut
+    erp_stock: ErpStockOut
     link: LinkOut
     last_activity_at: Optional[datetime] = None
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
@@ -344,6 +352,7 @@ class DetailProductOut(BaseModel):
     categoria: Optional[str] = None
     subcategoria_id: Optional[int] = None
     subcategoria: Optional[str] = None
+    stock: Optional[int] = None  # ERP stock (depósito 1), apart from the publication's ML stock
     precios_lista: dict[str, Optional[float]]
     costo: Optional[float] = None
     moneda_costo: Optional[str] = None
@@ -544,7 +553,7 @@ def filter_query(
     sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
     tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
     vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
-    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock"),
+    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock"),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
 ) -> PublicationFilter:
@@ -623,7 +632,8 @@ def get_items(
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     orden: Optional[str] = Query(
-        None, description="actividad (default), precio, titulo, stock_full, actualizado, markup (ver_ganancia)"
+        None,
+        description="actividad (default), precio, titulo, stock_full, stock_erp, actualizado, markup (ver_ganancia)",
     ),
     direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia)"),

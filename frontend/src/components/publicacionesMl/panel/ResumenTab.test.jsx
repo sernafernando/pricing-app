@@ -129,25 +129,25 @@ describe('the price', () => {
 describe('the stock', () => {
   it('shows available, Full and Propio, and the places they come from', () => {
     renderTab();
-    expect(valueOf('Stock', 'Disponible')).toHaveTextContent('34');
-    expect(valueOf('Stock', 'Full')).toHaveTextContent('20');
-    expect(valueOf('Stock', 'Propio')).toHaveTextContent('14');
-    expect(valueOf('Stock', 'Depósito de Mercado Libre')).toHaveTextContent('20');
-    expect(valueOf('Stock', 'Dirección del vendedor')).toHaveTextContent('14');
-    expect(valueOf('Stock', 'Actualizado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    expect(valueOf('Stock ML', 'Disponible')).toHaveTextContent('34');
+    expect(valueOf('Stock ML', 'Full')).toHaveTextContent('20');
+    expect(valueOf('Stock ML', 'Propio')).toHaveTextContent('14');
+    expect(valueOf('Stock ML', 'Depósito de Mercado Libre')).toHaveTextContent('20');
+    expect(valueOf('Stock ML', 'Dirección del vendedor')).toHaveTextContent('14');
+    expect(valueOf('Stock ML', 'Actualizado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 
   it('a place type the screen does not know keeps its own name', () => {
     renderTab(makeDetail({ stock_locations: [{ type: 'warehouse_x', quantity: 3 }] }));
-    expect(valueOf('Stock', 'warehouse_x')).toHaveTextContent('3');
+    expect(valueOf('Stock ML', 'warehouse_x')).toHaveTextContent('3');
   });
 
   it('a real 0 is shown as 0; an unknown figure is "—"', () => {
     renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], stock: { available: 0, full: null, own: 0, as_of: null } }), stock_locations: null }));
-    expect(valueOf('Stock', 'Disponible')).toHaveTextContent('0');
-    expect(valueOf('Stock', 'Full')).toHaveTextContent(DASH);
-    expect(valueOf('Stock', 'Propio')).toHaveTextContent('0');
-    expect(within(section('Stock')).queryByText('Depósito de Mercado Libre')).not.toBeInTheDocument();
+    expect(valueOf('Stock ML', 'Disponible')).toHaveTextContent('0');
+    expect(valueOf('Stock ML', 'Full')).toHaveTextContent(DASH);
+    expect(valueOf('Stock ML', 'Propio')).toHaveTextContent('0');
+    expect(within(section('Stock ML')).queryByText('Depósito de Mercado Libre')).not.toBeInTheDocument();
   });
 });
 

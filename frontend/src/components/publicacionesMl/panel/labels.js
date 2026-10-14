@@ -43,7 +43,7 @@ export const RESOURCE_NAMES = {
   performance: 'Rendimiento',
   visits: 'Visitas',
   user_product: 'Producto de usuario',
-  stock: 'Stock',
+  stock: 'Stock ML',
   family: 'Familia',
   replenishment: 'Reposición',
 };

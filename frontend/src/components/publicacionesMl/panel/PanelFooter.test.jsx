@@ -55,7 +55,7 @@ describe('freshness', () => {
 
   it('a resource never fetched says so instead of a made-up time', () => {
     renderFooter({ raw: makeDetail({ freshness: [{ resource: 'stock', fetched_at: null, last_checked_at: null, state: 'never_fetched' }] }) });
-    expect(screen.getByRole('list', { name: 'Actualización de los datos' })).toHaveTextContent('Stock');
+    expect(screen.getByRole('list', { name: 'Actualización de los datos' })).toHaveTextContent('Stock ML');
     expect(screen.getByRole('list', { name: 'Actualización de los datos' })).toHaveTextContent('sin datos');
   });
 

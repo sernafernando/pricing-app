@@ -68,8 +68,9 @@ const VINCULO_LABELS = {
   conflicto: 'Conflicto',
   no_evaluado: 'Sin evaluar',
 };
-const STOCK_OPTIONS = ['sin_stock', 'full_sin_stock'];
-const STOCK_LABELS = { sin_stock: 'Sin stock', full_sin_stock: 'Full sin stock' };
+// ML's stock chips and the ERP's are told apart by name: each filters its own source.
+const STOCK_OPTIONS = ['sin_stock', 'full_sin_stock', 'erp_sin_stock'];
+const STOCK_LABELS = { sin_stock: 'Sin stock ML', full_sin_stock: 'Full sin stock', erp_sin_stock: 'Sin stock ERP' };
 
 const EMPTY_ROWS = [];
 

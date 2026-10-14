@@ -46,7 +46,7 @@ STATUS_VALUES = ("active", "paused", "closed", "under_review", "inactive")
 STATUS_GONE = "gone"  # not an ML status: the item vanished from ML (`gone_at` set)
 LISTING_VALUES = ("clasica", "premium", "catalogo", "full")
 LINK_VALUES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
-STOCK_VALUES = ("sin_stock", "full_sin_stock")
+STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock")
 NO_STORE = "none"
 NO_STATUS = "sin_estado"
 
@@ -487,9 +487,21 @@ def listing_clauses() -> dict[str, ColumnElement]:
     }
 
 
+def erp_stock() -> ColumnElement:
+    """The ERP stock of the row (depósito 1 on hand, `productos_erp.stock`, the figure Productos shows): only an
+    item-level link in state `linked` gives the row a product, so a conflict, no product or a dangling link read
+    NULL (unknown), never 0. A source apart from the ML stock (`ml_items` / `ml_user_product_stock`)."""
+    return case((T.l.match_status == LINK_LINKED, T.p.stock), else_=None)
+
+
 def stock_clauses() -> dict[str, ColumnElement]:
     # `full_sin_stock` is a real zero: a user product without a stock row has an unknown Full stock, not none.
-    return {"sin_stock": T.i.available_quantity == 0, "full_sin_stock": T.st.full_quantity == 0}
+    # `erp_sin_stock` likewise: a row without a linked product (unknown ERP stock) never matches.
+    return {
+        "sin_stock": T.i.available_quantity == 0,
+        "full_sin_stock": T.st.full_quantity == 0,
+        "erp_sin_stock": erp_stock() <= 0,
+    }
 
 
 def _any_of(clauses: dict[str, ColumnElement], values: tuple[str, ...]) -> ColumnElement:

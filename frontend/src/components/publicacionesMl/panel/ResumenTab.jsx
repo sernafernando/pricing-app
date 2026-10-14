@@ -75,7 +75,7 @@ function PriceSection({ price }) {
 function StockSection({ detail }) {
   const stock = detail.row.stock ?? {};
   return (
-    <Section title="Stock">
+    <Section title="Stock ML">
       <Fields>
         <Field label="Disponible">{count(stock.available)}</Field>
         <Field label="Full">{count(stock.full)}</Field>

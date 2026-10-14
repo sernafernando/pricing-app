@@ -417,6 +417,16 @@ class TestLinksAndProduct:
         assert product["subcategoria_id"] == 3845 and product["subcategoria"] == "Camaras"
         assert product["precios_lista"] == {"4": 111.5, "17": 122.0, "14": None, "13": None, "23": 199.0}
 
+    def test_the_product_and_the_row_carry_its_erp_stock(self, client, pg, reader, pricing) -> None:
+        def stocked(conn) -> None:
+            fill(conn)
+            conn.execute(text("UPDATE productos_erp SET stock = 7 WHERE item_id = 70"))
+
+        seed_rows(pg, stocked)
+        body = body_of(client, reader, "MLA11")
+        assert body["product"]["stock"] == 7 and body["row"]["erp_stock"] == {"quantity": 7}
+        assert body_of(client, reader, "MLA12")["row"]["erp_stock"] == {"quantity": None}
+
     def test_a_product_without_pricing_row_has_empty_lists(self, client, rows, reader, pricing) -> None:
         assert set(body_of(client, reader)["product"]["precios_lista"].values()) == {None}  # MLA10 -> product 72
 

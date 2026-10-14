@@ -301,6 +301,7 @@ def _links_select(item_id: str, margin: bool) -> Select:
         product.marca,
         product.categoria,
         product.subcategoria_id,
+        product.stock,
         names.nombre_subcategoria,
         *(getattr(pricing, campo).label(campo) for campo in PRICELIST_TO_CAMPO.values()),
     ]
@@ -337,6 +338,7 @@ def _product_out(row: Any, margin: bool) -> dict[str, Any]:
         "categoria": row.categoria,
         "subcategoria_id": row.subcategoria_id,
         "subcategoria": row.nombre_subcategoria,
+        "stock": row.stock,  # ERP stock (depósito 1), apart from the publication's ML stock
         "precios_lista": {
             str(pricelist_id): round_display(getattr(row, campo)) for pricelist_id, campo in PRICELIST_TO_CAMPO.items()
         },

@@ -39,6 +39,9 @@ function VariationCell({ column, variation, canSeeMargin }) {
       return canSeeMargin ? <MarkupCell markup={variation.markup} /> : null;
     case 'stock_full':
       return <StockCell stock={{ available: variation.available, full: null, own: null }} />;
+    case 'stock_erp':
+      // The ERP stock is the publication's linked product's: it shows on the publication row only.
+      return null;
     default:
       return null;
   }
