@@ -363,6 +363,28 @@ def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[i
     return q.subquery("lines")
 
 
+def reads_persisted_lines(sqlite: bool) -> bool:
+    """Whether the sold lines come from the persisted `ml_sale_lines` (behind
+    `METRICAS_SALE_LINES_ENABLED`, PostgreSQL only: the drain writes the table)
+    instead of being derived live. One switch for every reader of the lines."""
+    return bool(settings.METRICAS_SALE_LINES_ENABLED) and not sqlite
+
+
+def lines_source(
+    *,
+    sqlite: bool,
+    ranges: Optional[List[Range]] = None,
+    product: Optional[int] = None,
+    groups: Optional[Any] = None,
+):
+    """The sold lines (`sale_lines` columns) from the source `reads_persisted_lines`
+    picks. `groups` bounds only the live derivation: the persisted lines are
+    independent rows, so the caller's own filters already bound that read."""
+    if reads_persisted_lines(sqlite):
+        return persisted_lines(ranges=ranges, product=product)
+    return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups)
+
+
 def persisted_last_sales(
     *, product: Optional[int] = None, ranges: Optional[List[Range]] = None, mlas: Optional[Any] = None
 ):
