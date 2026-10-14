@@ -1,8 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { useCallback, useMemo, useState } from 'react';
-import { calcularRangoPreset } from '../utils/dateRangePresets';
+import { businessToday, calcularRangoPreset, currentMonthRange } from '../utils/dateRangePresets';
 
-const BUSINESS_TZ = 'America/Argentina/Buenos_Aires';
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A real calendar day: `2026-13-45` has the right shape and is not one. */
@@ -16,29 +15,6 @@ function isRealDay(value) {
 // them so the highlight is never a claim the URL cannot back up. Month first:
 // on the 14th, 14d and the month start coincide and the default must read as it is.
 const PRESET_KEYS = ['mesActual', 'hoy', 'ayer', '3d', '7d', '14d', '30d', '3m'];
-
-/**
- * Today's calendar day in Argentina as a local-midnight `Date`, so the shared
- * preset arithmetic (which reads local getters) computes against the business
- * day. `new Date()` + local getters would be the browser's day, which differs
- * for anyone not in UTC-3, and `toISOString()` is UTC, which is already
- * tomorrow from 21:00 Argentina.
- */
-function businessToday(now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: BUSINESS_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const get = (type) => Number(parts.find((p) => p.type === type).value);
-  return new Date(get('year'), get('month') - 1, get('day'));
-}
-
-/** First of the current month up to today, Argentina time. */
-export function currentMonthRange(now = new Date()) {
-  return calcularRangoPreset('mesActual', businessToday(now));
-}
 
 // The date control computes its presets from the BROWSER's day, this hook from
 // Argentina's: near midnight outside UTC-3 they differ, so a click on "7d"

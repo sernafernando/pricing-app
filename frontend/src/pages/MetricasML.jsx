@@ -17,7 +17,7 @@ import BoardTable from '../components/metricasMl/BoardTable';
 import { DIMENSION_OPTIONS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
-import { currentMonthRange } from '../hooks/useVentasMLFilters';
+import { currentMonthRange } from '../utils/dateRangePresets';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
