@@ -29,8 +29,14 @@ History of the value:
   order's persisted sale lines (`ml_sale_lines`) in the same transaction, and
   the bump is what makes `order_metrics.reconcile` re-enqueue every order so
   its lines get written (the backfill of the table).
+- 6: ventas-ml-coupon-fee-iva. The seller-funded coupon (`coupon_fee`) enters
+  the IVA reconcile as a seller charge at 0% IVA: ML deducts it from
+  `net_received_amount`, and leaving it out made ~50% of the sales since
+  2026-10-10 store `iva_reconcilia = False` with no `neto_sin_iva` / Total
+  Gauss. `neto` itself is unchanged. The bump re-enqueues every stored row so
+  `iva_reconcilia`, `neto_sin_iva` and the Total Gauss are recomputed.
 """
 
 from __future__ import annotations
 
-CURRENT_FORMULA_VERSION = 5
+CURRENT_FORMULA_VERSION = 6

@@ -260,7 +260,7 @@ class TestTheSaleLinesBumpBackfillsThePersistedLines:
     def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_4(
         self, _order_metrics_db_session, pg_order_metrics_engine
     ) -> None:
-        assert CURRENT_FORMULA_VERSION == 5
+        assert CURRENT_FORMULA_VERSION >= 5
         with pg_order_metrics_engine.connect() as conn:
             _insert_order(conn, 500040)
             _insert_metrics(conn, 500040, formula_version=4)
@@ -270,6 +270,29 @@ class TestTheSaleLinesBumpBackfillsThePersistedLines:
 
         with pg_order_metrics_engine.connect() as conn:
             row = _dirty_row(conn, 500040)
+        assert row is not None and row.reason == "reconcile"
+
+
+@pytest.mark.postgres
+class TestTheCouponFeeBumpRecomputesTheIvaReconcile:
+    """ventas-ml-coupon-fee-iva: the seller-funded `coupon_fee` now closes the
+    IVA reconcile, so every row stored under version 5 may carry a stale
+    `iva_reconcilia = False` (and no `neto_sin_iva` / Total Gauss). The bump to
+    6 IS the recompute: reconcile re-enqueues those rows."""
+
+    def test_the_bump_makes_reconcile_select_a_row_stored_under_formula_5(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        assert CURRENT_FORMULA_VERSION >= 6
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_order(conn, 500050)
+            _insert_metrics(conn, 500050, formula_version=5)
+            conn.commit()
+
+        reconcile.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+
+        with pg_order_metrics_engine.connect() as conn:
+            row = _dirty_row(conn, 500050)
         assert row is not None and row.reason == "reconcile"
 
 
