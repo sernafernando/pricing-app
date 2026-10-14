@@ -9,6 +9,7 @@ import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
 import { Markup30dCell, Sales30dCell } from './SalesCells';
 import VariationsToggle from './VariationsToggle';
+import { chainHeader } from '../../utils/metricasMlLevels';
 import styles from './cells.module.css';
 
 /**
@@ -57,6 +58,7 @@ export function columnChoicesOver(visibility, defaults) {
  * `agrupado` (the tree view) adds the node figures -- publication count and,
  * with the margin, negatives -- and names the markup column for what a node
  * shows (a range, not the "peor variación" sort); the page makes it unsortable.
+ * Its first column names the chain of levels of `dimension`, like Métricas ML.
  * `canSeeSales` (`ml_metricas.ver`) adds "Ventas 30d"; with `canSeeMargin`
  * too, "Markup 30d" -- the real markup of those sales, from Métricas ML.
  */
@@ -67,11 +69,13 @@ export function buildColumns({
   expandedIds,
   onToggleVariations,
   agrupado = false,
+  dimension = 'marca',
 }) {
   const columns = [
     {
       key: 'titulo',
-      header: 'Publicación',
+      header: agrupado ? chainHeader(dimension) : 'Publicación',
+      label: 'Publicación',
       width: 340,
       sortable: true,
       render: (item) =>

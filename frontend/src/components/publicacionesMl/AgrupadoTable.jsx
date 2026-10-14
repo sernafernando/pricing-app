@@ -6,7 +6,8 @@ import { BranchState, NodeCount, NodeMarkup, NodeNegatives, NodeTitle } from './
 
 /**
  * Agrupado view of Publicaciones ML (publicaciones-ml-vista P12a):
- * marca > categoría > subcategoría > producto > [familia] > publicación, in the
+ * the levels of `dimension` (marca > categoría > subcategoría by default) >
+ * producto > [familia] > publicación, in the
  * kit's `TableShell` (`getRowDepth` indents, `renderSubRows` keeps the
  * variation sub-rows of a leaf publication).
  *
@@ -20,6 +21,7 @@ export default function AgrupadoTable({
   columns,
   filters,
   familias,
+  dimension,
   canSeeMargin,
   expandedIds,
   onSelectItem,
@@ -27,7 +29,7 @@ export default function AgrupadoTable({
   offset,
   emptyMessage = 'Ninguna publicación coincide con los filtros',
 }) {
-  const { rows, toggle, loadMore } = useGroupTree({ filters, familias, canSeeMargin });
+  const { rows, toggle, loadMore } = useGroupTree({ filters, familias, dimension, canSeeMargin });
 
   const treeColumns = useMemo(
     () =>

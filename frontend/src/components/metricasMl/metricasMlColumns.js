@@ -1,5 +1,8 @@
 import { chainHeader } from '../../utils/metricasMlLevels';
 
+// The picker's dimensions live with the levels, shared with Publicaciones ML.
+export { DIMENSION_OPTIONS } from '../../utils/metricasMlLevels';
+
 /**
  * The Métricas ML board's columns (tablero.html): grouped, each leaf
  * hideable from the ColumnPicker except Producto. Margin columns only exist
@@ -16,16 +19,6 @@ export const COLUMN_GROUPS = [
 ];
 
 const MARGIN_COLUMNS = new Set(['markup', 'markup_delta', 'markup_trend', 'markup_range', 'total_gauss']);
-
-/** The "Agrupado" view's dimensions: the backend `dimension` value and the
- * name shown on its picker; the first column names the whole chain of levels. */
-export const DIMENSION_OPTIONS = [
-  { value: 'marca', label: 'Marca' },
-  { value: 'categoria', label: 'Categoría' },
-  { value: 'subcategoria', label: 'Subcategoría' },
-  { value: 'tienda', label: 'Tienda' },
-  { value: 'pm', label: 'PM' },
-];
 
 function productHeader(groupBy, dimension) {
   if (groupBy === 'publication') return 'Publicación / Producto';

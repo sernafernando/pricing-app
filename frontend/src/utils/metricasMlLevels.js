@@ -14,6 +14,17 @@ export const DIMENSION_LEVELS = {
   tienda: ['tienda', 'marca', 'categoria', 'subcategoria', 'product'],
 };
 
+/** The "Agrupado" dimensions: the backend `dimension` value and the name shown
+ * on the picker. Shared by Métricas ML and Publicaciones ML (which offers the
+ * subset its `/groups` takes). */
+export const DIMENSION_OPTIONS = [
+  { value: 'marca', label: 'Marca' },
+  { value: 'categoria', label: 'Categoría' },
+  { value: 'subcategoria', label: 'Subcategoría' },
+  { value: 'tienda', label: 'Tienda' },
+  { value: 'pm', label: 'PM' },
+];
+
 /** What a level is called, as a row's tag and in the first column's header. */
 export const LEVEL_LABELS = {
   marca: 'Marca',

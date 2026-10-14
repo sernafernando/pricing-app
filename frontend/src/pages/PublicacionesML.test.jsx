@@ -668,7 +668,7 @@ describe('the Agrupado view (P12a)', () => {
 
   it('shows the tree for vista=agrupado: the roots from /groups, 100 at a time, families off', async () => {
     await tree();
-    expect(groupCalls()).toEqual([{ familias: false, limit: 100, offset: 0 }]);
+    expect(groupCalls()).toEqual([{ dimension: 'marca', familias: false, limit: 100, offset: 0 }]);
     expect(screen.getByRole('table', { name: /agrupadas/ })).toBeInTheDocument();
     expect(screen.queryByText('MLA1100000001')).not.toBeInTheDocument();
   });
@@ -769,6 +769,62 @@ describe('the Agrupado view (P12a)', () => {
     expect(await screen.findByText(/La consulta tardó demasiado/)).toBeInTheDocument();
     expect(screen.getByRole('table', { name: /agrupadas/ })).toBeInTheDocument();
     expect(screen.getByText('EPSON')).toBeInTheDocument();
+  });
+
+  describe('the dimension picker', () => {
+    const picker = () => screen.queryByRole('group', { name: 'Agrupar por' });
+
+    it('shows only in the tree, with the dimensions /groups takes, marca by default', async () => {
+      const user = userEvent.setup();
+      await page();
+      expect(picker()).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Agrupado' }));
+      await screen.findByText('EPSON');
+      const options = within(picker()).getAllByRole('button');
+      expect(options.map((button) => button.textContent)).toEqual(['Marca', 'Categoría', 'Subcategoría']);
+      expect(within(picker()).getByRole('button', { name: 'Marca' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('changing it asks /groups again with the dimension and starts the tree over, collapsed', async () => {
+      const user = userEvent.setup();
+      await tree();
+      await user.click(screen.getByRole('button', { name: /Abrir EPSON/ }));
+      await waitFor(() => expect(groupCalls().some((params) => params.path)).toBe(true));
+      publicacionesMlAPI.groups.mockResolvedValue({
+        data: groupsResponse('categoria', [
+          { kind: 'categoria', key: 'REDES', label: 'REDES', count: 4, leaf: false, params: { categorias: 'REDES' } },
+        ]),
+      });
+      await user.click(within(picker()).getByRole('button', { name: 'Categoría' }));
+      expect(await screen.findByText('REDES')).toBeInTheDocument();
+      expect(groupCalls().at(-1)).toEqual({ dimension: 'categoria', familias: false, limit: 100, offset: 0 });
+      expect(screen.queryByText('EPSON')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Abrir REDES/ })).toHaveAttribute('aria-expanded', 'false');
+      expect(within(picker()).getByRole('button', { name: 'Categoría' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('names the first column after the levels of the dimension', async () => {
+      await tree();
+      expect(screen.getByRole('columnheader', { name: /Marca › Categoría › Subcategoría › Producto/ })).toBeInTheDocument();
+    });
+
+    it('reads the dimension from the URL and shows the subcategories by their backend title', async () => {
+      publicacionesMlAPI.groups.mockResolvedValue({
+        data: groupsResponse('subcategoria_categoria', [
+          { kind: 'subcategoria_categoria', key: '12|REDES', label: 'Switches · REDES', count: 3, leaf: false, params: { subcategorias: '12' } },
+        ]),
+      });
+      renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado&agrupar=subcategoria'] });
+      expect(await screen.findByText('Switches · REDES')).toBeInTheDocument();
+      expect(groupCalls()[0].dimension).toBe('subcategoria');
+      expect(screen.getByRole('columnheader', { name: /^Subcategoría › Producto/ })).toBeInTheDocument();
+      expect(screen.getByText('Subcategoría', { selector: 'span' })).toBeInTheDocument();
+    });
+
+    it('keeps the family toggle working under another dimension', async () => {
+      await tree('/ml-publicaciones?vista=agrupado&agrupar=categoria&familias=1');
+      expect(groupCalls()[0]).toMatchObject({ dimension: 'categoria', familias: true });
+    });
   });
 
   it('says the store is empty, like the list', async () => {

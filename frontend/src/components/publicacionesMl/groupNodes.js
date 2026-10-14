@@ -71,9 +71,9 @@ function filterParams(filters) {
   return params;
 }
 
-/** The children of the node `path` names (the roots for an empty path). */
-export function buildGroupsParams(filters, { path, familias, offset }) {
-  const params = { ...filterParams(filters), familias, limit: GROUPS_PAGE, offset };
+/** The children of the node `path` names (the roots for an empty path), in the tree grouped by `dimension`. */
+export function buildGroupsParams(filters, { path, familias, dimension, offset }) {
+  const params = { ...filterParams(filters), dimension, familias, limit: GROUPS_PAGE, offset };
   if (path.length > 0) params.path = path.join(',');
   return params;
 }

@@ -8,7 +8,7 @@ import { flattenTree } from './groupTree';
  * open and what each one loaded. Everything is lazy -- the roots on mount, the
  * children of a node when it opens, the next 100 on "Ver más" -- and one
  * request per click. Anything that changes what the tree is made of (the user's
- * filters, the family toggle, the permission) starts over, collapsed, and an
+ * filters, the dimension, the family toggle, the permission) starts over, collapsed, and an
  * answer to a request of the previous tree is dropped.
  *
  * A branch is `{path, leaf, node, status, rows, total, error}`; see
@@ -26,23 +26,23 @@ function appendPage(rows, page, leaf) {
   return [...rows, ...page.filter((row) => !seen.has(idOf(row)))];
 }
 
-export default function useGroupTree({ filters, familias, canSeeMargin }) {
+export default function useGroupTree({ filters, familias, dimension, canSeeMargin }) {
   const [branches, setBranches] = useState({});
   const [expanded, setExpanded] = useState(() => new Set());
   const generation = useRef(0);
   // The pages being fetched (`key@offset`): a second click before the answer asks for nothing.
   const inflight = useRef(new Set());
-  const latest = useRef({ filters, familias, canSeeMargin });
+  const latest = useRef({ filters, familias, dimension, canSeeMargin });
   // Declared before the effect that loads the roots, so that effect reads this render's values.
   useEffect(() => {
-    latest.current = { filters, familias, canSeeMargin };
-  }, [filters, familias, canSeeMargin]);
+    latest.current = { filters, familias, dimension, canSeeMargin };
+  }, [filters, familias, dimension, canSeeMargin]);
 
   // What the roots are asked with: the selection, the page and the like do not restart the tree.
-  const treeKey = JSON.stringify([buildGroupsParams(filters, { path: [], familias, offset: 0 }), canSeeMargin]);
+  const treeKey = JSON.stringify([buildGroupsParams(filters, { path: [], familias, dimension, offset: 0 }), canSeeMargin]);
 
   const fetchPage = useCallback((key, branch, offset) => {
-    const { filters: current, familias: withFamilies, canSeeMargin: margin } = latest.current;
+    const { filters: current, familias: withFamilies, dimension: groupedBy, canSeeMargin: margin } = latest.current;
     const mine = generation.current;
     const { path, leaf, node } = branch;
     const page = `${key}@${offset}`;
@@ -55,7 +55,7 @@ export default function useGroupTree({ filters, familias, canSeeMargin }) {
     }));
     const request = leaf
       ? publicacionesMlAPI.items(buildLeafParams(current, node, offset))
-      : publicacionesMlAPI.groups(buildGroupsParams(current, { path, familias: withFamilies, offset }));
+      : publicacionesMlAPI.groups(buildGroupsParams(current, { path, familias: withFamilies, dimension: groupedBy, offset }));
     request
       .then((response) => {
         pending.delete(page);

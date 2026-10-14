@@ -17,7 +17,8 @@ import { useSearchParams } from 'react-router-dom';
  *    page 1 but need no new facets.
  *    `vista` (`agrupado` = the tree) and `familias` (family nodes in the tree)
  *    choose how the set is shown: they go back to page 1 and close the
- *    selection too, but are not filters (no new facets).
+ *    selection too, but are not filters (no new facets). So does `agrupar`,
+ *    the dimension the tree is grouped by (`AGRUPAR_DIMENSIONS`, default marca).
  */
 export const PAGE_SIZE = 50;
 // The backend caps `limit` at 100.
@@ -42,6 +43,10 @@ const TEXT_KEYS = ['q', 'familia', 'evento_desde', 'markup_neg', 'markup_min', '
 export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS];
 
 const VISTAS = ['publicacion', 'agrupado'];
+// The dimensions `GET /ml-publications/view/groups` takes, the default first; the picker offers exactly these.
+export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria'];
+// How the result is shown, not what it is made of: kept by "Limpiar filtros".
+const SHAPE_KEYS = ['vista', 'familias', 'agrupar'];
 const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
 const VIEW_KEYS = ['pagina', 'sel', 'tab'];
@@ -58,6 +63,8 @@ function readFilters(params) {
   filters.vista = VISTAS.includes(vista) ? vista : 'publicacion';
   // The tree's family nodes: '1' or '' (a toggle, off by default).
   filters.familias = ['1', 'true'].includes(params.get('familias')) ? '1' : '';
+  const agrupar = params.get('agrupar');
+  filters.agrupar = AGRUPAR_DIMENSIONS.includes(agrupar) ? agrupar : AGRUPAR_DIMENSIONS[0];
   filters.orden = params.get('orden') ?? '';
   const dir = params.get('dir');
   filters.dir = DIRECTIONS.includes(dir) ? dir : '';
@@ -146,7 +153,7 @@ export function usePublicacionesMLFilters() {
           else next.set(key, Array.isArray(value) ? value.join(',') : String(value));
         }
         const changed = Object.keys(updates);
-        const touchesList = changed.some((key) => FILTER_KEYS.includes(key) || SORT_KEYS.includes(key) || key === 'vista' || key === 'familias');
+        const touchesList = changed.some((key) => FILTER_KEYS.includes(key) || SORT_KEYS.includes(key) || SHAPE_KEYS.includes(key));
         if (touchesList) {
           for (const key of VIEW_KEYS) if (!changed.includes(key)) next.delete(key);
         }
@@ -156,13 +163,13 @@ export function usePublicacionesMLFilters() {
     [setSearchParams],
   );
 
-  // Clears the filters, the sort and the page; the view (`vista`, `familias`) is how the operator looks at
+  // Clears the filters, the sort and the page; the view (`vista`, `familias`, `agrupar`) is how the operator looks at
   // the result, not a filter, so it stays.
   const resetFilters = useCallback(
     () =>
       setSearchParams((prev) => {
         const next = new URLSearchParams();
-        for (const key of ['vista', 'familias']) if (prev.has(key)) next.set(key, prev.get(key));
+        for (const key of SHAPE_KEYS) if (prev.has(key)) next.set(key, prev.get(key));
         return next;
       }),
     [setSearchParams],
