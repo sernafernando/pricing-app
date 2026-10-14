@@ -70,11 +70,13 @@ export function buildColumns({
   onToggleVariations,
   agrupado = false,
   dimension = 'marca',
+  familias = false,
 }) {
   const columns = [
     {
       key: 'titulo',
-      header: agrupado ? chainHeader(dimension) : 'Publicación',
+      // The tree goes past Métricas' levels: [familia ›] publicación under each product.
+      header: agrupado ? `${chainHeader(dimension)}${familias ? ' › Familia' : ''} › Publicación` : 'Publicación',
       label: 'Publicación',
       width: 340,
       sortable: true,

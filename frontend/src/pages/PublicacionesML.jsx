@@ -216,8 +216,9 @@ export default function PublicacionesML() {
         onToggleVariations: toggleVariations,
         agrupado,
         dimension: filters.agrupar,
+        familias: filters.familias === '1',
       }),
-    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, filters.agrupar],
+    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, filters.agrupar, filters.familias],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a

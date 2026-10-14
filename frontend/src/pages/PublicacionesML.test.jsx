@@ -803,9 +803,18 @@ describe('the Agrupado view (P12a)', () => {
       expect(within(picker()).getByRole('button', { name: 'Categoría' })).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('names the first column after the levels of the dimension', async () => {
+    it('names the first column after the levels of the dimension, down to the publication', async () => {
       await tree();
-      expect(screen.getByRole('columnheader', { name: /Marca › Categoría › Subcategoría › Producto/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole('columnheader', { name: /Marca › Categoría › Subcategoría › Producto › Publicación/ }),
+      ).toBeInTheDocument();
+    });
+
+    it('names the family level too when families are on', async () => {
+      await tree('/ml-publicaciones?vista=agrupado&familias=1');
+      expect(
+        screen.getByRole('columnheader', { name: /Producto › Familia › Publicación/ }),
+      ).toBeInTheDocument();
     });
 
     it('reads the dimension from the URL and shows the subcategories by their backend title', async () => {
