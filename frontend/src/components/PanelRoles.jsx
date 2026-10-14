@@ -430,15 +430,7 @@ export default function PanelRoles() {
                           onClick={() => iniciarEdicion(rol)}
                           disabled={guardandoPermisos}
                           title="Editar"
-                          style={{
-                            padding: '4px 8px',
-                            background: 'var(--info-bg)',
-                            color: 'var(--info-text)',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px'
-                          }}
+                          className={styles.accionEditar}
                         >
                           Editar
                         </button>
@@ -446,15 +438,7 @@ export default function PanelRoles() {
                           onClick={() => pedirEliminarRol(rol)}
                           disabled={guardandoPermisos}
                           title="Eliminar"
-                          style={{
-                            padding: '4px 8px',
-                            background: 'var(--error-bg)',
-                            color: 'var(--error-text)',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px'
-                          }}
+                          className={styles.accionEliminar}
                         >
                           X
                         </button>
