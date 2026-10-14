@@ -110,6 +110,28 @@ class TestBflxLandingRecomputesTheOrder:
 
         assert set(_dirty(slate)) == {_STRANGER}
 
+    def test_a_charge_that_stops_being_bflx_recomputes_its_orders(self, slate) -> None:
+        _charge(slate, "T9I-7", "BFLX")
+        _link(slate, "T9I-7", _ORDER)
+        slate.execute(text("DELETE FROM ml_order_metrics_dirty"))
+        slate.commit()
+
+        slate.execute(text("UPDATE ml_billing_charges SET detail_sub_type = 'CFLX' WHERE detail_id = 'T9I-7'"))
+        slate.commit()
+
+        assert set(_dirty(slate)) == {_ORDER, _SIBLING}
+
+    def test_removing_a_bflx_link_recomputes_its_order_and_siblings(self, slate) -> None:
+        _charge(slate, "T9I-8", "BFLX")
+        _link(slate, "T9I-8", _ORDER)
+        slate.execute(text("DELETE FROM ml_order_metrics_dirty"))
+        slate.commit()
+
+        slate.execute(text("DELETE FROM ml_billing_charge_orders WHERE detail_id = 'T9I-8'"))
+        slate.commit()
+
+        assert set(_dirty(slate)) == {_ORDER, _SIBLING}
+
     def test_a_changed_amount_recomputes_but_an_identical_rewrite_does_not(self, slate) -> None:
         _charge(slate, "T9I-4", "BFLX")
         _link(slate, "T9I-4", _ORDER)

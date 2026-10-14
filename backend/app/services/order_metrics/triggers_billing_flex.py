@@ -10,11 +10,13 @@ dirty queue (no cron, no derived table).
 
 Two triggers share one function:
 
-- `AFTER INSERT ON ml_billing_charge_orders`: the bridge row that links a charge
+- `AFTER INSERT OR DELETE ON ml_billing_charge_orders`: the bridge row that links a charge
   to an order is written right after the charge, so this is the moment a BFLX
-  becomes visible to an order. `ON CONFLICT DO NOTHING` re-links fire nothing.
+  becomes visible to an order. `ON CONFLICT DO NOTHING` re-links fire nothing; removing a link
+  recomputes its order too (a manual cleanup is not a silent staleness hole).
 - `AFTER UPDATE OF amount, detail_sub_type ON ml_billing_charges`, only when the
-  value changed: a re-sweep that corrects a BFLX amount recomputes its orders;
+  value changed: a re-sweep that corrects a BFLX amount, or turns a charge into or out of BFLX,
+  recomputes its orders;
   an identical rewrite enqueues nothing (design D3 no-op rule).
 
 Only BFLX charges enqueue. The enqueued set is every order of the charge's
@@ -37,25 +39,41 @@ _FUNCTION_SQL = """
 CREATE OR REPLACE FUNCTION order_metrics_enqueue_billing_flex() RETURNS TRIGGER AS $trg$
 DECLARE
     ids BIGINT[];
-    only_order BIGINT := NULL;
+    src_detail TEXT;
+    src_order BIGINT := NULL;
+    touches_bflx BOOLEAN;
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM ml_billing_charges WHERE detail_id = NEW.detail_id AND detail_sub_type = 'BFLX'
-    ) THEN
-        RETURN NEW;
-    END IF;
-    -- A new link only concerns ITS order (and that order's shipment siblings).
     IF TG_TABLE_NAME = 'ml_billing_charge_orders' THEN
-        only_order := NEW.order_id;
+        -- A link written or removed only concerns ITS order (and that order's
+        -- shipment siblings), not the charge's other links.
+        IF TG_OP = 'DELETE' THEN
+            src_detail := OLD.detail_id;
+            src_order := OLD.order_id;
+        ELSE
+            src_detail := NEW.detail_id;
+            src_order := NEW.order_id;
+        END IF;
+        touches_bflx := EXISTS (
+            SELECT 1 FROM ml_billing_charges WHERE detail_id = src_detail AND detail_sub_type = 'BFLX'
+        );
+    ELSE
+        -- A charge that STOPS being BFLX changes its orders just like one that becomes it.
+        src_detail := NEW.detail_id;
+        touches_bflx := NEW.detail_sub_type = 'BFLX' OR OLD.detail_sub_type = 'BFLX';
+    END IF;
+    IF NOT touches_bflx THEN
+        RETURN NULL;
     END IF;
     SELECT COALESCE(array_agg(DISTINCT o.order_id), ARRAY[]::BIGINT[]) INTO ids
-    FROM ml_billing_charge_orders l
-    JOIN ml_orders_ops linked ON linked.order_id = l.order_id
+    FROM ml_orders_ops linked
     JOIN ml_orders_ops o ON o.order_id = linked.order_id
         OR (linked.shipping_id IS NOT NULL AND o.shipping_id = linked.shipping_id)
-    WHERE l.detail_id = NEW.detail_id AND (only_order IS NULL OR l.order_id = only_order);
+    WHERE linked.order_id = src_order
+        OR (src_order IS NULL AND linked.order_id IN (
+            SELECT order_id FROM ml_billing_charge_orders WHERE detail_id = src_detail
+        ));
     PERFORM order_metrics_enqueue(ids, 'ml_billing_flex');
-    RETURN NEW;
+    RETURN NULL;
 END;
 $trg$ LANGUAGE plpgsql;
 """
@@ -71,7 +89,7 @@ _CREATE_STATEMENTS: List[str] = [
     *_DROP_STATEMENTS[:2],
     """
 CREATE TRIGGER trg_order_metrics_billing_flex_link
-AFTER INSERT ON ml_billing_charge_orders
+AFTER INSERT OR DELETE ON ml_billing_charge_orders
 FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_billing_flex()
 """,
     """
