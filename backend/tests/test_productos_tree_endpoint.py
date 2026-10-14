@@ -6,15 +6,15 @@ Unit-tests the endpoint FUNCTION directly (mirrors
 `test_productos_mercadolibre_lite.py`'s pattern) since the sibling flat
 endpoint's raw-SQL steps aren't sqlite-portable; the tree endpoint itself
 is pure ORM + service calls, but we still avoid a full TestClient round
-trip to keep the lazy-fill / promo-resolver mocking simple and explicit.
+trip to keep the link-sync / promo-resolver mocking simple and explicit.
 
 Spec coverage:
   - keeps the existing flat endpoint untouched (separate route).
   - returns the recursive node JSON described by the design.
-  - lazy-fill: the endpoint calls `lazy_fill_links` (pool-safe, decoupled
-    from the request `db` session — see review fix 1/4) before assembly.
-  - graceful degradation: `lazy_fill_links` never raises (fail-open by
-    contract) so a proxy failure never surfaces as a 500/503 here.
+  - link convergence: the endpoint calls `sync_links_from_store` with the
+    REQUEST `db` session (local reads only, no ml-webhook call) before assembly.
+  - graceful degradation: `sync_links_from_store` never raises (fail-open by
+    contract) so a convergence failure never surfaces as a 500/503 here.
   - partial-data fail-open: one mla lacking a link row still returns a
     best-effort tree (plain leaf), no 500.
 """
@@ -39,13 +39,13 @@ def _make_db(pubs) -> MagicMock:
     return db
 
 
-class TestTreeEndpointLazyFill:
-    def test_calls_lazy_fill_links_before_assembly(self) -> None:
+class TestTreeEndpointLinkSync:
+    def test_calls_sync_links_from_store_before_assembly(self) -> None:
         db = _make_db([_pub("MLA1")])
         current_user = SimpleNamespace(id=1)
 
         with (
-            patch("app.api.endpoints.productos_detail.lazy_fill_links") as mock_fill,
+            patch("app.api.endpoints.productos_detail.sync_links_from_store") as mock_fill,
             patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
         ):
             mock_assemble.return_value = SimpleNamespace(
@@ -56,10 +56,10 @@ class TestTreeEndpointLazyFill:
             )
             obtener_arbol_ml_producto(item_id=1, db=db, current_user=current_user)
 
-        mock_fill.assert_called_once_with(["MLA1"], 1)
+        mock_fill.assert_called_once_with(db, ["MLA1"], 1)
 
-    def test_lazy_fill_noop_still_returns_degraded_tree(self) -> None:
-        """`lazy_fill_links` is fail-open by its OWN contract (never
+    def test_link_sync_noop_still_returns_degraded_tree(self) -> None:
+        """`sync_links_from_store` is fail-open by its OWN contract (never
         raises internally). Here it's a no-op (as it would be if the
         proxy were down and every failure were swallowed inside it) and
         the endpoint must still return a best-effort tree."""
@@ -67,7 +67,7 @@ class TestTreeEndpointLazyFill:
         current_user = SimpleNamespace(id=1)
 
         with (
-            patch("app.api.endpoints.productos_detail.lazy_fill_links", return_value=None) as mock_fill,
+            patch("app.api.endpoints.productos_detail.sync_links_from_store", return_value=None) as mock_fill,
             patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
         ):
             mock_assemble.return_value = SimpleNamespace(
@@ -88,7 +88,7 @@ class TestTreeEndpointResponse:
         current_user = SimpleNamespace(id=1)
 
         with (
-            patch("app.api.endpoints.productos_detail.lazy_fill_links") as mock_fill,
+            patch("app.api.endpoints.productos_detail.sync_links_from_store") as mock_fill,
             patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
         ):
             mock_assemble.return_value = SimpleNamespace(
@@ -99,7 +99,7 @@ class TestTreeEndpointResponse:
             )
             result = obtener_arbol_ml_producto(item_id=42, db=db, current_user=current_user)
 
-        # no MLAs for this product -> lazy-fill is never invoked at all.
+        # no MLAs for this product -> the link sync is never invoked at all.
         mock_fill.assert_not_called()
         assert result.item_id == 42
         assert result.tree.kind == "producto"
@@ -123,7 +123,7 @@ class TestTreeEndpointPartialDataFailOpen:
 
         current_user = SimpleNamespace(id=1)
 
-        with patch("app.api.endpoints.productos_detail.lazy_fill_links"):
+        with patch("app.api.endpoints.productos_detail.sync_links_from_store"):
             result = obtener_arbol_ml_producto(item_id=777, db=db, current_user=current_user)
 
         assert result.item_id == 777
@@ -142,7 +142,7 @@ class TestTreeEndpointPromoNodeSummary:
         current_user = SimpleNamespace(id=1)
 
         with (
-            patch("app.api.endpoints.productos_detail.lazy_fill_links"),
+            patch("app.api.endpoints.productos_detail.sync_links_from_store"),
             patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
             patch("app.api.endpoints.productos_detail.fetch_promo_node_summary_by_mla") as mock_summary,
         ):
@@ -166,7 +166,7 @@ class TestTreeEndpointPromoNodeSummary:
         current_user = SimpleNamespace(id=1)
 
         with (
-            patch("app.api.endpoints.productos_detail.lazy_fill_links"),
+            patch("app.api.endpoints.productos_detail.sync_links_from_store"),
             patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
             patch(
                 "app.api.endpoints.productos_detail.fetch_promo_node_summary_by_mla",
@@ -190,7 +190,7 @@ class TestTreeEndpointPromoNodeSummary:
         current_user = SimpleNamespace(id=1)
 
         with (
-            patch("app.api.endpoints.productos_detail.lazy_fill_links"),
+            patch("app.api.endpoints.productos_detail.sync_links_from_store"),
             patch("app.api.endpoints.productos_detail.assemble_publication_tree") as mock_assemble,
             patch("app.api.endpoints.productos_detail.fetch_promo_node_summary_by_mla") as mock_summary,
         ):

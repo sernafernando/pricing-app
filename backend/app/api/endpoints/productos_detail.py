@@ -26,7 +26,7 @@ from app.services.ml_promotions_service import (
 )
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
-from app.services.ml_publication_link_service import lazy_fill_links
+from app.services.ml_publication_link_service import sync_links_from_store
 from app.services.ml_publication_status_service import resolve_publication_status
 from app.services.ml_publication_tree_service import assemble_publication_tree
 from app.schemas.productos_tree import ProductTreeResponse
@@ -464,16 +464,14 @@ def obtener_arbol_ml_producto(
     endpoint, which is kept UNCHANGED for existing callers — this is a
     NEW route, not a replacement.
 
-    Hybrid lazy-fill (design's cold-start decision): before assembling
-    the tree, calls `lazy_fill_links`, which pool-safely tops up
-    stale/missing `ml_publication_links` rows from the ML `render`
-    payload. `lazy_fill_links` NEVER uses this endpoint's request `db`
-    session for the HTTP round-trip (pool-exhaustion fix — see
-    `ml_publication_link_service.py`) and NEVER raises: any failure
-    (ml-webhook proxy down, network error, lock contention, etc.)
-    degrades silently to whatever `ml_publication_links`/
-    `ml_item_relations` data already persisted (fail-open, matches the
-    flat endpoint's existing degradation pattern).
+    Link data comes from the ML publications store: before assembling the
+    tree, `sync_links_from_store` converges `ml_publication_links` /
+    `ml_item_relations` to `ml_items` with LOCAL reads only. This request
+    makes no ml-webhook call (the old lazy-fill rendered one `get_item_full`
+    per stale MLA, 25-30 s on the first open of a 50-MLA product). An MLA
+    the store has not fetched yet renders with its existing link rows, or
+    as a plain leaf; the store's own refresh queue brings it in. The
+    convergence is fail-open: any error degrades to what is persisted.
 
     `matches_filter` reuses the exact same `select_promo_resolver`
     dispatch as the flat endpoint, bounded to this product's own MLAs,
@@ -495,12 +493,9 @@ def obtener_arbol_ml_producto(
         for row in db.query(PublicacionML).filter(PublicacionML.item_id == item_id, PublicacionML.activo == True).all()
     ]
 
-    # Hybrid lazy-fill: top up stale/missing link rows before assembling.
-    # `lazy_fill_links` never touches this request's `db` session (pool-
-    # safety) and never raises (fail-open) — the tree degrades to
-    # whatever is already persisted if the fill can't complete.
+    # Converge the link tables to the store (local reads, zero ML calls, fail-open).
     if mla_ids:
-        lazy_fill_links(mla_ids, item_id)
+        sync_links_from_store(db, mla_ids, item_id)
 
     # matches_filter (mismo dispatch que el endpoint flat, acotado a este producto).
     tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()] if promo_tipos else []
