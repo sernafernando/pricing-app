@@ -207,4 +207,17 @@ describe('PermisosPorPermiso', () => {
 
     for (const boton of screen.getAllByRole('button', { name: ACCION })) expect(boton).toBeDisabled();
   });
+
+  it('says which additional role grants a permission', () => {
+    const datos = payload();
+    datos.permisos_detallados.productos[0] = permiso('productos.ver', {
+      tiene_por_rol: true,
+      efectivo: true,
+      origen: 'rol_adicional',
+      roles_adicionales: ['COMPRAS'],
+    });
+    renderVista({ permisosUsuario: datos });
+
+    expect(within(fila('productos.ver')).getByText('Concedido por rol adicional COMPRAS')).toBeInTheDocument();
+  });
 });

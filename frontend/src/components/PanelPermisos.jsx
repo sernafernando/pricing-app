@@ -7,6 +7,7 @@ import PermisosPorPermiso from './permisos/PermisosPorPermiso';
 import ListaUsuarios from './permisos/ListaUsuarios';
 import AvatarIniciales from './permisos/AvatarIniciales';
 import ModalUsuario from './permisos/ModalUsuario';
+import RolesAdicionales from './permisos/RolesAdicionales';
 import { SegmentedControl, StatusPill } from './kit';
 import { contarOverrides } from '../registry/permisosAcceso';
 import styles from './PanelPermisos.module.css';
@@ -268,6 +269,11 @@ export default function PanelPermisos() {
     });
   };
 
+  // Same guard as the backend: by the viewer's PRIMARY role. A SUPERADMIN
+  // target already has every permission, so additional roles add nothing.
+  const puedeEditarRolesAdicionales =
+    ['ADMIN', 'SUPERADMIN'].includes(usuarioActual?.rol) && usuarioSeleccionado?.rol !== 'SUPERADMIN';
+
   const rolesAsignables = roles.filter(r => usuarioActual?.rol === 'SUPERADMIN' || r.codigo !== 'SUPERADMIN');
   // While the dialog is open its errors show inside it, not behind the overlay.
   const errorModal = modalUsuario && mensaje?.tipo === 'error' ? mensaje.texto : null;
@@ -426,6 +432,23 @@ export default function PanelPermisos() {
                       Cancelar
                     </button>
                   </div>
+                )}
+
+                {puedeEditarRolesAdicionales && (
+                  <RolesAdicionales
+                    key={`${usuarioSeleccionado.id}:${usuarioSeleccionado.rol}`}
+                    usuarioId={usuarioSeleccionado.id}
+                    roles={roles}
+                    onGuardado={() => {
+                      mostrarMensajeDeUsuario(usuarioSeleccionado.id, {
+                        tipo: 'success',
+                        texto: 'Roles adicionales actualizados',
+                      });
+                      recargarPermisosUsuario(usuarioSeleccionado.id).catch(() =>
+                        setMensaje({ tipo: 'error', texto: 'Error al recargar permisos del usuario' }),
+                      );
+                    }}
+                  />
                 )}
               </section>
 

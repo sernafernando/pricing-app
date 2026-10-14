@@ -78,3 +78,14 @@ Hacé clic en la tarjeta de un rol y se abre un **panel a la derecha** con su de
 - Los roles de sistema no se pueden editar ni eliminar, pero sí clonar; sus permisos se siguen cambiando en la matriz. SUPERADMIN no se puede modificar.
 - **+ Nuevo Rol** abre el mismo panel con el formulario vacío.
 - Se cierra con la **×** o con la tecla **Esc**. Mientras se guarda o elimina un rol, el panel no se cierra ni se puede pasar a otro rol, para no perder la respuesta. Con el formulario abierto tampoco se puede pasar a otro rol ni a **+ Nuevo Rol**: salí con **Cancelar**, la **×** o **Esc**, así no se pierde lo que escribiste.
+
+## Roles adicionales por usuario
+
+Un usuario puede tener, además de su rol, uno o más **roles adicionales**. Cada rol adicional le **suma los permisos** de ese rol; no cambia su rol principal (el que se ve junto a su nombre), así que no lo hace superadmin ni le da la vista de todas las marcas por su código de rol.
+
+- En **Gestión → Admin → Usuarios**, elegí un usuario: debajo de su encabezado aparece **Roles adicionales** con los que tiene hoy (o **Ninguno**).
+- **Editar roles adicionales** muestra la lista de roles para marcar o desmarcar. No aparecen **SUPERADMIN** ni el rol principal del usuario. **Guardar** reemplaza la lista completa y recarga sus permisos; **Cancelar** descarta lo marcado.
+- Si el guardado falla (por ejemplo, otro administrador cambió los roles del mismo usuario al mismo tiempo), el error se muestra ahí mismo y lo marcado queda para reintentar.
+- En las vistas **Por pantalla** y **Por permiso**, un permiso que viene de un rol adicional dice **Rol adicional COMPRAS** (con el código del rol; si son varios, separados por coma).
+- La cantidad de **usuarios** de cada rol, en la pestaña **Roles**, cuenta tanto a quienes lo tienen como rol principal como a quienes lo tienen como adicional.
+- Solo los usuarios con rol principal **ADMIN** o **SUPERADMIN** pueden asignar roles adicionales.

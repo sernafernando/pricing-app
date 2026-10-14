@@ -384,4 +384,22 @@ describe('PermisosPorPantalla', () => {
       expect(within(kpi('Overrides')).getByText('−1')).toBeInTheDocument();
     });
   });
+
+  it('labels a screen and its permission granted by additional roles as "rol adicional <codigos>"', async () => {
+    const user = userEvent.setup();
+    const datos = payload();
+    datos.permisos_detallados.consultas = [
+      permiso('traza.ver', {
+        tiene_por_rol: true,
+        efectivo: true,
+        origen: 'rol_adicional',
+        roles_adicionales: ['COMPRAS', 'VENTAS'],
+      }),
+    ];
+    renderPanel({ permisosUsuario: datos });
+
+    expect(within(fila('/traza')).getByText('Rol adicional COMPRAS, VENTAS')).toBeInTheDocument();
+    await user.click(within(fila('/traza')).getByRole('button', { expanded: false }));
+    expect(within(fila('/traza')).getByText('Concedido por rol adicional COMPRAS, VENTAS')).toBeInTheDocument();
+  });
 });
