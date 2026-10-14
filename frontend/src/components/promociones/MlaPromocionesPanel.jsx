@@ -113,10 +113,6 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   // mirror. The cache is still WRITTEN — the promo filter bar derives its types from those
   // entries — so bypassing it is not an option, only re-reading it is.
   //
-  // The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing route all come back as
-  // HTTP 200 `{ok: false}`, never as a rejection. So `.catch` alone would almost never fire and the
-  // panel would show the old mirror as if it had just been refreshed. `ok` is the only honest
-  // signal, and both it and the rejection path feed the same `refreshFailed` flag.
   const readMirror = useCallback((id) => promocionesAPI.getPromocionesItem(id).then((r) => r.data), []);
 
   // Whether this mount should pull from ML is the PARENT's call, because only it knows why the panel
@@ -160,6 +156,10 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
     if (pulledForRef.current === mla) return;
     pulledForRef.current = mla;
     setPull({ forMla: mla, status: 'running' });
+    // The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing route all come back
+    // as HTTP 200 `{ok: false}`, never as a rejection. So `.catch` alone would almost never fire and
+    // the panel would show the old mirror as if it had just been refreshed. `ok` is the only honest
+    // signal, and both it and the rejection path feed the same `refreshFailed` flag.
     Promise.resolve(promocionesAPI.refreshItemPromociones(mla))
       .then((r) => ({ ok: r?.data?.ok === true, motivo: r?.data?.motivo || null }))
       // A failed refresh degrades to the stored mirror rather than blanking the panel: stale data
