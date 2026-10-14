@@ -17,7 +17,7 @@ import BoardTable from '../components/metricasMl/BoardTable';
 import { DIMENSION_OPTIONS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
-import { calcularRangoPreset } from '../utils/dateRangePresets';
+import { currentMonthRange } from '../utils/dateRangePresets';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
@@ -48,7 +48,7 @@ import styles from './MetricasML.module.css';
  * figures exist only when the backend says `can_see_margin`.
  */
 
-const DEFAULT_PRESET = '30d';
+const DEFAULT_PRESET = 'mesActual';
 const DEFAULT_PAGE_SIZE = 50;
 // Ageing buckets whose rows, by definition, sold nothing in the last 30 days.
 const STALE_AGEING_BUCKETS = new Set(['from_31_to_60', 'over_60']);
@@ -93,8 +93,9 @@ function appendNew(previous, next) {
   return [...previous, ...next.filter((row) => !seen.has(row.key))];
 }
 
+// The current month in Argentina time, the same default as Ventas ML.
 function defaultRange() {
-  const { desde, hasta } = calcularRangoPreset(DEFAULT_PRESET);
+  const { desde, hasta } = currentMonthRange();
   return { desde, hasta };
 }
 

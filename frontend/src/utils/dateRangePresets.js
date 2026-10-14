@@ -74,3 +74,28 @@ export function calcularRangoPreset(filtro, hoy = new Date()) {
 
   return { desde: formatearFechaISO(desde), hasta: formatearFechaISO(hasta) };
 }
+
+const BUSINESS_TZ = 'America/Argentina/Buenos_Aires';
+
+/**
+ * Today's calendar day in Argentina as a local-midnight `Date`, so the shared
+ * preset arithmetic (which reads local getters) computes against the business
+ * day. `new Date()` + local getters would be the browser's day, which differs
+ * for anyone not in UTC-3, and `toISOString()` is UTC, which is already
+ * tomorrow from 21:00 Argentina.
+ */
+export function businessToday(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  return new Date(get('year'), get('month') - 1, get('day'));
+}
+
+/** First of the current month up to today, Argentina time. */
+export function currentMonthRange(now = new Date()) {
+  return calcularRangoPreset('mesActual', businessToday(now));
+}
