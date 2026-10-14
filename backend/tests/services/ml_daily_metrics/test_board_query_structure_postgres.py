@@ -161,3 +161,24 @@ def test_a_search_too_broad_to_bound_the_read_pays_for_no_restriction(world) -> 
 
     assert "board_touched_groups" not in statement
     assert rows == plain_rows
+
+
+@pytest.mark.postgres
+def test_a_publication_row_without_an_mla_does_not_break_the_search(world) -> None:
+    """`mlp_publicationid` is nullable. A matching title on such a row must not
+    reach the lookup of candidate MLAs (a NULL cannot be sorted or probed)."""
+    from sqlalchemy import text
+
+    nested = world.begin_nested()
+    try:
+        world.execute(
+            text(
+                "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid, item_id, mlp_itemtitle) "
+                "VALUES (9999998, NULL, 800001, 'Publicación volumen 17 sin MLA'), "
+                "(9999999, 'MLA77000001', 800001, 'Publicación volumen 17 con MLA')"
+            )
+        )
+        response, _recorder, _ms = volume._request(world, limit=20, q="volumen 17")
+        assert response.rows
+    finally:
+        nested.rollback()

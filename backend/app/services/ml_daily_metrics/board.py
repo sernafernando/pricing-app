@@ -47,8 +47,9 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
 4. `__exit__` rolls the savepoint back: every CREATE goes with it.
 
 A bounded number of statements per board request whatever the page size or
-the volume (a fixed set, plus 4 per pair axis that has a filter), pinned with
-the measured timings by
+the volume (a fixed set; plus 4 per pair axis that has a filter; plus up to 5
+when an MLA set, a PM scope or a search bounds the groups read: its lookups and
+the touched groups), pinned with the measured timings by
 `tests/services/ml_daily_metrics/test_board_volume_postgres.py`. With
 `product_item_id` (a product's publication sub-rows) both tables hold only
 that product's groups, reached through the frozen-cost product index: the
@@ -717,7 +718,9 @@ class Board:
         def has(col: Any) -> Any:
             return func.lower(func.coalesce(col, "")).contains(needle, autoescape=True)
 
-        titles = self._small(select(M.mlp_publicationID).where(has(M.mlp_itemTitle)).distinct())
+        titles = self._small(
+            select(M.mlp_publicationID).where(M.mlp_publicationID.isnot(None), has(M.mlp_itemTitle)).distinct()
+        )
         ids = self._small(select(MlOrderItemOps.item_id).where(has(MlOrderItemOps.item_id)).distinct())
         products = self._small(select(P.item_id).where(or_(has(P.descripcion), has(P.codigo), has(P.marca))).distinct())
         if titles is None or ids is None or products is None:
