@@ -34,6 +34,7 @@ def _patch_health_aggregates(monkeypatch):
     monkeypatch.setattr(order_metrics_health, "claimed_count", lambda db: 1)
     monkeypatch.setattr(order_metrics_health, "oldest_dirty_age_seconds", lambda db: 12.5)
     monkeypatch.setattr(order_metrics_health, "missing_metrics_count", lambda db: 7)
+    monkeypatch.setattr(order_metrics_health, "stale_formula_count", lambda db: 11)
     monkeypatch.setattr(
         order_metrics_health,
         "poisoned_orders",
@@ -102,6 +103,29 @@ class TestHealthReportsOrdersWithNoMetricsRow:
     read 0 while nothing was computed. The endpoint must surface
     `missing_metrics_count`, the helper that counts exactly those orders
     and deliberately excludes parked ones."""
+
+    def test_the_pending_backfill_is_surfaced(self, db, client, admin_auth_headers, rol_admin) -> None:
+        _grant(db, rol_admin, "ml_ops.ver")
+
+        body = client.get("/api/ml-ops/order-metrics/health", headers=admin_auth_headers).json()
+
+        assert body["stale_formula_count"] == 11
+
+    def test_the_sale_lines_are_ready_only_when_nothing_is_pending(
+        self, db, client, admin_auth_headers, rol_admin, monkeypatch
+    ) -> None:
+        _grant(db, rol_admin, "ml_ops.ver")
+        url = "/api/ml-ops/order-metrics/health"
+
+        assert client.get(url, headers=admin_auth_headers).json()["sale_lines_ready"] is False
+
+        monkeypatch.setattr(order_metrics_health, "stale_formula_count", lambda db: 0)
+        monkeypatch.setattr(order_metrics_health, "missing_metrics_count", lambda db: 0)
+        monkeypatch.setattr(order_metrics_health, "poisoned_count", lambda db: 1)
+        assert client.get(url, headers=admin_auth_headers).json()["sale_lines_ready"] is False
+
+        monkeypatch.setattr(order_metrics_health, "poisoned_count", lambda db: 0)
+        assert client.get(url, headers=admin_auth_headers).json()["sale_lines_ready"] is True
 
     def test_missing_metrics_count_is_surfaced(self, db, client, admin_auth_headers, rol_admin) -> None:
         _grant(db, rol_admin, "ml_ops.ver")

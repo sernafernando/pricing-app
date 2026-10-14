@@ -319,7 +319,7 @@ def _stored_metrics_diverges(stored_row, fresh) -> bool:
     )
 
 
-def _open_divergence_record(db, order_id: int) -> None:
+def _open_divergence_record(db, order_id: int, field: Optional[str] = None) -> None:
     """Inserts one `ml_ops_divergence` row (`kind='stored_metrics_mismatch'`,
     design D10, reusing `ml_orders_ops.py:463`'s model) -- idempotent across
     runs via the table's own `uq_ml_ops_divergence_order_kind_field`
@@ -344,7 +344,7 @@ def _open_divergence_record(db, order_id: int) -> None:
     stmt = pg_insert(MlOpsDivergence.__table__).values(
         order_id=order_id,
         kind="stored_metrics_mismatch",
-        field=None,
+        field=field,
         state="open",
     )
     # `stmt.excluded.detected_at` reflects the column's own `server_default
@@ -360,6 +360,40 @@ def _open_divergence_record(db, order_id: int) -> None:
             where=MlOpsDivergence.state.in_(("resolved", "ignored")),
         )
     )
+
+
+_SALE_LINE_MEMBERS_SQL = """
+SELECT o.order_id,
+       CASE WHEN o.pack_id IS NOT NULL THEN 'p:' || o.pack_id ELSE 'o:' || o.order_id END AS group_key
+FROM ml_orders_ops o
+WHERE o.pack_id = ANY(CAST(:packs AS bigint[])) OR (o.pack_id IS NULL AND o.order_id = ANY(CAST(:solo AS bigint[])))
+"""
+
+
+def _orders_with_diverging_sale_lines(db, order_ids: List[int]) -> List[int]:
+    """The orders of every group (of `order_ids`) whose stored `ml_sale_lines`
+    differ from a live derivation. A group with a member in the recompute queue
+    is skipped, like the metrics check does: a mismatch mid-flight is expected."""
+    from app.services.order_metrics.sale_lines_store import diverging_groups
+
+    heads = db.execute(
+        text("SELECT order_id, pack_id FROM ml_orders_ops WHERE order_id = ANY(CAST(:ids AS bigint[]))"),
+        {"ids": order_ids},
+    ).fetchall()
+    packs = sorted({row.pack_id for row in heads if row.pack_id is not None})
+    solo = sorted(row.order_id for row in heads if row.pack_id is None)
+    members = db.execute(text(_SALE_LINE_MEMBERS_SQL), {"packs": packs, "solo": solo}).fetchall()
+    queued = {
+        row[0]
+        for row in db.execute(
+            text("SELECT order_id FROM ml_order_metrics_dirty WHERE order_id = ANY(CAST(:ids AS bigint[]))"),
+            {"ids": [row.order_id for row in members]},
+        )
+    }
+    held = {row.group_key for row in members if row.order_id in queued}
+    keys = sorted({row.group_key for row in members} - held)
+    bad = set(diverging_groups(db, keys))
+    return sorted(row.order_id for row in members if row.group_key in bad)
 
 
 def _write_divergence_summary(detail: dict) -> None:
@@ -442,11 +476,13 @@ class OrderMetricsDivergenceHandler:
             divergent_count = 0
             missing_count = 0
             checked_count = 0
+            lines_divergent_count = 0
         else:
             last_order_id = previous.get("cursor", 0)
             divergent_count = previous.get("divergent_count", 0)
             missing_count = previous.get("missing_count", 0)
             checked_count = previous.get("checked_count", 0)
+            lines_divergent_count = previous.get("lines_divergent_count", 0)
 
         recorded = 0
         complete = False
@@ -485,6 +521,20 @@ class OrderMetricsDivergenceHandler:
                         {"ids": divergent_ids},
                     )
 
+                # The persisted sale lines of the same orders' groups, against a live
+                # derivation: the self-heal of `ml_sale_lines`, in the same lap.
+                line_ids = _orders_with_diverging_sale_lines(db, order_ids)
+                if line_ids:
+                    remaining_slots = max(0, DIVERGENCE_MAX_RECORDED_PER_RUN - recorded)
+                    for order_id in line_ids[:remaining_slots]:
+                        _open_divergence_record(db, order_id, "sale_lines")
+                    recorded += min(len(line_ids), remaining_slots)
+                    db.execute(
+                        text("SELECT order_metrics_enqueue_system(CAST(:ids AS bigint[]), 'divergence')"),
+                        {"ids": line_ids},
+                    )
+                lines_divergent_count += len(line_ids)
+
                 divergent_count += len(divergent_ids)
                 checked_count += len(order_ids)
                 last_order_id = order_ids[-1]
@@ -499,6 +549,7 @@ class OrderMetricsDivergenceHandler:
             "divergent_count": divergent_count,
             "missing_count": missing_count,
             "checked_count": checked_count,
+            "lines_divergent_count": lines_divergent_count,
             "complete": complete,
             "cursor": last_order_id,
         }

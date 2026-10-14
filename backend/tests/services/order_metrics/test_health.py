@@ -17,6 +17,7 @@ from app.services.order_metrics.health import (
     poisoned_count,
     poisoned_orders,
     queue_depth,
+    stale_formula_count,
 )
 from app.services.order_metrics.queue import POISON_THRESHOLD
 
@@ -209,3 +210,28 @@ class TestPoisonedCountIsNotCappedBySampleLimit:
             assert poisoned_count(db) != len(poisoned_orders(db))
         finally:
             db.close()
+
+
+@pytest.mark.postgres
+def test_stale_formula_count_counts_the_rows_below_the_current_version(
+    _order_metrics_db_session, pg_order_metrics_engine
+) -> None:
+    from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
+
+    with pg_order_metrics_engine.connect() as conn:
+        for order_id, version in ((40, CURRENT_FORMULA_VERSION - 1), (41, CURRENT_FORMULA_VERSION)):
+            _insert_order(conn, order_id)
+            conn.execute(
+                text(
+                    "INSERT INTO ml_order_metrics (order_id, neto, gauss_status, formula_version, computed_at) "
+                    "VALUES (:order_id, 0, 'ok', :version, now())"
+                ),
+                {"order_id": order_id, "version": version},
+            )
+        conn.commit()
+
+    db = sessionmaker(bind=pg_order_metrics_engine)()
+    try:
+        assert stale_formula_count(db) == 1
+    finally:
+        db.close()
