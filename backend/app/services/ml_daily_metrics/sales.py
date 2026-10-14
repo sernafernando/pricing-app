@@ -36,10 +36,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import BigInteger, Date, Numeric, String, and_, case, cast, func, literal, or_, select
+from sqlalchemy import BigInteger, Date, Numeric, String, and_, case, cast, func, literal, or_, select, union
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -63,6 +63,11 @@ D = MlOrderMetricsDirty
 # A UTC range `[start, end)` of group accreditation timestamps; `end=None`
 # means open-ended.
 Range = Tuple[datetime, Optional[datetime]]
+
+
+# A predicate over a sold line, given its item (`ml_order_items_ops`) and frozen
+# cost (`ml_order_item_costos`) rows: what `groups_touching` reads.
+LinePredicate = Callable[[Any, Any], ColumnElement[bool]]
 
 
 # The stored statuses whose Total Gauss is a number (`unresolved` never is).
@@ -149,8 +154,29 @@ def _is_a_sale():
     return or_(O.status.is_(None), O.status != "cancelled", O.covered_by_marketplace.is_(True))
 
 
-def _scope(q, ranges: Optional[Iterable[Range]], product: Optional[int]):
+def groups_touching(predicates: Sequence[LinePredicate]):
+    """The keys of the groups that have at least one sold line passing ANY of
+    `predicates`: `group_key`, one row per group. Each predicate is its own
+    semi-join (one `OR` across the item and product tables would hide their
+    indexes from the planner). Whole groups: the per-order and per-group
+    windows of `sale_lines` still see every member."""
+    parts = []
+    for predicate in predicates:
+        o2, i2, c2 = aliased(MlOrdersOps), aliased(MlOrderItemOps), aliased(MlOrderItemCosto)
+        parts.append(
+            select(group_key_expr(o2).label("group_key"))
+            .select_from(o2)
+            .join(i2, i2.order_id == o2.order_id)
+            .outerjoin(c2, frozen_cost_of_item(c2, i2))
+            .where(predicate(i2, c2))
+        )
+    return union(*parts) if len(parts) > 1 else parts[0].distinct()
+
+
+def _scope(q, ranges: Optional[Iterable[Range]], product: Optional[int], groups: Optional[Any] = None):
     q = q.where(G.group_date.isnot(None))
+    if groups is not None:
+        q = q.where(G.group_key.in_(groups))
     if ranges is not None:
         q = q.where(
             or_(
@@ -174,13 +200,24 @@ def _scope(q, ranges: Optional[Iterable[Range]], product: Optional[int]):
     return q
 
 
-def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: Optional[int] = None):
+def sale_lines(
+    *,
+    sqlite: bool,
+    ranges: Optional[List[Range]] = None,
+    product: Optional[int] = None,
+    groups: Optional[Any] = None,
+):
     """One row per sold item line of every accredited group in `ranges`
     (all history when None), restricted to `product` if given: `product`,
     `mla`, `group_date`, `day`, `qty`, `gross`, `tg` (Total Gauss share),
     `mtg`/`mcosto` (the markup's numerator/denominator share). Cancelled
     sales ML did not cover are left out AFTER the per-order and per-group
-    windows, so a pack's markup rule still sees all its members."""
+    windows, so a pack's markup rule still sees all its members.
+
+    `groups` (a one-column select of group keys, see `groups_touching`) limits
+    the read to those groups BELOW the windows: a small selection reads its own
+    orders, not every order of the period. The groups come whole, with their
+    other lines too: the caller keeps filtering the lines it wants."""
     qty = func.coalesce(I.quantity, 0)
     weight = C.costo_unitario_ars * qty
     # (group, order): the same partitions as by order alone, but sorted the
@@ -218,6 +255,7 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
         .outerjoin(D, D.order_id == O.order_id),
         ranges,
         product,
+        groups,
     ).subquery("sold")
     x = inner.c
     # NUMERIC in every branch: one float branch makes Postgres resolve the
@@ -247,7 +285,13 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
     return q.subquery("lines")
 
 
-def last_sales(*, sqlite: bool, product: Optional[int] = None, ranges: Optional[List[Range]] = None):
+def last_sales(
+    *,
+    sqlite: bool,
+    product: Optional[int] = None,
+    ranges: Optional[List[Range]] = None,
+    groups: Optional[Any] = None,
+):
     """`product`, `mla`, `last_at`: the latest accredited sale of every pair,
     over ALL history (or only `ranges`) -- what ageing and "última venta"
     read. Same base as `sale_lines` (same day, product and cancellation
@@ -262,6 +306,7 @@ def last_sales(*, sqlite: bool, product: Optional[int] = None, ranges: Optional[
         .where(_is_a_sale()),
         ranges,
         product,
+        groups,
     )
     if product is not None:
         q = q.where(product_col == product)

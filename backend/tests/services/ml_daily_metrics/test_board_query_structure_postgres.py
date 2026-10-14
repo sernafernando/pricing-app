@@ -92,3 +92,72 @@ def test_the_surviving_keys_are_a_semi_join_inside_the_pairs_not_a_cte_joined_af
     assert not any(re.search(r"\bkeys_\w+ AS", s) for s in statements)
     members = _created(statements, "board_members_")
     assert members and all(" IN (SELECT " in s for s in members)
+
+
+def _lines_read(session, **filters):
+    """`(statement, rows)` of the request's `board_lines` CREATE: the rows it
+    materialized say how many sold lines the request had to compute."""
+    from sqlalchemy import event
+
+    seen = {}
+
+    def after(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("CREATE TEMPORARY TABLE board_lines"):
+            seen["statement"], seen["rows"] = re.sub(r"\s+", " ", statement), cursor.rowcount
+
+    connection = session.connection()
+    event.listen(connection, "after_cursor_execute", after)
+    try:
+        response, _recorder, _ms = volume._request(session, limit=20, **filters)
+    finally:
+        event.remove(connection, "after_cursor_execute", after)
+    return response, seen["statement"], seen["rows"]
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"q": "volumen 17"},
+        {"scope_pairs": [("EPSON", "CAT0")]},
+    ],
+    ids=["search", "pm-scope"],
+)
+def test_a_request_wide_filter_bounds_the_groups_read_below_the_windows(world, filters) -> None:
+    _full, plain_statement, plain_rows = _lines_read(world)
+    response, statement, rows = _lines_read(world, **filters)
+
+    assert response.rows
+    assert "board_touched_groups" not in plain_statement
+    # The semi-join is INSIDE the subquery that holds the windows, so the
+    # per-order and per-group windows only ever see the touched groups.
+    assert "board_touched_groups" in statement
+    assert statement.index("board_touched_groups") < statement.index(") AS sold")
+    assert rows * 4 < plain_rows, (rows, plain_rows)
+
+
+@pytest.mark.postgres
+def test_an_mla_restriction_bounds_the_groups_read_below_the_windows(world) -> None:
+    from sqlalchemy import select
+
+    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as Pub
+
+    mlas = select(Pub.mlp_publicationID).where(Pub.mlp_id < 8000000 + 20)
+    _full, _plain_statement, plain_rows = _lines_read(world)
+    response, statement, rows = _lines_read(world, mla_source=mlas)
+
+    assert response.rows
+    assert statement.index("board_touched_groups") < statement.index(") AS sold")
+    assert rows * 4 < plain_rows, (rows, plain_rows)
+
+
+@pytest.mark.postgres
+def test_a_search_too_broad_to_bound_the_read_pays_for_no_restriction(world) -> None:
+    """ "a" matches almost every product: restricting the groups would touch
+    nearly all of them after a costly semi-join (measured: +500 ms), so the
+    base reads everything, as it does without a search."""
+    _response, statement, rows = _lines_read(world, q="a")
+    _plain, plain_statement, plain_rows = _lines_read(world)
+
+    assert "board_touched_groups" not in statement
+    assert rows == plain_rows

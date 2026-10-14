@@ -112,8 +112,10 @@ from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
 from app.services.ml_daily_metrics.sales import (
     BUSINESS_TZ,
     NO_PRODUCT,
+    LinePredicate,
     business_date,
     day_bounds,
+    groups_touching,
     last_sales,
     sale_lines,
 )
@@ -195,6 +197,14 @@ LINES_TABLE = "board_lines"
 MLA_SET_TABLE = "board_mla_set"
 # Product Ads per (MLA, ad day) over the period and its comparison period: only built with the toggle ON.
 ADS_TABLE = "board_ads_lines"
+# The groups that have a sold line any request-wide filter could keep (MLA set,
+# PM scope, search text): materialized so the lines and the last sales read a
+# set of KNOWN size instead of a sub-select the planner sizes at one row.
+TOUCHED_TABLE = "board_touched_groups"
+# A selection (MLA set, PM scope, search matches) bounds the read only if it is
+# this small: the groups are reached through the item and product indexes, one
+# probe per value. A wider one touches most orders anyway.
+PUSHDOWN_MAX_IDS = 500
 ADS_SOURCE = "product_ads"
 ADS_COVERED = ("closed", "mismatch")
 # The columns of the request's temp tables that get `ANALYZE` statistics (see
@@ -607,6 +617,8 @@ class Board:
         self.pm_pairs = _resolve_pm_pairs(db, f.pms) if f.pms else None
         # Set by `__enter__` when the filter restricts the MLAs.
         self.mla_set: Optional[Any] = None
+        # Set by `__enter__` when an MLA set, the scope or the search text bounds the groups read.
+        self.touched: Optional[Any] = None
         # Set by `__enter__` with the toggle ON: the ads temp table and whether the ledger covers the comparison.
         self.ads_lines: Optional[Any] = None
         self.prev_ads_covered = False
@@ -683,12 +695,83 @@ class Board:
             return query
         return query.where(mla_column.in_(select(self.mla_set.c.mla)))
 
+    def _small(self, query: Any) -> Optional[List[Any]]:
+        """The values of a one-column `query` when there are at most
+        `PUSHDOWN_MAX_IDS` of them, else `None`: a selection that wide does not
+        bound the read (every order would be touched anyway) and checking it
+        against millions of lines would only add cost."""
+        values = self.db.execute(query.limit(PUSHDOWN_MAX_IDS + 1)).scalars().all()
+        return None if len(values) > PUSHDOWN_MAX_IDS else values
+
+    def _text_predicates(self) -> List[LinePredicate]:
+        """The sold lines the search text could keep, as alternatives (any one
+        keeps the group): lines of an MLA whose id or title matches, or of a
+        product whose description, code or brand matches. Matched loosely --
+        ANY publication row of the MLA, not just the newest -- so the result is
+        a superset and the exact pair filter still runs afterwards. `[]` when
+        there is no text or it is too broad to bound the read."""
+        needle = (self.f.q or "").strip().lower()
+        if not needle:
+            return []
+
+        def has(col: Any) -> Any:
+            return func.lower(func.coalesce(col, "")).contains(needle, autoescape=True)
+
+        titles = self._small(select(M.mlp_publicationID).where(has(M.mlp_itemTitle)).distinct())
+        ids = self._small(select(MlOrderItemOps.item_id).where(has(MlOrderItemOps.item_id)).distinct())
+        products = self._small(select(P.item_id).where(or_(has(P.descripcion), has(P.codigo), has(P.marca))).distinct())
+        if titles is None or ids is None or products is None:
+            return []
+        mlas = sorted({*titles, *ids})
+        return [
+            lambda item, cost: item.item_id.in_(mlas),
+            lambda item, cost: cost.producto_item_id.in_(products),
+        ]
+
+    def _line_predicates(self) -> Optional[List[LinePredicate]]:
+        """The sold lines any filter that applies to EVERY chip count could
+        keep, as predicates over (item, cost): the MLA restriction, the caller's
+        PM scope and the search text. `None` = nothing bounds the read. Only
+        the filters narrow enough to bound it are used (an empty scope sees
+        nothing, and bounds it to nothing). The brand, store, status and type
+        filters are NOT here: each chip count clears its own axis and needs the
+        sales of the pairs that axis hides."""
+        common: List[LinePredicate] = []
+        if self.mla_set is not None:
+            mlas = self._small(select(self.mla_set.c.mla))
+            if mlas is not None:
+                common.append(lambda item, cost: item.item_id.in_(mlas))
+        if self.scope_pairs is not None:
+            visible = (
+                self._small(
+                    select(P.item_id).where(tuple_(func.upper(P.marca), func.upper(P.categoria)).in_(self.scope_pairs))
+                )
+                if self.scope_pairs
+                else []
+            )
+            if visible is not None:
+                common.append(lambda item, cost: cost.producto_item_id.in_(visible))
+        by_text = self._text_predicates()
+        if not common and not by_text:
+            return None
+
+        def together(extra: Optional[LinePredicate]) -> LinePredicate:
+            return lambda item, cost: and_(*(p(item, cost) for p in common), *([extra(item, cost)] if extra else []))
+
+        return [together(alt) for alt in by_text] if by_text else [together(None)]
+
+    def _touched(self) -> Optional[Any]:
+        """A select of the touched groups' keys, or `None` (read everything)."""
+        return None if self.touched is None else select(self.touched.c.group_key)
+
     def _lines_source(self):
         """The base summed per (product, MLA, business day) over `_ranges`:
         what every period/window total, the KPI series and the 90-day
         sparklines read. `u24` is the part accredited in the last 24h -- a
         SUBSET of the day's units by construction."""
-        lines = sale_lines(sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id)
+        lines = sale_lines(
+            sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id, groups=self._touched()
+        )
         return self._in_mla_set(
             select(
                 lines.c.product,
@@ -741,7 +824,9 @@ class Board:
         # the request's accreditation window, never the whole history (their
         # ageing/last sale looks back over that window only).
         history = self._ranges() if self.product_item_id == NO_PRODUCT else None
-        last_query = last_sales(sqlite=self.sqlite, product=self.product_item_id, ranges=history)
+        last_query = last_sales(
+            sqlite=self.sqlite, product=self.product_item_id, ranges=history, groups=self._touched()
+        )
         if self.mla_set is not None:
             # Restricted BEFORE the aggregation: the history of the MLAs outside the set is never read, so a small
             # set costs its own sales, not the whole store's (filtering the aggregate afterwards is what it was).
@@ -939,6 +1024,9 @@ class Board:
             # First: the lines and the pairs read it. Same savepoint, so it is
             # rolled back with them and never reaches another pooled client.
             self.mla_set = self._materialize(MLA_SET_TABLE, mla_set_query(self.f.mla_source), analyze=("mla",))
+        predicates = self._line_predicates()
+        if predicates is not None:
+            self.touched = self._materialize(TOUCHED_TABLE, groups_touching(predicates), analyze=("group_key",))
         self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()}, LINES_STATS)
         if self.ads:
             self.prev_ads_covered = self._comparison_is_ledgered()
