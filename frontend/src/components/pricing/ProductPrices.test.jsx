@@ -1,53 +1,16 @@
 /**
  * One product's prices (ML list and PVP, clásica and instalments) with their
- * markups, read from GET /productos/{item_id}. Read-only.
+ * markups, read from GET /productos/{item_id}. Without write permissions\n * the view is read-only (editing: ProductPrices.editing.test.jsx).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import ProductPrices from './ProductPrices';
 import { preciosAPI } from '../../services/api';
+import { PRODUCTO } from './ProductPrices.fixtures';
 
 vi.mock('../../services/api', () => ({
   preciosAPI: { obtenerProducto: vi.fn() },
 }));
-
-// Shape of GET /productos/{item_id} (ProductoResponse), as the endpoint returns
-// it in backend/tests/integration/test_producto_detail_cuota_markups.py.
-const PRODUCTO = {
-  item_id: 4101,
-  codigo: 'ARCHER-AX55',
-  descripcion: 'Router Archer AX55',
-  marca: 'TP-LINK',
-  categoria: 'ROUTERS',
-  subcategoria_id: 55,
-  moneda_costo: 'ARS',
-  costo: 64000,
-  costo_ars: 64000,
-  iva: 21,
-  stock: 7,
-  precio_lista_ml: 98500.5,
-  markup: 18.4,
-  tiene_precio: true,
-  precio_3_cuotas: 101200,
-  precio_6_cuotas: 104800.25,
-  precio_9_cuotas: null,
-  precio_12_cuotas: 110900,
-  markup_3_cuotas: 20.1,
-  markup_6_cuotas: 22.35,
-  markup_9_cuotas: null,
-  markup_12_cuotas: -2,
-  precio_pvp: 99000,
-  precio_pvp_3_cuotas: 102000,
-  precio_pvp_6_cuotas: null,
-  precio_pvp_9_cuotas: null,
-  precio_pvp_12_cuotas: null,
-  markup_pvp: 19.5,
-  markup_pvp_3_cuotas: 21,
-  markup_pvp_6_cuotas: null,
-  markup_pvp_9_cuotas: null,
-  markup_pvp_12_cuotas: null,
-  recalcular_cuotas_auto: null,
-};
 
 const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
 

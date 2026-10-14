@@ -105,3 +105,77 @@
 .error {
   color: var(--tone-danger-fg);
 }
+
+/* Inline editing (only for who may write a price). */
+.actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.input {
+  width: 100%;
+  max-width: 9rem;
+  padding: 2px var(--spacing-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font: inherit;
+  text-align: right;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.iconButton:focus-visible,
+.input:focus-visible {
+  outline: 2px solid var(--tone-info-border);
+  outline-offset: 1px;
+}
+
+.iconButton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.warning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
+  font-size: var(--font-sm);
+}
+
+.warningActions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

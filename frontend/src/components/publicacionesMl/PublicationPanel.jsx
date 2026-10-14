@@ -43,7 +43,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
   const canViewPromos = tienePermiso('promos.ver');
   const canViewPrices = canViewProductPrices(tienePermiso);
   const { status, detail, error, reload, refresh } = usePublicationDetail(itemId, { canSeeMargin });
-  // A write in a tab (applying a promotion) changes what the detail and the
+  // A write in a tab (a promotion, a product price) changes what the detail and the
   // list row show: re-read both, the detail silently so the tab keeps its state.
   const handleWritten = () => {
     refresh();
@@ -149,7 +149,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
             ))}
           </div>
           <div className={styles.body} role="tabpanel" id={`${panelId}-tabpanel`} aria-labelledby={`${panelId}-tab-${active.key}`}>
-            <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} />
+            <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} />
           </div>
         </>
       )}

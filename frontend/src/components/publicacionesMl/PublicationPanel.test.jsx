@@ -22,7 +22,7 @@ vi.mock('../../services/api', () => ({
     postPromocionItem: vi.fn(),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
-  preciosAPI: { obtenerProducto: vi.fn() },
+  preciosAPI: { obtenerProducto: vi.fn(), calcularMarkup: vi.fn(), setRapido: vi.fn(), setCuota: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -423,6 +423,28 @@ describe('the Precios tab', () => {
       expect(preciosAPI.obtenerProducto).toHaveBeenCalledWith(4101);
     },
   );
+
+  it('a price write re-reads the detail and asks the page to reload its list', async () => {
+    const user = userEvent.setup();
+    const onListReload = vi.fn();
+    priceEditCodes = ['productos.editar_precio_clasica'];
+    preciosAPI.calcularMarkup.mockResolvedValue({ data: { markup: 12 } });
+    preciosAPI.setRapido.mockResolvedValue({ data: { item_id: 4101 } });
+    renderPanel({ tab: 'precios', onListReload });
+
+    await user.click(await screen.findByRole('button', { name: 'Editar Clásica' }));
+    await user.type(screen.getByRole('textbox', { name: 'Clásica' }), '{Enter}');
+
+    await waitFor(() => expect(onListReload).toHaveBeenCalledTimes(1));
+    expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101 }));
+    expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(2);
+  });
+
+  it('who only sees products gets no edit control', async () => {
+    renderPanel({ tab: 'precios' });
+    await screen.findByRole('row', { name: /^Clásica\b/ });
+    expect(screen.queryByRole('button', { name: /^Editar / })).not.toBeInTheDocument();
+  });
 
   it('does not exist without productos.ver nor a price-edit code', async () => {
     canSeeProducts = false;

@@ -29,3 +29,21 @@ export const PERMISOS_EDITAR_TIENDA = [
 export function canViewProductPrices(tienePermiso) {
   return ['productos.ver', ...PERMISOS_EDITAR_PRODUCTOS, ...PERMISOS_EDITAR_TIENDA].some((code) => tienePermiso(code));
 }
+
+/**
+ * Which prices the user may write, with exactly the set each endpoint enforces.
+ * @param {(code: string) => boolean} tienePermiso From `usePermisos()`.
+ * @returns {{ canEditClasica: boolean, canEditMlCuotas: boolean, canEditPvp: boolean }}
+ */
+export function pricePermissions(tienePermiso) {
+  const productos = PERMISOS_EDITAR_PRODUCTOS.some((code) => tienePermiso(code));
+  const tienda = PERMISOS_EDITAR_TIENDA.some((code) => tienePermiso(code));
+  return {
+    // /precios/set-rapido (ML list): Productos editors only.
+    canEditClasica: productos,
+    // /precios/set-cuota on the ML list's 3/6/9/12: Productos or Tienda editors.
+    canEditMlCuotas: productos || tienda,
+    // set-rapido / set-cuota with lista_tipo=pvp: Productos editors only.
+    canEditPvp: productos,
+  };
+}
