@@ -30,6 +30,8 @@ from app.services.pricing_calculator import (
     calcular_markup,
     convertir_a_pesos,
     obtener_comision_base,
+    obtener_constantes_pricing,
+    obtener_envio_promedio_grupo,
     obtener_grupo_subcategoria,
     obtener_tipo_cambio_actual,
 )
@@ -139,7 +141,14 @@ def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
 
 class _PricingContext:
     """Resolved cost/pricelist/commission context for an MLA, shared by
-    `enriquecer_markup_por_promo` and `markup_para_precio`."""
+    `enriquecer_markup_por_promo` and `markup_para_precio`.
+
+    Also carries the pricing `constantes` (read ONCE with the rest of the
+    context) and the group shipping average (read lazily, at most once), so
+    that pricing N promos / N prices costs no extra statement: before, each
+    markup re-read both through `calcular_comision_ml_total` / `calcular_limpio`
+    (690 statements for the 607 promos of one product's 50 MLAs).
+    """
 
     def __init__(
         self,
@@ -148,12 +157,33 @@ class _PricingContext:
         iva: float,
         costo_envio: float,
         grupo_id: int,
+        constantes: Optional[Dict[str, float]] = None,
     ) -> None:
         self.costo_ars = costo_ars
         self.comision_base = comision_base
         self.iva = iva
         self.costo_envio = costo_envio
         self.grupo_id = grupo_id
+        self.constantes = constantes
+        self._envio_promedio: Optional[float] = None
+
+    def costo_envio_para(self, db: Session, revenue: float) -> float:
+        """The shipping cost `calcular_limpio` would use for `revenue`.
+
+        Same rule it applies itself: above the free-shipping tier, a product with no
+        shipping cost of its own uses its group's average. Resolved here once per
+        context instead of once per priced promo."""
+        free_shipping_from = (self.constantes or {}).get("monto_tier3")
+        if (
+            self.costo_envio == 0
+            and self.grupo_id is not None
+            and free_shipping_from is not None
+            and revenue >= free_shipping_from
+        ):
+            if self._envio_promedio is None:
+                self._envio_promedio = obtener_envio_promedio_grupo(db, self.grupo_id)
+            return self._envio_promedio
+        return self.costo_envio
 
 
 def _resolve_pricing_context(db: Session, mla: str) -> Optional[_PricingContext]:
@@ -177,6 +207,7 @@ def _resolve_pricing_context(db: Session, mla: str) -> Optional[_PricingContext]
         grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
         comision_base = obtener_comision_base(db, publicacion.pricelist_id, grupo_id)
         costo_envio = resolver_costo_envio(db, producto)
+        constantes = obtener_constantes_pricing(db)
     except Exception as e:
         logger.warning("Error resolving pricing context for mla %s: %s", mla, e)
         return None
@@ -190,6 +221,7 @@ def _resolve_pricing_context(db: Session, mla: str) -> Optional[_PricingContext]
         iva=producto.iva,
         costo_envio=costo_envio,
         grupo_id=grupo_id,
+        constantes=constantes,
     )
 
 
@@ -211,15 +243,7 @@ def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[st
         return promociones
 
     for promo in promociones:
-        promo["nuestro_markup"] = _calcular_nuestro_markup(
-            db=db,
-            promo=promo,
-            costo_ars=context.costo_ars,
-            comision_base=context.comision_base,
-            iva=context.iva,
-            costo_envio=context.costo_envio,
-            grupo_id=context.grupo_id,
-        )
+        promo["nuestro_markup"] = _calcular_nuestro_markup(db=db, promo=promo, context=context)
 
     return promociones
 
@@ -243,16 +267,7 @@ def _markup_con_contexto(
     markup computation itself fails.
     """
     try:
-        comisiones = calcular_comision_ml_total(price, context.comision_base, context.iva, db=db)
-        limpio = calcular_limpio(
-            price,
-            context.iva,
-            context.costo_envio,
-            comisiones["comision_total"],
-            db=db,
-            grupo_id=context.grupo_id,
-        )
-        return calcular_markup(limpio, context.costo_ars) * 100
+        return _markup_para_revenue(db, context, price)
     except Exception as e:
         logger.warning("Error calculando markup_para_precio para mla %s, price %s: %s", mla, price, e)
         return None
@@ -310,28 +325,31 @@ def markup_de_oferta_live(
     return promo.get("nuestro_markup")
 
 
-def _calcular_nuestro_markup(
-    db: Session,
-    promo: Dict[str, Any],
-    costo_ars: float,
-    comision_base: float,
-    iva: float,
-    costo_envio: float,
-    grupo_id: int,
-) -> Optional[float]:
+def _markup_para_revenue(db: Session, context: _PricingContext, revenue: float) -> float:
+    """price->markup chain on `revenue` using ONLY what `context` already resolved
+    (constants, shipping): no statement per call."""
+    comisiones = calcular_comision_ml_total(
+        revenue, context.comision_base, context.iva, db=db, constantes=context.constantes
+    )
+    limpio = calcular_limpio(
+        revenue,
+        context.iva,
+        context.costo_envio_para(db, revenue),
+        comisiones["comision_total"],
+        db=db,
+        constantes=context.constantes,
+    )
+    return calcular_markup(limpio, context.costo_ars) * 100
+
+
+def _calcular_nuestro_markup(db: Session, promo: Dict[str, Any], context: _PricingContext) -> Optional[float]:
     effective_price = precio_de_oferta(promo)
     if effective_price is None:
         return None
 
     try:
         co_funding = _co_funding_amount(promo)
-        effective_revenue = effective_price + co_funding
-
-        comisiones = calcular_comision_ml_total(effective_revenue, comision_base, iva, db=db)
-        limpio = calcular_limpio(
-            effective_revenue, iva, costo_envio, comisiones["comision_total"], db=db, grupo_id=grupo_id
-        )
-        return calcular_markup(limpio, costo_ars) * 100
+        return _markup_para_revenue(db, context, effective_price + co_funding)
     except Exception as e:
         logger.warning(
             "Error calculando nuestro_markup para promo %s de mla %s: %s",
