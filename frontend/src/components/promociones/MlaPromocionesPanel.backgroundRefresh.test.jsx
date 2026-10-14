@@ -163,6 +163,32 @@ describe('MlaPromocionesPanel - background refresh', () => {
   });
 });
 
+describe('MlaPromocionesPanel - pointed at another MLA mid-pull', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    permisosMock.denied = [];
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+    promocionesAPI.confirmarSinPromosML.mockResolvedValue({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } });
+  });
+
+  it('ignores the late result of the previous MLA pull and settles the new one', async () => {
+    const slow = deferred();
+    promocionesAPI.refreshItemPromociones.mockReturnValueOnce(slow.promise).mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: MIRROR });
+    const cache = { current: new Map() };
+
+    const view = render(<MlaPromocionesPanel mla="MLA_A" promosCacheRef={cache} />);
+    await screen.findByText('Deal promo');
+    view.rerender(<MlaPromocionesPanel mla="MLA_B" promosCacheRef={cache} />);
+    await act(async () => {
+      slow.resolve({ data: { ok: true } });
+    });
+
+    expect(await screen.findByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
 describe('MlaPromocionesPanel - only active publications are pulled from ML', () => {
   const MOTIVO = 'Publicación pausada: las promos se actualizan cuando se reactive';
 

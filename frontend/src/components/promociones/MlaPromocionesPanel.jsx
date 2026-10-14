@@ -135,6 +135,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   const [pull, setPull] = useState(null); // { forMla, status: 'running' | 'done', forMirror?, data? }
   const pulledForRef = useRef(null);
   const aliveRef = useRef(true);
+  const currentMlaRef = useRef(mla);
+  currentMlaRef.current = mla;
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -170,7 +172,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
           .catch(() => ({ ...mirror, ...flags }));
       })
       .then((merged) => {
-        if (!aliveRef.current) return;
+        // Unmounted, or the panel was pointed at another MLA while this pull was in flight.
+        if (!aliveRef.current || currentMlaRef.current !== mla) return;
         // The filter bar derives its promo types from these entries.
         promosCacheRef.current.set(mla, { status: 'ok', data: merged });
         setPull({ forMla: mla, status: 'done', forMirror: mirror, data: merged });
