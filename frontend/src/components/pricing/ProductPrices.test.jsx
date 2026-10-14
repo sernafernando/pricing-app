@@ -1,6 +1,7 @@
 /**
  * One product's prices (ML list and PVP, clásica and instalments) with their
- * markups, read from GET /productos/{item_id}. Without write permissions\n * the view is read-only (editing: ProductPrices.editing.test.jsx).
+ * markups, read from GET /productos/{item_id}. Without write permissions
+ * the view is read-only (editing: ProductPrices.editing.test.jsx).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
