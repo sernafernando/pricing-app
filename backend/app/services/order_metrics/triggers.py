@@ -86,10 +86,6 @@ TRIGGERED_TABLES = frozenset(
         "cp_cordones",
         "configuracion",
         "transportes",
-        # ml-billing-balance PR 9-i: the Flex bonification reads the billing BFLX
-        # line (`triggers_billing_flex.py`).
-        "ml_billing_charges",
-        "ml_billing_charge_orders",
     }
 )
 
