@@ -11,17 +11,21 @@ one Board per page, never one per row; an MLA the Board has no row for is absent
 
 from __future__ import annotations
 
+import inspect
+
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import event, text, update
+from sqlalchemy import String, event, literal, select, text, union_all, update
 
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.services.ml_daily_metrics import board
 from app.services.ml_publications.view import row_metrics
 from tests.services.ml_daily_metrics.conftest import board_pg, board_pg_engine  # noqa: F401
+from tests.services.ml_daily_metrics.test_board_postgres import MLA as IN_SET, OTHER as OUTSIDE
+from tests.services.ml_daily_metrics.test_board_postgres import _group as board_group, _order as board_order
 from tests.services.ml_daily_metrics.test_board_sale_lines_postgres import populate_sale_lines
 from tests.services.ml_publications.view.test_units_sold_postgres import order
 
@@ -181,7 +185,82 @@ class TestOnlyThePage:
     def test_the_period_is_the_last_30_business_days(self) -> None:
         assert row_metrics.window(TODAY) == (date(2026, 9, 1), TODAY)
 
+    def test_the_period_and_the_boards_clock_are_one_clock(self, sold, monkeypatch) -> None:
+        """The period ends on the Board's own business day (`board.now_utc`), the day its windows, series and
+        ageing count from: there is no separate `today` to move one without the other."""
+        assert "today" not in inspect.signature(row_metrics.metrics_by_mla).parameters
+        seen: list = []
+        real = board.Board.__enter__
+
+        def spy(self):
+            seen.append((self.f.date_from, self.f.date_to, self.today))
+            return real(self)
+
+        monkeypatch.setattr(board.Board, "__enter__", spy)
+        row_metrics.metrics_by_mla(sold, ["MLA1"])
+        assert seen == [(date(2026, 9, 1), TODAY, TODAY)]
+
     def test_the_set_is_gone_when_done(self, sold) -> None:
         row_metrics.metrics_by_mla(sold, ["MLA1"])
         probe = text(f"SELECT to_regclass('pg_temp.{board.MLA_SET_TABLE}') IS NULL")
         assert sold.execute(probe).scalar() is True
+
+
+class TestAPackPartlyInsideTheMlaSet:
+    """A pack whose members sell MLAs both inside and outside the requested MLA set. The live derivation must
+    keep the WHOLE group: an order's Total Gauss and cost are shared among its items, and the markup is
+    all-or-nothing per pack. Restricting the Board to some MLAs (Métricas' own MLA-filtered views, and
+    Publicaciones' page) must never change the figures of the MLAs it keeps -- on the live path and on the
+    persisted `ml_sale_lines` one."""
+
+    PACK = 2000009999999999
+    BIG, SMALL = 2000012345678914, 2000012345678915
+    SOLD_AT = datetime(2026, 9, 20, 15, tzinfo=timezone.utc)
+    MONEY = ("units", "gross", "tg", "mtg", "costo", "markup")
+
+    def pack(self, db, *, small_has_cost: bool = True) -> None:
+        # One member sells both MLAs (Total Gauss/cost shared 3:1 by frozen cost), the other only the outside one.
+        board_order(
+            db, self.BIG, [(777, IN_SET, 1, 300), (778, OUTSIDE, 2, 50)], pack_id=self.PACK, tg="80", costo="400"
+        )
+        board_order(db, self.SMALL, [(778, OUTSIDE, 1, 50)], pack_id=self.PACK, tg="5", costo="50")
+        if not small_has_cost:  # the pack takes no part in the markup: every member, inside the set or not
+            db.execute(
+                update(MlOrderMetrics).where(MlOrderMetrics.order_id == self.SMALL).values(costo_mercaderia=None)
+            )
+        board_group(db, f"p:{self.PACK}", [self.BIG, self.SMALL], self.SOLD_AT)
+        db.flush()
+
+    @staticmethod
+    def rows(db, group_by: str, mlas=None) -> dict:
+        f = board.BoardFilter(
+            date_from=TODAY - timedelta(days=29),
+            date_to=TODAY,
+            group_by=group_by,
+            mla_source=None if mlas is None else union_all(*(select(literal(m, String).label("mla")) for m in mlas)),
+        )
+        with board.Board(db, f, scope_pairs=None) as b:
+            return {row.key: row for row in b.page(None)}
+
+    def assert_same(self, got, expected) -> None:
+        for name in self.MONEY:
+            assert getattr(got, name) == getattr(expected, name), name
+
+    def check_every_reader(self, db) -> None:
+        whole = self.rows(db, "publication")[IN_SET]
+        self.assert_same(self.rows(db, "publication", [IN_SET])[IN_SET], whole)  # Métricas, by publication
+        self.assert_same(self.rows(db, "product", [IN_SET])["777"], self.rows(db, "product")["777"])  # by product
+        self.assert_same(row_metrics.metrics_by_mla(db, [IN_SET])[IN_SET], whole)  # Publicaciones
+
+    @pytest.mark.parametrize("small_has_cost", [True, False], ids=["markup", "no-markup"])
+    def test_live_and_persisted_give_the_unrestricted_figures(self, board_pg, monkeypatch, small_has_cost) -> None:
+        self.pack(board_pg, small_has_cost=small_has_cost)
+        whole = self.rows(board_pg, "publication")[IN_SET]
+        assert whole.tg == Decimal("60.00")  # 3/4 of the big order's 80
+        assert (whole.costo, whole.mtg) == ((Decimal("300.00"), Decimal("60.00")) if small_has_cost else (0, 0))
+        self.check_every_reader(board_pg)
+
+        assert populate_sale_lines(board_pg) == 3
+        monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
+        self.assert_same(self.rows(board_pg, "publication")[IN_SET], whole)
+        self.check_every_reader(board_pg)

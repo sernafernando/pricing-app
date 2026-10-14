@@ -19,7 +19,7 @@ Postgres only (the Board's temp tables); its tests are `@pytest.mark.postgres`.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, Sequence, Tuple
 
 from sqlalchemy import String, literal, select, union_all
 from sqlalchemy.orm import Session
@@ -39,12 +39,15 @@ def _mla_source(mlas: Sequence[str]):
     return union_all(*(select(literal(mla, String).label("mla")) for mla in mlas))
 
 
-def metrics_by_mla(db: Session, mlas: Sequence[str], today: Optional[date] = None) -> Dict[str, board.Row]:
-    """The Board's publication row of each of `mlas` over the last 30 business days; an MLA without one is absent."""
+def metrics_by_mla(db: Session, mlas: Sequence[str]) -> Dict[str, board.Row]:
+    """The Board's publication row of each of `mlas` over the last 30 business days; an MLA without one is absent.
+
+    The period ends on the Board's own business day (`board.today_business`, from `board.now_utc`): the clock its
+    windows, series and ageing count from, so the two can never disagree."""
     mlas = sorted(set(mlas))
     if not mlas:
         return {}
-    first, last = window(today or board.today_business())
+    first, last = window(board.today_business())
     f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=_mla_source(mlas))
     with board.Board(db, f, scope_pairs=None) as b:
         rows = b.rows_for_keys(mlas, with_series=True)

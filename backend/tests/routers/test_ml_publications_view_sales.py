@@ -10,7 +10,14 @@ HTTP surface: the units and the gross need `ml_metricas.ver`, the markup also `m
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from decimal import Decimal
+
 import pytest
+from sqlalchemy import update
+
+from app.models.ml_order_metrics import MlOrderMetrics
+from app.services.ml_daily_metrics import board as board_module, kpi_strip
 
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import GANANCIA, URL, VER, seed_rows
@@ -106,3 +113,47 @@ class TestMetrics:
         monkeypatch.setattr(board.Board, "__enter__", lambda self: entered.append(self.f.group_by) or real(self))
         rows(client, admin_auth_headers)
         assert entered == ["publication"]
+
+
+class TestRoundingAndBusinessDay:
+    """The arithmetic the deleted `test_sales_summary_postgres` pinned, now on the HTTP surface: the markup rounds
+    exactly as Métricas displays it, and the 30 days are Buenos Aires business days."""
+
+    NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
+
+    @pytest.fixture(autouse=True)
+    def _clock(self, monkeypatch):
+        from app.services.ml_daily_metrics import board
+
+        monkeypatch.setattr(board, "now_utc", lambda: self.NOW)
+
+    @staticmethod
+    def priced(engine, order_id, mla, qty, *, tg, costo, accredited) -> None:
+        sell(engine, (order_id, [(mla, None, qty)]), accredited=accredited)
+        with engine.begin() as conn:
+            conn.execute(
+                update(MlOrderMetrics)
+                .where(MlOrderMetrics.order_id == order_id)
+                .values(total_gauss=Decimal(tg), costo_mercaderia=Decimal(costo))
+            )
+
+    def test_an_exact_half_tie_rounds_like_metricas_displays_it(self, client, pg, db, rol_admin, admin_auth_headers):
+        """1.15 % exactly: Métricas shows `round_pp` (the float's round, 1.1 -- 1.15 is 1.1499... as a float), not
+        the Decimal's half-even 1.2. The same sales must read the same number on both screens."""
+        seed_rows(pg, fill)
+        self.priced(pg, 1, "MLA1", 1, tg="1.15", costo="100", accredited=datetime(2026, 9, 20, 15, tzinfo=timezone.utc))
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        got = rows(client, admin_auth_headers)["MLA1"]
+        expected = kpi_strip.round_pp(board_module.markup_of(Decimal("1.15"), Decimal("100")))
+        assert got["metrics"]["markup_30d"] == got["sales_30d"]["markup"] == expected == 1.1
+
+    def test_the_window_is_buenos_aires_business_days(self, client, pg, db, rol_admin, admin_auth_headers):
+        seed_rows(pg, fill)
+        # 23:59 of Aug 31st in Buenos Aires: the day before the window, out of it
+        self.priced(pg, 1, "MLA1", 100, tg="1", costo="1", accredited=datetime(2026, 9, 1, 2, 59, tzinfo=timezone.utc))
+        # 00:00 of Sep 1st in Buenos Aires: the window's first day, in it
+        self.priced(pg, 2, "MLA1", 2, tg="1", costo="1", accredited=datetime(2026, 9, 1, 3, 0, tzinfo=timezone.utc))
+        grant(db, rol_admin, VER, METRICAS)
+        got = rows(client, admin_auth_headers)["MLA1"]
+        assert got["metrics"]["units_30d"] == got["sales_30d"]["units"] == 2
+        assert got["metrics"]["gross_30d"] == got["sales_30d"]["gross"] == 20.0
