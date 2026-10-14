@@ -931,3 +931,32 @@ class TestAdsOnVolume:
             rows = volume_session.execute(ads_owner_select(sqlite=False, mlas=mlas)).all()
             print(f"{label}: {len(rows)} MLAs, {(time.perf_counter() - started) * 1000:.0f} ms")
             assert rows
+
+    def test_the_ad_only_rows_cost_no_extra_statement_and_only_the_unfiltered_view_has_them(
+        self, volume_session, volume_ads
+    ) -> None:
+        """PR 7b-i: an MLA no product owns gets a "sin producto" row (ON, unfiltered); the union and the
+        `units > 0 OR ads_cost > 0` predicate are part of the same statements, whatever `solo_con_ventas` says."""
+        volume_session.execute(
+            text("INSERT INTO ml_ads_item_days VALUES (1, 9, 'MLAGHOST', CAST(:today AS DATE), 1000000)"),
+            {"today": TODAY},
+        )
+        try:
+            for solo in (True, False):
+                _off, plain, _ms = _request(volume_session, limit=10, solo_con_ventas=solo)
+                on, recorder, elapsed_ms = _request(
+                    volume_session, limit=10, solo_con_ventas=solo, restar_publicidad=True, sort="ads_cost"
+                )
+                assert len(recorder.statements) == len(plain.statements) + 3
+                assert on.rows[0].key == "0" and on.rows[0].ads.cost > 0
+                _print(f"board ads ON ad-only union solo_con_ventas={solo}", recorder, elapsed_ms)
+            filtered, _r, _ms = _request(
+                volume_session,
+                limit=10,
+                restar_publicidad=True,
+                sort="ads_cost",
+                pub_status_exclude=("closed",),
+            )
+            assert "0" not in [row.key for row in filtered.rows]
+        finally:
+            volume_session.execute(text("DELETE FROM ml_ads_item_days WHERE item_id = 'MLAGHOST'"))

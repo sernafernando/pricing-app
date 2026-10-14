@@ -31,6 +31,8 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
    AD day, net of IVA only through `ads_cost_net_of_iva`) is materialized too,
    and each MLA's ads are subtracted from its OWNER pair's Total Gauss and
    markup numerator (never the denominator). OFF emits no extra statement.
+   With the toggle ON, "solo con ventas" keeps a row with `units > 0 OR ads_cost > 0`, and the UNFILTERED view
+   (`is_unfiltered`) also gets a "sin producto" pair for each MLA no product owns: its ads have no other row.
    When `BoardFilter.mla_source` is set, a third table, `MLA_SET_TABLE`, is
    materialized FIRST (same savepoint) and both tables above are restricted
    to its MLAs; absent, no statement changes.
@@ -363,6 +365,17 @@ NAVIGATION_FIELDS = frozenset(
 )
 
 
+def is_unfiltered(f: BoardFilter, scope_pairs: Optional[Sequence[Tuple[str, str]]]) -> bool:
+    """Whether the request reads the WHOLE board: the caller sees every product (no PM scope) and no filter field
+    is set. Only that view may show the ads that belong to no product (MA-5). Navigation choices, "solo con
+    ventas" included, never make a view filtered."""
+
+    def empty(value: Any) -> bool:
+        return value is None or (isinstance(value, (tuple, str)) and not value)
+
+    return scope_pairs is None and all(empty(getattr(f, name)) for name in FILTER_FIELDS)
+
+
 def mla_set_query(source: Any) -> Any:
     """The distinct, non-null MLAs of `source` (exactly one column), as the
     SELECT that `board_mla_set` is created from."""
@@ -593,6 +606,8 @@ class Board:
         self.product_item_id = product_item_id
         self.scope = tuple(scope)
         self.scope_pairs = None if scope_pairs is None else [tuple(pair) for pair in scope_pairs]
+        # The ads of MLAs no product owns count (and get their own rows) only in the whole, unfiltered board.
+        self.ads_unattributed = self.ads and is_unfiltered(f, self.scope_pairs)
         self.levels = grouping.levels_of(f.dimension)
         # The levels above the products: how many keys a path can hold.
         self.group_levels = len(self.levels) - 1
@@ -855,14 +870,18 @@ class Board:
         if self.product_item_id is not None:
             published = published.where(M.item_id == self.product_item_id)
         published = self._in_mla_set(published, M.mlp_publicationID)
-        pairs = union(select(last.c.product, last.c.mla), published).subquery("pairs")
+        pair_ads = self._pair_ads() if self.ads else None
+        universe = [select(last.c.product, last.c.mla), published]
+        if pair_ads is not None and self.ads_unattributed and self.product_item_id in (None, NO_PRODUCT):
+            # Ad-only rows: the MLAs no product owns have no sale or publication pair to carry their ads.
+            universe.append(select(pair_ads.c.product, pair_ads.c.mla).where(pair_ads.c.product == NO_PRODUCT))
+        pairs = union(*universe).subquery("pairs")
         if self.product_item_id is not None:
             pub = self._pub(select(pairs.c.mla))
         else:
             # `None` resolves every publication of the store; with a set, only the set's.
             pub = self._pub(None if self.mla_set is None else select(self.mla_set.c.mla))
         sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
-        pair_ads = self._pair_ads() if self.ads else None
         # With the toggle ON the money columns come out already net of ads; `costo` never changes.
         ads = func.coalesce(pair_ads.c.ads, 0) if pair_ads is not None else None
         prev_ads = func.coalesce(pair_ads.c.prev_ads, 0) if pair_ads is not None else None
@@ -1011,12 +1030,13 @@ class Board:
 
     def _pair_ads(self) -> Any:
         """Per OWNER pair (owner product, MLA), its ads of the period and of the comparison period, NET of IVA.
-        An MLA's ads land on ONE pair (`ads_owner_select`); an owner with no pair on the board is a 7b concern."""
+        An MLA's ads land on ONE pair (`ads_owner_select`). Ads owned by nobody (`NO_PRODUCT`) are kept only in
+        the unfiltered view: under a filter or a PM scope they belong to no row and subtract from none (MA-5)."""
         A = self.ads_lines
         owner = ads_owner_select(sqlite=self.sqlite, mlas=select(A.c.mla)).subquery("ads_owner")
         current = case((self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to), A.c.cost), else_=0)
         previous = case((self._in_ads_period(A.c.day, self.prev_from, self.prev_to), A.c.cost), else_=0)
-        return (
+        query = (
             select(
                 owner.c.owner_product.label("product"),
                 A.c.mla.label("mla"),
@@ -1025,8 +1045,11 @@ class Board:
             )
             .select_from(A.join(owner, owner.c.mla == A.c.mla))
             .group_by(owner.c.owner_product, A.c.mla)
-            .subquery("pair_ads")
         )
+        if not self.ads_unattributed:
+            query = query.where(owner.c.owner_product != NO_PRODUCT)
+        # Read twice (the ad-only pairs and the join): computed once.
+        return query.cte("pair_ads").prefix_with("MATERIALIZED", dialect="postgresql")
 
     def _pair_stats(self) -> Tuple[str, ...]:
         """The pair table's columns worth statistics: the fixed ones plus the
@@ -1296,6 +1319,10 @@ class Board:
         ).select_from(g.outerjoin(erp, erp.c.item_id == g.c.product))
         return q
 
+    def _has_activity(self, c: Any) -> Any:
+        """The "solo con ventas" predicate on a summed row: a sale in the period, or (toggle ON) ads in it."""
+        return or_(c.units > 0, c.ads_cost > 0) if self.ads else c.units > 0
+
     def _next_table(self, prefix: str) -> str:
         self._table_seq += 1
         return f"{prefix}_{self._table_seq}"
@@ -1349,7 +1376,7 @@ class Board:
         if self.f.solo_con_ventas:
             # On the aggregated ROW, never on its pairs: a product sold today
             # keeps the 30-day sales of its other publications.
-            q = q.where(T.c.units > 0)
+            q = q.where(self._has_activity(T.c))
         return q.subquery("board_rows")
 
     # ── statements ──
@@ -1611,7 +1638,7 @@ class Board:
             func.coalesce(g.c.last_day, g.c.start_day).label("ref_day"),
         )
         if self.f.solo_con_ventas:
-            q = q.where(g.c.units > 0)
+            q = q.where(self._has_activity(g.c))
         return q.subquery("group_rows")
 
     def group_counts(self) -> Tuple[int, int]:
@@ -1741,7 +1768,7 @@ class Board:
             func.coalesce(g.c.last_day, g.c.start_day).label("ref_day"),
         )
         if self.f.solo_con_ventas:
-            q = q.where(g.c.units > 0)
+            q = q.where(self._has_activity(g.c))
         return q.subquery("leaf_rows")
 
     def _leaf_order(self, rows: Any) -> Any:
