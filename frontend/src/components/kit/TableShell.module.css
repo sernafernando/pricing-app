@@ -44,24 +44,43 @@
   box-shadow: inset 0 -1px 0 var(--cf-border-default);
 }
 
-/* With a group row above, the leaf row pins right under it. */
-.leafRowGrouped .headCell {
-  top: var(--table-shell-group-height);
-}
-
+/* Grouped, the header reads like Métricas ML's board: the group labels
+   centred and uppercase on the tinted head row, the column names one size
+   down on the lighter sub-head, and a divider at each group's first column
+   (header and body). A column of no group spans both rows. */
 .groupRow .groupCell {
   position: sticky;
   top: 0;
   z-index: 2;
   height: var(--table-shell-group-height);
   padding: 0 var(--space-3);
-  text-align: left;
+  text-align: center;
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   white-space: nowrap;
-  color: var(--cf-text-secondary);
-  background: var(--cf-bg-card);
+  color: var(--cf-text-tertiary);
+  background: var(--metricas-head-bg);
   box-shadow: inset 0 -1px 0 var(--cf-border-default);
+}
+
+.groupRow .headCellSpanning {
+  background: var(--metricas-head-bg);
+}
+
+/* With a group row above, the leaf row pins right under it. */
+.leafRowGrouped .headCell {
+  top: var(--table-shell-group-height);
+  font-size: 10px;
+  color: var(--cf-text-secondary);
+  background: var(--metricas-subhead-bg);
+}
+
+.groupCell[data-group-start],
+.headCell[data-group-start],
+.cell[data-group-start] {
+  border-left: 1px solid var(--ventas-divider);
 }
 
 .headCell[data-align='right'],
