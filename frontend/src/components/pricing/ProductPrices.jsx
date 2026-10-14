@@ -174,10 +174,11 @@ const offsetLabel = (aplicado) => aplicado.descripcion || `Offset #${aplicado.id
  * Productos applies them to its "markup con offsets": the amount and, below,
  * each offset that applied with its discount in ARS.
  */
-function OffsetCost({ product, offsets, costo }) {
+function OffsetCost({ product, offsets, needsRate, rate, costo }) {
   if (isBlank(product.costo)) return <Empty />;
-  if (offsets === undefined) return <span className={styles.muted}>Cargando offsets…</span>;
+  if (offsets === undefined || (needsRate && rate === undefined)) return <span className={styles.muted}>Cargando offsets…</span>;
   if (offsets === null) return <span className={styles.muted}>No se pudieron leer los offsets</span>;
+  if (needsRate && rate === null) return <span className={styles.muted}>Sin tipo de cambio para el offset</span>;
   if (!costo) return <span className={styles.muted}>Sin offsets vigentes</span>;
   const detalle = costo.aplicados.map((a) => `${offsetLabel(a)}: -$ ${formatAmount(a.monto)}`).join('\n');
   return (
@@ -201,12 +202,10 @@ function OffsetCost({ product, offsets, costo }) {
  * What to keep in mind while setting a price: the product's IVA rate
  * (anyone who sees the prices) and, only for `showCost` (the caller's
  * ml_metricas.ver_ganancia), its cost in ARS and its cost with offset. A USD
- * cost is converted with the current rate and keeps its original amount
- * beside it.
+ * cost is converted with the current rate (`rate`, venta) and keeps its
+ * original amount beside it; the cost with offset uses that same rate.
  */
-function ProductFacts({ product, showCost, offsets, costo }) {
-  const isUsd = product.moneda_costo === 'USD' && !isBlank(product.costo);
-  const rate = useUsdRate(showCost && isUsd);
+function ProductFacts({ product, showCost, isUsd, rate, offsets, costo }) {
 
   let cost = <Empty />;
   if (isUsd) {
@@ -229,7 +228,7 @@ function ProductFacts({ product, showCost, offsets, costo }) {
           <div className={styles.fact}>
             <dt className={styles.factLabel}>Costo con offset</dt>
             <dd className={styles.factValue}>
-              <OffsetCost product={product} offsets={offsets} costo={costo} />
+              <OffsetCost product={product} offsets={offsets} needsRate={isUsd} rate={rate} costo={costo} />
             </dd>
           </div>
         </>
@@ -406,7 +405,13 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
   const editable = LISTS.some((list) => list.rows.some((row) => permissions?.[row.perm]));
   // The offsets are about the cost: read and shown only to who may see it.
   const offsets = useOffsetsVigentes(showCost);
-  const costo = product && offsets ? costoConOffset(product, offsets) : null;
+  // A USD cost: ONE rate (venta, the one pricing converts with) for the cost and
+  // the cost with offset, never the offsets' own rate.
+  const isUsd = product?.moneda_costo === 'USD' && !isBlank(product?.costo);
+  const rate = useUsdRate(showCost && isUsd);
+  // This is the Mercado Libre channel: offsets that do not apply to it are left out.
+  const costo =
+    product && offsets && (!isUsd || rate) ? costoConOffset(product, { ...offsets, ...(isUsd ? { tipoCambio: rate } : {}), canal: 'ml' }) : null;
 
   // After a write the stored prices and markups are the backend's: read them again.
   const isShown = (itemId) => shownItemRef.current === itemId;
@@ -553,7 +558,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
             <span className={styles.code}>{product.codigo}</span>
             <span>{product.descripcion}</span>
           </div>
-          <ProductFacts product={product} showCost={showCost} offsets={offsets} costo={costo} />
+          <ProductFacts product={product} showCost={showCost} isUsd={isUsd} rate={rate} offsets={offsets} costo={costo} />
           {editable && (
             <p className={styles.hint}>
               <Percent size={14} aria-hidden="true" />

@@ -123,6 +123,17 @@ describe('costoConOffset', () => {
     expect(costoConOffset(PRODUCTO, ctx([offset({ marca: 'TP-LINK', porcentaje: 0 })]))).toBeNull();
   });
 
+  it('with a channel, skips the offsets that do not apply to it; without one, counts them all (Productos)', () => {
+    const offsets = [
+      offset({ id: 1, marca: 'TP-LINK', porcentaje: 10, aplica_ml: false }),
+      offset({ id: 2, marca: 'TP-LINK', porcentaje: 5, aplica_ml: true }),
+      offset({ id: 3, marca: 'TP-LINK', porcentaje: 1 }),
+    ];
+    expect(costoConOffset(PRODUCTO, { ...ctx(offsets), canal: 'ml' }).aplicados.map((a) => a.id)).toEqual([2, 3]);
+    expect(costoConOffset(PRODUCTO, ctx(offsets)).aplicados.map((a) => a.id)).toEqual([1, 2, 3]);
+    expect(costoConOffset(PRODUCTO, { ...ctx([offsets[0]]), canal: 'ml' })).toBeNull();
+  });
+
   it('is null when the offsets leave no cost', () => {
     expect(costoConOffset(PRODUCTO, ctx([offset({ marca: 'TP-LINK', porcentaje: 100 })]))).toBeNull();
   });

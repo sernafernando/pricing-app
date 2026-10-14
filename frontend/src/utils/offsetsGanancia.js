@@ -11,6 +11,9 @@
 
 const DEFAULT_TIPO_CAMBIO = 1000;
 
+/** The flag of `OffsetGananciaResponse` that says an offset reaches each sales channel. */
+const CANAL_FLAG = { ml: 'aplica_ml', fuera: 'aplica_fuera', tienda_nube: 'aplica_tienda_nube' };
+
 /** The offsets that discount the unit cost: uncapped percentage or per-unit amount. */
 export function offsetsSinLimite(offsets) {
   return (offsets || []).filter(
@@ -72,10 +75,14 @@ function aplica(offset, producto, grupoFiltros) {
  * (`monto` is each offset's discount in ARS), or null when there is no
  * positive cost, nothing applies, it adds up to 0 or it leaves no cost.
  *
+ * With `canal` (`ml`, `fuera`, `tienda_nube`) an offset whose `aplica_<canal>`
+ * is false is skipped (a missing flag applies, the backend default); without
+ * it every offset counts, as Productos does.
+ *
  * @param {object} producto `costo`, `moneda_costo` and the fields offsets match on.
- * @param {{ offsets: object[], grupoFiltros: object, tipoCambio: number|null }} contexto
+ * @param {{ offsets: object[], grupoFiltros: object, tipoCambio: number|null, canal?: string }} contexto
  */
-export function costoConOffset(producto, { offsets, grupoFiltros, tipoCambio }) {
+export function costoConOffset(producto, { offsets, grupoFiltros, tipoCambio, canal }) {
   if (!producto?.costo || producto.costo <= 0) return null;
   if (!offsets || offsets.length === 0) return null;
 
@@ -83,7 +90,9 @@ export function costoConOffset(producto, { offsets, grupoFiltros, tipoCambio }) 
 
   const aplicados = [];
   let descuento = 0;
+  const flag = canal ? CANAL_FLAG[canal] : null;
   for (const offset of offsets) {
+    if (flag && offset[flag] === false) continue;
     if (!aplica(offset, producto, grupoFiltros || {})) continue;
     let monto = 0;
     if (offset.tipo_offset === 'porcentaje_costo') {
