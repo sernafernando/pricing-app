@@ -62,7 +62,10 @@ never completed.
 Sourced ONLY from what ML actually charges: `shp_*` payment charges, plus
 billing-side shipping charges (`ml_billing_charges` with
 `detail_sub_type` in CXD/CFF/CSSTEC, joined through the
-`ml_billing_charge_orders` bridge). NEVER `MlShipmentOps.sender_cost`:
+`ml_billing_charge_orders` bridge) as a FALLBACK for orders whose payments
+carry no `shp_*` charge -- both channels report the SAME charge, so a
+billing row bridged to an order that already has one is skipped (a `shp_*`
+charge refunded in full nets to zero and no longer counts as one). NEVER `MlShipmentOps.sender_cost`:
 verified live, 121 of 125 orders where that field is > 0 are
 `self_service` -- ML never charges anything for those, the seller pays
 its own carrier directly, and `sender_cost` would inflate every one of
@@ -1258,6 +1261,8 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # warning below -- summing every line it feeds is exactly the amount
     # the single legacy line would have reported.
     shipping_total = Decimal("0")
+    order_by_payment = {p.payment_id: p.order_id for p in relevant_payments}
+    orders_with_shp_charge: set = set()
     for charge in seller_charges_all:
         # `(charge.name or "")` is cheap insurance, NOT a real case:
         # `ml_payment_charges.name` is `NOT NULL` in the model AND in the
@@ -1267,6 +1272,15 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         # verified fact beats a repeated one.
         if (charge.name or "").startswith("shp_"):
             amount = net_amount(charge)
+            # Only a charge that still NETS something reports the shipping:
+            # one refunded in full no longer does, and suppressing the
+            # billing row on its account would hide a shipping charge that
+            # billing still bills. `.get()`: a charge whose payment is not
+            # mapped must never turn a breakdown into a KeyError -- it just
+            # does not suppress anything.
+            charge_order_id = order_by_payment.get(charge.payment_id)
+            if amount != 0 and charge_order_id is not None:
+                orders_with_shp_charge.add(charge_order_id)
             shipping_total += amount
             label = shipping_label(charge.name)
             line_amounts[label] = line_amounts.get(label, Decimal("0")) + amount
@@ -1275,12 +1289,36 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # DEDUPED by detail_id -- a pack's shipping charge is reported once by
     # ML but bridged to every order in the pack. These carry no `shp_*`
     # name to split by mode, so they stay in the generic bucket.
+    #
+    # A FALLBACK, never an addition: the billing row and the payment's
+    # `shp_*` charge are the SAME charge reported through two channels
+    # (order 2000018960873512: `shp_cross_docking` 9590 on the payment and
+    # CXD 9590 in billing; 18,048 production orders carry both). Summing
+    # both drew "Envíos (Colecta)" and "Envios" for one parcel. The billing
+    # row only counts when NONE of the in-scope orders it is bridged to
+    # already has a `shp_*` charge with a non-zero net -- which keeps it
+    # for the payments that carry none (7,453 of 12,528) and for a payment
+    # whose shipping was refunded in full while billing still charges it.
+    #
+    # SCOPE-DEPENDENT by design: only the REQUESTED orders' payments are
+    # loaded. A pack sibling requested alone, whose shipping sits on
+    # another sibling's payment, sees no `shp_*` charge and shows the
+    # shared billing row as its "Envios"; the pack view (every member)
+    # shows the one `shp_*` line instead. Each view counts the charge once.
     billing_links = db.query(MlBillingChargeOrder).filter(MlBillingChargeOrder.order_id.in_(order_ids)).all()
     linked_detail_ids = {link.detail_id for link in billing_links}
+    orders_by_detail_id: Dict[str, set] = {}
+    for link in billing_links:
+        orders_by_detail_id.setdefault(link.detail_id, set()).add(link.order_id)
     billing_charges: List[MlBillingCharge] = []
     if linked_detail_ids:
         billing_charges = db.query(MlBillingCharge).filter(MlBillingCharge.detail_id.in_(linked_detail_ids)).all()
-    shipping_billing_charges = [c for c in billing_charges if c.detail_sub_type in _SHIPPING_BILLING_SUBTYPES]
+    shipping_billing_charges = [
+        c
+        for c in billing_charges
+        if c.detail_sub_type in _SHIPPING_BILLING_SUBTYPES
+        and not (orders_by_detail_id.get(c.detail_id, set()) & orders_with_shp_charge)
+    ]
     for charge in shipping_billing_charges:
         if charge.amount is not None:
             amount = Decimal(str(charge.amount))

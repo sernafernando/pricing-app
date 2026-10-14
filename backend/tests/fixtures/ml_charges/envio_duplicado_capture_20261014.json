@@ -1,0 +1,133 @@
+{
+  "_source": "Production capture 2026-10-14, order 2000018960873512: ml_payments_ops + ml_payment_charges row set and the CXD ml_billing_charges row bridged to the same order, untouched.",
+  "payment": {
+    "payment_id": 182957452295,
+    "order_id": 2000018960873512,
+    "status": "approved",
+    "transaction_amount": 1649932.0,
+    "shipping_amount": 0.0,
+    "net_received_amount": 1183340.22,
+    "charges": [
+      {
+        "name": "coupon_code",
+        "type": "coupon",
+        "amount": 20000.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "coupon_fee",
+        "type": "coupon",
+        "amount": 20000.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "coupon_rebate",
+        "type": "coupon",
+        "amount": 100000.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "financing_add_on_fee",
+        "type": "fee",
+        "amount": 218410.89,
+        "refunded": 0.0
+      },
+      {
+        "name": "meli_percentage_fee",
+        "type": "fee",
+        "amount": 203741.5,
+        "refunded": 0.0
+      },
+      {
+        "name": "shp_cross_docking",
+        "type": "shipping",
+        "amount": 9590.0,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_collector-debitos_creditos",
+        "type": "tax",
+        "amount": 9899.59,
+        "refunded": 0.0
+      },
+      {
+        "name": "tax_withholding_sirtac-santa_cruz",
+        "type": "tax",
+        "amount": 4949.8,
+        "refunded": 0.0
+      }
+    ]
+  },
+  "billing_charge": {
+    "order_id": 2000018960873512,
+    "detail_id": "73285982789",
+    "detail_type": "CHARGE",
+    "detail_sub_type": "CXD",
+    "amount": 9590.0,
+    "document_id": "5256274976",
+    "raw_detail": {
+      "items_info": [
+        {
+          "item_id": "MLA1977474053",
+          "order_id": 2000018960873512,
+          "item_type": "gold_pro",
+          "item_price": 1649932.0,
+          "item_title": "Notebook Hp 255r G10 Con Amd Ryzen 3 7335u, 16gb Ram Y 512gb Ssd Plateado Ceniza Oscuro",
+          "item_amount": 1,
+          "item_kit_id": null,
+          "inventory_id": null,
+          "item_category": "Computación > Notebooks y Accesorios > Notebooks",
+          "fees_added_in_publication": "Si"
+        }
+      ],
+      "sales_info": [
+        {
+          "order_id": 2000018960873512,
+          "state_name": "Santa Cruz",
+          "operation_id": 182957452295,
+          "sales_channel": "Mercado Libre",
+          "payer_nickname": "QUIQUI282008",
+          "sale_date_time": "2026-10-13T15:18:31",
+          "wholesale_price": "No",
+          "transaction_amount": 1649932.0
+        }
+      ],
+      "charge_info": {
+        "status": null,
+        "detail_id": 73285982789,
+        "detail_type": "CHARGE",
+        "detail_amount": 9590.0,
+        "detail_sub_type": "CXD",
+        "charge_bonified_id": null,
+        "creation_date_time": "2026-10-13T16:18:50",
+        "status_description": null,
+        "transaction_detail": "Cargo por envíos de Mercado Libre",
+        "legal_document_number": null,
+        "legal_document_status": "PROCESSING",
+        "debited_from_operation": "YES",
+        "legal_document_status_description": "En proceso",
+        "debited_from_operation_description": "Si"
+      },
+      "currency_info": {
+        "currency_id": "ARS"
+      },
+      "discount_info": {
+        "rebate": null,
+        "discount_amount": 9590.0,
+        "discount_reason": "Descuento general",
+        "charge_amount_without_discount": 19180.0
+      },
+      "document_info": {
+        "document_id": 5256274976
+      },
+      "shipping_info": {
+        "pack_id": null,
+        "shipping_id": "48248844452",
+        "receiver_shipping_cost": 0
+      },
+      "marketplace_info": {
+        "marketplace": "SHIPPING"
+      }
+    }
+  }
+}
