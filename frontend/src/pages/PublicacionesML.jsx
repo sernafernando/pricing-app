@@ -11,7 +11,7 @@ import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStr
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
-import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns } from '../components/publicacionesMl/columns';
+import { DEFAULT_COLUMN_VISIBILITY, DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
@@ -105,6 +105,8 @@ export default function PublicacionesML() {
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   // The strip is Métricas' numbers: it needs `ml_metricas.ver`; the table does not.
   const canSeeKpis = tienePermiso('ml_metricas.ver');
+  // The rows' 30-day sales are Métricas' numbers too: same permission as the strip.
+  const canSeeSales = canSeeKpis;
   // The period belongs to the strip alone: it is not a filter and never reaches `/items`.
   const [periodo, setPeriodo] = useState(30);
 
@@ -125,7 +127,7 @@ export default function PublicacionesML() {
     keepExpanded.current = latestRequest.current + 1;
     setReloadToken((token) => token + 1);
   }, []);
-  const [columnVisibility, setColumnVisibility] = useState({});
+  const [columnVisibility, setColumnVisibility] = useState(DEFAULT_COLUMN_VISIBILITY);
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const toggleVariations = useCallback(
@@ -187,8 +189,8 @@ export default function PublicacionesML() {
   const eventsEnabled = data?.events_enabled ?? false;
   const columns = useMemo(
     () =>
-      buildColumns({ eventsEnabled, canSeeMargin, expandedIds, onToggleVariations: toggleVariations, agrupado }),
-    [eventsEnabled, canSeeMargin, expandedIds, toggleVariations, agrupado],
+      buildColumns({ eventsEnabled, canSeeMargin, canSeeSales, expandedIds, onToggleVariations: toggleVariations, agrupado }),
+    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a

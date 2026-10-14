@@ -458,6 +458,12 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     });
     return page(entry);
   };
+  // The worst-variation column is hidden by default (the 30-day columns replace it): the picker turns it on.
+  const showMarkupColumn = async () => {
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
+  };
+  const WORST_HEADER = { name: /peor variación/ };
 
   it('without ver_ganancia there is no column, no controls, and no markup param (S68.1)', async () => {
     await page('/ml-publicaciones?markup_neg=1&markup_min=5&orden=markup');
@@ -475,13 +481,16 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
 
   it('with ver_ganancia the column shows the range, and the sort is labelled "peor variación"', async () => {
     await withMargin();
+    expect(screen.queryByRole('columnheader', WORST_HEADER)).not.toBeInTheDocument();
+    await showMarkupColumn();
     expect(screen.getByText('-4,0% – 12,0%')).toBeInTheDocument();
-    const header = screen.getByRole('columnheader', { name: /Markup/ });
+    const header = screen.getByRole('columnheader', WORST_HEADER);
     expect(within(header).getByText('peor variación')).toBeInTheDocument();
   });
 
   it('clicking the header sorts by orden=markup, worst first', async () => {
     await withMargin();
+    await showMarkupColumn();
     await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'markup', dir: 'asc' }));
     await userEvent.click(screen.getByRole('button', { name: /^Markup/ }));
@@ -490,9 +499,10 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
 
   it('the picker lists the markup column under its plain name', async () => {
     await withMargin();
-    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await showMarkupColumn();
+    expect(screen.getByRole('columnheader', WORST_HEADER)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
-    expect(screen.queryByRole('columnheader', { name: /Markup/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', WORST_HEADER)).not.toBeInTheDocument();
   });
 
   it('"Solo negativos" sends markup_neg=true and goes back to page 1', async () => {
@@ -622,6 +632,9 @@ describe('variation sub-rows (publicaciones-ml-vista P11b.T3)', () => {
   it('with ver_ganancia they show cost and markup, the negative one highlighted', async () => {
     canSeeMargin = true;
     await withVariations();
+    // The worst-variation markup column is hidden by default: turn it on.
+    await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Markup' }));
     await userEvent.click(toggle());
     await screen.findByText('Router Archer AX55 negro');
     expect(screen.getByText('41.000,50')).toBeInTheDocument();
