@@ -14,7 +14,7 @@ const detalleError = (error, fallback) => error?.response?.data?.detail || fallb
  *
  * `roles` is the `/roles` list, or null while it is not available: then the
  * section is read-only. Additional roles the user has that are not in the
- * list (e.g. an inactive role) show by code and are always sent back as is,
+ * list (e.g. an inactive role) still show (server name) and are always sent back as is,
  * so a save never drops them.
  *
  * Mount it keyed by user (and primary role) so a switch always reloads it.
@@ -50,9 +50,6 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
   const codigoPrincipal = datos?.rol_principal?.codigo;
   const opciones = (roles || []).filter((rol) => rol.codigo !== 'SUPERADMIN' && rol.codigo !== codigoPrincipal);
   const idsEditables = new Set(opciones.map((rol) => rol.id));
-  // Pill label: the name from the roles list, or the server's code when the list lacks it.
-  const nombreDe = (rolAdicional) =>
-    (roles || []).find((rol) => rol.id === rolAdicional.id)?.nombre || rolAdicional.codigo;
 
   const iniciarEdicion = () => {
     setErrorGuardado(null);
@@ -147,7 +144,7 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
         ) : (
           datos.roles_adicionales.map((rol) => (
             <StatusPill key={rol.id} tone="neutral" variant="soft">
-              {nombreDe(rol)}
+              {rol.nombre || rol.codigo}
             </StatusPill>
           ))
         )}

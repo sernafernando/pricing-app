@@ -29,12 +29,12 @@ beforeEach(() => {
 });
 
 describe('RolesAdicionales', () => {
-  it('shows a role missing from the roles list by its code and keeps it on save', async () => {
+  it('shows a role missing from the roles list by its server name and keeps it on save', async () => {
     const user = userEvent.setup();
     const { onGuardado } = renderSeccion();
 
     expect(await screen.findByText('Compras')).toBeInTheDocument();
-    expect(screen.getByText('LEGADO')).toBeInTheDocument();
+    expect(screen.getByText('Legado')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Editar roles adicionales' }));
     expect(screen.queryByRole('checkbox', { name: /LEGADO/ })).not.toBeInTheDocument();
@@ -47,10 +47,17 @@ describe('RolesAdicionales', () => {
   it('does not offer editing until the roles list has loaded', async () => {
     renderSeccion({ roles: null });
 
-    // Without the list, every pill shows the server's code.
-    expect(await screen.findByText('COMPRAS')).toBeInTheDocument();
+    // Without the list, pills still show the server's display name.
+    expect(await screen.findByText('Compras')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Editar roles adicionales' })).toBeDisabled();
     expect(screen.getByText(/lista de roles no está disponible/)).toBeInTheDocument();
+  });
+
+  it('falls back to the code when the server sends no name', async () => {
+    api.get.mockResolvedValue({ data: respuesta([{ id: 9, codigo: 'LEGADO', nombre: '' }]) });
+    renderSeccion();
+
+    expect(await screen.findByText('LEGADO')).toBeInTheDocument();
   });
 
   it('shows a failed load and retries it', async () => {
