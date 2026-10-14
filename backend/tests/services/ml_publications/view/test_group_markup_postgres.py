@@ -318,3 +318,63 @@ class TestConsistencyWithItems:
         assert sum(node.negative_count for node in tree(db, markup=plain).nodes) != plain_total  # Ads moved it
         for node in nodes:
             assert node.negative_count == self.items_total(db, node.params, negatives), node.params
+
+
+def seed_categorized(conn) -> None:
+    """`seed_catalog` with categories whose names hold the separators: `,` and `%` (percent-escaped on the wire)
+    and `|` (the separator of a `subcategoria_categoria` key). Product 73 has no subcategory."""
+    categories = {70: "Camaras, Fotos|Pro", 71: "Camaras, Fotos|Pro", 72: "100% Audio", 73: "100% Audio"}
+    for item_id, categoria in categories.items():
+        subcategoria = None if item_id == 73 else 3845
+        seed.add_product(
+            conn, item_id, f"C{item_id}", f"Producto {item_id}", categoria=categoria, subcategoria_id=subcategoria
+        )
+        seed.add_cost(conn, item_id, COST[item_id])
+    for number in range(1, 7):
+        seed.add_item(conn, f"MLA{number}", listing_type_id="gold_pro", tags=["9x_campaign"], price=90000)
+        seed.add_sale_price(conn, f"MLA{number}", 100000)
+    for item_id, product in (("MLA1", 70), ("MLA2", 71), ("MLA5", 72), ("MLA6", 73)):
+        seed.add_link(conn, item_id, product)
+
+
+class TestMarkupByDimension:
+    """Under every dimension a node's figures are those of the publications its `params` select in `/items`: the
+    markup path maps each publication back to its node by the node's key, which for a category or a subcategory in
+    its category is the escaped text (`_members`); a key that failed to map would silently drop publications."""
+
+    def walk(self, db, dimension: str, markup, path=()):
+        page = groups.list_groups(db, parse_filter(), list(path), markup=markup, dimension=dimension)
+        for node in page.nodes:
+            yield node
+            if not node.leaf:
+                yield from self.walk(db, dimension, markup, (*path, node.key))
+
+    @staticmethod
+    def items_figures(db, params: dict) -> tuple:
+        sort = listing.parse_sort(None, None)
+        page = listing.list_items(db, parse_filter(**params), sort, 50, 0, events=True, markup=MarkupQuery(db))
+        blocks = [item["markup"] for item in page.items]
+        lows = [b["min"] for b in blocks if b["min"] is not None]
+        highs = [b["max"] for b in blocks if b["max"] is not None]
+        return sum(b["any_negative"] for b in blocks), min(lows, default=None), max(highs, default=None)
+
+    @pytest.mark.parametrize("dimension", ["categoria", "subcategoria"])
+    def test_every_node_has_the_figures_of_its_items_set(self, conn, db, envio_calls, dimension) -> None:
+        seed_categorized(conn)
+        nodes = list(self.walk(db, dimension, MarkupQuery(db)))
+        for node in nodes:
+            shown = (
+                node.negative_count,
+                None if node.markup_min is None else round(node.markup_min, 2),
+                None if node.markup_max is None else round(node.markup_max, 2),
+            )
+            assert shown == self.items_figures(db, node.params), (node.kind, node.key)
+        # the escaped keys really carry figures (a publication dropped by the key mapping would leave 0 / None)
+        expected_negatives = (
+            {"CAMARAS%2C FOTOS|PRO": 1, "100%25 AUDIO": 1}
+            if dimension == "categoria"
+            else {"3845|CAMARAS%2C FOTOS|PRO": 1, "3845|100%25 AUDIO": 1, f"{NO_GROUP}|100%25 AUDIO": 0}
+        )
+        roots = {node.key: node for node in nodes if node.kind != "producto"}
+        assert {key: roots[key].negative_count for key in expected_negatives} == expected_negatives
+        assert all(roots[key].markup_min is not None for key in expected_negatives)
