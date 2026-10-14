@@ -168,3 +168,7 @@ def test_a_sin_producto_sale_is_charged_its_ads_only_in_the_unfiltered_view(db) 
 
 def _utc(day: date) -> datetime:
     return datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=15)
+
+
+def test_an_empty_list_filter_is_no_filter() -> None:
+    assert board.is_unfiltered(dataclasses.replace(OFF, stores=[]), None)  # a caller may pass a list

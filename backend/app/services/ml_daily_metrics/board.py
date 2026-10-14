@@ -371,7 +371,7 @@ def is_unfiltered(f: BoardFilter, scope_pairs: Optional[Sequence[Tuple[str, str]
     ventas" included, never make a view filtered."""
 
     def empty(value: Any) -> bool:
-        return value is None or (isinstance(value, (tuple, str)) and not value)
+        return value is None or (isinstance(value, (tuple, list, set, frozenset, str)) and not value)
 
     return scope_pairs is None and all(empty(getattr(f, name)) for name in FILTER_FIELDS)
 
