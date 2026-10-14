@@ -6,6 +6,8 @@ import ModalClonarRol from './roles/ModalClonarRol';
 import ModalConfirmarEliminarRol from './roles/ModalConfirmarEliminarRol';
 import MatrizRoles from './roles/MatrizRoles';
 import BarraCambios from './roles/BarraCambios';
+import DrawerRol from './roles/DrawerRol';
+import DetalleRol from './roles/DetalleRol';
 import styles from './PanelRoles.module.css';
 
 // The backend refuses to change SUPERADMIN's permissions: it has them all.
@@ -50,6 +52,9 @@ export default function PanelRoles() {
   const [guardando, setGuardando] = useState(false);
   const [guardandoPermisos, setGuardandoPermisos] = useState(false);
   const [mensaje, setMensaje] = useState(null);
+
+  // Role drawer: the role whose detail it shows, or the create form (mostrarFormRol without editandoRol).
+  const [rolAbiertoId, setRolAbiertoId] = useState(null);
 
   // Estados para crear/editar rol
   const [mostrarFormRol, setMostrarFormRol] = useState(false);
@@ -266,6 +271,7 @@ export default function PanelRoles() {
       });
 
       mostrarMensaje({ tipo: 'success', texto: 'Rol actualizado correctamente' });
+      setMostrarFormRol(false);
       setEditandoRol(null);
       setFormRol(FORM_ROL_VACIO);
       cargarDatos();
@@ -292,6 +298,7 @@ export default function PanelRoles() {
       await api.delete(`/roles/${rol.id}`);
 
       mostrarMensaje({ tipo: 'success', texto: 'Rol eliminado correctamente' });
+      setRolAbiertoId((abierto) => (abierto === rol.id ? null : abierto));
       setPendientes((prev) => Object.fromEntries(Object.entries(prev).filter(([rolId]) => rolId !== String(rol.id))));
       cargarDatos();
     } catch (error) {
@@ -336,10 +343,51 @@ export default function PanelRoles() {
     setMostrarFormRol(true);
   };
 
+  const cerrarFormRol = () => {
+    setMostrarFormRol(false);
+    setEditandoRol(null);
+    setFormRol(FORM_ROL_VACIO);
+  };
+
+  // While a role request is in flight or the create/edit form is open, the cards and + Nuevo Rol are
+  // locked: switching would drop the request's panel or what was typed. Leave with Cancelar, X or Esc.
+  const cambioDeRolBloqueado = gestionandoRoles || mostrarFormRol;
+
+  const abrirRol = (rol) => {
+    if (cambioDeRolBloqueado) return;
+    cerrarFormRol();
+    setRolAbiertoId(rol.id);
+  };
+
+  const abrirNuevoRol = () => {
+    setRolAbiertoId(null);
+    setEditandoRol(null);
+    setFormRol({ ...FORM_ROL_VACIO, orden: roles.length });
+    setMostrarFormRol(true);
+  };
+
+  // The drawer stays put while a role request is in flight or a dialog is open on top of it.
+  const puedeCerrarDrawer = !gestionandoRoles && !rolAClonar && !rolAEliminar;
+
+  const cerrarDrawer = () => {
+    if (!puedeCerrarDrawer) return;
+    cerrarFormRol();
+    setRolAbiertoId(null);
+  };
+
+  const rolAbierto = roles.find((rol) => rol.id === rolAbiertoId) ?? null;
+  const drawerAbierto = mostrarFormRol || rolAbierto !== null;
+  let tituloDrawer = rolAbierto?.nombre;
+  if (mostrarFormRol) tituloDrawer = editandoRol ? 'Editar Rol' : 'Nuevo Rol';
+  // A new subject (another role, or detail <-> form) remounts the drawer so its title takes focus:
+  // focus left on a card outside it would make Escape do nothing.
+  let sujetoDrawer = `detalle-${rolAbiertoId}`;
+  if (mostrarFormRol) sujetoDrawer = editandoRol ? `editar-${editandoRol.id}` : 'nuevo';
+
   if (loading) {
     return (
       <div className={adminStyles.section}>
-        <div style={{ textAlign: 'center', padding: '40px' }}>
+        <div className={styles.cargando}>
           Cargando roles y permisos...
         </div>
       </div>
@@ -354,129 +402,93 @@ export default function PanelRoles() {
         </div>
       )}
 
-      <div className={styles.layout}>
-        {/* Roles: alta, edición, clonado y baja (pasan a un panel lateral en T4b) */}
-        <div className={adminStyles.section}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0 }}>Roles</h3>
-            <button
-              onClick={() => {
-                setMostrarFormRol(true);
-                setEditandoRol(null);
-                setFormRol({ ...FORM_ROL_VACIO, orden: roles.length });
-              }}
-              disabled={guardandoPermisos}
-              className="btn-tesla outline-subtle-primary sm"
-            >
-              + Nuevo Rol
-            </button>
+      <div className={drawerAbierto ? styles.conDrawer : undefined}>
+        <div className={styles.layout}>
+          {/* Roles: cada tarjeta abre su panel lateral, donde se edita, clona o elimina */}
+          <div className={adminStyles.section}>
+            <div className={styles.encabezado}>
+              <h3 className={styles.tituloRoles}>Roles</h3>
+              <button
+                onClick={abrirNuevoRol}
+                disabled={guardandoPermisos || cambioDeRolBloqueado}
+                className="btn-tesla outline-subtle-primary sm"
+              >
+                + Nuevo Rol
+              </button>
+            </div>
+
+            <div className={styles.listaRoles}>
+              {roles.map(rol => (
+                <button
+                  key={rol.id}
+                  type="button"
+                  className={rol.id === rolAbiertoId ? styles.tarjetaRolAbierta : styles.tarjetaRol}
+                  onClick={() => abrirRol(rol)}
+                  disabled={cambioDeRolBloqueado}
+                  aria-haspopup="dialog"
+                  aria-expanded={rol.id === rolAbiertoId}
+                >
+                  <span className={styles.tarjetaNombre}>
+                    {rol.nombre}
+                    {rol.es_sistema && <>{' '}<span className={styles.badgeSistema}>SISTEMA</span></>}
+                  </span>
+                  {' '}
+                  <span className={styles.tarjetaMeta}>
+                    {rol.codigo} · {rol.usuarios_count || 0} usuarios
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Form crear/editar rol */}
-          {mostrarFormRol && (
-            <FormularioRol
-              form={formRol}
-              onChange={setFormRol}
-              esEdicion={!!editandoRol}
-              guardando={guardando}
-              bloqueado={guardandoPermisos}
-              onGuardar={editandoRol ? actualizarRol : crearRol}
-              onCancelar={() => {
-                setMostrarFormRol(false);
-                setEditandoRol(null);
-                setFormRol(FORM_ROL_VACIO);
-              }}
+          {/* Matriz roles x permisos */}
+          <section className={adminStyles.section} aria-label="Permisos por rol">
+            <h3 className={styles.titulo}>Permisos por rol</h3>
+            <MatrizRoles
+              catalogo={catalogo}
+              roles={roles}
+              esSoloLectura={esSoloLectura}
+              tienePermiso={tienePermiso}
+              esPendiente={esPendiente}
+              sinCargar={sinCargar}
+              onToggle={togglePermiso}
+              deshabilitado={matrizBloqueada}
             />
-          )}
-
-          {/* Lista de roles */}
-          <div className={styles.listaRoles}>
-            {roles.map(rol => (
-              <div key={rol.id} className={styles.tarjetaRol}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
-                      {rol.nombre}
-                      {rol.es_sistema && (
-                        <span style={{
-                          fontSize: '10px',
-                          padding: '2px 6px',
-                          background: 'var(--warning-bg)',
-                          color: 'var(--warning-text)',
-                          borderRadius: '4px'
-                        }}>
-                          SISTEMA
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      {rol.codigo} - {rol.usuarios_count || 0} usuarios
-                    </div>
-                  </div>
-                  <div className={styles.accionesRol}>
-                    {!esSoloLectura(rol) && (
-                      <button
-                        onClick={() => setRolAClonar(rol)}
-                        disabled={guardandoPermisos}
-                        aria-label={`Clonar ${rol.nombre}`}
-                        className="btn-tesla ghost sm"
-                      >
-                        Clonar
-                      </button>
-                    )}
-                    {!rol.es_sistema && (
-                      <>
-                        <button
-                          onClick={() => iniciarEdicion(rol)}
-                          disabled={guardandoPermisos}
-                          title="Editar"
-                          className={styles.accionEditar}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => pedirEliminarRol(rol)}
-                          disabled={guardandoPermisos}
-                          title="Eliminar"
-                          className={styles.accionEliminar}
-                        >
-                          X
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {rol.descripcion && (
-                  <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                    {rol.descripcion}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+            <BarraCambios
+              cantidad={cantidadPendientes}
+              guardando={guardandoPermisos}
+              bloqueado={gestionandoRoles}
+              onDescartar={() => setPendientes({})}
+              onGuardar={guardarCambios}
+            />
+          </section>
         </div>
 
-        {/* Matriz roles x permisos */}
-        <section className={adminStyles.section} aria-label="Permisos por rol">
-          <h3 className={styles.titulo}>Permisos por rol</h3>
-          <MatrizRoles
-            catalogo={catalogo}
-            roles={roles}
-            esSoloLectura={esSoloLectura}
-            tienePermiso={tienePermiso}
-            esPendiente={esPendiente}
-            sinCargar={sinCargar}
-            onToggle={togglePermiso}
-            deshabilitado={matrizBloqueada}
-          />
-          <BarraCambios
-            cantidad={cantidadPendientes}
-            guardando={guardandoPermisos}
-            bloqueado={gestionandoRoles}
-            onDescartar={() => setPendientes({})}
-            onGuardar={guardarCambios}
-          />
-        </section>
+        {drawerAbierto && (
+          <DrawerRol key={sujetoDrawer} titulo={tituloDrawer} puedeCerrar={puedeCerrarDrawer} onCerrar={cerrarDrawer}>
+            {mostrarFormRol ? (
+              <FormularioRol
+                form={formRol}
+                onChange={setFormRol}
+                esEdicion={!!editandoRol}
+                guardando={guardando}
+                bloqueado={guardandoPermisos}
+                onGuardar={editandoRol ? actualizarRol : crearRol}
+                onCancelar={cerrarFormRol}
+              />
+            ) : (
+              <DetalleRol
+                rol={rolAbierto}
+                soloLectura={esSoloLectura(rolAbierto)}
+                cantidadPermisos={permisosPorRol[rolAbierto.id]?.length ?? null}
+                bloqueado={guardandoPermisos}
+                onEditar={() => iniciarEdicion(rolAbierto)}
+                onClonar={() => setRolAClonar(rolAbierto)}
+                onEliminar={() => pedirEliminarRol(rolAbierto)}
+              />
+            )}
+          </DrawerRol>
+        )}
       </div>
 
       {rolAClonar && (
