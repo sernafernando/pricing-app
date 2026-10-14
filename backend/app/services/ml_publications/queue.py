@@ -76,19 +76,33 @@ class QueueClaim:
         return (self.kind, self.entity_id)
 
 
+# Lanes below the live ones, in the order the low-lane batches favor them.
+LOW_LANES: Tuple[int, ...] = (LANE_SWEEP, LANE_BACKFILL, LANE_RECONCILE)
+
+
 class LaneFairness:
-    """Every Nth claim batch serves the LOWEST-priority lanes first, so backfill and
-    sweeps are never starved while live lanes keep priority in the other batches."""
+    """Every Nth claim batch is a low-lane batch, so reconcile, backfill and sweeps are never starved while the
+    live lanes keep priority in the other batches.
+
+    Low-lane batches take turns favoring each of `LOW_LANES`: the favored lane is served first, then the rest
+    lowest-priority first. Serving merely the lowest due lane starved every middle lane while sweeps kept
+    refilling the bottom one (prod 2026-10-14: 8k due backfill rows unclaimed for 15+ minutes)."""
 
     def __init__(self, low_lane_min_share: float) -> None:
         if not 0 < low_lane_min_share <= 1:
             raise ValueError("low_lane_min_share must be in (0, 1]")
         self._period = max(1, round(1 / low_lane_min_share))
         self._calls = 0
+        self._low_batches = 0
 
-    def next_lanes_desc(self) -> bool:
+    def next_favored_lane(self) -> Optional[int]:
+        """The lane the next claim batch favors, or None for a plain batch in lane priority."""
         self._calls += 1
-        return self._calls % self._period == 0
+        if self._calls % self._period:
+            return None
+        lane = LOW_LANES[self._low_batches % len(LOW_LANES)]
+        self._low_batches += 1
+        return lane
 
 
 # A trigger naming the item itself (`core`, or `bundle` which includes it) supersedes the failure state of an
@@ -197,20 +211,29 @@ def claim(
     limit: int,
     worker_id: str,
     kinds: Sequence[str],
-    lanes_desc: bool = False,
+    favored_lane: Optional[int] = None,
     lease_seconds: Optional[int] = None,
     max_attempts: Optional[int] = None,
 ) -> List[QueueClaim]:
     """Charge expired leases, then claim up to `limit` ready entries for `worker_id`.
 
-    `lanes_desc` serves the lowest-priority lane first (see `LaneFairness`)."""
+    `favored_lane` serves that lane first and then the rest lowest-priority first (see `LaneFairness`);
+    without it entries are served in lane priority."""
     lease = settings.ML_PUB_LEASE_SECONDS if lease_seconds is None else lease_seconds
     max_attempts = settings.ML_PUB_MAX_ATTEMPTS if max_attempts is None else max_attempts
-    statement = text(_CLAIM_SQL.format(lane_order="lane DESC" if lanes_desc else "lane"))
+    favored = favored_lane is not None
+    statement = text(_CLAIM_SQL.format(lane_order="lane <> :favored_lane, lane DESC" if favored else "lane"))
+    params = {"worker_id": worker_id, "kinds": list(kinds), "limit": limit}
+    if favored:
+        params["favored_lane"] = favored_lane
     with database.get_background_db() as session:
         session.execute(_CHARGE_EXPIRED_SQL, {"lease_seconds": lease, "max_attempts": max_attempts})
-        rows = session.execute(statement, {"worker_id": worker_id, "kinds": list(kinds), "limit": limit}).fetchall()
-    ordered = sorted(rows, key=lambda r: (-r.lane if lanes_desc else r.lane, r.not_before, r.first_enqueued_at))
+        rows = session.execute(statement, params).fetchall()
+
+    def lane_key(r) -> Tuple[int, ...]:
+        return (r.lane != favored_lane, -r.lane) if favored else (r.lane,)
+
+    ordered = sorted(rows, key=lambda r: (*lane_key(r), r.not_before, r.first_enqueued_at))
     return [
         QueueClaim(
             kind=r.kind,

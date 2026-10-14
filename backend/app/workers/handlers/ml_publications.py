@@ -219,7 +219,7 @@ class RefreshHandler:
                     limit=config["bulk_max_ids"].value,
                     worker_id=ctx.worker_name,
                     kinds=list(CLAIMED_KINDS),
-                    lanes_desc=self._lane_fairness(config["low_lane_min_share"].value).next_lanes_desc(),
+                    favored_lane=self._lane_fairness(config["low_lane_min_share"].value).next_favored_lane(),
                 )
                 if not claims:
                     break
