@@ -3,10 +3,12 @@
  * the `permisos_detallados` payload of `GET /permisos/usuario/{id}`:
  *
  *   { categoria: [{ codigo, nombre, descripcion, es_critico, tiene_por_rol,
- *                   override (bool|null), efectivo, origen }] }
+ *                   override (bool|null), efectivo, origen,
+ *                   roles_adicionales: [codigo] }] }
  *
  * `origen` is one of superadmin | override_agregado | override_quitado | rol |
- * sin_permiso (backend `PermisosService.obtener_permisos_detallados_usuario`).
+ * rol_adicional | sin_permiso (backend
+ * `PermisosService.obtener_permisos_detallados_usuario`).
  *
  * Screens come from `screenCatalog.js`; every screen's `permisos` is any-of,
  * exactly like `ProtectedRoute` in App.jsx.
