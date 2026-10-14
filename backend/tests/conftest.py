@@ -1283,6 +1283,23 @@ def rol_ventas(db) -> Rol:
 
 
 @pytest.fixture()
+def grant_permiso(db):
+    """`grant(rol, codigo)`: give a role one permission code (creating the code if missing)."""
+    from app.models.permiso import Permiso, RolPermisoBase
+
+    def grant(rol: Rol, codigo: str) -> None:
+        permiso = db.query(Permiso).filter(Permiso.codigo == codigo).first()
+        if permiso is None:
+            permiso = Permiso(codigo=codigo, nombre=codigo, descripcion="", categoria=codigo.split(".")[0], orden=999)
+            db.add(permiso)
+            db.flush()
+        db.add(RolPermisoBase(rol_id=rol.id, permiso_id=permiso.id))
+        db.commit()
+
+    return grant
+
+
+@pytest.fixture()
 def active_user(db, rol_ventas) -> Usuario:
     """Create an active user with VENTAS role."""
     user = Usuario(

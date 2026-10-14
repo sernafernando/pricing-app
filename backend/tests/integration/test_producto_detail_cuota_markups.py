@@ -31,6 +31,12 @@ import app.models.precio_gremio_override  # noqa: F401
 CUOTAS = ("3", "6", "9", "12")
 
 
+@pytest.fixture(autouse=True)
+def _ventas_ve_productos(grant_permiso, rol_ventas):
+    """GET /productos/{item_id} requires productos.ver (or a price-edit code)."""
+    grant_permiso(rol_ventas, "productos.ver")
+
+
 @pytest.fixture()
 def producto_con_cuotas(db) -> ProductoERP:
     version = ComisionVersion(nombre="Test", fecha_desde=date(2000, 1, 1), activo=True)

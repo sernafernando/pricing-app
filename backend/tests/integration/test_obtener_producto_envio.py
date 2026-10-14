@@ -25,6 +25,12 @@ import app.models.commercial_transaction  # noqa: F401
 import app.models.tb_supplier  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _ventas_ve_productos(grant_permiso, rol_ventas):
+    """GET /productos/{item_id} requires productos.ver (or a price-edit code)."""
+    grant_permiso(rol_ventas, "productos.ver")
+
+
 SENTINEL_ENVIO = 8888.0  # recognisable; never matches ERP fixture envio
 
 

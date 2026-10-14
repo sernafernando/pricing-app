@@ -13,7 +13,8 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import Usuario
 from datetime import UTC, date
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_algun_permiso
+from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.costo_ppp_service import (
     resolver_ppp_batch,
@@ -2807,7 +2808,16 @@ def listar_productos_tienda(
     return ProductoTiendaListResponse(total=total, page=page, page_size=page_size, productos=productos)
 
 
-@router.get("/productos/{item_id}", response_model=ProductoResponse)
+# The detail carries cost and every price: whoever sees products or can edit
+# those prices (the same sets the price-writing endpoints accept) reads it.
+PERMISOS_VER_PRODUCTO = ["productos.ver", *PERMISOS_EDITAR_PRODUCTOS_O_TIENDA]
+
+
+@router.get(
+    "/productos/{item_id}",
+    response_model=ProductoResponse,
+    dependencies=[Depends(require_algun_permiso(PERMISOS_VER_PRODUCTO))],
+)
 def obtener_producto(
     item_id: int,
     equipo_id: Optional[int] = None,

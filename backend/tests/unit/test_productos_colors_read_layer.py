@@ -38,6 +38,12 @@ from app.core.security import get_password_hash
 from app.models.precio_gremio_override import PrecioGremioOverride  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _ventas_ve_productos(grant_permiso, rol_ventas):
+    """GET /productos/{item_id} requires productos.ver (or a price-edit code)."""
+    grant_permiso(rol_ventas, "productos.ver")
+
+
 def _make_usuario(db, username: str, rol_id: int) -> Usuario:
     user = Usuario(
         username=username,
