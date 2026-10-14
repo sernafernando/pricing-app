@@ -385,6 +385,29 @@ describe('PermisosPorPantalla', () => {
     });
   });
 
+  it('labels a mixed screen by the permission that grants it and each permission by its own origin', async () => {
+    const user = userEvent.setup();
+    const datos = payload();
+    datos.permisos_detallados.consultas = [
+      delRol('traza.ver'),
+      delRol('consultas.ver_ranking'),
+      permiso('consultas.ver_mi_ranking', {
+        tiene_por_rol: true,
+        efectivo: true,
+        origen: 'rol_adicional',
+        roles_adicionales: ['COMPRAS'],
+      }),
+    ];
+    renderPanel({ permisosUsuario: datos });
+
+    const ranking = fila('/consultas/ranking');
+    expect(within(ranking).getByText('Rol')).toBeInTheDocument();
+    expect(within(ranking).queryByText(/^Rol adicional/)).not.toBeInTheDocument();
+    await user.click(within(ranking).getByRole('button', { expanded: false }));
+    expect(within(ranking).getByText('Concedido por el rol')).toBeInTheDocument();
+    expect(within(ranking).getByText('Concedido por rol adicional COMPRAS')).toBeInTheDocument();
+  });
+
   it('labels a screen and its permission granted by additional roles as "rol adicional <codigos>"', async () => {
     const user = userEvent.setup();
     const datos = payload();

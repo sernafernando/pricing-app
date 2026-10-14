@@ -745,6 +745,53 @@ describe('PanelPermisos', () => {
       expect(api.get.mock.calls.filter(([url]) => url === '/permisos/usuario/7')).toHaveLength(1);
     });
 
+    it('drops a save that finishes after switching to another user', async () => {
+      const user = userEvent.setup();
+      conRoles();
+      let resolver;
+      api.put.mockReturnValue(new Promise((resolve) => { resolver = resolve; }));
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await within(seccion()).findByText('Compras');
+      await user.click(within(seccion()).getByRole('button', { name: 'Editar roles adicionales' }));
+      await user.click(within(seccion()).getByRole('button', { name: 'Guardar' }));
+
+      await user.click(screen.getAllByText('Beto Gómez')[0]);
+      expect(await within(seccion()).findByText('Ninguno')).toBeInTheDocument();
+      await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+
+      await act(async () => resolver({ data: rolesAdicionalesDe(7, [ROLES[3], ROLES[4]]) }));
+
+      expect(screen.queryByText('Roles adicionales actualizados')).not.toBeInTheDocument();
+      expect(api.get.mock.calls.filter(([url]) => url === '/permisos/usuario/7')).toHaveLength(1);
+      expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument();
+      expect(within(seccion()).getByText('Ninguno')).toBeInTheDocument();
+    });
+
+    it('is hidden for a SUPERADMIN user (already has every permission)', async () => {
+      const user = userEvent.setup();
+      const ROOT = { id: 9, nombre: 'Root Admin', username: 'root', email: 'root@x.com', rol: 'SUPERADMIN', activo: true };
+      const getOriginal = api.get.getMockImplementation();
+      api.get.mockImplementation((url) => {
+        if (url === '/auth/me') return Promise.resolve({ data: { id: 1, rol: 'SUPERADMIN' } });
+        if (url === '/usuarios') return Promise.resolve({ data: [USUARIO, ROOT] });
+        if (url === '/permisos/usuario/9') return Promise.resolve({ data: { ...permisosDe(8), usuario_id: 9, rol: 'SUPERADMIN' } });
+        if (url === '/usuarios/9/roles-adicionales') return Promise.resolve({ data: rolesAdicionalesDe(9, []) });
+        return getOriginal(url);
+      });
+      renderPanel();
+
+      await user.click(await screen.findByText('Root Admin'));
+      await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+      expect(screen.queryByRole('region', { name: 'Roles adicionales' })).not.toBeInTheDocument();
+      expect(api.get).not.toHaveBeenCalledWith('/usuarios/9/roles-adicionales');
+
+      // The same SUPERADMIN viewer does get it for a non-SUPERADMIN user.
+      await user.click(screen.getAllByText('Ana Pérez')[0]);
+      expect(await screen.findByRole('region', { name: 'Roles adicionales' })).toBeInTheDocument();
+    });
+
     it('is not offered to a viewer whose primary role is not ADMIN or SUPERADMIN', async () => {
       const user = userEvent.setup();
       const getOriginal = api.get.getMockImplementation();

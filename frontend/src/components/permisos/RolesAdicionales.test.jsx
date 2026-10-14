@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import api from '../../services/api';
 import RolesAdicionales from './RolesAdicionales';
@@ -58,6 +58,24 @@ describe('RolesAdicionales', () => {
     renderSeccion();
 
     expect(await screen.findByText('LEGADO')).toBeInTheDocument();
+  });
+
+  it('ignores a save that finishes after it was unmounted (user switched)', async () => {
+    const user = userEvent.setup();
+    let resolver;
+    api.put.mockReturnValue(new Promise((resolve) => { resolver = resolve; }));
+    const onGuardado = vi.fn();
+    const { unmount } = render(
+      <RolesAdicionales usuarioId={7} roles={[PRICING, COMPRAS, VENTAS]} onGuardado={onGuardado} />,
+    );
+
+    await screen.findByText('Compras');
+    await user.click(screen.getByRole('button', { name: 'Editar roles adicionales' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    unmount();
+
+    await act(async () => resolver({ data: respuesta([COMPRAS]) }));
+    expect(onGuardado).not.toHaveBeenCalled();
   });
 
   it('shows a failed load and retries it', async () => {

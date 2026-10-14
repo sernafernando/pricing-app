@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '../../services/api';
 import { StatusPill } from '../kit';
 import styles from './RolesAdicionales.module.css';
@@ -29,6 +29,16 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
   const [errorGuardado, setErrorGuardado] = useState(null);
   // Bumped by "Reintentar" to run the load again.
   const [intento, setIntento] = useState(0);
+  // False once unmounted (the parent remounts it on a user switch): a PUT that
+  // answers afterwards belongs to the previous user and is ignored.
+  const montadoRef = useRef(true);
+
+  useEffect(() => {
+    montadoRef.current = true;
+    return () => {
+      montadoRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let vigente = true;
@@ -76,13 +86,15 @@ export default function RolesAdicionales({ usuarioId, roles, onGuardado }) {
         ...datos.roles_adicionales.filter((rol) => !idsEditables.has(rol.id)).map((rol) => rol.id),
       ];
       const res = await api.put(`/usuarios/${usuarioId}/roles-adicionales`, { rol_ids: rolIds });
+      if (!montadoRef.current) return;
       setDatos(res.data);
       setSeleccion(null);
       onGuardado();
     } catch (error) {
+      if (!montadoRef.current) return;
       setErrorGuardado(detalleError(error, 'Error al guardar los roles adicionales'));
     } finally {
-      setGuardando(false);
+      if (montadoRef.current) setGuardando(false);
     }
   };
 

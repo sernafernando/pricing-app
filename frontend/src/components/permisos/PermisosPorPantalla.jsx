@@ -59,8 +59,8 @@ const rolesAdicionalesTexto = (permiso) => (permiso?.roles_adicionales || []).jo
 
 function origenChip(acceso) {
   if (acceso.origen !== 'rol_adicional') return ORIGEN_CHIP[acceso.origen];
-  // Same permission `accesoPantalla` took as the one granting access.
-  return `Rol adicional ${rolesAdicionalesTexto(acceso.filas.find((fila) => fila.efectivo))}`.trim();
+  const otorgante = acceso.filas.find((fila) => fila.efectivo && fila.origen === 'rol_adicional');
+  return `Rol adicional ${rolesAdicionalesTexto(otorgante)}`.trim();
 }
 
 function origenTexto(permiso) {
