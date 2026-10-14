@@ -5,7 +5,7 @@ import SearchInput from './SearchInput';
 import styles from './PanelPermisos.module.css';
 import FormularioRol from './roles/FormularioRol';
 import ModalClonarRol from './roles/ModalClonarRol';
-import confirmarEliminarRol from './roles/confirmarEliminarRol';
+import ModalConfirmarEliminarRol from './roles/ModalConfirmarEliminarRol';
 
 const CATEGORIAS_NOMBRE = {
   productos: 'Productos',
@@ -38,6 +38,8 @@ export default function PanelRoles() {
   });
 
   // Estado para clonar rol
+  const [rolAEliminar, setRolAEliminar] = useState(null);
+  const [eliminando, setEliminando] = useState(false);
   const [mostrarClonar, setMostrarClonar] = useState(false);
   const [clonarData, setClonarData] = useState({
     nuevo_codigo: '',
@@ -167,16 +169,17 @@ export default function PanelRoles() {
     }
   };
 
-  const eliminarRol = async (rol) => {
+  const pedirEliminarRol = (rol) => {
     if (rol.es_sistema) {
       setMensaje({ tipo: 'error', texto: 'No se pueden eliminar roles de sistema' });
       return;
     }
+    setRolAEliminar(rol);
+  };
 
-    if (!confirmarEliminarRol(rol)) {
-      return;
-    }
-
+  const eliminarRol = async () => {
+    const rol = rolAEliminar;
+    setEliminando(true);
     try {
       await api.delete(`/roles/${rol.id}`);
 
@@ -190,6 +193,9 @@ export default function PanelRoles() {
     } catch (error) {
       console.error('Error eliminando rol:', error);
       setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al eliminar rol' });
+    } finally {
+      setEliminando(false);
+      setRolAEliminar(null);
     }
   };
 
@@ -338,7 +344,7 @@ export default function PanelRoles() {
                         Editar
                       </button>
                       <button
-                        onClick={() => eliminarRol(rol)}
+                        onClick={() => pedirEliminarRol(rol)}
                         title="Eliminar"
                         style={{
                           padding: '4px 8px',
@@ -536,6 +542,15 @@ export default function PanelRoles() {
           )}
         </div>
       </div>
+
+      {rolAEliminar && (
+        <ModalConfirmarEliminarRol
+          rol={rolAEliminar}
+          eliminando={eliminando}
+          onConfirmar={eliminarRol}
+          onCancelar={() => setRolAEliminar(null)}
+        />
+      )}
     </div>
   );
 }

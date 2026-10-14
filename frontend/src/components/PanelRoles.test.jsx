@@ -35,7 +35,6 @@ const cargasDeRoles = () => api.get.mock.calls.filter(([url]) => url === '/roles
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
-  vi.stubGlobal('confirm', vi.fn(() => true));
   api.get.mockImplementation((url) => {
     if (url === '/roles') return Promise.resolve({ data: ROLES });
     if (url === '/permisos/catalogo') return Promise.resolve({ data: CATALOGO });
@@ -219,38 +218,106 @@ describe('PanelRoles edit role', () => {
   });
 });
 
+const MENSAJE_ELIMINAR = '¿Eliminar el rol "Ventas"? Esta accion no se puede deshacer.';
+
+async function abrirConfirmacionEliminar(user) {
+  await user.click(screen.getByRole('button', { name: 'X' }));
+  expect(screen.getByRole('heading', { name: 'Eliminar rol' })).toBeInTheDocument();
+  expect(screen.getByText(MENSAJE_ELIMINAR)).toBeInTheDocument();
+}
+
 describe('PanelRoles delete role', () => {
-  it('asks for confirmation, deletes the role and reloads', async () => {
+  it('asks for confirmation in a dialog without deleting yet', async () => {
+    const confirmNativo = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmNativo);
     const user = userEvent.setup();
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: 'X' }));
+    await abrirConfirmacionEliminar(user);
 
-    expect(globalThis.confirm).toHaveBeenCalledWith('¿Eliminar el rol "Ventas"? Esta accion no se puede deshacer.');
-    expect(api.delete).toHaveBeenCalledWith('/roles/3');
-    expect(await screen.findByText('Rol eliminado correctamente')).toBeInTheDocument();
-    await waitFor(() => expect(cargasDeRoles()).toBe(2));
-  });
-
-  it('does nothing when the confirmation is cancelled', async () => {
-    globalThis.confirm.mockReturnValue(false);
-    const user = userEvent.setup();
-    await renderPanel();
-
-    await user.click(screen.getByRole('button', { name: 'X' }));
-
+    expect(confirmNativo).not.toHaveBeenCalled();
     expect(api.delete).not.toHaveBeenCalled();
   });
 
-  it('shows the backend error when the delete fails', async () => {
+  it('deletes the role and reloads when confirmed in the dialog', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirConfirmacionEliminar(user);
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }));
+
+    expect(api.delete).toHaveBeenCalledWith('/roles/3');
+    expect(await screen.findByText('Rol eliminado correctamente')).toBeInTheDocument();
+    expect(screen.queryByText(MENSAJE_ELIMINAR)).not.toBeInTheDocument();
+    await waitFor(() => expect(cargasDeRoles()).toBe(2));
+  });
+
+  it('closes the dialog on Cancelar without deleting', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirConfirmacionEliminar(user);
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByText(MENSAJE_ELIMINAR)).not.toBeInTheDocument();
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it('closes the dialog on Escape without deleting', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirConfirmacionEliminar(user);
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByText(MENSAJE_ELIMINAR)).not.toBeInTheDocument();
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it('disables both buttons and ignores Escape and Cancelar while the delete is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.delete.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirConfirmacionEliminar(user);
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }));
+
+    const cancelar = screen.getByRole('button', { name: 'Cancelar' });
+    expect(screen.getByRole('button', { name: 'Eliminando...' })).toBeDisabled();
+    expect(cancelar).toBeDisabled();
+    await user.keyboard('{Escape}');
+    expect(screen.getByText(MENSAJE_ELIMINAR)).toBeInTheDocument();
+    expect(api.delete).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolver({ data: {} }));
+
+    expect(await screen.findByText('Rol eliminado correctamente')).toBeInTheDocument();
+    expect(screen.queryByText(MENSAJE_ELIMINAR)).not.toBeInTheDocument();
+  });
+
+  it('closes the dialog and shows the backend error when the delete fails', async () => {
     api.delete.mockRejectedValueOnce(errorConDetalle('El rol tiene usuarios asignados'));
     const user = userEvent.setup();
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: 'X' }));
+    await abrirConfirmacionEliminar(user);
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }));
 
     expect(await screen.findByText('El rol tiene usuarios asignados')).toBeInTheDocument();
+    expect(screen.queryByText(MENSAJE_ELIMINAR)).not.toBeInTheDocument();
     expect(cargasDeRoles()).toBe(1);
+  });
+
+  it('shows the fallback error when the delete fails without detail', async () => {
+    api.delete.mockRejectedValueOnce(new Error('Network Error'));
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await abrirConfirmacionEliminar(user);
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }));
+
+    expect(await screen.findByText('Error al eliminar rol')).toBeInTheDocument();
   });
 });
 
