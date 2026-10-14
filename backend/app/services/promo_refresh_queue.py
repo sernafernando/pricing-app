@@ -1,7 +1,7 @@
 """Queue helpers of the promotions-mirror refresh that follows a publication reactivation.
 
-Rows live in `promo_refresh_pending` (one per MLA, shared with the panel write path, see
-`ml_promotions_write_service`). The store enqueues an MLA when its status goes back to `active`
+Rows live in `promo_refresh_reactivation` (one per MLA; the panel's own `promo_refresh_pending` queue is left to its
+own drainer, see `app/models/promo_refresh_reactivation.py`). The store enqueues an MLA when its status goes back to `active`
 (`events_store.write_events`); the `ml_publications.promo_refresh` worker handler drains the table.
 
 Every function takes the caller's session and never commits: the enqueue joins the transaction that
@@ -11,12 +11,12 @@ wrote the event, and the handler wraps each step in its own short `get_backgroun
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.ml_publications import MlItem
-from app.models.promo_refresh_pending import PromoRefreshPending
+from app.models.promo_refresh_reactivation import PromoRefreshReactivation
 
 # A row that failed this many times is quarantined (deleted, logged by the caller).
 MAX_ATTEMPTS = 5
@@ -40,10 +40,10 @@ def enqueue(db, item_ids: Iterable[str], now: datetime) -> int:
     if not values:
         return 0
     statement = (
-        pg_insert(PromoRefreshPending)
+        pg_insert(PromoRefreshReactivation)
         .values(values)
         .on_conflict_do_nothing(index_elements=["mla"])
-        .returning(PromoRefreshPending.id)
+        .returning(PromoRefreshReactivation.id)
     )
     return len(db.execute(statement).all())
 
@@ -51,9 +51,9 @@ def enqueue(db, item_ids: Iterable[str], now: datetime) -> int:
 def claim_one(db, now: datetime) -> Optional[str]:
     """Oldest due MLA, leased until `now + CLAIM_LEASE_SECONDS`; None when nothing is due."""
     row = (
-        db.query(PromoRefreshPending)
-        .filter(PromoRefreshPending.due_at <= now)
-        .order_by(PromoRefreshPending.due_at, PromoRefreshPending.id)
+        db.query(PromoRefreshReactivation)
+        .filter(PromoRefreshReactivation.due_at <= now)
+        .order_by(PromoRefreshReactivation.due_at, PromoRefreshReactivation.id)
         .with_for_update(skip_locked=True)
         .first()
     )
@@ -71,19 +71,19 @@ def is_active(db, mla: str) -> bool:
 
 
 def drop(db, mla: str) -> None:
-    db.query(PromoRefreshPending).filter(PromoRefreshPending.mla == mla).delete(synchronize_session=False)
+    db.query(PromoRefreshReactivation).filter(PromoRefreshReactivation.mla == mla).delete(synchronize_session=False)
 
 
 def release(db, mla: str, now: datetime) -> None:
     """Make a claimed row due again without charging an attempt."""
-    db.query(PromoRefreshPending).filter(PromoRefreshPending.mla == mla).update(
+    db.query(PromoRefreshReactivation).filter(PromoRefreshReactivation.mla == mla).update(
         {"due_at": now}, synchronize_session=False
     )
 
 
 def fail(db, mla: str, now: datetime) -> Optional[str]:
     """Charge one failed attempt: back off, or quarantine (delete) at `MAX_ATTEMPTS`. None if the row is gone."""
-    row = db.query(PromoRefreshPending).filter(PromoRefreshPending.mla == mla).first()
+    row = db.query(PromoRefreshReactivation).filter(PromoRefreshReactivation.mla == mla).first()
     if row is None:
         return None
     row.attempts += 1
@@ -92,7 +92,3 @@ def fail(db, mla: str, now: datetime) -> Optional[str]:
         return OUTCOME_QUARANTINED
     row.due_at = now + timedelta(seconds=backoff_seconds(row.attempts))
     return OUTCOME_RESCHEDULED
-
-
-def pending_mlas(db) -> List[str]:
-    return [row.mla for row in db.query(PromoRefreshPending.mla).order_by(PromoRefreshPending.id)]

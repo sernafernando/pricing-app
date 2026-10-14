@@ -29,7 +29,7 @@ def queue_env(mlpub_pg):
 
 def pending(engine) -> list[str]:
     with engine.connect() as conn:
-        return [r[0] for r in conn.execute(text("SELECT mla FROM promo_refresh_pending ORDER BY id"))]
+        return [r[0] for r in conn.execute(text("SELECT mla FROM promo_refresh_reactivation ORDER BY id"))]
 
 
 def reactivate(item_id: str):
@@ -46,7 +46,7 @@ class TestReactivationEnqueue:
 
         assert pending(queue_env) == [ACTIVE]
         with queue_env.connect() as conn:
-            row = conn.execute(text("SELECT due_at, attempts, now() AS db_now FROM promo_refresh_pending")).one()
+            row = conn.execute(text("SELECT due_at, attempts, now() AS db_now FROM promo_refresh_reactivation")).one()
         assert row.attempts == 0 and abs((row.db_now - row.due_at).total_seconds()) < 60
 
     def test_pausing_alone_queues_nothing(self, queue_env) -> None:
@@ -72,7 +72,7 @@ class TestReactivationEnqueue:
     def test_replaying_the_same_change_log_row_queues_it_once(self, queue_env) -> None:
         reactivate(ACTIVE)
         with queue_env.connect() as conn:
-            conn.execute(text("DELETE FROM promo_refresh_pending"))
+            conn.execute(text("DELETE FROM promo_refresh_reactivation"))
             conn.commit()
         with store_module.database.get_background_db() as db:
             last = db.query(MlChangeLog).order_by(MlChangeLog.id.desc()).first()
@@ -92,7 +92,7 @@ class TestReactivationEnqueue:
     def test_rederiving_history_never_queues(self, queue_env) -> None:
         reactivate(ACTIVE)
         with queue_env.connect() as conn:
-            conn.execute(text("DELETE FROM promo_refresh_pending"))
+            conn.execute(text("DELETE FROM promo_refresh_reactivation"))
             conn.execute(text("DELETE FROM ml_item_events"))
             conn.commit()
         with store_module.database.get_background_db() as db:
@@ -104,7 +104,7 @@ class TestReactivationEnqueue:
 class TestQueueFailureIsIsolated:
     def test_a_broken_queue_never_costs_the_change_log_row_or_its_events(self, queue_env) -> None:
         with queue_env.begin() as conn:
-            conn.execute(text("DROP TABLE promo_refresh_pending"))
+            conn.execute(text("DROP TABLE promo_refresh_reactivation"))
 
         reactivate(ACTIVE)
 

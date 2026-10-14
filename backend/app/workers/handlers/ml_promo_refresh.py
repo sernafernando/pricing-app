@@ -1,7 +1,7 @@
 """`ml_publications.promo_refresh`: refresh the promotions mirror of publications that became active again.
 
 The owner's rule: promotions are asked about in ML only while the publication is active. The store sees the
-reactivation (`status_activated` with `is_reactivation`) and queues the MLA in `promo_refresh_pending`
+reactivation (`status_activated` with `is_reactivation`) and queues the MLA in `promo_refresh_reactivation`
 (`events_store.write_events`); this handler drains that queue through the same proxy call the panel's refresh
 button uses (`ml_webhook_client.refresh_item_promotions`), which is what refreshes the mirror the panel reads.
 No cron: it runs in the ML worker.
@@ -26,7 +26,7 @@ from app.core import database
 from app.services import promo_refresh_queue as queue
 from app.services.ml_publications import settings_store
 from app.services.ml_publications.pacing import DEADLINE, Pacer
-from app.services.ml_webhook_client import ml_webhook_client
+from app.services.ml_webhook_client import RefreshOutcome, ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
 from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.ml_publications import disabled_outcome, refresh
@@ -101,7 +101,7 @@ class PromoRefreshHandler:
         return JobResult(success=True, detail=detail)
 
     @staticmethod
-    def _refresh(mla: str):
+    def _refresh(mla: str) -> Optional[RefreshOutcome]:
         """The proxy call, outside any session. Never raises: an exception is a retryable failure."""
         try:
             return resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla))
@@ -109,7 +109,7 @@ class PromoRefreshHandler:
             logger.warning("promo_refresh: refresh_item_promotions raised for %s", mla, exc_info=True)
             return None
 
-    def _settle(self, mla: str, outcome, detail: Dict[str, int]) -> None:
+    def _settle(self, mla: str, outcome: Optional[RefreshOutcome], detail: Dict[str, int]) -> None:
         with self._session_factory() as db:
             if outcome is not None and outcome.ok:
                 queue.drop(db, mla)
@@ -120,7 +120,8 @@ class PromoRefreshHandler:
                 detail["dropped"] += 1
             else:
                 result = queue.fail(db, mla, _utcnow())
-                detail["failed"] += 1
+                if result is not None:  # None: the row is already gone, nothing was charged
+                    detail["failed"] += 1
                 if result == queue.OUTCOME_QUARANTINED:
                     detail["quarantined"] += 1
                     logger.error("promo_refresh: %s QUARANTINED after %s attempts", mla, queue.MAX_ATTEMPTS)

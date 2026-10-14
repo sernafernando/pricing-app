@@ -76,14 +76,14 @@ def proxy():
 def put(engine, mla: str, *, due_in: float = -1, attempts: int = 0) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text("INSERT INTO promo_refresh_pending (mla, due_at, attempts) VALUES (:m, :d, :a)"),
+            text("INSERT INTO promo_refresh_reactivation (mla, due_at, attempts) VALUES (:m, :d, :a)"),
             {"m": mla, "d": now() + timedelta(seconds=due_in), "a": attempts},
         )
 
 
 def rows(engine) -> dict:
     with engine.connect() as conn:
-        return {r.mla: r for r in conn.execute(text("SELECT mla, due_at, attempts FROM promo_refresh_pending"))}
+        return {r.mla: r for r in conn.execute(text("SELECT mla, due_at, attempts FROM promo_refresh_reactivation"))}
 
 
 class TestRegistration:
