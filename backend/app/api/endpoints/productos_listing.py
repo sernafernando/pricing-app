@@ -2929,6 +2929,8 @@ def obtener_producto(
                     comisiones_cuota_ml["comision_total"],
                     constantes=ctx_cuotas.constantes,
                 )
+                # Rounded to 2 decimals like every markup this endpoint returns (PVP ones
+                # included); the listing returns the raw figure.
                 markups_cuotas_ml[cuota_ml] = round(calcular_markup(limpio_cuota_ml, costo_cuotas) * 100, 2)
                 ppp_d.record(ppp_key_cuota_clasica(cuota_ml), limpio_cuota_ml)
             except Exception as exc:

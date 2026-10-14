@@ -193,6 +193,6 @@ def test_a_failing_instalment_markup_is_logged_and_left_empty(
 
     assert response.status_code == 200, response.text
     assert response.json()["markup_3_cuotas"] is None
-    assert any("comision rota" in record.getMessage() and "3" in record.getMessage() for record in caplog.records), [
-        r.getMessage() for r in caplog.records
-    ]
+    assert any(
+        "comision rota" in record.getMessage() and "3 cuotas" in record.getMessage() for record in caplog.records
+    ), [r.getMessage() for r in caplog.records]
