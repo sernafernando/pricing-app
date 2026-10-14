@@ -133,6 +133,41 @@ class TestContract:
         assert checked >= 15
 
 
+class TestDimension:
+    def test_the_default_tree_is_marca_and_says_so(self, client, pg, reader) -> None:
+        seed_rows(pg, seed_catalog)
+        body = get(client, reader).json()
+        assert (body["dimension"], body["levels"]) == ("marca", ["marca", "categoria", "subcategoria", "producto"])
+        assert get(client, reader, dimension="marca").json() == body
+
+    def test_the_levels_include_the_families_when_they_are_on(self, client, pg, reader) -> None:
+        seed_rows(pg, seed_catalog)
+        body = get(client, reader, dimension="categoria", familias="true").json()
+        assert body["levels"] == ["categoria", "subcategoria", "producto", "familia"]
+
+    @pytest.mark.parametrize("dimension", ["categoria", "subcategoria"])
+    def test_the_node_params_of_every_dimension_fetch_exactly_the_node_publications(
+        self, client, pg, reader, dimension
+    ) -> None:
+        seed_rows(pg, seed_catalog)
+        checked = 0
+        pending = [[]]
+        while pending:
+            path = pending.pop()
+            body = get(client, reader, dimension=dimension, path=",".join(path), familias="true").json()
+            assert body["dimension"] == dimension
+            for node in body["nodes"]:
+                assert get_items(client, reader, **node["params"]).json()["total"] == node["count"], node
+                checked += 1
+                if not node["leaf"]:
+                    pending.append([*path, node["key"]])
+        assert checked >= 10
+
+    def test_an_unknown_dimension_is_422_naming_it(self, client, pg, reader) -> None:
+        response = get(client, reader, dimension="producto")
+        assert response.status_code == 422 and response.json()["error"]["field"] == "dimension"
+
+
 class TestKeysWithSeparators:
     def test_a_brand_with_a_comma_opens_and_its_params_fetch_exactly_its_publications(self, client, pg, reader) -> None:
         def fill(conn) -> None:

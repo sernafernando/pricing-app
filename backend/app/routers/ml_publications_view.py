@@ -8,9 +8,9 @@ joins it).
   the honest-state block. NO PM or sub-PM scoping: the screen is a management tool over every publication.
   With `ml_metricas.ver`, each row also carries `sales_30d`: its units and gross revenue over the last 30 business
   days from Métricas ML's own base, plus the real (sales-weighted) markup only with `ml_metricas.ver_ganancia`.
-- `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree (marca >
-  categoria > subcategoria > producto > [familia]), with the same filters as `/items`; the publications of a leaf node
-  come from `/items` with the node's `params`.
+- `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree, grouped by one of
+  Métricas ML's dimensions (`dimension`, default `marca`: marca > categoria > subcategoria > producto > [familia]),
+  with the same filters as `/items`; the publications of a leaf node come from `/items` with the node's `params`.
 - `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
   the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`.
 - `GET /ml-publications/view/items/{item_id}/events` (`ml_ops.ver`): the publication's business events from
@@ -478,6 +478,8 @@ class GroupNodeOut(BaseModel):
 
 
 class GroupsResponse(BaseModel):
+    dimension: str
+    levels: list[str]  # the levels of the tree, top first (`familia` last when families are on)
     level: str
     path: list[str]
     nodes: list[GroupNodeOut]
@@ -743,6 +745,7 @@ def get_groups(
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     path: Optional[str] = Query(None, description="csv of the keys of the opened node, root first; empty = roots"),
+    dimension: str = Query(groups.DEFAULT_DIMENSION, description=" | ".join(groups.DIMENSIONS)),
     familias: bool = Query(False, description="family nodes between a product and its publications"),
     limit: int = Query(groups.DEFAULT_LIMIT, ge=1, le=groups.MAX_LIMIT),
     offset: int = Query(0, ge=0),
@@ -766,6 +769,7 @@ def get_groups(
         )
     keys = [key.strip() for key in (path or "").split(",") if key.strip()]
     try:
+        levels = [*groups.levels_of(dimension), *([groups.KIND_FAMILY] if familias else [])]
         markup, ads_status = None, None
         if can_see_margin:
             ads_status = _ads_status(ads_provider, bool(restar_publicidad), *parse_ads_period(ads_desde, ads_hasta))
@@ -774,7 +778,9 @@ def get_groups(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         with timer.stage("groups"):
-            page = groups.list_groups(db, f, keys, familias=familias, limit=limit, offset=offset, markup=markup)
+            page = groups.list_groups(
+                db, f, keys, familias=familias, limit=limit, offset=offset, markup=markup, dimension=dimension
+            )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -786,6 +792,8 @@ def get_groups(
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(level=page.level, rows=len(page.nodes), total=page.total)
     body: dict[str, Any] = {
+        "dimension": dimension,
+        "levels": levels,
         "level": page.level,
         "path": keys,
         "nodes": [_node_out(node) for node in page.nodes],
