@@ -283,15 +283,18 @@ class TestBoardOnVolume:
         print(f"board empty page: {len(emptied.statements)} statements, {elapsed_ms:.0f} ms")
 
         assert counts[10] == counts[50] == counts[200] == len(recorder.statements)
-        assert response.rows and len(filtered.statements) == counts[50]
-        # Exclusion rides the same filter CTE: no extra statements.
-        assert excluded.rows and len(hidden.statements) == counts[50]
+        # Clearing an axis that HAS a filter (stores, brand, status here) reads the
+        # pairs differently, so it materializes its own rows and members (CREATE +
+        # ANALYZE each); an axis with no filter shares the unfiltered tables.
+        assert response.rows and counts[50] < len(filtered.statements) <= counts[50] + 4 * 3
+        # Exclusion rides the same axes (status, type): two more reads, nothing per row.
+        assert excluded.rows and counts[50] < len(hidden.statements) <= counts[50] + 4 * 2
         # The ROW filters (stock, ageing, "solo con ventas") ride the rows subquery
         # and the stock join is inside it: no extra statements either.
         assert stocked.rows and len(by_stock.statements) == counts[50]
         # An empty page skips the two per-page statements (details, series).
         assert not empty.rows and len(emptied.statements) == counts[50] - 2
-        assert counts[50] <= 19
+        assert counts[50] <= 23
 
     def test_the_scope_filter_adds_no_statement(self, volume_session) -> None:
         """The PM scope rides the per-item base: a scoped (or empty-scoped) request
@@ -376,8 +379,8 @@ class TestBoardOnVolume:
         _print("\nsub-rows of one product", recorder, (time.perf_counter() - started) * 1000)
 
         assert {row.key for row in rows} == {f"MLA77{i:06d}" for i in (42, 2042, 4042)}
-        # SAVEPOINT, 2 x (CREATE + ANALYZE), page, details, series, ROLLBACK TO.
-        assert len(recorder.statements) == 9
+        # SAVEPOINT, 3 x (CREATE + ANALYZE) -- lines, pairs, rows --, page, details, series, ROLLBACK TO.
+        assert len(recorder.statements) == 11
 
     def test_the_csv_exports_first_transaction_on_volume(self, volume_session) -> None:
         """The export's first short transaction: the ordered keys of every
@@ -801,8 +804,9 @@ class TestGroupedBoardOnVolume:
             print(f"      slowest: {ms:7.1f} ms  {head}")
 
         assert rows and len(rows) == min(100, total)  # a page, never the whole level
-        # savepoint + 2 CREATE + 2 ANALYZE + count + page + (details +) series + rollback.
-        assert len(recorder.statements) <= 12, len(recorder.statements)
+        # savepoint + 2 CREATE + 2 ANALYZE + the rows (and, under row filters, the survivors'
+        # rows) CREATE + ANALYZE + count + page + (details +) series + rollback.
+        assert len(recorder.statements) <= 14, len(recorder.statements)
 
     @pytest.mark.parametrize("dimension", ("marca", "tienda", "pm"))
     def test_every_level_adds_up_to_its_parent_on_volume(self, volume_session, group_lookups, dimension) -> None:

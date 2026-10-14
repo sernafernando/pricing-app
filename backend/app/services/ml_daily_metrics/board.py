@@ -34,15 +34,21 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
    When `BoardFilter.mla_source` is set, a third table, `MLA_SET_TABLE`, is
    materialized FIRST (same savepoint) and both tables above are restricted
    to its MLAs; absent, no statement changes.
-2. Every statement after that reads the small temp tables: the KPI totals
-   and their daily series, the chip counts (MATERIALIZED CTEs, each with its
-   own axis cleared), the page (`ORDER BY` + `LIMIT/OFFSET`), and the page's
-   pair details and 90-day series -- ONE bulk statement each, never one per
-   row.
-3. `__exit__` rolls the savepoint back: both CREATEs go with it.
+2. The ROWS (one per product or MLA, before any row filter) and the pairs
+   of the surviving rows are materialized the same way, lazily, ONCE per
+   distinct way of reading the pairs: the unfiltered read, plus one per pair
+   axis (stores, status, type, product) that has a filter and must be
+   cleared for its own chip count. `ANALYZE` names only the few columns
+   whose value distribution decides a plan (`LINES_STATS` and friends).
+3. Every statement after that reads the small temp tables: the KPI totals
+   and their daily series, the chip counts, the page (`ORDER BY` +
+   `LIMIT/OFFSET`), and the page's pair details and 90-day series -- ONE
+   bulk statement each, never one per row.
+4. `__exit__` rolls the savepoint back: every CREATE goes with it.
 
-A fixed number of statements per board request whatever the page size or
-the volume, pinned with the measured timings by
+A bounded number of statements per board request whatever the page size or
+the volume (a fixed set, plus 4 per pair axis that has a filter), pinned with
+the measured timings by
 `tests/services/ml_daily_metrics/test_board_volume_postgres.py`. With
 `product_item_id` (a product's publication sub-rows) both tables hold only
 that product's groups, reached through the frozen-cost product index: the
@@ -191,6 +197,32 @@ MLA_SET_TABLE = "board_mla_set"
 ADS_TABLE = "board_ads_lines"
 ADS_SOURCE = "product_ads"
 ADS_COVERED = ("closed", "mismatch")
+# The columns of the request's temp tables that get `ANALYZE` statistics (see
+# `Board._materialize`). Each column costs ~5 ms per 25.000 rows, so only the
+# ones whose VALUE DISTRIBUTION decides a plan: the day range of the lines, the
+# equality filters on the pairs (store, status, listing type) and the row
+# filters on the rows (units, stock bucket, ageing bucket). Join keys (`product`, `mla`, `rk`) are left to the
+# planner's defaults: the row counts, which every ANALYZE updates, are what
+# kept it from nesting loops over these tables, and analyzing the keys made
+# the whole request slower in the measurements.
+LINES_STATS = ("day",)
+PAIR_STATS = ("store_id", "status", "listing_type")
+ROWS_STATS = ("units", "stock_bucket", "ageing_bucket")
+# The pair columns the chip counts, the option lists and the KPI series read
+# from the rows' pairs (`Board._member_table`).
+MEMBER_COLUMNS = (
+    "product",
+    "mla",
+    "store_id",
+    "status",
+    "listing_type",
+    "is_catalog",
+    "is_full",
+    "marca",
+    "categoria",
+    "subcategoria_id",
+)
+MEMBER_STATS = ("store_id",)
 # The cursors whose completed passes keep the sales fresh (same as Ventas ML's
 # sync-status): the windowed sweep and the event-driven activity drain.
 FRESHNESS_CURSORS = ("sweep", "ml_activity")
@@ -558,6 +590,10 @@ class Board:
         self.key_levels = self.group_levels if through_leaves else min(len(self.scope) + 1, self.group_levels)
         self._unscoped_depth = 0
         self._survivors_cte: Optional[Any] = None
+        # The materialized row tables of this request, by how the pairs are read.
+        self._row_tables: Dict[Tuple[str, bool], Any] = {}
+        self._member_tables: Dict[Tuple[str, bool], Any] = {}
+        self._table_seq = 0
         self.sqlite = db.get_bind().dialect.name == "sqlite"
         # The rows' unit is the PRODUCT in the product and "group" views (the
         # latter sums them afterwards); only "publication" rows are MLAs.
@@ -805,13 +841,24 @@ class Board:
 
     # ── request lifecycle: the lines and the pair aggregate, computed ONCE ──
 
-    def _materialize(self, name: str, source: Any, types: Optional[Dict[str, Any]] = None) -> Any:
+    def _materialize(
+        self,
+        name: str,
+        source: Any,
+        types: Optional[Dict[str, Any]] = None,
+        analyze: Sequence[str] = (),
+    ) -> Any:
         self.db.execute(CreateTempTableAs(name, source))
         if not self.sqlite:
             # A fresh temp table has no statistics: without them the planner
             # guesses tiny row counts and nests loops over it (seen: 0.7 s
-            # for one chip count). Analyzing a narrow temp table is ms.
-            self.db.execute(text(f"ANALYZE {name}"))
+            # for one chip count). `analyze` names the columns the statements
+            # filter, join or group on: the statistics of the wide display
+            # columns (titles, thumbnails, sums) are never read and were most
+            # of the ANALYZE (measured: 255 ms for 25.000 pairs, ~50 ms now).
+            have = source.selected_columns.keys()
+            columns = [c for c in analyze if c in have]
+            self.db.execute(text(f"ANALYZE {name}" + (f" ({', '.join(columns)})" if columns else "")))
         types = types or {}
         return table(name, *(column(c, types.get(c)) for c in source.selected_columns.keys()))
 
@@ -877,6 +924,11 @@ class Board:
             .subquery("pair_ads")
         )
 
+    def _pair_stats(self) -> Tuple[str, ...]:
+        """The pair table's columns worth statistics: the fixed ones plus the
+        group view's key columns (a node is opened by equality on them)."""
+        return PAIR_STATS + tuple(grouping.key_column(level) for level in range(self.key_levels))
+
     def __enter__(self) -> "Board":
         # Everything below runs in ONE transaction: a SAVEPOINT inside the
         # request's transaction, rolled back on the way out whatever happens.
@@ -886,12 +938,12 @@ class Board:
         if self.f.mla_source is not None:
             # First: the lines and the pairs read it. Same savepoint, so it is
             # rolled back with them and never reaches another pooled client.
-            self.mla_set = self._materialize(MLA_SET_TABLE, mla_set_query(self.f.mla_source))
-        self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()})
+            self.mla_set = self._materialize(MLA_SET_TABLE, mla_set_query(self.f.mla_source), analyze=("mla",))
+        self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()}, LINES_STATS)
         if self.ads:
             self.prev_ads_covered = self._comparison_is_ledgered()
-            self.ads_lines = self._materialize(ADS_TABLE, self._ads_source(), {"day": Date()})
-        self.t = self._materialize(PAIRS_TABLE, self._pair_source())
+            self.ads_lines = self._materialize(ADS_TABLE, self._ads_source(), {"day": Date()}, ("mla", "day"))
+        self.t = self._materialize(PAIRS_TABLE, self._pair_source(), analyze=self._pair_stats())
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -1039,18 +1091,25 @@ class Board:
             conditions.append(bucket.notin_(exclude))
         return conditions
 
-    def rows(self, skip_pair_axis: str = "", skip_row_axes: Tuple[str, ...] = (), apply_alerts: bool = True):
-        """One row per board row (product or MLA), with the derived markup,
-        ageing reference day, alert flags and stock, filtered by the pair
-        filters but `skip_pair_axis` (one of `PAIR_AXES`) and the row filters
-        (alerts, stock, ageing, "solo con ventas") but `skip_row_axes` (any of
-        `ROW_AXES`). An unknown or misplaced axis name raises. A subquery:
-        callers page, count or aggregate it."""
-        unknown = [axis for axis in skip_row_axes if axis not in ROW_AXES]
-        if unknown:
-            raise ValueError(f"Not row axes: {unknown} (expected any of {ROW_AXES})")
-        skips = set(skip_row_axes)
-        fp = self.filtered_pairs(skip_pair_axis)
+    def _axis_active(self, axis: str) -> bool:
+        """Whether the filter has anything on pair axis `axis`: an unfiltered
+        axis changes nothing when it is cleared."""
+        f = self.f
+        if axis == "stores":
+            return bool(f.stores)
+        if axis == "pub_status":
+            return bool(f.pub_status or f.pub_status_exclude)
+        if axis == "pub_type":
+            return bool(f.pub_type or f.pub_type_exclude)
+        if axis == PRODUCT_AXIS:
+            return bool(f.marcas or f.categorias or f.subcategorias or self.pm_pairs is not None)
+        return False
+
+    def _row_aggregate(self, skip: str):
+        """The board's rows BEFORE any row filter: one row per product (or
+        MLA) of the pairs that pass every pair filter but `skip`, with its
+        derived markup, ageing day, alert flags, stock and buckets."""
+        fp = self.filtered_pairs(skip)
         product = fp.c.product if not self.by_pub else fp.c.pub_item_id
         g = (
             select(
@@ -1127,22 +1186,62 @@ class Board:
             stock_bucket.label("stock_bucket"),
             ageing_bucket.label("ageing_bucket"),
         ).select_from(g.outerjoin(erp, erp.c.item_id == g.c.product))
+        return q
+
+    def _next_table(self, prefix: str) -> str:
+        self._table_seq += 1
+        return f"{prefix}_{self._table_seq}"
+
+    def _row_table(self, skip: str) -> Any:
+        """`_row_aggregate(skip)` materialized ONCE per request (and per distinct
+        way of reading the pairs): the KPIs, every chip count, the page and the
+        group views all filter and sum these few thousand rows instead of
+        re-aggregating the whole pair table in each statement (measured: 11
+        aggregations of 25.000 pairs per board request). Clearing an axis that
+        has no filter is the very same read, so it shares the table."""
+        key = (skip, self._in_scope)
+        if key not in self._row_tables:
+            # Named BEFORE building the source: the source may materialize
+            # another table itself (the group view's survivors are rows too).
+            name = self._next_table("board_rows")
+            self._row_tables[key] = self._materialize(name, self._row_aggregate(skip), analyze=ROWS_STATS)
+        return self._row_tables[key]
+
+    def rows(self, skip_pair_axis: str = "", skip_row_axes: Tuple[str, ...] = (), apply_alerts: bool = True):
+        """One row per board row (product or MLA), with the derived markup,
+        ageing reference day, alert flags and stock, filtered by the pair
+        filters but `skip_pair_axis` (one of `PAIR_AXES`) and the row filters
+        (alerts, stock, ageing, "solo con ventas") but `skip_row_axes` (any of
+        `ROW_AXES`). An unknown or misplaced axis name raises. A subquery:
+        callers page, count or aggregate it."""
+        unknown = [axis for axis in skip_row_axes if axis not in ROW_AXES]
+        if unknown:
+            raise ValueError(f"Not row axes: {unknown} (expected any of {ROW_AXES})")
+        if skip_pair_axis and skip_pair_axis not in PAIR_AXES:
+            raise ValueError(f"Not a pair axis: {skip_pair_axis!r} (expected one of {PAIR_AXES})")
+        skips = set(skip_row_axes)
+        T = self._row_table(skip_pair_axis if self._axis_active(skip_pair_axis) else "")
+        q = select(*T.c)
         if self._in_scope:
             # The node's pairs are already those of the products that passed
             # every row filter AS WHOLE products: filtering again on the
             # group's own partial sums would drop products the group counted.
             return q.subquery("board_rows")
         if "stock" not in skips:
-            q = q.where(*self._row_axis(stock_bucket, self.f.stock, self.f.stock_exclude))
+            q = q.where(*self._row_axis(T.c.stock_bucket, self.f.stock, self.f.stock_exclude))
         if "ageing" not in skips:
-            q = q.where(*self._row_axis(ageing_bucket, self.f.ageing, self.f.ageing_exclude))
+            q = q.where(*self._row_axis(T.c.ageing_bucket, self.f.ageing, self.f.ageing_exclude))
         if apply_alerts and self.f.alerts and "alerts" not in skips:
-            by_name = {"sin_ventas_30d": sin_ventas, "ageing_60d": ageing_60, "margen_cayendo": cayendo}
+            by_name = {
+                "sin_ventas_30d": T.c.a_sin_ventas_30d == 1,
+                "ageing_60d": T.c.a_ageing_60d == 1,
+                "margen_cayendo": T.c.a_margen_cayendo == 1,
+            }
             q = q.where(or_(*(by_name[a] for a in self.f.alerts)))
         if self.f.solo_con_ventas:
             # On the aggregated ROW, never on its pairs: a product sold today
             # keeps the 30-day sales of its other publications.
-            q = q.where(g.c.units > 0)
+            q = q.where(T.c.units > 0)
         return q.subquery("board_rows")
 
     # ── statements ──
@@ -1614,7 +1713,7 @@ class Board:
         )
 
         # Daily series of the period: the rows' pairs, one statement.
-        joined, fp = self._members("")
+        joined, fp = self._members("", narrow=True)
         days = (self.f.date_to - self.f.date_from).days + 1
         L = self.lines
         series = (
@@ -1666,21 +1765,51 @@ class Board:
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
         )
 
-    def _members(self, skip: str):
+    def _member_table(self, skip: str) -> Any:
+        """The pairs (with the attributes the chips read) of the rows that
+        survive every filter but `skip`, materialized once per distinct way of
+        reading them -- like `_row_table`, an unfiltered axis shares the table.
+        The keys are a semi-join INSIDE the statement: joining a keys CTE to
+        the pairs afterwards let the planner (it sees one row for a filtered
+        pair set) nest loops over it: 2.8 million comparisons for 3.000 pairs."""
+        key = (skip, self._in_scope)
+        if key not in self._member_tables:
+            fp = self.filtered_pairs(skip)
+            rows = self.rows(skip_pair_axis=skip)
+            source = select(fp.c.rk, *(fp.c[name] for name in MEMBER_COLUMNS)).where(fp.c.rk.in_(select(rows.c.rk)))
+            self._member_tables[key] = self._materialize(
+                self._next_table("board_members"), source, analyze=MEMBER_STATS
+            )
+        return self._member_tables[key]
+
+    def _members(self, skip: str, narrow: bool = False):
         """The pairs (with their attributes) of the rows that survive every
-        filter but `skip`, as `(join, pairs)`. Both sides are MATERIALIZED
-        CTEs: inlined, the planner under-estimates a filtered pair set and
-        nests loops over it (measured: 0.7 s for one chip count)."""
+        filter but `skip`, as `(join, pairs)`. `narrow` (the chips, the option
+        lists, the KPI series: they read `MEMBER_COLUMNS` only) reads the
+        request's materialized member table; otherwise every pair column, as a
+        MATERIALIZED CTE (inlined, the planner under-estimates a filtered pair
+        set and nests loops over it: 0.7 s for one chip count)."""
+        if narrow:
+            table_ = self._member_table(skip if self._axis_active(skip) else "")
+            return table_, table_
         fp = self.filtered_pairs(skip)
         rows = self.rows(skip_pair_axis=skip)
-        pairs = select(fp).cte(f"members_{skip or 'all'}").prefix_with("MATERIALIZED", dialect="postgresql")
-        keys = select(rows.c.rk).cte(f"keys_{skip or 'all'}").prefix_with("MATERIALIZED", dialect="postgresql")
-        return pairs.join(keys, keys.c.rk == pairs.c.rk), pairs
+        pairs = (
+            select(fp)
+            .where(fp.c.rk.in_(select(rows.c.rk)))
+            .cte(f"members_{skip or 'all'}")
+            .prefix_with("MATERIALIZED", dialect="postgresql")
+        )
+        return pairs, pairs
 
     def facets(self) -> Facets:
-        """Every chip count, each with its OWN axis cleared: five fixed
-        statements (stores, "Todas", status, type, alerts)."""
-        joined, fp = self._members("stores")
+        """Every chip count, each with its OWN axis cleared: a fixed set of
+        statements (stores, "Todas", status, type, alerts, stock and ageing,
+        the product lists) over the request's materialized rows and members.
+        An axis with a filter reads the pairs differently and so adds its own
+        rows and members tables (CREATE + ANALYZE each); the rest share the
+        unfiltered ones."""
+        joined, fp = self._members("stores", narrow=True)
         bucket = func.coalesce(cast(fp.c.store_id, String), literal(NO_STORE))
         stores = {
             str(b): int(n)
@@ -1691,7 +1820,7 @@ class Board:
         rows = self.rows(skip_pair_axis="stores")
         stores_total = int(self.db.execute(select(func.count()).select_from(rows)).scalar() or 0)
 
-        joined, fp = self._members("pub_status")
+        joined, fp = self._members("pub_status", narrow=True)
         pub_status = {
             str(st): int(n)
             for st, n in self.db.execute(
@@ -1702,7 +1831,7 @@ class Board:
             )
         }
 
-        joined, fp = self._members("pub_type")
+        joined, fp = self._members("pub_type", narrow=True)
         type_conds = {
             "clasica": fp.c.listing_type == "clasica",
             "premium": fp.c.listing_type == "premium",
@@ -1769,7 +1898,7 @@ class Board:
         subcategoría) combinations of the rows that survive every NON-product
         filter, cascaded among themselves. One set-based statement over the
         materialized pairs; the rest is `product_facets`."""
-        joined, fp = self._members(PRODUCT_AXIS)
+        joined, fp = self._members(PRODUCT_AXIS, narrow=True)
         rows = product_combo_rows(self.db, select(fp.c.marca, fp.c.categoria, fp.c.subcategoria_id).select_from(joined))
         f = self.f
         return product_facet_options(

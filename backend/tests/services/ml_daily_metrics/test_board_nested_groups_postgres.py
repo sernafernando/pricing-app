@@ -571,8 +571,9 @@ def test_a_level_page_costs_a_fixed_number_of_statements_at_every_depth(
                 b.group_counts()
                 b.group_page(100, 0)
 
-    # savepoint + 2 CREATE + 2 ANALYZE + count + page (+ series | details + series) + rollback.
-    assert count.n <= 12, count.n
+    # savepoint + 2 CREATE + 2 ANALYZE + the rows (and, under row filters, the survivors' rows)
+    # CREATE + ANALYZE + count + page (+ series | details + series) + rollback.
+    assert count.n <= 14, count.n
 
 
 @pytest.mark.postgres
