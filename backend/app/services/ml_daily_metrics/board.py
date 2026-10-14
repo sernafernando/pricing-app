@@ -38,16 +38,17 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
    of the surviving rows are materialized the same way, lazily, ONCE per
    distinct way of reading the pairs: the unfiltered read, plus one per pair
    axis (stores, status, type, product) that has a filter and must be
-   cleared for its own chip count. `ANALYZE` names only the columns the
-   statements filter or join on.
+   cleared for its own chip count. `ANALYZE` names only the few columns
+   whose value distribution decides a plan (`LINES_STATS` and friends).
 3. Every statement after that reads the small temp tables: the KPI totals
    and their daily series, the chip counts, the page (`ORDER BY` +
    `LIMIT/OFFSET`), and the page's pair details and 90-day series -- ONE
    bulk statement each, never one per row.
 4. `__exit__` rolls the savepoint back: every CREATE goes with it.
 
-A fixed number of statements per board request whatever the page size or
-the volume, pinned with the measured timings by
+A bounded number of statements per board request whatever the page size or
+the volume (a fixed set, plus 4 per pair axis that has a filter), pinned with
+the measured timings by
 `tests/services/ml_daily_metrics/test_board_volume_postgres.py`. With
 `product_item_id` (a product's publication sub-rows) both tables hold only
 that product's groups, reached through the frozen-cost product index: the
