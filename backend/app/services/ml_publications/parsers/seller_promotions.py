@@ -7,10 +7,18 @@ back to `type` (design D7; same fallback as the bridge mirror). The diff engine 
 same way through `ResourceSpec.array_keys`, so one changed promotion reports only its own paths.
 
 Item-level typed columns are counts and the keys of the started promotions; the entries stay in raw.
+
+An item that cannot take promotions answers `400 {cause: [], error: "bad_request", status: 400, message}`
+(prod, 2026-10-14) with "Item status is not allowed (<status>)" (under_review, inactive, closed) or "The
+item condition must be new". That is a state (`not_eligible`), not an error: the body is stored unchanged
+and maps to no promotions, so the queue entry completes without a charged attempt. Any other 400 stays an
+error. Entering or leaving that state raises no promotion event (`events._promotions_events`): the item's
+own status change already tells why its promotions are gone.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping
 
 from app.services.ml_publications.parsers.subresource import (
@@ -22,6 +30,17 @@ from app.services.ml_publications.parsers.subresource import (
 STATUS_STARTED = "started"
 STATUS_CANDIDATE = "candidate"
 
+NOT_ELIGIBLE_STATUS = 400
+# The captured refusals of an item that cannot take promotions; the status inside the parentheses varies.
+_NOT_ELIGIBLE_MESSAGE = re.compile(r"Item status is not allowed \([a-z_|]+\)|The item condition must be new")
+# HTTP status -> state name, as registered in `ResourceSpec.negative_states`.
+NEGATIVE_STATES = {NOT_ELIGIBLE_STATUS: "not_eligible"}
+
+
+def is_not_eligible(body: Any) -> bool:
+    message = body.get("message") if isinstance(body, Mapping) else None
+    return isinstance(message, str) and _NOT_ELIGIBLE_MESSAGE.fullmatch(message) is not None
+
 
 def _validate(body: Any) -> None:
     if not isinstance(body, list):
@@ -32,6 +51,8 @@ def _validate(body: Any) -> None:
 
 
 def parse_seller_promotions(status: int, body: Any) -> ParsedSubResource:
+    if status == NOT_ELIGIBLE_STATUS and is_not_eligible(body):
+        return ParsedSubResource(status=status, state="ok", body=body)
     return parse_subresource(status, body, _validate)
 
 

@@ -28,6 +28,7 @@ from app.services.ml_publications.parsers.replenishment import (
     parse_replenishment,
 )
 from app.services.ml_publications.parsers.sale_price import map_sale_price, parse_sale_price
+from app.services.ml_publications.parsers.seller_promotions import NEGATIVE_STATES as PROMOTIONS_NEGATIVE_STATES
 from app.services.ml_publications.parsers.seller_promotions import map_seller_promotions, parse_seller_promotions
 from app.services.ml_publications.parsers.user_product import map_user_product, parse_user_product
 from app.services.ml_publications.parsers.user_product_stock import map_user_product_stock, parse_user_product_stock
@@ -124,7 +125,7 @@ for _name, _keys, _mapper, _parser, _fixture, _array_keys, _negative_states in (
         parse_seller_promotions,
         "seller_promotions_20261006.json",
         array_keys_for("promotions"),
-        {},
+        PROMOTIONS_NEGATIVE_STATES,
     ),
     (
         "user_product",

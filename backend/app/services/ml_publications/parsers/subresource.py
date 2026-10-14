@@ -7,9 +7,10 @@ HTTP status, never by body shape (the 404 bodies differ per endpoint):
 - 404  -> `not_found`: the item/user product is gone (or never existed);
 - other non-2xx -> `error`: recorded with the status and the error body, never "gone".
 
-Negative answers that are states rather than errors (moderation 404, performance 400) are
-declared per resource by `ResourceSpec.negative_states`: moderation (404 `{"Status": 404}`) and performance
-(400 "Product items are not supported"). Their parsers return state `ok` for exactly the captured body.
+Negative answers that are states rather than errors are declared per resource by
+`ResourceSpec.negative_states`: moderation (404 `{"Status": 404}`), performance (400 "Entity not
+calculated: <captured reason>") and promotions (400 "item not eligible"). Their parsers return state `ok`
+for exactly the captured bodies.
 
 Each resource module pairs `parse_<resource>(status, body)` with `map_<resource>(raw)`. Mappers return
 the typed non-key columns only: the entity key (item id, user product id, family id) always comes from
