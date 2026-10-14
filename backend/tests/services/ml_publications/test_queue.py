@@ -209,9 +209,14 @@ class TestClaim:
         served = [claim(limit=1, worker_id="w1", kinds=["item"])[0].entity_id for _ in range(3)]
         assert served == ["MANUAL", "NOTIF", "BACKFILL"]
 
-    def test_lanes_desc_serves_the_lowest_priority_first(self, mlpub_pg) -> None:
+    def test_a_favored_lane_is_served_first_then_the_lowest_priority(self, mlpub_pg) -> None:
+        enqueue([entry("NOTIF", lane=1), entry("RECONCILE", lane=2), entry("BACKFILL", lane=3), entry("SWEEP", lane=4)])
+        got = claim(limit=4, worker_id="w1", kinds=["item"], favored_lane=3)
+        assert [c.entity_id for c in got] == ["BACKFILL", "SWEEP", "RECONCILE", "NOTIF"]
+
+    def test_a_favored_lane_with_no_due_work_falls_back_to_the_lowest_priority(self, mlpub_pg) -> None:
         enqueue([entry("NOTIF", lane=1), entry("BACKFILL", lane=3)])
-        (got,) = claim(limit=1, worker_id="w1", kinds=["item"], lanes_desc=True)
+        (got,) = claim(limit=1, worker_id="w1", kinds=["item"], favored_lane=2)
         assert got.entity_id == "BACKFILL"
 
     def test_fairness_claims_a_backfill_entry_within_bounded_batches(self, mlpub_pg) -> None:
@@ -219,14 +224,31 @@ class TestClaim:
         fair = LaneFairness(low_lane_min_share=0.1)
         order = []
         for _ in range(11):
-            (got,) = claim(limit=1, worker_id="w1", kinds=["item"], lanes_desc=fair.next_lanes_desc())
+            (got,) = claim(limit=1, worker_id="w1", kinds=["item"], favored_lane=fair.next_favored_lane())
             order.append(got.entity_id)
         assert order.index("BACKFILL") == 9  # the 10th batch is the low-lane batch
         assert all(name.startswith("LIVE") for name in order[:9])
 
+    def test_fairness_reaches_a_middle_lane_while_the_top_and_bottom_lanes_keep_refilling(self, mlpub_pg) -> None:
+        # prod 2026-10-14: 8k due backfill rows (lane 3) got zero claims while live webhooks kept lane 1 busy and
+        # sweeps kept lane 4 busy: plain batches always found lane 1, low-lane batches always found lane 4
+        enqueue([entry("BACKFILL", lane=3)])
+        fair = LaneFairness(low_lane_min_share=0.25)
+        served = []
+        for batch in range(12):
+            enqueue([entry(f"LIVE{batch}", lane=1), entry(f"SWEEP{batch}", lane=4)])
+            (got,) = claim(limit=1, worker_id="w1", kinds=["item"], favored_lane=fair.next_favored_lane())
+            served.append(got.entity_id)
+        assert served.index("BACKFILL") == 7  # the 2nd low-lane batch favors the backfill lane
+        assert all(not name.startswith("SWEEP") for i, name in enumerate(served) if (i + 1) % 4)
+
     def test_fairness_share_controls_the_period(self) -> None:
         fair = LaneFairness(low_lane_min_share=0.25)
-        assert [fair.next_lanes_desc() for _ in range(8)] == [False, False, False, True] * 2
+        assert [fair.next_favored_lane() for _ in range(8)] == [None, None, None, 4, None, None, None, 3]
+
+    def test_low_lane_batches_take_turns_over_every_low_lane(self) -> None:
+        fair = LaneFairness(low_lane_min_share=1)
+        assert [fair.next_favored_lane() for _ in range(6)] == [4, 3, 2, 4, 3, 2]
 
 
 class TestConcurrentClaims:
