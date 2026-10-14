@@ -138,13 +138,28 @@ describe('setDateRange', () => {
 });
 
 describe('clearUrlFilters', () => {
+  it('also leaves an explicit rango=todo and resets to the current month', () => {
+    at('2026-10-14T15:00:00Z');
+    const { result } = setup('/?rango=todo');
+    expect(result.current.dateRangeIsDefault).toBe(false);
+    act(() => result.current.clearUrlFilters());
+    expect(result.current.dateRange.desde).toBe('2026-10-01');
+  });
+
   it('clears search, product filters and the range in a single update', () => {
     at('2026-10-14T15:00:00Z');
     const { result } = setup('/?q=abc&marcas=TP-Link&desde=2026-08-01&hasta=2026-08-15&orden=7');
     act(() => result.current.clearUrlFilters());
     expect(result.current.searchQuery).toBe('');
     expect(result.current.productFilters.marcas).toEqual([]);
-    expect(result.current.dateRange).toEqual({ desde: '', hasta: '', filtro: null });
+    // Back to the DEFAULT (current month), never to "todo": clearing filters
+    // must not be a one-click way to load every sale.
+    expect(result.current.dateRange).toEqual({
+      desde: '2026-10-01',
+      hasta: '2026-10-14',
+      filtro: 'mesActual',
+    });
+    expect(result.current.dateRangeIsDefault).toBe(true);
     // The selection is not a filter: it stays.
     expect(result.current.selectedOrderId).toBe(7);
   });

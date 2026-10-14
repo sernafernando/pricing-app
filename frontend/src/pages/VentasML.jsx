@@ -250,6 +250,7 @@ export default function VentasML() {
     productFilters,
     setProductFilters,
     dateRange,
+    dateRangeIsDefault,
     setDateRange,
     clearUrlFilters,
   } = useVentasMLFilters();
@@ -400,8 +401,8 @@ export default function VentasML() {
     setOperationStatusFilter('');
     setGoodsStatusFilter('');
     setStoreFilter('');
-    // Search, product filters and the range (explicitly "todo", not the
-    // default month) live in the URL: one update, see `clearUrlFilters`.
+    // Search, product filters and the range (back to the current month)
+    // live in the URL: one update, see `clearUrlFilters`.
     clearUrlFilters();
     setIncludeUnknown(true);
     setIncludeInDispute(true);
@@ -428,8 +429,7 @@ export default function VentasML() {
     operationStatusFilter ||
       goodsStatusFilter ||
       storeFilter ||
-      fechaDesde ||
-      fechaHasta ||
+      !dateRangeIsDefault ||
       searchQuery ||
       productFilters.marcas.length > 0 ||
       productFilters.categorias.length > 0 ||

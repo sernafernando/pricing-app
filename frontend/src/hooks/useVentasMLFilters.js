@@ -115,6 +115,12 @@ export function useVentasMLFilters() {
     return { ...defaultRange, filtro: 'mesActual' };
   }, [desdeParam, hastaParam, rangoParam, defaultRange]);
 
+  // True when the URL says nothing about the range, i.e. the default month.
+  const dateRangeIsDefault = useMemo(
+    () => rangoParam !== 'todo' && !isRealDay(desdeParam) && !isRealDay(hastaParam),
+    [rangoParam, desdeParam, hastaParam],
+  );
+
   const setDateRange = useCallback(
     ({ desde, hasta }) => {
       setSearchParams(
@@ -273,16 +279,17 @@ export function useVentasMLFilters() {
   // "Limpiar filtros" in ONE updater. react-router's functional form does not
   // queue: every call derives from the same render-time params, so separate
   // calls (search, product filters, range) overwrite each other and the last
-  // one silently resurrects what the others cleared. The date range goes to
-  // an explicit "todo" -- the operator asked for no filters.
+  // one silently resurrects what the others cleared. The range goes back to
+  // its DEFAULT (current month), never to "todo": clearing filters must not be
+  // a one-click way to load every sale. `rango=todo` is still honoured when a
+  // link carries it.
   const clearUrlFilters = useCallback(() => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        ['q', 'marcas', 'categorias', 'subcategorias', 'pms', 'desde', 'hasta'].forEach((key) =>
+        ['q', 'marcas', 'categorias', 'subcategorias', 'pms', 'desde', 'hasta', 'rango'].forEach((key) =>
           next.delete(key),
         );
-        next.set('rango', 'todo');
         return next;
       },
       { replace: false },
@@ -301,6 +308,7 @@ export function useVentasMLFilters() {
     setProductFilters,
     clearProductFilters,
     dateRange,
+    dateRangeIsDefault,
     setDateRange,
     clearUrlFilters,
   };

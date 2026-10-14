@@ -310,30 +310,44 @@ describe('Fetching the list', () => {
     });
   });
 
-  it('limpiar filtros drops the date range too, not just the chips', async () => {
-    // The range is a filter like any other: leaving it applied while the
-    // chips reset would show "sin filtros" over a list that is still
-    // filtered.
+  it('limpiar filtros resets the date range to the current month, never to everything', async () => {
+    // Clearing filters must not be a one-click way to load all the sales:
+    // the range goes back to the default, like every other filter.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-10-14T15:00:00Z'));
+    try {
+      mockSalesList([]);
+      await renderWithRouter(<VentasML />);
+      await waitFor(() => {
+        expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: '7d' }));
+      await waitFor(() => {
+        const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+        expect(calls[calls.length - 1][1].params.date_from).toBe('2026-10-08');
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: /limpiar/i }));
+
+      await waitFor(() => {
+        const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+        const ultima = calls[calls.length - 1][1].params;
+        expect(ultima.date_from).toBe('2026-10-01');
+        expect(ultima.date_to).toBe('2026-10-14');
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows no "Limpiar filtros" while everything is at its defaults', async () => {
     mockSalesList([]);
     await renderWithRouter(<VentasML />);
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
     });
-
-    await userEvent.click(screen.getByRole('button', { name: '7d' }));
-    await waitFor(() => {
-      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
-      expect(calls[calls.length - 1][1].params).toHaveProperty('date_from');
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: /limpiar/i }));
-
-    await waitFor(() => {
-      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
-      const ultima = calls[calls.length - 1][1].params;
-      expect(ultima).not.toHaveProperty('date_from');
-      expect(ultima).not.toHaveProperty('date_to');
-    });
+    expect(screen.queryByRole('button', { name: /limpiar/i })).toBeNull();
   });
 
   it('shows an empty state when no sales match', async () => {
