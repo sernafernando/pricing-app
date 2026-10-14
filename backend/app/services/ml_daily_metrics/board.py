@@ -201,13 +201,13 @@ ADS_COVERED = ("closed", "mismatch")
 # `Board._materialize`). Each column costs ~5 ms per 25.000 rows, so only the
 # ones whose VALUE DISTRIBUTION decides a plan: the day range of the lines, the
 # equality filters on the pairs (store, status, listing type) and the row
-# filter on the rows' units. Join keys (`product`, `mla`, `rk`) are left to the
+# filters on the rows (units, stock bucket, ageing bucket). Join keys (`product`, `mla`, `rk`) are left to the
 # planner's defaults: the row counts, which every ANALYZE updates, are what
 # kept it from nesting loops over these tables, and analyzing the keys made
 # the whole request slower in the measurements.
 LINES_STATS = ("day",)
 PAIR_STATS = ("store_id", "status", "listing_type")
-ROWS_STATS = ("units",)
+ROWS_STATS = ("units", "stock_bucket", "ageing_bucket")
 # The pair columns the chip counts, the option lists and the KPI series read
 # from the rows' pairs (`Board._member_table`).
 MEMBER_COLUMNS = (
