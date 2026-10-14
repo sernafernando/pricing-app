@@ -7,8 +7,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
-import { promocionesAPI, publicacionesMlAPI } from '../../services/api';
-import { DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
+import { preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { DETAIL_LINKED, DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
   default: {
@@ -22,6 +22,7 @@ vi.mock('../../services/api', () => ({
     postPromocionItem: vi.fn(),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
+  preciosAPI: { obtenerProducto: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -29,6 +30,7 @@ vi.mock('../../services/api', () => ({
 let canSeeMargin = false;
 let canManage = true;
 let canSeePromos = true;
+let canSeeProducts = true;
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
@@ -36,6 +38,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_ops.gestionar') return canManage;
       if (permiso === 'promos.ver') return canSeePromos;
+      if (permiso === 'productos.ver') return canSeeProducts;
       return true;
     },
     cargandoPermisos: false,
@@ -52,6 +55,7 @@ beforeEach(() => {
   canSeeMargin = false;
   canManage = true;
   canSeePromos = true;
+  canSeeProducts = true;
   promocionesAPI.getPromocionesItem.mockClear();
   promocionesAPI.refreshItemPromociones.mockClear();
   publicacionesMlAPI.detail.mockReset();
@@ -380,5 +384,28 @@ describe('the footer', () => {
     renderPanel();
     await screen.findByRole('alert');
     expect(screen.queryByRole('button', { name: 'Resincronizar' })).not.toBeInTheDocument();
+  });
+});
+
+describe('the Precios tab', () => {
+  beforeEach(() => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_LINKED });
+    preciosAPI.obtenerProducto.mockReset();
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { item_id: 4101, codigo: 'ARCHER-AX55', descripcion: 'Router Archer AX55', precio_lista_ml: 98500.5, markup: 18.4 } });
+  });
+
+  it('shows the prices of the linked product to who can see products', async () => {
+    renderPanel({ tab: 'precios' });
+    expect(await screen.findByRole('tab', { name: 'Precios' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('row', { name: /^Clásica\b/ })).toHaveTextContent('98.500,50');
+    expect(preciosAPI.obtenerProducto).toHaveBeenCalledWith(4101);
+  });
+
+  it('does not exist without productos.ver', async () => {
+    canSeeProducts = false;
+    renderPanel({ tab: 'precios' });
+    await screen.findByRole('tab', { name: 'Resumen' });
+    expect(screen.queryByRole('tab', { name: 'Precios' })).not.toBeInTheDocument();
+    expect(preciosAPI.obtenerProducto).not.toHaveBeenCalled();
   });
 });

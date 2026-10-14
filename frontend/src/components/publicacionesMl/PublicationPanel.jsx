@@ -40,6 +40,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   const canManage = tienePermiso('ml_ops.gestionar');
   const canViewPromos = tienePermiso('promos.ver');
+  const canViewPrices = tienePermiso('productos.ver');
   const { status, detail, error, reload, refresh } = usePublicationDetail(itemId, { canSeeMargin });
   // A write in a tab (applying a promotion) changes what the detail and the
   // list row show: re-read both, the detail silently so the tab keeps its state.
@@ -51,7 +52,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
   const stripRef = useRef(null);
   const panelId = useId();
 
-  const available = detail ? visibleTabs(tabs, { detail, canSeeMargin, canManage, canViewPromos }) : [];
+  const available = detail ? visibleTabs(tabs, { detail, canSeeMargin, canManage, canViewPromos, canViewPrices }) : [];
   const active = available.find((entry) => entry.key === tab) ?? available[0];
 
   // The strip scrolls sideways when the tabs outgrow a narrow panel: keep the
