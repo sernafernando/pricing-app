@@ -6,9 +6,10 @@ import styles from './ModalConfirmarEliminarRol.module.css';
  * Confirmation dialog before deleting `rol`. Controlled: the parent owns the
  * DELETE call and renders it only while a role is pending deletion. While
  * `eliminando`, both buttons are disabled and Esc / Cancelar / X do nothing,
- * so the dialog cannot vanish mid-request.
+ * so the dialog cannot vanish mid-request. `bloqueado` disables only Eliminar,
+ * while another save (the permissions matrix) is in flight.
  */
-export default function ModalConfirmarEliminarRol({ rol, eliminando, onConfirmar, onCancelar }) {
+export default function ModalConfirmarEliminarRol({ rol, eliminando, bloqueado = false, onConfirmar, onCancelar }) {
   const cancelarRef = useRef(null);
 
   const cerrar = () => {
@@ -39,7 +40,7 @@ export default function ModalConfirmarEliminarRol({ rol, eliminando, onConfirmar
         </button>
         <button
           type="button"
-          disabled={eliminando}
+          disabled={eliminando || bloqueado}
           className="btn-tesla outline-subtle-danger sm"
           onClick={onConfirmar}
         >

@@ -1,8 +1,9 @@
 /**
  * Create / edit role form (codigo, nombre, descripcion). Controlled: the parent
- * owns `form` and the API calls. In edit mode the codigo is locked.
+ * owns `form` and the API calls. In edit mode the codigo is locked. `bloqueado`
+ * disables the submit while another save (the permissions matrix) is in flight.
  */
-export default function FormularioRol({ form, onChange, esEdicion, guardando, onGuardar, onCancelar }) {
+export default function FormularioRol({ form, onChange, esEdicion, guardando, bloqueado = false, onGuardar, onCancelar }) {
   return (
     <div style={{
       background: 'var(--bg-secondary)',
@@ -46,7 +47,7 @@ export default function FormularioRol({ form, onChange, esEdicion, guardando, on
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             onClick={onGuardar}
-            disabled={guardando}
+            disabled={guardando || bloqueado}
             className="btn-tesla outline-subtle-success"
             style={{ flex: 1 }}
           >

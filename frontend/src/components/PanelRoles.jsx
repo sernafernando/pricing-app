@@ -1,59 +1,121 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
-import SearchInput from './SearchInput';
-import styles from './PanelPermisos.module.css';
 import FormularioRol from './roles/FormularioRol';
 import ModalClonarRol from './roles/ModalClonarRol';
 import ModalConfirmarEliminarRol from './roles/ModalConfirmarEliminarRol';
+import MatrizRoles from './roles/MatrizRoles';
+import BarraCambios from './roles/BarraCambios';
+import styles from './PanelRoles.module.css';
 
-const CATEGORIAS_NOMBRE = {
-  productos: 'Productos',
-  ventas_ml: 'Ventas MercadoLibre',
-  ventas_fuera: 'Ventas Fuera de ML',
-  ventas_tn: 'Ventas Tienda Nube',
-  clientes: 'Clientes',
-  reportes: 'Reportes',
-  administracion: 'Administracion',
-  configuracion: 'Configuracion'
-};
+// The backend refuses to change SUPERADMIN's permissions: it has them all.
+const esSoloLectura = (rol) => rol.codigo === 'SUPERADMIN';
+
+const FORM_ROL_VACIO = { codigo: '', nombre: '', descripcion: '', orden: 0 };
+const CLONAR_VACIO = { nuevo_codigo: '', nuevo_nombre: '', descripcion: '' };
+
+/**
+ * Drops pending cells that already match what is saved for their role. Roles in
+ * `conservar` (their reload failed) keep their pending cells untouched; roles
+ * with no saved state at all lose them, they cannot be edited.
+ */
+function podarPendientes(pendientes, permisosPorRol, conservar = new Set()) {
+  const resultado = {};
+  for (const [rolId, cambios] of Object.entries(pendientes)) {
+    if (conservar.has(rolId)) {
+      resultado[rolId] = cambios;
+      continue;
+    }
+    const base = permisosPorRol[rolId];
+    if (!base) continue;
+    const vigentes = Object.entries(cambios).filter(([codigo, valor]) => base.includes(codigo) !== valor);
+    if (vigentes.length > 0) resultado[rolId] = Object.fromEntries(vigentes);
+  }
+  return resultado;
+}
+
+const nombresDe = (lista) => lista.map((rol) => rol.nombre).join(', ');
 
 export default function PanelRoles() {
   const [roles, setRoles] = useState([]);
-  const [rolSeleccionado, setRolSeleccionado] = useState(null);
-  const [permisosRol, setPermisosRol] = useState([]);
   const [catalogo, setCatalogo] = useState({});
+  // Saved permission codes per role id, and unsaved cells per role id: { [rolId]: { [codigo]: boolean } }.
+  // A role with no entry in permisosPorRol has an UNKNOWN saved state (its GET failed), never an empty
+  // one: its column is read-only and it is never saved, because the PUT replaces the whole set.
+  const [permisosPorRol, setPermisosPorRol] = useState({});
+  const [pendientes, setPendientes] = useState({});
   const [loading, setLoading] = useState(true);
+  // Role create/edit/clone in flight, and matrix save in flight. They are mutually exclusive: while one
+  // runs the other's controls are disabled, so a role reload never lands in the middle of a matrix save.
   const [guardando, setGuardando] = useState(false);
+  const [guardandoPermisos, setGuardandoPermisos] = useState(false);
   const [mensaje, setMensaje] = useState(null);
 
   // Estados para crear/editar rol
   const [mostrarFormRol, setMostrarFormRol] = useState(false);
   const [editandoRol, setEditandoRol] = useState(null);
-  const [formRol, setFormRol] = useState({
-    codigo: '',
-    nombre: '',
-    descripcion: '',
-    orden: 0
-  });
+  const [formRol, setFormRol] = useState(FORM_ROL_VACIO);
 
-  // Estado para clonar rol
+  // Estado para eliminar rol
   const [rolAEliminar, setRolAEliminar] = useState(null);
   const [eliminando, setEliminando] = useState(false);
-  const [mostrarClonar, setMostrarClonar] = useState(false);
-  const [clonarData, setClonarData] = useState({
-    nuevo_codigo: '',
-    nuevo_nombre: '',
-    descripcion: ''
-  });
 
-  const [busquedaPermiso, setBusquedaPermiso] = useState('');
+  // Estado para clonar rol (rolAClonar abre el modal)
+  const [rolAClonar, setRolAClonar] = useState(null);
+  const [clonarData, setClonarData] = useState(CLONAR_VACIO);
 
-
+  const mensajeTimerRef = useRef(null);
+  // Generation of the latest permissions load: an older load resolving late is ignored.
+  const cargaPermisosRef = useRef(0);
 
   useEffect(() => {
     cargarDatos();
+    // Mount-only load: later reloads are explicit (after a save or a role change).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => () => clearTimeout(mensajeTimerRef.current), []);
+
+  const mostrarMensaje = (nuevo) => {
+    clearTimeout(mensajeTimerRef.current);
+    setMensaje(nuevo);
+    if (nuevo?.tipo === 'success') {
+      mensajeTimerRef.current = setTimeout(() => setMensaje(null), 3000);
+    }
+  };
+
+  /**
+   * Loads each editable role on its own, so one failing GET never blanks the others.
+   * A failed role keeps the base it already had (if any). Returns the roles that failed.
+   * Only the latest load started is applied: a superseded one changes nothing and returns [].
+   */
+  const cargarPermisosRoles = async (listaRoles) => {
+    const generacion = ++cargaPermisosRef.current;
+    const editables = listaRoles.filter((rol) => !esSoloLectura(rol));
+    const respuestas = await Promise.allSettled(editables.map((rol) => api.get(`/roles/${rol.id}/permisos`)));
+    if (generacion !== cargaPermisosRef.current) return [];
+    const cargados = {};
+    const fallidos = [];
+    editables.forEach((rol, i) => {
+      if (respuestas[i].status === 'fulfilled') {
+        cargados[rol.id] = respuestas[i].value.data.permisos.map((p) => p.codigo);
+      } else {
+        console.error(`Error cargando permisos del rol ${rol.codigo}:`, respuestas[i].reason);
+        fallidos.push(rol);
+      }
+    });
+    const idsFallidos = new Set(fallidos.map((rol) => String(rol.id)));
+
+    setPermisosPorRol((prev) => {
+      const siguiente = { ...cargados };
+      for (const rolId of idsFallidos) {
+        if (prev[rolId]) siguiente[rolId] = prev[rolId];
+      }
+      return siguiente;
+    });
+    setPendientes((prev) => podarPendientes(prev, cargados, idsFallidos));
+    return fallidos;
+  };
 
   const cargarDatos = async () => {
     try {
@@ -64,67 +126,111 @@ export default function PanelRoles() {
 
       setRoles(rolesRes.data);
       setCatalogo(catalogoRes.data || {});
+      const fallidos = await cargarPermisosRoles(rolesRes.data);
+      if (fallidos.length > 0) {
+        mostrarMensaje({ tipo: 'error', texto: `No se pudieron cargar los permisos de: ${nombresDe(fallidos)}` });
+      }
     } catch (error) {
       console.error('Error cargando datos:', error);
-      setMensaje({ tipo: 'error', texto: `Error al cargar datos: ${error.response?.data?.detail || error.message}` });
+      mostrarMensaje({ tipo: 'error', texto: `Error al cargar datos: ${error.response?.data?.detail || error.message}` });
     } finally {
       setLoading(false);
     }
   };
 
-  const seleccionarRol = async (rol) => {
-    setRolSeleccionado(rol);
-    setPermisosRol([]);
+  const gestionandoRoles = guardando || eliminando;
+  const matrizBloqueada = guardandoPermisos || gestionandoRoles;
 
-    if (rol.codigo === 'SUPERADMIN') {
-      // SUPERADMIN tiene todos los permisos
-      const todosPermisos = Object.values(catalogo).flat().map(p => p.codigo);
-      setPermisosRol(todosPermisos);
+  const tienePermiso = (rol, codigo) => {
+    if (esSoloLectura(rol)) return true;
+    const pendiente = pendientes[rol.id]?.[codigo];
+    return pendiente ?? (permisosPorRol[rol.id] || []).includes(codigo);
+  };
+
+  const esPendiente = (rol, codigo) => pendientes[rol.id]?.[codigo] !== undefined;
+
+  const sinCargar = (rol) => !esSoloLectura(rol) && !permisosPorRol[rol.id];
+
+  const togglePermiso = (rol, codigo) => {
+    if (esSoloLectura(rol) || sinCargar(rol) || matrizBloqueada) return;
+    const nuevo = !tienePermiso(rol, codigo);
+    const guardado = (permisosPorRol[rol.id] || []).includes(codigo);
+    setPendientes((prev) => {
+      const cambios = { ...prev[rol.id] };
+      if (nuevo === guardado) delete cambios[codigo];
+      else cambios[codigo] = nuevo;
+      const siguiente = { ...prev };
+      if (Object.keys(cambios).length > 0) siguiente[rol.id] = cambios;
+      else delete siguiente[rol.id];
+      return siguiente;
+    });
+  };
+
+  const cantidadPendientes = Object.values(pendientes).reduce((total, cambios) => total + Object.keys(cambios).length, 0);
+
+  /** The role's full resulting set: the PUT replaces every permission of the role. */
+  const permisosResultantes = (rol) => {
+    const codigos = new Set(permisosPorRol[rol.id] || []);
+    for (const [codigo, valor] of Object.entries(pendientes[rol.id] || {})) {
+      if (valor) codigos.add(codigo);
+      else codigos.delete(codigo);
+    }
+    return [...codigos].sort();
+  };
+
+  const guardarCambios = async () => {
+    const sucios = roles.filter((rol) => !esSoloLectura(rol) && !sinCargar(rol) && pendientes[rol.id]);
+    if (sucios.length === 0 || matrizBloqueada) return;
+
+    setGuardandoPermisos(true);
+    const enviados = sucios.map((rol) => permisosResultantes(rol));
+    const resultados = await Promise.allSettled(
+      sucios.map((rol, i) => api.put(`/roles/${rol.id}/permisos`, { permisos: enviados[i] })),
+    );
+    const guardados = sucios.filter((_, i) => resultados[i].status === 'fulfilled');
+    const noGuardados = sucios.filter((_, i) => resultados[i].status === 'rejected');
+    const idsGuardados = new Set(guardados.map((rol) => String(rol.id)));
+
+    // What was sent is now the saved state: correct even if the reload below fails.
+    setPermisosPorRol((prev) => {
+      const siguiente = { ...prev };
+      sucios.forEach((rol, i) => {
+        if (idsGuardados.has(String(rol.id))) siguiente[rol.id] = enviados[i];
+      });
+      return siguiente;
+    });
+    setPendientes((prev) => Object.fromEntries(Object.entries(prev).filter(([rolId]) => !idsGuardados.has(rolId))));
+
+    let falloRecarga;
+    try {
+      falloRecarga = (await cargarPermisosRoles(roles)).length > 0;
+    } catch (error) {
+      console.error('Error recargando permisos de los roles:', error);
+      falloRecarga = true;
+    } finally {
+      setGuardandoPermisos(false);
+    }
+
+    if (noGuardados.length === 0) {
+      mostrarMensaje(falloRecarga
+        ? { tipo: 'error', texto: 'Permisos guardados, pero no se pudieron recargar. Actualizá la página.' }
+        : { tipo: 'success', texto: 'Permisos guardados correctamente' });
       return;
     }
 
-    try {
-      const res = await api.get(`/roles/${rol.id}/permisos`);
-      setPermisosRol(res.data.permisos.map(p => p.codigo));
-    } catch (error) {
-      console.error('Error cargando permisos del rol:', error);
-      setMensaje({ tipo: 'error', texto: 'Error al cargar permisos del rol' });
-    }
-  };
-
-  const togglePermisoRol = async (permisoCodigo) => {
-    if (!rolSeleccionado || rolSeleccionado.codigo === 'SUPERADMIN') return;
-
-    const tienePermiso = permisosRol.includes(permisoCodigo);
-    const nuevosPermisos = tienePermiso
-      ? permisosRol.filter(p => p !== permisoCodigo)
-      : [...permisosRol, permisoCodigo];
-
-    setPermisosRol(nuevosPermisos);
-  };
-
-  const guardarPermisosRol = async () => {
-    if (!rolSeleccionado || rolSeleccionado.codigo === 'SUPERADMIN') return;
-
-    setGuardando(true);
-    try {
-      await api.put(`/roles/${rolSeleccionado.id}/permisos`, {
-        permisos: permisosRol
-      });
-
-      setMensaje({ tipo: 'success', texto: 'Permisos guardados correctamente' });
-      setTimeout(() => setMensaje(null), 3000);
-    } catch (error) {
-      console.error('Error guardando permisos:', error);
-      setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al guardar permisos' });
-    } finally {
-      setGuardando(false);
-    }
+    const fallo = resultados.find((r) => r.status === 'rejected');
+    console.error('Error guardando permisos:', fallo.reason);
+    const detalle = fallo.reason?.response?.data?.detail || 'Error al guardar permisos';
+    let texto = guardados.length > 0
+      ? `Se guardaron los permisos de ${nombresDe(guardados)}, pero fallaron los de ${nombresDe(noGuardados)}: ${detalle}`
+      : detalle;
+    if (falloRecarga) texto += '. No se pudieron recargar los permisos; actualizá la página.';
+    mostrarMensaje({ tipo: 'error', texto });
   };
 
   const crearRol = async () => {
     if (!formRol.codigo || !formRol.nombre) {
-      setMensaje({ tipo: 'error', texto: 'Codigo y nombre son requeridos' });
+      mostrarMensaje({ tipo: 'error', texto: 'Codigo y nombre son requeridos' });
       return;
     }
 
@@ -132,14 +238,13 @@ export default function PanelRoles() {
     try {
       await api.post('/roles', formRol);
 
-      setMensaje({ tipo: 'success', texto: 'Rol creado correctamente' });
+      mostrarMensaje({ tipo: 'success', texto: 'Rol creado correctamente' });
       setMostrarFormRol(false);
-      setFormRol({ codigo: '', nombre: '', descripcion: '', orden: 0 });
+      setFormRol(FORM_ROL_VACIO);
       cargarDatos();
-      setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
       console.error('Error creando rol:', error);
-      setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al crear rol' });
+      mostrarMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al crear rol' });
     } finally {
       setGuardando(false);
     }
@@ -156,14 +261,13 @@ export default function PanelRoles() {
         orden: formRol.orden
       });
 
-      setMensaje({ tipo: 'success', texto: 'Rol actualizado correctamente' });
+      mostrarMensaje({ tipo: 'success', texto: 'Rol actualizado correctamente' });
       setEditandoRol(null);
-      setFormRol({ codigo: '', nombre: '', descripcion: '', orden: 0 });
+      setFormRol(FORM_ROL_VACIO);
       cargarDatos();
-      setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
       console.error('Error actualizando rol:', error);
-      setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al actualizar rol' });
+      mostrarMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al actualizar rol' });
     } finally {
       setGuardando(false);
     }
@@ -171,7 +275,7 @@ export default function PanelRoles() {
 
   const pedirEliminarRol = (rol) => {
     if (rol.es_sistema) {
-      setMensaje({ tipo: 'error', texto: 'No se pueden eliminar roles de sistema' });
+      mostrarMensaje({ tipo: 'error', texto: 'No se pueden eliminar roles de sistema' });
       return;
     }
     setRolAEliminar(rol);
@@ -183,16 +287,12 @@ export default function PanelRoles() {
     try {
       await api.delete(`/roles/${rol.id}`);
 
-      setMensaje({ tipo: 'success', texto: 'Rol eliminado correctamente' });
-      if (rolSeleccionado?.id === rol.id) {
-        setRolSeleccionado(null);
-        setPermisosRol([]);
-      }
+      mostrarMensaje({ tipo: 'success', texto: 'Rol eliminado correctamente' });
+      setPendientes((prev) => Object.fromEntries(Object.entries(prev).filter(([rolId]) => rolId !== String(rol.id))));
       cargarDatos();
-      setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
       console.error('Error eliminando rol:', error);
-      setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al eliminar rol' });
+      mostrarMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al eliminar rol' });
     } finally {
       setEliminando(false);
       setRolAEliminar(null);
@@ -200,23 +300,22 @@ export default function PanelRoles() {
   };
 
   const clonarRol = async () => {
-    if (!rolSeleccionado || !clonarData.nuevo_codigo || !clonarData.nuevo_nombre) {
-      setMensaje({ tipo: 'error', texto: 'Codigo y nombre son requeridos' });
+    if (!rolAClonar || !clonarData.nuevo_codigo || !clonarData.nuevo_nombre) {
+      mostrarMensaje({ tipo: 'error', texto: 'Codigo y nombre son requeridos' });
       return;
     }
 
     setGuardando(true);
     try {
-      await api.post(`/roles/${rolSeleccionado.id}/clonar`, clonarData);
+      await api.post(`/roles/${rolAClonar.id}/clonar`, clonarData);
 
-      setMensaje({ tipo: 'success', texto: 'Rol clonado correctamente' });
-      setMostrarClonar(false);
-      setClonarData({ nuevo_codigo: '', nuevo_nombre: '', descripcion: '' });
+      mostrarMensaje({ tipo: 'success', texto: 'Rol clonado correctamente' });
+      setRolAClonar(null);
+      setClonarData(CLONAR_VACIO);
       cargarDatos();
-      setTimeout(() => setMensaje(null), 3000);
     } catch (error) {
       console.error('Error clonando rol:', error);
-      setMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al clonar rol' });
+      mostrarMensaje({ tipo: 'error', texto: error.response?.data?.detail || 'Error al clonar rol' });
     } finally {
       setGuardando(false);
     }
@@ -246,20 +345,13 @@ export default function PanelRoles() {
   return (
     <div>
       {mensaje && (
-        <div style={{
-          padding: '12px 16px',
-          marginBottom: '16px',
-          borderRadius: '8px',
-          background: mensaje.tipo === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
-          color: mensaje.tipo === 'success' ? 'var(--success-text)' : 'var(--error-text)',
-          fontWeight: '500'
-        }}>
+        <div role="status" className={mensaje.tipo === 'success' ? styles.mensajeExito : styles.mensajeError}>
           {mensaje.texto}
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px' }}>
-        {/* Panel izquierdo: Lista de roles */}
+      <div className={styles.layout}>
+        {/* Roles: alta, edición, clonado y baja (pasan a un panel lateral en T4b) */}
         <div className={adminStyles.section}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 style={{ margin: 0 }}>Roles</h3>
@@ -267,8 +359,9 @@ export default function PanelRoles() {
               onClick={() => {
                 setMostrarFormRol(true);
                 setEditandoRol(null);
-                setFormRol({ codigo: '', nombre: '', descripcion: '', orden: roles.length });
+                setFormRol({ ...FORM_ROL_VACIO, orden: roles.length });
               }}
+              disabled={guardandoPermisos}
               className="btn-tesla outline-subtle-primary sm"
             >
               + Nuevo Rol
@@ -282,30 +375,20 @@ export default function PanelRoles() {
               onChange={setFormRol}
               esEdicion={!!editandoRol}
               guardando={guardando}
+              bloqueado={guardandoPermisos}
               onGuardar={editandoRol ? actualizarRol : crearRol}
               onCancelar={() => {
                 setMostrarFormRol(false);
                 setEditandoRol(null);
-                setFormRol({ codigo: '', nombre: '', descripcion: '', orden: 0 });
+                setFormRol(FORM_ROL_VACIO);
               }}
             />
           )}
 
           {/* Lista de roles */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className={styles.listaRoles}>
             {roles.map(rol => (
-              <div
-                key={rol.id}
-                onClick={() => seleccionarRol(rol)}
-                style={{
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: `2px solid ${rolSeleccionado?.id === rol.id ? 'var(--primary)' : 'var(--border-primary)'}`,
-                  background: rolSeleccionado?.id === rol.id ? 'var(--primary-light)' : 'var(--bg-primary)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s'
-                }}
-              >
+              <div key={rol.id} className={styles.tarjetaRol}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <div style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-primary)' }}>
@@ -326,40 +409,54 @@ export default function PanelRoles() {
                       {rol.codigo} - {rol.usuarios_count || 0} usuarios
                     </div>
                   </div>
-                  {!rol.es_sistema && (
-                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+                  <div className={styles.accionesRol}>
+                    {!esSoloLectura(rol) && (
                       <button
-                        onClick={() => iniciarEdicion(rol)}
-                        title="Editar"
-                        style={{
-                          padding: '4px 8px',
-                          background: 'var(--info-bg)',
-                          color: 'var(--info-text)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
+                        onClick={() => setRolAClonar(rol)}
+                        disabled={guardandoPermisos}
+                        aria-label={`Clonar ${rol.nombre}`}
+                        className="btn-tesla ghost sm"
                       >
-                        Editar
+                        Clonar
                       </button>
-                      <button
-                        onClick={() => pedirEliminarRol(rol)}
-                        title="Eliminar"
-                        style={{
-                          padding: '4px 8px',
-                          background: 'var(--error-bg)',
-                          color: 'var(--error-text)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
-                      >
-                        X
-                      </button>
-                    </div>
-                  )}
+                    )}
+                    {!rol.es_sistema && (
+                      <>
+                        <button
+                          onClick={() => iniciarEdicion(rol)}
+                          disabled={guardandoPermisos}
+                          title="Editar"
+                          style={{
+                            padding: '4px 8px',
+                            background: 'var(--info-bg)',
+                            color: 'var(--info-text)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                          }}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => pedirEliminarRol(rol)}
+                          disabled={guardandoPermisos}
+                          title="Eliminar"
+                          style={{
+                            padding: '4px 8px',
+                            background: 'var(--error-bg)',
+                            color: 'var(--error-text)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                          }}
+                        >
+                          X
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
                 {rol.descripcion && (
                   <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
@@ -371,182 +468,49 @@ export default function PanelRoles() {
           </div>
         </div>
 
-        {/* Panel derecho: Permisos del rol seleccionado */}
-        <div className={`${adminStyles.section} ${styles.permisosSection}`}>
-          {rolSeleccionado ? (
-            <>
-              <div style={{
-                position: 'sticky',
-                top: 0,
-                background: 'var(--bg-primary)',
-                paddingBottom: '16px',
-                marginBottom: '16px',
-                borderBottom: '1px solid var(--border-primary)',
-                zIndex: 10
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div>
-                    <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Permisos de: {rolSeleccionado.nombre}</h3>
-                    {rolSeleccionado.codigo === 'SUPERADMIN' && (
-                      <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        SUPERADMIN tiene todos los permisos por defecto
-                      </p>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
-                    {rolSeleccionado.codigo !== 'SUPERADMIN' && (
-                      <>
-                        <button
-                          onClick={() => setMostrarClonar(true)}
-                          className="btn-tesla outline-subtle-primary"
-                        >
-                          Clonar Rol
-                        </button>
-                        <button
-                          onClick={guardarPermisosRol}
-                          disabled={guardando}
-                          className="btn-tesla outline-subtle-success"
-                        >
-                          {guardando ? 'Guardando...' : 'Guardar Permisos'}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Clonar */}
-              {mostrarClonar && (
-                <ModalClonarRol
-                  rol={rolSeleccionado}
-                  datos={clonarData}
-                  onChange={setClonarData}
-                  guardando={guardando}
-                  onClonar={clonarRol}
-                  onCancelar={() => {
-                    setMostrarClonar(false);
-                    setClonarData({ nuevo_codigo: '', nuevo_nombre: '', descripcion: '' });
-                  }}
-                />
-              )}
-
-              {/* Lista de permisos por categoria */}
-              <div className={styles.permisosWrapper}>
-                {/* Header con buscador */}
-                <div className={styles.permisosHeader}>
-                  <div className={styles.headerRow}>
-                    <SearchInput
-                      value={busquedaPermiso}
-                      onChange={setBusquedaPermiso}
-                      placeholder="Buscar permiso por nombre, código o descripción..."
-                      size="sm"
-                      className={styles.searchBox}
-                    />
-                  </div>
-                </div>
-
-                {/* Scroll de permisos */}
-                <div className={styles.permisosScroll}>
-                  {Object.entries(catalogo).map(([categoria, permisos]) => {
-                    // Filtrar permisos según búsqueda
-                    const permisosFiltrados = busquedaPermiso.trim()
-                      ? permisos.filter(p => 
-                          p.nombre.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                          p.descripcion?.toLowerCase().includes(busquedaPermiso.toLowerCase()) ||
-                          p.codigo.toLowerCase().includes(busquedaPermiso.toLowerCase())
-                        )
-                      : permisos;
-                    
-                    // Si no hay permisos que coincidan, no mostrar la categoría
-                    if (permisosFiltrados.length === 0) return null;
-                    
-                    const permisosActivos = permisosFiltrados.filter(p => permisosRol.includes(p.codigo)).length;
-                    const esSuperadmin = rolSeleccionado.codigo === 'SUPERADMIN';
-
-                    return (
-                      <div key={categoria} className={styles.categoria}>
-                        <div className={styles.categoriaHeader}>
-                          <h3 className={styles.categoriaTitulo}>
-                            {CATEGORIAS_NOMBRE[categoria] || categoria}
-                          </h3>
-                          <div className={styles.categoriaStats}>
-                            {permisosActivos} de {permisosFiltrados.length} activos
-                          </div>
-                        </div>
-
-                        <div className={styles.permisosList}>
-                          {permisosFiltrados.map(permiso => {
-                            const tienePermiso = permisosRol.includes(permiso.codigo);
-
-                            return (
-                              <div 
-                                key={permiso.codigo} 
-                                className={styles.permisoItem}
-                              >
-                                {/* Lado izquierdo: Info */}
-                                <div className={styles.permisoInfo}>
-                                  <div className={styles.permisoNombre}>
-                                    {permiso.nombre}
-                                    {permiso.es_critico && (
-                                      <span className={`${styles.badge} ${styles.badgeCritico}`}>
-                                        Crítico
-                                      </span>
-                                    )}
-                                  </div>
-                                  <code className={styles.permisoCodigo}>{permiso.codigo}</code>
-                                  {permiso.descripcion && (
-                                    <div className={styles.permisoDescripcion}>
-                                      {permiso.descripcion}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Lado derecho: Checkbox */}
-                                <div className={styles.permisoControls}>
-                                  <label style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 'var(--spacing-sm)',
-                                    cursor: esSuperadmin ? 'not-allowed' : 'pointer',
-                                    fontSize: 'var(--font-sm)',
-                                    color: 'var(--text-secondary)'
-                                  }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={tienePermiso}
-                                      onChange={() => togglePermisoRol(permiso.codigo)}
-                                      disabled={esSuperadmin}
-                                      style={{
-                                        width: '20px',
-                                        height: '20px',
-                                        cursor: esSuperadmin ? 'not-allowed' : 'pointer'
-                                      }}
-                                    />
-                                    {tienePermiso ? 'Activo' : 'Inactivo'}
-                                  </label>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
-              <p style={{ fontSize: '16px' }}>Selecciona un rol para ver y editar sus permisos</p>
-            </div>
-          )}
-        </div>
+        {/* Matriz roles x permisos */}
+        <section className={adminStyles.section} aria-label="Permisos por rol">
+          <h3 className={styles.titulo}>Permisos por rol</h3>
+          <MatrizRoles
+            catalogo={catalogo}
+            roles={roles}
+            esSoloLectura={esSoloLectura}
+            tienePermiso={tienePermiso}
+            esPendiente={esPendiente}
+            sinCargar={sinCargar}
+            onToggle={togglePermiso}
+            deshabilitado={matrizBloqueada}
+          />
+          <BarraCambios
+            cantidad={cantidadPendientes}
+            guardando={guardandoPermisos}
+            bloqueado={gestionandoRoles}
+            onDescartar={() => setPendientes({})}
+            onGuardar={guardarCambios}
+          />
+        </section>
       </div>
+
+      {rolAClonar && (
+        <ModalClonarRol
+          rol={rolAClonar}
+          datos={clonarData}
+          onChange={setClonarData}
+          guardando={guardando}
+          bloqueado={guardandoPermisos}
+          onClonar={clonarRol}
+          onCancelar={() => {
+            setRolAClonar(null);
+            setClonarData(CLONAR_VACIO);
+          }}
+        />
+      )}
 
       {rolAEliminar && (
         <ModalConfirmarEliminarRol
           rol={rolAEliminar}
           eliminando={eliminando}
+          bloqueado={guardandoPermisos}
           onConfirmar={eliminarRol}
           onCancelar={() => setRolAEliminar(null)}
         />

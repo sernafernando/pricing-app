@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import api from '../services/api';
 import PanelRoles from './PanelRoles';
@@ -16,9 +16,21 @@ const ROLES = [
   { id: 3, codigo: 'VENTAS', nombre: 'Ventas', descripcion: null, es_sistema: false, orden: 2, activo: true, usuarios_count: 5 },
 ];
 
+const permiso = (codigo, nombre, extra = {}) => ({ codigo, nombre, descripcion: null, es_critico: false, ...extra });
+
 const CATALOGO = {
-  productos: [{ codigo: 'productos.ver', nombre: 'Ver productos', descripcion: null, es_critico: false }],
+  productos: [
+    permiso('productos.ver', 'Ver productos'),
+    permiso('productos.editar_precios', 'Editar precios', { es_critico: true }),
+  ],
+  administracion: [permiso('admin.ver_panel', 'Ver panel de administración')],
 };
+
+const permisosDeRol = (rolId, codigos) => ({
+  rol_id: rolId,
+  rol_codigo: ROLES.find((r) => r.id === rolId).codigo,
+  permisos: codigos.map((c) => ({ ...permiso(c, c), categoria: c.split('.')[0] })),
+});
 
 const errorConDetalle = (detail) => Object.assign(new Error('Request failed'), { response: { data: { detail } } });
 
@@ -38,11 +50,11 @@ beforeEach(() => {
   api.get.mockImplementation((url) => {
     if (url === '/roles') return Promise.resolve({ data: ROLES });
     if (url === '/permisos/catalogo') return Promise.resolve({ data: CATALOGO });
-    if (url === '/roles/3/permisos') {
-      return Promise.resolve({ data: { rol_id: 3, rol_codigo: 'VENTAS', permisos: [{ codigo: 'productos.ver' }] } });
-    }
+    if (url === '/roles/2/permisos') return Promise.resolve({ data: permisosDeRol(2, ['productos.ver', 'admin.ver_panel']) });
+    if (url === '/roles/3/permisos') return Promise.resolve({ data: permisosDeRol(3, ['productos.ver']) });
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
+  api.put.mockResolvedValue({ data: { success: true } });
   api.post.mockResolvedValue({ data: {} });
   api.patch.mockResolvedValue({ data: {} });
   api.delete.mockResolvedValue({ data: {} });
@@ -53,9 +65,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// 'Ventas' is both a role card and a matrix column, so wait for the loaded panel instead.
 async function renderPanel() {
   render(<PanelRoles />);
-  await screen.findByText('Ventas');
+  await screen.findByRole('button', { name: '+ Nuevo Rol' });
 }
 
 describe('PanelRoles create role', () => {
@@ -322,11 +335,10 @@ describe('PanelRoles delete role', () => {
 });
 
 describe('PanelRoles clone role', () => {
+  // There is no selected role any more: each role card has its own Clonar button.
   async function abrirClonarVentas(user) {
     await renderPanel();
-    await user.click(screen.getByText('Ventas'));
-    await screen.findByRole('heading', { name: 'Permisos de: Ventas' });
-    await user.click(screen.getByRole('button', { name: 'Clonar Rol' }));
+    await user.click(screen.getByRole('button', { name: 'Clonar Ventas' }));
     expect(screen.getByRole('heading', { name: 'Clonar Rol: Ventas' })).toBeInTheDocument();
   }
 
@@ -373,7 +385,7 @@ describe('PanelRoles clone role', () => {
     await act(async () => resolver({ data: {} }));
 
     expect(await screen.findByText('Rol clonado correctamente')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Clonar Rol' }));
+    await user.click(screen.getByRole('button', { name: 'Clonar Ventas' }));
     expect(screen.getByRole('button', { name: 'Clonar' })).toBeEnabled();
   });
 
@@ -399,8 +411,363 @@ describe('PanelRoles clone role', () => {
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(screen.queryByRole('heading', { name: 'Clonar Rol: Ventas' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Clonar Rol' }));
+    await user.click(screen.getByRole('button', { name: 'Clonar Ventas' }));
     expect(screen.getByPlaceholderText('Codigo del nuevo rol')).toHaveValue('');
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+const celda = (permisoNombre, rolNombre) =>
+  screen.getByRole('checkbox', { name: `${permisoNombre} para ${rolNombre}` });
+
+async function renderMatriz() {
+  render(<PanelRoles />);
+  await screen.findByRole('table', { name: 'Matriz de roles y permisos' });
+  await waitFor(() => expect(celda('Ver productos', 'Ventas')).toBeChecked());
+}
+
+const barra = () => screen.queryByRole('region', { name: 'Cambios pendientes' });
+
+/**
+ * Fake backend that remembers each PUT, so a reload returns what was saved.
+ * `fallaGet` / `fallaPut` decide per role id whether that call fails; both can
+ * be swapped on the returned object between steps.
+ */
+function servidorConEstado({ fallaGet = () => false, fallaPut = () => false } = {}) {
+  const servidor = {
+    estado: { 2: ['productos.ver', 'admin.ver_panel'], 3: ['productos.ver'] },
+    fallaGet,
+    fallaPut,
+  };
+  const rolDe = (url) => Number(url.match(/^\/roles\/(\d+)\/permisos$/)?.[1]);
+  api.get.mockImplementation((url) => {
+    if (url === '/roles') return Promise.resolve({ data: ROLES });
+    if (url === '/permisos/catalogo') return Promise.resolve({ data: CATALOGO });
+    const rolId = rolDe(url);
+    if (servidor.estado[rolId] && !servidor.fallaGet(rolId)) {
+      return Promise.resolve({ data: permisosDeRol(rolId, servidor.estado[rolId]) });
+    }
+    return Promise.reject(new Error(`GET ${url} falló`));
+  });
+  api.put.mockImplementation((url, body) => {
+    const rolId = rolDe(url);
+    if (servidor.fallaPut(rolId)) return Promise.reject(errorConDetalle('Error de red'));
+    servidor.estado[rolId] = body.permisos;
+    return Promise.resolve({ data: { success: true } });
+  });
+  return servidor;
+}
+
+describe('PanelRoles matrix', () => {
+  it('renders roles as columns and permissions grouped by category with their state', async () => {
+    await renderMatriz();
+    const tabla = screen.getByRole('table', { name: 'Matriz de roles y permisos' });
+
+    for (const rol of ['Super Admin', 'Administrador', 'Ventas']) {
+      expect(within(tabla).getByRole('columnheader', { name: rol })).toBeInTheDocument();
+    }
+    expect(within(tabla).getByText('Productos')).toBeInTheDocument();
+    expect(within(tabla).getByText('Administración del sistema')).toBeInTheDocument();
+
+    expect(celda('Ver panel de administración', 'Administrador')).toBeChecked();
+    expect(celda('Ver panel de administración', 'Ventas')).not.toBeChecked();
+    expect(celda('Editar precios', 'Ventas')).not.toBeChecked();
+    // SUPERADMIN has every permission (backend refuses to change it) and is not fetched.
+    expect(celda('Editar precios', 'Super Admin')).toBeChecked();
+    expect(api.get).not.toHaveBeenCalledWith('/roles/1/permisos');
+    expect(barra()).not.toBeInTheDocument();
+  });
+
+  it('keeps the SUPERADMIN column read-only', async () => {
+    await renderMatriz();
+    expect(celda('Ver productos', 'Super Admin')).toBeDisabled();
+    expect(celda('Ver productos', 'Administrador')).toBeEnabled();
+  });
+
+  it('marks a toggled cell as pending and shows the save bar with the count', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Editar precios', 'Ventas').closest('td').className).toMatch(/pendiente/);
+    expect(within(barra()).getByText('1 cambio pendiente')).toBeInTheDocument();
+
+    await user.click(celda('Ver productos', 'Administrador'));
+    expect(within(barra()).getByText('2 cambios pendientes')).toBeInTheDocument();
+  });
+
+  it('clears the pending mark when the cell is toggled back', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(celda('Editar precios', 'Ventas'));
+
+    expect(celda('Editar precios', 'Ventas')).not.toBeChecked();
+    expect(celda('Editar precios', 'Ventas').closest('td').className).not.toMatch(/pendiente/);
+    expect(barra()).not.toBeInTheDocument();
+  });
+
+  it('reverts every pending change on Descartar', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(celda('Ver productos', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Descartar' }));
+
+    expect(celda('Editar precios', 'Ventas')).not.toBeChecked();
+    expect(celda('Ver productos', 'Administrador')).toBeChecked();
+    expect(barra()).not.toBeInTheDocument();
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it('PUTs only the dirty roles with their full resulting permission set, then reloads', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    // Administrador toggled and back: not dirty, must not be sent.
+    await user.click(celda('Ver productos', 'Administrador'));
+    await user.click(celda('Ver productos', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    expect(api.put).toHaveBeenCalledWith('/roles/3/permisos', {
+      permisos: ['productos.editar_precios', 'productos.ver'],
+    });
+    expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
+    expect(barra()).not.toBeInTheDocument();
+    expect(api.get.mock.calls.filter(([url]) => url === '/roles/3/permisos')).toHaveLength(2);
+  });
+
+  it('disables the controls while saving', async () => {
+    const user = userEvent.setup();
+    let resolver;
+    api.put.mockReturnValue(new Promise((resolve) => { resolver = resolve; }));
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(within(barra()).getByRole('button', { name: 'Guardando...' })).toBeDisabled();
+    expect(within(barra()).getByRole('button', { name: 'Descartar' })).toBeDisabled();
+    expect(celda('Ver productos', 'Ventas')).toBeDisabled();
+
+    resolver({ data: { success: true } });
+    expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
+    expect(celda('Ver productos', 'Ventas')).toBeEnabled();
+  });
+
+  it('shows the backend error and keeps the pending changes when the save fails', async () => {
+    const user = userEvent.setup();
+    api.put.mockRejectedValue({ response: { data: { detail: 'No tienes permiso para gestionar roles' } } });
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByText('No tienes permiso para gestionar roles')).toBeInTheDocument();
+    expect(within(barra()).getByText('1 cambio pendiente')).toBeInTheDocument();
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(within(barra()).getByRole('button', { name: 'Guardar' })).toBeEnabled();
+  });
+
+  it('filters permission rows by code or name ignoring accents', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.type(screen.getByPlaceholderText(/Buscá un permiso/), 'administracion');
+    expect(celda('Ver panel de administración', 'Ventas')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Ver productos para Ventas' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Productos')).not.toBeInTheDocument();
+
+    await user.clear(screen.getByPlaceholderText(/Buscá un permiso/));
+    await user.type(screen.getByPlaceholderText(/Buscá un permiso/), 'editar_precios');
+    expect(celda('Editar precios', 'Ventas')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Ver productos para Ventas' })).not.toBeInTheDocument();
+  });
+
+  it('marks only the roles that failed when one of two dirty roles fails to save', async () => {
+    const user = userEvent.setup();
+    const servidor = servidorConEstado({ fallaPut: (rolId) => rolId === 2 });
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(celda('Ver productos', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(
+      await screen.findByText('Se guardaron los permisos de Ventas, pero fallaron los de Administrador: Error de red'),
+    ).toBeInTheDocument();
+    expect(servidor.estado[3]).toEqual(['productos.editar_precios', 'productos.ver']);
+    // Ventas saved: no longer pending and showing the new state.
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Editar precios', 'Ventas').closest('td').className).not.toMatch(/pendiente/);
+    // Administrador failed: its change stays pending.
+    expect(celda('Ver productos', 'Administrador')).not.toBeChecked();
+    expect(celda('Ver productos', 'Administrador').closest('td').className).toMatch(/pendiente/);
+    expect(within(barra()).getByText('1 cambio pendiente')).toBeInTheDocument();
+  });
+
+  it('keeps the saved state as the base when the reload after saving fails', async () => {
+    const user = userEvent.setup();
+    const servidor = servidorConEstado();
+    await renderMatriz();
+    servidor.fallaGet = (rolId) => rolId === 3;
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(
+      await screen.findByText('Permisos guardados, pero no se pudieron recargar. Actualizá la página.'),
+    ).toBeInTheDocument();
+    expect(barra()).not.toBeInTheDocument();
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Ver productos', 'Ventas')).toBeChecked();
+
+    // A second save must start from what was saved, not from the pre-save state.
+    await user.click(celda('Ver productos', 'Ventas'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(2));
+    expect(api.put).toHaveBeenLastCalledWith('/roles/3/permisos', { permisos: ['productos.editar_precios'] });
+  });
+
+  it('does not claim the permissions were saved when a save and the reload both fail', async () => {
+    const user = userEvent.setup();
+    const servidor = servidorConEstado({ fallaPut: (rolId) => rolId === 2 });
+    await renderMatriz();
+    servidor.fallaGet = () => true;
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(celda('Ver productos', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    expect(
+      await screen.findByText(
+        'Se guardaron los permisos de Ventas, pero fallaron los de Administrador: Error de red. ' +
+          'No se pudieron recargar los permisos; actualizá la página.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^Permisos guardados/)).not.toBeInTheDocument();
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Ver productos', 'Administrador').closest('td').className).toMatch(/pendiente/);
+  });
+
+  it('locks the column of a role whose permissions failed to load and never saves it', async () => {
+    const user = userEvent.setup();
+    servidorConEstado({ fallaGet: (rolId) => rolId === 3 });
+    render(<PanelRoles />);
+    await screen.findByRole('table', { name: 'Matriz de roles y permisos' });
+    await waitFor(() => expect(celda('Ver productos', 'Administrador')).toBeChecked());
+
+    expect(await screen.findByText('No se pudieron cargar los permisos de: Ventas')).toBeInTheDocument();
+    for (const nombre of ['Ver productos', 'Editar precios', 'Ver panel de administración']) {
+      expect(celda(nombre, 'Ventas')).toBeDisabled();
+      expect(celda(nombre, 'Ventas')).toHaveAttribute('title', 'No se pudieron cargar los permisos de este rol');
+    }
+    expect(screen.getByRole('columnheader', { name: 'Ventas' })).toHaveAttribute(
+      'title',
+      'No se pudieron cargar los permisos de este rol',
+    );
+
+    await user.click(celda('Editar precios', 'Administrador'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    expect(api.put).toHaveBeenCalledWith('/roles/2/permisos', {
+      permisos: ['admin.ver_panel', 'productos.editar_precios', 'productos.ver'],
+    });
+    expect(api.put).not.toHaveBeenCalledWith('/roles/3/permisos', expect.anything());
+  });
+
+  it('locks role management while a matrix save is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.put.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(within(barra()).getByRole('button', { name: 'Guardar' }));
+
+    for (const nombre of ['+ Nuevo Rol', 'Clonar Ventas', 'Editar', 'X', 'Crear']) {
+      expect(screen.getByRole('button', { name: nombre })).toBeDisabled();
+    }
+
+    await act(async () => resolver({ data: { success: true } }));
+    expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
+    for (const nombre of ['+ Nuevo Rol', 'Clonar Ventas', 'Editar', 'X', 'Crear']) {
+      expect(screen.getByRole('button', { name: nombre })).toBeEnabled();
+    }
+  });
+
+  it('locks the matrix while a role clone is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.post.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(screen.getByRole('button', { name: 'Clonar Ventas' }));
+    await user.type(screen.getByPlaceholderText('Codigo del nuevo rol'), 'VENTAS_WEB');
+    await user.type(screen.getByPlaceholderText('Nombre del nuevo rol'), 'Ventas web');
+    await user.click(screen.getByRole('button', { name: 'Clonar' }));
+
+    expect(celda('Ver productos', 'Ventas')).toBeDisabled();
+    expect(within(barra()).getByRole('button', { name: 'Guardar' })).toBeDisabled();
+    expect(within(barra()).getByRole('button', { name: 'Descartar' })).toBeDisabled();
+
+    await act(async () => resolver({ data: {} }));
+    expect(await screen.findByText('Rol clonado correctamente')).toBeInTheDocument();
+    expect(within(barra()).getByRole('button', { name: 'Guardar' })).toBeEnabled();
+    expect(celda('Ver productos', 'Ventas')).toBeEnabled();
+  });
+
+  it('ignores an older permissions load that resolves after a newer one', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    const cargas = [];
+    const getOriginal = api.get.getMockImplementation();
+    api.get.mockImplementation((url) => {
+      if (url !== '/roles/3/permisos') return getOriginal(url);
+      const carga = diferido();
+      cargas.push(carga);
+      return carga.promesa;
+    });
+
+    const crear = async (codigo) => {
+      await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+      await user.type(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)'), codigo);
+      await user.type(screen.getByPlaceholderText('Nombre'), codigo);
+      await user.click(screen.getByRole('button', { name: 'Crear' }));
+    };
+    await crear('UNO');
+    await waitFor(() => expect(cargas).toHaveLength(1));
+    await crear('DOS');
+    await waitFor(() => expect(cargas).toHaveLength(2));
+
+    await act(async () => cargas[1].resolver({ data: permisosDeRol(3, ['productos.ver', 'productos.editar_precios']) }));
+    await waitFor(() => expect(celda('Editar precios', 'Ventas')).toBeChecked());
+    await act(async () => cargas[0].resolver({ data: permisosDeRol(3, ['productos.ver']) }));
+
+    expect(celda('Editar precios', 'Ventas')).toBeChecked();
+    expect(celda('Editar precios', 'Ventas').closest('td').className).not.toMatch(/pendiente/);
+  });
+
+  it('keeps the create role flow working', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    await user.type(screen.getByPlaceholderText('Codigo (ej: VENDEDOR)'), 'compras');
+    await user.type(screen.getByPlaceholderText('Nombre'), 'Compras');
+    await user.click(screen.getByRole('button', { name: 'Crear' }));
+
+    expect(api.post).toHaveBeenCalledWith('/roles', expect.objectContaining({ codigo: 'COMPRAS', nombre: 'Compras' }));
+    expect(await screen.findByText('Rol creado correctamente')).toBeInTheDocument();
   });
 });
