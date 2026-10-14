@@ -11,7 +11,11 @@ export const PERMISOS_EDITAR_PRODUCTOS = [
   'productos.toggle_web_transferencia',
 ];
 
-/** Tienda editors: `/precios/set-cuota` on the ML instalments only, `/precios/set`. */
+/**
+ * Tienda editors: `/precios/set-cuota` on the ML instalments only, `/precios/set`.
+ * `productos.editar_precio_cuotas` is in both sets on purpose: the backend's
+ * PERMISOS_EDITAR_TIENDA lists it too, and these lists mirror it as is.
+ */
 export const PERMISOS_EDITAR_TIENDA = [
   'tienda.editar_precio_gremio',
   'tienda.editar_precio_web_transf',
