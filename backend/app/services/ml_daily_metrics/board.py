@@ -211,6 +211,19 @@ TOUCHED_TABLE = "board_touched_groups"
 # probe per value. A wider one touches most orders anyway.
 PUSHDOWN_MAX_IDS = 500
 ADS_SOURCE = "product_ads"
+# The informational Product Ads metrics beside the cost (`ml_ads_item_days` columns, API basis). The Board
+# carries them on the owner pairs (`ads_<name>`) only to sum the KPI block of a filtered view.
+ADS_METRICS = (
+    "clicks",
+    "prints",
+    "direct_amount",
+    "indirect_amount",
+    "direct_units",
+    "indirect_units",
+    "organic_units",
+    "organic_amount",
+)
+ADS_PAIR_COLUMNS = ("ads_cost_api", *(f"ads_{name}" for name in ADS_METRICS))
 ADS_COVERED = ("closed", "mismatch")
 # The columns of the request's temp tables that get `ANALYZE` statistics (see
 # `Board._materialize`). Each column costs ~5 ms per 25.000 rows, so only the
@@ -529,6 +542,25 @@ class Kpis:
     series_gross: List[Decimal]
     series_tg: List[Decimal]
     series_markup: List[Optional[float]]
+    # Only with the toggle ON.
+    ads: Optional["AdsKpis"] = None
+
+
+@dataclass
+class AdsKpis:
+    """The period's Product Ads of the KPI rows. Money is Decimal: `cost_api` as the API reports it (what the
+    ratios use), `cost_total` net of IVA (what was subtracted)."""
+
+    cost_total: Decimal
+    cost_api: Decimal
+    prints: int
+    clicks: int
+    direct_amount: Decimal
+    indirect_amount: Decimal
+    direct_units: int
+    indirect_units: int
+    organic_units: int
+    organic_amount: Decimal
 
 
 @dataclass
@@ -928,6 +960,11 @@ class Board:
                 P.subcategoria_id,
                 *(money(name).label(name) for name in sums),
                 *([ads.label("ads_cost")] if ads is not None else []),
+                *(
+                    [func.coalesce(pair_ads.c[name], 0).label(name) for name in ADS_PAIR_COLUMNS]
+                    if pair_ads is not None
+                    else []
+                ),
                 last.c.last_at,
                 business_date(last.c.last_at, self.sqlite).label("last_day"),
                 *(
@@ -1017,7 +1054,12 @@ class Board:
         """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups."""
         day = MlAdsItemDay.day
         query = (
-            select(MlAdsItemDay.item_id.label("mla"), day.label("day"), func.sum(MlAdsItemDay.cost).label("cost"))
+            select(
+                MlAdsItemDay.item_id.label("mla"),
+                day.label("day"),
+                func.sum(MlAdsItemDay.cost).label("cost"),
+                *(func.sum(getattr(MlAdsItemDay, name)).label(name) for name in ADS_METRICS),
+            )
             .where(
                 or_(
                     self._in_ads_period(day, self.f.date_from, self.f.date_to),
@@ -1034,7 +1076,8 @@ class Board:
         the unfiltered view: under a filter or a PM scope they belong to no row and subtract from none (MA-5)."""
         A = self.ads_lines
         owner = ads_owner_select(sqlite=self.sqlite, mlas=select(A.c.mla)).subquery("ads_owner")
-        current = case((self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to), A.c.cost), else_=0)
+        in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
+        current = case((in_period, A.c.cost), else_=0)
         previous = case((self._in_ads_period(A.c.day, self.prev_from, self.prev_to), A.c.cost), else_=0)
         query = (
             select(
@@ -1042,6 +1085,8 @@ class Board:
                 A.c.mla.label("mla"),
                 ads_cost_net_of_iva(func.sum(current), ADS_SOURCE).label("ads"),
                 ads_cost_net_of_iva(func.sum(previous), ADS_SOURCE).label("prev_ads"),
+                func.sum(current).label("ads_cost_api"),
+                *(func.sum(case((in_period, A.c[name]), else_=0)).label(f"ads_{name}") for name in ADS_METRICS),
             )
             .select_from(A.join(owner, owner.c.mla == A.c.mla))
             .group_by(owner.c.owner_product, A.c.mla)
@@ -1898,6 +1943,35 @@ class Board:
             series_gross=s_gross,
             series_tg=s_tg,
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
+            ads=self._ads_kpis() if self.ads else None,
+        )
+
+    def _ads_kpis(self) -> AdsKpis:
+        """ONE statement. The unfiltered view sums every ad line of the period (the MLAs whose rows a sort or a
+        page hides included); a filtered view sums the owner pairs of the rows it keeps, ads owned by nobody
+        being zeroed already (`_pair_ads`)."""
+        if self.ads_unattributed:
+            A = self.ads_lines
+            in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
+            sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in ("cost", *ADS_METRICS)]
+            query = select(*sums)
+        else:
+            members = self._member_table("")
+            query = select(*(func.sum(members.c[name]) for name in ADS_PAIR_COLUMNS))
+        cost_api, *metrics = (value or 0 for value in self.db.execute(query).one())
+        by_name = dict(zip(ADS_METRICS, metrics))
+        cost_api = Decimal(str(cost_api))
+        return AdsKpis(
+            cost_total=cents(ads_cost_net_of_iva(cost_api, ADS_SOURCE)),
+            cost_api=cents(cost_api),
+            prints=int(by_name["prints"]),
+            clicks=int(by_name["clicks"]),
+            direct_amount=cents(by_name["direct_amount"]),
+            indirect_amount=cents(by_name["indirect_amount"]),
+            direct_units=int(by_name["direct_units"]),
+            indirect_units=int(by_name["indirect_units"]),
+            organic_units=int(by_name["organic_units"]),
+            organic_amount=cents(by_name["organic_amount"]),
         )
 
     def _member_table(self, skip: str) -> Any:
@@ -1911,7 +1985,8 @@ class Board:
         if key not in self._member_tables:
             fp = self.filtered_pairs(skip)
             rows = self.rows(skip_pair_axis=skip)
-            source = select(fp.c.rk, *(fp.c[name] for name in MEMBER_COLUMNS)).where(fp.c.rk.in_(select(rows.c.rk)))
+            carried = MEMBER_COLUMNS + (ADS_PAIR_COLUMNS if self.ads else ())
+            source = select(fp.c.rk, *(fp.c[name] for name in carried)).where(fp.c.rk.in_(select(rows.c.rk)))
             self._member_tables[key] = self._materialize(
                 self._next_table("board_members"), source, analyze=MEMBER_STATS
             )

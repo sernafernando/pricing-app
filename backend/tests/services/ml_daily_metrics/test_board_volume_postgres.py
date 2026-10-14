@@ -860,7 +860,10 @@ def volume_ads(volume_session):
     volume_session.execute(
         text(
             "CREATE TEMPORARY TABLE ml_ads_item_days (advertiser_id BIGINT, ad_group_id BIGINT, item_id VARCHAR(30), "
-            "day DATE, cost NUMERIC(16, 2))"
+            "day DATE, cost NUMERIC(16, 2), clicks INTEGER DEFAULT 0, prints BIGINT DEFAULT 0, "
+            "direct_amount NUMERIC(16, 2) DEFAULT 0, indirect_amount NUMERIC(16, 2) DEFAULT 0, "
+            "direct_units INTEGER DEFAULT 0, indirect_units INTEGER DEFAULT 0, organic_units INTEGER DEFAULT 0, "
+            "organic_amount NUMERIC(16, 2) DEFAULT 0)"
         )
     )
     volume_session.execute(
@@ -871,7 +874,8 @@ def volume_ads(volume_session):
     )
     volume_session.execute(
         text(
-            f"INSERT INTO ml_ads_item_days SELECT 1, grp, {_MLA}, CAST(:today AS DATE) - d, 5 + (k + d) % 20 "
+            f"INSERT INTO ml_ads_item_days SELECT 1, grp, {_MLA}, CAST(:today AS DATE) - d, 5 + (k + d) % 20, "
+            "k % 7, 100 + k % 50, 30 + d, 20 + d, k % 3, k % 2, k % 4, 10 + d "
             "FROM generate_series(1, 3000) AS k, generate_series(0, 59) AS d, generate_series(1, 2) AS grp "
             "WHERE grp = 1 OR k % 4 = 0"
         ),
@@ -892,13 +896,13 @@ def volume_ads(volume_session):
 
 @pytest.mark.postgres
 class TestAdsOnVolume:
-    def test_the_ads_cost_exactly_three_statements_whatever_the_page_size(self, volume_session, volume_ads) -> None:
-        """ON adds the comparison-ledger check, the ads temp table and its ANALYZE; nothing per row."""
+    def test_the_ads_cost_exactly_four_statements_whatever_the_page_size(self, volume_session, volume_ads) -> None:
+        """ON adds the comparison-ledger check, the ads temp table, its ANALYZE and the KPI ads read; nothing per row."""
         for limit in (10, 50, 200):
             _off, plain, plain_ms = _request(volume_session, limit=limit)
             on, recorder, elapsed_ms = _request(volume_session, limit=limit, restar_publicidad=True)
             assert len(on.rows) == limit
-            assert len(recorder.statements) == len(plain.statements) + 3
+            assert len(recorder.statements) == len(plain.statements) + 4
             print(f"\nboard OFF limit={limit}: {len(plain.statements)} statements, {plain_ms:.0f} ms")
             _print(f"board ads ON limit={limit}", recorder, elapsed_ms)
 
@@ -938,7 +942,9 @@ class TestAdsOnVolume:
         """PR 7b-i: an MLA no product owns gets a "sin producto" row (ON, unfiltered); the union and the
         `units > 0 OR ads_cost > 0` predicate are part of the same statements, whatever `solo_con_ventas` says."""
         volume_session.execute(
-            text("INSERT INTO ml_ads_item_days VALUES (1, 9, 'MLAGHOST', CAST(:today AS DATE), 1000000)"),
+            text(
+                "INSERT INTO ml_ads_item_days VALUES (1, 9, 'MLAGHOST', CAST(:today AS DATE), 1000000, 0, 0, 0, 0, 0, 0, 0, 0)"
+            ),
             {"today": TODAY},
         )
         try:
@@ -947,7 +953,7 @@ class TestAdsOnVolume:
                 on, recorder, elapsed_ms = _request(
                     volume_session, limit=10, solo_con_ventas=solo, restar_publicidad=True, sort="ads_cost"
                 )
-                assert len(recorder.statements) == len(plain.statements) + 3
+                assert len(recorder.statements) == len(plain.statements) + 4
                 assert on.rows[0].key == "0" and on.rows[0].ads.cost > 0
                 _print(f"board ads ON ad-only union solo_con_ventas={solo}", recorder, elapsed_ms)
             filtered, _r, _ms = _request(
@@ -960,3 +966,18 @@ class TestAdsOnVolume:
             assert "0" not in [row.key for row in filtered.rows]
         finally:
             volume_session.execute(text("DELETE FROM ml_ads_item_days WHERE item_id = 'MLAGHOST'"))
+
+    def test_the_kpi_ads_block_costs_one_statement_and_matches_the_ad_lines(self, volume_session, volume_ads) -> None:
+        """PR 7b-ii: ON = OFF + 4 (7a's 3 plus the KPI ads statement), whatever the page; the unfiltered cost_total is
+        every ad line of the period, and a filtered view sums less."""
+        _off, plain, _ms = _request(volume_session, limit=10)
+        on, recorder, elapsed_ms = _request(volume_session, limit=10, restar_publicidad=True)
+        assert len(recorder.statements) == len(plain.statements) + 4
+        _print("board ads ON with the KPI ads block", recorder, elapsed_ms)
+        total = volume_session.execute(
+            text("SELECT SUM(cost) FROM ml_ads_item_days WHERE day BETWEEN CAST(:a AS DATE) AND CAST(:b AS DATE)"),
+            {"a": TODAY - timedelta(days=29), "b": TODAY},
+        ).scalar()
+        assert on.kpis.ads.cost_total == pytest.approx(float(total), abs=0.011)
+        narrowed, _r, _ms = _request(volume_session, limit=10, restar_publicidad=True, pub_status_exclude=("closed",))
+        assert narrowed.kpis.ads.cost_total <= on.kpis.ads.cost_total
