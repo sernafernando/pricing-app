@@ -102,7 +102,6 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
-from app.core.config import settings
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_ads import MlAdsDayLedger, MlAdsItemDay
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps
@@ -119,9 +118,9 @@ from app.services.ml_daily_metrics.sales import (
     day_bounds,
     groups_touching,
     last_sales,
+    lines_source,
     persisted_last_sales,
-    persisted_lines,
-    sale_lines,
+    reads_persisted_lines,
 )
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_sales_query.filters import NO_STORE, _resolve_pm_pairs
@@ -611,7 +610,7 @@ class Board:
         self.sqlite = db.get_bind().dialect.name == "sqlite"
         # Read the persisted sold lines (`ml_sale_lines`) instead of deriving them
         # live: behind a flag, PostgreSQL only (the table is written by the drain).
-        self.use_lines = bool(settings.METRICAS_SALE_LINES_ENABLED) and not self.sqlite
+        self.use_lines = reads_persisted_lines(self.sqlite)
         # The rows' unit is the PRODUCT in the product and "group" views (the
         # latter sums them afterwards); only "publication" rows are MLAs.
         self.by_pub = f.group_by == "publication"
@@ -784,12 +783,9 @@ class Board:
         what every period/window total, the KPI series and the 90-day
         sparklines read. `u24` is the part accredited in the last 24h -- a
         SUBSET of the day's units by construction."""
-        if self.use_lines:
-            lines = persisted_lines(ranges=self._ranges(), product=self.product_item_id)
-        else:
-            lines = sale_lines(
-                sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id, groups=self._touched()
-            )
+        lines = lines_source(
+            sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id, groups=self._touched()
+        )
         return self._in_mla_set(
             select(
                 lines.c.product,

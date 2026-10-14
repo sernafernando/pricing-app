@@ -6,6 +6,8 @@ joins it).
 
 - `GET /ml-publications/view/items` (`ml_ops.ver`): one row per MLA, filters, search, sorts, optional facets and
   the honest-state block. NO PM or sub-PM scoping: the screen is a management tool over every publication.
+  With `ml_metricas.ver`, each row also carries `sales_30d`: its units and gross revenue over the last 30 business
+  days from Métricas ML's own base, plus the real (sales-weighted) markup only with `ml_metricas.ver_ganancia`.
 - `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree (marca >
   categoria > subcategoria > producto > [familia]), with the same filters as `/items`; the publications of a leaf node
   come from `/items` with the node's `params`.
@@ -46,6 +48,7 @@ from app.services.ml_publications.view import (
     history,
     kpis,
     listing,
+    sales_summary,
     status_block,
     variations,
 )
@@ -59,6 +62,7 @@ from app.services.ml_publications.view.filters import (
     parse_markup_filter,
 )
 from app.services.ml_publications.view.markup_service import AdsPlan, MarkupQuery
+from app.services.ml_publications.view.sales_summary import SalesSummary
 from app.services.ml_publications.view.timing import Timer
 from app.services.permisos_service import PermisosService
 
@@ -157,6 +161,16 @@ class AdsOut(BaseModel):
     date_to: Optional[date] = None
 
 
+class Sales30dOut(BaseModel):
+    """Units and gross revenue of the publication over the last 30 business days (Métricas ML's base; zero without
+    sales). `markup` is the real markup of those sales (sum of the markup numerator over sum of the cost, as the
+    board computes it; null without cost or sales), present only with `ml_metricas.ver_ganancia`."""
+
+    units: int
+    gross: float
+    markup: Optional[float] = None
+
+
 class LastEventOut(BaseModel):
     event_type: str
     observed_at: datetime
@@ -188,6 +202,7 @@ class ItemRowOut(BaseModel):
     last_activity_at: Optional[datetime] = None
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
     markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
+    sales_30d: Optional[Sales30dOut] = None  # present only with ml_metricas.ver
 
 
 class DataStateOut(BaseModel):
@@ -573,6 +588,19 @@ def _ads_plan(provider: AdsCostProvider, status_: AdsStatus) -> Optional[AdsPlan
     return AdsPlan(provider, formula, status_.date_from, status_.date_to)
 
 
+def _attach_sales(items: list[dict[str, Any]], summaries: dict[str, SalesSummary], with_markup: bool) -> None:
+    """`sales_30d` on every row of the page: zero without sales, the markup only for who may see it."""
+    for item in items:
+        found = summaries.get(item["item_id"])
+        out: dict[str, Any] = {
+            "units": found.units if found else 0,
+            "gross": float(found.gross) if found else 0.0,
+        }
+        if with_markup:
+            out["markup"] = found.markup if found else None
+        item["sales_30d"] = out
+
+
 def _ads_out(status_: AdsStatus) -> dict[str, Any]:
     out: dict[str, Any] = {
         "available": status_.available,
@@ -617,7 +645,9 @@ def get_items(
 ) -> dict[str, Any]:
     """One page of publications (one row per MLA) with the honest-state block."""
     timer = Timer("items")
-    can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
+    permisos = PermisosService(auth_db)
+    can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
+    can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
     asks_for_margin = bool(
         markup_neg
         or restar_publicidad
@@ -644,6 +674,10 @@ def get_items(
         f = listing.resolve_pm_pairs(db, f)  # once: the list and the facets share the resolved pairs
         with timer.stage("list"):
             page = listing.list_items(db, f, sort, limit, offset, events=events_enabled, markup=markup)
+        if can_see_sales:
+            with timer.stage("sales"):
+                summaries = sales_summary.summary_by_mla(db, [item["item_id"] for item in page.items])
+            _attach_sales(page.items, summaries, with_markup=can_see_margin)
         facet_counts = None
         if facets:
             with timer.stage("facets"):
