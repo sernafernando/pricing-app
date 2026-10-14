@@ -10,6 +10,8 @@ wrote the event, and the handler wraps each step in its own short `get_backgroun
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
@@ -18,7 +20,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.models.ml_publications import MlItem
 from app.models.promo_refresh_reactivation import PromoRefreshReactivation
 
-# A row that failed this many times is quarantined (deleted, logged by the caller).
+logger = logging.getLogger(__name__)
+
+# Every claim charges one attempt (so a MLA that crashes the worker mid-call cannot loop forever); a row whose
+# attempts reach this number is quarantined (deleted, logged).
 MAX_ATTEMPTS = 5
 BACKOFF_BASE_SECONDS = 60
 BACKOFF_CAP_SECONDS = 3600
@@ -35,33 +40,49 @@ def backoff_seconds(attempts: int) -> int:
 
 
 def enqueue(db, item_ids: Iterable[str], now: datetime) -> int:
-    """Queue `item_ids` for a refresh due `now`; an MLA already queued is left as it is. Returns new rows."""
+    """Queue `item_ids` for a refresh due `now`. An MLA already queued is made due again with a fresh budget, which
+    also invalidates a lease in flight (see `Claim`), so a reactivation during a refresh is never swallowed by it."""
     values = [{"mla": item_id, "due_at": now, "attempts": 0} for item_id in dict.fromkeys(item_ids)]
     if not values:
         return 0
-    statement = (
-        pg_insert(PromoRefreshReactivation)
-        .values(values)
-        .on_conflict_do_nothing(index_elements=["mla"])
-        .returning(PromoRefreshReactivation.id)
-    )
+    insert = pg_insert(PromoRefreshReactivation).values(values)
+    statement = insert.on_conflict_do_update(
+        index_elements=["mla"], set_={"due_at": insert.excluded.due_at, "attempts": 0}
+    ).returning(PromoRefreshReactivation.id)
     return len(db.execute(statement).all())
 
 
-def claim_one(db, now: datetime) -> Optional[str]:
-    """Oldest due MLA, leased until `now + CLAIM_LEASE_SECONDS`; None when nothing is due."""
-    row = (
-        db.query(PromoRefreshReactivation)
-        .filter(PromoRefreshReactivation.due_at <= now)
-        .order_by(PromoRefreshReactivation.due_at, PromoRefreshReactivation.id)
-        .with_for_update(skip_locked=True)
-        .first()
-    )
-    if row is None:
-        return None
-    row.due_at = now + timedelta(seconds=CLAIM_LEASE_SECONDS)
-    db.flush()  # the lease is written before any bulk statement of the caller touches the row
-    return row.mla
+@dataclass(frozen=True)
+class Claim:
+    """A leased row. Settling it only touches the row while `due_at` still equals the lease: a newer `enqueue`
+    changed it, and that newer request must survive this refresh."""
+
+    mla: str
+    leased_until: datetime
+
+
+def claim_one(db, now: datetime) -> Optional[Claim]:
+    """Oldest due MLA, leased until `now + CLAIM_LEASE_SECONDS` with one attempt charged; None when nothing is due.
+    Rows that already used up their attempts (crashes mid-call never reach a settle) are quarantined on the way."""
+    while True:
+        row = (
+            db.query(PromoRefreshReactivation)
+            .filter(PromoRefreshReactivation.due_at <= now)
+            .order_by(PromoRefreshReactivation.due_at, PromoRefreshReactivation.id)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if row is None:
+            return None
+        if row.attempts >= MAX_ATTEMPTS:
+            logger.error("promo_refresh: %s QUARANTINED after %s attempts", row.mla, row.attempts)
+            db.delete(row)
+            db.flush()
+            continue
+        row.attempts += 1
+        row.due_at = now + timedelta(seconds=CLAIM_LEASE_SECONDS)
+        db.flush()
+        return Claim(row.mla, row.due_at)
 
 
 def is_active(db, mla: str) -> bool:
@@ -70,23 +91,29 @@ def is_active(db, mla: str) -> bool:
     return row is not None and row.status == "active" and row.gone_at is None and not row.never_existed
 
 
-def drop(db, mla: str) -> None:
-    db.query(PromoRefreshReactivation).filter(PromoRefreshReactivation.mla == mla).delete(synchronize_session=False)
-
-
-def release(db, mla: str, now: datetime) -> None:
-    """Make a claimed row due again without charging an attempt."""
-    db.query(PromoRefreshReactivation).filter(PromoRefreshReactivation.mla == mla).update(
-        {"due_at": now}, synchronize_session=False
+def _leased(db, claim: Claim):
+    return db.query(PromoRefreshReactivation).filter(
+        PromoRefreshReactivation.mla == claim.mla, PromoRefreshReactivation.due_at == claim.leased_until
     )
 
 
-def fail(db, mla: str, now: datetime) -> Optional[str]:
-    """Charge one failed attempt: back off, or quarantine (delete) at `MAX_ATTEMPTS`. None if the row is gone."""
-    row = db.query(PromoRefreshReactivation).filter(PromoRefreshReactivation.mla == mla).first()
+def drop(db, claim: Claim) -> None:
+    """Remove the claimed row (done, or nothing a retry could fix), unless a newer enqueue replaced the lease."""
+    _leased(db, claim).delete(synchronize_session=False)
+
+
+def release(db, claim: Claim, now: datetime) -> None:
+    """Hand the claim back, due again and uncharged."""
+    _leased(db, claim).update(
+        {"due_at": now, "attempts": PromoRefreshReactivation.attempts - 1}, synchronize_session=False
+    )
+
+
+def fail(db, claim: Claim, now: datetime) -> Optional[str]:
+    """The attempt claimed failed: back off, or quarantine (delete) at `MAX_ATTEMPTS`. None if the lease was replaced."""
+    row = _leased(db, claim).first()
     if row is None:
         return None
-    row.attempts += 1
     if row.attempts >= MAX_ATTEMPTS:
         db.delete(row)
         return OUTCOME_QUARANTINED

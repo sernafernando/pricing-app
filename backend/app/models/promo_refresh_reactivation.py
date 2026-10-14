@@ -22,7 +22,7 @@ class PromoRefreshReactivation(Base):
     id = Column(Integer, primary_key=True, index=True)
     mla = Column(String(32), nullable=False, unique=True)
     due_at = Column(DateTime(timezone=True), nullable=False)
-    attempts = Column(Integer, nullable=False, default=0)
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (Index("ix_promo_refresh_reactivation_due_at", "due_at"),)

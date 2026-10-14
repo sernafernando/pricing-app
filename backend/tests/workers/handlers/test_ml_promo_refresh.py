@@ -201,3 +201,37 @@ class TestGates:
         clock.at += 61
         handler.run(ctx())
         assert proxy.await_count == 2 and rows(env) == {}
+
+
+class TestClaims:
+    def test_a_claim_charges_an_attempt_so_a_crash_mid_call_cannot_loop_forever(self, env) -> None:
+        from app.core import database
+
+        put(env, ACTIVE)
+        with database.get_background_db() as db:
+            claim = queue.claim_one(db, now())
+        assert claim.mla == ACTIVE and rows(env)[ACTIVE].attempts == 1
+        assert rows(env)[ACTIVE].due_at > now() + timedelta(seconds=queue.CLAIM_LEASE_SECONDS - 5)
+
+    def test_a_row_that_used_up_its_attempts_is_quarantined_without_a_call(self, env, handler, proxy) -> None:
+        put(env, ACTIVE, attempts=queue.MAX_ATTEMPTS)
+
+        handler.run(ctx())
+
+        proxy.assert_not_called()
+        assert rows(env) == {}
+
+    def test_a_reactivation_during_an_in_flight_refresh_is_not_swallowed_by_it(self, env, handler, proxy) -> None:
+        from app.core import database
+
+        def reactivated_meanwhile(mla):
+            with database.get_background_db() as db:
+                queue.enqueue(db, [mla], now())
+            return RefreshOutcome(ok=True)
+
+        proxy.side_effect = reactivated_meanwhile
+        put(env, ACTIVE)
+
+        handler.run(ctx())
+
+        assert rows(env)[ACTIVE].attempts == 0 and rows(env)[ACTIVE].due_at <= now()

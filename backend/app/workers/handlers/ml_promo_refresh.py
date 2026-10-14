@@ -80,22 +80,22 @@ class PromoRefreshHandler:
                 break
             now = _utcnow()
             with self._session_factory() as db:
-                mla = queue.claim_one(db, now)
-                inactive = mla is not None and not queue.is_active(db, mla)
-                if inactive:
-                    queue.drop(db, mla)
-            if mla is None:
+                claim = queue.claim_one(db, now)
+                inactive = claim is not None and not queue.is_active(db, claim.mla)
+                if claim is not None and inactive:
+                    queue.drop(db, claim)
+            if claim is None:
                 break
             if inactive:
                 detail["dropped"] += 1
                 continue
             if self.pacer.acquire(PACER_FAMILY, ctx.deadline) == DEADLINE:
                 with self._session_factory() as db:
-                    queue.release(db, mla, _utcnow())
+                    queue.release(db, claim, _utcnow())
                 stopped = "deadline"
                 break
             self._calls.append(self._monotonic())
-            self._settle(mla, self._refresh(mla), detail)
+            self._settle(claim, self._refresh(claim.mla), detail)
         if stopped:
             detail["stopped"] = stopped  # type: ignore[assignment]
         return JobResult(success=True, detail=detail)
@@ -109,22 +109,22 @@ class PromoRefreshHandler:
             logger.warning("promo_refresh: refresh_item_promotions raised for %s", mla, exc_info=True)
             return None
 
-    def _settle(self, mla: str, outcome: Optional[RefreshOutcome], detail: Dict[str, int]) -> None:
+    def _settle(self, claim: queue.Claim, outcome: Optional[RefreshOutcome], detail: Dict[str, int]) -> None:
         with self._session_factory() as db:
             if outcome is not None and outcome.ok:
-                queue.drop(db, mla)
+                queue.drop(db, claim)
                 detail["refreshed"] += 1
             elif outcome is not None and not outcome.reintentable:
-                logger.warning("promo_refresh: %s dropped, retrying cannot help: %s", mla, outcome.motivo)
-                queue.drop(db, mla)
+                logger.warning("promo_refresh: %s dropped, retrying cannot help: %s", claim.mla, outcome.motivo)
+                queue.drop(db, claim)
                 detail["dropped"] += 1
             else:
-                result = queue.fail(db, mla, _utcnow())
+                result = queue.fail(db, claim, _utcnow())
                 if result is not None:  # None: the row is already gone, nothing was charged
                     detail["failed"] += 1
                 if result == queue.OUTCOME_QUARANTINED:
                     detail["quarantined"] += 1
-                    logger.error("promo_refresh: %s QUARANTINED after %s attempts", mla, queue.MAX_ATTEMPTS)
+                    logger.error("promo_refresh: %s QUARANTINED after %s attempts", claim.mla, queue.MAX_ATTEMPTS)
 
 
 # One in-process ML budget with the other handlers of this worker.
