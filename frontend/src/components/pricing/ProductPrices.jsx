@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Info, Pencil, X } from 'lucide-react';
+import { Check, Info, Pencil, Percent, X } from 'lucide-react';
 import { preciosAPI } from '../../services/api';
-import { formatPrecioInput, parsePrecioInput } from '../../utils/precioInput';
+import { formatMarkupInput, formatPrecioInput, parseMarkupInput, parsePrecioInput } from '../../utils/precioInput';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import styles from './ProductPrices.module.css';
 
@@ -88,16 +88,27 @@ function recalcularCuotasPreference() {
 const recalcularCuotas = (product) =>
   isBlank(product.recalcular_cuotas_auto) ? recalcularCuotasPreference() : product.recalcular_cuotas_auto;
 
-/** What the inline warning says before a negative markup or a cleared price is saved. */
+/**
+ * What the inline confirmation says before a price is saved: a cleared price,
+ * a negative markup, or the price a target markup resolved to.
+ */
 function warningText(pending) {
   const { row } = pending;
+  const resulting = pending.precio === undefined ? '' : ` Precio resultante: $ ${formatAmount(pending.precio)}.`;
+  if (pending.kind === 'markup') {
+    return `Precio resultante para ${row.label} con markup ${formatAmount(pending.markup)}%: $ ${formatAmount(pending.precio)}.`;
+  }
   if (pending.kind === 'zero') {
     return row.write === 'rapido'
       ? `Esto borra el precio de la lista ${row.listaTipo === 'pvp' ? 'PVP' : 'ML'} y todas sus cuotas.`
       : `Esto borra el precio de ${row.label}.`;
   }
-  return `Markup negativo en ${row.label}: ${formatAmount(pending.markup)}%. El precio queda por debajo del costo más comisiones.`;
+  return `Markup negativo en ${row.label}: ${formatAmount(pending.markup)}%. El precio queda por debajo del costo más comisiones.${resulting}`;
 }
+
+/** The typed value as editable text again, for the editor's mode. */
+const editorValue = (row, product, mode) =>
+  mode === 'markup' ? formatMarkupInput(product[row.markup]) : formatPrecioInput(product[row.precio]);
 
 function writePrice(row, itemId, precio, product) {
   if (row.write === 'rapido') {
@@ -170,10 +181,11 @@ function ProductFacts({ product, showCost }) {
   );
 }
 
-function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, onChange, onSave, onCancel }) {
+function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, onChange, onToggleMode, onSave, onCancel }) {
   const price = product[row.precio];
   const markup = product[row.markup];
   const isEditing = editing?.id === row.id;
+  const byMarkup = isEditing && editing.mode === 'markup';
 
   const handleKeyDown = (event) => {
     if (event.key === 'Enter') {
@@ -197,7 +209,8 @@ function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, o
             className={styles.input}
             type="text"
             inputMode="decimal"
-            aria-label={row.label}
+            aria-label={byMarkup ? `${row.label} markup objetivo` : row.label}
+            placeholder={byMarkup ? '%' : undefined}
             value={editing.value}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -218,6 +231,17 @@ function PriceRow({ row, product, editable, canEdit, editing, saving, onStart, o
         <td className={styles.actions}>
           {isEditing ? (
             <>
+              <button
+                type="button"
+                className={styles.modeButton}
+                aria-label="Por markup"
+                aria-pressed={byMarkup}
+                title={byMarkup ? 'Editar por precio' : 'Editar por markup'}
+                onClick={onToggleMode}
+                disabled={saving}
+              >
+                <Percent size={14} aria-hidden="true" />
+              </button>
               <button type="button" className={styles.iconButton} aria-label="Guardar" onClick={onSave} disabled={saving}>
                 <Check size={14} aria-hidden="true" />
               </button>
@@ -331,17 +355,75 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
           return;
         }
       }
-      await writePrice(row, itemId, precio, product);
-      if (!isShown(itemId)) return;
-      setEditing(null);
-      setPending(null);
-      await afterWrite(itemId);
+      await commit(row, itemId, precio);
     } catch (error) {
       if (isShown(itemId)) setMessage({ tone: 'error', text: errorText(error, 'No se pudo guardar el precio.') });
     } finally {
       if (isShown(itemId)) setSaving(false);
     }
   };
+
+  /** The write itself, shared by a typed price and a price resolved from a markup. */
+  const commit = async (row, itemId, precio) => {
+    await writePrice(row, itemId, precio, product);
+    if (!isShown(itemId)) return;
+    setEditing(null);
+    setPending(null);
+    await afterWrite(itemId);
+  };
+
+  /** Saves the price a confirmed markup preview resolved to (no second markup check). */
+  const saveResolved = async ({ row, precio }) => {
+    const itemId = productItemId;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await commit(row, itemId, precio);
+    } catch (error) {
+      if (isShown(itemId)) setMessage({ tone: 'error', text: errorText(error, 'No se pudo guardar el precio.') });
+    } finally {
+      if (isShown(itemId)) setSaving(false);
+    }
+  };
+
+  /**
+   * A target markup: the backend resolves the row's price for it (with no
+   * extra markup on top) and the user confirms that price before it is
+   * written -- with the negative-markup warning when it lands below cost.
+   */
+  const previewMarkup = async (row, value) => {
+    const markupObjetivo = parseMarkupInput(value);
+    if (markupObjetivo === null) {
+      setMessage({ tone: 'error', text: 'El markup debe ser un número válido (ej. 25 o 18,5).' });
+      return;
+    }
+    const itemId = productItemId;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const { data } = await preciosAPI.calcularPorMarkup({
+        item_id: itemId,
+        pricelist_id: row.pricelist,
+        markup_objetivo: markupObjetivo,
+        adicional_markup: 0,
+      });
+      if (!isShown(itemId)) return;
+      const precio = typeof data?.precio === 'number' ? data.precio : NaN;
+      if (!Number.isFinite(precio) || precio <= 0) {
+        setMessage({ tone: 'error', text: 'No se pudo calcular un precio válido para ese markup.' });
+        return;
+      }
+      const markup = typeof data.markup_real === 'number' ? data.markup_real : markupObjetivo;
+      const negative = markupObjetivo < 0 || markup < 0;
+      setPending({ kind: negative ? 'negative' : 'markup', resolved: true, row, value, markup, precio });
+    } catch (error) {
+      if (isShown(itemId)) setMessage({ tone: 'error', text: errorText(error, 'No se pudo calcular un precio para ese markup.') });
+    } finally {
+      if (isShown(itemId)) setSaving(false);
+    }
+  };
+
+  const confirm = (current) => (current.resolved ? saveResolved(current) : save(current.row, current.value, true));
 
   const cancel = () => {
     setEditing(null);
@@ -402,14 +484,22 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
                     onStart={() => {
                       setPending(null);
                       setMessage(null);
-                      setEditing({ id: row.id, value: formatPrecioInput(product[row.precio]) });
+                      setEditing({ id: row.id, mode: 'precio', value: editorValue(row, product, 'precio') });
+                    }}
+                    onToggleMode={() => {
+                      setPending(null);
+                      setMessage(null);
+                      setEditing((current) => {
+                        const mode = current.mode === 'markup' ? 'precio' : 'markup';
+                        return { ...current, mode, value: editorValue(row, product, mode) };
+                      });
                     }}
                     onChange={(value) => {
                       // A warning confirms the value it was raised for: a new value drops it.
                       setPending(null);
                       setEditing((current) => ({ ...current, value }));
                     }}
-                    onSave={() => save(row, editing.value)}
+                    onSave={() => (editing.mode === 'markup' ? previewMarkup(row, editing.value) : save(row, editing.value))}
                     onCancel={cancel}
                   />
                 ))}
@@ -418,14 +508,19 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
           ))}
 
           {pending && (
-            <div className={styles.warning} role="alert">
+            <div className={pending.kind === 'markup' ? styles.preview : styles.warning} role={pending.kind === 'markup' ? 'status' : 'alert'}>
               <span>{warningText(pending)}</span>
               <div className={styles.warningActions}>
                 <button type="button" className="btn-tesla outline sm" onClick={() => setPending(null)} disabled={saving}>
                   Cancelar
                 </button>
-                <button type="button" className="btn-tesla outline-subtle-danger sm" onClick={() => save(pending.row, pending.value, true)} disabled={saving}>
-                  {pending.kind === 'zero' ? 'Borrar el precio' : 'Guardar de todas formas'}
+                <button
+                  type="button"
+                  className={pending.kind === 'markup' ? 'btn-tesla primary sm' : 'btn-tesla outline-subtle-danger sm'}
+                  onClick={() => confirm(pending)}
+                  disabled={saving}
+                >
+                  {pending.kind === 'zero' ? 'Borrar el precio' : pending.kind === 'markup' ? 'Guardar precio' : 'Guardar de todas formas'}
                 </button>
               </div>
             </div>

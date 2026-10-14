@@ -68,6 +68,7 @@ vi.mock('../../services/api', () => ({
     obtenerProducto: vi.fn(() => new Promise(() => {})),
     tipoCambioActual: vi.fn(() => new Promise(() => {})),
     calcularMarkup: vi.fn(),
+    calcularPorMarkup: vi.fn(),
     setRapido: vi.fn(),
     setCuota: vi.fn(),
   },

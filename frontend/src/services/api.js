@@ -385,6 +385,9 @@ export const preciosAPI = {
   // every write recomputes the stored markups.
   // { item_id, precio, pricelist_id } -> { markup, ... }
   calcularMarkup: (params) => api.get('/precios/calcular-markup', { params }),
+  // { item_id, pricelist_id, markup_objetivo, adicional_markup } -> { precio, markup_real, ... }
+  // adicional_markup defaults to 4 in the backend: send 0 to get the typed markup.
+  calcularPorMarkup: (data) => api.post('/precios/calcular-por-markup', data),
   // { item_id, precio, recalcular_cuotas, lista_tipo? } -- precio 0 clears the list.
   setRapido: (params) => api.post('/precios/set-rapido', null, { params }),
   // { item_id, tipo_cuota, precio, lista_tipo }
