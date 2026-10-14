@@ -388,7 +388,6 @@ def _promotions_events(row: ChangeRow) -> list[Event]:
     old, new = _entries(row)
     if old is None or new is None:
         return []
-    old, new = old or {}, new or {}
     events: list[Event] = []
     for key in sorted(set(old) | set(new)):
         old_entry, new_entry = old.get(key), new.get(key)
@@ -431,8 +430,8 @@ def _competition_events(row: ChangeRow) -> list[Event]:
 def _moderation_events(row: ChangeRow) -> list[Event]:
     """Applied / resolved: a moderation record appears after the no-moderation state, or goes back to it.
 
-    Only presence is read. No positive record was captured (no item was under review on 2026-10-06), so
-    what a record says (restrictive, resolved) is not interpreted until a real one is."""
+    Only presence is read. Real records were captured on 2026-10-14 (a JSON list of moderations); what a
+    record says (restrictive, resolved) is still not interpreted, only whether any is present."""
     old, new = _entries(row)
     if old is None or new is None:
         return []
