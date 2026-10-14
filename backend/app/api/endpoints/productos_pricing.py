@@ -1180,9 +1180,9 @@ def recalcular_cuotas_masivo(
     }
 
 
-# The bulk "limpiar" actions live in the Admin panel, whose route is gated by
-# admin.ver_panel in the frontend; enforce the same code here.
-@router.post("/productos/limpiar-rebate", dependencies=[Depends(require_permiso("admin.ver_panel"))])
+# Bulk "limpiar" actions: gated by the dedicated catalog code, not by the
+# admin.ver_panel view permission (see 20261019_admin_limpieza_masiva_grant).
+@router.post("/productos/limpiar-rebate", dependencies=[Depends(require_permiso("admin.limpieza_masiva"))])
 def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Desactiva rebate en todos los productos"""
     from app.services.auditoria_service import registrar_auditoria
@@ -1208,7 +1208,7 @@ def limpiar_rebate(db: Session = Depends(get_db), current_user: Usuario = Depend
     return {"mensaje": "Rebate desactivado en todos los productos", "productos_actualizados": count}
 
 
-@router.post("/productos/limpiar-web-transferencia", dependencies=[Depends(require_permiso("admin.ver_panel"))])
+@router.post("/productos/limpiar-web-transferencia", dependencies=[Depends(require_permiso("admin.limpieza_masiva"))])
 def limpiar_web_transferencia(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Desactiva web transferencia en todos los productos"""
     from app.services.auditoria_service import registrar_auditoria

@@ -88,12 +88,12 @@ CASES = [
         ("productos.calcular_pvp_masivo",),
         200,
     ),
-    ("productos-limpiar-rebate", "/api/productos/limpiar-rebate", {}, ("admin.ver_panel",), 200),
+    ("productos-limpiar-rebate", "/api/productos/limpiar-rebate", {}, ("admin.limpieza_masiva",), 200),
     (
         "productos-limpiar-web-transferencia",
         "/api/productos/limpiar-web-transferencia",
         {},
-        ("admin.ver_panel",),
+        ("admin.limpieza_masiva",),
         200,
     ),
 ]
@@ -210,3 +210,14 @@ def test_productos_codes_keep_full_set_cuota_access(client, auth_headers, db, ro
     )
 
     assert response.status_code == 404, response.text
+
+
+@pytest.mark.parametrize("url", ["/api/productos/limpiar-rebate", "/api/productos/limpiar-web-transferencia"])
+def test_admin_panel_view_permission_alone_cannot_run_bulk_cleanup(client, auth_headers, db, rol_ventas, url) -> None:
+    """admin.ver_panel only opens the panel; the bulk cleanup needs admin.limpieza_masiva."""
+    _grant(db, rol_ventas, "admin.ver_panel")
+    db.commit()
+
+    response = client.post(url, headers=auth_headers)
+
+    assert response.status_code == 403, response.text

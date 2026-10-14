@@ -124,7 +124,9 @@ def test_deactivating_rebate_clears_a_stale_markup_rebate(client, auth_headers, 
 
 def test_bulk_limpiar_rebate_clears_stored_markup_rebate(client, auth_headers, db, rol_ventas) -> None:
     """limpiar-rebate turns participa_rebate off everywhere, so markup_rebate no longer applies."""
-    permiso = Permiso(codigo="admin.ver_panel", nombre="ver_panel", descripcion="", categoria="admin", orden=999)
+    permiso = Permiso(
+        codigo="admin.limpieza_masiva", nombre="limpieza_masiva", descripcion="", categoria="admin", orden=999
+    )
     db.add(permiso)
     db.flush()
     db.add(RolPermisoBase(rol_id=rol_ventas.id, permiso_id=permiso.id))

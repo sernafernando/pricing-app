@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { usePermisos } from '../contexts/PermisosContext';
 import styles from './Admin.module.css';
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import PanelComisiones from '../components/PanelComisiones';
@@ -28,6 +29,9 @@ registrarPagina({
 });
 
 export default function Admin() {
+  const { tienePermiso } = usePermisos();
+  // The bulk cleanup endpoints require admin.limpieza_masiva, not just panel access.
+  const puedeLimpiezaMasiva = tienePermiso('admin.limpieza_masiva');
   const [tabActiva, setTabActiva] = useState('general');
   const [sincronizando, setSincronizando] = useState(false);
   const [sincronizandoIva, setSincronizandoIva] = useState(false);
@@ -338,6 +342,7 @@ export default function Admin() {
       </div>
 
 	  {/* Sección Limpieza Masiva */}
+	  {puedeLimpiezaMasiva && (
 	  	<div className={styles.section}>
 	  	  <h2 className={styles.sectionTitle}>Limpieza Masiva de Precios</h2>
 	  	  <p className={styles.description}>
@@ -360,6 +365,7 @@ export default function Admin() {
 	  	    </button>
 	  	  </div>
 	  	</div>
+	  )}
       </>
       )}
 
