@@ -352,8 +352,11 @@ class RolesService:
 
     def bloquear_usuario(self, usuario_id: int) -> Optional[Usuario]:
         """Carga el usuario con FOR UPDATE: cambios de rol principal y de roles adicionales
-        del mismo usuario se serializan (no queda un rol como principal y adicional a la vez)"""
-        return self.db.query(Usuario).filter(Usuario.id == usuario_id).with_for_update().first()
+        del mismo usuario se serializan (no queda un rol como principal y adicional a la vez).
+
+        `populate_existing`: si el usuario ya estaba en la sesión, la lectura bloqueada pisa sus
+        atributos con los de la base; sin eso se validaría contra un `rol_id` viejo."""
+        return self.db.query(Usuario).filter(Usuario.id == usuario_id).populate_existing().with_for_update().first()
 
     def quitar_rol_adicional_redundante(self, usuario_id: int, rol_id: Optional[int]) -> None:
         """Si el nuevo rol principal estaba como adicional, lo saca (sin commit).

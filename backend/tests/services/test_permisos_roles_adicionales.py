@@ -8,6 +8,7 @@ adds its base permissions to the union, and user overrides still apply last.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.security import get_password_hash
@@ -289,6 +290,17 @@ class TestAsignacion:
 
         assert "usuarios" in bloqueos
         _assert_update_antes_del_delete(counter.statements)
+        assert db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.usuario_id == vendedor.id).count() == 0
+
+    def test_el_bloqueo_relee_el_rol_principal_cambiado_por_otro(self, db, vendedor, compras):
+        """The user is already in the identity map with the old rol_id; a concurrent PATCH
+        changed it underneath. The locked read must refresh it, so the new primary is rejected."""
+        assert vendedor.rol_id != compras.id
+        db.execute(text("UPDATE usuarios SET rol_id = :rol WHERE id = :id"), {"rol": compras.id, "id": vendedor.id})
+
+        with pytest.raises(ValueError, match="rol principal"):
+            RolesService(db).set_roles_adicionales_usuario(vendedor.id, [compras.id])
+
         assert db.query(UsuarioRolAdicional).filter(UsuarioRolAdicional.usuario_id == vendedor.id).count() == 0
 
 

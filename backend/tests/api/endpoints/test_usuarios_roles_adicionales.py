@@ -7,6 +7,7 @@ PRIMARY role must be ADMIN or SUPERADMIN, and only a SUPERADMIN touches a SUPERA
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.security import get_password_hash
@@ -165,6 +166,15 @@ class TestReemplazo:
 
         assert resp.status_code == 409
         assert "al mismo tiempo" in resp.text
+
+    def test_rechaza_el_rol_principal_cambiado_por_otro_400(self, client, db, admin_user, vendedor, compras):
+        """`vendedor` sits in the session with the old rol_id; the primary changed underneath."""
+        db.execute(text("UPDATE usuarios SET rol_id = :rol WHERE id = :id"), {"rol": compras.id, "id": vendedor.id})
+
+        resp = client.put(_url(vendedor), json={"rol_ids": [compras.id]}, headers=_headers(admin_user))
+
+        assert resp.status_code == 400
+        assert db.query(UsuarioRolAdicional).count() == 0
 
 
 class TestCambioDeRolPrincipal:
