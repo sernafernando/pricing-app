@@ -297,9 +297,9 @@ def _items(db: Session) -> Dict[str, Any]:
     }
 
 
-def _freshness(db: Session) -> Dict[str, Dict[str, Any]]:
+def _freshness(db: Session, resources: Optional[Dict[str, str]] = None) -> Dict[str, Dict[str, Any]]:
     result = {}
-    for resource, table in STATE_TABLES.items():
+    for resource, table in (STATE_TABLES if resources is None else resources).items():
         row = db.execute(
             text(
                 "SELECT count(*) AS total, count(age) AS checked, "
@@ -316,6 +316,11 @@ def _freshness(db: Session) -> Dict[str, Dict[str, Any]]:
             "max_age_seconds": _number(row.oldest),
         }
     return result
+
+
+def _is_expected(resource: str, bundle_resources: List[str]) -> bool:
+    """Whether the store is meant to collect `resource` (the items always are): a setting, not a scan."""
+    return resource == "items" or resource in bundle_resources
 
 
 _LAG_SQL = text(
@@ -351,7 +356,7 @@ def _completeness(db: Session, bundle_resources: List[str]) -> Dict[str, Dict[st
                 )
             ).scalar()
         result[resource] = {
-            "expected": resource == "items" or resource in bundle_resources,
+            "expected": _is_expected(resource, bundle_resources),
             "missing": missing,
             "non_2xx": {str(code): count for code, count in non_2xx},
         }
@@ -428,10 +433,39 @@ def freshness_metrics(db: Session, bundle_resources: List[str]) -> Dict[str, Any
 # --- the report ----------------------------------------------------------------------------------------------
 
 
-def build_status(db: Session) -> Dict[str, Any]:
-    """The whole report. Read only; see the module docstring."""
+def _bounded_read_only(db: Session) -> None:
     db.execute(text("SET TRANSACTION READ ONLY"))
     db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+
+
+def build_list_status(db: Session) -> Dict[str, Any]:
+    """The part of the report the list's honest-state block reads (`view.status_block.build_block`), and nothing else.
+
+    The block needs the flags, the kill switch, whether the store has items, how old they are (`stale_data`) and which
+    resources are collected. The full report also scans the queue, the jobs, every sub-resource state table, the
+    events, the change log and the link coverage: about 1.5 s on a 25k-item store, which the first list request of every
+    minute paid. This one reads settings and `ml_items` (a few milliseconds), under the same read-only and timeout
+    guarantees, and has the same shape for the keys it fills. A section that fails is named in `sections_failed`.
+    """
+    _bounded_read_only(db)
+    failed: List[str] = []
+    config = settings_store.get_settings([f"{flag}.enabled" for flag in FLAGS] + ["bundle_resources"])
+    bundle_resources = config["bundle_resources"].value
+    freshness = _guarded(db, "freshness", lambda s: _freshness(s, {"items": STATE_TABLES["items"]}), failed)
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "kill_switch": bool(settings.ML_PUB_KILL_SWITCH),
+        "flags": {flag: config[f"{flag}.enabled"].value is True for flag in FLAGS},
+        "items": _guarded(db, "items", _items, failed),
+        "freshness": freshness,
+        "completeness": {resource: {"expected": _is_expected(resource, bundle_resources)} for resource in STATE_TABLES},
+        "sections_failed": failed,
+    }
+
+
+def build_status(db: Session) -> Dict[str, Any]:
+    """The whole report. Read only; see the module docstring."""
+    _bounded_read_only(db)
     failed: List[str] = []
     config = settings_store.get_settings([f"{flag}.enabled" for flag in FLAGS] + ["bundle_resources"])
     flags = {flag: config[f"{flag}.enabled"].value is True for flag in FLAGS}

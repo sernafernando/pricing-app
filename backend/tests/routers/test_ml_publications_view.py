@@ -387,7 +387,9 @@ class TestHonestState:
 
     def test_a_report_that_cannot_be_built_does_not_fail_the_list(self, client, pg, reader, monkeypatch) -> None:
         seed_rows(pg, lambda conn: seed.add_item(conn, "MLA1"))
-        monkeypatch.setattr(status_block.status, "build_status", lambda db: (_ for _ in ()).throw(RuntimeError("x")))
+        monkeypatch.setattr(
+            status_block.status, "build_list_status", lambda db: (_ for _ in ()).throw(RuntimeError("x"))
+        )
         body = get(client, reader).json()
         assert [i["item_id"] for i in body["items"]] == ["MLA1"]
         assert body["data_state"]["available"] is False and body["data_state"]["reason"] == "status_unavailable"
