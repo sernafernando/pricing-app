@@ -11,12 +11,14 @@ show the same markups Productos shows for the same product.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
 from app.models.comision_config import SubcategoriaGrupo
 from app.models.comision_versionada import ComisionBase, ComisionVersion
+from app.models.item_cost_list_history import ItemCostListHistory
+from app.models.precio_ml import PrecioML
 from app.models.producto import ProductoERP, ProductoPricing
 
 # Force-register ERP stub models (only imported inside endpoint bodies otherwise),
@@ -215,3 +217,67 @@ def test_detail_pvp_markups_match_the_listing_with_the_grupo_shipping_fallback(
     for key in ["markup_pvp"] + [f"markup_pvp_{cuota}_cuotas" for cuota in CUOTAS]:
         assert row[key] is not None, key
         assert detail[key] == pytest.approx(row[key], abs=0.01), key
+
+
+PVP_KEYS = ["precio_pvp", "markup_pvp"] + [
+    f"{kind}_pvp_{cuota}_cuotas" for kind in ("precio", "markup") for cuota in CUOTAS
+]
+
+
+def _detail_and_listing_row(client, auth_headers, db, item_id):
+    _guard_incompatible_raw_sql(db)
+    detail = client.get(f"/api/productos/{item_id}", headers=auth_headers).json()
+    listing = client.get("/api/productos?page=1&page_size=50", headers=auth_headers).json()["productos"]
+    return detail, next(p for p in listing if p["item_id"] == item_id)
+
+
+def _assert_same(detail, row, keys):
+    for key in keys:
+        if row[key] is None:
+            assert detail[key] is None, key
+        else:
+            assert detail[key] == pytest.approx(row[key], abs=0.01), key
+
+
+def test_detail_pvp_prices_and_markups_follow_precios_ml_like_the_listing(
+    client, auth_headers, db, producto_sin_envio_sobre_tier3
+):
+    """When the product has PVP rows in precios_ml the listing shows THOSE prices
+    (the whole PVP set: a list without a row shows no price) and recomputes
+    their markups; the detail must show the same."""
+    item_id = producto_sin_envio_sobre_tier3.item_id
+    db.add(PrecioML(item_id=item_id, pricelist_id=12, precio=60000.0))
+    db.add(PrecioML(item_id=item_id, pricelist_id=18, precio=65000.0))
+    db.flush()
+
+    detail, row = _detail_and_listing_row(client, auth_headers, db, item_id)
+
+    assert row["precio_pvp"] == 60000.0
+    assert row["precio_pvp_6_cuotas"] is None
+    _assert_same(detail, row, PVP_KEYS)
+
+
+def test_detail_ppp_markups_match_the_listing_with_the_grupo_shipping_fallback(
+    client, auth_headers, db, producto_sin_envio_sobre_tier3
+):
+    item_id = producto_sin_envio_sobre_tier3.item_id
+    db.add(
+        ItemCostListHistory(
+            iclh_id=93021,
+            coslis_id=1,
+            item_id=item_id,
+            iclh_price=18000.0,
+            iclh_price_aw=18000.0,
+            curr_id=1,
+            iclh_cd=datetime(2026, 2, 14),
+        )
+    )
+    db.flush()
+
+    detail, row = _detail_and_listing_row(client, auth_headers, db, item_id)
+
+    listing_markups = row["ppp"]["markups"]
+    detail_markups = detail["ppp"]["markups"]
+    assert "clasica" in listing_markups
+    for key, value in listing_markups.items():
+        assert detail_markups.get(key) == pytest.approx(value, abs=0.01), key

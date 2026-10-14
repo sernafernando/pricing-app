@@ -14,7 +14,7 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import Usuario
 from datetime import UTC, date
 from app.api.deps import get_current_user
-from app.services.envio_real_service import resolver_costos_envio_batch, resolver_costo_envio
+from app.services.envio_real_service import resolver_costos_envio_batch
 from app.services.costo_ppp_service import (
     resolver_ppp_batch,
     PppMarkups,
@@ -43,6 +43,7 @@ from app.services.pricing_columns import (
     ml_cuota_prices,
 )
 from app.services.pricing_context import build_pricing_context, resolve_envio
+from app.services.pvp_precios_ml import fetch_pvp_precios_ml, pvp_precios_mostrados
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
@@ -1526,40 +1527,26 @@ def listar_productos(
                 producto.tn_promotional_price = tn_data["promotional_price"]
                 producto.tn_has_promotion = tn_data["has_promotion"]
 
-    # Obtener precios PVP desde precios_ml
+    # Obtener precios PVP desde precios_ml (rule shared with the product detail)
     if productos:
-        from app.models.precio_ml import PrecioML
-
         item_ids = [p.item_id for p in productos]
 
         # Build producto_erp lookup from original results (avoid per-product DB query)
         erp_by_item_id = {r[0].item_id: r[0] for r in results}
 
-        # Query para obtener precios PVP (listas 12, 18, 19, 20, 21)
-        precios_pvp_query = (
-            db.query(PrecioML.item_id, PrecioML.pricelist_id, PrecioML.precio)
-            .filter(PrecioML.item_id.in_(item_ids), PrecioML.pricelist_id.in_([12, 18, 19, 20, 21]))
-            .all()
-        )
-
-        # Crear diccionario item_id -> {pricelist_id: precio}
-        pvp_dict = {}
-        for item_id, pricelist_id, precio in precios_pvp_query:
-            if item_id not in pvp_dict:
-                pvp_dict[item_id] = {}
-            pvp_dict[item_id][pricelist_id] = float(precio) if precio else None
+        pvp_dict = fetch_pvp_precios_ml(db, item_ids)
 
         # Asignar precios PVP y calcular markups (using prefetched data)
         for producto in productos:
             if producto.item_id in pvp_dict:
-                precios = pvp_dict[producto.item_id]
+                precios = pvp_precios_mostrados({}, pvp_dict[producto.item_id])
 
                 # Asignar precios PVP
-                producto.precio_pvp = precios.get(12)
-                producto.precio_pvp_3_cuotas = precios.get(18)
-                producto.precio_pvp_6_cuotas = precios.get(19)
-                producto.precio_pvp_9_cuotas = precios.get(20)
-                producto.precio_pvp_12_cuotas = precios.get(21)
+                producto.precio_pvp = precios[12]
+                producto.precio_pvp_3_cuotas = precios[18]
+                producto.precio_pvp_6_cuotas = precios[19]
+                producto.precio_pvp_9_cuotas = precios[20]
+                producto.precio_pvp_12_cuotas = precios[21]
 
                 # Use prefetched producto_erp from original results
                 producto_erp = erp_by_item_id.get(producto.item_id)
@@ -2855,15 +2842,10 @@ def obtener_producto(
     # Importar funciones de cálculo
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
-        obtener_grupo_subcategoria,
-        obtener_comision_base,
         calcular_comision_ml_total,
         calcular_limpio,
         calcular_markup,
     )
-
-    # Resolve shipping cost once via central resolver (mlwebhook first, ERP fallback)
-    costo_envio_producto = resolver_costo_envio(db, producto_erp)
 
     # PPP accumulator for this product (informational only; None-safe).
     # moneda_costo/tipo_cambio: the PPP source's currency matches
@@ -2875,41 +2857,30 @@ def obtener_producto(
     _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
     ppp_d = PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d)
 
-    # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
-    # Same rationale as the listing/tienda blocks (see costo_ppp_service.py
-    # module docstring). Single-item endpoint: an extra DB lookup here is not
-    # an N+1 concern.
-    if producto_pricing and producto_pricing.precio_lista_ml:
-        grupo_id_clasica = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
-        comision_base_clasica_d = obtener_comision_base(db, 4, grupo_id_clasica)
-        if comision_base_clasica_d:
-            comisiones_clasica_d = calcular_comision_ml_total(
-                float(producto_pricing.precio_lista_ml), comision_base_clasica_d, producto_erp.iva, db=db
-            )
-            limpio_clasica_d = calcular_limpio(
-                float(producto_pricing.precio_lista_ml),
-                producto_erp.iva,
-                costo_envio_producto,
-                comisiones_clasica_d["comision_total"],
-                db=db,
-                grupo_id=grupo_id_clasica,
-            )
-            ppp_d.record(PPP_KEY_CLASICA, limpio_clasica_d)
-
-    # Markups of the ML instalment and PVP prices, with the listing's inputs
-    # (pricing context, real-or-grupo-average shipping per price) so both
-    # endpoints always return the same figure for the same product.
+    # Markups of the ML list (clásica: PPP companion only; instalments) and of
+    # the PVP prices, with the listing's inputs -- pricing context, shipping
+    # resolved per price, PVP prices from precios_ml when the product has them --
+    # so both endpoints always return the same figures for the same product.
     markups_cuotas_ml = {str(cuota): None for cuota in CUOTAS_BY_PRICELIST.values()}
     markups_pvp = {pricelist_id: None for pricelist_id in PVP_PRICELIST_TO_CAMPO}
+    precios_pvp_pricing = {
+        pricelist_id: (getattr(producto_pricing, campo) if producto_pricing else None)
+        for pricelist_id, campo in PVP_PRICELIST_TO_CAMPO.items()
+    }
+    precios_pvp_mostrados = pvp_precios_mostrados(
+        precios_pvp_pricing, fetch_pvp_precios_ml(db, [producto_erp.item_id]).get(producto_erp.item_id)
+    )
     precios_markup = []
     if producto_pricing:
-        precios_markup = [
+        precios_markup = [(producto_pricing.precio_lista_ml, 4, "clasica")]
+        precios_markup += [
             (precio, pricelist_id, cuota) for precio, pricelist_id, cuota in ml_cuota_prices(producto_pricing)
         ]
-        precios_markup += [
-            (getattr(producto_pricing, campo), pricelist_id, None)
-            for pricelist_id, campo in PVP_PRICELIST_TO_CAMPO.items()
-        ]
+    # A PVP list whose shown price is empty keeps the markup of the stored one, as the listing does.
+    precios_markup += [
+        (precios_pvp_mostrados[pricelist_id] or precios_pvp_pricing[pricelist_id], pricelist_id, None)
+        for pricelist_id in PVP_PRICELIST_TO_CAMPO
+    ]
     precios_markup = [(precio, pl, cuota) for precio, pl, cuota in precios_markup if precio and float(precio) > 0]
     if precios_markup:
         ctx_markups = build_pricing_context(db)
@@ -2945,10 +2916,13 @@ def obtener_producto(
                 markup_redondeado = round(calcular_markup(limpio_markup, costo_markups) * 100, 2)
             except Exception as exc:
                 # The markup stays empty, as before; leave a trace of why.
-                etiqueta = f"{cuota_ml} cuotas" if cuota_ml else f"lista {pricelist_id_markup}"
+                etiqueta = f"{cuota_ml} cuotas" if cuota_ml not in (None, "clasica") else f"lista {pricelist_id_markup}"
                 logger.debug("Markup de %s no calculado para item %s: %s", etiqueta, producto_erp.item_id, exc)
                 continue
-            if cuota_ml:
+            if cuota_ml == "clasica":
+                # The displayed clásica markup is the stored one; only its PPP companion is priced here.
+                ppp_d.record(PPP_KEY_CLASICA, limpio_markup)
+            elif cuota_ml:
                 markups_cuotas_ml[cuota_ml] = markup_redondeado
                 ppp_d.record(ppp_key_cuota_clasica(cuota_ml), limpio_markup)
             else:
@@ -3031,19 +3005,11 @@ def obtener_producto(
         if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom
         else None,
         # Campos PVP
-        precio_pvp=float(producto_pricing.precio_pvp) if producto_pricing and producto_pricing.precio_pvp else None,
-        precio_pvp_3_cuotas=float(producto_pricing.precio_pvp_3_cuotas)
-        if producto_pricing and producto_pricing.precio_pvp_3_cuotas
-        else None,
-        precio_pvp_6_cuotas=float(producto_pricing.precio_pvp_6_cuotas)
-        if producto_pricing and producto_pricing.precio_pvp_6_cuotas
-        else None,
-        precio_pvp_9_cuotas=float(producto_pricing.precio_pvp_9_cuotas)
-        if producto_pricing and producto_pricing.precio_pvp_9_cuotas
-        else None,
-        precio_pvp_12_cuotas=float(producto_pricing.precio_pvp_12_cuotas)
-        if producto_pricing and producto_pricing.precio_pvp_12_cuotas
-        else None,
+        precio_pvp=float(precios_pvp_mostrados[12]) if precios_pvp_mostrados[12] else None,
+        precio_pvp_3_cuotas=float(precios_pvp_mostrados[18]) if precios_pvp_mostrados[18] else None,
+        precio_pvp_6_cuotas=float(precios_pvp_mostrados[19]) if precios_pvp_mostrados[19] else None,
+        precio_pvp_9_cuotas=float(precios_pvp_mostrados[20]) if precios_pvp_mostrados[20] else None,
+        precio_pvp_12_cuotas=float(precios_pvp_mostrados[21]) if precios_pvp_mostrados[21] else None,
         markup_pvp=markup_pvp,
         markup_pvp_3_cuotas=markup_pvp_3_cuotas,
         markup_pvp_6_cuotas=markup_pvp_6_cuotas,
