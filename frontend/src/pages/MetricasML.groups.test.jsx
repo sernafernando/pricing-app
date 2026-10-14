@@ -203,6 +203,17 @@ describe('the "Agrupado" view', () => {
 
 describe('opening a group', () => {
   const expandButton = () => screen.getByRole('button', { name: / de Epson$/ });
+  // The paging tests answer with pages of PAGE rows, not the real 100. The page
+  // never assumes a full page -- the next offset is how many rows the SERVER has
+  // handed out, and "Ver más" stays while fewer than `total` are on screen -- so
+  // a short page proves the same contract (the request's own `limit: 100` is
+  // asserted above). 100-row pages made each product a full board row (~55
+  // elements): 200-300 of them put ~11k elements in the document, every query
+  // and re-render walked all of them, and under a parallel run these tests went
+  // from ~1.7s alone to over the 5s timeout.
+  const PAGE = 3;
+  const products = (from, count = PAGE) =>
+    Array.from({ length: count }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${from + i}`, title: `Producto ${from + i}` }));
 
   it('loads its products under the same filters and the group key, and lists them as sub-rows', async () => {
     await openGroupedView();
@@ -238,23 +249,17 @@ describe('opening a group', () => {
     const page2 = {
       level: 'product',
       rows: [{ ...EPSON_GROUP_PRODUCTS.rows[0], key: '9999', product_item_id: 9999, title: 'Producto de la página dos' }],
-      total: 12,
+      total: PAGE + 1,
       limit: 100,
-      offset: 100,
+      offset: PAGE,
     };
-    const fullPage = {
-      level: 'product',
-      rows: Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${i}`, title: `Producto ${i}` })),
-      total: 101,
-      limit: 100,
-      offset: 0,
-    };
+    const fullPage = { level: 'product', rows: products(0), total: PAGE + 1, limit: 100, offset: 0 };
     api.get.mockImplementation((url, config) => {
       if (url === '/ml-metricas/board') {
         return Promise.resolve({ data: config.params.group_by === 'group' ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE });
       }
       if (url === GROUP_PRODUCTS_URL) {
-        return Promise.resolve({ data: config.params.offset === 100 ? page2 : fullPage });
+        return Promise.resolve({ data: config.params.offset === PAGE ? page2 : fullPage });
       }
       return Promise.resolve({ data: {} });
     });
@@ -265,18 +270,12 @@ describe('opening a group', () => {
     await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
 
     expect(await screen.findByText('Producto de la página dos')).toBeInTheDocument();
-    expect(screen.getByText('Producto 99')).toBeInTheDocument();
-    expect(productCalls().at(-1)[1].params.offset).toBe(100);
+    expect(screen.getByText(`Producto ${PAGE - 1}`)).toBeInTheDocument();
+    expect(productCalls().at(-1)[1].params.offset).toBe(PAGE);
   });
 
   it('a failed next page keeps what was loaded and offers to retry just that page', async () => {
-    const fullPage = {
-      level: 'product',
-      rows: Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${i}`, title: `Producto ${i}` })),
-      total: 150,
-      limit: 100,
-      offset: 0,
-    };
+    const fullPage = { level: 'product', rows: products(0), total: PAGE * 2, limit: 100, offset: 0 };
     let failSecond = true;
     api.get.mockImplementation((url, config) => {
       if (url === '/ml-metricas/board') {
@@ -286,7 +285,7 @@ describe('opening a group', () => {
         if (config.params.offset === 0) return Promise.resolve({ data: fullPage });
         return failSecond
           ? Promise.reject(new Error('boom'))
-          : Promise.resolve({ data: { ...fullPage, rows: [{ ...fullPage.rows[0], key: 'q', title: 'Producto 100' }], offset: 100 } });
+          : Promise.resolve({ data: { ...fullPage, rows: [{ ...fullPage.rows[0], key: 'q', title: `Producto ${PAGE}` }], offset: PAGE } });
       }
       return Promise.resolve({ data: {} });
     });
@@ -296,23 +295,23 @@ describe('opening a group', () => {
     await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
 
     expect(await screen.findByText('No se pudieron cargar los productos.')).toBeInTheDocument();
-    expect(screen.getByText('Producto 99')).toBeInTheDocument();
+    expect(screen.getByText(`Producto ${PAGE - 1}`)).toBeInTheDocument();
     failSecond = false;
     await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
 
-    expect(await screen.findByText('Producto 100')).toBeInTheDocument();
-    expect(productCalls().at(-1)[1].params.offset).toBe(100);
+    expect(await screen.findByText(`Producto ${PAGE}`)).toBeInTheDocument();
+    expect(productCalls().at(-1)[1].params.offset).toBe(PAGE);
   });
 
   it('a second page that overlaps the first (the order moved meanwhile) never repeats a row', async () => {
-    const rows = Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${i}`, title: `Producto ${i}` }));
-    const shifted = { level: 'product', rows: [rows[99], { ...rows[0], key: 'p100', title: 'Producto 100' }], total: 101, limit: 100, offset: 100 };
+    const rows = products(0);
+    const shifted = { level: 'product', rows: [rows[PAGE - 1], ...products(PAGE, 1)], total: PAGE + 1, limit: 100, offset: PAGE };
     api.get.mockImplementation((url, config) => {
       if (url === '/ml-metricas/board') {
         return Promise.resolve({ data: config.params.group_by === 'group' ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE });
       }
       if (url === GROUP_PRODUCTS_URL) {
-        return Promise.resolve({ data: config.params.offset === 100 ? shifted : { level: 'product', rows, total: 101, limit: 100, offset: 0 } });
+        return Promise.resolve({ data: config.params.offset === PAGE ? shifted : { level: 'product', rows, total: PAGE + 1, limit: 100, offset: 0 } });
       }
       return Promise.resolve({ data: {} });
     });
@@ -323,30 +322,31 @@ describe('opening a group', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
 
-    expect(await screen.findByText('Producto 100')).toBeInTheDocument();
-    expect(screen.getAllByText('Producto 99')).toHaveLength(1);
+    expect(await screen.findByText(`Producto ${PAGE}`)).toBeInTheDocument();
+    expect(screen.getAllByText(`Producto ${PAGE - 1}`)).toHaveLength(1);
     expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
     errors.mockRestore();
   });
 
   it('the next page starts where the SERVER left off, even when a repeated row was dropped', async () => {
-    const make = (from) => Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${from + i}`, title: `Producto ${from + i}` }));
-    const pages = { 0: make(0), 100: [make(0)[99], ...make(100).slice(1)], 200: make(200) };
+    // The second page repeats the first one's last row: PAGE rows handed out, PAGE - 1 new on screen.
+    const pages = { 0: products(0), [PAGE]: [products(0)[PAGE - 1], ...products(PAGE).slice(1)], [PAGE * 2]: products(PAGE * 2) };
     api.get.mockImplementation((url, config) => {
       if (url === '/ml-metricas/board') {
         return Promise.resolve({ data: config.params.group_by === 'group' ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE });
       }
-      if (url === GROUP_PRODUCTS_URL) return Promise.resolve({ data: { level: 'product', rows: pages[config.params.offset] ?? [], total: 300, limit: 100 } });
+      if (url === GROUP_PRODUCTS_URL) return Promise.resolve({ data: { level: 'product', rows: pages[config.params.offset] ?? [], total: PAGE * 3, limit: 100 } });
       return Promise.resolve({ data: {} });
     });
     await openGroupedView();
     await userEvent.click(expandButton());
     await screen.findByText('Producto 0');
     await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
-    await screen.findByText('Producto 199');
+    await screen.findByText(`Producto ${PAGE * 2 - 1}`);
     await userEvent.click(screen.getByRole('button', { name: /Ver más productos/ }));
 
-    await waitFor(() => expect(productCalls().map(([, c]) => c.params.offset)).toEqual([0, 100, 200]));
+    // PAGE * 2, not the PAGE * 2 - 1 rows on screen.
+    await waitFor(() => expect(productCalls().map(([, c]) => c.params.offset)).toEqual([0, PAGE, PAGE * 2]));
   });
 
   it('the same product under two open groups (a product sold in two stores) never repeats a React key', async () => {

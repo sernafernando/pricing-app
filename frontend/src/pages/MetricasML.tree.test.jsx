@@ -191,8 +191,16 @@ describe('paging, sorting and search at every level', () => {
   });
 
   it('each level pages on its own: "Ver más" asks the next page of THAT node only', async () => {
+    // A short first page (3 of 4), not the real 100: the next offset is what the
+    // server handed out, whatever its size (the request's `limit: 100` is asserted
+    // above). 100 rows, each a full board row with its own toggle, put ~6k
+    // elements in the document; every role query walked them and this test went
+    // from ~1.7s alone to over the 5s timeout in a parallel run.
+    const PAGE = 3;
     nodeAnswer = (params) => {
-      if (params.path === '["EPSON"]') return params.offset ? page('categoria', 'subcategoria', 1, 101, 100) : page('categoria', 'subcategoria', 100, 101);
+      if (params.path === '["EPSON"]') {
+        return params.offset ? page('categoria', 'subcategoria', 1, PAGE + 1, PAGE) : page('categoria', 'subcategoria', PAGE, PAGE + 1);
+      }
       return page('subcategoria', 'product', 2, 2);
     };
     await openTree();
@@ -201,12 +209,12 @@ describe('paging, sorting and search at every level', () => {
     await userEvent.click(screen.getByRole('button', { name: /Ver .* de categoria 0/ }));
     await screen.findByText('subcategoria 0');
 
-    expect(screen.getByText('Mostrando 100 de 101 categorías')).toBeInTheDocument();
+    expect(screen.getByText(`Mostrando ${PAGE} de ${PAGE + 1} categorías`)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Ver más categorías' }));
 
-    expect(await screen.findByText('categoria 100')).toBeInTheDocument();
+    expect(await screen.findByText(`categoria ${PAGE}`)).toBeInTheDocument();
     const last = nodeCalls().at(-1)[1].params;
-    expect(last).toMatchObject({ path: '["EPSON"]', offset: 100 });
+    expect(last).toMatchObject({ path: '["EPSON"]', offset: PAGE });
     // The open child kept its own rows and did not ask again.
     expect(screen.getByText('subcategoria 1')).toBeInTheDocument();
     expect(nodeCalls().filter(([, c]) => c.params.path === '["EPSON","K0"]')).toHaveLength(1);
