@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence
 
-from sqlalchemy import ARRAY, Integer, Text, and_, case, cast, func, literal, select, type_coerce
+from sqlalchemy import ARRAY, Float, Integer, Text, and_, case, cast, func, literal, select, type_coerce
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, aliased, join as orm_join
 from sqlalchemy.types import NullType
@@ -97,7 +97,7 @@ def _product_columns(product: Any) -> list[Any]:
     """The cost fields of a linked product. The Productos list prices are NOT here: they are the last resort of the
     price, needed by few units, and carrying ten more columns through every row of a big set costs more than the
     rest of the row (`_fallback_rows` reads them for the units that need them)."""
-    return [product.costo, product.moneda_costo, product.iva, product.envio, product.subcategoria_id]
+    return [product.costo, type_coerce(product.moneda_costo, Text), product.iva, product.envio, product.subcategoria_id]
 
 
 def _rows(db: Session, query: Any) -> list[Any]:
@@ -117,8 +117,8 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
             T.i.item_id,
             T.i.listing_type_id,
             _tags(T.i),
-            T.i.price.label("item_price"),
-            T.sp.amount.label("sale_price"),
+            cast(T.i.price, Float).label("item_price"),
+            cast(T.sp.amount, Float).label("sale_price"),
             _campaign(T.i).label("campaign"),
             T.l.producto_item_id,
             *_product_columns(T.p),
@@ -151,8 +151,8 @@ def _item_rows(db: Session, item_ids: Optional[Sequence[str]], f: Optional[Publi
             item.item_id,
             item.listing_type_id,
             _tags(item),
-            item.price.label("item_price"),
-            sale.amount.label("sale_price"),
+            cast(item.price, Float).label("item_price"),
+            cast(sale.amount, Float).label("sale_price"),
             _campaign(item).label("campaign"),
             link.producto_item_id,
             *_product_columns(product),
@@ -281,14 +281,21 @@ def fetch_inputs(
         subcat,
     ) in items:
         tags = tuple(tags) if tags else ()
-        sale = None if sale_price is None else float(sale_price)
-        price = None if item_price is None else float(item_price)
+        # the statement already casts both prices to double: no per-row conversion
         if pid is None:
-            item_unit = UnitInputs(item_id, listing_type_id, tags, campaign, sale, price)
+            item_unit = UnitInputs(item_id, listing_type_id, tags, campaign, sale_price, item_price)
         else:
             found = products.get(pid) or product_of(pid, costo, moneda, iva, envio, subcat)
             item_unit = UnitInputs(
-                item_id, listing_type_id, tags, campaign, sale, price, fallbacks.get(pid, _NO_PRICES), pid, *found
+                item_id,
+                listing_type_id,
+                tags,
+                campaign,
+                sale_price,
+                item_price,
+                fallbacks.get(pid, _NO_PRICES),
+                pid,
+                *found,
             )
         variation_ids = variations.get(item_id)
         if variation_ids is None:

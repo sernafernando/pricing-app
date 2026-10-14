@@ -18,8 +18,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view.markup import UnitBreakdown
-from app.services.ml_publications.view import groups, markup_service
-from app.services.ml_publications.view.filters import parse_filter
+from app.services.ml_publications.view import groups, listing, markup_service
+from app.services.ml_publications.view.filters import MarkupFilter, parse_filter
 from app.services.ml_publications.view.markup_service import MarkupQuery
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
@@ -314,3 +314,69 @@ class TestCharacterization:
         seed_catalog(conn)
         detail = markup_service.compute_detail(db, db, "MLA12")
         assert (detail.variation_id, detail.breakdown) == EXPECTED_DETAIL
+
+
+def ids(order: str) -> list[str]:
+    return [f"MLA{token}" for token in order.split()]
+
+
+def page(db, sort=None, descending=None, markup_filter=MarkupFilter(), limit=50, offset=0):
+    """The list as the router builds it: `(total, [(item_id, markup block)])`, captured before the optimizations."""
+    result = listing.list_items(
+        db,
+        parse_filter(),
+        listing.parse_sort(sort, descending),
+        limit,
+        offset,
+        events=False,
+        markup=MarkupQuery(db, markup_filter),
+    )
+    return result.total, [(row["item_id"], row["markup"]) for row in result.items]
+
+
+# Captured from the implementation before the optimizations (see the module docstring).
+BY_MARKUP = "12 7 6 13 14 15 2 1 3 4 17 10 11 16 5 8 9"  # worst first; the unpriced last, by item id
+BY_MARKUP_DESC = "17 4 3 1 13 14 15 2 6 7 12 10 11 16 5 8 9"
+DEFAULT_ORDER = "1 10 11 12 13 14 15 16 17 2 3 4 5 6 7 8 9"
+NEGATIVE = "1 12 13 14 15 2 6 7"  # any variation negative, in the default (item id) order
+IN_RANGE = "13 14 15 2 1 3 4"  # worst markup within [-10, 80], worst first
+BLOCKS = {
+    "MLA12": {"min": -87.56, "max": 0.31, "worst": -87.56, "any_negative": True, "reason": "ok", "partial": 0},
+    "MLA13": {"min": -6.38, "max": -6.38, "worst": -6.38, "any_negative": True, "reason": "ok", "partial": 1},
+    "MLA3": {"min": 75.94, "max": 75.94, "worst": 75.94, "any_negative": False, "reason": "ok", "partial": 0},
+    "MLA10": {"min": None, "max": None, "worst": None, "any_negative": False, "reason": "sin_lista", "partial": 0},
+    "MLA11": {"min": None, "max": None, "worst": None, "any_negative": False, "reason": "cofinanciada", "partial": 0},
+}
+
+
+class TestListCharacterization:
+    """The list over the same catalog: the order, the page and the filters of the markup, and each row's block."""
+
+    def test_sorted_by_markup_ascending_and_descending(self, conn, db) -> None:
+        seed_catalog(conn)
+        total, rows = page(db, "markup")
+        assert (total, [item_id for item_id, _ in rows]) == (17, ids(BY_MARKUP))
+        total, rows = page(db, "markup", "desc")
+        assert (total, [item_id for item_id, _ in rows]) == (17, ids(BY_MARKUP_DESC))
+
+    def test_a_page_of_the_markup_order(self, conn, db) -> None:
+        seed_catalog(conn)
+        total, rows = page(db, "markup", limit=5, offset=5)
+        assert (total, [item_id for item_id, _ in rows]) == (17, ids(BY_MARKUP)[5:10])
+
+    def test_the_markup_filters(self, conn, db) -> None:
+        seed_catalog(conn)
+        total, rows = page(db, markup_filter=MarkupFilter(negative=True))
+        assert (total, [item_id for item_id, _ in rows]) == (8, ids(NEGATIVE))
+        total, rows = page(db, "markup", markup_filter=MarkupFilter(minimum=-10, maximum=80))
+        assert (total, [item_id for item_id, _ in rows]) == (7, ids(IN_RANGE))
+
+    def test_the_default_order_carries_the_markup_of_its_page_only(self, conn, db) -> None:
+        seed_catalog(conn)
+        total, rows = page(db, limit=4, offset=2)
+        assert (total, [item_id for item_id, _ in rows]) == (17, ids(DEFAULT_ORDER)[2:6])
+
+    def test_the_markup_block_of_a_row(self, conn, db) -> None:
+        seed_catalog(conn)
+        _, rows = page(db, "markup")
+        assert {item_id: block for item_id, block in rows if item_id in BLOCKS} == BLOCKS

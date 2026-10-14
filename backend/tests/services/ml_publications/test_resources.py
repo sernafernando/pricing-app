@@ -29,6 +29,13 @@ ERP_ALLOW_LIST: frozenset[str] = frozenset(
 )
 CATALOG_NAMES = ("productos_erp", "ProductoERP")
 CATALOG_IMPORT_TOKEN = "producto"
+# The ONE module allowed to read the publication mirror of the pricing app (`publicaciones_ml`): the shipping step
+# of the markup (`view/markup_shipping.py`). The shipping resolver needs the active MLAs of each priced product and
+# loaded every column of every publication as an ORM entity to read two of them (about 40% of a set-wide request);
+# this module hands it those two columns. It only reads, in one statement, and writes nothing.
+PUBLICATION_MIRROR_ALLOW_LIST: frozenset[str] = frozenset({"view/markup_shipping.py"})
+PUBLICATION_MIRROR_NAMES = ("publicaciones_ml",)
+PUBLICATION_MIRROR_IMPORT_TOKEN = "publicacion"
 
 FORBIDDEN_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "productos_erp", "ProductoERP")
 FORBIDDEN_IMPORT_TOKENS = ("gbp", "producto", "publicacion")
@@ -139,6 +146,7 @@ def test_package_never_imports_gbp_or_names_erp_mirror_tables():
     offenders = []
     for name, source in _package_sources():
         allowed = name in ERP_ALLOW_LIST
+        mirror_allowed = name in PUBLICATION_MIRROR_ALLOW_LIST
         for node in ast.walk(ast.parse(source)):
             modules = []
             if isinstance(node, ast.Import):
@@ -147,12 +155,18 @@ def test_package_never_imports_gbp_or_names_erp_mirror_tables():
                 modules = [node.module or ""] + [alias.name for alias in node.names]
             for module in modules:
                 for token in FORBIDDEN_IMPORT_TOKENS:
-                    if token in module.lower() and not (allowed and token == CATALOG_IMPORT_TOKEN):
+                    if (
+                        token in module.lower()
+                        and not (allowed and token == CATALOG_IMPORT_TOKEN)
+                        and not (mirror_allowed and token == PUBLICATION_MIRROR_IMPORT_TOKEN)
+                    ):
                         offenders.append((name, module))
         offenders += [
             (name, n)
             for n in FORBIDDEN_NAMES
-            if re.search(rf"\b{n}\b", source) and not (allowed and n in CATALOG_NAMES)
+            if re.search(rf"\b{n}\b", source)
+            and not (allowed and n in CATALOG_NAMES)
+            and not (mirror_allowed and n in PUBLICATION_MIRROR_NAMES)
         ]
     assert offenders == []
 
@@ -161,6 +175,13 @@ def test_allow_list_is_exactly_the_linking_module_and_the_view_extraction_module
     assert ERP_ALLOW_LIST == frozenset(
         {"links.py", "view/filters.py", "view/markup_inputs.py", "view/variations.py", "view/detail.py"}
     )
+
+
+def test_the_publication_mirror_has_exactly_one_reader_and_it_does_not_read_the_catalog():
+    assert PUBLICATION_MIRROR_ALLOW_LIST == frozenset({"view/markup_shipping.py"})
+    assert not PUBLICATION_MIRROR_ALLOW_LIST & ERP_ALLOW_LIST  # the two allowances never overlap
+    source = dict(_package_sources())["view/markup_shipping.py"]
+    assert not re.search(r"\b(?:productos_erp|ProductoERP)\b", source)
 
 
 def test_the_promotions_resource_name_is_defined_once_and_shared():
