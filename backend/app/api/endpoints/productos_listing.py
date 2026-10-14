@@ -2902,6 +2902,43 @@ def obtener_producto(
             )
             ppp_d.record(PPP_KEY_CLASICA, limpio_clasica_d)
 
+    # Markups of the ML instalment prices, as the listing computes them.
+    markups_cuotas_ml = {cuota: None for cuota in ("3", "6", "9", "12")}
+    if producto_pricing:
+        cuotas_ml_config = [
+            (producto_pricing.precio_3_cuotas, 17, "3"),
+            (producto_pricing.precio_6_cuotas, 14, "6"),
+            (producto_pricing.precio_9_cuotas, 13, "9"),
+            (producto_pricing.precio_12_cuotas, 23, "12"),
+        ]
+        for precio_cuota_ml, pricelist_id_ml, cuota_ml in cuotas_ml_config:
+            if not precio_cuota_ml or float(precio_cuota_ml) <= 0:
+                continue
+            try:
+                tipo_cambio_cuota_ml = (
+                    obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
+                )
+                costo_cuota_ml = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_cuota_ml)
+                grupo_id_cuota_ml = obtener_grupo_subcategoria(db, producto_erp.subcategoria_id)
+                comision_base_cuota_ml = obtener_comision_base(db, pricelist_id_ml, grupo_id_cuota_ml)
+                if not comision_base_cuota_ml:
+                    continue
+                comisiones_cuota_ml = calcular_comision_ml_total(
+                    float(precio_cuota_ml), comision_base_cuota_ml, producto_erp.iva, db=db
+                )
+                limpio_cuota_ml = calcular_limpio(
+                    float(precio_cuota_ml),
+                    producto_erp.iva,
+                    costo_envio_producto,
+                    comisiones_cuota_ml["comision_total"],
+                    db=db,
+                    grupo_id=grupo_id_cuota_ml,
+                )
+                markups_cuotas_ml[cuota_ml] = round(calcular_markup(limpio_cuota_ml, costo_cuota_ml) * 100, 2)
+                ppp_d.record(ppp_key_cuota_clasica(cuota_ml), limpio_cuota_ml)
+            except Exception:
+                pass
+
     # Calcular markups PVP
     markup_pvp = None
     markup_pvp_3_cuotas = None
@@ -3045,10 +3082,10 @@ def obtener_producto(
         precio_12_cuotas=float(producto_pricing.precio_12_cuotas)
         if producto_pricing and producto_pricing.precio_12_cuotas
         else None,
-        markup_3_cuotas=None,
-        markup_6_cuotas=None,
-        markup_9_cuotas=None,
-        markup_12_cuotas=None,
+        markup_3_cuotas=markups_cuotas_ml["3"],
+        markup_6_cuotas=markups_cuotas_ml["6"],
+        markup_9_cuotas=markups_cuotas_ml["9"],
+        markup_12_cuotas=markups_cuotas_ml["12"],
         recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
         markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom)
         if producto_pricing and producto_pricing.markup_adicional_cuotas_custom
