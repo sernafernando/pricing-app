@@ -6,7 +6,7 @@ Reads run under `SET LOCAL statement_timeout` (PgBouncer in transaction mode: LO
 
 Every ordering ends with `item_id`, so paging never repeats or skips a row (spec SRT-2).
 
-Postgres only (`DISTINCT ON` for the last event of each item, `FILTER` for the facet counters, `SET LOCAL`);
+Postgres only (`LATERAL` for the last event of each item, `FILTER` for the facet counters, `SET LOCAL`);
 its tests are `@pytest.mark.postgres`.
 """
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Text, any_, cast, func, literal, select, text
+from sqlalchemy import ARRAY, Text, any_, cast, func, literal, select, text, true
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
@@ -233,11 +233,24 @@ def _store_labels(db: Session, ids: list[int]) -> dict[int, str]:
 
 
 def _last_events(db: Session, ids: list[str]) -> dict[str, dict[str, Any]]:
+    """The newest event of each item (ties by id), one index probe per item: `DISTINCT ON` over the items' events
+    read ALL of them to keep one, and the items that sort first by markup are often the busiest."""
+    if not ids:
+        return {}
+    wanted = (
+        func.unnest(literal(list(dict.fromkeys(ids)), ARRAY(Text)))
+        .table_valued("item_id")
+        .render_derived(name="wanted")
+    )
+    newest = (
+        select(T.e.event_type, T.e.observed_at)
+        .where(T.e.item_id == wanted.c.item_id)
+        .order_by(T.e.observed_at.desc(), T.e.id.desc())
+        .limit(1)
+        .lateral("newest")
+    )
     rows = db.execute(
-        select(T.e.item_id, T.e.event_type, T.e.observed_at)
-        .where(T.e.item_id.in_(ids))
-        .distinct(T.e.item_id)
-        .order_by(T.e.item_id, T.e.observed_at.desc(), T.e.id.desc())
+        select(wanted.c.item_id, newest.c.event_type, newest.c.observed_at).select_from(wanted.join(newest, true()))
     )
     return {item_id: {"event_type": event_type, "observed_at": at} for item_id, event_type, at in rows}
 
@@ -292,21 +305,41 @@ def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[s
 def _list_by_markup(
     db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, events: bool, markup: MarkupQuery
 ) -> ItemsPage:
-    """Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4): price it once, order
-    and filter in Python, then read only the page's rows (by id) from the database. A fixed number of statements."""
+    """Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4): price it once and
+    filter it in Python. The markup order is applied in Python too; a column order is applied by the database over
+    the accepted ids only, which also cuts the page. Then read only the page's rows (by id). A fixed number of
+    statements."""
     result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
     if sort.key == SORT_MARKUP:
-        ordered = _worst_first(result.items, sort.descending)
+        wanted = [
+            item_id
+            for item_id in _worst_first(result.items, sort.descending)
+            if markup.filter.accepts(result.items[item_id].markup.worst, result.items[item_id].markup.any_negative)
+        ]
+        total = len(wanted)
+        page_ids = wanted[offset : offset + limit]
     else:
-        ordered = list(db.execute(build_base_select(f, T.i.item_id).order_by(*_order_by(sort))).scalars())
-    wanted = [
-        item_id
-        for item_id in ordered
-        if item_id in result.items
-        and markup.filter.accepts(result.items[item_id].markup.worst, result.items[item_id].markup.any_negative)
-    ]
-    total = len(wanted)
-    page_ids = wanted[offset : offset + limit]
+        # The database orders only the publications the markup filter accepted and cuts the page: it used to order
+        # the whole filtered set and ship every id back just to keep fifty.
+        accepted = [
+            item_id
+            for item_id, item in result.items.items()
+            if markup.filter.accepts(item.markup.worst, item.markup.any_negative)
+        ]
+        total = len(accepted)
+        page_ids = (
+            list(
+                db.execute(
+                    build_base_select(f, T.i.item_id)
+                    .where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
+                    .order_by(*_order_by(sort))
+                    .limit(limit)
+                    .offset(offset)
+                ).scalars()
+            )
+            if offset < total
+            else []
+        )
     if not page_ids:
         return ItemsPage([], total, result.stats, result.ads_failed)
     rows = db.execute(build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text)))))
