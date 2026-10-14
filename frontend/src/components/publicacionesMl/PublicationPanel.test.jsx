@@ -31,6 +31,16 @@ let canSeeMargin = false;
 let canManage = true;
 let canSeePromos = true;
 let canSeeProducts = true;
+// The price-edit codes the user holds (every other code is granted).
+let priceEditCodes = [];
+const PRICE_EDIT_CODES = [
+  'productos.editar_precio_clasica',
+  'productos.editar_precio_cuotas',
+  'productos.toggle_rebate',
+  'productos.toggle_web_transferencia',
+  'tienda.editar_precio_gremio',
+  'tienda.editar_precio_web_transf',
+];
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
@@ -39,6 +49,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
       if (permiso === 'ml_ops.gestionar') return canManage;
       if (permiso === 'promos.ver') return canSeePromos;
       if (permiso === 'productos.ver') return canSeeProducts;
+      if (PRICE_EDIT_CODES.includes(permiso)) return priceEditCodes.includes(permiso);
       return true;
     },
     cargandoPermisos: false,
@@ -56,6 +67,7 @@ beforeEach(() => {
   canManage = true;
   canSeePromos = true;
   canSeeProducts = true;
+  priceEditCodes = [];
   promocionesAPI.getPromocionesItem.mockClear();
   promocionesAPI.refreshItemPromociones.mockClear();
   publicacionesMlAPI.detail.mockReset();
@@ -401,7 +413,18 @@ describe('the Precios tab', () => {
     expect(preciosAPI.obtenerProducto).toHaveBeenCalledWith(4101);
   });
 
-  it('does not exist without productos.ver', async () => {
+  it.each(['productos.editar_precio_clasica', 'tienda.editar_precio_gremio', 'tienda.editar_precio_web_transf'])(
+    'shows them without productos.ver to who can edit them (%s)',
+    async (code) => {
+      canSeeProducts = false;
+      priceEditCodes = [code];
+      renderPanel({ tab: 'precios' });
+      expect(await screen.findByRole('tab', { name: 'Precios' })).toHaveAttribute('aria-selected', 'true');
+      expect(preciosAPI.obtenerProducto).toHaveBeenCalledWith(4101);
+    },
+  );
+
+  it('does not exist without productos.ver nor a price-edit code', async () => {
     canSeeProducts = false;
     renderPanel({ tab: 'precios' });
     await screen.findByRole('tab', { name: 'Resumen' });

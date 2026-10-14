@@ -7,6 +7,7 @@ import { describeLoadError } from './loadErrors';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelFooter from './panel/PanelFooter';
 import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
+import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
 import styles from './panel/panel.module.css';
 
@@ -40,7 +41,7 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   const canManage = tienePermiso('ml_ops.gestionar');
   const canViewPromos = tienePermiso('promos.ver');
-  const canViewPrices = tienePermiso('productos.ver');
+  const canViewPrices = canViewProductPrices(tienePermiso);
   const { status, detail, error, reload, refresh } = usePublicationDetail(itemId, { canSeeMargin });
   // A write in a tab (applying a promotion) changes what the detail and the
   // list row show: re-read both, the detail silently so the tab keeps its state.
