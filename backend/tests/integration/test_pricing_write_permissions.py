@@ -147,8 +147,10 @@ def test_unrelated_permission_does_not_open_price_writes(client, auth_headers, d
 
 # --- set-cuota: Tienda codes only cover what the Tienda screen writes -------
 # useTiendaPricing.guardarCuota posts /precios/set-cuota with tipo_cuota 3/6/9/12
-# and no lista_tipo (default "web"). The clasica price and the PVP list are
-# written only from Productos, so a Tienda-only user must not reach them.
+# and no lista_tipo (default "web", which is the ML list). Those are the ML cuota
+# prices (precio_3/6/9/12_cuotas) Tienda and Productos edit together by design.
+# The clasica price and the PVP list are written only from Productos, so a
+# Tienda-only user must not reach them.
 
 TIENDA_ONLY = ("tienda.editar_precio_gremio", "tienda.editar_precio_web_transf")
 
@@ -178,7 +180,7 @@ def test_tienda_only_user_cannot_write_productos_only_set_cuota_fields(
 
 
 @pytest.mark.parametrize("codigo", TIENDA_ONLY)
-def test_tienda_only_user_can_still_save_web_cuotas_like_the_tienda_screen(
+def test_tienda_only_user_can_still_save_ml_cuotas_like_the_tienda_screen(
     client, auth_headers, db, rol_ventas, codigo
 ) -> None:
     from tests.integration.test_pricing_manual_origen import _make_producto, _PatchedPricingDeps
