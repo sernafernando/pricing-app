@@ -283,31 +283,35 @@ class TestBoardOnVolume:
         print(f"board empty page: {len(emptied.statements)} statements, {elapsed_ms:.0f} ms")
 
         assert counts[10] == counts[50] == counts[200] == len(recorder.statements)
-        # Clearing an axis that HAS a filter (stores, brand, status here) reads the
+        # The search text is looked up (up to +3: products, titles, sold ids; this one matches
+        # every product, so it stops after the first and bounds nothing). Clearing an
+        # axis that HAS a filter (stores, brand, status here) reads the
         # pairs differently, so it materializes its own rows and members (CREATE +
         # ANALYZE each); an axis with no filter shares the unfiltered tables.
-        assert response.rows and counts[50] < len(filtered.statements) <= counts[50] + 4 * 3
+        assert response.rows and counts[50] < len(filtered.statements) <= counts[50] + 4 * 3 + 3
         # Exclusion rides the same axes (status, type): two more reads, nothing per row.
         assert excluded.rows and counts[50] < len(hidden.statements) <= counts[50] + 4 * 2
         # The ROW filters (stock, ageing, "solo con ventas") ride the rows subquery
         # and the stock join is inside it: no extra statements either.
         assert stocked.rows and len(by_stock.statements) == counts[50]
         # An empty page skips the two per-page statements (details, series).
-        assert not empty.rows and len(emptied.statements) == counts[50] - 2
+        # (the search text is looked up, +3, and, matching nothing, bounds the read, +2).
+        assert not empty.rows and len(emptied.statements) == counts[50] - 2 + 5
         assert counts[50] <= 23
 
-    def test_the_scope_filter_adds_no_statement(self, volume_session) -> None:
-        """The PM scope rides the per-item base: a scoped (or empty-scoped) request
-        costs exactly the statements of the unscoped one for the same page."""
+    def test_the_scope_filter_adds_only_its_touched_groups(self, volume_session) -> None:
+        """The PM scope bounds the groups the base reads: a scoped (or empty-scoped)
+        request costs the statements of the unscoped one plus the set of touched
+        groups (CREATE + ANALYZE), whatever the scope or the volume."""
         _plain, unscoped, _ms = _request(volume_session, limit=50)
         scoped_response, scoped, _ms = _request(volume_session, scope_pairs=[("EPSON", "CAT0")], limit=50)
         empty_response, emptied, _ms = _request(volume_session, scope_pairs=[], limit=50)
 
         assert scoped_response.rows and scoped_response.total < PRODUCTS
-        assert len(scoped.statements) == len(unscoped.statements)
+        assert len(scoped.statements) == len(unscoped.statements) + 3
         # An empty page skips the two per-page statements (details, series).
         assert not empty_response.rows and empty_response.total == 0
-        assert len(emptied.statements) == len(unscoped.statements) - 2
+        assert len(emptied.statements) == len(unscoped.statements) + 2 - 2
 
     def test_rows_fetched_follow_the_page_not_the_catalogue(self, volume_session) -> None:
         _response, recorder, _ms = _request(volume_session, limit=10)
@@ -716,7 +720,8 @@ class TestGroupedBoardOnVolume:
         _full, full, _ = _request(volume_session, group_by="group", dimension="marca")
         empty_response, empty, _ = _request(volume_session, group_by="group", dimension="marca", q="no-existe-nada")
 
-        assert not empty_response.rows and len(empty.statements) == len(full.statements) - 1
+        # Minus the series; plus the search text's lookups (3) and touched groups (CREATE + ANALYZE).
+        assert not empty_response.rows and len(empty.statements) == len(full.statements) - 1 + 5
 
     @pytest.mark.parametrize("dimension", GROUP_DIMENSIONS)
     def test_the_groups_add_up_to_the_ungrouped_totals_on_volume(
