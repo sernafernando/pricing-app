@@ -41,7 +41,6 @@ from app.services.ml_publications.view.markup import (
     unit_markup,
 )
 from app.services.ml_publications.view.markup_inputs import PublicationInputs, fetch_inputs
-from app.services.ml_publications.view.markup_shipping import ActivePublications
 from app.services.ml_publications.view.units_sold import UnitsSoldProvider
 from app.services.pricing_context import PricingContext, build_pricing_context
 
@@ -168,13 +167,10 @@ def _priceable_products(publications: Sequence[PublicationInputs]) -> list[int]:
 
 
 def _shipping(pricing_db: Session, products: Sequence[int]) -> Mapping[int, float]:
-    """The real shipping cost of each priceable product (absent when it has none). The publications the resolver
-    reads come as plain columns (`ActivePublications`), not as one ORM entity each."""
+    """The real shipping cost of each priceable product (absent when it has none)."""
     if not products:
         return {}
-    return resolver_costos_envio_batch(
-        pricing_db, list(products), pubs_by_item=ActivePublications(pricing_db, products)
-    )
+    return resolver_costos_envio_batch(pricing_db, list(products))
 
 
 def price_publication(ctx: PricingContext, inputs: PublicationInputs, envio: Mapping[int, float]) -> PublicationMarkup:
