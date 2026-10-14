@@ -13,12 +13,14 @@ need the full comision versioning fixture chain.
 
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import patch
 
 import pytest
 
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP, ProductoPricing, TipoMoneda
+from app.models.tipo_cambio import TipoCambio
 
 ITEM_ID = 3101
 
@@ -48,15 +50,17 @@ def _fixed_pricing_inputs():
         p.stop()
 
 
-def _seed(db, *, participa_rebate: bool, markup_rebate=None) -> None:
+def _seed(
+    db, *, participa_rebate: bool, markup_rebate=None, costo: float = 1000.0, moneda: TipoMoneda = TipoMoneda.ARS
+) -> None:
     db.add(
         ProductoERP(
             item_id=ITEM_ID,
             codigo=f"COD{ITEM_ID}",
             descripcion="Producto rebate",
             subcategoria_id=1,
-            costo=1000.0,
-            moneda_costo=TipoMoneda.ARS,
+            costo=costo,
+            moneda_costo=moneda,
             iva=21.0,
         )
     )
@@ -96,7 +100,8 @@ def test_activating_rebate_stores_a_markup_rebate(client, auth_headers, db) -> N
 
 def test_changing_rebate_percentage_recomputes_markup_rebate(client, auth_headers, db) -> None:
     _seed(db, participa_rebate=False)
-    _patch_rebate(client, auth_headers, True, 3.8)
+    setup = _patch_rebate(client, auth_headers, True, 3.8)
+    assert setup.status_code == 200, setup.text
     markup_bajo = _stored_markup_rebate(db)
 
     response = _patch_rebate(client, auth_headers, True, 10.0)
@@ -129,3 +134,68 @@ def test_bulk_limpiar_rebate_clears_stored_markup_rebate(client, auth_headers, d
 
     assert response.status_code == 200, response.text
     assert _stored_markup_rebate(db) is None
+
+
+def test_usd_costed_product_converts_cost_with_the_current_usd_rate(client, auth_headers, db) -> None:
+    """USD cost 1 at a 1000 ARS rate must price exactly like an ARS cost of 1000."""
+    _seed(db, participa_rebate=False)
+    ars = _patch_rebate(client, auth_headers, True, 3.8)
+    assert ars.status_code == 200, ars.text
+    markup_ars = _stored_markup_rebate(db)
+
+    db.query(ProductoPricing).delete()
+    db.query(ProductoERP).delete()
+    db.add(TipoCambio(moneda="USD", fecha=date.today(), compra=990.0, venta=1000.0))
+    db.commit()
+    _seed(db, participa_rebate=False, costo=1.0, moneda=TipoMoneda.USD)
+
+    response = _patch_rebate(client, auth_headers, True, 3.8)
+
+    assert response.status_code == 200, response.text
+    markup_usd = _stored_markup_rebate(db)
+    assert markup_ars is not None and markup_usd is not None
+    assert float(markup_usd) == pytest.approx(float(markup_ars))
+
+
+# Failure path: the toggle reuses the same chain as the price-writing endpoints in
+# pricing.py (obtener_tipo_cambio_actual -> resolver_costo_envio ->
+# calcular_markup_rebate). There, a missing rate converts the cost unchanged, a
+# missing commission yields markup_rebate=None, and any exception inside the
+# calculation is logged and yields None; the write itself still commits. These
+# tests pin that the rebate toggle behaves the same way instead of returning 500.
+
+
+def test_missing_commission_saves_rebate_with_null_markup(client, auth_headers, db) -> None:
+    _seed(db, participa_rebate=False, markup_rebate=42.0)
+
+    with patch("app.services.pricing_calculator.obtener_comision_base", return_value=None):
+        response = _patch_rebate(client, auth_headers, True, 3.8)
+
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == ITEM_ID).one()
+    assert pricing.participa_rebate is True
+    assert pricing.markup_rebate is None
+
+
+def test_error_inside_markup_chain_saves_rebate_with_null_markup(client, auth_headers, db) -> None:
+    _seed(db, participa_rebate=False, markup_rebate=42.0)
+
+    with patch("app.services.pricing_calculator.obtener_comision_base", side_effect=RuntimeError("boom")):
+        response = _patch_rebate(client, auth_headers, True, 3.8)
+
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == ITEM_ID).one()
+    assert pricing.participa_rebate is True
+    assert pricing.markup_rebate is None
+
+
+def test_usd_product_without_any_exchange_rate_still_saves(client, auth_headers, db) -> None:
+    """No TipoCambio row: like pricing.py, convertir_a_pesos keeps the cost unconverted."""
+    _seed(db, participa_rebate=False, costo=1000.0, moneda=TipoMoneda.USD)
+
+    response = _patch_rebate(client, auth_headers, True, 3.8)
+
+    assert response.status_code == 200, response.text
+    assert _stored_markup_rebate(db) is not None
