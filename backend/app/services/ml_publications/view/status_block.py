@@ -1,15 +1,16 @@
-"""The honest-state block of every list response (spec HON-1, UI-7), built from `status.build_status`.
+"""The honest-state block of every list response (spec HON-1, UI-7), built from `status.build_list_status`.
 
 The list never invents a number: when a flag is off or a resource is not collected, the columns that depend on
 it are null, and this block tells the screen WHY (which flag, which resource, what it affects) so it can show a
 banner instead of a silent "—".
 
-`build_status` is the operator report: it scans every state table (percentiles, completeness, link coverage),
-far too heavy for each page of a list that must answer in 500 ms. `ReportCache` therefore builds it at most once
-per `REPORT_TTL_SECONDS` per process, in a session of its own (the report puts its transaction in READ ONLY
-mode, which must not leak into the request's session), without ever holding a lock while it builds (see
-`ReportCache`), and a failed build is cached briefly so a broken report neither takes the list down nor is
-retried on every request.
+`status.build_status` is the operator report: it scans every state table (percentiles, completeness, link coverage),
+far too heavy for each page of a list that must answer in 500 ms, and the block reads only five things of it.
+`status.build_list_status` computes just those (settings and `ml_items`, a few milliseconds). `ReportCache` builds
+it at most once per `REPORT_TTL_SECONDS` per process, so a list request is not a query of its own, in a session of
+its own (the report puts its transaction in READ ONLY mode, which must not leak into the request's session), without
+ever holding a lock while it builds (see `ReportCache`), and a failed build is cached briefly so a broken report
+neither takes the list down nor is retried on every request.
 """
 
 from __future__ import annotations
@@ -84,7 +85,7 @@ def _stale(report: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def build_block(report: Mapping[str, Any]) -> dict[str, Any]:
-    """The block for one `build_status` report (pure)."""
+    """The block for one `build_list_status` (or `build_status`) report (pure)."""
     degradations = _flag_degradations(report)
     if report.get("kill_switch"):
         degradations.insert(0, {"code": "kill_switch", "affects": ["all"]})
@@ -103,7 +104,7 @@ def build_block(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class ReportCache:
-    """Process-wide, time-boxed copy of the block; `build` returns a `build_status` report.
+    """Process-wide, time-boxed copy of the block; `build` returns a `build_list_status` report.
 
     One request rebuilds an expired block while every other request keeps getting the expired one (or, before
     the very first block exists, a `status_pending` placeholder): the report is never built under the lock and
@@ -161,7 +162,7 @@ class ReportCache:
 def _build_report() -> Mapping[str, Any]:
     with database.get_background_db() as session:
         try:
-            return status.build_status(session)
+            return status.build_list_status(session)
         finally:
             session.rollback()  # ends the read-only transaction; nothing was written
 
