@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterator
 
 import pytest
 
@@ -31,7 +32,7 @@ TASK_FACTORIES = (
 
 
 @pytest.fixture()
-def scheduled(monkeypatch, tmp_path) -> list[str]:
+def scheduled(monkeypatch, tmp_path) -> Iterator[list[str]]:
     """Replaces every task factory with a recording stub; the bg lock is always won."""
     started: list[str] = []
 
@@ -45,7 +46,8 @@ def scheduled(monkeypatch, tmp_path) -> list[str]:
         monkeypatch.setattr(main, name, stub(name))
     lock_file = open(tmp_path / "bg.lock", "w")
     monkeypatch.setattr(main, "_try_acquire_bg_lock", lambda: lock_file)
-    return started
+    yield started
+    lock_file.close()
 
 
 def run_lifespan() -> None:
