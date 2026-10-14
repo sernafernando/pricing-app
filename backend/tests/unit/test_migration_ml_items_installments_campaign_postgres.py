@@ -15,13 +15,16 @@ import importlib.util
 import json
 import os
 import uuid
+from types import ModuleType
+from typing import Iterator, Optional
 
 import pytest
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Connection, Engine
 
 from app.services.ml_publications.mappers import map_item
 from tests.services.ml_publications.conftest import ITEM_SAMPLES, load_fixture
@@ -33,14 +36,14 @@ _CORE = os.path.join(_BACKEND_ROOT, "alembic", "versions", "20261006_ml_publicat
 _CASES = load_fixture("listing_prices_cases.json")["cases"]
 
 
-def _load(path: str, name: str):
+def _load(path: str, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _migration():
+def _migration() -> ModuleType:
     return _load(_PATH, "installments_campaign_migration")
 
 
@@ -73,7 +76,7 @@ class TestModelMirror:
 
 
 @pytest.fixture
-def store():
+def store() -> Iterator[Engine]:
     """Throwaway schema holding the REAL `ml_items` of the core migration, before this one."""
     from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
 
@@ -98,11 +101,11 @@ def store():
         admin.dispose()
 
 
-def _terms(*values) -> dict:
+def _terms(*values: Optional[str]) -> dict:
     return {"sale_terms": [{"id": "INSTALLMENTS_CAMPAIGN", "value_name": v} for v in values]}
 
 
-def _insert(eng, item_id: str, raw) -> None:
+def _insert(eng: Engine, item_id: str, raw: Optional[dict]) -> None:
     with eng.begin() as conn:
         conn.execute(
             text("INSERT INTO ml_items (item_id, raw) VALUES (:i, CAST(:r AS jsonb))"),
@@ -110,7 +113,7 @@ def _insert(eng, item_id: str, raw) -> None:
         )
 
 
-def _run_upgrade(eng, module=None) -> None:
+def _run_upgrade(eng: Engine, module: Optional[ModuleType] = None) -> None:
     module = module or _migration()
     with eng.connect() as conn:
         ctx = MigrationContext.configure(conn)
@@ -118,7 +121,7 @@ def _run_upgrade(eng, module=None) -> None:
             module.upgrade()
 
 
-def _columns(eng) -> dict:
+def _columns(eng: Engine) -> dict:
     with eng.connect() as conn:
         return {
             row[0]: (row[1], row[2])
@@ -129,7 +132,7 @@ def _columns(eng) -> dict:
         }
 
 
-def _values(eng) -> dict:
+def _values(eng: Engine) -> dict:
     with eng.connect() as conn:
         return dict(conn.execute(text("SELECT item_id, installments_campaign FROM ml_items")).all())
 
@@ -185,7 +188,7 @@ class TestUpgrade:
         real = module._update_batch
         calls = []
 
-        def boom(bind, after, last):
+        def boom(bind: Connection, after: str, last: str) -> None:
             calls.append((after, last))
             if len(calls) == 3:
                 raise RuntimeError("stop in the last batch")
@@ -196,6 +199,25 @@ class TestUpgrade:
             _run_upgrade(store, module)
         done = [item for item, value in _values(store).items() if value == "3x_campaign"]
         assert sorted(done) == ["MLA0", "MLA1", "MLA2", "MLA3"]
+
+    def test_the_batches_wait_for_a_row_lock_a_few_seconds_at_most(self, store) -> None:
+        """The backfill runs outside the DDL transaction, so its `lock_timeout` must be set again: a worker holding a
+        row for long fails the batch (the migration can be re-run) instead of hanging the deploy."""
+        _insert(store, "MLA1", _terms("9x_campaign"))
+        recorded: list[str] = []
+
+        def record(connection, cursor, statement, *rest) -> None:
+            recorded.append(statement)
+
+        event.listen(store, "before_cursor_execute", record)
+        try:
+            _run_upgrade(store)
+        finally:
+            event.remove(store, "before_cursor_execute", record)
+        first_update = next(i for i, statement in enumerate(recorded) if statement.startswith("UPDATE ml_items"))
+        settings = [i for i, statement in enumerate(recorded) if "lock_timeout" in statement]
+        assert any(i < first_update and "5s" in recorded[i] for i in settings), recorded
+        assert "lock_timeout" in recorded[-1] and "RESET" in recorded[-1].upper()  # and it is put back after
 
     def test_rerunning_it_is_a_no_op(self, store) -> None:
         _insert(store, "MLA1", _terms("9x_campaign"))

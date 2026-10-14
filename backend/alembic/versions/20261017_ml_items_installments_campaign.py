@@ -9,7 +9,7 @@ against a warm p50 of 1.8 s).
 The value is now written at ingest by the item mapper (`mappers.installments_campaign`) and read as a plain column.
 
 * The column is added first (a catalog change, no rewrite) under a short `lock_timeout`, so the migration gives up
-  instead of queueing behind a long transaction.
+  instead of queueing behind a long transaction; the batches run under the same limit on row locks.
 * The backfill is set-based and batched: `BATCH_SIZE` items by primary key range, each batch its own transaction
   (`autocommit_block`), so the ingestion workers are never blocked for more than one batch. Only rows that HAVE
   the term are updated (NULL is already the right value for the rest), and the value is computed from the target row
@@ -77,7 +77,14 @@ def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.execute("ALTER TABLE ml_items ADD COLUMN IF NOT EXISTS installments_campaign text")
     with op.get_context().autocommit_block():
-        backfill(op.get_bind())
+        # The `SET LOCAL` above ended with the DDL transaction: the batches need their own limit, so a worker that
+        # holds a row for long fails the batch (the migration can be re-run) instead of hanging the deploy.
+        bind = op.get_bind()
+        bind.execute(sa.text("SET lock_timeout = '5s'"))
+        try:
+            backfill(bind)
+        finally:
+            bind.execute(sa.text("RESET lock_timeout"))
 
 
 def downgrade() -> None:
