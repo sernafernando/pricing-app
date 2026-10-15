@@ -193,6 +193,7 @@ from app.models.ml_publications import (
     MlUserProductFamily,
     MlUserProductStock,
 )
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 
 # Compras v2 — NCs locales
 from app.models.nota_credito_local import NotaCreditoLocal
@@ -450,4 +451,7 @@ __all__ = [
     "MlUserProduct",
     "MlUserProductStock",
     "MlUserProductFamily",
+    "SellInCompra",
+    "SellInCompraItem",
+    "SellInConsumo",
 ]
