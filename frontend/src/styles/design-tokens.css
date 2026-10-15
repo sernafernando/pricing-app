@@ -378,7 +378,9 @@
   --cf-bg-sidebar: #ffffff;
   --cf-bg-card: #ffffff;
   --cf-bg-hover: #f3f4f6;
-  --cf-bg-topbar: #ffffff;
+  /* Role token: the header a brand (data-brand) repaints. */
+  --brand-header-bg: #ffffff;
+  --cf-bg-topbar: var(--brand-header-bg);
   
   /* Borders */
   --cf-border-subtle: #e5e7eb;
@@ -430,7 +432,9 @@
   --cf-bg-sidebar: #0a0a0a;
   --cf-bg-card: #181818;
   --cf-bg-hover: #1f1f1f;
-  --cf-bg-topbar: #0a0a0a;
+  /* Role token: the header a brand (data-brand) repaints. */
+  --brand-header-bg: #0a0a0a;
+  --cf-bg-topbar: var(--brand-header-bg);
   
   /* Borders */
   --cf-border-subtle: #1a1a1a;

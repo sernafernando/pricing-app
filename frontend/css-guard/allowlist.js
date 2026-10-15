@@ -17,7 +17,7 @@
 /**
  * NOT debt — permanent, principled exemptions.
  *
- * These are the two token DEFINITION sites. Literal color values are their
+ * These are the token DEFINITION sites. Literal color values are their
  * reason to exist; there is no token to defer to because this is where tokens
  * are born. Verified: every one of theme.css's 113 hex literals sits inside a
  * `--custom-property` declaration.
@@ -25,6 +25,9 @@
 export const TOKEN_DEFINITION_FILES = [
   'src/styles/design-tokens.css',
   'src/styles/theme.css',
+  // The TP-Link brand palette (data-brand="tplink"): same rule, every literal
+  // colour sits inside a custom property.
+  'src/styles/brand-tplink.css',
 ];
 
 /** Rule 1 (stylelint): files with hardcoded hex / named / rgb() / hsl() colors. */

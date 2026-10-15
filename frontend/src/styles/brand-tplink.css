@@ -1,0 +1,191 @@
+/**
+ * TP-LINK BRAND THEME
+ *
+ * Active when <html> carries `data-brand="tplink"`, which ThemeContext sets for
+ * users holding the `tplink.solo` permission (never user-toggleable). It works
+ * ALONGSIDE `data-theme`: the brand picks the palette, the theme still picks
+ * light or dark inside it. Without the attribute nothing here matches, so the
+ * base theme is untouched.
+ *
+ * Imported after theme.css (see main.jsx). Each block is (0,2,0), so it beats
+ * the base `:root[data-theme]` blocks (0,2,0 too) by source order and the
+ * plain `[data-theme]` rules by specificity.
+ *
+ * Like design-tokens.css and theme.css, this is a token DEFINITION file: every
+ * literal colour sits inside a custom property. The few rules at the bottom
+ * only consume tokens.
+ *
+ * Source: TP-Link Brand Guidelines p.38 — Teal #4ACBD6, Yellow #FFCB00; accents
+ * Navy #250D71, Maroon #C11C66, Dark Green #005564, Cyan #00A3DF,
+ * Dark Gray #36444B, Light Gray #A7A9AC. Never white text on Teal (1.94:1).
+ * Aktiv Grotesk is licensed and NOT loaded; the brand's fallback is Arial.
+ */
+
+/* ============================================================
+   PROVISIONAL PALETTE — placeholder values from the brand guide.
+   The final light/dark values come from a Stitch pass over the
+   current tokens; replace the values below, keep the token names.
+   ============================================================ */
+[data-brand="tplink"][data-theme="light"] {
+  --brand-font-family: "Aktiv Grotesk", Arial, sans-serif;
+
+  /* Role tokens */
+  --brand-primary: #4acbd6;
+  --brand-primary-rgb: 74, 203, 214;
+  --brand-primary-hover: #005564;
+  --brand-primary-light: #e3f6f8;
+  --on-brand-primary: #1c2428;
+  --on-brand-primary-hover: #ffffff;
+  --brand-focus-ring: #005564;
+  --brand-link: #005564;
+  /* PROVISIONAL: the guide's #005564 header needs the header's text tokens
+     re-scoped (its dropdowns inherit them), so the header stays light here. */
+  --brand-header-bg: #ffffff;
+  --brand-header-logo-filter: invert(1) brightness(0.25);
+  --gradient-primary: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary) 100%);
+
+  /* Surfaces */
+  --cf-bg-app: #ffffff;
+  --cf-bg-sidebar: #f4f5f6;
+  --cf-bg-card: #ffffff;
+  --cf-card-bg: #ffffff;
+  --cf-bg-hover: #eceeef;
+  --cf-card-hover-bg: #f4f5f6;
+  --bg-primary: #ffffff;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f4f5f6;
+  --bg-hover: #eceeef;
+  --bg-active: #e3e5e6;
+
+  /* Text */
+  --cf-text-primary: #36444b;
+  --cf-text-secondary: #5f6b71;
+  --cf-text-tertiary: #5f6b71;
+  --cf-text-muted: #5f6b71;
+  --text-primary: #36444b;
+  --text-secondary: #5f6b71;
+  --text-tertiary: #5f6b71;
+
+  /* Borders (#a7a9ac is decorative only, never a text colour) */
+  --cf-border-subtle: #e3e5e6;
+  --cf-border-default: #c9ccce;
+  --cf-border-strong: #a7a9ac;
+  --cf-card-border: #e3e5e6;
+  --border-primary: #e3e5e6;
+  --border-secondary: #c9ccce;
+  --border-color: #e3e5e6;
+
+  /* Accents and semantics */
+  --cf-accent-blue: #005564;
+  --cf-accent-blue-hover: #00a3df;
+  --cf-accent-teal: #4acbd6;
+  --cf-accent-yellow: #ffcb00;
+  --cf-accent-red: #c11c66;
+  --cf-accent-green: #005564;
+  --cf-accent-purple: #250d71;
+  --success: #005564;
+  --success-text: #005564;
+  --danger: #c11c66;
+  --error: #c11c66;
+  --error-text: #c11c66;
+  --warning: #ffcb00;
+  --warning-text: #36444b;
+  --info: #005564;
+  --info-text: #005564;
+}
+
+[data-brand="tplink"][data-theme="dark"] {
+  --brand-font-family: "Aktiv Grotesk", Arial, sans-serif;
+
+  /* Role tokens */
+  --brand-primary: #4acbd6;
+  --brand-primary-rgb: 74, 203, 214;
+  --brand-primary-hover: #7fdce3;
+  --brand-primary-light: #1f4a50;
+  --on-brand-primary: #1c2428;
+  --on-brand-primary-hover: #1c2428;
+  --brand-focus-ring: #4acbd6;
+  --brand-link: #4acbd6;
+  --brand-header-bg: #283338;
+  --brand-header-logo-filter: none;
+  --gradient-primary: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary) 100%);
+
+  /* Surfaces */
+  --cf-bg-app: #1c2428;
+  --cf-bg-sidebar: #283338;
+  --cf-bg-card: #36444b;
+  --cf-card-bg: #36444b;
+  --cf-bg-hover: #3f4f57;
+  --cf-card-hover-bg: #3f4f57;
+  --bg-primary: #1c2428;
+  --bg-secondary: #1c2428;
+  --bg-tertiary: #283338;
+  --bg-hover: #36444b;
+  --bg-active: #3f4f57;
+
+  /* Text (#a7a9ac fails on the #36444b cards, so muted is lighter) */
+  --cf-text-primary: #ffffff;
+  --cf-text-secondary: #d3d5d6;
+  --cf-text-tertiary: #c4c7c9;
+  --cf-text-muted: #c4c7c9;
+  --text-primary: #ffffff;
+  --text-secondary: #d3d5d6;
+  --text-tertiary: #c4c7c9;
+
+  /* Borders */
+  --cf-border-subtle: #36444b;
+  --cf-border-default: #4a5a62;
+  --cf-border-strong: #5f6b71;
+  --cf-card-border: #4a5a62;
+  --border-primary: #36444b;
+  --border-secondary: #4a5a62;
+  --border-color: #36444b;
+
+  /* Accents and semantics */
+  --cf-accent-blue: #4acbd6;
+  --cf-accent-blue-hover: #7fdce3;
+  --cf-accent-teal: #4acbd6;
+  --cf-accent-yellow: #ffcb00;
+  --cf-accent-red: #e05a95;
+  --danger: #e05a95;
+  --error: #e05a95;
+  --error-text: #e05a95;
+  --warning: #ffcb00;
+  --warning-text: #ffcb00;
+  --info: #4acbd6;
+  --info-text: #4acbd6;
+}
+
+/* ============================================================
+   RULES — token consumers only, no literal colours.
+   ============================================================ */
+
+/* Zero specificity, like index.css's own `*` rule, so any class that sets a
+   font (e.g. the monospace figures) still wins. */
+:where([data-brand="tplink"]) * {
+  font-family: var(--brand-font-family);
+}
+
+/* Plain links only: anything with a class keeps its own styling. */
+:where([data-brand="tplink"]) a:where(:not([class])) {
+  color: var(--brand-link);
+}
+
+/* buttons-tesla.css paints primary text with --text-inverse (white), and white
+   on Teal fails contrast. Repoint it at the role token. */
+[data-brand="tplink"] .btn-tesla.primary {
+  color: var(--on-brand-primary);
+}
+
+[data-brand="tplink"] .btn-tesla.primary:hover {
+  color: var(--on-brand-primary-hover);
+}
+
+/* TopBar logo for the brand. The brand guide sets a 22px minimum height. */
+.tplink-brand-logo {
+  display: block;
+  height: var(--space-6);
+  min-height: 22px;
+  width: auto;
+  filter: var(--brand-header-logo-filter, none);
+}
