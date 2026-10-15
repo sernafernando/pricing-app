@@ -41,7 +41,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 
+from app.models.item_cost_list import ItemCostList
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -83,6 +85,22 @@ FUENTE_BACKFILL_COMBO = "hist_combo"
 # history row; the dated path stays exclusive to the backfill per the
 # module docstring above).
 FUENTE_COMBO = "combo"
+
+# TP-Link cost (cost list 8) written by `congelar()` next to the normal
+# cost: the item's OWN current list-8 price, or the sum of its components'
+# list-8 prices for a combo that has none of its own.
+FUENTE_TP_INGESTA = "lista8_ingesta"
+FUENTE_TP_COMBO = "lista8_ingesta_combo"
+
+# The TP-Link cost list -- same id `app/scripts/_tplink_metricas_core.py`
+# binds as `TPLINK_COSLIS_ID` (not imported from there: a service must not
+# depend on a script module).
+TPLINK_COSLIS_ID = 8
+
+# `tb_item_cost_list.curr_id` -> currency. Anything else (including NULL)
+# is an UNKNOWN currency and leaves the TP cost NULL -- unlike the list-8
+# metrics job, which treats every non-USD id as ARS.
+_MONEDA_POR_CURR_ID = {1: "ARS", 2: "USD"}
 
 
 def tiene_costo_propio(producto: ProductoERP) -> bool:
@@ -158,6 +176,19 @@ class _ResolvedCost:
     iva_pct: Decimal
     fuente: str
     producto_item_id: int
+
+
+@dataclass(frozen=True)
+class _ResolvedTpCost:
+    """The TP-Link (list 8) cost for one item, always complete -- an item
+    whose list-8 cost cannot be resolved gets `None` and every `costo_tp_*`
+    column stays NULL (the "Total TP incomplete" flag)."""
+
+    costo_origen: Decimal
+    moneda: str
+    tipo_cambio: Optional[Decimal]
+    costo_unitario_ars: Decimal
+    fuente: str
 
 
 def _insert_stmt(db: Session, table: Any) -> Any:
@@ -283,6 +314,55 @@ def componentes_por_combo(db: Session, erp_ids: Sequence[int]) -> Dict[int, List
             )
             por_combo.pop(combo_id, None)
     return por_combo
+
+
+def _precios_lista8(db: Session, erp_ids: Sequence[int]) -> Dict[int, Tuple[Decimal, str]]:
+    """`{erp_item_id: (coslis_price, moneda)}` from the CURRENT cost list 8,
+    in ONE query for the whole batch (same bulk rule as
+    `_productos_por_item`).
+
+    Only a REAL price is returned: `coslis_price > 0` (a NULL or zero price
+    is an ERP hole, never a free product -- same rule as
+    `tiene_costo_propio`) in a known currency (`_MONEDA_POR_CURR_ID`). An
+    item with rows in more than one company that DISAGREE is refused, for
+    the same reason `componentes_por_combo` refuses to sum across
+    companies: there is no way to tell which one applies."""
+    if not erp_ids:
+        return {}
+    rows = (
+        db.query(ItemCostList.item_id, ItemCostList.coslis_price, ItemCostList.curr_id)
+        .filter(
+            ItemCostList.coslis_id == TPLINK_COSLIS_ID,
+            ItemCostList.item_id.in_(sorted(set(erp_ids))),
+            ItemCostList.coslis_price > 0,
+        )
+        .all()
+    )
+    candidatos: Dict[int, set] = {}
+    for item_id, price, curr_id in rows:
+        moneda = _MONEDA_POR_CURR_ID.get(curr_id)
+        if moneda is None:
+            logger.warning(
+                "costeo_service: unknown list-8 curr_id=%r for producto_item_id=%s -- TP cost left NULL",
+                curr_id,
+                item_id,
+            )
+            candidatos.setdefault(item_id, set()).add(None)
+            continue
+        candidatos.setdefault(item_id, set()).add((Decimal(str(price)), moneda))
+
+    precios: Dict[int, Tuple[Decimal, str]] = {}
+    for item_id, valores in candidatos.items():
+        if len(valores) != 1 or None in valores:
+            if len(valores) > 1:
+                logger.warning(
+                    "costeo_service: producto_item_id=%s has %s different list-8 prices -- TP cost left NULL",
+                    item_id,
+                    len(valores),
+                )
+            continue
+        precios[item_id] = next(iter(valores))
+    return precios
 
 
 def _resolve_usd_rate(db: Session, usd_rate_cache: Dict[str, Any]) -> Optional[Tuple[Decimal, Any]]:
@@ -468,6 +548,65 @@ def _resolve_cost(
     )
 
 
+def _resolve_tp_cost(
+    db: Session,
+    erp_id: int,
+    precios_lista8: Dict[int, Tuple[Decimal, str]],
+    combos: Dict[int, List[Tuple[int, Decimal]]],
+    usd_rate_cache: Dict[str, Any],
+) -> Optional[_ResolvedTpCost]:
+    """The TP-Link cost for one product, mirroring `_resolve_cost`: the
+    product's OWN list-8 price first; failing that, for a combo, the sum of
+    its components' list-8 prices -- ALL OR NOTHING and NO RECURSION, same
+    as `_resolver_combo_vivo`. Converted with the same `_convertir_a_ars`
+    and the same once-per-call USD rate as the normal cost.
+
+    Independent of the normal cost's own path: a combo the ERP prices
+    (normal cost of its own) but that has no list-8 price is still costed
+    from its components here."""
+    propio = precios_lista8.get(erp_id)
+    if propio is not None:
+        costo_origen, moneda = propio
+        convertido = _convertir_a_ars(db, costo_origen, moneda, erp_id, usd_rate_cache)
+        if convertido is None:
+            return None
+        costo_unitario_ars, tipo_cambio, _ = convertido
+        return _ResolvedTpCost(
+            costo_origen=costo_origen,
+            moneda=moneda,
+            tipo_cambio=tipo_cambio,
+            costo_unitario_ars=costo_unitario_ars,
+            fuente=FUENTE_TP_INGESTA,
+        )
+
+    componentes = combos.get(erp_id)
+    if not componentes:
+        return None
+    total = Decimal("0")
+    tipo_cambio: Optional[Decimal] = None
+    for componente_id, qty in componentes:
+        precio = precios_lista8.get(componente_id)
+        if precio is None:
+            return None
+        convertido = _convertir_a_ars(db, precio[0], precio[1], componente_id, usd_rate_cache)
+        if convertido is None:
+            return None
+        valor_ars, tc, _ = convertido
+        total += valor_ars * qty
+        if tc is not None:
+            tipo_cambio = tc
+    if total <= 0:
+        return None
+    return _ResolvedTpCost(
+        # Summed in ARS: components can mix currencies (see `_resolve_cost`).
+        costo_origen=total,
+        moneda="ARS",
+        tipo_cambio=tipo_cambio,
+        costo_unitario_ars=total,
+        fuente=FUENTE_TP_COMBO,
+    )
+
+
 def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> None:
     """Freezes a cost/IVA/exchange-rate snapshot for every item in `items`
     that resolves completely (design D6/D7). Called once per order, AFTER
@@ -492,6 +631,12 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     structural no-op here, regardless of what the ERP or the exchange rate
     look like today (design D5). Does NOT commit -- the caller owns the
     transaction boundary, same as `upsert_order`.
+
+    The TP-Link cost (list 8, `_resolve_tp_cost`) is written in the SAME
+    insert, for EVERY item regardless of its store -- a publication that
+    later moves to the TP store must still have it. It never decides
+    whether a row is written: no normal cost, no row; no list-8 cost, the
+    row is written with every `costo_tp_*` column NULL.
     """
     usd_rate_cache: Dict[str, Any] = {}
     productos_por_indice = _productos_por_item(db, items)
@@ -501,8 +646,15 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     # actually prices is never treated as a combo (see `_resolve_cost`).
     # Component products are fetched in a SECOND bulk query, same
     # discipline `run_backfill` follows: never one round-trip per combo.
+    erp_ids = {producto.item_id for producto, _ in productos_por_indice.values()}
+    precios_lista8 = _precios_lista8(db, erp_ids)
+    # Combos for BOTH costs in the same single query: products with no
+    # normal cost of their own, plus products with no list-8 price of their
+    # own (whose TP cost may still come from their components).
     erp_ids_sin_costo = {
-        producto.item_id for producto, _ in productos_por_indice.values() if not tiene_costo_propio(producto)
+        producto.item_id
+        for producto, _ in productos_por_indice.values()
+        if not tiene_costo_propio(producto) or producto.item_id not in precios_lista8
     }
     combos = componentes_por_combo(db, erp_ids_sin_costo)
     componente_ids = {componente_id for componentes in combos.values() for componente_id, _ in componentes}
@@ -512,6 +664,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             producto.item_id: producto
             for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(sorted(componente_ids)))
         }
+    precios_lista8.update(_precios_lista8(db, componente_ids - precios_lista8.keys()))
 
     # Existence guard, dialect-independent, resolved in ONE query before the
     # loop rather than one per item.
@@ -564,6 +717,18 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             "fuente": resolved.fuente,
             "producto_item_id": resolved.producto_item_id,
         }
+        tp = _resolve_tp_cost(db, resolved.producto_item_id, precios_lista8, combos, usd_rate_cache)
+        if tp is not None:
+            values.update(
+                {
+                    "costo_tp_origen": tp.costo_origen,
+                    "costo_tp_moneda": tp.moneda,
+                    "costo_tp_tipo_cambio": tp.tipo_cambio,
+                    "costo_tp_unitario_ars": tp.costo_unitario_ars,
+                    "costo_tp_fuente": tp.fuente,
+                    "costo_tp_at": func.now(),
+                }
+            )
         stmt = _insert_stmt(db, MlOrderItemCosto.__table__).values(**values)
         stmt = stmt.on_conflict_do_nothing(
             index_elements=["order_id", "item_id", "variation_id"],
