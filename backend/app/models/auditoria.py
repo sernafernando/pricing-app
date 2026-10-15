@@ -29,6 +29,9 @@ class TipoAccion(str, enum.Enum):
     ML_VINCULO_MANUAL = "ml_vinculo_manual"
     ML_VINCULO_SIN_PRODUCTO = "ml_vinculo_sin_producto"
     ML_VINCULO_AUTOMATICO = "ml_vinculo_automatico"
+    # sell in: one row per line of a sell-in purchase when it is loaded (`item_id` is the
+    # line's product, `compra_id` travels in the values). Same VARCHAR(50) column: no DDL.
+    SELL_IN_COMPRA_CREADA = "sell_in_compra_creada"
 
 
 class Auditoria(Base):
