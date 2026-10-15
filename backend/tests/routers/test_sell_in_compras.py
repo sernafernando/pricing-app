@@ -96,6 +96,9 @@ def _crear(client, headers, **overrides) -> dict:
 ENDPOINTS = [
     ("post", f"{BASE}/preview", _preview_body()),
     ("post", BASE, _create_body()),
+    ("get", BASE, None),
+    ("get", f"{BASE}/1", None),
+    ("post", f"{BASE}/1/anular", {}),
 ]
 
 
@@ -121,6 +124,10 @@ def test_every_endpoint_requires_authentication(client, productos, method, url, 
 def test_writes_need_gestionar_not_just_ver(client, lector, productos, method, url, body):
     resp = getattr(client, method)(url, json=body, headers=lector)
     assert resp.status_code == 403
+
+
+def test_ver_is_enough_to_read(client, lector):
+    assert client.get(BASE, headers=lector).status_code == 200
 
 
 # ── Preview ─────────────────────────────────────────────────────────
@@ -446,3 +453,140 @@ def test_create_in_usd_freezes_the_ars_cost_converted_with_its_own_rate(client, 
     costos = {i.item_id: D(i.costo_base_unit) for i in db.query(SellInCompraItem).filter_by(compra_id=compra.id)}
     assert costos[4512] == D("0.079968")  # 100 ARS / 1250.5, half up to 6 decimals
     assert costos[4514] == D("10")  # already in USD: not converted
+
+
+# ── List ────────────────────────────────────────────────────────────
+
+
+@pytest.fixture()
+def tres_compras(client, gestor, productos, db):
+    proveedor = Proveedor(nombre="TP-Link")
+    db.add(proveedor)
+    db.flush()
+    a = _crear(client, gestor, fecha_compra="2026-09-01", proveedor_id=proveedor.id)
+    b = _crear(client, gestor, fecha_compra="2026-10-01", lineas=[{"item_id": 4513, "cantidad": 5}])
+    c = _crear(client, gestor, fecha_compra="2026-10-10", lineas=[{"item_id": 4512, "cantidad": 4}])
+    anulada = client.post(f"{BASE}/{c['id']}/anular", json={}, headers=gestor)
+    assert anulada.status_code == 200, anulada.text
+    return {"a": a, "b": b, "c": c, "proveedor_id": proveedor.id}
+
+
+def _ids(resp) -> list[int]:
+    assert resp.status_code == 200, resp.text
+    return [row["id"] for row in resp.json()["items"]]
+
+
+def test_list_is_newest_first_and_paginated(client, gestor, tres_compras):
+    t = tres_compras
+    resp = client.get(BASE, headers=gestor)
+    assert _ids(resp) == [t["c"]["id"], t["b"]["id"], t["a"]["id"]]
+    assert resp.json()["total"] == 3
+
+    page2 = client.get(BASE, params={"page": 2, "page_size": 2}, headers=gestor)
+    assert _ids(page2) == [t["a"]["id"]]
+    assert page2.json()["total"] == 3
+
+
+@pytest.mark.parametrize(
+    "params,expected",
+    [
+        ({"item_id": 4512}, ["c", "a"]),
+        ({"item_id": 4513}, ["b", "a"]),
+        ({"estado": "anulada"}, ["c"]),
+        ({"estado": "activa"}, ["b", "a"]),
+        ({"fecha_desde": "2026-10-01"}, ["c", "b"]),
+        ({"fecha_hasta": "2026-10-01"}, ["b", "a"]),
+        ({"fecha_desde": "2026-09-15", "fecha_hasta": "2026-10-05"}, ["b"]),
+    ],
+)
+def test_list_filters(client, gestor, tres_compras, params, expected):
+    resp = client.get(BASE, params=params, headers=gestor)
+    assert _ids(resp) == [tres_compras[k]["id"] for k in expected]
+
+
+def test_list_filters_by_proveedor(client, gestor, tres_compras):
+    resp = client.get(BASE, params={"proveedor_id": tres_compras["proveedor_id"]}, headers=gestor)
+    assert _ids(resp) == [tres_compras["a"]["id"]]
+
+
+def test_list_rows_carry_totals_and_consumed_units(client, gestor, tres_compras, db):
+    a = tres_compras["a"]
+    item_4512 = next(i for i in a["items"] if i["item_id"] == 4512)
+    db.add(
+        SellInConsumo(
+            compra_item_id=item_4512["id"],
+            canal="ml",
+            venta_ref=1,
+            item_id=4512,
+            fecha_venta=date(2026, 10, 2),
+            unidades=3,
+            descuento_ars=D("75.00"),
+        )
+    )
+    db.flush()
+
+    rows = client.get(BASE, params={"proveedor_id": tres_compras["proveedor_id"]}, headers=gestor).json()["items"]
+    (row,) = rows
+    assert row["unidades_total"] == 20
+    assert row["unidades_consumidas"] == 3
+    assert row["unidades_restantes"] == 17
+    por_item = {i["item_id"]: i for i in row["items"]}
+    assert por_item[4512]["unidades_consumidas"] == 3
+    assert por_item[4512]["unidades_restantes"] == 7
+    assert por_item[4513]["unidades_consumidas"] == 0
+    assert por_item[4513]["unidades_restantes"] == 10
+
+
+def test_list_rejects_an_unknown_estado(client, gestor):
+    assert client.get(BASE, params={"estado": "borrada"}, headers=gestor).status_code == 422
+
+
+# ── Detail ──────────────────────────────────────────────────────────
+
+
+def test_get_returns_the_detail_with_consumption(client, gestor, productos):
+    data = _crear(client, gestor)
+    resp = client.get(f"{BASE}/{data['id']}", headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    detalle = resp.json()
+    assert detalle["id"] == data["id"]
+    assert detalle["unidades_consumidas"] == 0
+    assert detalle["unidades_restantes"] == 20
+    first = detalle["items"][0]
+    assert first["codigo"] == "SW-8"
+    assert D(first["descuento_unit"]) == D("25")
+    assert D(first["costo_con_sell_in_unit"]) == D("75")
+
+
+def test_get_unknown_is_404(client, gestor):
+    assert client.get(f"{BASE}/424242", headers=gestor).status_code == 404
+
+
+# ── Anular ──────────────────────────────────────────────────────────
+
+
+def test_anular_once_then_409(client, gestor, productos, db):
+    data = _crear(client, gestor)
+
+    first = client.post(f"{BASE}/{data['id']}/anular", json={"motivo": "Cargada dos veces"}, headers=gestor)
+    assert first.status_code == 200, first.text
+    assert first.json()["estado"] == "anulada"
+    assert db.get(SellInCompra, data["id"]).estado == "anulada"
+
+    second = client.post(f"{BASE}/{data['id']}/anular", json={}, headers=gestor)
+    assert second.status_code == 409
+    assert _message(second)
+
+    audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).all()
+    assert sorted(r.item_id for r in audit) == [4512, 4513]
+    assert {r.comentario for r in audit} == {"Cargada dos veces"}
+
+
+def test_anular_without_body(client, gestor, productos):
+    data = _crear(client, gestor)
+    assert client.post(f"{BASE}/{data['id']}/anular", headers=gestor).status_code == 200
+
+
+def test_anular_unknown_is_404(client, gestor):
+    assert client.post(f"{BASE}/424242/anular", json={}, headers=gestor).status_code == 404
