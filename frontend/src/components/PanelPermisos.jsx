@@ -447,9 +447,13 @@ export default function PanelPermisos() {
                         tipo: 'success',
                         texto: 'Roles adicionales actualizados',
                       });
-                      recargarPermisosUsuario(usuarioSeleccionado.id).catch(() =>
-                        setMensaje({ tipo: 'error', texto: 'Error al recargar permisos del usuario' }),
-                      );
+                      // The save itself succeeded: a failed reload only matters
+                      // while that user is still on screen.
+                      const usuarioId = usuarioSeleccionado.id;
+                      recargarPermisosUsuario(usuarioId).catch(() => {
+                        if (usuarioSeleccionadoIdRef.current !== usuarioId) return;
+                        mostrarMensajeTemporal({ tipo: 'error', texto: 'Error al recargar permisos del usuario' });
+                      });
                     }}
                   />
                 )}

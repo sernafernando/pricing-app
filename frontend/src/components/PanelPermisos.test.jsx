@@ -769,6 +769,49 @@ describe('PanelPermisos', () => {
       expect(within(seccion()).getByText('Ninguno')).toBeInTheDocument();
     });
 
+    // Save succeeds; the permissions reload after it stays pending until released.
+    const guardarConRecargaPendiente = async (user) => {
+      conRoles();
+      api.put.mockResolvedValue({ data: rolesAdicionalesDe(7, [ROLES[3]]) });
+      let rechazarRecarga;
+      const getOriginal = api.get.getMockImplementation();
+      let llamadasAna = 0;
+      api.get.mockImplementation((url) => {
+        if (url === '/permisos/usuario/7' && ++llamadasAna === 2) {
+          return new Promise((_, reject) => { rechazarRecarga = reject; });
+        }
+        return getOriginal(url);
+      });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await within(seccion()).findByText('Compras');
+      await user.click(within(seccion()).getByRole('button', { name: 'Editar roles adicionales' }));
+      await user.click(within(seccion()).getByRole('button', { name: 'Guardar' }));
+      await waitFor(() => expect(llamadasAna).toBe(2));
+      return () => rechazarRecarga(new Error('red caída'));
+    };
+
+    it('does not show a failed reload of the previous user over the newly selected one', async () => {
+      const user = userEvent.setup();
+      const fallarRecarga = await guardarConRecargaPendiente(user);
+
+      await user.click(screen.getAllByText('Beto Gómez')[0]);
+      await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+      await act(async () => fallarRecarga());
+
+      expect(screen.queryByText('Error al recargar permisos del usuario')).not.toBeInTheDocument();
+    });
+
+    it('shows a failed reload while the same user is still selected', async () => {
+      const user = userEvent.setup();
+      const fallarRecarga = await guardarConRecargaPendiente(user);
+
+      await act(async () => fallarRecarga());
+
+      expect(await screen.findByText('Error al recargar permisos del usuario')).toBeInTheDocument();
+    });
+
     it('is hidden for a SUPERADMIN user (already has every permission)', async () => {
       const user = userEvent.setup();
       const ROOT = { id: 9, nombre: 'Root Admin', username: 'root', email: 'root@x.com', rol: 'SUPERADMIN', activo: true };
