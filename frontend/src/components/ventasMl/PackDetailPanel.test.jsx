@@ -69,7 +69,9 @@ describe('Fetch and render on mount', () => {
     render(<PackDetailPanel packId={556} onClose={vi.fn()} onSelectOrder={vi.fn()} />);
 
     await screen.findByText('Desglose del pack 556');
-    const totalGaussDashes = screen.getAllByText('—');
+    // The heading can paint before the figures: wait for the dashes instead of
+    // reading them synchronously (it raced under the parallel CI run).
+    const totalGaussDashes = await screen.findAllByText('—');
     expect(totalGaussDashes.length).toBeGreaterThanOrEqual(2); // Total Gauss + Markup
   });
 });
