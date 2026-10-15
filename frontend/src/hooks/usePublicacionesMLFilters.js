@@ -95,10 +95,19 @@ export function effectiveSort(filters, permissions = {}) {
 
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
 
+// The old "Sin stock ML" chip (`sin_stock`, ML's available, a sum) left the screen with the summed column: a saved
+// or shared link that still carries it opens with the closest chip of today, "Sin stock propio", active.
+const LEGACY_STOCK = { sin_stock: 'propio_sin_stock' };
+
+function currentStockValues(values) {
+  return [...new Set(values.map((value) => LEGACY_STOCK[value] ?? value))];
+}
+
 function readFilters(params) {
   const filters = {};
   for (const key of TEXT_KEYS) filters[key] = params.get(key) ?? '';
   for (const key of CSV_KEYS) filters[key] = csv(params.get(key));
+  filters.stock = currentStockValues(filters.stock);
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
@@ -147,8 +156,10 @@ export function buildItemsParams(
     params.orden = filters.orden;
     if (filters.dir) params.dir = filters.dir;
   } else if (canSeeSales) {
-    // Métricas' default sort has to be asked for: the backend's own default is the activity.
+    // Métricas' default sort has to be asked for: the backend's own default is the activity. Its direction too,
+    // so the request says what the header shows instead of leaning on the backend's default.
     params.orden = defaultSortFor({ canSeeSales });
+    params.dir = DEFAULT_DIRECTION[params.orden];
   }
   if (canSeeMargin) {
     if (filters.markup_neg) params.markup_neg = true;

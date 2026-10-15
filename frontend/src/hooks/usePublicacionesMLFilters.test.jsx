@@ -39,7 +39,7 @@ describe('reading the URL', () => {
     const url =
       '/?q=router&vista=agrupado&estado=active,paused&estado_excluir=closed&tiendas=57997,none' +
       '&marcas=TP-LINK,EPSON&categorias=Redes&subcategorias=12,13&pms=4&familia=998' +
-      '&tipo=full,catalogo&vinculo=auto&stock=sin_stock&evento=price_changed&evento_desde=7d' +
+      '&tipo=full,catalogo&vinculo=auto&stock=full_sin_stock&evento=price_changed&evento_desde=7d' +
       '&orden=precio&dir=asc&pagina=3&sel=MLA123&tab=eventos';
     const f = setup(url).result.current.hook.filters;
     expect(f).toMatchObject({
@@ -55,7 +55,7 @@ describe('reading the URL', () => {
       familia: '998',
       tipo: ['full', 'catalogo'],
       vinculo: ['auto'],
-      stock: ['sin_stock'],
+      stock: ['full_sin_stock'],
       evento: ['price_changed'],
       evento_desde: '7d',
       orden: 'precio',
@@ -277,7 +277,8 @@ describe('sorting by Métricas ML figures', () => {
 
   it('defaults to Facturado 30D, highest first, for a user who sees the sales -- as Métricas does', () => {
     expect(effectiveSort(base, SALES)).toEqual({ key: 'facturado_30d', dir: 'desc' });
-    expect(buildItemsParams(base, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d' });
+    // The direction is explicit too: the request says what the header shows, not the backend's default.
+    expect(buildItemsParams(base, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d', dir: 'desc' });
   });
 
   it('keeps the activity default (no orden sent) for a user who does not see the sales', () => {
@@ -293,8 +294,8 @@ describe('sorting by Métricas ML figures', () => {
     for (const orden of ['markup_30d', 'total_gauss_30d']) {
       const margin = { ...base, orden, dir: 'asc' };
       expect(buildItemsParams(margin, PAGE_SIZE, ALL)).toMatchObject({ orden, dir: 'asc' });
-      expect(buildItemsParams(margin, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d' });
-      expect(buildItemsParams(margin, PAGE_SIZE, SALES)).not.toHaveProperty('dir');
+      // The link's own `dir` belongs to the sort it named: the default goes with its own direction.
+      expect(buildItemsParams(margin, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d', dir: 'desc' });
       expect(effectiveSort(margin, SALES)).toEqual({ key: 'facturado_30d', dir: 'desc' });
     }
   });
@@ -302,5 +303,21 @@ describe('sorting by Métricas ML figures', () => {
   it('a column sort stays what it was for everyone', () => {
     expect(buildItemsParams({ ...base, orden: 'precio', dir: 'asc' }, PAGE_SIZE, SALES)).toMatchObject({ orden: 'precio', dir: 'asc' });
     expect(effectiveSort({ ...base, orden: 'precio' }, SALES)).toEqual({ key: 'precio', dir: 'asc' });
+  });
+});
+
+describe('the legacy stock chip value', () => {
+  // `sin_stock` (ML's available, a sum) was the old "Sin stock ML" chip; the chips are now one per stock column.
+  it('reads an old link\'s `sin_stock` as "Sin stock propio", so its chip shows active', () => {
+    expect(setup('/?stock=sin_stock,erp_sin_stock').result.current.hook.filters.stock).toEqual(['propio_sin_stock', 'erp_sin_stock']);
+  });
+
+  it('never repeats a value an old link also carried in the new form', () => {
+    expect(setup('/?stock=propio_sin_stock,sin_stock').result.current.hook.filters.stock).toEqual(['propio_sin_stock']);
+  });
+
+  it('sends the new value to /items', () => {
+    const filters = setup('/?stock=sin_stock').result.current.hook.filters;
+    expect(buildItemsParams(filters).stock).toBe('propio_sin_stock');
   });
 });

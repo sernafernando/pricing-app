@@ -95,7 +95,7 @@ afterAll(resetTiendasOficiales);
 describe('the list', () => {
   it('asks for the first page of 50, with facets, and renders one row per MLA', async () => {
     await page();
-    expect(lastParams()).toEqual({ orden: 'facturado_30d', limit: 50, offset: 0, facets: true });
+    expect(lastParams()).toEqual({ orden: 'facturado_30d', dir: 'desc', limit: 50, offset: 0, facets: true });
     expect(screen.getByText(/Router TP-Link Archer AX55/)).toBeInTheDocument();
     expect(screen.getByText('MLA1100000004')).toBeInTheDocument();
     expect(screen.getByText('mostrando 1-50 de 235 publicaciones')).toBeInTheDocument();
@@ -263,8 +263,7 @@ describe('sorting and paging', () => {
 
   it('a shared link with a margin sort opens with the default sort for who cannot see margins', async () => {
     await page('/ml-publicaciones?orden=markup_30d&dir=asc');
-    expect(lastParams()).toMatchObject({ orden: 'facturado_30d' });
-    expect(lastParams()).not.toHaveProperty('dir');
+    expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' });
     expect(screen.getByRole('columnheader', { name: /Facturado 30D/ })).toHaveAttribute('aria-sort', 'descending');
   });
 });
@@ -311,6 +310,13 @@ describe('stock: our own, Full and the ERP, three columns never summed', () => {
     expect(within(stock).getByRole('button', { name: /Sin stock ERP.*9/ })).toBeInTheDocument();
     await userEvent.click(within(stock).getByRole('button', { name: /Sin stock propio.*3/ }));
     await waitFor(() => expect(lastParams().stock).toBe('propio_sin_stock'));
+  });
+
+  it('an old link with the "Sin stock ML" value opens with "Sin stock propio" active and asks for it', async () => {
+    await page('/ml-publicaciones?stock=sin_stock');
+    expect(lastParams().stock).toBe('propio_sin_stock');
+    const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
+    expect(within(stock).getByRole('button', { name: /Sin stock propio/ })).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
