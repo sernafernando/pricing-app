@@ -67,6 +67,50 @@ class KpiAgeing(BaseModel):
     over_60: int
 
 
+class KpiCoverageDay(BaseModel):
+    source: str
+    advertiser_id: int
+    day: date
+    status: Optional[str] = None  # null: the day was never fetched
+
+
+class KpiCoverage(BaseModel):
+    """What the ads ledger admits about the range. A missing day is NOT zero spend; `available` is whether any
+    trusted day exists at all, `data_through` the last day of the trusted run from the oldest ledgered day."""
+
+    available: bool
+    data_through: Optional[date] = None
+    missing_days: List[KpiCoverageDay]
+    mismatch_days: List[KpiCoverageDay]
+
+
+class KpiDisplaySpend(BaseModel):
+    cost_api: float
+    cost_net: float
+    subtracted: bool
+
+
+class KpiBrandSpend(BaseModel):
+    """Brand Ads' stored cost (measured all zero on 2026-10-08, Engram #2307: no IVA basis to apply)."""
+
+    cost: float
+    subtracted: bool
+
+
+class KpiAccountLevel(BaseModel):
+    display: KpiDisplaySpend
+    brand: KpiBrandSpend
+
+
+class KpiAdsUnattributed(BaseModel):
+    """Spend no row owns, present only in the unfiltered view. `sin_producto_cost` (Product Ads of MLAs no
+    product owns) already rides on the "sin producto" row; the account level only comes off the totals, and only
+    where `subtracted` says so."""
+
+    sin_producto_cost: float
+    account_level: KpiAccountLevel
+
+
 class KpiAds(BaseModel):
     """Product Ads of the KPI rows (only with `restar_publicidad` and `ver_ganancia`). Informational context:
     the ratios use the API cost basis and are never linked to specific sales; `cost_total` is the net-of-IVA
@@ -92,6 +136,8 @@ class KpiAds(BaseModel):
     requested: str = "mla"
     applied: str = "mla"
     subtracted_total: float = 0.0
+    coverage: Optional[KpiCoverage] = None
+    unattributed: Optional[KpiAdsUnattributed] = None
 
 
 class BoardKpis(BaseModel):
@@ -151,6 +197,30 @@ def _kpi_ads(a: board.AdsKpis, gross: Any) -> KpiAds:
         requested=a.requested,
         applied=a.applied,
         subtracted_total=round_money(a.subtracted_total),
+        coverage=KpiCoverage(
+            available=a.coverage.available,
+            data_through=a.coverage.data_through,
+            missing_days=[KpiCoverageDay.model_validate(d, from_attributes=True) for d in a.coverage.missing_days],
+            mismatch_days=[KpiCoverageDay.model_validate(d, from_attributes=True) for d in a.coverage.mismatch_days],
+        ),
+        unattributed=_kpi_unattributed(a.unattributed),
+    )
+
+
+def _kpi_unattributed(u: Optional[board.AdsUnattributed]) -> Optional[KpiAdsUnattributed]:
+    if u is None:
+        return None
+    account = u.account_level
+    return KpiAdsUnattributed(
+        sin_producto_cost=round_money(u.sin_producto_cost),
+        account_level=KpiAccountLevel(
+            display=KpiDisplaySpend(
+                cost_api=round_money(account.display_api),
+                cost_net=round_money(account.display_net),
+                subtracted=u.subtracted,
+            ),
+            brand=KpiBrandSpend(cost=round_money(account.brand), subtracted=u.subtracted),
+        ),
     )
 
 

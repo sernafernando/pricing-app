@@ -577,12 +577,34 @@ class AdsKpis:
     applied: str = "mla"
     # Product Ads net + the account-level spend subtracted from the KPI totals.
     subtracted_total: Decimal = Decimal("0")
+    coverage: Optional["AdsCoverage"] = None
+    # Only in the unfiltered view: spend that no row owns.
+    unattributed: Optional["AdsUnattributed"] = None
+
+
+@dataclass
+class AdsCoverage:
+    """What the ads ledger admits about the range: `available` is whether any trusted day exists, the days are
+    `ml_ads.read.CoverageDay`s (a missing day is never zero spend)."""
+
+    available: bool
+    data_through: Optional[date]
+    missing_days: List[Any]
+    mismatch_days: List[Any]
+
+
+@dataclass
+class AdsUnattributed:
+    sin_producto_cost: Decimal
+    account_level: "AccountLevel"
+    subtracted: bool
 
 
 @dataclass
 class AccountLevel:
     """Display and Brand Ads of the period and of its comparison period (account level, never on a row)."""
 
+    display_api: Decimal
     display_net: Decimal
     brand: Decimal
     prev_display_net: Decimal
@@ -1124,11 +1146,11 @@ class Board:
             )
         }
         display, prev_display = found.get("display", (Decimal(0), Decimal(0)))
-        # ponytail: Brand Ads' IVA basis was never measured (`ads_cost_net_of_iva` refuses "brand_ads"), so its stored
-        # cost is subtracted as stored on the owner's instruction (Engram #2720). If its API cost turns out to
-        # include IVA, measure it, add it to `API_COST_INCLUDES_IVA` and net it here.
+        # Brand Ads' cost was measured on 2026-10-08 (Engram #2307) and is all zero, so there is no IVA basis to
+        # apply (`ads_cost_net_of_iva` refuses "brand_ads"): it is subtracted as stored (owner decision, #2720).
         brand, prev_brand = found.get("brand", (Decimal(0), Decimal(0)))
         return AccountLevel(
+            display_api=display,
             display_net=ads_cost_net_of_iva(display, "display"),
             brand=brand,
             prev_display_net=ads_cost_net_of_iva(prev_display, "display"),
@@ -1203,7 +1225,7 @@ class Board:
         self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()}, LINES_STATS)
         if self.ads:
             self._load_comparison_coverage()
-            if self.ads_all:
+            if self.ads_unattributed:
                 self.account = self._account_level()
             self.ads_lines = self._materialize(ADS_TABLE, self._ads_source(), {"day": Date()}, ("mla", "day"))
         self.t = self._materialize(PAIRS_TABLE, self._pair_source(), analyze=self._pair_stats())
@@ -2052,11 +2074,15 @@ class Board:
             A = self.ads_lines
             in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
             sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in ("cost", *ADS_METRICS)]
-            query = select(*sums)
+            owned_by_nobody = select(func.coalesce(func.sum(self.t.c.ads_cost), 0)).where(
+                self.t.c.product == NO_PRODUCT
+            )
+            query = select(*sums, owned_by_nobody.scalar_subquery())
         else:
             members = self._member_table("")
             query = select(*(func.sum(members.c[name]) for name in ADS_PAIR_COLUMNS))
         cost_api, *metrics = (value or 0 for value in self.db.execute(query).one())
+        sin_producto = Decimal(str(metrics.pop())) if self.ads_unattributed else Decimal(0)
         by_name = dict(zip(ADS_METRICS, metrics))
         cost_api = Decimal(str(cost_api))
         cost_total = cents(ads_cost_net_of_iva(cost_api, ADS_SOURCE))
@@ -2075,6 +2101,24 @@ class Board:
             requested="todo" if self.f.restar_todo else "mla",
             applied="todo" if self.ads_all else "mla",
             subtracted_total=cost_total + (cents(account.display_net + account.brand) if self.ads_all else 0),
+            coverage=self._ads_coverage(),
+            unattributed=(
+                AdsUnattributed(cents(sin_producto), account, subtracted=self.ads_all) if account is not None else None
+            ),
+        )
+
+    def _ads_coverage(self) -> AdsCoverage:
+        """The ledger's account of the period (`ml_ads.read.ads_coverage`: three small reads), narrowed to the
+        sources this request subtracts: Product Ads always, Display and Brand Ads in position 2."""
+        from app.services.ml_ads import read  # lazy: `read` reaches the publications view, which imports this module
+
+        found = read.ads_coverage(self.db, self.f.date_from, self.f.date_to, today=self.today)
+        wanted = (ADS_SOURCE, *ACCOUNT_SOURCES) if self.ads_all else (ADS_SOURCE,)
+        return AdsCoverage(
+            available=found.data_through is not None,
+            data_through=found.data_through,
+            missing_days=[d for d in found.missing_days if d.source in wanted],
+            mismatch_days=[d for d in found.mismatch_days if d.source in wanted],
         )
 
     def _member_table(self, skip: str) -> Any:
