@@ -853,6 +853,11 @@ class TestGroupedBoardOnVolume:
 # ── "Restar publicidad" (ml-billing-balance PR 7a) on volume ──────────────────────
 
 
+# The unfiltered toggle ON adds to OFF: the comparison-ledger check, `board_ads_lines` and its ANALYZE (7a), the KPI
+# ads read, the ledger coverage (availability + known sources + the range's days) and the account-level read.
+ADS_ON_STATEMENTS = 8
+
+
 @pytest.fixture(scope="module")
 def volume_ads(volume_session):
     """Product Ads for half the MLAs over the period and its comparison (60 days), two ad groups on every
@@ -918,13 +923,13 @@ def volume_ads(volume_session):
 
 @pytest.mark.postgres
 class TestAdsOnVolume:
-    def test_the_ads_cost_exactly_four_statements_whatever_the_page_size(self, volume_session, volume_ads) -> None:
-        """ON adds the comparison-ledger check, the ads temp table, its ANALYZE, and the KPI ads read; nothing per row."""
+    def test_the_ads_cost_a_fixed_number_of_statements_whatever_the_page_size(self, volume_session, volume_ads) -> None:
+        """ON adds the comparison-ledger check, the ads temp table, its ANALYZE, the KPI ads read, the ledger coverage and the account-level read; nothing per row."""
         for limit in (10, 50, 200):
             _off, plain, plain_ms = _request(volume_session, limit=limit)
             on, recorder, elapsed_ms = _request(volume_session, limit=limit, restar_publicidad=True)
             assert len(on.rows) == limit
-            assert len(recorder.statements) == len(plain.statements) + 4
+            assert len(recorder.statements) == len(plain.statements) + ADS_ON_STATEMENTS
             print(f"\nboard OFF limit={limit}: {len(plain.statements)} statements, {plain_ms:.0f} ms")
             _print(f"board ads ON limit={limit}", recorder, elapsed_ms)
 
@@ -975,7 +980,7 @@ class TestAdsOnVolume:
                 on, recorder, elapsed_ms = _request(
                     volume_session, limit=10, solo_con_ventas=solo, restar_publicidad=True, sort="ads_cost"
                 )
-                assert len(recorder.statements) == len(plain.statements) + 4
+                assert len(recorder.statements) == len(plain.statements) + ADS_ON_STATEMENTS
                 assert on.rows[0].key == "0" and on.rows[0].ads.cost > 0
                 _print(f"board ads ON ad-only union solo_con_ventas={solo}", recorder, elapsed_ms)
             filtered, _r, _ms = _request(
@@ -990,11 +995,11 @@ class TestAdsOnVolume:
             volume_session.execute(text("DELETE FROM ml_ads_item_days WHERE item_id = 'MLAGHOST'"))
 
     def test_the_kpi_ads_block_costs_one_statement_and_matches_the_ad_lines(self, volume_session, volume_ads) -> None:
-        """PR 7b-ii: ON = OFF + 4 (7a's 3 plus the KPI ads statement), whatever the page; the unfiltered cost_total is
+        """PR 7b-ii: ON = OFF + ADS_ON_STATEMENTS, whatever the page; the unfiltered cost_total is
         every ad line of the period, and a filtered view sums less."""
         _off, plain, _ms = _request(volume_session, limit=10)
         on, recorder, elapsed_ms = _request(volume_session, limit=10, restar_publicidad=True)
-        assert len(recorder.statements) == len(plain.statements) + 4
+        assert len(recorder.statements) == len(plain.statements) + ADS_ON_STATEMENTS
         _print("board ads ON with the KPI ads block", recorder, elapsed_ms)
         total = volume_session.execute(
             text("SELECT SUM(cost) FROM ml_ads_item_days WHERE day BETWEEN CAST(:a AS DATE) AND CAST(:b AS DATE)"),
@@ -1007,11 +1012,11 @@ class TestAdsOnVolume:
     def test_position_two_costs_one_extra_statement_and_subtracts_display_and_brand(
         self, volume_session, volume_ads
     ) -> None:
-        """PR 7b-iii-a: "todo" adds ONE statement (the account-level read) to "mla". The KPI totals drop by the
+        """PR 7b-iii-a: "todo" costs the statements "mla" costs. The KPI totals drop by the
         account-level spend of the period (Display 5 campaigns x (40 + c) + Brand 7 a day over 30 days); rows stay."""
         mla, rec_mla, _ms = _request(volume_session, limit=10, restar_publicidad=True)
         todo, rec_todo, ms = _request(volume_session, limit=10, restar_publicidad=True, restar_todo=True)
-        assert len(rec_todo.statements) == len(rec_mla.statements) + 1  # the account-level read
+        assert len(rec_todo.statements) == len(rec_mla.statements)  # the account-level read is already there
         _print("board ads ON position 2", rec_todo, ms)
         account = 30 * (sum(40 + c for c in range(1, 6)) + 7)
         assert (
@@ -1024,3 +1029,9 @@ class TestAdsOnVolume:
             volume_session, limit=10, restar_publicidad=True, restar_todo=True, pub_status_exclude=("closed",)
         )
         assert (narrowed.kpis.ads.requested, narrowed.kpis.ads.applied) == ("todo", "mla")
+
+    def test_a_filtered_view_skips_only_the_account_level_read(self, volume_session, volume_ads) -> None:
+        _off, plain, _ms = _request(volume_session, limit=10, pub_status_exclude=("closed",))
+        on, recorder, _ms = _request(volume_session, limit=10, restar_publicidad=True, pub_status_exclude=("closed",))
+        assert len(recorder.statements) == len(plain.statements) + ADS_ON_STATEMENTS - 1
+        assert on.kpis.ads.unattributed is None and on.kpis.ads.coverage.available is True
