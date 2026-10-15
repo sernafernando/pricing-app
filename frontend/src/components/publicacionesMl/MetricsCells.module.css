@@ -1,0 +1,101 @@
+/* The Métricas ML figures of a publication and its stock, styled as the
+   Métricas board styles the same figures (BoardTable.module.css): mono
+   figures, toned markup and money, the ageing chip. Tokens only. Nothing
+   wraps: "$" never sits alone on a line. */
+
+.muted {
+  color: var(--cf-text-muted);
+}
+
+.units {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.strong {
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
+}
+
+.outOfStock {
+  color: var(--tone-danger-fg);
+}
+
+.markup {
+  font-family: var(--font-mono);
+  font-weight: var(--font-bold);
+  white-space: nowrap;
+}
+
+.markup[data-tone='good'] {
+  color: var(--money-positive);
+}
+
+.markup[data-tone='low'] {
+  color: var(--tone-warning-fg);
+}
+
+.markup[data-tone='negative'] {
+  color: var(--money-negative);
+}
+
+.money {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.money.strong[data-tone='positive'] {
+  color: var(--money-positive);
+}
+
+.money[data-tone='negative'] {
+  color: var(--money-negative);
+}
+
+.lastSale {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: nowrap;
+}
+
+.when {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+}
+
+.ago {
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+}
+
+.ageing {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-base);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.ageing[data-tone='good'] {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
+}
+
+.ageing[data-tone='low'] {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.ageing[data-tone='negative'] {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
