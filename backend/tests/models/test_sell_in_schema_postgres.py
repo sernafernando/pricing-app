@@ -106,9 +106,27 @@ def engine():
 
 @pytest.fixture()
 def orm_engine():
-    """Schema built from the ORM metadata (`Base.metadata`), for the parity check."""
+    """Schema built from the ORM metadata (`Base.metadata`), for the parity check.
+
+    The SQLite `engine` fixture patches the shared column types in place (BigInteger PKs become
+    Integer), so when any SQLite test ran earlier in the session the DDL would not be production's.
+    Build with the real Postgres types, then put back whatever types the columns had, so the
+    SQLite tests that run after this one still see their patch.
+    """
+    from tests.conftest import _restore_pristine_pg_types
+
     tables = [Base.metadata.tables[name] for name in sorted(TABLES)]
-    with _throwaway_schema("sell_in_orm", lambda eng: Base.metadata.create_all(bind=eng, tables=tables)) as eng:
+    found = {column: column.type for table in tables for column in table.columns}
+
+    def build(eng) -> None:
+        _restore_pristine_pg_types(tables)
+        try:
+            Base.metadata.create_all(bind=eng, tables=tables)
+        finally:
+            for column, column_type in found.items():
+                column.type = column_type
+
+    with _throwaway_schema("sell_in_orm", build) as eng:
         yield eng
 
 
