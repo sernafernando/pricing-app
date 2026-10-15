@@ -868,6 +868,28 @@ def volume_ads(volume_session):
     )
     volume_session.execute(
         text(
+            "CREATE TEMPORARY TABLE ml_ads_display_campaign_days (advertiser_id BIGINT, campaign_id BIGINT, "
+            "day DATE, consumed_budget NUMERIC(16, 2))"
+        )
+    )
+    volume_session.execute(
+        text("CREATE TEMPORARY TABLE ml_ads_brand_days (advertiser_id BIGINT, day DATE, cost NUMERIC(16, 2))")
+    )
+    volume_session.execute(
+        text(
+            "INSERT INTO ml_ads_display_campaign_days SELECT 25713, c, CAST(:today AS DATE) - d, 40 + c "
+            "FROM generate_series(1, 5) AS c, generate_series(0, 59) AS d"
+        ),
+        {"today": TODAY},
+    )
+    volume_session.execute(
+        text(
+            "INSERT INTO ml_ads_brand_days SELECT 25713, CAST(:today AS DATE) - d, 7 FROM generate_series(0, 59) AS d"
+        ),
+        {"today": TODAY},
+    )
+    volume_session.execute(
+        text(
             "CREATE TEMPORARY TABLE ml_ads_day_ledger (source VARCHAR(20), advertiser_id BIGINT, day DATE, "
             "status VARCHAR(16))"
         )
@@ -883,8 +905,8 @@ def volume_ads(volume_session):
     )
     volume_session.execute(
         text(
-            "INSERT INTO ml_ads_day_ledger SELECT 'product_ads', 1, CAST(:today AS DATE) - d, 'closed' "
-            "FROM generate_series(0, 59) AS d"
+            "INSERT INTO ml_ads_day_ledger SELECT s, 1, CAST(:today AS DATE) - d, 'closed' "
+            "FROM generate_series(0, 59) AS d, unnest(ARRAY['product_ads', 'display', 'brand_ads']) AS s"
         ),
         {"today": TODAY},
     )
@@ -897,7 +919,7 @@ def volume_ads(volume_session):
 @pytest.mark.postgres
 class TestAdsOnVolume:
     def test_the_ads_cost_exactly_four_statements_whatever_the_page_size(self, volume_session, volume_ads) -> None:
-        """ON adds the comparison-ledger check, the ads temp table, its ANALYZE and the KPI ads read; nothing per row."""
+        """ON adds the comparison-ledger check, the ads temp table, its ANALYZE, and the KPI ads read; nothing per row."""
         for limit in (10, 50, 200):
             _off, plain, plain_ms = _request(volume_session, limit=limit)
             on, recorder, elapsed_ms = _request(volume_session, limit=limit, restar_publicidad=True)
@@ -981,3 +1003,24 @@ class TestAdsOnVolume:
         assert on.kpis.ads.cost_total == pytest.approx(float(total), abs=0.011)
         narrowed, _r, _ms = _request(volume_session, limit=10, restar_publicidad=True, pub_status_exclude=("closed",))
         assert narrowed.kpis.ads.cost_total <= on.kpis.ads.cost_total
+
+    def test_position_two_costs_one_extra_statement_and_subtracts_display_and_brand(
+        self, volume_session, volume_ads
+    ) -> None:
+        """PR 7b-iii-a: "todo" adds ONE statement (the account-level read) to "mla". The KPI totals drop by the
+        account-level spend of the period (Display 5 campaigns x (40 + c) + Brand 7 a day over 30 days); rows stay."""
+        mla, rec_mla, _ms = _request(volume_session, limit=10, restar_publicidad=True)
+        todo, rec_todo, ms = _request(volume_session, limit=10, restar_publicidad=True, restar_todo=True)
+        assert len(rec_todo.statements) == len(rec_mla.statements) + 1  # the account-level read
+        _print("board ads ON position 2", rec_todo, ms)
+        account = 30 * (sum(40 + c for c in range(1, 6)) + 7)
+        assert (
+            todo.kpis.ads.applied == "todo"
+            and todo.kpis.ads.subtracted_total - mla.kpis.ads.subtracted_total == account
+        )
+        assert mla.kpis.total_gauss.value - todo.kpis.total_gauss.value == pytest.approx(account, abs=0.011)
+        assert [r.total_gauss for r in todo.rows] == [r.total_gauss for r in mla.rows]
+        narrowed, _r, _ms = _request(
+            volume_session, limit=10, restar_publicidad=True, restar_todo=True, pub_status_exclude=("closed",)
+        )
+        assert (narrowed.kpis.ads.requested, narrowed.kpis.ads.applied) == ("todo", "mla")

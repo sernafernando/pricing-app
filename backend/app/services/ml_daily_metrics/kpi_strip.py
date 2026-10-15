@@ -87,6 +87,11 @@ class KpiAds(BaseModel):
     tacos_pct: Optional[float] = None
     cpc: Optional[float] = None
     ctr_pct: Optional[float] = None
+    # "mla" | "todo": the position asked for and the one the view could apply (a filtered or PM-scoped view
+    # cannot carry account-level spend, so "todo" is applied as "mla" there).
+    requested: str = "mla"
+    applied: str = "mla"
+    subtracted_total: float = 0.0
 
 
 class BoardKpis(BaseModel):
@@ -143,6 +148,9 @@ def _kpi_ads(a: board.AdsKpis, gross: Any) -> KpiAds:
         tacos_pct=_ratio(a.cost_api, gross, 100),
         cpc=_ratio(a.cost_api, a.clicks),
         ctr_pct=_ratio(a.clicks, a.prints, 100),
+        requested=a.requested,
+        applied=a.applied,
+        subtracted_total=round_money(a.subtracted_total),
     )
 
 
