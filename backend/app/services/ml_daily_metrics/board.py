@@ -830,8 +830,19 @@ class Board:
         what every period/window total, the KPI series and the 90-day
         sparklines read. `u24` is the part accredited in the last 24h -- a
         SUBSET of the day's units by construction."""
+        # The MLA set bounds the PERSISTED read inside its table scan (never rely on Postgres pushing the outer
+        # filter below into the lines subquery): each `ml_sale_lines` row is a settled per-line fact, its pack's
+        # shares and all-or-nothing markup already applied, so dropping the other MLAs' lines changes none of the
+        # kept ones. The LIVE derivation is never narrowed by MLA: it computes those shares and that rule, so it
+        # needs every member of each group, and only the touched (whole) groups bound it. Pinned by
+        # `test_row_metrics_postgres.TestAPackPartlyInsideTheMlaSet`.
+        pushdown = self.use_lines and self.mla_set is not None
         lines = lines_source(
-            sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id, groups=self._touched()
+            sqlite=self.sqlite,
+            ranges=self._ranges(),
+            product=self.product_item_id,
+            groups=self._touched(),
+            mlas=select(self.mla_set.c.mla) if pushdown else None,
         )
         return self._in_mla_set(
             select(

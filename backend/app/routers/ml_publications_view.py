@@ -6,8 +6,10 @@ joins it).
 
 - `GET /ml-publications/view/items` (`ml_ops.ver`): one row per MLA, filters, search, sorts, optional facets and
   the honest-state block. NO PM or sub-PM scoping: the screen is a management tool over every publication.
-  With `ml_metricas.ver`, each row also carries `sales_30d`: its units and gross revenue over the last 30 business
-  days from Métricas ML's own base, plus the real (sales-weighted) markup only with `ml_metricas.ver_ganancia`.
+  With `ml_metricas.ver`, each row also carries `metrics`: Métricas ML's own publication row for it over the last 30
+  business days (one Board per page) -- the 7/30-day units and their 90-day series, the gross revenue, the last sale
+  and the ageing; Total Gauss, the real (sales-weighted) markup and its series only with `ml_metricas.ver_ganancia`.
+  `sales_30d` (units, gross, markup) is the same row's 30-day figures, kept for screens that still read it.
 - `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree, grouped by one of
   Métricas ML's dimensions (`dimension`, default `marca`: marca > categoria > subcategoria > producto > [familia]),
   with the same filters as `/items`; the publications of a leaf node come from `/items` with the node's `params`.
@@ -20,6 +22,9 @@ joins it).
 - `GET /ml-publications/view/kpis` (`ml_ops.ver` AND `ml_metricas.ver`): Métricas ML's KPI strip over the MLAs the same
   filters select, for its own period (`periodo` 7/15/30/60/90 or `desde`/`hasta`, default the last 30 days) and
   `comparar_con`. The profit figures only with `ml_metricas.ver_ganancia` (omitted otherwise). No PM scoping.
+- `/items` also sorts by Métricas ML's figures (`orden` facturado_30d, unidades_7d, unidades_30d, with
+  `ml_metricas.ver`; markup_30d and total_gauss_30d also with `ml_metricas.ver_ganancia`; 403 otherwise): the WHOLE
+  filtered set ranked by the Board over the last 30 business days, then paged; no sales (or no cost) last.
 - A query over `statement_timeout` answers 503 with the error code `consulta_lenta` (never a partial page) and
   the connection is released. Errors use the app's envelope: `{"error": {"code", "message"}}`, plus `field` on a
   422 that names the offending query parameter. Nothing here calls Mercado Libre and nothing writes.
@@ -48,7 +53,7 @@ from app.services.ml_publications.view import (
     history,
     kpis,
     listing,
-    sales_summary,
+    row_metrics,
     status_block,
     variations,
 )
@@ -62,7 +67,7 @@ from app.services.ml_publications.view.filters import (
     parse_markup_filter,
 )
 from app.services.ml_publications.view.markup_service import AdsPlan, MarkupQuery
-from app.services.ml_publications.view.sales_summary import SalesSummary
+from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin
 from app.services.ml_publications.view.timing import Timer
 from app.services.permisos_service import PermisosService
 
@@ -178,6 +183,25 @@ class Sales30dOut(BaseModel):
     markup: Optional[float] = None
 
 
+class MetricsOut(BaseModel):
+    """Métricas ML's figures of the publication, from the Board's publication row over the last 30 business days
+    (the numbers the Métricas screen shows for it): units of the last 7 and 30 days with their 90-day daily series,
+    the gross revenue, the last sale ever and the ageing in days. Total Gauss, the real markup (sum of the markup
+    numerator over sum of the cost; null without cost), its change in points against the previous 30 days and its
+    90-day daily series are present only with `ml_metricas.ver_ganancia`."""
+
+    units_7d: int
+    units_30d: int
+    series_units_90d: list[int]
+    gross_30d: float
+    last_sale_at: Optional[datetime] = None
+    ageing_days: Optional[int] = None
+    total_gauss_30d: Optional[float] = None
+    markup_30d: Optional[float] = None
+    markup_delta_pp: Optional[float] = None
+    series_markup_90d: Optional[list[Optional[float]]] = None
+
+
 class LastEventOut(BaseModel):
     event_type: str
     observed_at: datetime
@@ -211,6 +235,7 @@ class ItemRowOut(BaseModel):
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
     markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
     sales_30d: Optional[Sales30dOut] = None  # present only with ml_metricas.ver
+    metrics: Optional[MetricsOut] = None  # present only with ml_metricas.ver; null when Métricas has no row
 
 
 class DataStateOut(BaseModel):
@@ -553,7 +578,7 @@ def filter_query(
     sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
     tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
     vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
-    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock"),
+    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
 ) -> PublicationFilter:
@@ -601,17 +626,36 @@ def _ads_plan(provider: AdsCostProvider, status_: AdsStatus) -> Optional[AdsPlan
     return AdsPlan(provider, formula, status_.date_from, status_.date_to)
 
 
-def _attach_sales(items: list[dict[str, Any]], summaries: dict[str, SalesSummary], with_markup: bool) -> None:
-    """`sales_30d` on every row of the page: zero without sales, the markup only for who may see it."""
+def _metrics_out(row: board.Row, with_margin: bool) -> dict[str, Any]:
+    """The Board row as Métricas ML serializes it (same rounding), the margin only for who may see it."""
+    out: dict[str, Any] = {
+        "units_7d": row.windows["7d"],
+        "units_30d": row.windows["30d"],
+        "series_units_90d": row.series_units,
+        "gross_30d": kpi_strip.round_money(row.gross),
+        "last_sale_at": row.last_sale_at,
+        "ageing_days": row.ageing_days,
+    }
+    if with_margin:
+        out["total_gauss_30d"] = kpi_strip.round_money(row.tg)
+        out["markup_30d"] = kpi_strip.round_pp(row.markup)
+        out["markup_delta_pp"] = kpi_strip.round_pp(row.markup_delta)
+        out["series_markup_90d"] = row.series_markup
+    return out
+
+
+def _attach_metrics(items: list[dict[str, Any]], by_mla: dict[str, board.Row], with_margin: bool) -> None:
+    """`metrics` (null without a Board row) and `sales_30d` (zero without sales) on every row of the page."""
     for item in items:
-        found = summaries.get(item["item_id"])
-        out: dict[str, Any] = {
-            "units": found.units if found else 0,
-            "gross": float(found.gross) if found else 0.0,
+        found = by_mla.get(item["item_id"])
+        item["metrics"] = _metrics_out(found, with_margin) if found else None
+        sales: dict[str, Any] = {
+            "units": found.windows["30d"] if found else 0,
+            "gross": kpi_strip.round_money(found.gross) if found else 0.0,
         }
-        if with_markup:
-            out["markup"] = found.markup if found else None
-        item["sales_30d"] = out
+        if with_margin:
+            sales["markup"] = kpi_strip.round_pp(found.markup) if found else None
+        item["sales_30d"] = sales
 
 
 def _ads_out(status_: AdsStatus) -> dict[str, Any]:
@@ -633,7 +677,11 @@ def get_items(
     f: PublicationFilter = Depends(filter_query),
     orden: Optional[str] = Query(
         None,
-        description="actividad (default), precio, titulo, stock_full, stock_erp, actualizado, markup (ver_ganancia)",
+        description=(
+            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup "
+            "(ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
+            "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia)"
+        ),
     ),
     direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia)"),
@@ -662,12 +710,20 @@ def get_items(
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
+    sort_name = (orden or "").strip()
+    if sort_name in METRIC_SORTS and not can_see_sales:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_METRICAS} para ordenar por las cifras de Métricas ML",
+        )
     asks_for_margin = bool(
         markup_neg
         or restar_publicidad
         or (markup_min or "").strip()
         or (markup_max or "").strip()
-        or (orden or "").strip() == "markup"
+        or sort_name == "markup"
+        or (sort_name in METRIC_SORTS and needs_margin(sort_name))
     )  # blank values are absent parameters and the sort name is trimmed, here as in the parsers
     if not can_see_margin and asks_for_margin:
         raise api_error(
@@ -687,11 +743,13 @@ def get_items(
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)  # once: the list and the facets share the resolved pairs
         with timer.stage("list"):
-            page = listing.list_items(db, f, sort, limit, offset, events=events_enabled, markup=markup)
+            page = listing.list_items(
+                db, f, sort, limit, offset, events=events_enabled, markup=markup, can_see_margin=can_see_margin
+            )
         if can_see_sales:
-            with timer.stage("sales"):
-                summaries = sales_summary.summary_by_mla(db, [item["item_id"] for item in page.items])
-            _attach_sales(page.items, summaries, with_markup=can_see_margin)
+            with timer.stage("metrics"):
+                by_mla = row_metrics.metrics_by_mla(db, [item["item_id"] for item in page.items])
+            _attach_metrics(page.items, by_mla, with_margin=can_see_margin)
         facet_counts = None
         if facets:
             with timer.stage("facets"):
