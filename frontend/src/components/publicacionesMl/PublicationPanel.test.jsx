@@ -4,18 +4,27 @@
  * which tabs exist. The content of each tab has its own test.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, render } from '@testing-library/react';
+import { screen, waitFor, render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
 import { preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
-import { DETAIL_LINKED, DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
+import { DETAIL_LINKED, DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEM_LINK, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { detail: vi.fn(), variations: vi.fn(), enqueue: vi.fn() },
+  publicacionesMlAPI: {
+    detail: vi.fn(),
+    variations: vi.fn(),
+    enqueue: vi.fn(),
+    productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })),
+    setProductLink: vi.fn(),
+    setProductLinkNone: vi.fn(),
+    revertProductLinkAuto: vi.fn(),
+    searchProducts: vi.fn(),
+  },
   promocionesAPI: {
     getPromocionesItem: vi.fn(() => Promise.resolve({ data: { promotions: [] } })),
     refreshItemPromociones: vi.fn(() => Promise.resolve({ data: { ok: true } })),
@@ -478,5 +487,31 @@ describe('the Precios tab', () => {
     await screen.findByRole('tab', { name: 'Resumen' });
     expect(screen.queryByRole('tab', { name: 'Precios' })).not.toBeInTheDocument();
     expect(preciosAPI.obtenerProducto).not.toHaveBeenCalled();
+  });
+});
+
+describe('a link write in the Producto tab', () => {
+  it('re-reads the detail and asks the page to reload the list, so the card shows the new state', async () => {
+    const user = userEvent.setup();
+    const onListReload = vi.fn();
+    publicacionesMlAPI.setProductLinkNone.mockResolvedValue({ data: { changed: true } });
+    publicacionesMlAPI.detail
+      .mockResolvedValueOnce({ data: makeDetail({ links: [ITEM_LINK] }) })
+      .mockResolvedValue({
+        data: makeDetail({
+          links: [{ ...ITEM_LINK, state: 'sin_producto', source: 'manual_none', match_status: 'unmatched', producto_item_id: null, codigo: null, descripcion: null, marca: null, note: 'Combo' }],
+        }),
+      });
+    renderPanel({ tab: 'producto', onListReload });
+
+    const card = within(await screen.findByRole('region', { name: 'Vínculos' })).getByRole('listitem');
+    expect(card).toHaveTextContent('Automático');
+    await user.click(within(card).getByRole('button', { name: 'Marcar sin producto' }));
+    await user.click(within(card).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledTimes(2));
+    expect(onListReload).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Vínculos' })).getByRole('listitem')).toHaveTextContent('Sin producto'));
+    expect(within(screen.getByRole('region', { name: 'Vínculos' })).getByRole('listitem')).toHaveTextContent('Combo');
   });
 });

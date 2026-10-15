@@ -1,22 +1,53 @@
 /**
  * Producto vinculado tab (publicaciones-ml-vista P13b.T3, S59.x): the product
  * the publication is linked to, its list prices and the link of each unit. The
- * cost is shown only with `ml_metricas.ver_ganancia`. Editing the links is not
- * done here.
+ * cost is shown only with `ml_metricas.ver_ganancia`. With
+ * `ml_publicaciones.vincular` each unit can be linked to a product by hand,
+ * marked as having no product, or handed back to the automatic rule.
  */
-import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import ProductoVinculadoTab from './ProductoVinculadoTab';
 import { readDetail } from './detailModel';
+import { publicacionesMlAPI } from '../../../services/api';
 import { ITEM_LINK, PRODUCT, PRODUCT_COST, VARIATION_LINK, makeDetail } from '../../../test/visual/publicacionesMlFixtures';
+
+vi.mock('../../../services/api', () => ({
+  default: {
+    get: vi.fn(() => Promise.resolve({ data: [] })),
+    interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
+  },
+  publicacionesMlAPI: {
+    productLinks: vi.fn(),
+    setProductLink: vi.fn(),
+    setProductLinkNone: vi.fn(),
+    revertProductLinkAuto: vi.fn(),
+    searchProducts: vi.fn(),
+  },
+  registerAuthFailureHandler: vi.fn(),
+}));
+
+let granted = new Set();
+vi.mock('../../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({ permisos: [], tienePermiso: (permiso) => granted.has(permiso), cargandoPermisos: false }),
+  PermisosProvider: ({ children }) => children,
+}));
 
 const LINKED = { product: { ...PRODUCT, ...PRODUCT_COST }, links: [ITEM_LINK, VARIATION_LINK] };
 
-const renderTab = (overrides = LINKED, { canSeeMargin = false } = {}) => {
+const renderTab = (overrides = LINKED, { canSeeMargin = false, onWritten = vi.fn() } = {}) => {
   const detail = readDetail(makeDetail(overrides), { canSeeMargin });
-  return render(<ProductoVinculadoTab detail={detail} itemId={detail.itemId} canSeeMargin={canSeeMargin} />);
+  return render(<ProductoVinculadoTab detail={detail} itemId={detail.itemId} canSeeMargin={canSeeMargin} onWritten={onWritten} />);
 };
+
+beforeEach(() => {
+  granted = new Set();
+  for (const fn of Object.values(publicacionesMlAPI)) fn.mockReset();
+  publicacionesMlAPI.productLinks.mockResolvedValue({ data: { item_id: 'MLA1100000001', units: [] } });
+});
 const section = (name) => screen.getByRole('region', { name });
+const valueIn = (container, label) => within(container).getByText(label, { selector: 'dt' }).nextElementSibling;
 const valueOf = (name, label) => within(section(name)).getByText(label, { selector: 'dt' }).nextElementSibling;
 
 describe('the linked product', () => {
@@ -107,5 +138,295 @@ describe('a publication without a linked product (S59.1)', () => {
     expect(screen.queryByRole('region', { name: 'Precios de lista' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Costo' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Vínculos' })).not.toBeInTheDocument();
+  });
+});
+
+// ── Editing the links (ml_publicaciones.vincular) ─────────────────
+
+const ITEM = 'MLA9';
+const ref = (item_id, codigo, descripcion) => ({ item_id, codigo, descripcion });
+const NO_SUGGESTION = { status: 'unmatched', producto_item_id: null, producto: null, candidates: [], candidate_count: 0, differs: false };
+const apiLink = (overrides = {}) => ({
+  source: 'sku_auto',
+  match_status: 'linked',
+  producto_item_id: 4101,
+  producto: ref(4101, 'ARCHER-AX55', 'Router Archer AX55'),
+  dangling: false,
+  matched_sku: 'AX55-SKU',
+  sku_field: 'seller_sku',
+  linked_by: null,
+  linked_at: '2026-09-01T10:00:00Z',
+  note: null,
+  evaluated_at: '2026-09-01T10:00:00Z',
+  ...overrides,
+});
+const unit = (variation_id, link, suggestion = NO_SUGGESTION) => ({ variation_id, live: true, sku: 'AX55-SKU', sku_field: 'seller_sku', link, suggestion });
+const CONFLICT_UNIT = unit(
+  0,
+  apiLink({ match_status: 'conflict', producto_item_id: null, producto: null }),
+  { status: 'conflict', producto_item_id: null, producto: null, candidates: [ref(4107, 'AX55-A', 'Router A'), ref(4108, 'AX55-B', 'Router B')], candidate_count: 2, differs: false },
+);
+const CONFLICT_LINK = { ...ITEM_LINK, state: 'conflicto', source: 'sku_auto', match_status: 'conflict', producto_item_id: null, codigo: null, descripcion: null, marca: null };
+const httpError = (status) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data: { detail: `detail ${status}` } } });
+
+const renderEditable = ({ links = [ITEM_LINK], units = [unit(0, apiLink())], onWritten = vi.fn() } = {}) => {
+  granted = new Set(['ml_publicaciones.vincular']);
+  publicacionesMlAPI.productLinks.mockResolvedValue({ data: { item_id: ITEM, units } });
+  const detail = readDetail(makeDetail({ product: null, links }));
+  render(<ProductoVinculadoTab detail={detail} itemId={ITEM} canSeeMargin={false} onWritten={onWritten} />);
+  return { onWritten };
+};
+const cardOf = async (title) => {
+  const units = await within(await screen.findByRole('region', { name: 'Vínculos' })).findAllByRole('listitem');
+  return units.find((el) => within(el).queryByText(title, { exact: true }));
+};
+const written = { data: { changed: true, unit: unit(0, apiLink()) } };
+
+describe('editing the links: who may', () => {
+  it('offers no action and loads nothing without ml_publicaciones.vincular', () => {
+    renderTab();
+    expect(screen.queryByRole('button', { name: 'Vincular producto' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Marcar sin producto' })).not.toBeInTheDocument();
+    expect(publicacionesMlAPI.productLinks).not.toHaveBeenCalled();
+  });
+
+  it('offers the actions on each unit with the permission', async () => {
+    renderEditable({ links: [ITEM_LINK, VARIATION_LINK], units: [unit(0, apiLink()), unit(9002, apiLink({ source: 'manual' }))] });
+    expect(publicacionesMlAPI.productLinks).toHaveBeenCalledWith(ITEM);
+    const item = await cardOf('Publicación');
+    const variation = await cardOf('Variación 9002');
+    expect(within(item).getByRole('button', { name: 'Vincular producto' })).toBeInTheDocument();
+    expect(within(variation).getByRole('button', { name: 'Vincular producto' })).toBeInTheDocument();
+    expect(within(item).getByRole('button', { name: 'Marcar sin producto' })).toBeInTheDocument();
+  });
+});
+
+describe('linking a unit to a product', () => {
+  it('offers the conflict candidates first and links the one picked, with the note', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.setProductLink.mockResolvedValue(written);
+    const { onWritten } = renderEditable({ links: [CONFLICT_LINK], units: [CONFLICT_UNIT] });
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Vincular producto' }));
+
+    const candidates = within(card).getByRole('list', { name: 'Candidatos' });
+    expect(within(candidates).getAllByRole('button')).toHaveLength(2);
+    await user.click(within(candidates).getByRole('button', { name: /AX55-B/ }));
+    await user.type(within(card).getByLabelText('Nota (opcional)'), 'Es el blanco');
+    await user.click(within(card).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(publicacionesMlAPI.setProductLink).toHaveBeenCalledWith(ITEM, 0, { producto_item_id: 4108, note: 'Es el blanco' }));
+    await waitFor(() => expect(onWritten).toHaveBeenCalledTimes(1));
+    expect(publicacionesMlAPI.productLinks).toHaveBeenCalledTimes(2);
+  });
+
+  it('searches the ERP products and links the one picked, sending no note when empty', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockResolvedValue({ data: [{ item_id: 5001, codigo: 'DECO-X20', descripcion: 'Deco X20', marca: 'TP-LINK', costo_unitario: 10 }] });
+    publicacionesMlAPI.setProductLink.mockResolvedValue(written);
+    renderEditable({ links: [VARIATION_LINK], units: [unit(9002, apiLink({ source: 'manual' }))] });
+    const card = await cardOf('Variación 9002');
+    await user.click(within(card).getByRole('button', { name: 'Vincular producto' }));
+
+    expect(within(card).getByRole('button', { name: 'Guardar' })).toBeDisabled();
+    const search = within(card).getByLabelText('Buscar producto');
+    await user.type(search, 'x');
+    expect(within(card).getByRole('button', { name: 'Buscar' })).toBeDisabled();
+    await user.type(search, '20{Enter}');
+    expect(publicacionesMlAPI.searchProducts).toHaveBeenCalledWith('x20');
+
+    const results = await within(card).findByRole('list', { name: 'Resultados' });
+    await user.click(within(results).getByRole('button', { name: /DECO-X20/ }));
+    await user.click(within(card).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(publicacionesMlAPI.setProductLink).toHaveBeenCalledWith(ITEM, 9002, { producto_item_id: 5001, note: null }));
+  });
+
+  it('says so when the search finds nothing', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockResolvedValue({ data: [] });
+    renderEditable();
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Vincular producto' }));
+    await user.type(within(card).getByLabelText('Buscar producto'), 'zzz{Enter}');
+    expect(await within(card).findByText('No se encontraron productos.')).toBeInTheDocument();
+  });
+
+  it('cancelling closes the editor without writing', async () => {
+    const user = userEvent.setup();
+    renderEditable();
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Vincular producto' }));
+    await user.click(within(card).getByRole('button', { name: 'Cancelar' }));
+    expect(within(card).queryByLabelText('Buscar producto')).not.toBeInTheDocument();
+    expect(publicacionesMlAPI.setProductLink).not.toHaveBeenCalled();
+  });
+});
+
+describe('marking a unit as having no product', () => {
+  it('asks for confirmation, then writes it with the note and refreshes', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.setProductLinkNone.mockResolvedValue(written);
+    const { onWritten } = renderEditable();
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Marcar sin producto' }));
+    expect(publicacionesMlAPI.setProductLinkNone).not.toHaveBeenCalled();
+    await user.type(within(card).getByLabelText('Nota (opcional)'), 'Combo');
+    await user.click(within(card).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(publicacionesMlAPI.setProductLinkNone).toHaveBeenCalledWith(ITEM, 0, { note: 'Combo' }));
+    await waitFor(() => expect(onWritten).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('handing a unit back to the automatic rule', () => {
+  it('is offered only for a manual link or a manual "no product"', async () => {
+    renderEditable({
+      links: [ITEM_LINK, VARIATION_LINK, { ...VARIATION_LINK, variation_id: 9003 }],
+      units: [unit(0, apiLink()), unit(9002, apiLink({ source: 'manual' })), unit(9003, apiLink({ source: 'manual_none', match_status: 'unmatched', producto_item_id: null, producto: null }))],
+    });
+    expect(within(await cardOf('Publicación')).queryByRole('button', { name: 'Volver a automático' })).not.toBeInTheDocument();
+    expect(within(await cardOf('Variación 9002')).getByRole('button', { name: 'Volver a automático' })).toBeInTheDocument();
+    expect(within(await cardOf('Variación 9003')).getByRole('button', { name: 'Volver a automático' })).toBeInTheDocument();
+  });
+
+  it('reverts the unit and refreshes', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.revertProductLinkAuto.mockResolvedValue(written);
+    const { onWritten } = renderEditable({ links: [VARIATION_LINK], units: [unit(9002, apiLink({ source: 'manual' }))] });
+    await user.click(within(await cardOf('Variación 9002')).getByRole('button', { name: 'Volver a automático' }));
+    await waitFor(() => expect(publicacionesMlAPI.revertProductLinkAuto).toHaveBeenCalledWith(ITEM, 9002));
+    await waitFor(() => expect(onWritten).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('a unit the automatic rule never evaluated', () => {
+  it('is listed from the link units even when the detail has no link row, and can be linked', async () => {
+    renderEditable({ links: [], units: [unit(0, null)] });
+    const card = await cardOf('Publicación');
+    expect(card).toHaveTextContent('Sin evaluar');
+    expect(card).toHaveTextContent('Sin producto vinculado');
+    expect(within(card).getByRole('button', { name: 'Vincular producto' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Volver a automático' })).not.toBeInTheDocument();
+  });
+});
+
+describe('a refused write', () => {
+  it.each([
+    [409, 'La vinculación de productos está desactivada.'],
+    [403, 'No tenés permiso para vincular productos.'],
+    [422, 'detail 422'],
+    [500, 'No se pudo guardar el vínculo.'],
+  ])('%i says why and refreshes nothing', async (status, message) => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.setProductLinkNone.mockRejectedValue(httpError(status));
+    const { onWritten } = renderEditable();
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Marcar sin producto' }));
+    await user.click(within(card).getByRole('button', { name: 'Confirmar' }));
+    expect(await within(card).findByRole('alert')).toHaveTextContent(message);
+    expect(onWritten).not.toHaveBeenCalled();
+  });
+
+  it('a failed load of the link units says so and keeps the links shown', async () => {
+    granted = new Set(['ml_publicaciones.vincular']);
+    publicacionesMlAPI.productLinks.mockRejectedValue(httpError(500));
+    const detail = readDetail(makeDetail({ product: null, links: [ITEM_LINK] }));
+    render(<ProductoVinculadoTab detail={detail} itemId={ITEM} onWritten={vi.fn()} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los vínculos para editarlos.');
+    expect(within(section('Vínculos')).getByRole('listitem')).toHaveTextContent('ARCHER-AX55');
+  });
+});
+
+describe('the card after a write (R3-001)', () => {
+  it('shows the re-read link unit even when nobody refreshes the detail', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.setProductLinkNone.mockResolvedValue(written);
+    renderEditable({ onWritten: vi.fn() });
+    const after = unit(0, apiLink({ source: 'manual_none', match_status: 'unmatched', producto_item_id: null, producto: null, matched_sku: null, note: 'Combo' }));
+    publicacionesMlAPI.productLinks.mockResolvedValue({ data: { item_id: ITEM, units: [after] } });
+
+    const card = await cardOf('Publicación');
+    await waitFor(() => expect(within(card).getByRole('button', { name: 'Marcar sin producto' })).toBeInTheDocument());
+    await user.click(within(card).getByRole('button', { name: 'Marcar sin producto' }));
+    await user.click(within(card).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(card).toHaveTextContent('Sin producto vinculado'));
+    expect(card).toHaveTextContent('Sin producto');
+    expect(card).not.toHaveTextContent('ARCHER-AX55');
+    expect(valueIn(card, 'Nota')).toHaveTextContent('Combo');
+    expect(within(card).getByRole('button', { name: 'Volver a automático' })).toBeInTheDocument();
+  });
+
+  it('shows a manual link to another product from the re-read unit', async () => {
+    renderEditable({
+      links: [ITEM_LINK],
+      units: [unit(0, apiLink({ source: 'manual', producto_item_id: 5001, producto: ref(5001, 'DECO-X20', 'Deco X20'), note: 'a mano' }))],
+    });
+    const card = await cardOf('Publicación');
+    await waitFor(() => expect(card).toHaveTextContent('DECO-X20 · Deco X20'));
+    expect(card).toHaveTextContent('Manual');
+    expect(valueIn(card, 'Marca')).toHaveTextContent('—');
+  });
+});
+
+describe('the product search (R3-002, R3-003)', () => {
+  const openLink = async (user, props) => {
+    renderEditable(props);
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Vincular producto' }));
+    return card;
+  };
+  const results = (...products) => ({ data: products.map(([item_id, codigo]) => ({ item_id, codigo, descripcion: codigo, marca: null })) });
+
+  it('a new search drops a pick that is no longer among the results', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockResolvedValueOnce(results([5001, 'DECO-X20'])).mockResolvedValueOnce(results([6001, 'ARCHER-C6']));
+    const card = await openLink(user);
+    const search = within(card).getByLabelText('Buscar producto');
+    await user.type(search, 'deco{Enter}');
+    await user.click(within(await within(card).findByRole('list', { name: 'Resultados' })).getByRole('button', { name: /DECO-X20/ }));
+    expect(within(card).getByRole('button', { name: 'Guardar' })).toBeEnabled();
+
+    await user.clear(search);
+    await user.type(search, 'archer{Enter}');
+    await within(card).findByRole('button', { name: /ARCHER-C6/ });
+    expect(within(card).getByRole('button', { name: 'Guardar' })).toBeDisabled();
+  });
+
+  it('a new search keeps a picked conflict candidate, which stays in view', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockResolvedValue(results([6001, 'ARCHER-C6']));
+    publicacionesMlAPI.setProductLink.mockResolvedValue(written);
+    const card = await openLink(user, { links: [CONFLICT_LINK], units: [CONFLICT_UNIT] });
+    await user.click(within(within(card).getByRole('list', { name: 'Candidatos' })).getByRole('button', { name: /AX55-A/ }));
+    await user.type(within(card).getByLabelText('Buscar producto'), 'archer{Enter}');
+    await within(card).findByRole('button', { name: /ARCHER-C6/ });
+    await user.click(within(card).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(publicacionesMlAPI.setProductLink).toHaveBeenCalledWith(ITEM, 0, { producto_item_id: 4107, note: null }));
+  });
+
+  it('a failed search says so and leaves nothing to pick', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockRejectedValue(httpError(500));
+    const card = await openLink(user);
+    await user.type(within(card).getByLabelText('Buscar producto'), 'deco{Enter}');
+    expect(await within(card).findByText('No se pudo buscar productos.')).toBeInTheDocument();
+    expect(within(card).queryByRole('list', { name: 'Resultados' })).not.toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Guardar' })).toBeDisabled();
+  });
+});
+
+describe('a 422 without a readable reason', () => {
+  it('falls back to the generic message', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.setProductLinkNone.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), { response: { status: 422, data: { detail: [{ loc: ['body', 'note'], msg: 'too long' }] } } }),
+    );
+    renderEditable();
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Marcar sin producto' }));
+    await user.click(within(card).getByRole('button', { name: 'Confirmar' }));
+    expect(await within(card).findByRole('alert')).toHaveTextContent('No se pudo guardar el vínculo.');
   });
 });
