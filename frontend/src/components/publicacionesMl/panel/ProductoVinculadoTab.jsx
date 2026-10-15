@@ -1,9 +1,14 @@
 import { getPublicationTypeLabel } from '../../../constants/mlPublicationTypes';
+import { usePermisos } from '../../../contexts/PermisosContext';
 import cellStyles from '../cells.module.css';
 import { amount, count, date, orNull } from './format';
 import { Field, Fields, Section } from './PanelParts';
 import { LINK_STATE_LABELS, label } from './labels';
 import styles from './panel.module.css';
+import LinkActions from './LinkActions';
+import { useProductLinks } from './useProductLinks';
+
+const PERMISO_VINCULAR = 'ml_publicaciones.vincular';
 
 /** The list's name when the pricelist is one we label, else its number. */
 const listName = (pricelistId) => {
@@ -54,7 +59,21 @@ function CostSection({ product }) {
   );
 }
 
-function LinkUnit({ link }) {
+/**
+ * One card per unit: the detail's link rows, plus -- once the link units are
+ * loaded for editing -- the live units without a row (never evaluated).
+ */
+const unitsOf = (links, editUnits) => {
+  const byVariation = new Map(links.map((link) => [link.variation_id, { link, unit: null }]));
+  for (const unit of editUnits) {
+    const known = byVariation.get(unit.variation_id);
+    if (known) known.unit = unit;
+    else byVariation.set(unit.variation_id, { link: { variation_id: unit.variation_id, state: 'no_evaluado', producto_item_id: null }, unit });
+  }
+  return [...byVariation.values()].sort((a, b) => a.link.variation_id - b.link.variation_id);
+};
+
+function LinkUnit({ link, unit, itemId, canLink, onWritten }) {
   const linked = link.producto_item_id != null;
   return (
     <li className={styles.card}>
@@ -74,6 +93,15 @@ function LinkUnit({ link }) {
         <Field label="Nota">{orNull(link.note)}</Field>
         {link.suggested_producto_item_id != null && <Field label="Sugerencia">{`Producto sugerido: ${link.suggested_producto_item_id}`}</Field>}
       </Fields>
+      {canLink && (
+        <LinkActions
+          itemId={itemId}
+          variationId={link.variation_id}
+          source={unit?.link?.source ?? link.source ?? null}
+          candidates={unit?.suggestion?.candidates ?? []}
+          onWritten={onWritten}
+        />
+      )}
     </li>
   );
 }
@@ -81,11 +109,21 @@ function LinkUnit({ link }) {
 /**
  * Producto vinculado: the product the publication is linked to (the item-level
  * one), its list prices and, with `ml_metricas.ver_ganancia`, its cost; and the
- * link of each unit (the publication and each variation). Read-only: the
- * links are edited elsewhere.
+ * link of each unit (the publication and each variation). With
+ * `ml_publicaciones.vincular`, each unit can be linked to a product by hand,
+ * marked as having no product or handed back to the automatic rule; a write
+ * re-reads the link units here and the detail and list row (`onWritten`).
  */
-export default function ProductoVinculadoTab({ detail }) {
+export default function ProductoVinculadoTab({ detail, itemId, onWritten }) {
   const { product, links } = detail;
+  const { tienePermiso } = usePermisos();
+  const canLink = tienePermiso(PERMISO_VINCULAR);
+  const editable = useProductLinks(itemId, canLink);
+  const units = unitsOf(links, editable.units);
+  const handleWritten = () => {
+    editable.reload();
+    onWritten?.();
+  };
   return (
     <>
       {product == null && <p className={styles.note}>Sin producto vinculado</p>}
@@ -96,11 +134,16 @@ export default function ProductoVinculadoTab({ detail }) {
           {'costo' in product && <CostSection product={product} />}
         </>
       )}
-      {links.length > 0 && (
+      {canLink && editable.status === 'error' && (
+        <p className={styles.note} role="alert">
+          No se pudieron cargar los vínculos para editarlos.
+        </p>
+      )}
+      {units.length > 0 && (
         <Section title="Vínculos">
           <ul className={styles.cards}>
-            {links.map((link) => (
-              <LinkUnit key={link.variation_id} link={link} />
+            {units.map(({ link, unit }) => (
+              <LinkUnit key={link.variation_id} link={link} unit={unit} itemId={itemId} canLink={canLink} onWritten={handleWritten} />
             ))}
           </ul>
         </Section>
