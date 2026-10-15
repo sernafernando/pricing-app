@@ -14,11 +14,12 @@ export const COLUMN_GROUPS = [
   { id: 'ventas', label: 'Ventas (unidades)' },
   { id: 'markup', label: 'Markup' },
   { id: 'resultado', label: 'Resultado financiero' },
+  { id: 'publicidad', label: 'Publicidad' },
   { id: 'rotacion', label: 'Rotación' },
   { id: 'sellin', label: 'Sell-in / Sell-out', soon: true },
 ];
 
-const MARGIN_COLUMNS = new Set(['markup', 'markup_delta', 'markup_trend', 'markup_range', 'total_gauss']);
+const MARGIN_COLUMNS = new Set(['markup', 'markup_delta', 'markup_trend', 'markup_range', 'total_gauss', 'ads_cost']);
 
 function productHeader(groupBy, dimension) {
   if (groupBy === 'publication') return 'Publicación / Producto';
@@ -26,7 +27,7 @@ function productHeader(groupBy, dimension) {
   return 'Detalle / SKU / Marca';
 }
 
-export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension }) {
+export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension, adsOn = false }) {
   const columns = [
     { id: 'producto', group: 'producto', header: productHeader(groupBy, dimension), enableHiding: false },
     { id: 'units_24h', group: 'ventas', header: '24H' },
@@ -41,6 +42,8 @@ export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimensio
     { id: 'markup_range', group: 'markup', header: 'Mín / Máx 90D' },
     { id: 'gross', group: 'resultado', header: `Facturado ${periodLabel}` },
     { id: 'total_gauss', group: 'resultado', header: 'Total Gauss' },
+    // Only once the board subtracts ads: the Product Ads (net of IVA) charged to the row.
+    ...(adsOn ? [{ id: 'ads_cost', group: 'publicidad', header: 'Publicidad (inversión)' }] : []),
     { id: 'last_sale', group: 'rotacion', header: 'Última venta' },
     { id: 'ageing', group: 'rotacion', header: 'Ageing' },
     // Real now (`productos_erp.stock`): out of the "coming soon" group.

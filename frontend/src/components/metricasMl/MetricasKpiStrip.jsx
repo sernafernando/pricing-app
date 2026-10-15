@@ -10,6 +10,7 @@ import {
 import Sparkline from './Sparkline';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatUnits } from '../../utils/metricasMlFormat';
+import { originalAmount } from '../../utils/metricasMlAds';
 import styles from './MetricasKpiStrip.module.css';
 
 /**
@@ -42,6 +43,20 @@ function Card({ label, icon, children }) {
   );
 }
 
+/** Marks a figure the ads were subtracted from, and shows what it was before. */
+function Adjusted({ original }) {
+  return (
+    <>
+      <span className={styles.adjusted}>Ajustado</span>
+      {original !== null && original !== undefined && (
+        <span className={styles.original}>
+          Original: <s data-money>{formatSignedMoney(original)}</s>
+        </span>
+      )}
+    </>
+  );
+}
+
 const pctOf = (part, whole) => (whole ? (part / whole) * 100 : null);
 
 export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading }) {
@@ -49,7 +64,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
   const noun = { publication: 'Publicaciones', group: 'Grupos' }[groupBy] ?? 'Productos';
   // The ageing buckets count PRODUCTS (or publications) even in the grouped view.
   const short = groupBy === 'publication' ? 'pub' : 'prod';
-  const { units, gross, total_gauss: tg, markup, rows_with_sales: withSales, ageing } = kpis;
+  const { units, gross, total_gauss: tg, markup, rows_with_sales: withSales, ageing, ads } = kpis;
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
@@ -82,6 +97,11 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
               </span>
               <DeltaChip value={tg.delta_pct} format={formatDeltaPct} />
             </div>
+            {ads && (
+              <div className={styles.adjustedRow}>
+                <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
+              </div>
+            )}
             <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
           </>
         ) : (
@@ -98,6 +118,11 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
               </span>
               <DeltaChip value={markup.delta_pp} format={formatDeltaPp} />
             </div>
+            {ads && (
+              <div className={styles.adjustedRow}>
+                <Adjusted />
+              </div>
+            )}
             <Sparkline values={markup.series} width={200} height={22} tone={deltaTone(markup.delta_pp)} className={styles.spark} label="Markup por día" />
           </>
         ) : (
