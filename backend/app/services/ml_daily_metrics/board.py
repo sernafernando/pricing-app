@@ -1067,7 +1067,7 @@ class Board:
     def _in_ads_period(self, day_column: Any, start: date, end: date) -> Any:
         return day_column.between(self._day(start), self._day(end))
 
-    def _comparison_is_ledgered(self) -> None:
+    def _load_comparison_coverage(self) -> None:
         """Whether EVERY advertiser has a closed (or mismatch) ledger row for EVERY day of the comparison
         period: otherwise its ads are unknown there and the previous-period values must be NULL. One statement
         for the Product Ads (`prev_ads_covered`) and, in position 2, Display and Brand Ads
@@ -1125,6 +1125,9 @@ class Board:
             )
         }
         display, prev_display = found.get("display", (Decimal(0), Decimal(0)))
+        # ponytail: Brand Ads' IVA basis was never measured (`ads_cost_net_of_iva` refuses "brand_ads"), so its stored
+        # cost is subtracted as stored on the owner's instruction (Engram #2720). If its API cost turns out to
+        # include IVA, measure it, add it to `API_COST_INCLUDES_IVA` and net it here.
         brand, prev_brand = found.get("brand", (Decimal(0), Decimal(0)))
         return AccountLevel(
             display_api=display,
@@ -1201,7 +1204,7 @@ class Board:
             self.touched = self._materialize(TOUCHED_TABLE, groups_touching(predicates), analyze=("group_key",))
         self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()}, LINES_STATS)
         if self.ads:
-            self._comparison_is_ledgered()
+            self._load_comparison_coverage()
             if self.ads_all:
                 self.account = self._account_level()
             self.ads_lines = self._materialize(ADS_TABLE, self._ads_source(), {"day": Date()}, ("mla", "day"))
@@ -2050,10 +2053,7 @@ class Board:
             A = self.ads_lines
             in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
             sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in ("cost", *ADS_METRICS)]
-            owned_by_nobody = select(func.coalesce(func.sum(self.t.c.ads_cost), 0)).where(
-                self.t.c.product == NO_PRODUCT
-            )
-            query = select(*sums, owned_by_nobody.scalar_subquery())
+            query = select(*sums)
         else:
             members = self._member_table("")
             query = select(*(func.sum(members.c[name]) for name in ADS_PAIR_COLUMNS))
