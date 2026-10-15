@@ -56,6 +56,12 @@ class UsuarioResponse(BaseModel):
         return UsuarioResponse(**data)
 
 
+def _exigir_superadmin_para_asignar(rol: Rol, current_user: Usuario) -> None:
+    """Only a SUPERADMIN hands out SUPERADMIN (the admin UI hides it too, but the API must enforce it)."""
+    if rol.codigo == "SUPERADMIN" and current_user.rol_codigo != "SUPERADMIN":
+        raise HTTPException(403, "Solo un superadministrador puede asignar el rol de superadministrador")
+
+
 @router.get("/usuarios", response_model=List[UsuarioResponse])
 def listar_usuarios(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """Lista todos los usuarios (solo admin)"""
@@ -93,6 +99,7 @@ def crear_usuario(
     rol_obj = db.query(Rol).filter(Rol.codigo == usuario.rol.upper()).first()
     if not rol_obj:
         raise HTTPException(400, f"Rol '{usuario.rol}' no existe")
+    _exigir_superadmin_para_asignar(rol_obj, current_user)
 
     # Crear usuario (rol enum deprecado, usar solo rol_id)
     nuevo_usuario = Usuario(
@@ -149,6 +156,7 @@ def actualizar_usuario(
         rol_obj = db.query(Rol).filter(Rol.codigo == datos.rol.upper()).first()
         if not rol_obj:
             raise HTTPException(400, f"Rol '{datos.rol}' no existe")
+        _exigir_superadmin_para_asignar(rol_obj, current_user)
         usuario.rol = None  # Deprecado, usar rol_id
         usuario.rol_id = rol_obj.id
         # Si el nuevo rol principal estaba como adicional, deja de serlo
