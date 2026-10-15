@@ -84,6 +84,12 @@ class MlOrderItemCosto(Base):
             " AND (costo_tp_unitario_ars IS NULL) = (costo_tp_at IS NULL)",
             name="ck_ml_order_item_costos_tp_completo",
         ),
+        # The rate is kept only for a USD price: an ARS TP cost (an ARS
+        # list-8 price, or a combo sum already in ARS) carries none.
+        CheckConstraint(
+            "costo_tp_moneda <> 'ARS' OR costo_tp_tipo_cambio IS NULL",
+            name="ck_ml_order_item_costos_tp_ars_sin_tc",
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)

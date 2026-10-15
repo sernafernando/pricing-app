@@ -316,19 +316,24 @@ def componentes_por_combo(db: Session, erp_ids: Sequence[int]) -> Dict[int, List
     return por_combo
 
 
-def _precios_lista8(db: Session, erp_ids: Sequence[int]) -> Dict[int, Tuple[Decimal, str]]:
-    """`{erp_item_id: (coslis_price, moneda)}` from the CURRENT cost list 8,
-    in ONE query for the whole batch (same bulk rule as
+def _precios_lista8(db: Session, erp_ids: Sequence[int]) -> Tuple[Dict[int, Tuple[Decimal, str]], set]:
+    """`({erp_item_id: (coslis_price, moneda)}, rejected_item_ids)` from the
+    CURRENT cost list 8, in ONE query for the whole batch (same bulk rule as
     `_productos_por_item`).
 
     Only a REAL price is returned: `coslis_price > 0` (a NULL or zero price
     is an ERP hole, never a free product -- same rule as
-    `tiene_costo_propio`) in a known currency (`_MONEDA_POR_CURR_ID`). An
-    item with rows in more than one company that DISAGREE is refused, for
-    the same reason `componentes_por_combo` refuses to sum across
-    companies: there is no way to tell which one applies."""
+    `tiene_costo_propio`). An item that HAS positive list-8 rows but no
+    single usable price is REJECTED and reported separately: rows in more
+    than one company that disagree (same reason `componentes_por_combo`
+    refuses to sum across companies -- there is no way to tell which one
+    applies), or any row with an unknown currency (`_MONEDA_POR_CURR_ID`).
+    A rejected item is not the same as an item with no list-8 price: its
+    own price exists but is ambiguous, so `_resolve_tp_cost` must not fall
+    back to its components. Agreeing rows across companies collapse to one
+    price."""
     if not erp_ids:
-        return {}
+        return {}, set()
     rows = (
         db.query(ItemCostList.item_id, ItemCostList.coslis_price, ItemCostList.curr_id)
         .filter(
@@ -352,17 +357,23 @@ def _precios_lista8(db: Session, erp_ids: Sequence[int]) -> Dict[int, Tuple[Deci
         candidatos.setdefault(item_id, set()).add((Decimal(str(price)), moneda))
 
     precios: Dict[int, Tuple[Decimal, str]] = {}
+    rechazados: set = set()
     for item_id, valores in candidatos.items():
-        if len(valores) != 1 or None in valores:
-            if len(valores) > 1:
-                logger.warning(
-                    "costeo_service: producto_item_id=%s has %s different list-8 prices -- TP cost left NULL",
-                    item_id,
-                    len(valores),
-                )
+        if None in valores:
+            # Already logged per row above.
+            rechazados.add(item_id)
+            continue
+        if len(valores) > 1:
+            logger.warning(
+                "costeo_service: producto_item_id=%s has %s disagreeing list-8 prices across companies "
+                "-- rejected, TP cost left NULL",
+                item_id,
+                len(valores),
+            )
+            rechazados.add(item_id)
             continue
         precios[item_id] = next(iter(valores))
-    return precios
+    return precios, rechazados
 
 
 def _resolve_usd_rate(db: Session, usd_rate_cache: Dict[str, Any]) -> Optional[Tuple[Decimal, Any]]:
@@ -552,6 +563,7 @@ def _resolve_tp_cost(
     db: Session,
     erp_id: int,
     precios_lista8: Dict[int, Tuple[Decimal, str]],
+    rechazados_lista8: set,
     combos: Dict[int, List[Tuple[int, Decimal]]],
     usd_rate_cache: Dict[str, Any],
 ) -> Optional[_ResolvedTpCost]:
@@ -563,7 +575,18 @@ def _resolve_tp_cost(
 
     Independent of the normal cost's own path: a combo the ERP prices
     (normal cost of its own) but that has no list-8 price is still costed
-    from its components here."""
+    from its components here. One whose OWN list-8 price was REJECTED
+    (`_precios_lista8`: companies disagree or unknown currency) is NOT --
+    its own price exists but is ambiguous, so it stays NULL rather than
+    silently swapping in a component sum.
+
+    `tipo_cambio` is kept ONLY for a USD own price, where it is the rate
+    that turned `costo_origen` into ARS. A combo sum is already in ARS
+    (`moneda='ARS'`), so it carries no rate even when a USD component was
+    converted -- the CHECK `ck_ml_order_item_costos_tp_ars_sin_tc` enforces
+    it."""
+    if erp_id in rechazados_lista8:
+        return None
     propio = precios_lista8.get(erp_id)
     if propio is not None:
         costo_origen, moneda = propio
@@ -583,7 +606,6 @@ def _resolve_tp_cost(
     if not componentes:
         return None
     total = Decimal("0")
-    tipo_cambio: Optional[Decimal] = None
     for componente_id, qty in componentes:
         precio = precios_lista8.get(componente_id)
         if precio is None:
@@ -591,17 +613,14 @@ def _resolve_tp_cost(
         convertido = _convertir_a_ars(db, precio[0], precio[1], componente_id, usd_rate_cache)
         if convertido is None:
             return None
-        valor_ars, tc, _ = convertido
-        total += valor_ars * qty
-        if tc is not None:
-            tipo_cambio = tc
+        total += convertido[0] * qty
     if total <= 0:
         return None
     return _ResolvedTpCost(
         # Summed in ARS: components can mix currencies (see `_resolve_cost`).
         costo_origen=total,
         moneda="ARS",
-        tipo_cambio=tipo_cambio,
+        tipo_cambio=None,
         costo_unitario_ars=total,
         fuente=FUENTE_TP_COMBO,
     )
@@ -647,14 +666,16 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     # Component products are fetched in a SECOND bulk query, same
     # discipline `run_backfill` follows: never one round-trip per combo.
     erp_ids = {producto.item_id for producto, _ in productos_por_indice.values()}
-    precios_lista8 = _precios_lista8(db, erp_ids)
+    precios_lista8, rechazados_lista8 = _precios_lista8(db, erp_ids)
     # Combos for BOTH costs in the same single query: products with no
     # normal cost of their own, plus products with no list-8 price of their
-    # own (whose TP cost may still come from their components).
+    # own (whose TP cost may still come from their components; a REJECTED
+    # own price never falls back, see `_resolve_tp_cost`).
     erp_ids_sin_costo = {
         producto.item_id
         for producto, _ in productos_por_indice.values()
-        if not tiene_costo_propio(producto) or producto.item_id not in precios_lista8
+        if not tiene_costo_propio(producto)
+        or (producto.item_id not in precios_lista8 and producto.item_id not in rechazados_lista8)
     }
     combos = componentes_por_combo(db, erp_ids_sin_costo)
     componente_ids = {componente_id for componentes in combos.values() for componente_id, _ in componentes}
@@ -664,7 +685,11 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             producto.item_id: producto
             for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(sorted(componente_ids)))
         }
-    precios_lista8.update(_precios_lista8(db, componente_ids - precios_lista8.keys()))
+    precios_componentes, rechazados_componentes = _precios_lista8(
+        db, componente_ids - precios_lista8.keys() - rechazados_lista8
+    )
+    precios_lista8.update(precios_componentes)
+    rechazados_lista8 |= rechazados_componentes
 
     # Existence guard, dialect-independent, resolved in ONE query before the
     # loop rather than one per item.
@@ -717,7 +742,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             "fuente": resolved.fuente,
             "producto_item_id": resolved.producto_item_id,
         }
-        tp = _resolve_tp_cost(db, resolved.producto_item_id, precios_lista8, combos, usd_rate_cache)
+        tp = _resolve_tp_cost(db, resolved.producto_item_id, precios_lista8, rechazados_lista8, combos, usd_rate_cache)
         if tp is not None:
             values.update(
                 {

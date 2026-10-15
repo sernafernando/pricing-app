@@ -252,7 +252,7 @@ class TestTpCostCombos:
         assert row.costo_tp_unitario_ars == Decimal("2060")
         assert row.costo_tp_origen == Decimal("2060")
         assert row.costo_tp_moneda == "ARS"
-        assert row.costo_tp_tipo_cambio == Decimal("1000")
+        assert row.costo_tp_tipo_cambio is None
         assert row.costo_tp_fuente == FUENTE_TP_COMBO
         # The normal cost keeps using the combo's own cost.
         assert row.costo_unitario_ars == Decimal("100")
@@ -383,3 +383,97 @@ class TestTpCostConstraints:
 
     def test_fully_null_tp_cost_is_accepted(self, db):
         assert self._insert(db)
+
+
+class TestMultiCompanyList8:
+    def test_companies_that_disagree_are_refused(self, db):
+        _producto(db, costo=100.0)
+        _publicacion(db)
+        _lista8(db, item_id=500, price=80, comp_id=1)
+        _lista8(db, item_id=500, price=90, comp_id=2)
+        db.commit()
+
+        congelar(db, order_id=50, items=[_item()])
+        db.commit()
+
+        _assert_tp_null(_row(db, 50))
+
+    def test_companies_that_agree_collapse_to_one_price(self, db):
+        _producto(db, costo=100.0)
+        _publicacion(db)
+        _lista8(db, item_id=500, price=80, comp_id=1)
+        _lista8(db, item_id=500, price=80, comp_id=2)
+        db.commit()
+
+        congelar(db, order_id=51, items=[_item()])
+        db.commit()
+
+        assert _row(db, 51).costo_tp_unitario_ars == Decimal("80")
+
+    def test_a_known_currency_mixed_with_an_unknown_curr_id_is_refused(self, db):
+        _producto(db, costo=100.0)
+        _publicacion(db)
+        _lista8(db, item_id=500, price=80, curr_id=CURR_ARS, comp_id=1)
+        _lista8(db, item_id=500, price=80, curr_id=99, comp_id=2)
+        db.commit()
+
+        congelar(db, order_id=52, items=[_item()])
+        db.commit()
+
+        _assert_tp_null(_row(db, 52))
+
+    def _combo_con_precio_propio_rechazado(self, db, **precio_rechazado):
+        _producto(db, item_id=500, costo=100.0)
+        _producto(db, item_id=901, costo=40.0, codigo="COMP-A")
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _lista8(db, item_id=901, price=30)
+        for kwargs in precio_rechazado["filas"]:
+            _lista8(db, item_id=500, **kwargs)
+        db.commit()
+
+    def test_a_combo_whose_own_price_companies_disagree_never_falls_back_to_components(self, db):
+        self._combo_con_precio_propio_rechazado(db, filas=[{"price": 55, "comp_id": 1}, {"price": 60, "comp_id": 2}])
+
+        congelar(db, order_id=53, items=[_item()])
+        db.commit()
+
+        _assert_tp_null(_row(db, 53))
+
+    def test_a_combo_whose_own_price_has_an_unknown_currency_never_falls_back_to_components(self, db):
+        self._combo_con_precio_propio_rechazado(db, filas=[{"price": 55, "curr_id": 99}])
+
+        congelar(db, order_id=54, items=[_item()])
+        db.commit()
+
+        _assert_tp_null(_row(db, 54))
+
+
+class TestTpRateOnlyForUsd:
+    def test_ars_list8_price_keeps_no_rate_even_with_a_usd_rate_available(self, db):
+        _producto(db, costo=10.0, moneda=TipoMoneda.USD)
+        _publicacion(db)
+        _lista8(db, item_id=500, price=80, curr_id=CURR_ARS)
+        _rate(db, venta=950.0)
+        db.commit()
+
+        congelar(db, order_id=60, items=[_item()])
+        db.commit()
+
+        row = _row(db, 60)
+        assert row.tipo_cambio == Decimal("950")
+        assert row.costo_tp_moneda == "ARS"
+        assert row.costo_tp_tipo_cambio is None
+
+    def test_an_ars_tp_cost_with_a_rate_is_rejected(self, db):
+        from datetime import datetime, timezone
+
+        assert not TestTpCostConstraints()._insert(
+            db,
+            costo_tp_origen=Decimal("80"),
+            costo_tp_moneda="ARS",
+            costo_tp_tipo_cambio=Decimal("950"),
+            costo_tp_unitario_ars=Decimal("80"),
+            costo_tp_fuente=FUENTE_TP_COMBO,
+            costo_tp_at=datetime.now(timezone.utc),
+        )

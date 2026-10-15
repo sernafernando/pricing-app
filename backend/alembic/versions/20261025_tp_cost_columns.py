@@ -10,7 +10,8 @@ normal cost by `costeo_service.congelar()`: the CURRENT list-8 price
 
 All six columns are NULLABLE ON PURPOSE: NULL means "no usable list-8 price"
 and IS the "Total TP incomplete" flag -- never 0, never the normal cost.
-`ck_..._tp_completo` keeps a TP cost all-or-nothing, and the partial index
+`ck_..._tp_completo` keeps a TP cost all-or-nothing, `ck_..._tp_ars_sin_tc`
+keeps the rate only for a USD price, and the partial index
 lets P2 (history backfill and late-load worker) find the pending rows of one
 product without scanning the table.
 
@@ -35,6 +36,7 @@ _TABLE = "ml_order_item_costos"
 _INDEX = "ix_ml_order_item_costos_tp_pendiente"
 _CK_NO_NEGATIVO = "ck_ml_order_item_costos_tp_no_negativo"
 _CK_COMPLETO = "ck_ml_order_item_costos_tp_completo"
+_CK_ARS_SIN_TC = "ck_ml_order_item_costos_tp_ars_sin_tc"
 
 
 def upgrade() -> None:
@@ -78,6 +80,13 @@ def upgrade() -> None:
         " AND (costo_tp_unitario_ars IS NULL) = (costo_tp_fuente IS NULL)"
         " AND (costo_tp_unitario_ars IS NULL) = (costo_tp_at IS NULL)",
     )
+    # The rate is kept only for a USD price: an ARS TP cost (an ARS list-8
+    # price, or a combo sum already in ARS) carries none.
+    op.create_check_constraint(
+        _CK_ARS_SIN_TC,
+        _TABLE,
+        "costo_tp_moneda <> 'ARS' OR costo_tp_tipo_cambio IS NULL",
+    )
     op.create_index(
         _INDEX,
         _TABLE,
@@ -89,6 +98,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(_INDEX, table_name=_TABLE, if_exists=True)
+    op.drop_constraint(_CK_ARS_SIN_TC, _TABLE, type_="check")
     op.drop_constraint(_CK_COMPLETO, _TABLE, type_="check")
     op.drop_constraint(_CK_NO_NEGATIVO, _TABLE, type_="check")
     for column in (
