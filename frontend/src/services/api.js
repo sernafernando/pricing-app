@@ -895,6 +895,20 @@ export const publicacionesMlAPI = {
   enqueue: (body) => api.post('/ml-publications/enqueue', body),
   // The KPI strip over the MLAs the filters select (`ml_metricas.ver`). `config.signal` aborts a stale request.
   kpis: (params, config) => api.get('/ml-publications/view/kpis', { params, ...config }),
+  // The link units of one publication (one, or one per variation) with their
+  // product link and the SKU suggestion (`ml_ops.ver`).
+  productLinks: (itemId) => api.get(`/ml-publications/items/${encodeURIComponent(itemId)}/product-links`),
+  // The link writes (`ml_publicaciones.vincular`; 409 while `links.enabled` is off).
+  // `variationId` 0 is the item-level unit. `body`: `{ producto_item_id, note }`.
+  setProductLink: (itemId, variationId, body) =>
+    api.put(`/ml-publications/items/${encodeURIComponent(itemId)}/product-links/${variationId}`, body),
+  // `body`: `{ note }`.
+  setProductLinkNone: (itemId, variationId, body) =>
+    api.put(`/ml-publications/items/${encodeURIComponent(itemId)}/product-links/${variationId}/none`, body),
+  revertProductLinkAuto: (itemId, variationId) =>
+    api.post(`/ml-publications/items/${encodeURIComponent(itemId)}/product-links/${variationId}/revert-auto`),
+  // ERP products by code or description (at least 2 characters), to pick the one to link.
+  searchProducts: (q) => api.get('/buscar-productos-erp', { params: { q } }),
 };
 
 export default api;

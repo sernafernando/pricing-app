@@ -65,3 +65,50 @@ describe('publicacionesMlAPI.kpis', () => {
     expect(get).toHaveBeenCalledWith('/ml-publications/view/kpis', { params, signal });
   });
 });
+
+describe('publicacionesMlAPI product links', () => {
+  it('GETs the link units of one publication, with the id URL-encoded', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: { units: [] } });
+
+    await actual.publicacionesMlAPI.productLinks('MLA 1/2');
+
+    expect(get).toHaveBeenCalledWith('/ml-publications/items/MLA%201%2F2/product-links');
+  });
+
+  it('PUTs a manual link of one unit with the product and the note', async () => {
+    const actual = await vi.importActual('./api');
+    const put = vi.spyOn(actual.default, 'put').mockResolvedValue({ data: { changed: true } });
+
+    await actual.publicacionesMlAPI.setProductLink('MLA1', 9002, { producto_item_id: 4107, note: 'a mano' });
+
+    expect(put).toHaveBeenCalledWith('/ml-publications/items/MLA1/product-links/9002', { producto_item_id: 4107, note: 'a mano' });
+  });
+
+  it('PUTs "no product" for one unit with the note', async () => {
+    const actual = await vi.importActual('./api');
+    const put = vi.spyOn(actual.default, 'put').mockResolvedValue({ data: { changed: true } });
+
+    await actual.publicacionesMlAPI.setProductLinkNone('MLA1', 0, { note: null });
+
+    expect(put).toHaveBeenCalledWith('/ml-publications/items/MLA1/product-links/0/none', { note: null });
+  });
+
+  it('POSTs the revert of one unit to the automatic rule', async () => {
+    const actual = await vi.importActual('./api');
+    const post = vi.spyOn(actual.default, 'post').mockResolvedValue({ data: { changed: true } });
+
+    await actual.publicacionesMlAPI.revertProductLinkAuto('MLA1', 0);
+
+    expect(post).toHaveBeenCalledWith('/ml-publications/items/MLA1/product-links/0/revert-auto');
+  });
+
+  it('searches the ERP products by code or description', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: [] });
+
+    await actual.publicacionesMlAPI.searchProducts('ax55');
+
+    expect(get).toHaveBeenCalledWith('/buscar-productos-erp', { params: { q: 'ax55' } });
+  });
+});
