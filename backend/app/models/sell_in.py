@@ -39,6 +39,7 @@ class SellInCompra(Base):
         CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_sell_in_compras_moneda"),
         CheckConstraint("monto_total > 0", name="ck_sell_in_compras_monto_positivo"),
         CheckConstraint("moneda <> 'USD' OR tipo_cambio IS NOT NULL", name="ck_sell_in_compras_usd_con_tc"),
+        CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_sell_in_compras_tc_positivo"),
         CheckConstraint("formula IN ('proporcional', 'por_unidad', 'manual')", name="ck_sell_in_compras_formula"),
         CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_in_compras_estado"),
     )
@@ -58,6 +59,7 @@ class SellInCompra(Base):
     descripcion = Column(Text, nullable=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Also kept current by the `sell_in_compras_updated_at` trigger, so raw SQL updates refresh it too.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
@@ -67,6 +69,7 @@ class SellInCompraItem(Base):
         UniqueConstraint("compra_id", "item_id", name="uq_sell_in_compra_items_compra_item"),
         CheckConstraint("cantidad > 0", name="ck_sell_in_compra_items_cantidad_positiva"),
         CheckConstraint("monto_asignado >= 0", name="ck_sell_in_compra_items_monto_no_negativo"),
+        CheckConstraint("costo_base_unit >= 0", name="ck_sell_in_compra_items_costo_no_negativo"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -84,7 +87,9 @@ class SellInConsumo(Base):
         UniqueConstraint("canal", "venta_ref", "compra_item_id", name="uq_sell_in_consumos_canal_venta_item"),
         CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_in_consumos_unidades_positivas"),
+        CheckConstraint("descuento_ars >= 0", name="ck_sell_in_consumos_descuento_no_negativo"),
         Index("ix_sell_in_consumos_item_fecha", "item_id", "fecha_venta"),
+        Index("ix_sell_in_consumos_compra_item_id", "compra_item_id"),
     )
 
     id = Column(BigInteger, primary_key=True)

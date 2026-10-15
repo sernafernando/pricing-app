@@ -7,6 +7,10 @@ Create Date: 2026-10-24
 New tables only (sell in / sell out, T1). Legacy offsets are untouched.
 `sell_in_consumos.venta_ref` has no FK on purpose: `ml_sale_lines` is deleted
 and reinserted on every store.
+
+`sell_in_compras.updated_at` is kept by a BEFORE UPDATE trigger with its own
+function. The `update_updated_at_column()` function some databases have is not
+created by any migration in this repo, so a fresh database would not have it.
 """
 
 from typing import Sequence, Union
@@ -18,6 +22,21 @@ revision: str = "20261024_sell_in_tables"
 down_revision: Union[str, None] = "20261023_ml_billing_flex_drop_recompute_trigger"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+_CREATE_UPDATED_AT_FUNCTION = """
+CREATE OR REPLACE FUNCTION sell_in_set_updated_at() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+
+_CREATE_UPDATED_AT_TRIGGER = """
+CREATE TRIGGER sell_in_compras_updated_at
+BEFORE UPDATE ON sell_in_compras
+FOR EACH ROW EXECUTE FUNCTION sell_in_set_updated_at()
+"""
 
 
 def upgrade() -> None:
@@ -47,6 +66,7 @@ def upgrade() -> None:
         sa.CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_sell_in_compras_moneda"),
         sa.CheckConstraint("monto_total > 0", name="ck_sell_in_compras_monto_positivo"),
         sa.CheckConstraint("moneda <> 'USD' OR tipo_cambio IS NOT NULL", name="ck_sell_in_compras_usd_con_tc"),
+        sa.CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_sell_in_compras_tc_positivo"),
         sa.CheckConstraint("formula IN ('proporcional', 'por_unidad', 'manual')", name="ck_sell_in_compras_formula"),
         sa.CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_in_compras_estado"),
     )
@@ -65,6 +85,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("compra_id", "item_id", name="uq_sell_in_compra_items_compra_item"),
         sa.CheckConstraint("cantidad > 0", name="ck_sell_in_compra_items_cantidad_positiva"),
         sa.CheckConstraint("monto_asignado >= 0", name="ck_sell_in_compra_items_monto_no_negativo"),
+        sa.CheckConstraint("costo_base_unit >= 0", name="ck_sell_in_compra_items_costo_no_negativo"),
     )
     op.create_index("ix_sell_in_compra_items_item_id", "sell_in_compra_items", ["item_id"])
 
@@ -86,11 +107,18 @@ def upgrade() -> None:
         sa.UniqueConstraint("canal", "venta_ref", "compra_item_id", name="uq_sell_in_consumos_canal_venta_item"),
         sa.CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_consumos_canal"),
         sa.CheckConstraint("unidades > 0", name="ck_sell_in_consumos_unidades_positivas"),
+        sa.CheckConstraint("descuento_ars >= 0", name="ck_sell_in_consumos_descuento_no_negativo"),
     )
     op.create_index("ix_sell_in_consumos_item_fecha", "sell_in_consumos", ["item_id", "fecha_venta"])
+    op.create_index("ix_sell_in_consumos_compra_item_id", "sell_in_consumos", ["compra_item_id"])
+
+    op.execute(_CREATE_UPDATED_AT_FUNCTION)
+    op.execute(_CREATE_UPDATED_AT_TRIGGER)
 
 
 def downgrade() -> None:
+    op.execute("DROP TRIGGER IF EXISTS sell_in_compras_updated_at ON sell_in_compras")
+    op.execute("DROP FUNCTION IF EXISTS sell_in_set_updated_at()")
     op.drop_table("sell_in_consumos")
     op.drop_table("sell_in_compra_items")
     op.drop_table("sell_in_compras")
