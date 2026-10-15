@@ -30,7 +30,8 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
    With `BoardFilter.restar_publicidad`, `ADS_TABLE` (Product Ads per MLA and
    AD day, net of IVA only through `ads_cost_net_of_iva`) is materialized too,
    and each MLA's ads are subtracted from its OWNER pair's Total Gauss and
-   markup numerator (never the denominator). OFF emits no extra statement.
+   markup numerator (never the denominator). OFF emits no extra statement. `restar_todo` (third position) also
+   takes Display and Brand Ads off the KPI totals, in the unfiltered view only.
    With the toggle ON, "solo con ventas" keeps a row with `units > 0 OR ads_cost > 0`, and the UNFILTERED view
    (`is_unfiltered`) also gets a "sin producto" pair for each MLA no product owns: its ads have no other row.
    When `BoardFilter.mla_source` is set, a third table, `MLA_SET_TABLE`, is
@@ -99,13 +100,14 @@ from sqlalchemy import (
     true,
     tuple_,
     union,
+    union_all,
 )
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-from app.models.ml_ads import MlAdsDayLedger, MlAdsItemDay
+from app.models.ml_ads import MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps
 from app.models.producto import ProductoERP
 from app.services.ml_ads.iva import ads_cost_net_of_iva
@@ -225,6 +227,7 @@ ADS_METRICS = (
 )
 ADS_PAIR_COLUMNS = ("ads_cost_api", *(f"ads_{name}" for name in ADS_METRICS))
 ADS_COVERED = ("closed", "mismatch")
+ACCOUNT_SOURCES = ("display", "brand_ads")
 # The columns of the request's temp tables that get `ANALYZE` statistics (see
 # `Board._materialize`). Each column costs ~5 ms per 25.000 rows, so only the
 # ones whose VALUE DISTRIBUTION decides a plan: the day range of the lines, the
@@ -335,6 +338,13 @@ class BoardFilter:
     # from Total Gauss and markup. OFF by default and absent from every older
     # caller; the router refuses it without `ml_metricas.ver_ganancia`.
     restar_publicidad: bool = False
+    # Third position of the toggle (owner decision): also subtract, from the KPI totals, the spend no publication
+    # owns (Display, Brand Ads). Needs `restar_publicidad`; only the unfiltered view can carry it.
+    restar_todo: bool = False
+
+    def __post_init__(self) -> None:
+        if self.restar_todo and not self.restar_publicidad:
+            raise ValueError("restar_todo is the third position of restar_publicidad: it needs the toggle on")
 
 
 # Every `BoardFilter` field is classified, so a new one cannot silently change
@@ -374,6 +384,7 @@ NAVIGATION_FIELDS = frozenset(
         "sort",
         "sort_desc",
         "restar_publicidad",
+        "restar_todo",
     }
 )
 
@@ -561,6 +572,22 @@ class AdsKpis:
     indirect_units: int
     organic_units: int
     organic_amount: Decimal
+    # What the request asked for and what the view could honestly apply ("mla" | "todo").
+    requested: str = "mla"
+    applied: str = "mla"
+    # Product Ads net + the account-level spend subtracted from the KPI totals.
+    subtracted_total: Decimal = Decimal("0")
+
+
+@dataclass
+class AccountLevel:
+    """Display and Brand Ads of the period and of its comparison period (account level, never on a row)."""
+
+    display_api: Decimal
+    display_net: Decimal
+    brand: Decimal
+    prev_display_net: Decimal
+    prev_brand: Decimal
 
 
 @dataclass
@@ -640,6 +667,10 @@ class Board:
         self.scope_pairs = None if scope_pairs is None else [tuple(pair) for pair in scope_pairs]
         # The ads of MLAs no product owns count (and get their own rows) only in the whole, unfiltered board.
         self.ads_unattributed = self.ads and is_unfiltered(f, self.scope_pairs)
+        # Position 2 of the toggle: honoured only where account-level spend can honestly be carried.
+        self.ads_all = f.restar_todo and self.ads_unattributed
+        self.account: Optional[AccountLevel] = None
+        self.prev_account_covered = False
         self.levels = grouping.levels_of(f.dimension)
         # The levels above the products: how many keys a path can hold.
         self.group_levels = len(self.levels) - 1
@@ -1036,9 +1067,11 @@ class Board:
     def _in_ads_period(self, day_column: Any, start: date, end: date) -> Any:
         return day_column.between(self._day(start), self._day(end))
 
-    def _comparison_is_ledgered(self) -> bool:
+    def _comparison_is_ledgered(self) -> None:
         """Whether EVERY advertiser has a closed (or mismatch) ledger row for EVERY day of the comparison
-        period: otherwise its ads are unknown there and the previous-period values must be NULL."""
+        period: otherwise its ads are unknown there and the previous-period values must be NULL. One statement
+        for the Product Ads (`prev_ads_covered`) and, in position 2, Display and Brand Ads
+        (`prev_account_covered`: a source the ledger never saw is unknown too)."""
         days = (self.prev_to - self.prev_from).days + 1
         covered = case(
             (
@@ -1050,16 +1083,56 @@ class Board:
             ),
             else_=0,
         )
-        counts = (
-            self.db.execute(
-                select(func.sum(covered))
-                .where(MlAdsDayLedger.source == ADS_SOURCE)
-                .group_by(MlAdsDayLedger.advertiser_id)
+        sources = (ADS_SOURCE, *ACCOUNT_SOURCES) if self.ads_all else (ADS_SOURCE,)
+        counts: Dict[str, List[int]] = {}
+        for source, n in self.db.execute(
+            select(MlAdsDayLedger.source, func.sum(covered))
+            .where(MlAdsDayLedger.source.in_(sources))
+            .group_by(MlAdsDayLedger.source, MlAdsDayLedger.advertiser_id)
+        ):
+            counts.setdefault(source, []).append(int(n or 0))
+
+        def whole(source: str) -> bool:
+            return bool(counts.get(source)) and all(n == days for n in counts[source])
+
+        self.prev_ads_covered = whole(ADS_SOURCE)
+        self.prev_account_covered = all(whole(source) for source in ACCOUNT_SOURCES)
+
+    def _account_level(self) -> AccountLevel:
+        """Display (net through the single IVA function) and Brand Ads (stored cost, basis never measured) of
+        the period and the comparison period: ONE statement over both account-level tables."""
+        D, B = MlAdsDisplayCampaignDay, MlAdsBrandDay
+
+        def parts(day: Any, amount: Any, label: str):
+            def within(start: date, end: date) -> Any:
+                return func.coalesce(func.sum(case((self._in_ads_period(day, start, end), amount), else_=0)), 0)
+
+            return select(
+                literal(label).label("kind"),
+                within(self.f.date_from, self.f.date_to).label("now"),
+                within(self.prev_from, self.prev_to).label("before"),
+            ).where(
+                or_(
+                    self._in_ads_period(day, self.f.date_from, self.f.date_to),
+                    self._in_ads_period(day, self.prev_from, self.prev_to),
+                )
             )
-            .scalars()
-            .all()
+
+        found = {
+            kind: (Decimal(str(now)), Decimal(str(before)))
+            for kind, now, before in self.db.execute(
+                union_all(parts(D.day, D.consumed_budget, "display"), parts(B.day, B.cost, "brand"))
+            )
+        }
+        display, prev_display = found.get("display", (Decimal(0), Decimal(0)))
+        brand, prev_brand = found.get("brand", (Decimal(0), Decimal(0)))
+        return AccountLevel(
+            display_api=display,
+            display_net=ads_cost_net_of_iva(display, "display"),
+            brand=brand,
+            prev_display_net=ads_cost_net_of_iva(prev_display, "display"),
+            prev_brand=prev_brand,
         )
-        return bool(counts) and all(int(n or 0) == days for n in counts)
 
     def _ads_source(self) -> Any:
         """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups."""
@@ -1128,7 +1201,9 @@ class Board:
             self.touched = self._materialize(TOUCHED_TABLE, groups_touching(predicates), analyze=("group_key",))
         self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()}, LINES_STATS)
         if self.ads:
-            self.prev_ads_covered = self._comparison_is_ledgered()
+            self._comparison_is_ledgered()
+            if self.ads_all:
+                self.account = self._account_level()
             self.ads_lines = self._materialize(ADS_TABLE, self._ads_source(), {"day": Date()}, ("mla", "day"))
         self.t = self._materialize(PAIRS_TABLE, self._pair_source(), analyze=self._pair_stats())
         return self
@@ -1933,16 +2008,26 @@ class Board:
             s_mtg[i] = cents(s["mtg"])
             s_costo[i] = cents(s["costo"])
         dec = cents
+        ads = self._ads_kpis() if self.ads else None
+        # Position 2: the spend no row owns comes off the totals (never off a row, never off the denominator).
+        now = self.account.display_net + self.account.brand if self.ads_all else Decimal(0)
+        before = self.account.prev_display_net + self.account.prev_brand if self.ads_all else Decimal(0)
+
+        def minus_prev(value: Any) -> Optional[Decimal]:
+            if value is None or (self.ads_all and not self.prev_account_covered):
+                return None
+            return cents(value) - cents(before)
+
         return Kpis(
             units=int(totals["units"]),
             gross=dec(totals["gross"]),
-            tg=dec(totals["tg"]),
-            mtg=dec(totals["mtg"]),
+            tg=dec(totals["tg"]) - cents(now),
+            mtg=dec(totals["mtg"]) - cents(now),
             costo=dec(totals["costo"]),
             prev_units=int(totals["prev_units"]),
             prev_gross=dec(totals["prev_gross"]),
-            prev_tg=_prev_cents(totals["prev_tg"]),
-            prev_mtg=_prev_cents(totals["prev_mtg"]),
+            prev_tg=minus_prev(totals["prev_tg"]),
+            prev_mtg=minus_prev(totals["prev_mtg"]),
             prev_costo=dec(totals["prev_costo"]),
             rows=int(totals["rows"]),
             with_sales=int(totals["with_sales"]),
@@ -1954,7 +2039,7 @@ class Board:
             series_gross=s_gross,
             series_tg=s_tg,
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
-            ads=self._ads_kpis() if self.ads else None,
+            ads=ads,
         )
 
     def _ads_kpis(self) -> AdsKpis:
@@ -1965,15 +2050,20 @@ class Board:
             A = self.ads_lines
             in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
             sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in ("cost", *ADS_METRICS)]
-            query = select(*sums)
+            owned_by_nobody = select(func.coalesce(func.sum(self.t.c.ads_cost), 0)).where(
+                self.t.c.product == NO_PRODUCT
+            )
+            query = select(*sums, owned_by_nobody.scalar_subquery())
         else:
             members = self._member_table("")
             query = select(*(func.sum(members.c[name]) for name in ADS_PAIR_COLUMNS))
         cost_api, *metrics = (value or 0 for value in self.db.execute(query).one())
         by_name = dict(zip(ADS_METRICS, metrics))
         cost_api = Decimal(str(cost_api))
+        cost_total = cents(ads_cost_net_of_iva(cost_api, ADS_SOURCE))
+        account = self.account
         return AdsKpis(
-            cost_total=cents(ads_cost_net_of_iva(cost_api, ADS_SOURCE)),
+            cost_total=cost_total,
             cost_api=cents(cost_api),
             prints=int(by_name["prints"]),
             clicks=int(by_name["clicks"]),
@@ -1983,6 +2073,9 @@ class Board:
             indirect_units=int(by_name["indirect_units"]),
             organic_units=int(by_name["organic_units"]),
             organic_amount=cents(by_name["organic_amount"]),
+            requested="todo" if self.f.restar_todo else "mla",
+            applied="todo" if self.ads_all else "mla",
+            subtracted_total=cost_total + (cents(account.display_net + account.brand) if self.ads_all else 0),
         )
 
     def _member_table(self, skip: str) -> Any:

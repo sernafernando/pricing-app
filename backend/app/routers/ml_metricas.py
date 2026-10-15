@@ -201,6 +201,24 @@ def _no_overlap(include: Tuple[str, ...], exclude: Tuple[str, ...], field: str) 
         raise HTTPException(status_code=422, detail=f"{field}: {both} no se puede incluir y excluir a la vez")
 
 
+ADS_LEVELS = ("off", "mla", "todo")
+
+
+def _ads_level(publicidad: Optional[str], restar_publicidad: Optional[bool]) -> str:
+    """The toggle's position. `restar_publicidad=true` keeps meaning "mla"; `publicidad` names a position and
+    must not contradict the boolean when both are sent."""
+    if publicidad is not None and publicidad not in ADS_LEVELS:
+        raise HTTPException(status_code=422, detail=f"publicidad inválida: {publicidad!r} (off | mla | todo)")
+    if publicidad is None:
+        return "mla" if restar_publicidad else "off"
+    if restar_publicidad is not None and (publicidad, restar_publicidad) not in (("off", False), ("mla", True)):
+        raise HTTPException(
+            status_code=422,
+            detail=f"publicidad={publicidad} contradice restar_publicidad={str(restar_publicidad).lower()}",
+        )
+    return publicidad
+
+
 def board_filter(
     date_from: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive (default: hace 29 días)"),
     date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive (default: hoy)"),
@@ -233,9 +251,15 @@ def board_filter(
         default=False,
         description="Sólo filas con al menos una unidad vendida en el período (sus ventanas no cambian)",
     ),
-    restar_publicidad: bool = Query(
-        default=False,
-        description="Restar el costo de publicidad de Total Gauss y markup (requiere ml_metricas.ver_ganancia)",
+    restar_publicidad: Optional[bool] = Query(
+        default=None,
+        description="Restar el costo de publicidad de Total Gauss y markup (requiere ml_metricas.ver_ganancia). "
+        "true equivale a publicidad=mla",
+    ),
+    publicidad: Optional[str] = Query(
+        default=None,
+        description="off | mla | todo: nada, sólo la publicidad de las MLA, o además la que ninguna publicación "
+        "posee (Display, Brand Ads) en los totales de la vista sin filtros (requiere ml_metricas.ver_ganancia)",
     ),
     sort: str = Query(default="gross", description=" | ".join(board.SORTS)),
     sort_dir: str = Query(default="desc", description="asc | desc"),
@@ -267,6 +291,7 @@ def board_filter(
         )
     if (hasta - desde).days + 1 > MAX_PERIOD_DAYS:
         raise HTTPException(status_code=422, detail=f"El período no puede superar {MAX_PERIOD_DAYS} días")
+    ads_level = _ads_level(publicidad, restar_publicidad)
     pub_status_in = _parse_choices(pub_status, "pub_status", board.PUB_STATUSES)
     pub_status_out = _parse_choices(pub_status_exclude, "pub_status_exclude", board.PUB_STATUSES)
     pub_type_in = _parse_choices(pub_type, "pub_type", board.PUB_TYPES)
@@ -301,7 +326,8 @@ def board_filter(
         ageing=ageing_in,
         ageing_exclude=ageing_out,
         solo_con_ventas=solo_con_ventas,
-        restar_publicidad=restar_publicidad,
+        restar_publicidad=ads_level != "off",
+        restar_todo=ads_level == "todo",
         sort=sort,
         sort_desc=sort_dir == "desc",
     )
