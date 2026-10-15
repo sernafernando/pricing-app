@@ -1004,11 +1004,11 @@ class TestAdsOnVolume:
         narrowed, _r, _ms = _request(volume_session, limit=10, restar_publicidad=True, pub_status_exclude=("closed",))
         assert narrowed.kpis.ads.cost_total <= on.kpis.ads.cost_total
 
-    def test_position_two_costs_no_extra_statement_and_subtracts_display_and_brand(
+    def test_position_two_costs_one_extra_statement_and_subtracts_display_and_brand(
         self, volume_session, volume_ads
     ) -> None:
-        """PR 7b-iii-a: "todo" adds ONE statement (the account-level read) to "mla"; the KPI totals drop by the account-level spend of
-        the period (Display 5 campaigns x (40 + c) + Brand 7 a day over 30 days) and rows do not move."""
+        """PR 7b-iii-a: "todo" adds ONE statement (the account-level read) to "mla". The KPI totals drop by the
+        account-level spend of the period (Display 5 campaigns x (40 + c) + Brand 7 a day over 30 days); rows stay."""
         mla, rec_mla, _ms = _request(volume_session, limit=10, restar_publicidad=True)
         todo, rec_todo, ms = _request(volume_session, limit=10, restar_publicidad=True, restar_todo=True)
         assert len(rec_todo.statements) == len(rec_mla.statements) + 1  # the account-level read

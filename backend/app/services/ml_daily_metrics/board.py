@@ -583,7 +583,6 @@ class AdsKpis:
 class AccountLevel:
     """Display and Brand Ads of the period and of its comparison period (account level, never on a row)."""
 
-    display_api: Decimal
     display_net: Decimal
     brand: Decimal
     prev_display_net: Decimal
@@ -1130,7 +1129,6 @@ class Board:
         # include IVA, measure it, add it to `API_COST_INCLUDES_IVA` and net it here.
         brand, prev_brand = found.get("brand", (Decimal(0), Decimal(0)))
         return AccountLevel(
-            display_api=display,
             display_net=ads_cost_net_of_iva(display, "display"),
             brand=brand,
             prev_display_net=ads_cost_net_of_iva(prev_display, "display"),
@@ -1680,7 +1678,8 @@ class Board:
         L = self.lines
         # ponytail: the 90-day sparklines (and the KPI series) read `board_lines`, so with the toggle ON they stay
         # BEFORE ads while the row's markup/Total Gauss are after them. Revisit with the owner's answer on whether
-        # to subtract ads per day (needs ads lines over the 90-day series range) or hide the series when ON.
+        # to subtract ads per day (needs ads lines over the 90-day series range) or hide the series when ON. The same
+        # holds for the account-level spend of position 2: the KPI value drops by it, its series does not.
         series = (
             select(
                 fp.c.rk,
