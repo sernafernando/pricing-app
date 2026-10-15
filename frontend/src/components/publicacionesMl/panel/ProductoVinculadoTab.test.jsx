@@ -47,6 +47,7 @@ beforeEach(() => {
   publicacionesMlAPI.productLinks.mockResolvedValue({ data: { item_id: 'MLA1100000001', units: [] } });
 });
 const section = (name) => screen.getByRole('region', { name });
+const valueIn = (container, label) => within(container).getByText(label, { selector: 'dt' }).nextElementSibling;
 const valueOf = (name, label) => within(section(name)).getByText(label, { selector: 'dt' }).nextElementSibling;
 
 describe('the linked product', () => {
@@ -334,5 +335,98 @@ describe('a refused write', () => {
     render(<ProductoVinculadoTab detail={detail} itemId={ITEM} onWritten={vi.fn()} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los vínculos para editarlos.');
     expect(within(section('Vínculos')).getByRole('listitem')).toHaveTextContent('ARCHER-AX55');
+  });
+});
+
+describe('the card after a write (R3-001)', () => {
+  it('shows the re-read link unit even when nobody refreshes the detail', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.setProductLinkNone.mockResolvedValue(written);
+    renderEditable({ onWritten: vi.fn() });
+    const after = unit(0, apiLink({ source: 'manual_none', match_status: 'unmatched', producto_item_id: null, producto: null, matched_sku: null, note: 'Combo' }));
+    publicacionesMlAPI.productLinks.mockResolvedValue({ data: { item_id: ITEM, units: [after] } });
+
+    const card = await cardOf('Publicación');
+    await waitFor(() => expect(within(card).getByRole('button', { name: 'Marcar sin producto' })).toBeInTheDocument());
+    await user.click(within(card).getByRole('button', { name: 'Marcar sin producto' }));
+    await user.click(within(card).getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(card).toHaveTextContent('Sin producto vinculado'));
+    expect(card).toHaveTextContent('Sin producto');
+    expect(card).not.toHaveTextContent('ARCHER-AX55');
+    expect(valueIn(card, 'Nota')).toHaveTextContent('Combo');
+    expect(within(card).getByRole('button', { name: 'Volver a automático' })).toBeInTheDocument();
+  });
+
+  it('shows a manual link to another product from the re-read unit', async () => {
+    renderEditable({
+      links: [ITEM_LINK],
+      units: [unit(0, apiLink({ source: 'manual', producto_item_id: 5001, producto: ref(5001, 'DECO-X20', 'Deco X20'), note: 'a mano' }))],
+    });
+    const card = await cardOf('Publicación');
+    await waitFor(() => expect(card).toHaveTextContent('DECO-X20 · Deco X20'));
+    expect(card).toHaveTextContent('Manual');
+    expect(valueIn(card, 'Marca')).toHaveTextContent('—');
+  });
+});
+
+describe('the product search (R3-002, R3-003)', () => {
+  const openLink = async (user, props) => {
+    renderEditable(props);
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Vincular producto' }));
+    return card;
+  };
+  const results = (...products) => ({ data: products.map(([item_id, codigo]) => ({ item_id, codigo, descripcion: codigo, marca: null })) });
+
+  it('a new search drops a pick that is no longer among the results', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockResolvedValueOnce(results([5001, 'DECO-X20'])).mockResolvedValueOnce(results([6001, 'ARCHER-C6']));
+    const card = await openLink(user);
+    const search = within(card).getByLabelText('Buscar producto');
+    await user.type(search, 'deco{Enter}');
+    await user.click(within(await within(card).findByRole('list', { name: 'Resultados' })).getByRole('button', { name: /DECO-X20/ }));
+    expect(within(card).getByRole('button', { name: 'Guardar' })).toBeEnabled();
+
+    await user.clear(search);
+    await user.type(search, 'archer{Enter}');
+    await within(card).findByRole('button', { name: /ARCHER-C6/ });
+    expect(within(card).getByRole('button', { name: 'Guardar' })).toBeDisabled();
+  });
+
+  it('a new search keeps a picked conflict candidate, which stays in view', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockResolvedValue(results([6001, 'ARCHER-C6']));
+    publicacionesMlAPI.setProductLink.mockResolvedValue(written);
+    const card = await openLink(user, { links: [CONFLICT_LINK], units: [CONFLICT_UNIT] });
+    await user.click(within(within(card).getByRole('list', { name: 'Candidatos' })).getByRole('button', { name: /AX55-A/ }));
+    await user.type(within(card).getByLabelText('Buscar producto'), 'archer{Enter}');
+    await within(card).findByRole('button', { name: /ARCHER-C6/ });
+    await user.click(within(card).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(publicacionesMlAPI.setProductLink).toHaveBeenCalledWith(ITEM, 0, { producto_item_id: 4107, note: null }));
+  });
+
+  it('a failed search says so and leaves nothing to pick', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.searchProducts.mockRejectedValue(httpError(500));
+    const card = await openLink(user);
+    await user.type(within(card).getByLabelText('Buscar producto'), 'deco{Enter}');
+    expect(await within(card).findByText('No se pudo buscar productos.')).toBeInTheDocument();
+    expect(within(card).queryByRole('list', { name: 'Resultados' })).not.toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Guardar' })).toBeDisabled();
+  });
+});
+
+describe('a 422 without a readable reason', () => {
+  it('falls back to the generic message', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.setProductLinkNone.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), { response: { status: 422, data: { detail: [{ loc: ['body', 'note'], msg: 'too long' }] } } }),
+    );
+    renderEditable();
+    const card = await cardOf('Publicación');
+    await user.click(within(card).getByRole('button', { name: 'Marcar sin producto' }));
+    await user.click(within(card).getByRole('button', { name: 'Confirmar' }));
+    expect(await within(card).findByRole('alert')).toHaveTextContent('No se pudo guardar el vínculo.');
   });
 });

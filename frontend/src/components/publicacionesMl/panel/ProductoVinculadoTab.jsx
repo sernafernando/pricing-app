@@ -59,16 +59,48 @@ function CostSection({ product }) {
   );
 }
 
+/** The list's `link.state` rule (backend `link_state_of`), over a link unit's `link` (`null` = no row). */
+const stateOf = (link) => {
+  if (link == null) return 'no_evaluado';
+  if (link.match_status === 'conflict') return 'conflicto';
+  if (link.match_status === 'linked') return link.source === 'manual' ? 'manual' : 'auto';
+  return 'sin_producto';
+};
+
+/**
+ * A card's link as the link unit read for editing says it is: that read is
+ * re-done after every write, so the card is current even before (or without)
+ * the detail being re-read. The brand is not in the unit: it is kept only while
+ * the product is the one the detail names.
+ */
+const fromUnit = (link, unit) => {
+  const current = unit.link;
+  const productId = current?.producto_item_id ?? null;
+  return {
+    ...link,
+    variation_id: unit.variation_id,
+    state: stateOf(current),
+    source: current?.source ?? null,
+    producto_item_id: productId,
+    codigo: current?.producto?.codigo ?? null,
+    descripcion: current?.producto?.descripcion ?? null,
+    marca: productId != null && productId === link?.producto_item_id ? link.marca : null,
+    matched_sku: current?.matched_sku ?? null,
+    linked_at: current?.linked_at ?? null,
+    note: current?.note ?? null,
+  };
+};
+
 /**
  * One card per unit: the detail's link rows, plus -- once the link units are
- * loaded for editing -- the live units without a row (never evaluated).
+ * loaded for editing -- the live units without a row (never evaluated). A unit
+ * that was read for editing shows what that read says.
  */
 const unitsOf = (links, editUnits) => {
   const byVariation = new Map(links.map((link) => [link.variation_id, { link, unit: null }]));
   for (const unit of editUnits) {
     const known = byVariation.get(unit.variation_id);
-    if (known) known.unit = unit;
-    else byVariation.set(unit.variation_id, { link: { variation_id: unit.variation_id, state: 'no_evaluado', producto_item_id: null }, unit });
+    byVariation.set(unit.variation_id, { link: fromUnit(known?.link ?? null, unit), unit });
   }
   return [...byVariation.values()].sort((a, b) => a.link.variation_id - b.link.variation_id);
 };

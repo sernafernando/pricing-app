@@ -60,6 +60,9 @@ function LinkForm({ candidates, busy, onSave, onCancel }) {
   const runSearch = async (event) => {
     event?.preventDefault();
     if (!canSearch) return;
+    // The results are being replaced: a pick among the old ones leaves the view,
+    // so it must not be what "Guardar" saves. A conflict candidate stays in view.
+    setSelected((current) => (candidates.some((candidate) => candidate.item_id === current) ? current : null));
     setSearch({ status: 'loading', results: [] });
     try {
       const response = await publicacionesMlAPI.searchProducts(query.trim());
