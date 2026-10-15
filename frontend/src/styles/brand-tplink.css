@@ -15,149 +15,433 @@
  * literal colour sits inside a custom property. The few rules at the bottom
  * only consume tokens.
  *
- * Source: TP-Link Brand Guidelines p.38 — Teal #4ACBD6, Yellow #FFCB00; accents
+ * Values: generated from the current tokens plus the TP-Link palette and
+ * contrast-checked (WCAG 2.x). Source palette: TP-Link Brand Guidelines p.38 — Teal #4ACBD6, Yellow #FFCB00; accents
  * Navy #250D71, Maroon #C11C66, Dark Green #005564, Cyan #00A3DF,
  * Dark Gray #36444B, Light Gray #A7A9AC. Never white text on Teal (1.94:1).
  * Aktiv Grotesk is licensed and NOT loaded; the brand's fallback is Arial.
  */
 
-/* ============================================================
-   PROVISIONAL PALETTE — placeholder values from the brand guide.
-   The final light/dark values come from a Stitch pass over the
-   current tokens; replace the values below, keep the token names.
-   ============================================================ */
+/* Palette: every inventory token plus the role tokens, light and dark. */
 [data-brand="tplink"][data-theme="light"] {
-  --brand-font-family: "Aktiv Grotesk", Arial, sans-serif;
-
-  /* Role tokens */
-  --brand-primary: #4acbd6;
-  --brand-primary-rgb: 74, 203, 214;
-  --brand-primary-hover: #005564;
-  --brand-primary-light: #e3f6f8;
-  --on-brand-primary: #1c2428;
-  --on-brand-primary-hover: #ffffff;
-  --brand-focus-ring: #005564;
-  --brand-link: #005564;
-  /* PROVISIONAL: the guide's #005564 header needs the header's text tokens
-     re-scoped (its dropdowns inherit them), so the header stays light here. */
-  --brand-header-bg: #ffffff;
-  --brand-header-logo-filter: invert(1) brightness(0.25);
-  --gradient-primary: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary) 100%);
-
   /* Surfaces */
-  --cf-bg-app: #ffffff;
-  --cf-bg-sidebar: #f4f5f6;
-  --cf-bg-card: #ffffff;
-  --cf-card-bg: #ffffff;
-  --cf-bg-hover: #eceeef;
-  --cf-card-hover-bg: #f4f5f6;
   --bg-primary: #ffffff;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f4f5f6;
-  --bg-hover: #eceeef;
-  --bg-active: #e3e5e6;
-
+  --bg-secondary: #f6f8f9;
+  --bg-tertiary: #eef2f4;
+  --bg-hover: #e7eef1;
+  --bg-active: #d9e4e8;
+  --bg-overlay: rgba(15, 22, 26, 0.6);
+  --cf-avatar-bg: #d2f3f6;
+  --cf-avatar-text: #1b2429;
+  --cf-bg-app: #f6f8f9;
+  --cf-bg-card: #ffffff;
+  --cf-bg-hover: #eef2f4;
+  --cf-bg-sidebar: #ffffff;
+  --cf-bg-topbar: var(--brand-header-bg);
+  --cf-card-bg: #ffffff;
+  --cf-card-hover-bg: #f6f8f9;
+  --cf-hover-overlay: rgba(54, 68, 75, 0.06);
+  --metricas-head-bg: #eef2f4;
+  --metricas-open-bg: #eafafb;
+  --metricas-sub-bg: #f6f8f9;
+  --metricas-subhead-bg: #f9fbfb;
+  --ventas-card-bg: #f6f8f9;
   /* Text */
-  --cf-text-primary: #36444b;
-  --cf-text-secondary: #5f6b71;
-  --cf-text-tertiary: #5f6b71;
-  --cf-text-muted: #5f6b71;
-  --text-primary: #36444b;
-  --text-secondary: #5f6b71;
-  --text-tertiary: #5f6b71;
-
-  /* Borders (#a7a9ac is decorative only, never a text colour) */
-  --cf-border-subtle: #e3e5e6;
-  --cf-border-default: #c9ccce;
-  --cf-border-strong: #a7a9ac;
-  --cf-card-border: #e3e5e6;
-  --border-primary: #e3e5e6;
-  --border-secondary: #c9ccce;
-  --border-color: #e3e5e6;
-
-  /* Accents and semantics */
-  --cf-accent-blue: #005564;
-  --cf-accent-blue-hover: #00a3df;
-  --cf-accent-teal: #4acbd6;
-  --cf-accent-yellow: #ffcb00;
-  --cf-accent-red: #c11c66;
-  --cf-accent-green: #005564;
-  --cf-accent-purple: #250d71;
-  --success: #005564;
-  --success-text: #005564;
-  --danger: #c11c66;
-  --error: #c11c66;
-  --error-text: #c11c66;
-  --warning: #ffcb00;
-  --warning-text: #36444b;
-  --info: #005564;
-  --info-text: #005564;
+  --text-primary: #1b2429;
+  --text-secondary: #45545b;
+  --text-tertiary: #5f6e75;
+  --text-inverse: #ffffff;
+  --cf-text-primary: #1b2429;
+  --cf-text-secondary: #45545b;
+  --cf-text-tertiary: #5f6e75;
+  --cf-text-muted: #5f6e75;
+  /* Borders */
+  --border-color: #dde4e7;
+  --border-primary: #dde4e7;
+  --border-secondary: #c9d3d7;
+  --border-focus: var(--brand-focus-ring);
+  --cf-border-default: #c9d3d7;
+  --cf-border-strong: #8a979d;
+  --cf-border-subtle: #e7eef1;
+  --cf-card-border: #dde4e7;
+  --cf-card-divider: 1px solid #e7eef1;
+  --ventas-divider: #dde4e7;
+  /* Brand */
+  --brand-primary: #4ACBD6;
+  --brand-primary-hover: #34b9c5;
+  --brand-primary-light: #e3f7f9;
+  --brand-primary-rgb: 74, 203, 214;
+  --on-brand-primary: #1b2429;
+  --on-brand-primary-hover: #1b2429;
+  --brand-focus-ring: #00808c;
+  --brand-link: #006b75;
+  --brand-header-bg: #ffffff;
+  /* The logo asset is white: darken it on the white light-mode header. */
+  --brand-header-logo-filter: invert(1) brightness(0.25);
+  --brand-font-family: 'Aktiv Grotesk', Arial, sans-serif;
+  --gradient-primary: linear-gradient(135deg, #4ACBD6 0%, #34b9c5 100%);
+  --primary: #00727d;
+  --primary-light: #eef9fa;
+  --accent-bg: #e3f7f9;
+  --accent-text: #006b75;
+  /* Accents */
+  --cf-accent-blue: #007aa8;
+  --cf-accent-blue-hover: #006690;
+  --cf-accent-blue-light: rgba(0, 163, 223, 0.10);
+  --cf-accent-gray: #5f6e75;
+  --cf-accent-green: #0f7a52;
+  --cf-accent-orange: #C11C66;
+  --cf-accent-purple: #5a3fc0;
+  --cf-accent-purple-light: rgba(37, 13, 113, 0.08);
+  --cf-accent-red: #c62828;
+  --cf-accent-teal: #00808c;
+  --cf-accent-yellow: #a87a00;
+  --color-blue: #007aa8;
+  --color-gray: #5f6e75;
+  --color-green: #0f7a52;
+  --color-orange: #C11C66;
+  --color-purple: #5a3fc0;
+  --color-red: #c62828;
+  --color-teal: #00808c;
+  --color-yellow: #a87a00;
+  /* Status */
+  --success: #0f7a52;
+  --success-hover: #0b6544;
+  --success-bg: #e6f5ee;
+  --success-light: #e6f5ee;
+  --success-text: #0a5c3d;
+  --warning: #a87a00;
+  --warning-hover: #8a6400;
+  --warning-bg: #fff6d6;
+  --warning-light: #fff6d6;
+  --warning-text: #6e5200;
+  --danger: #c62828;
+  --error: #c62828;
+  --error-hover: #a32020;
+  --error-bg: #fdecec;
+  --error-light: #fdecec;
+  --error-text: #a61f1f;
+  --info: #007aa8;
+  --info-hover: #006690;
+  --info-bg: #e5f5fc;
+  --info-light: #e5f5fc;
+  --info-text: #005f85;
+  --cf-danger: #c62828;
+  --cf-warning: #a87a00;
+  --cf-saldo-negative: #c62828;
+  --cf-saldo-positive: #0f7a52;
+  --money-headline: #005f85;
+  --money-negative: #b02222;
+  --money-positive: #0a6b47;
+  --purple: #5a3fc0;
+  --purple-hover: #3d22a0;
+  --purple-bg: #ece8fa;
+  --purple-light: #f5f3fd;
+  --purple-primary: #250D71;
+  --purple-text: #250D71;
+  --teal-bg: #e3f7f9;
+  --teal-text: #006b75;
+  /* Tones */
+  --tone-danger-bg: #fdecec;
+  --tone-danger-border: #f3b9b9;
+  --tone-danger-fg: #a61f1f;
+  --tone-info-bg: #e5f5fc;
+  --tone-info-border: #a9dcf1;
+  --tone-info-fg: #005f85;
+  --tone-neutral-bg: #f1f4f5;
+  --tone-neutral-border: #dbe2e5;
+  --tone-neutral-fg: #45545b;
+  --tone-purple-bg: #eeeaf9;
+  --tone-purple-border: #cfc5f0;
+  --tone-purple-fg: #3d22a0;
+  --tone-success-bg: #e6f5ee;
+  --tone-success-border: #a9dcc4;
+  --tone-success-fg: #0a5c3d;
+  --tone-warning-bg: #fff6d6;
+  --tone-warning-border: #f0d47a;
+  --tone-warning-fg: #6e5200;
+  /* Badges */
+  --cf-dac-disponible-bg: rgba(15, 122, 82, 0.12);
+  --cf-dac-disponible-text: #0a5c3d;
+  --cf-dac-parcial-bg: rgba(255, 203, 0, 0.22);
+  --cf-dac-parcial-text: #6e5200;
+  --cf-flag-action-bg: rgba(193, 28, 102, 0.18);
+  --cf-flag-action-border: rgba(240, 106, 165, 0.5);
+  --cf-flag-action-hover-bg: rgba(193, 28, 102, 0.32);
+  --cf-flag-action-hover-border: rgba(240, 106, 165, 0.75);
+  --cf-flag-action-text: #f8a5c9;
+  --cf-flag-btn-bg: #C11C66;
+  --cf-flag-btn-hover-bg: #9c1552;
+  --cf-flag-cancelado-bg: rgba(193, 28, 102, 0.10);
+  --cf-flag-cancelado-text: #9c1552;
+  --cf-flag-duplicado-bg: rgba(255, 203, 0, 0.20);
+  --cf-flag-duplicado-text: #6e5200;
+  --cf-flag-mal-pasado-bg: rgba(198, 40, 40, 0.10);
+  --cf-flag-mal-pasado-text: #a61f1f;
+  --cf-flag-otro-bg: rgba(54, 68, 75, 0.10);
+  --cf-flag-otro-text: #45545b;
+  --cf-flag-remove-bg: rgba(198, 40, 40, 0.15);
+  --cf-flag-remove-border: rgba(255, 107, 107, 0.45);
+  --cf-flag-remove-hover-bg: rgba(198, 40, 40, 0.30);
+  --cf-flag-remove-hover-border: rgba(255, 107, 107, 0.65);
+  --cf-flag-remove-text: #ffa3a3;
+  --cf-ml-cancelled-bg: rgba(198, 40, 40, 0.10);
+  --cf-ml-cancelled-text: #8f1d1d;
+  --cf-ml-delivered-bg: rgba(15, 122, 82, 0.12);
+  --cf-ml-delivered-text: #0a5c3d;
+  --cf-ml-not-delivered-bg: rgba(255, 203, 0, 0.24);
+  --cf-ml-not-delivered-text: #5c4400;
+  --cf-ml-ready-bg: rgba(0, 163, 223, 0.12);
+  --cf-ml-ready-text: #005f85;
+  --cf-ml-shipped-bg: rgba(37, 13, 113, 0.08);
+  --cf-ml-shipped-text: #250D71;
+  --cf-role-admin-from: #C11C66;
+  --cf-role-admin-to: #9c1552;
+  --cf-role-default-from: #36444B;
+  --cf-role-default-to: #253036;
+  --cf-role-gerente-from: #00727d;
+  --cf-role-gerente-to: #005564;
+  --cf-role-superadmin-from: #3a1f99;
+  --cf-role-superadmin-to: #250D71;
+  /* Selection bar */
+  --cf-selection-bar-bg: rgba(27, 36, 41, 0.96);
+  --cf-selection-bar-border: rgba(74, 203, 214, 0.35);
+  --cf-selection-bar-btn-subtle: rgba(255, 255, 255, 0.08);
+  --cf-selection-bar-btn-subtle-border: rgba(255, 255, 255, 0.18);
+  --cf-selection-bar-btn-subtle-text: rgba(255, 255, 255, 0.78);
+  --cf-selection-bar-text: #ffffff;
+  /* Shadows */
+  --cf-card-shadow: 0 1px 3px rgba(27, 36, 41, 0.10);
+  --cf-card-shadow-hover: 0 2px 6px rgba(27, 36, 41, 0.15);
+  --cf-shadow-card: 0 1px 2px rgba(27, 36, 41, 0.06), 0 1px 3px -1px rgba(27, 36, 41, 0.08);
+  --cf-shadow-modal: 0 12px 40px -8px rgba(27, 36, 41, 0.20);
+  --cf-shadow-sidebar-peek: 4px 0 12px rgba(27, 36, 41, 0.10);
+  --shadow-sm: 0 1px 3px 0 rgba(27, 36, 41, 0.08);
+  --shadow-md: 0 2px 8px 0 rgba(27, 36, 41, 0.12);
+  --shadow-lg: 0 8px 16px 0 rgba(27, 36, 41, 0.14);
+  --shadow-xl: 0 12px 24px 0 rgba(27, 36, 41, 0.16);
+  /* Gradients */
+  --gradient-error: linear-gradient(135deg, #c62828 0%, #a32020 100%);
+  --gradient-info: linear-gradient(135deg, #007aa8 0%, #006690 100%);
+  --gradient-navbar: linear-gradient(135deg, #1b2429 0%, #0e1417 100%);
+  --gradient-purple: linear-gradient(135deg, #3a1f99 0%, #250D71 100%);
+  --gradient-success: linear-gradient(135deg, #0f7a52 0%, #0b6544 100%);
+  --gradient-warning: linear-gradient(135deg, #FFCB00 0%, #f0b800 100%);
 }
 
 [data-brand="tplink"][data-theme="dark"] {
-  --brand-font-family: "Aktiv Grotesk", Arial, sans-serif;
-
-  /* Role tokens */
-  --brand-primary: #4acbd6;
-  --brand-primary-rgb: 74, 203, 214;
-  --brand-primary-hover: #7fdce3;
-  --brand-primary-light: #1f4a50;
-  --on-brand-primary: #1c2428;
-  --on-brand-primary-hover: #1c2428;
-  --brand-focus-ring: #4acbd6;
-  --brand-link: #4acbd6;
-  --brand-header-bg: #283338;
-  --brand-header-logo-filter: none;
-  --gradient-primary: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary) 100%);
-
   /* Surfaces */
-  --cf-bg-app: #1c2428;
-  --cf-bg-sidebar: #283338;
-  --cf-bg-card: #36444b;
-  --cf-card-bg: #36444b;
-  --cf-bg-hover: #3f4f57;
-  --cf-card-hover-bg: #3f4f57;
-  --bg-primary: #1c2428;
-  --bg-secondary: #1c2428;
-  --bg-tertiary: #283338;
-  --bg-hover: #36444b;
-  --bg-active: #3f4f57;
-
-  /* Text (#a7a9ac fails on the #36444b cards, so muted is lighter) */
-  --cf-text-primary: #ffffff;
-  --cf-text-secondary: #d3d5d6;
-  --cf-text-tertiary: #c4c7c9;
-  --cf-text-muted: #c4c7c9;
-  --text-primary: #ffffff;
-  --text-secondary: #d3d5d6;
-  --text-tertiary: #c4c7c9;
-
+  --bg-primary: #0e1417;
+  --bg-secondary: #141c20;
+  --bg-tertiary: #1b2529;
+  --bg-hover: #212d32;
+  --bg-active: #2a383e;
+  --bg-overlay: rgba(0, 0, 0, 0.65);
+  --cf-avatar-bg: rgba(74, 203, 214, 0.18);
+  --cf-avatar-text: #ffffff;
+  --cf-bg-app: #080c0e;
+  --cf-bg-card: #141c20;
+  --cf-bg-hover: #1b2529;
+  --cf-bg-sidebar: #0e1417;
+  --cf-bg-topbar: var(--brand-header-bg);
+  --cf-card-bg: #141c20;
+  --cf-card-hover-bg: #1b2529;
+  --cf-hover-overlay: rgba(255, 255, 255, 0.05);
+  --metricas-head-bg: #1b2529;
+  --metricas-open-bg: #102a2e;
+  --metricas-sub-bg: #172024;
+  --metricas-subhead-bg: #161e22;
+  --ventas-card-bg: #172024;
+  /* Text */
+  --text-primary: #eef3f5;
+  --text-secondary: #b5c1c6;
+  --text-tertiary: #95a2a8;
+  --text-inverse: #ffffff;
+  --cf-text-primary: #eef3f5;
+  --cf-text-secondary: #b5c1c6;
+  --cf-text-tertiary: #95a2a8;
+  --cf-text-muted: #8a979d;
   /* Borders */
-  --cf-border-subtle: #36444b;
-  --cf-border-default: #4a5a62;
-  --cf-border-strong: #5f6b71;
-  --cf-card-border: #4a5a62;
-  --border-primary: #36444b;
-  --border-secondary: #4a5a62;
-  --border-color: #36444b;
-
-  /* Accents and semantics */
-  --cf-accent-blue: #4acbd6;
-  --cf-accent-blue-hover: #7fdce3;
-  --cf-accent-teal: #4acbd6;
-  --cf-accent-yellow: #ffcb00;
-  --cf-accent-red: #e05a95;
-  --danger: #e05a95;
-  --error: #e05a95;
-  --error-text: #e05a95;
-  --warning: #ffcb00;
-  --warning-text: #ffcb00;
-  --info: #4acbd6;
-  --info-text: #4acbd6;
+  --border-color: #2a383e;
+  --border-primary: #2a383e;
+  --border-secondary: #36464d;
+  --border-focus: var(--brand-focus-ring);
+  --cf-border-default: #2a383e;
+  --cf-border-strong: #5f6e75;
+  --cf-border-subtle: #1b2529;
+  --cf-card-border: #2a383e;
+  --cf-card-divider: 1px solid #1b2529;
+  --ventas-divider: #2a383e;
+  /* Brand */
+  --brand-primary: #4ACBD6;
+  --brand-primary-hover: #7dd9e1;
+  --brand-primary-light: #0f2e33;
+  --brand-primary-rgb: 74, 203, 214;
+  --on-brand-primary: #0b1a1f;
+  --on-brand-primary-hover: #0b1a1f;
+  --brand-focus-ring: #4ACBD6;
+  --brand-link: #4ACBD6;
+  --brand-header-bg: #0e1417;
+  --brand-header-logo-filter: brightness(0) invert(1);
+  --brand-font-family: 'Aktiv Grotesk', Arial, sans-serif;
+  --gradient-primary: linear-gradient(135deg, #7dd9e1 0%, #4ACBD6 100%);
+  --primary: #4ACBD6;
+  --primary-light: #0f2e33;
+  --accent-bg: #0f2e33;
+  --accent-text: #6fd6df;
+  /* Accents */
+  --cf-accent-blue: #33b9ea;
+  --cf-accent-blue-hover: #6ccdf2;
+  --cf-accent-blue-light: rgba(0, 163, 223, 0.16);
+  --cf-accent-gray: #95a2a8;
+  --cf-accent-green: #3ecf8e;
+  --cf-accent-orange: #f06aa5;
+  --cf-accent-purple: #a28ff0;
+  --cf-accent-purple-light: rgba(162, 143, 240, 0.16);
+  --cf-accent-red: #ff6b6b;
+  --cf-accent-teal: #4ACBD6;
+  --cf-accent-yellow: #FFCB00;
+  --color-blue: #33b9ea;
+  --color-gray: #95a2a8;
+  --color-green: #3ecf8e;
+  --color-orange: #f06aa5;
+  --color-purple: #a28ff0;
+  --color-red: #ff6b6b;
+  --color-teal: #4ACBD6;
+  --color-yellow: #FFCB00;
+  /* Status */
+  --success: #3ecf8e;
+  --success-hover: #2bb67a;
+  --success-bg: #0d2a1f;
+  --success-light: #0d2a1f;
+  --success-text: #5fe0a5;
+  --warning: #FFCB00;
+  --warning-hover: #ffd83d;
+  --warning-bg: #2b2300;
+  --warning-light: #2b2300;
+  --warning-text: #ffd43b;
+  --danger: #ff6b6b;
+  --error: #ff6b6b;
+  --error-hover: #ff8a8a;
+  --error-bg: #2e1214;
+  --error-light: #2e1214;
+  --error-text: #ff8a8a;
+  --info: #33b9ea;
+  --info-hover: #6ccdf2;
+  --info-bg: #0a2633;
+  --info-light: #0a2633;
+  --info-text: #6ccdf2;
+  --cf-danger: #ff6b6b;
+  --cf-warning: #FFCB00;
+  --cf-saldo-negative: #ff6b6b;
+  --cf-saldo-positive: #3ecf8e;
+  --money-headline: #6ccdf2;
+  --money-negative: #ff8a8a;
+  --money-positive: #5fe0a5;
+  --purple: #a28ff0;
+  --purple-hover: #8a74e8;
+  --purple-bg: #221a45;
+  --purple-light: #1a1433;
+  --purple-primary: #a28ff0;
+  --purple-text: #c7bcf7;
+  --teal-bg: #0f2e33;
+  --teal-text: #6fd6df;
+  /* Tones */
+  --tone-danger-bg: rgba(255, 107, 107, 0.12);
+  --tone-danger-border: rgba(255, 107, 107, 0.34);
+  --tone-danger-fg: #ff8a8a;
+  --tone-info-bg: rgba(0, 163, 223, 0.14);
+  --tone-info-border: rgba(0, 163, 223, 0.38);
+  --tone-info-fg: #6ccdf2;
+  --tone-neutral-bg: rgba(255, 255, 255, 0.06);
+  --tone-neutral-border: rgba(255, 255, 255, 0.14);
+  --tone-neutral-fg: rgba(255, 255, 255, 0.74);
+  --tone-purple-bg: rgba(162, 143, 240, 0.14);
+  --tone-purple-border: rgba(162, 143, 240, 0.36);
+  --tone-purple-fg: #c7bcf7;
+  --tone-success-bg: rgba(62, 207, 142, 0.12);
+  --tone-success-border: rgba(62, 207, 142, 0.32);
+  --tone-success-fg: #5fe0a5;
+  --tone-warning-bg: rgba(255, 203, 0, 0.12);
+  --tone-warning-border: rgba(255, 203, 0, 0.34);
+  --tone-warning-fg: #ffd43b;
+  /* Badges */
+  --cf-dac-disponible-bg: rgba(62, 207, 142, 0.14);
+  --cf-dac-disponible-text: #5fe0a5;
+  --cf-dac-parcial-bg: rgba(255, 203, 0, 0.14);
+  --cf-dac-parcial-text: #ffd43b;
+  --cf-flag-action-bg: rgba(193, 28, 102, 0.18);
+  --cf-flag-action-border: rgba(240, 106, 165, 0.5);
+  --cf-flag-action-hover-bg: rgba(193, 28, 102, 0.32);
+  --cf-flag-action-hover-border: rgba(240, 106, 165, 0.75);
+  --cf-flag-action-text: #f8a5c9;
+  --cf-flag-btn-bg: #C11C66;
+  --cf-flag-btn-hover-bg: #9c1552;
+  --cf-flag-cancelado-bg: rgba(240, 106, 165, 0.14);
+  --cf-flag-cancelado-text: #f48ab8;
+  --cf-flag-duplicado-bg: rgba(255, 203, 0, 0.14);
+  --cf-flag-duplicado-text: #ffd43b;
+  --cf-flag-mal-pasado-bg: rgba(255, 107, 107, 0.14);
+  --cf-flag-mal-pasado-text: #ff8a8a;
+  --cf-flag-otro-bg: rgba(167, 169, 172, 0.14);
+  --cf-flag-otro-text: #b5c1c6;
+  --cf-flag-remove-bg: rgba(198, 40, 40, 0.15);
+  --cf-flag-remove-border: rgba(255, 107, 107, 0.45);
+  --cf-flag-remove-hover-bg: rgba(198, 40, 40, 0.30);
+  --cf-flag-remove-hover-border: rgba(255, 107, 107, 0.65);
+  --cf-flag-remove-text: #ffa3a3;
+  --cf-ml-cancelled-bg: rgba(255, 107, 107, 0.14);
+  --cf-ml-cancelled-text: #ff8a8a;
+  --cf-ml-delivered-bg: rgba(62, 207, 142, 0.14);
+  --cf-ml-delivered-text: #5fe0a5;
+  --cf-ml-not-delivered-bg: rgba(255, 203, 0, 0.16);
+  --cf-ml-not-delivered-text: #ffd43b;
+  --cf-ml-ready-bg: rgba(0, 163, 223, 0.16);
+  --cf-ml-ready-text: #6ccdf2;
+  --cf-ml-shipped-bg: rgba(162, 143, 240, 0.16);
+  --cf-ml-shipped-text: #c7bcf7;
+  --cf-role-admin-from: #C11C66;
+  --cf-role-admin-to: #9c1552;
+  --cf-role-default-from: #4a5a62;
+  --cf-role-default-to: #36444B;
+  --cf-role-gerente-from: #00727d;
+  --cf-role-gerente-to: #005564;
+  --cf-role-superadmin-from: #4b2fb0;
+  --cf-role-superadmin-to: #250D71;
+  /* Selection bar */
+  --cf-selection-bar-bg: rgba(37, 48, 54, 0.96);
+  --cf-selection-bar-border: rgba(74, 203, 214, 0.35);
+  --cf-selection-bar-btn-subtle: rgba(255, 255, 255, 0.08);
+  --cf-selection-bar-btn-subtle-border: rgba(255, 255, 255, 0.18);
+  --cf-selection-bar-btn-subtle-text: rgba(255, 255, 255, 0.78);
+  --cf-selection-bar-text: #ffffff;
+  /* Shadows */
+  --cf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --cf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.45);
+  --cf-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  --cf-shadow-modal: 0 20px 60px -20px rgba(0, 0, 0, 0.55);
+  --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 2px 8px 0 rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 8px 16px 0 rgba(0, 0, 0, 0.8);
+  --shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.9);
+  /* Gradients */
+  --gradient-error: linear-gradient(135deg, #e04848 0%, #c62828 100%);
+  --gradient-info: linear-gradient(135deg, #0a8fc2 0%, #007aa8 100%);
+  --gradient-navbar: linear-gradient(135deg, #080c0e 0%, #0e1417 100%);
+  --gradient-purple: linear-gradient(135deg, #5a3fc0 0%, #3a1f99 100%);
+  --gradient-success: linear-gradient(135deg, #12875b 0%, #0f7a52 100%);
+  --gradient-warning: linear-gradient(135deg, #FFCB00 0%, #f0b800 100%);
 }
 
 /* ============================================================
    RULES — token consumers only, no literal colours.
+
+   Light-mode Teal (#4acbd6) fails as a text colour and under white text, so
+   every global rule that paints text WITH --brand-primary, or white text ON
+   it, is repointed here: text on Teal -> --on-brand-primary, Teal as text ->
+   --brand-link, Teal as a focus/keyboard indicator -> --brand-focus-ring.
+   Brand-scoped only; the base theme never matches these selectors.
    ============================================================ */
 
 /* Zero specificity, like index.css's own `*` rule, so any class that sets a
@@ -171,14 +455,50 @@
   color: var(--brand-link);
 }
 
-/* buttons-tesla.css paints primary text with --text-inverse (white), and white
-   on Teal fails contrast. Repoint it at the role token. */
-[data-brand="tplink"] .btn-tesla.primary {
+/* Text ON Teal: primary buttons (buttons-tesla.css, components.css,
+   utilities.css) paint white / --text-inverse. */
+[data-brand="tplink"] .btn-tesla.primary,
+[data-brand="tplink"] .btn-primary,
+[data-brand="tplink"] .btn-primary-solid {
   color: var(--on-brand-primary);
 }
 
-[data-brand="tplink"] .btn-tesla.primary:hover {
+[data-brand="tplink"] .btn-tesla.primary:hover,
+[data-brand="tplink"] .btn-primary:hover {
   color: var(--on-brand-primary-hover);
+}
+
+/* Teal AS text: outline buttons, primary badge, sorted column, row action,
+   active modal tab. */
+[data-brand="tplink"] .btn-tesla.outline,
+[data-brand="tplink"] .btn-outline {
+  color: var(--brand-link);
+  border-color: var(--brand-link);
+}
+
+[data-brand="tplink"] .badge-primary,
+[data-brand="tplink"] .table-tesla-head th.sorted,
+[data-brand="tplink"] .table-tesla-body .action-button.primary {
+  color: var(--brand-link);
+}
+
+[data-brand="tplink"] .modal-tab.active {
+  color: var(--brand-link);
+  border-bottom-color: var(--brand-link);
+}
+
+/* Teal AS focus indicator (needs 3:1 against the surface). */
+[data-brand="tplink"] .input:focus,
+[data-brand="tplink"] .table-tesla-body .inline-edit-input {
+  border-color: var(--brand-focus-ring);
+}
+
+[data-brand="tplink"] .keyboard-cell-active {
+  box-shadow: inset 0 0 0 3px var(--brand-focus-ring) !important;
+}
+
+[data-brand="tplink"] .keyboard-row-active {
+  outline-color: var(--brand-focus-ring) !important;
 }
 
 /* TopBar logo for the brand. The brand guide sets a 22px minimum height. */

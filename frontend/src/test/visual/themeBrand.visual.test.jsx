@@ -12,9 +12,9 @@
  *   2. The BRAND (`data-brand="tplink"`) repaints the role tokens and keeps
  *      the text that sits on them readable, in both light and dark.
  *
- * Brand values are provisional (the final palette comes from a later pass), so
- * the brand assertions check structure and contrast, never exact colours —
- * except the brand's primary Teal, which is the one fixed point.
+ * The brand assertions pin a few anchor values of the final palette (primary,
+ * text on primary, link, app background, header) and otherwise check contrast,
+ * so retuning a secondary token does not fail the suite.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import baseline from './themeTokensBaseline.json';
@@ -64,6 +64,35 @@ describe('base theme is identical with the role-token layer in place', () => {
   });
 });
 
+const FINAL = {
+  light: {
+    '--brand-primary': TEAL,
+    '--on-brand-primary': 'rgb(27, 36, 41)',
+    '--brand-link': 'rgb(0, 107, 117)',
+    '--cf-bg-app': 'rgb(246, 248, 249)',
+    '--brand-header-bg': 'rgb(255, 255, 255)',
+  },
+  dark: {
+    '--brand-primary': TEAL,
+    '--on-brand-primary': 'rgb(11, 26, 31)',
+    '--brand-link': TEAL,
+    '--cf-bg-app': 'rgb(8, 12, 14)',
+    '--brand-header-bg': 'rgb(14, 20, 23)',
+  },
+};
+
+// Global classes that used Teal as a text colour (or white text on Teal) and
+// are rerouted by brand-tplink.css. [markup, role token the text must use].
+const REROUTED = [
+  ['<button class="btn-primary">Guardar</button>', '--on-brand-primary'],
+  ['<button class="btn-primary-solid">Guardar</button>', '--on-brand-primary'],
+  ['<button class="btn-tesla outline">Ver</button>', '--brand-link'],
+  ['<button class="btn-outline">Ver</button>', '--brand-link'],
+  ['<span class="badge-primary">Nuevo</span>', '--brand-link'],
+  ['<button class="modal-tab active">Datos</button>', '--brand-link'],
+  ['<table><thead class="table-tesla-head"><tr><th class="sorted">Col</th></tr></thead></table>', '--brand-link'],
+];
+
 describe('data-brand="tplink"', () => {
   for (const theme of THEMES) {
     describe(theme, () => {
@@ -71,6 +100,27 @@ describe('data-brand="tplink"', () => {
         setTheme(theme);
         setBrand('tplink');
         expect(tokenColor('--brand-primary')).toBe(TEAL);
+      });
+
+      it('resolves the final palette anchors', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        const actual = Object.fromEntries(
+          Object.keys(FINAL[theme]).map((name) => [name, tokenColor(name)]),
+        );
+        expect(actual).toEqual(FINAL[theme]);
+      });
+
+      it('reroutes Teal-as-text and text-on-Teal to the role tokens', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        const wrong = REROUTED.filter(([markup, token]) => {
+          host?.remove();
+          host = mount(markup);
+          const el = host.querySelector('button, span, th');
+          return getComputedStyle(el).color !== tokenColor(token);
+        }).map(([markup]) => markup);
+        expect(wrong).toEqual([]);
       });
 
       it('keeps text readable on the brand surfaces (WCAG AA 4.5:1)', () => {
