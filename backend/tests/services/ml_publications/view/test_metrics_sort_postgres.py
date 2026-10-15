@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import event, update
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
@@ -160,7 +160,20 @@ class TestOrder:
         MlSaleLine.__table__.create(bind=store.connection())
         assert populate_sale_lines(store) == 7
         monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
-        assert {orden: ids(store, orden, estado="active") for orden in listing.METRIC_SORTS} == live
+        reads: list[str] = []
+
+        def record(conn, cursor, statement, *rest) -> None:
+            if "ml_sale_lines" in statement:
+                reads.append(statement)
+
+        engine = store.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            persisted = {orden: ids(store, orden, estado="active") for orden in listing.METRIC_SORTS}
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert reads, "the flag is on, yet no statement read ml_sale_lines: the order came from the live derivation"
+        assert persisted == live
 
     def test_the_default_direction_is_highest_first(self) -> None:
         for orden in ("facturado_30d", "unidades_7d", "unidades_30d", "markup_30d", "total_gauss_30d"):
