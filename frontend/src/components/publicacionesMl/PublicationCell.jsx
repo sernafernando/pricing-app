@@ -1,3 +1,4 @@
+import { CircleDashed, Link2, Store, TriangleAlert, Unlink } from 'lucide-react';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../../utils/mlSellerPanel';
 import MlSellerLinks from './MlSellerLinks';
 import styles from './PublicationCell.module.css';
@@ -22,11 +23,57 @@ const preventShiftSelection = (event) => {
   if (event.shiftKey) event.preventDefault();
 };
 
+// The link to an ERP product, as a toned icon: the state's name is its accessible name.
+const LINK_STATES = {
+  auto: { label: 'Automático', tone: 'success', Icon: Link2 },
+  manual: { label: 'Manual', tone: 'info', Icon: Link2 },
+  sin_producto: { label: 'Sin producto', tone: 'warning', Icon: Unlink },
+  conflicto: { label: 'Conflicto', tone: 'danger', Icon: TriangleAlert },
+  no_evaluado: { label: 'Sin evaluar', tone: 'neutral', Icon: CircleDashed },
+};
+
+function storeName(item) {
+  if (item.store_label) return item.store_label;
+  return item.official_store_id != null ? `Tienda ${item.official_store_id}` : null;
+}
+
+/** The official store, compact: a store icon and its name; nothing when the publication has none. */
+function StoreTag({ item }) {
+  const name = storeName(item);
+  if (!name) return null;
+  return (
+    <span className={styles.store} aria-label={`Tienda: ${name}`} title={`Tienda: ${name}`}>
+      <Store size={11} aria-hidden="true" />
+      {name}
+    </span>
+  );
+}
+
+/** The link state, compact: a toned icon, plus the product code when linked (the description in the tooltip). */
+function LinkTag({ link }) {
+  const known = LINK_STATES[link?.state];
+  if (!known) return null;
+  const { label, tone, Icon } = known;
+  const product = [link.codigo, link.descripcion].filter(Boolean).join(' ');
+  return (
+    <span
+      className={styles.link}
+      data-tone={tone}
+      aria-label={`Vínculo: ${label}`}
+      title={product ? `Vínculo: ${label} · ${product}` : `Vínculo: ${label}`}
+    >
+      <Icon size={12} aria-hidden="true" />
+      {link.codigo && <span className={styles.code}>{link.codigo}</span>}
+    </span>
+  );
+}
+
 /**
  * First (pinned) column: thumbnail, title and the facts that identify the
  * publication -- MLA, Full, catalogue, how many variations -- plus links to
- * it in the ML seller panel. The title is the only thing that may be
- * missing; it reads "Sin título", never an empty cell.
+ * it in the ML seller panel, its official store and its link to an ERP
+ * product (compact: they were columns of their own). The title is the only
+ * thing that may be missing; it reads "Sin título", never an empty cell.
  */
 export default function PublicationCell({ item }) {
   const tags = [
@@ -54,6 +101,8 @@ export default function PublicationCell({ item }) {
             {item.item_id}
           </span>
           <MlSellerLinks itemId={item.item_id} />
+          <LinkTag link={item.link} />
+          <StoreTag item={item} />
           {tags.map((tag) => (
             <span key={tag} className={styles.tag}>
               {tag}

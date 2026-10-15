@@ -47,6 +47,12 @@ describe('structure', () => {
     expect(container.querySelectorAll('[data-pinned]')).toHaveLength(1 + ROWS.length);
   });
 
+  it('names the column of every header and body cell (data-column), whatever the header rows look like', () => {
+    const { container } = renderShell();
+    expect([...container.querySelectorAll('thead th')].map((th) => th.dataset.column)).toEqual(['title', 'price', 'stock']);
+    expect([...container.querySelectorAll('tbody tr:first-child td')].map((td) => td.dataset.column)).toEqual(['title', 'price', 'stock']);
+  });
+
   it('emits a colgroup with the declared widths (numbers as px, strings verbatim)', () => {
     const { container } = renderShell();
     const cols = [...container.querySelectorAll('colgroup col')];
@@ -68,28 +74,55 @@ describe('structure', () => {
 });
 
 describe('column groups', () => {
+  // Like Métricas ML's board: a labelled group spans its columns; a column of no group spans both header rows.
   const GROUPED = [
-    { key: 'title', header: 'Publicación', group: 'Datos', render: (r) => r.title },
-    { key: 'price', header: 'Precio', group: 'Datos', render: (r) => r.price },
-    { key: 'stock', header: 'Stock', group: 'Inventario', render: (r) => r.stock },
+    { key: 'title', header: 'Publicación', render: (r) => r.title },
+    { key: 'price', header: 'Precio', sortable: true, render: (r) => r.price },
+    { key: 'units', header: '7D', group: 'Ventas', render: () => '1' },
+    { key: 'units30', header: '30D', group: 'Ventas', render: () => '2' },
+    { key: 'stock', header: 'Propio', group: 'Stock', render: (r) => r.stock },
     { key: 'x', header: 'Extra', render: () => '' },
   ];
 
-  it('adds a group row spanning consecutive columns of the same group', () => {
+  it('adds a group row: a labelled group spans its columns, a column of no group spans both rows', () => {
     const { container } = renderShell({ columns: GROUPED });
-    const groupRow = container.querySelectorAll('thead tr')[0];
-    const cells = [...groupRow.querySelectorAll('th')];
-    expect(cells.map((c) => [c.textContent, c.colSpan])).toEqual([
-      ['Datos', 2],
-      ['Inventario', 1],
-      ['', 1],
+    const [groupRow, leafRow] = container.querySelectorAll('thead tr');
+    expect([...groupRow.querySelectorAll('th')].map((c) => [c.textContent, c.colSpan, c.rowSpan])).toEqual([
+      ['Publicación', 1, 2],
+      ['Precio', 1, 2],
+      ['Ventas', 2, 1],
+      ['Stock', 1, 1],
+      ['Extra', 1, 2],
     ]);
+    expect([...leafRow.querySelectorAll('th')].map((c) => c.textContent)).toEqual(['7D', '30D', 'Propio']);
     expect(container.querySelectorAll('thead tr')).toHaveLength(2);
   });
 
-  it('has a single header row when no column declares a group', () => {
+  it('keeps one column header per column, pinned and sortable where they were', async () => {
+    const onSort = vi.fn();
+    const { container } = renderShell({ columns: GROUPED, onSort, sort: { key: 'price', dir: 'asc' } });
+    const leaves = container.querySelectorAll('thead th[scope="col"]');
+    expect([...leaves].map((h) => h.textContent).sort()).toEqual(['30D', '7D', 'Extra', 'Precio', 'Propio', 'Publicación']);
+    expect(container.querySelectorAll('thead [data-pinned]')).toHaveLength(1);
+    expect(screen.getByRole('columnheader', { name: /Precio/ })).toHaveAttribute('aria-sort', 'ascending');
+    await userEvent.click(screen.getByRole('button', { name: /Precio/ }));
+    expect(onSort).toHaveBeenCalledWith('price');
+  });
+
+  it('marks where each group starts, in the header and in every body row, for its divider', () => {
+    const { container } = renderShell({ columns: GROUPED });
+    const startsOf = (cells) => [...cells].map((c) => c.hasAttribute('data-group-start'));
+    // Publicación and Precio share no group: no divider between them; one at each group edge.
+    expect(startsOf(container.querySelectorAll('tbody tr:first-child td'))).toEqual([false, false, true, false, true, true]);
+    const [groupRow, leafRow] = container.querySelectorAll('thead tr');
+    expect(startsOf(groupRow.querySelectorAll('th'))).toEqual([false, false, true, true, true]);
+    expect(startsOf(leafRow.querySelectorAll('th'))).toEqual([true, false, true]);
+  });
+
+  it('has a single header row and no dividers when no column declares a group', () => {
     const { container } = renderShell();
     expect(container.querySelectorAll('thead tr')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-group-start]')).toHaveLength(0);
   });
 });
 

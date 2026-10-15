@@ -18,6 +18,11 @@
  * to `<colgroup>`), `sortable`, `group` (consecutive equal groups share one
  * spanning header cell above the leaf row), `align`, `render(row)`.
  * The first column is pinned.
+ *
+ * Grouped, it reads like Métricas ML's board: a labelled group spans its
+ * columns, a column of no group spans both header rows, and the first column
+ * of each group (`data-group-start`, header and body) carries the divider.
+ * Every header and body cell names its column (`data-column`).
  */
 import { Fragment } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
@@ -47,15 +52,52 @@ function activateOnClick(event, row, onRowClick) {
   onRowClick(row, event);
 }
 
-/** Consecutive columns with the same `group` collapse into one spanning cell. */
+/** Consecutive columns with the same `group` collapse into one spanning cell; a column of no group stands alone. */
 function buildGroups(columns) {
   const groups = [];
-  for (const column of columns) {
+  columns.forEach((column, index) => {
     const last = groups[groups.length - 1];
     if (last && column.group && last.label === column.group) last.span += 1;
-    else groups.push({ label: column.group ?? '', span: 1, key: `${groups.length}:${column.key}` });
-  }
+    else groups.push({ label: column.group ?? '', span: 1, key: `${groups.length}:${column.key}`, column, index });
+  });
   return groups;
+}
+
+/** Whether `columns[index]` opens a group: a divider between groups, never between two columns of none. */
+function startsGroup(columns, index) {
+  if (index === 0) return false;
+  const { group } = columns[index];
+  const previous = columns[index - 1].group;
+  return Boolean(group || previous) && group !== previous;
+}
+
+function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className }) {
+  const active = sort?.key === column.key;
+  return (
+    <th
+      scope="col"
+      rowSpan={rowSpan}
+      className={className}
+      data-column={column.key}
+      data-pinned={index === 0 ? '' : undefined}
+      data-align={column.align}
+      data-group-start={groupStart ? '' : undefined}
+      aria-sort={active ? ARIA_SORT[sort.dir] : undefined}
+    >
+      {column.sortable ? (
+        <button type="button" className={styles.sortButton} onClick={() => onSort?.(column.key)}>
+          {column.header}
+          {active && (
+            <span aria-hidden="true" className={styles.sortMark}>
+              {sort.dir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </span>
+          )}
+        </button>
+      ) : (
+        column.header
+      )}
+    </th>
+  );
 }
 
 /**
@@ -100,43 +142,57 @@ export default function TableShell({
           ))}
         </colgroup>
         <thead>
-          {hasGroups && (
-            <tr className={styles.groupRow}>
-              {buildGroups(columns).map((group) => (
-                <th key={group.key} colSpan={group.span} className={styles.groupCell} scope="colgroup">
-                  {group.label}
-                </th>
+          {hasGroups ? (
+            <>
+              <tr className={styles.groupRow}>
+                {buildGroups(columns).map((group) =>
+                  group.label ? (
+                    <th
+                      key={group.key}
+                      colSpan={group.span}
+                      className={styles.groupCell}
+                      scope="colgroup"
+                      data-group-start={startsGroup(columns, group.index) ? '' : undefined}
+                    >
+                      {group.label}
+                    </th>
+                  ) : (
+                    <HeadCell
+                      key={group.key}
+                      column={group.column}
+                      index={group.index}
+                      sort={sort}
+                      onSort={onSort}
+                      groupStart={startsGroup(columns, group.index)}
+                      rowSpan={2}
+                      className={`${styles.headCell} ${styles.headCellSpanning}`}
+                    />
+                  ),
+                )}
+              </tr>
+              <tr className={styles.leafRowGrouped}>
+                {columns.map((column, index) =>
+                  column.group ? (
+                    <HeadCell
+                      key={column.key}
+                      column={column}
+                      index={index}
+                      sort={sort}
+                      onSort={onSort}
+                      groupStart={startsGroup(columns, index)}
+                      className={styles.headCell}
+                    />
+                  ) : null,
+                )}
+              </tr>
+            </>
+          ) : (
+            <tr>
+              {columns.map((column, index) => (
+                <HeadCell key={column.key} column={column} index={index} sort={sort} onSort={onSort} className={styles.headCell} />
               ))}
             </tr>
           )}
-          <tr className={hasGroups ? styles.leafRowGrouped : undefined}>
-            {columns.map((column, index) => {
-              const active = sort?.key === column.key;
-              return (
-                <th
-                  key={column.key}
-                  scope="col"
-                  className={styles.headCell}
-                  data-pinned={index === 0 ? '' : undefined}
-                  data-align={column.align}
-                  aria-sort={active ? ARIA_SORT[sort.dir] : undefined}
-                >
-                  {column.sortable ? (
-                    <button type="button" className={styles.sortButton} onClick={() => onSort?.(column.key)}>
-                      {column.header}
-                      {active && (
-                        <span aria-hidden="true" className={styles.sortMark}>
-                          {sort.dir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        </span>
-                      )}
-                    </button>
-                  ) : (
-                    column.header
-                  )}
-                </th>
-              );
-            })}
-          </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
@@ -167,6 +223,8 @@ export default function TableShell({
                         className={styles.cell}
                         data-pinned={index === 0 ? '' : undefined}
                         data-align={column.align}
+                        data-group-start={hasGroups && startsGroup(columns, index) ? '' : undefined}
+                        data-column={column.key}
                       >
                         {column.render(row)}
                       </td>
