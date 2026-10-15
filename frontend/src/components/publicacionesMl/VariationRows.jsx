@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import MarkupCell from './MarkupCell';
-import StockCell from './StockCell';
 import { costLabel, readVariation } from './variationRows';
 import { describeVariationsError, useVariations } from './useVariations';
 import cellStyles from './cells.module.css';
@@ -37,10 +36,11 @@ function VariationCell({ column, variation, canSeeMargin }) {
       );
     case 'markup':
       return canSeeMargin ? <MarkupCell markup={variation.markup} /> : null;
+    case 'stock_propio':
     case 'stock_full':
-      return <StockCell stock={{ available: variation.available, full: null, own: null }} />;
     case 'stock_erp':
-      // The ERP stock is the publication's linked product's: it shows on the publication row only.
+      // A variation only knows ML's available quantity (own + Full, a sum the stock columns never show), and the
+      // ERP stock is the publication's linked product's: the stock figures show on the publication row only.
       return null;
     default:
       return null;

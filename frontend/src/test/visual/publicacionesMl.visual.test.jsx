@@ -83,10 +83,52 @@ vi.mock('../../services/api', () => ({
 // 50 rows so the scroller really has something to scroll vertically.
 // Each row carries an ERP stock apart from its ML one: a big figure, a real zero, unknown (no product), a small one.
 const ERP_QUANTITIES = [12500, 0, null, 7];
+// Métricas ML's figures of each row (`metrics`): big figures, a loss, a quiet publication, and none at all
+// (a publication Métricas has no row for reads "—").
+const METRICS = [
+  {
+    units_7d: 1234,
+    units_30d: 12345,
+    series_units_90d: Array.from({ length: 90 }, (_, d) => 100 + (d % 9) * 20),
+    gross_30d: 123456789.5,
+    last_sale_at: '2026-10-14T13:05:00Z',
+    ageing_days: 0,
+    total_gauss_30d: -12345678.9,
+    markup_30d: -12.5,
+    markup_delta_pp: -3.4,
+    series_markup_90d: Array.from({ length: 90 }, (_, d) => (d % 7 === 0 ? null : 10 - (d % 5) * 4)),
+  },
+  {
+    units_7d: 0,
+    units_30d: 3,
+    series_units_90d: Array.from({ length: 90 }, (_, d) => (d > 80 ? 1 : 0)),
+    gross_30d: 45000,
+    last_sale_at: '2026-09-20T15:00:00Z',
+    ageing_days: 24,
+    total_gauss_30d: 9000,
+    markup_30d: 25.1,
+    markup_delta_pp: 1.2,
+    series_markup_90d: Array.from({ length: 90 }, (_, d) => (d > 80 ? 25.1 : null)),
+  },
+  {
+    units_7d: 0,
+    units_30d: 0,
+    series_units_90d: Array.from({ length: 90 }, () => 0),
+    gross_30d: 0,
+    last_sale_at: '2026-06-01T15:00:00Z',
+    ageing_days: 135,
+    total_gauss_30d: 0,
+    markup_30d: null,
+    markup_delta_pp: null,
+    series_markup_90d: Array.from({ length: 90 }, () => null),
+  },
+  null,
+];
 const MANY = Array.from({ length: 50 }, (_, i) => ({
   ...ITEMS[i % ITEMS.length],
   item_id: `MLA${1100000100 + i}`,
   erp_stock: { quantity: ERP_QUANTITIES[i % ERP_QUANTITIES.length] },
+  metrics: METRICS[i % METRICS.length],
 }));
 const RESPONSE = {
   ...ITEMS_RESPONSE,
@@ -231,21 +273,71 @@ describe('Publicaciones ML (visual)', () => {
         screen.unmount();
       });
 
-      it(`${width}x${height} ${theme}: ML and ERP stock sit in their own columns, headers and figures on one line`, async () => {
+      it(`${width}x${height} ${theme}: our own, Full and ERP stock sit in three columns under STOCK, headers and figures on one line`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
-        const headers = [...scroller.querySelectorAll('thead th')];
-        const ml = headers.find((th) => th.textContent.startsWith('Stock ML'));
-        const erp = headers.find((th) => th.textContent.startsWith('Stock ERP'));
-        expect(ml).toBeDefined();
-        expect(erp).toBeDefined();
-        expect(ml.textContent).toContain('orden Full');
-        expect(wrapped([ml.querySelector('button'), erp.querySelector('button')])).toEqual([]);
+        const headers = ['stock_propio', 'stock_full', 'stock_erp'].map((key) => scroller.querySelector(`thead th[data-column="${key}"]`));
+        expect(headers.map((th) => th.textContent)).toEqual(['Propio', 'Full', 'ERP']);
+        const group = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].find((th) => th.textContent === 'Stock');
+        expect(group.colSpan).toBe(3);
+        expect(wrapped(headers.map((th) => th.querySelector('button')))).toEqual([]);
+        // Never the available sum: the first fixture row has 34 available, 20 Full and 14 of our own.
+        const first = scroller.querySelector('tbody tr');
+        expect(first.querySelector('td[data-column="stock_propio"]').textContent).toBe('14');
+        expect(first.querySelector('td[data-column="stock_full"]').textContent).toBe('20');
         const notes = [...scroller.querySelectorAll('tbody td span')].filter((el) => el.textContent === 'Sin stock ERP');
         expect(notes.length).toBeGreaterThan(0);
         expect(wrapped(notes)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
         await expect.element(screen.getByRole('button', { name: /Sin stock ERP/ })).toBeVisible();
+        await expect.element(screen.getByRole('button', { name: /Sin stock propio/ })).toBeVisible();
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the grouped header reads like Métricas ML and stays pinned above the rows`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        const scroller = scrollerOf();
+        const groups = [...scroller.querySelectorAll('thead th[scope="colgroup"]')];
+        expect(groups.map((th) => th.textContent)).toEqual(['Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
+        for (const th of groups) {
+          expect(getComputedStyle(th).textAlign).toBe('center');
+          expect(getComputedStyle(th).textTransform).toBe('uppercase');
+          expect(getComputedStyle(th).backgroundColor).toBe(tokenColor('--metricas-head-bg'));
+        }
+        // Each group opens with a divider down to the last row.
+        const lastRow = [...scroller.querySelectorAll('tbody tr')].at(-1);
+        const opening = lastRow.querySelector('td[data-column="unidades_7d"]');
+        expect(getComputedStyle(opening).borderLeftColor).toBe(tokenColor('--ventas-divider'));
+        expect(getComputedStyle(opening).borderLeftWidth).toBe('1px');
+        // Scrolled down, the group row and the leaf row both stay on top, in that order.
+        scroller.scrollTo({ top: 400, left: 0 });
+        await frame();
+        const ventas = rect(groups[0]);
+        const leaf = rect(scroller.querySelector('thead th[data-column="unidades_7d"]'));
+        expect(Math.abs(ventas.top - rect(scroller).top)).toBeLessThanOrEqual(2);
+        expect(Math.abs(leaf.top - ventas.bottom)).toBeLessThanOrEqual(2);
+        // The title spans both header rows.
+        const title = scroller.querySelector('thead th[data-column="titulo"]');
+        expect(title.rowSpan).toBe(2);
+        expect(Math.abs(rect(title).bottom - leaf.bottom)).toBeLessThanOrEqual(2);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: Métricas' figures, money and sparklines stay on one line inside their cells`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        const scroller = scrollerOf();
+        const money = [...scroller.querySelectorAll('tbody [data-money]')];
+        expect(money.length).toBeGreaterThan(0);
+        expect(wrapped(money)).toEqual([]);
+        const sparks = scroller.querySelectorAll('tbody td[data-column="units_trend"] svg');
+        expect(sparks.length).toBeGreaterThan(0);
+        const lastSales = [...scroller.querySelectorAll('tbody td[data-column="last_sale"] span')];
+        expect(wrapped(lastSales)).toEqual([]);
+        expect(overflowingCells(scroller)).toEqual([]);
+        // The store and the link sit inside the Publicación cell, not in columns of their own.
+        expect(scroller.querySelector('thead th[data-column="tienda"]')).toBeNull();
+        expect(scroller.querySelector('thead th[data-column="vinculo"]')).toBeNull();
+        await expect.element(screen.getByLabelText('Tienda: TP-Link').first()).toBeVisible();
         screen.unmount();
       });
 
@@ -289,11 +381,6 @@ const renderMarginPage = async ({ width, height, theme }) => {
     </MemoryRouter>,
   );
   await expect.element(screen.getByText('MLA1100000005')).toBeVisible();
-  // The worst-variation column starts hidden when "Markup 30d" replaces it: the picker turns it on.
-  await screen.getByRole('button', { name: /Columnas/ }).click();
-  await screen.getByRole('checkbox', { name: 'Markup', exact: true }).click();
-  await screen.getByRole('button', { name: /Columnas/ }).click();
-  await expect.element(screen.getByRole('columnheader', { name: /peor variación/ })).toBeVisible();
   return screen;
 };
 
@@ -305,13 +392,15 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
 
   for (const { width, height } of VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the markup column and its filters fit, and the sort says "peor variación"`, async () => {
+      it(`${width}x${height} ${theme}: MARKUP's columns and its filters fit, "Actual" sortable on one line`, async () => {
         const screen = await renderMarginPage({ width, height, theme });
         const scroller = scrollerOf();
-        const header = [...scroller.querySelectorAll('thead th')].find((th) => th.textContent.includes('Markup'));
-        expect(header).toBeDefined();
-        expect(header.textContent).toContain('peor variación');
+        const group = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].find((th) => th.textContent === 'Markup');
+        expect(group.colSpan).toBe(3);
+        const header = scroller.querySelector('thead th[data-column="markup"]');
+        expect(header.textContent).toBe('Actual');
         expect(wrapped([header.querySelector('button')])).toEqual([]);
+        expect(scroller.querySelectorAll('tbody td[data-column="markup_trend"] svg').length).toBeGreaterThan(0);
         // The range sits on one line and inside its cell.
         const ranges = [...scroller.querySelectorAll('tbody td[data-align="right"] span')].filter((el) => /%/.test(el.textContent) && !/parcial/.test(el.textContent));
         expect(ranges.length).toBeGreaterThan(0);

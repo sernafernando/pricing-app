@@ -11,16 +11,18 @@ import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStr
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
-import { DEFAULT_DIRECTION, DEFAULT_SORT, buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
+import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
   AGRUPAR_DIMENSIONS,
+  DEFAULT_DIRECTION,
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
   buildItemsParams,
   buildKpiParams,
+  effectiveSort,
   hasMarkupFilter,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
@@ -68,9 +70,9 @@ const VINCULO_LABELS = {
   conflicto: 'Conflicto',
   no_evaluado: 'Sin evaluar',
 };
-// ML's stock chips and the ERP's are told apart by name: each filters its own source.
-const STOCK_OPTIONS = ['sin_stock', 'full_sin_stock', 'erp_sin_stock'];
-const STOCK_LABELS = { sin_stock: 'Sin stock ML', full_sin_stock: 'Full sin stock', erp_sin_stock: 'Sin stock ERP' };
+// One chip per stock column, each filtering its own source: our own stock at ML, Full and the ERP's -- never a sum.
+const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock'];
+const STOCK_LABELS = { propio_sin_stock: 'Sin stock propio', full_sin_stock: 'Full sin stock', erp_sin_stock: 'Sin stock ERP' };
 
 const EMPTY_ROWS = [];
 
@@ -112,7 +114,7 @@ export default function PublicacionesML() {
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   // The strip is Métricas' numbers: it needs `ml_metricas.ver`; the table does not.
   const canSeeKpis = tienePermiso('ml_metricas.ver');
-  // The rows' 30-day sales are Métricas' numbers too: same permission as the strip.
+  // The rows' Métricas figures (`metrics`) are Métricas' numbers too: same permission as the strip.
   const canSeeSales = canSeeKpis;
   // The period belongs to the strip alone: it is not a filter and never reaches `/items`.
   const [periodo, setPeriodo] = useState(30);
@@ -137,7 +139,7 @@ export default function PublicacionesML() {
   // The user's own picks from the column picker, over a permission-based
   // default (permissions may load after the first render).
   const [columnChoices, setColumnChoices] = useState({});
-  const columnDefaults = useMemo(() => defaultColumnVisibility({ canSeeSales, canSeeMargin }), [canSeeSales, canSeeMargin]);
+  const columnDefaults = useMemo(() => defaultColumnVisibility(), []);
   const columnVisibility = useMemo(() => ({ ...columnDefaults, ...columnChoices }), [columnDefaults, columnChoices]);
   const setColumnVisibility = useCallback(
     (updater) =>
@@ -168,11 +170,12 @@ export default function PublicacionesML() {
   const facetsFor = useRef(null);
 
   // What `/items` is asked with. The selection and the tab are not part of it: choosing a row asks for nothing.
-  // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts.
+  // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts; nor is it
+  // sorted, so its one-row facets request never asks for a Métricas sort (a ranking of the whole set).
   const requestKey = JSON.stringify(
     agrupado
       ? { ...buildItemsParams(filters, 1, { canSeeMargin: false }), offset: 0 }
-      : buildItemsParams(filters, pageSize, { canSeeMargin }),
+      : buildItemsParams(filters, pageSize, { canSeeMargin, canSeeSales }),
   );
 
   useEffect(() => {
@@ -237,10 +240,9 @@ export default function PublicacionesML() {
   });
   const visibleColumns = columns.filter((column) => columnVisibility[column.key] !== false);
 
-  // A shared link may carry the markup sort; without the permission it is the default one.
-  const requestedSort = filters.orden === 'markup' && !canSeeMargin ? '' : filters.orden;
-  const sortKey = requestedSort || DEFAULT_SORT;
-  const sort = { key: sortKey, dir: (requestedSort && filters.dir) || DEFAULT_DIRECTION[sortKey] || 'desc' };
+  // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
+  // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
+  const sort = effectiveSort(filters, { canSeeSales, canSeeMargin });
   const closePanel = () => setFilters({ sel: '', tab: '' });
   const changeTab = (tab) => setFilters({ tab });
   const handleSort = (key) => {

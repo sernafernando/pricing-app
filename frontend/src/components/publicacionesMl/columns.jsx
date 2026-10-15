@@ -1,43 +1,55 @@
 import PublicationCell from './PublicationCell';
 import PublicationStatusPill from './PublicationStatusPill';
 import PriceCell from './PriceCell';
-import StockCell from './StockCell';
 import ErpStockCell from './ErpStockCell';
 import LinkBadge from './LinkBadge';
 import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
-import { Markup30dCell, Sales30dCell } from './SalesCells';
+import {
+  AgeingCell,
+  FullStockCell,
+  GrossCell,
+  LastSaleCell,
+  MarkupRealCell,
+  MarkupTrendCell,
+  OwnStockCell,
+  TotalGaussCell,
+  UnitsCell,
+  UnitsTrendCell,
+} from './MetricsCells';
 import VariationsToggle from './VariationsToggle';
+import { COLUMN_GROUPS } from '../metricasMl/metricasMlColumns';
 import { chainHeader } from '../../utils/metricasMlLevels';
 import styles from './cells.module.css';
 
 /**
- * Columns of the Publicaciones ML table (`TableShell` shape). A sortable
- * column's `key` IS the backend's `orden` value, so a header click needs no
- * translation table. `DEFAULT_DIRECTION` mirrors the backend's default per sort.
+ * Columns of the Publicaciones ML table (`TableShell` shape), grouped like
+ * Métricas ML's board (owner-approved layout). A sortable column's `key` IS
+ * the backend's `orden` value, so a header click needs no translation table;
+ * Métricas' figures sort the whole filtered set, like Métricas does.
+ * The sorts' default directions live with the list's params
+ * (`hooks/usePublicacionesMLFilters` `DEFAULT_DIRECTION`). `label` is the
+ * name the column picker shows when the header alone (7D, Tendencia...) only
+ * makes sense under its group.
  */
-export const DEFAULT_SORT = 'actividad';
 
-export const DEFAULT_DIRECTION = {
-  actividad: 'desc',
-  titulo: 'asc',
-  precio: 'asc',
-  stock_full: 'desc',
-  stock_erp: 'desc',
-  // Worst variation first: the most negative markup on top.
-  markup: 'asc',
-};
+// Métricas' own group names: the same figures read under the same headings on both screens.
+const groupOf = (id) => COLUMN_GROUPS.find((group) => group.id === id).label;
+const VENTAS = groupOf('ventas');
+const MARKUP = groupOf('markup');
+const RESULTADO = groupOf('resultado');
+const ROTACION = groupOf('rotacion');
+const STOCK = 'Stock';
 
 /**
- * Columns hidden until the user turns them on in the picker: when "Markup 30d"
- * is on screen it replaces the worst-variation markup, but that column (and
- * the markup filters and sort that depend on it) stays available. A user who
- * cannot see "Markup 30d" keeps the worst-variation markup visible.
+ * Columns hidden until the user turns them on in the picker: the store and the
+ * link now sit inside the Publicación cell, and the activity and the last
+ * event are in the panel.
  */
-export function defaultColumnVisibility({ canSeeSales = false, canSeeMargin = false } = {}) {
-  return canSeeSales && canSeeMargin ? { markup: false } : {};
+export function defaultColumnVisibility() {
+  return { vinculo: false, tienda: false, actividad: false, evento: false };
 }
 
 /**
@@ -53,16 +65,19 @@ export function columnChoicesOver(visibility, defaults) {
 
 /**
  * `eventsEnabled` false drops the last-event column altogether (S56.2).
- * `canSeeMargin` (`ml_metricas.ver_ganancia`) is what lets the markup column
- * exist at all: without it there is no column, not a column of dashes.
+ * `canSeeSales` (`ml_metricas.ver`) adds Métricas ML's figures of each
+ * publication (`row.metrics`): VENTAS, RESULTADO's Facturado and ROTACIÓN.
+ * `canSeeMargin` (`ml_metricas.ver_ganancia`) adds MARKUP's Actual -- the
+ * markup at today's price, the worst variation (what its sort and filters
+ * use) -- and, with `canSeeSales` too, the real 30-day markup, its trend and
+ * Total Gauss. Without a permission there is no column, not a column of dashes.
+ * STOCK is three figures from three sources, never summed: our own and Full
+ * (ML) and the ERP's.
  * `expandedIds` / `onToggleVariations` drive the expand toggle of publications
  * with more than one variation; without `onToggleVariations` there is none.
  * `agrupado` (the tree view) adds the node figures -- publication count and,
- * with the margin, negatives -- and names the markup column for what a node
- * shows (a range, not the "peor variación" sort); the page makes it unsortable.
+ * with the margin, negatives; the page makes the tree unsortable.
  * Its first column names the chain of levels of `dimension`, like Métricas ML.
- * `canSeeSales` (`ml_metricas.ver`) adds "Ventas 30d"; with `canSeeMargin`
- * too, "Markup 30d" -- the real markup of those sales, from Métricas ML.
  */
 export function buildColumns({
   eventsEnabled,
@@ -74,13 +89,15 @@ export function buildColumns({
   dimension = 'marca',
   familias = false,
 }) {
+  const withSales = (columns) => (canSeeSales ? columns : []);
+  const withMargin = (columns) => (canSeeMargin ? columns : []);
   const columns = [
     {
       key: 'titulo',
       // The tree goes past Métricas' levels: [familia ›] publicación under each product.
       header: agrupado ? `${chainHeader(dimension)}${familias ? ' › Familia' : ''} › Publicación` : 'Publicación',
       label: 'Publicación',
-      width: 340,
+      width: 360,
       sortable: true,
       render: (item) =>
         onToggleVariations && item.variations_count > 1 ? (
@@ -95,7 +112,7 @@ export function buildColumns({
     ...(agrupado
       ? [
           { key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'right', render: () => null },
-          ...(canSeeMargin ? [{ key: 'negativos', header: 'Negativos', width: 110, align: 'right', render: () => null }] : []),
+          ...withMargin([{ key: 'negativos', header: 'Negativos', width: 110, align: 'right', render: () => null }]),
         ]
       : []),
     {
@@ -104,55 +121,127 @@ export function buildColumns({
       width: 120,
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
-    { key: 'precio', header: 'Precio', width: 160, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
-    ...(canSeeMargin
-      ? [
-          {
-            key: 'markup',
-            header: agrupado ? (
-              'Markup'
-            ) : (
-              <>
-                Markup <span className={styles.sortHint}>peor variación</span>
-              </>
-            ),
-            label: 'Markup',
-            width: 170,
-            sortable: true,
-            align: 'right',
-            render: (item) => <MarkupCell markup={item.markup} />,
-          },
-        ]
-      : []),
-    ...(canSeeSales
-      ? [{ key: 'ventas_30d', header: 'Ventas 30d', width: 140, align: 'right', render: (item) => <Sales30dCell sales={item.sales_30d} /> }]
-      : []),
-    ...(canSeeSales && canSeeMargin
-      ? [{ key: 'markup_30d', header: 'Markup 30d', width: 120, align: 'right', render: (item) => <Markup30dCell sales={item.sales_30d} /> }]
-      : []),
+    { key: 'precio', header: 'Precio', width: 150, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
+    ...withSales([
+      {
+        key: 'unidades_7d',
+        group: VENTAS,
+        header: '7D',
+        label: 'Ventas 7D',
+        width: 70,
+        sortable: true,
+        align: 'right',
+        render: (item) => <UnitsCell value={item.metrics?.units_7d} />,
+      },
+      {
+        key: 'unidades_30d',
+        group: VENTAS,
+        header: '30D',
+        label: 'Ventas 30D',
+        width: 80,
+        sortable: true,
+        align: 'right',
+        render: (item) => <UnitsCell value={item.metrics?.units_30d} strong />,
+      },
+      {
+        key: 'units_trend',
+        group: VENTAS,
+        header: 'Tendencia',
+        label: 'Tendencia de ventas',
+        width: 120,
+        align: 'center',
+        render: (item) => <UnitsTrendCell metrics={item.metrics} />,
+      },
+    ]),
+    ...withMargin([
+      {
+        key: 'markup',
+        group: MARKUP,
+        header: 'Actual',
+        label: 'Markup actual',
+        width: 150,
+        sortable: true,
+        align: 'right',
+        render: (item) => <MarkupCell markup={item.markup} />,
+      },
+      ...withSales([
+        {
+          key: 'markup_30d',
+          group: MARKUP,
+          header: 'Real 30D',
+          label: 'Markup real 30D',
+          width: 100,
+          sortable: true,
+          align: 'right',
+          render: (item) => <MarkupRealCell metrics={item.metrics} />,
+        },
+        {
+          key: 'markup_trend',
+          group: MARKUP,
+          header: 'Tendencia',
+          label: 'Tendencia de markup',
+          width: 140,
+          align: 'center',
+          render: (item) => <MarkupTrendCell metrics={item.metrics} />,
+        },
+      ]),
+    ]),
+    ...withSales([
+      {
+        key: 'facturado_30d',
+        group: RESULTADO,
+        header: 'Facturado 30D',
+        width: 170,
+        sortable: true,
+        align: 'right',
+        render: (item) => <GrossCell metrics={item.metrics} />,
+      },
+      ...withMargin([
+        {
+          key: 'total_gauss_30d',
+          group: RESULTADO,
+          header: 'Total Gauss 30D',
+          width: 170,
+          sortable: true,
+          align: 'right',
+          render: (item) => <TotalGaussCell metrics={item.metrics} />,
+        },
+      ]),
+      { key: 'last_sale', group: ROTACION, header: 'Última venta', width: 120, render: (item) => <LastSaleCell metrics={item.metrics} /> },
+      { key: 'ageing', group: ROTACION, header: 'Ageing', width: 90, align: 'center', render: (item) => <AgeingCell metrics={item.metrics} /> },
+    ]),
+    // ML's own stock and Full stock, and the ERP's: three sources, never one sum.
     {
-      // ML's stock, from ML: the figure is what is available, the sort is the Full stock (the header says so).
-      key: 'stock_full',
-      header: (
-        <>
-          Stock ML <span className={styles.sortHint}>orden Full</span>
-        </>
-      ),
-      label: 'Stock ML',
-      width: 140,
+      key: 'stock_propio',
+      group: STOCK,
+      header: 'Propio',
+      label: 'Stock propio',
+      width: 90,
       sortable: true,
       align: 'right',
-      render: (item) => <StockCell stock={item.stock} />,
+      render: (item) => <OwnStockCell stock={item.stock} />,
     },
     {
-      // The ERP's stock of the linked product, from the ERP: never merged with ML's.
+      key: 'stock_full',
+      group: STOCK,
+      header: 'Full',
+      label: 'Stock Full',
+      width: 80,
+      sortable: true,
+      align: 'right',
+      render: (item) => <FullStockCell stock={item.stock} />,
+    },
+    {
       key: 'stock_erp',
-      header: 'Stock ERP',
+      group: STOCK,
+      header: 'ERP',
+      label: 'Stock ERP',
       width: 120,
       sortable: true,
       align: 'right',
       render: (item) => <ErpStockCell erpStock={item.erp_stock} />,
     },
+    // Hidden by default (`defaultColumnVisibility`): the picker brings them back.
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },
     { key: 'actividad', header: 'Última actividad', width: 150, sortable: true, render: (item) => <ActivityCell item={item} /> },

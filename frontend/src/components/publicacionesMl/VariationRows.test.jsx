@@ -54,15 +54,19 @@ describe('VariationRows', () => {
     expect(within(first).getByText('Color: Negro')).toBeInTheDocument();
     expect(within(first).getByText('41.000,50')).toBeInTheDocument();
     expect(within(first).getByText('12,5%')).toBeInTheDocument();
-    expect(within(first).getByText('14')).toBeInTheDocument();
   });
 
-  it('leaves the ERP stock to the publication row: a variation sub-row shows none', async () => {
+  it('leaves every stock figure to the publication row: a variation only knows ML\'s available sum, never shown', async () => {
     mount();
     await screen.findByText('Router Archer AX55 negro');
-    const index = buildColumns({ eventsEnabled: false, canSeeMargin: true }).findIndex((c) => c.key === 'stock_erp');
-    expect(index).toBeGreaterThan(0);
-    expect(rowOf('Router Archer AX55 negro').children[index]).toBeEmptyDOMElement();
+    const columns = buildColumns({ eventsEnabled: false, canSeeMargin: true });
+    const row = rowOf('Router Archer AX55 negro');
+    for (const key of ['stock_propio', 'stock_full', 'stock_erp']) {
+      const index = columns.findIndex((c) => c.key === key);
+      expect(index).toBeGreaterThan(0);
+      expect(row.children[index]).toBeEmptyDOMElement();
+    }
+    expect(within(row).queryByText('14')).not.toBeInTheDocument();
   });
 
   it('highlights a negative markup, and only that one', async () => {
