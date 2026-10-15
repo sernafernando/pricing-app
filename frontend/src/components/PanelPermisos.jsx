@@ -7,6 +7,7 @@ import PermisosPorPermiso from './permisos/PermisosPorPermiso';
 import ListaUsuarios from './permisos/ListaUsuarios';
 import AvatarIniciales from './permisos/AvatarIniciales';
 import ModalUsuario from './permisos/ModalUsuario';
+import RolesAdicionales from './permisos/RolesAdicionales';
 import { SegmentedControl, StatusPill } from './kit';
 import { contarOverrides } from '../registry/permisosAcceso';
 import styles from './PanelPermisos.module.css';
@@ -19,6 +20,8 @@ const VISTAS = [
 export default function PanelPermisos() {
   const [usuarios, setUsuarios] = useState([]);
   const [roles, setRoles] = useState([]);
+  // False until `/roles` answered with a list: additional roles stay read-only.
+  const [rolesCargados, setRolesCargados] = useState(false);
   const [usuarioSeleccionado, setUsuarioSeleccionado] = useState(null);
   const [permisosUsuario, setPermisosUsuario] = useState(null);
   const [, setCatalogo] = useState({});
@@ -76,6 +79,7 @@ export default function PanelPermisos() {
       setUsuarios(usuariosFiltrados);
       setCatalogo(catalogoRes.data || {});
       setRoles(rolesRes.data || []);
+      setRolesCargados(Array.isArray(rolesRes.data));
     } catch (error) {
       setMensaje({ tipo: 'error', texto: `Error al cargar datos: ${error.response?.data?.detail || error.message}` });
     } finally {
@@ -268,6 +272,11 @@ export default function PanelPermisos() {
     });
   };
 
+  // Same guard as the backend: by the viewer's PRIMARY role. A SUPERADMIN
+  // target already has every permission, so additional roles add nothing.
+  const puedeEditarRolesAdicionales =
+    ['ADMIN', 'SUPERADMIN'].includes(usuarioActual?.rol) && usuarioSeleccionado?.rol !== 'SUPERADMIN';
+
   const rolesAsignables = roles.filter(r => usuarioActual?.rol === 'SUPERADMIN' || r.codigo !== 'SUPERADMIN');
   // While the dialog is open its errors show inside it, not behind the overlay.
   const errorModal = modalUsuario && mensaje?.tipo === 'error' ? mensaje.texto : null;
@@ -426,6 +435,27 @@ export default function PanelPermisos() {
                       Cancelar
                     </button>
                   </div>
+                )}
+
+                {puedeEditarRolesAdicionales && (
+                  <RolesAdicionales
+                    key={`${usuarioSeleccionado.id}:${usuarioSeleccionado.rol}`}
+                    usuarioId={usuarioSeleccionado.id}
+                    roles={rolesCargados ? roles : null}
+                    onGuardado={() => {
+                      mostrarMensajeDeUsuario(usuarioSeleccionado.id, {
+                        tipo: 'success',
+                        texto: 'Roles adicionales actualizados',
+                      });
+                      // The save itself succeeded: a failed reload only matters
+                      // while that user is still on screen.
+                      const usuarioId = usuarioSeleccionado.id;
+                      recargarPermisosUsuario(usuarioId).catch(() => {
+                        if (usuarioSeleccionadoIdRef.current !== usuarioId) return;
+                        mostrarMensajeTemporal({ tipo: 'error', texto: 'Error al recargar permisos del usuario' });
+                      });
+                    }}
+                  />
                 )}
               </section>
 

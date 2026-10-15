@@ -54,6 +54,21 @@ const ORIGEN_TEXTO = {
   sin_permiso: 'Falta permiso',
 };
 
+// `rol_adicional` names the role(s) behind it: "rol adicional COMPRAS, VENTAS".
+const rolesAdicionalesTexto = (permiso) => (permiso?.roles_adicionales || []).join(', ');
+
+function origenChip(acceso) {
+  if (acceso.origen !== 'rol_adicional') return ORIGEN_CHIP[acceso.origen];
+  const otorgante = acceso.filas.find((fila) => fila.efectivo && fila.origen === 'rol_adicional');
+  return `Rol adicional ${rolesAdicionalesTexto(otorgante)}`.trim();
+}
+
+function origenTexto(permiso) {
+  if (permiso.desconocido) return 'No existe en el sistema';
+  if (permiso.origen === 'rol_adicional') return `Concedido por rol adicional ${rolesAdicionalesTexto(permiso)}`.trim();
+  return ORIGEN_TEXTO[permiso.origen] || permiso.origen;
+}
+
 const MAX_CHIPS = 2;
 
 /**
@@ -231,7 +246,7 @@ function FilaPantalla({ item, expandida, onAlternar, acciones }) {
 
         {acceso.origen && (
           <span className={`${styles.origenChip} ${styles[`origen_${acceso.origen}`] || ''}`}>
-            {ORIGEN_CHIP[acceso.origen]}
+            {origenChip(acceso)}
           </span>
         )}
 
@@ -334,7 +349,7 @@ export function FilaPermiso({ permiso, acciones, mostrarCategoria = false }) {
         {permiso.descripcion && <div className={styles.permisoDescripcion}>{permiso.descripcion}</div>}
       </div>
       <span className={styles.permisoOrigen}>
-        {permiso.desconocido ? 'No existe en el sistema' : ORIGEN_TEXTO[permiso.origen] || permiso.origen}
+        {origenTexto(permiso)}
       </span>
       {accion}
     </li>

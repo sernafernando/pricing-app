@@ -6,7 +6,7 @@ import api, { marcasPmAPI } from '../services/api';
 import PanelPermisos from './PanelPermisos';
 
 vi.mock('../services/api', () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   marcasPmAPI: { listarTodosLosPares: vi.fn(), obtenerConteosSubPMs: vi.fn() },
 }));
 
@@ -34,6 +34,21 @@ function renderPanel() {
   );
 }
 
+const ROLES = [
+  { id: 1, codigo: 'SUPERADMIN', nombre: 'Superadmin' },
+  { id: 2, codigo: 'ADMIN', nombre: 'Administrador' },
+  { id: 3, codigo: 'PRICING', nombre: 'Pricing' },
+  { id: 4, codigo: 'COMPRAS', nombre: 'Compras' },
+  { id: 5, codigo: 'VENTAS', nombre: 'Ventas' },
+];
+
+// GET/PUT /usuarios/{id}/roles-adicionales response.
+const rolesAdicionalesDe = (usuarioId, adicionales) => ({
+  usuario_id: usuarioId,
+  rol_principal: ROLES.find((r) => r.codigo === (usuarioId === 7 ? 'PRICING' : 'ADMIN')),
+  roles_adicionales: adicionales,
+});
+
 const encabezadoUsuario = () => screen.getByRole('region', { name: 'Usuario seleccionado' });
 const filaAdmin = () => screen.getByText('/admin', { selector: 'code' }).closest('li');
 const concederAdmin = () => within(filaAdmin()).getByRole('button', { name: 'Conceder acceso a Admin' });
@@ -47,6 +62,10 @@ beforeEach(() => {
     if (url === '/auth/me') return Promise.resolve({ data: { id: 1, rol: 'ADMIN' } });
     if (url === '/permisos/usuario/7') return Promise.resolve({ data: permisosDe(7) });
     if (url === '/permisos/usuario/8') return Promise.resolve({ data: permisosDe(8) });
+    if (url === '/usuarios/7/roles-adicionales') {
+      return Promise.resolve({ data: rolesAdicionalesDe(7, [ROLES[3]]) });
+    }
+    if (url === '/usuarios/8/roles-adicionales') return Promise.resolve({ data: rolesAdicionalesDe(8, []) });
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
   api.post.mockResolvedValue({ data: {} });
@@ -629,6 +648,205 @@ describe('PanelPermisos', () => {
 
       await act(async () => vi.advanceTimersByTime(2100));
       expect(screen.queryByText('Permiso concedido')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('roles adicionales', () => {
+    const seccion = () => screen.getByRole('region', { name: 'Roles adicionales' });
+    const conRoles = () => {
+      const getOriginal = api.get.getMockImplementation();
+      api.get.mockImplementation((url) => (url === '/roles' ? Promise.resolve({ data: ROLES }) : getOriginal(url)));
+    };
+
+    it('shows the selected user additional roles', async () => {
+      const user = userEvent.setup();
+      conRoles();
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      expect(await within(seccion()).findByText('Compras')).toBeInTheDocument();
+
+      await user.click(screen.getAllByText('Beto Gómez')[0]);
+      expect(await within(seccion()).findByText('Ninguno')).toBeInTheDocument();
+      expect(within(seccion()).queryByText('Compras')).not.toBeInTheDocument();
+    });
+
+    it('edits them leaving out SUPERADMIN and the primary role, saves the set and reloads permissions', async () => {
+      const user = userEvent.setup();
+      conRoles();
+      api.put.mockResolvedValue({ data: rolesAdicionalesDe(7, [ROLES[3], ROLES[4]]) });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await within(seccion()).findByText('Compras');
+      await user.click(within(seccion()).getByRole('button', { name: 'Editar roles adicionales' }));
+
+      const opciones = within(seccion()).getAllByRole('checkbox');
+      expect(opciones.map((opcion) => opcion.closest('label').textContent)).toEqual([
+        expect.stringMatching(/Administrador/),
+        expect.stringMatching(/Compras/),
+        expect.stringMatching(/Ventas/),
+      ]);
+      expect(within(seccion()).getByRole('checkbox', { name: /Compras/ })).toBeChecked();
+      expect(within(seccion()).getByRole('checkbox', { name: /Ventas/ })).not.toBeChecked();
+
+      await user.click(within(seccion()).getByRole('checkbox', { name: /Ventas/ }));
+      await user.click(within(seccion()).getByRole('button', { name: 'Guardar' }));
+
+      expect(api.put).toHaveBeenCalledWith('/usuarios/7/roles-adicionales', { rol_ids: [4, 5] });
+      expect(await screen.findByText('Roles adicionales actualizados')).toBeInTheDocument();
+      await waitFor(() =>
+        expect(api.get.mock.calls.filter(([url]) => url === '/permisos/usuario/7')).toHaveLength(2),
+      );
+      expect(within(seccion()).queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(within(seccion()).getByText('Ventas')).toBeInTheDocument();
+    });
+
+    it('disables the editor while saving', async () => {
+      const user = userEvent.setup();
+      conRoles();
+      let resolver;
+      api.put.mockReturnValue(new Promise((resolve) => { resolver = resolve; }));
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await within(seccion()).findByText('Compras');
+      await user.click(within(seccion()).getByRole('button', { name: 'Editar roles adicionales' }));
+      await user.click(within(seccion()).getByRole('button', { name: 'Guardar' }));
+
+      expect(within(seccion()).getByRole('button', { name: 'Guardando...' })).toBeDisabled();
+      expect(within(seccion()).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+      within(seccion()).getAllByRole('checkbox').forEach((opcion) => expect(opcion).toBeDisabled());
+
+      await act(async () => resolver({ data: rolesAdicionalesDe(7, [ROLES[3]]) }));
+      expect(within(seccion()).queryByRole('checkbox')).not.toBeInTheDocument();
+    });
+
+    it('shows the backend error (400/409) and keeps the selection to retry', async () => {
+      const user = userEvent.setup();
+      conRoles();
+      api.put.mockRejectedValueOnce({
+        response: { status: 409, data: { detail: 'Otro administrador cambió los roles al mismo tiempo' } },
+      });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await within(seccion()).findByText('Compras');
+      await user.click(within(seccion()).getByRole('button', { name: 'Editar roles adicionales' }));
+      await user.click(within(seccion()).getByRole('checkbox', { name: /Ventas/ }));
+      await user.click(within(seccion()).getByRole('button', { name: 'Guardar' }));
+
+      expect(await within(seccion()).findByRole('alert')).toHaveTextContent(
+        'Otro administrador cambió los roles al mismo tiempo',
+      );
+      expect(within(seccion()).getByRole('checkbox', { name: /Ventas/ })).toBeChecked();
+      expect(within(seccion()).getByRole('button', { name: 'Guardar' })).toBeEnabled();
+      // Permissions were not reloaded: nothing changed.
+      expect(api.get.mock.calls.filter(([url]) => url === '/permisos/usuario/7')).toHaveLength(1);
+    });
+
+    it('drops a save that finishes after switching to another user', async () => {
+      const user = userEvent.setup();
+      conRoles();
+      let resolver;
+      api.put.mockReturnValue(new Promise((resolve) => { resolver = resolve; }));
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await within(seccion()).findByText('Compras');
+      await user.click(within(seccion()).getByRole('button', { name: 'Editar roles adicionales' }));
+      await user.click(within(seccion()).getByRole('button', { name: 'Guardar' }));
+
+      await user.click(screen.getAllByText('Beto Gómez')[0]);
+      expect(await within(seccion()).findByText('Ninguno')).toBeInTheDocument();
+      await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+
+      await act(async () => resolver({ data: rolesAdicionalesDe(7, [ROLES[3], ROLES[4]]) }));
+
+      expect(screen.queryByText('Roles adicionales actualizados')).not.toBeInTheDocument();
+      expect(api.get.mock.calls.filter(([url]) => url === '/permisos/usuario/7')).toHaveLength(1);
+      expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument();
+      expect(within(seccion()).getByText('Ninguno')).toBeInTheDocument();
+    });
+
+    // Save succeeds; the permissions reload after it stays pending until released.
+    const guardarConRecargaPendiente = async (user) => {
+      conRoles();
+      api.put.mockResolvedValue({ data: rolesAdicionalesDe(7, [ROLES[3]]) });
+      let rechazarRecarga;
+      const getOriginal = api.get.getMockImplementation();
+      let llamadasAna = 0;
+      api.get.mockImplementation((url) => {
+        if (url === '/permisos/usuario/7' && ++llamadasAna === 2) {
+          return new Promise((_, reject) => { rechazarRecarga = reject; });
+        }
+        return getOriginal(url);
+      });
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await within(seccion()).findByText('Compras');
+      await user.click(within(seccion()).getByRole('button', { name: 'Editar roles adicionales' }));
+      await user.click(within(seccion()).getByRole('button', { name: 'Guardar' }));
+      await waitFor(() => expect(llamadasAna).toBe(2));
+      return () => rechazarRecarga(new Error('red caída'));
+    };
+
+    it('does not show a failed reload of the previous user over the newly selected one', async () => {
+      const user = userEvent.setup();
+      const fallarRecarga = await guardarConRecargaPendiente(user);
+
+      await user.click(screen.getAllByText('Beto Gómez')[0]);
+      await waitFor(() => expect(within(filaAdmin()).getByText('Accede')).toBeInTheDocument());
+      await act(async () => fallarRecarga());
+
+      expect(screen.queryByText('Error al recargar permisos del usuario')).not.toBeInTheDocument();
+    });
+
+    it('shows a failed reload while the same user is still selected', async () => {
+      const user = userEvent.setup();
+      const fallarRecarga = await guardarConRecargaPendiente(user);
+
+      await act(async () => fallarRecarga());
+
+      expect(await screen.findByText('Error al recargar permisos del usuario')).toBeInTheDocument();
+    });
+
+    it('is hidden for a SUPERADMIN user (already has every permission)', async () => {
+      const user = userEvent.setup();
+      const ROOT = { id: 9, nombre: 'Root Admin', username: 'root', email: 'root@x.com', rol: 'SUPERADMIN', activo: true };
+      const getOriginal = api.get.getMockImplementation();
+      api.get.mockImplementation((url) => {
+        if (url === '/auth/me') return Promise.resolve({ data: { id: 1, rol: 'SUPERADMIN' } });
+        if (url === '/usuarios') return Promise.resolve({ data: [USUARIO, ROOT] });
+        if (url === '/permisos/usuario/9') return Promise.resolve({ data: { ...permisosDe(8), usuario_id: 9, rol: 'SUPERADMIN' } });
+        if (url === '/usuarios/9/roles-adicionales') return Promise.resolve({ data: rolesAdicionalesDe(9, []) });
+        return getOriginal(url);
+      });
+      renderPanel();
+
+      await user.click(await screen.findByText('Root Admin'));
+      await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+      expect(screen.queryByRole('region', { name: 'Roles adicionales' })).not.toBeInTheDocument();
+      expect(api.get).not.toHaveBeenCalledWith('/usuarios/9/roles-adicionales');
+
+      // The same SUPERADMIN viewer does get it for a non-SUPERADMIN user.
+      await user.click(screen.getAllByText('Ana Pérez')[0]);
+      expect(await screen.findByRole('region', { name: 'Roles adicionales' })).toBeInTheDocument();
+    });
+
+    it('is not offered to a viewer whose primary role is not ADMIN or SUPERADMIN', async () => {
+      const user = userEvent.setup();
+      const getOriginal = api.get.getMockImplementation();
+      api.get.mockImplementation((url) =>
+        url === '/auth/me' ? Promise.resolve({ data: { id: 1, rol: 'GERENTE' } }) : getOriginal(url),
+      );
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+      await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+      expect(screen.queryByRole('region', { name: 'Roles adicionales' })).not.toBeInTheDocument();
+      expect(api.get).not.toHaveBeenCalledWith('/usuarios/7/roles-adicionales');
     });
   });
 });
