@@ -65,3 +65,13 @@ class TestFrozenTriggerCopy:
         previous = _load(_REVISION)._PREVIOUS_UPDATE_TRIGGER_SQL
         assert "costo_tp" not in previous
         assert previous.strip() in _load(_TRIGGERS_REVISION)._ORDER_ITEM_COSTOS_TRIGGER_SQL
+
+    def test_upgrade_installs_the_live_enqueue_functions(self) -> None:
+        migration = _load(_REVISION)
+        assert migration._ENQUEUE_TP_COST_FUNCTION_SQL.strip() in triggers._ENQUEUE_TP_COST_FUNCTION_SQL
+        assert migration._ITEM_COSTOS_FUNCTION_SQL.strip() in triggers._ORDER_ITEM_COSTOS_TRIGGER_SQL
+
+    def test_downgrade_restores_the_original_item_costos_function(self) -> None:
+        body = _load(_REVISION)._PREVIOUS_ITEM_COSTOS_FUNCTION_BODY
+        assert "order_metrics_enqueue_tp_cost" not in body
+        assert body.strip() in _load(_TRIGGERS_REVISION)._ORDER_ITEM_COSTOS_TRIGGER_SQL

@@ -98,6 +98,15 @@ def _tp_columns(engine) -> set:
     return {name for name, _nullable in rows} & _TP_COLUMNS
 
 
+def _function_source(engine, name: str):
+    """The body of function `name` in this schema, or None."""
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT prosrc FROM pg_proc WHERE proname = :name AND pronamespace = current_schema()::regnamespace"),
+            {"name": name},
+        ).scalar()
+
+
 def _update_trigger(engine) -> str:
     """The definition of the item-costos UPDATE trigger in this schema."""
     with engine.connect() as conn:
@@ -121,6 +130,8 @@ class TestTpMetricsColumnsMigration:
 
         assert _tp_columns(engine) == _TP_COLUMNS
         assert "costo_tp_unitario_ars" in _update_trigger(engine)
+        assert _function_source(engine, "order_metrics_enqueue_tp_cost") is not None
+        assert "order_metrics_enqueue_tp_cost" in _function_source(engine, "order_metrics_enqueue_order_item_costos")
 
     def test_downgrade_drops_the_columns_and_stops_watching_the_tp_cost(self, engine) -> None:
         _run(engine, "upgrade")
@@ -131,3 +142,6 @@ class TestTpMetricsColumnsMigration:
         trigger = _update_trigger(engine)
         assert "costo_tp_unitario_ars" not in trigger
         assert "costo_unitario_ars" in trigger
+        assert _function_source(engine, "order_metrics_enqueue_tp_cost") is None
+        restored = _function_source(engine, "order_metrics_enqueue_order_item_costos")
+        assert restored.strip() == _load_migration()._PREVIOUS_ITEM_COSTOS_FUNCTION_BODY.strip()

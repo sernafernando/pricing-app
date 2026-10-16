@@ -27,6 +27,14 @@ def _dirty_reason(session):
     ).scalar()
 
 
+def _dirty(session):
+    """`(reason, version)` of the order's dirty row, or None."""
+    row = session.execute(
+        text("SELECT reason, version FROM ml_order_metrics_dirty WHERE order_id = :order_id"), {"order_id": ORDER_ID}
+    ).fetchone()
+    return None if row is None else (row.reason, row.version)
+
+
 def _clear_dirty(session) -> None:
     session.execute(text("DELETE FROM ml_order_metrics_dirty"))
     session.commit()
@@ -61,13 +69,66 @@ def order_with_cost(pg_order_metrics_triggers_db):
 
 @pytest.mark.postgres
 class TestTpCostEnqueuesRecompute:
-    def test_filling_a_null_tp_cost_enqueues_the_order(self, order_with_cost) -> None:
+    def test_filling_a_null_tp_cost_enqueues_the_order_at_low_priority(self, order_with_cost) -> None:
+        """A TP-only change (the backfill touches tens of thousands of rows) is
+        queued in the bulk tier, behind the recompute of new sales."""
         session = order_with_cost
 
         session.execute(text(_FILL_TP), {"order_id": ORDER_ID})
         session.commit()
 
-        assert _dirty_reason(session) == "ml_order_item_costos_update"
+        assert _dirty(session) == ("reconcile", 1)
+
+    def test_a_tp_change_on_a_bulk_queued_order_bumps_its_version(self, order_with_cost) -> None:
+        session = order_with_cost
+        session.execute(text(_FILL_TP), {"order_id": ORDER_ID})
+        session.commit()
+
+        session.execute(
+            text("UPDATE ml_order_item_costos SET costo_tp_unitario_ars = 9 WHERE order_id = :order_id"),
+            {"order_id": ORDER_ID},
+        )
+        session.commit()
+
+        assert _dirty(session) == ("reconcile", 2)
+
+    def test_a_tp_change_never_demotes_a_live_queued_order(self, order_with_cost) -> None:
+        session = order_with_cost
+        session.execute(
+            text(
+                "INSERT INTO ml_order_metrics_dirty (order_id, version, reason) VALUES (:order_id, 1, 'ml_orders_ops_insert')"
+            ),
+            {"order_id": ORDER_ID},
+        )
+        session.commit()
+
+        session.execute(text(_FILL_TP), {"order_id": ORDER_ID})
+        session.commit()
+
+        # Still live, and the version moved: a claim in flight is fenced out.
+        assert _dirty(session) == ("ml_orders_ops_insert", 2)
+
+    def test_a_gauss_cost_change_keeps_the_live_reason(self, order_with_cost) -> None:
+        session = order_with_cost
+
+        session.execute(
+            text("UPDATE ml_order_item_costos SET costo_unitario_ars = 20 WHERE order_id = :order_id"),
+            {"order_id": ORDER_ID},
+        )
+        session.commit()
+
+        assert _dirty(session) == ("ml_order_item_costos_update", 1)
+
+    def test_a_gauss_and_tp_change_together_is_live(self, order_with_cost) -> None:
+        session = order_with_cost
+
+        session.execute(
+            text(_FILL_TP.replace("costo_tp_at = now()", "costo_tp_at = now(), iva_pct = 10.5")),
+            {"order_id": ORDER_ID},
+        )
+        session.commit()
+
+        assert _dirty(session) == ("ml_order_item_costos_update", 1)
 
     def test_rewriting_the_same_tp_cost_enqueues_nothing(self, order_with_cost) -> None:
         session = order_with_cost

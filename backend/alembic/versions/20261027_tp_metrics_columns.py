@@ -20,7 +20,9 @@ recomputed; `tp_incompleto` NULL means "not computed yet".
 The `ml_order_item_costos` UPDATE trigger now also fires when
 `costo_tp_unitario_ars` changes: the TP backfill and the late-load worker set
 it with an UPDATE, and the order must be recomputed through the same dirty
-queue. Frozen copies of the new and the previous trigger are inlined below
+queue. A TP-only change goes through `order_metrics_enqueue_tp_cost` (bulk
+tier, `reconcile`, never demoting an order already queued as live); a change
+to a Gauss cost column keeps the live reason. Frozen copies of the new and the previous trigger are inlined below
 (the module `order_metrics/triggers.py` is the live definition).
 
 LOCK NOTE: ADD COLUMN of nullable columns with no default is metadata-only.
@@ -70,6 +72,74 @@ FOR EACH ROW WHEN (
 EXECUTE FUNCTION order_metrics_enqueue_order_item_costos();
 """
 
+# Low-priority enqueue for a TP-only change: a new row goes to the bulk tier
+# (`reconcile`); a queued row keeps its reason, and its version is bumped.
+_ENQUEUE_TP_COST_FUNCTION_SQL = """
+CREATE OR REPLACE FUNCTION order_metrics_enqueue_tp_cost(ids BIGINT[])
+RETURNS VOID AS $order_metrics_enqueue_tp_cost$
+BEGIN
+    IF ids IS NULL OR array_length(ids, 1) IS NULL THEN
+        RETURN;
+    END IF;
+    INSERT INTO ml_order_metrics_dirty (order_id, version, reason, enqueued_at, attempts, last_error, suspect)
+    SELECT DISTINCT x, 1, 'reconcile', now(), 0, NULL, false FROM unnest(ids) AS x ORDER BY x
+    ON CONFLICT (order_id) DO UPDATE SET
+        version = ml_order_metrics_dirty.version + 1,
+        attempts = 0,
+        last_error = NULL,
+        suspect = false;
+    PERFORM pg_notify('order_metrics_dirty', '');
+END;
+$order_metrics_enqueue_tp_cost$ LANGUAGE plpgsql;
+"""
+
+_ITEM_COSTOS_FUNCTION_SQL = """
+CREATE OR REPLACE FUNCTION order_metrics_enqueue_order_item_costos() RETURNS TRIGGER AS $trg$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        PERFORM order_metrics_enqueue(ARRAY[OLD.order_id], 'ml_order_item_costos_delete');
+        RETURN OLD;
+    END IF;
+    IF TG_OP = 'UPDATE'
+        AND OLD.costo_unitario_ars IS NOT DISTINCT FROM NEW.costo_unitario_ars
+        AND OLD.iva_pct IS NOT DISTINCT FROM NEW.iva_pct
+        AND OLD.precio_unitario IS NOT DISTINCT FROM NEW.precio_unitario
+    THEN
+        -- Only the TP cost changed (the TP backfill / late-load fill): low
+        -- priority, never demoting an order already queued as live.
+        PERFORM order_metrics_enqueue_tp_cost(ARRAY[NEW.order_id]);
+        RETURN NEW;
+    END IF;
+    PERFORM order_metrics_enqueue(
+        ARRAY[NEW.order_id],
+        CASE WHEN TG_OP = 'INSERT' THEN 'ml_order_item_costos_insert' ELSE 'ml_order_item_costos_update' END
+    );
+    RETURN NEW;
+END;
+$trg$ LANGUAGE plpgsql;
+"""
+
+# As created by 20260923_ml_order_metrics_triggers_orders.
+_PREVIOUS_ITEM_COSTOS_FUNCTION_BODY = """
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        PERFORM order_metrics_enqueue(ARRAY[OLD.order_id], 'ml_order_item_costos_delete');
+        RETURN OLD;
+    END IF;
+    PERFORM order_metrics_enqueue(
+        ARRAY[NEW.order_id],
+        CASE WHEN TG_OP = 'INSERT' THEN 'ml_order_item_costos_insert' ELSE 'ml_order_item_costos_update' END
+    );
+    RETURN NEW;
+END;
+"""
+
+_PREVIOUS_ITEM_COSTOS_FUNCTION_SQL = (
+    "CREATE OR REPLACE FUNCTION order_metrics_enqueue_order_item_costos() RETURNS TRIGGER AS $trg$"
+    + _PREVIOUS_ITEM_COSTOS_FUNCTION_BODY
+    + "$trg$ LANGUAGE plpgsql;"
+)
+
 # As created by 20260923_ml_order_metrics_triggers_orders.
 _PREVIOUS_UPDATE_TRIGGER_SQL = """
 CREATE TRIGGER trg_order_metrics_item_costos_update
@@ -98,6 +168,8 @@ def upgrade() -> None:
     for column in _LINES_COLUMNS:
         op.add_column("ml_sale_lines", _fresh(column))
     if _is_postgres():
+        op.execute(_ENQUEUE_TP_COST_FUNCTION_SQL)
+        op.execute(_ITEM_COSTOS_FUNCTION_SQL)
         op.execute(_DROP_UPDATE_TRIGGER)
         op.execute(_UPDATE_TRIGGER_SQL)
 
@@ -106,6 +178,9 @@ def downgrade() -> None:
     if _is_postgres():
         op.execute(_DROP_UPDATE_TRIGGER)
         op.execute(_PREVIOUS_UPDATE_TRIGGER_SQL)
+        # The original function no longer calls the TP enqueue: drop it after.
+        op.execute(_PREVIOUS_ITEM_COSTOS_FUNCTION_SQL)
+        op.execute("DROP FUNCTION IF EXISTS order_metrics_enqueue_tp_cost(BIGINT[])")
     for column in reversed(_LINES_COLUMNS):
         op.drop_column("ml_sale_lines", column.name)
     for column in reversed(_METRICS_COLUMNS):

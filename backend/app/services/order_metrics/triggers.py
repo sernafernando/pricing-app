@@ -230,12 +230,48 @@ AFTER DELETE ON ml_order_items_ops
 FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_order_items_ops();
 """
 
+# `order_metrics_enqueue` for an input that is NOT urgent (metricas-ml-tplink-
+# mode P3): the TP cost backfill fills `costo_tp_unitario_ars` on tens of
+# thousands of rows, and as a live reason it would delay the recompute of new
+# sales. A new row is queued in the BULK tier (`reconcile`, see
+# `queue.BULK_REASONS`); an already-queued row keeps its reason (a live one
+# stays live) and its place, but its version is bumped like any input write,
+# so a claim in flight is fenced and the change is never lost.
+_ENQUEUE_TP_COST_FUNCTION_SQL = """
+CREATE OR REPLACE FUNCTION order_metrics_enqueue_tp_cost(ids BIGINT[])
+RETURNS VOID AS $order_metrics_enqueue_tp_cost$
+BEGIN
+    IF ids IS NULL OR array_length(ids, 1) IS NULL THEN
+        RETURN;
+    END IF;
+    INSERT INTO ml_order_metrics_dirty (order_id, version, reason, enqueued_at, attempts, last_error, suspect)
+    SELECT DISTINCT x, 1, 'reconcile', now(), 0, NULL, false FROM unnest(ids) AS x ORDER BY x
+    ON CONFLICT (order_id) DO UPDATE SET
+        version = ml_order_metrics_dirty.version + 1,
+        attempts = 0,
+        last_error = NULL,
+        suspect = false;
+    PERFORM pg_notify('order_metrics_dirty', '');
+END;
+$order_metrics_enqueue_tp_cost$ LANGUAGE plpgsql;
+"""
+
 _ORDER_ITEM_COSTOS_TRIGGER_SQL = """
 CREATE OR REPLACE FUNCTION order_metrics_enqueue_order_item_costos() RETURNS TRIGGER AS $trg$
 BEGIN
     IF TG_OP = 'DELETE' THEN
         PERFORM order_metrics_enqueue(ARRAY[OLD.order_id], 'ml_order_item_costos_delete');
         RETURN OLD;
+    END IF;
+    IF TG_OP = 'UPDATE'
+        AND OLD.costo_unitario_ars IS NOT DISTINCT FROM NEW.costo_unitario_ars
+        AND OLD.iva_pct IS NOT DISTINCT FROM NEW.iva_pct
+        AND OLD.precio_unitario IS NOT DISTINCT FROM NEW.precio_unitario
+    THEN
+        -- Only the TP cost changed (the TP backfill / late-load fill): low
+        -- priority, never demoting an order already queued as live.
+        PERFORM order_metrics_enqueue_tp_cost(ARRAY[NEW.order_id]);
+        RETURN NEW;
     END IF;
     PERFORM order_metrics_enqueue(
         ARRAY[NEW.order_id],
@@ -428,6 +464,7 @@ FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_shipments_ops();
 _CREATE_STATEMENTS: List[str] = [
     _ENQUEUE_FUNCTIONS_SQL,
     _ENQUEUE_SYSTEM_FUNCTION_SQL,
+    _ENQUEUE_TP_COST_FUNCTION_SQL,
     _ORDERS_OPS_TRIGGER_SQL,
     _ORDER_ITEMS_OPS_TRIGGER_SQL,
     _ORDER_ITEM_COSTOS_TRIGGER_SQL,
@@ -461,6 +498,7 @@ _DROP_STATEMENTS: List[str] = [
     "DROP TRIGGER IF EXISTS trg_order_metrics_orders_ops_update ON ml_orders_ops",
     "DROP TRIGGER IF EXISTS trg_order_metrics_orders_ops_insert ON ml_orders_ops",
     "DROP FUNCTION IF EXISTS order_metrics_enqueue_orders_ops()",
+    "DROP FUNCTION IF EXISTS order_metrics_enqueue_tp_cost(BIGINT[])",
     "DROP FUNCTION IF EXISTS order_metrics_enqueue_system(BIGINT[], TEXT)",
     "DROP FUNCTION IF EXISTS order_metrics_enqueue(BIGINT[], TEXT)",
 ]
