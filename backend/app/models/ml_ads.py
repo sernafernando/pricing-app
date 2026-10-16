@@ -1,17 +1,18 @@
 """Mercado Libre Product Ads facts (ml-billing-balance, PR 1a; design "Schema", D1-D2).
 
-Three tables, all keyed by the ad day in the account's local (Argentina) calendar:
+Days are ad days in the account's local (Argentina) calendar:
 
 - `ml_ads_day_ledger`: one row per (source, advertiser, day) saying whether that day was fetched. A
   missing ledger row means "not fetched"; a missing fact row on a ledgered day means zero (owner Q4).
 - `ml_ads_ad_group_days`: the ad-group grain of a day, with the drill status of its `/ads` pages.
 - `ml_ads_item_days`: the (ad group, item) grain, the one the Board joins on.
 - `ml_ads_display_campaign_days` and `ml_ads_brand_days`: account-level Display and Brand Ads (PR 3), never MLA-level.
-- `ml_ads_campaigns` and `ml_ads_campaign_days`: the Product Ads campaigns (catalog, and metrics per day).
+- `ml_ads_campaigns` (latest catalog, not per day) and `ml_ads_campaign_days` (metrics per day): the Product Ads
+  campaigns that the day's `campaigns/search` call lists.
 
 Money is `Numeric(16, 2)` built from `Decimal(str(value))`; payloads are kept in `raw`. No table stores
 a sum that this system computed (ADS-4): ML's own reported figures (`summary_cost`, a group's `cost`)
-are facts, sums over rows are queries. Nothing reads or writes these tables yet (PR 1b onward).
+are facts, sums over rows are queries.
 """
 
 from __future__ import annotations

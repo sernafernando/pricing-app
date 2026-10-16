@@ -31,11 +31,13 @@ def _load_migration():
     return module
 
 
-def test_single_head_and_one_parent() -> None:
+def test_one_parent_and_an_ancestor_of_the_single_head() -> None:
     script = _script_directory()
     revision = script.get_revision(_REVISION)
     assert isinstance(revision.down_revision, str), "exactly one parent, never a branch point"
-    assert script.get_heads() == [_REVISION]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert _REVISION in {r.revision for r in script.walk_revisions(base="base", head=heads[0])}
 
 
 @pytest.mark.parametrize("table_name", TABLES)
