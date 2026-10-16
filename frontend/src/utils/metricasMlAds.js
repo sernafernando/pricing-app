@@ -65,3 +65,32 @@ export function adsCoverageNote(coverage) {
   if (mismatch) parts.push(`${days(mismatch)} con diferencias`);
   return { tone: missing || mismatch ? 'warn' : 'ok', text: parts.join(' · ') };
 }
+
+/**
+ * The spend no row owns, one line each, as `kpis.ads.unattributed` states it. "Sin producto" already rides on
+ * its own board row, so the API reports it with the Product Ads and it is always part of what was subtracted;
+ * Display and Brand Ads come off only where the API says `subtracted`.
+ */
+export function unattributedLines(unattributed) {
+  const { display, brand } = unattributed.account_level;
+  return [
+    { key: 'display', label: 'Display', detail: 'Anuncios de Display (cuenta)', amount: display.cost_net, subtracted: display.subtracted },
+    { key: 'brand', label: 'Brand Ads', detail: 'Anuncios de marca (cuenta)', amount: brand.cost, subtracted: brand.subtracted },
+    {
+      key: 'sin_producto',
+      label: 'Ads sin producto',
+      detail: 'MLAs con inversión sin producto vinculado',
+      amount: unattributed.sin_producto_cost,
+      subtracted: true,
+    },
+  ];
+}
+
+/** A board row that exists only because of ads: the "sin producto" one, or a product that did not sell. */
+export function adsRowKind(row) {
+  if (!row.ads || row.ads.cost <= 0) return null;
+  if (row.product_item_id === 0) return 'sin_producto';
+  return row.units === 0 ? 'solo_ads' : null;
+}
+
+export const ADS_ROW_BADGES = { sin_producto: 'SIN PRODUCTO', solo_ads: 'SOLO ADS' };

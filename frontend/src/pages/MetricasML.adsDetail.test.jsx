@@ -16,9 +16,15 @@ vi.mock('../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
+const UNATTRIBUTED = {
+  sin_producto_cost: 412380,
+  account_level: { display: { cost_api: 1512500, cost_net: 1250000, subtracted: true }, brand: { cost: 380500, subtracted: true } },
+};
+const adOnly = { ...BOARD_RESPONSE.rows[0], key: 'p-0', product_item_id: 0, title: 'Sin producto', units: 0, gross: 0, ads: { cost: 412380 } };
 const withAds = (ads) => ({
   ...BOARD_RESPONSE,
   kpis: { ...BOARD_RESPONSE.kpis, ads },
+  rows: ads?.unattributed ? [...BOARD_RESPONSE.rows.slice(0, 2), adOnly] : BOARD_RESPONSE.rows,
 });
 
 let board;
@@ -50,5 +56,22 @@ describe('MetricasML ads detail', () => {
     await pick('Restar Ads de publicaciones');
     expect(await screen.findByRole('region', { name: 'Publicidad (ML Ads)' })).toBeInTheDocument();
     expect(screen.getByText('Datos de Ads hasta el 13/10')).toBeInTheDocument();
+  });
+
+  it('shows the panel and the tagged "sin producto" row only where the API sends the account-level block', async () => {
+    board = withAds({ ...ADS_KPIS, requested: 'todo', applied: 'todo', unattributed: UNATTRIBUTED });
+    await renderWithRouter(<MetricasML />);
+    await pick('Restar toda la publicidad');
+    expect(await screen.findByRole('region', { name: 'Publicidad sin producto' })).toBeInTheDocument();
+    expect(await screen.findByText('SIN PRODUCTO')).toBeInTheDocument();
+  });
+
+  it('shows neither with the toggle off or on a filtered view', async () => {
+    board = withAds(ADS_KPIS);
+    await renderWithRouter(<MetricasML />);
+    await pick('Restar Ads de publicaciones');
+    await screen.findByRole('region', { name: 'Publicidad (ML Ads)' });
+    expect(screen.queryByRole('region', { name: 'Publicidad sin producto' })).not.toBeInTheDocument();
+    expect(screen.queryByText('SIN PRODUCTO')).not.toBeInTheDocument();
   });
 });

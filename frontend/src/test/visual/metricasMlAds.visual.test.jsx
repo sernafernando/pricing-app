@@ -44,10 +44,15 @@ vi.mock('../../contexts/PermisosContext', () => ({
 
 const SHOTS_DIR = import.meta.env.VITE_METRICAS_SHOTS_DIR;
 
+const UNATTRIBUTED = {
+  sin_producto_cost: 412380,
+  account_level: { display: { cost_api: 1512500, cost_net: 1250000, subtracted: true }, brand: { cost: 380500, subtracted: true } },
+};
+
 // What the API answers per position: `todo` asked but only `mla` applicable is the filtered case.
 const ADS_BY_POSITION = {
   mla: ADS_KPIS,
-  todo: { ...ADS_KPIS, requested: 'todo', applied: 'todo', subtracted_total: 19559119.51 },
+  todo: { ...ADS_KPIS, requested: 'todo', applied: 'todo', subtracted_total: 19559119.51, unattributed: UNATTRIBUTED },
   todo_filtered: { ...ADS_KPIS, requested: 'todo', applied: 'mla', subtracted_total: 2192372.86 },
 };
 
@@ -56,6 +61,8 @@ const answer = (position) => {
   if (!position) return BOARD_RESPONSE;
   const ads = position === 'todo' && filteredTodo ? ADS_BY_POSITION.todo_filtered : ADS_BY_POSITION[position];
   const rows = BOARD_RESPONSE.rows.map((row) => ({ ...row, ads: { cost: 410200 } }));
+  // Unfiltered, the API also sends the "sin producto" row.
+  if (ads.unattributed) rows.push({ ...rows[0], key: 'p-0', product_item_id: 0, title: 'Sin producto', units: 0, gross: 0, ads: { cost: 412380 } });
   return { ...BOARD_RESPONSE, kpis: { ...BOARD_RESPONSE.kpis, ads }, rows };
 };
 
@@ -117,6 +124,8 @@ describe.each(['light', 'dark'])('Métricas ML ads toggle (%s)', (theme) => {
     await pick(screen, 'Restar toda la publicidad');
     await expect.element(screen.getByText(/sin producto y cuenta/)).toBeVisible();
     expect(document.body.textContent).not.toContain('Con filtros solo se restan');
+    await expect.element(screen.getByRole('region', { name: 'Publicidad sin producto' })).toBeVisible();
+    await expect.element(screen.getByText('SIN PRODUCTO', { exact: true })).toBeVisible();
     expect(wrappedMoney()).toEqual([]);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
     await shot(`ads-todo-${theme}`);

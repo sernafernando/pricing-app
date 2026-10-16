@@ -327,6 +327,19 @@ thead .colProducto {
   border-color: var(--tone-success-border);
 }
 
+.adsBadge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 1px solid var(--tone-info-border);
+  border-radius: var(--radius-base);
+  font-size: 9px;
+  font-weight: var(--font-bold);
+  letter-spacing: 0.04em;
+  line-height: 15px;
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+}
+
 .subProduct {
   display: flex;
   flex-direction: column;

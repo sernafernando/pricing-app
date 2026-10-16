@@ -14,6 +14,7 @@ import ToggleChips from '../components/metricasMl/ToggleChips';
 import SwitchChip from '../components/metricasMl/SwitchChip';
 import AdsAppliedBanner from '../components/metricasMl/AdsAppliedBanner';
 import AdsKpiBlock from '../components/metricasMl/AdsKpiBlock';
+import AdsUnattributedPanel from '../components/metricasMl/AdsUnattributedPanel';
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
@@ -678,6 +679,8 @@ export default function MetricasML() {
           />
         </div>
       </section>
+
+      {adsOn && <AdsUnattributedPanel unattributed={ads.unattributed} />}
     </div>
   );
 }
