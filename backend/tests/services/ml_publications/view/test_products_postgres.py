@@ -222,3 +222,19 @@ def test_the_counts_follow_the_filters(store) -> None:
         ).scalar()
         == 7
     )
+
+
+def test_a_link_to_a_product_missing_from_the_catalog_is_its_own_row(store) -> None:
+    """The link is the truth even when its product is gone from `productos_erp`: the row is the link's product id,
+    opened by `producto=<id>`, and it lists exactly what the row counts -- never folded into "Sin producto"."""
+    conn = store.connection()
+    seed.add_item(conn, "MLA8", status="active")
+    seed.add_link(conn, "MLA8", 99)  # no product 99 in the catalog
+    store.commit()
+    rows = by_product(page(store, estado="active"))
+    dangling = rows[99]
+    assert (dangling.key, dangling.title, dangling.sku, dangling.marca) == ("99", "Producto #99", None, None)
+    assert expansion(store, dangling, estado="active") == ["MLA8"]
+    assert dangling.publications_count == 1
+    assert "MLA8" not in expansion(store, rows[NO_PRODUCT], estado="active")
+    assert rows[NO_PRODUCT].publications_count == len(expansion(store, rows[NO_PRODUCT], estado="active"))

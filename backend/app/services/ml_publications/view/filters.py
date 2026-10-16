@@ -97,7 +97,8 @@ class PublicationFilter:
     # for several PMs belongs to exactly ONE of them, so the node and its publications agree.
     pm_group: Optional[str] = None
     family_id: Optional[int] = None
-    # A node of the Agrupado tree (P7a): one linked product, or the publications with no product at all.
+    # A node of the Agrupado tree (P7a) or a Producto row: one linked product -- the LINK's product id, even when the
+    # product is gone from the catalog -- or the publications whose item-level link names no product at all.
     producto: Optional[int] = None
     sin_producto: bool = False
     listing: tuple[str, ...] = ()
@@ -609,9 +610,9 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if f.subcategorias or f.no_subcategoria:
         where.append(_subcategorias_in(f))
     if f.producto is not None:
-        where.append(T.p.item_id == f.producto)
+        where.append(T.l.producto_item_id == f.producto)
     if f.sin_producto:
-        where.append(T.p.item_id.is_(None))
+        where.append(T.l.producto_item_id.is_(None))
     if f.pms:
         where.append(_pm(f))
     if f.pm_group is not None:

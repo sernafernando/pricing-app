@@ -90,12 +90,13 @@ class ProductsPage:
 
 
 def _members(mla_set: Any) -> Any:
-    """Each MLA of the set with its linked product: the base select's own item-level link join (`filters.joined`),
-    so the grouping is exactly what `/items?producto=` filters on."""
+    """Each MLA of the set with its linked product -- the LINK's product id, even when the product is gone from the
+    catalog (its name then reads "Producto #<id>") -- through the base select's own item-level link join
+    (`filters.joined`), so the grouping is exactly what `/items?producto=` and `sin_producto` filter on."""
     return (
         select(
             mla_set.c.mla,
-            func.coalesce(T.p.item_id, NO_PRODUCT).label("product"),
+            func.coalesce(T.l.producto_item_id, NO_PRODUCT).label("product"),
             T.p.descripcion,
             T.p.codigo,
             T.p.marca,
@@ -148,7 +149,7 @@ def _row(r: Any, today: date) -> board.Row:
         key=str(product),
         product_item_id=product,
         mla=None,
-        title=r["descripcion"] if product != NO_PRODUCT and r["descripcion"] else NO_PRODUCT_LABEL,
+        title=NO_PRODUCT_LABEL if product == NO_PRODUCT else r["descripcion"] or r["codigo"] or f"Producto #{product}",
         sku=r["codigo"],
         marca=r["marca"],
         publications_count=int(r["pubs"]),

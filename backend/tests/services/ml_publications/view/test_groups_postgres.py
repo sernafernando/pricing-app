@@ -201,6 +201,19 @@ class TestSinProducto:
         assert by_key(products)[NO_GROUP].producto_item_id is None
         assert by_key(products)[NO_GROUP].params["sin_producto"] == "true"
 
+    def test_a_link_to_a_product_missing_from_the_catalog_is_its_own_node_and_its_items_list_it(self, conn, db) -> None:
+        """The link is the screen's truth: a link whose product is gone from `productos_erp` is a product node of its
+        own, `producto=<id>` lists it, and "Sin producto" (`sin_producto`) does not."""
+        seed_catalog(conn)
+        seed.add_item(conn, "MLA30", title="Titulo MLA30", status="active", official_store_id=1)
+        seed.add_link(conn, "MLA30", 99)  # no product 99 in the catalog
+        products = by_key(tree(db, NO_GROUP, NO_GROUP, NO_GROUP))
+        assert (products["99"].label, products["99"].count, products["99"].producto_item_id) == ("Producto #99", 1, 99)
+        assert products["99"].params["producto"] == "99"
+        assert products[NO_GROUP].count == 2  # MLA6 and MLA7, not MLA30
+        assert total_of(db, {"producto": "99"}) == 1
+        assert total_of(db, {"sin_producto": True}) == 2
+
 
 class TestFamilies:
     def test_default_is_off_so_a_product_is_a_leaf_with_all_its_publications(self, conn, db) -> None:

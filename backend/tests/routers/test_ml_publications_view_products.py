@@ -10,9 +10,10 @@ surface: the rows need `ml_ops.ver`, their Métricas figures `ml_metricas.ver`, 
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
+from app.services.ml_publications.view import listing, products as products_service, status_block
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import GANANCIA, VER, seed_rows
 from tests.routers.test_ml_publications_view_kpis import METRICAS, _seller, pg, sell, view_pg  # noqa: F401
@@ -162,3 +163,38 @@ class TestPaging:
         grant(db, rol_admin, VER, METRICAS)
         response = get(client, admin_auth_headers, estado="bogus")
         assert response.status_code == 422 and response.json()["error"]["field"] == "estado"
+
+
+class TestInvalidParams:
+    @pytest.mark.parametrize(
+        "params, field",
+        [
+            ({"dir": "sideways"}, "dir"),
+            ({"evento": "price_changed"}, "evento"),  # the events flag is off
+        ],
+    )
+    def test_a_bad_value_is_422_naming_the_param(self, client, sold, db, rol_admin, admin_auth_headers, params, field):
+        grant(db, rol_admin, VER, METRICAS)
+        response = get(client, admin_auth_headers, **params)
+        assert response.status_code == 422 and response.json()["error"]["field"] == field
+
+
+class TestSlowQuery:
+    def test_a_statement_timeout_is_a_controlled_503_and_the_connection_goes_back(
+        self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
+    ) -> None:
+        grant(db, rol_admin, VER, METRICAS)
+        real = products_service.build_base_select
+
+        def slow(f, *columns, **kwargs):  # the set is one column, so the delay goes in the WHERE
+            return real(f, *columns, **kwargs).where(func.pg_sleep(1).is_not(None))
+
+        monkeypatch.setattr(listing, "STATEMENT_TIMEOUT", "50ms")
+        monkeypatch.setattr(products_service, "build_base_select", slow)
+        response = get(client, admin_auth_headers)
+        assert response.status_code == 503 and response.json()["error"]["code"] == "consulta_lenta"
+        assert sold.pool.checkedout() == 0
+        monkeypatch.setattr(listing, "STATEMENT_TIMEOUT", "8s")
+        monkeypatch.setattr(products_service, "build_base_select", real)
+        status_block.REPORT.reset()
+        assert get(client, admin_auth_headers).status_code == 200
