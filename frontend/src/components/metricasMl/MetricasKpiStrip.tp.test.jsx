@@ -47,4 +47,28 @@ describe('MetricasKpiStrip with Costos TP', () => {
     strip({ ...OFF, total_tp: TP_KPIS }, false);
     expect(screen.queryByText('Total TP')).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['complete', { value: 3125400.5, incompletos: 0 }, 'Tienda TP-Link'],
+    ['partial', { value: 3125400.5, incompletos: 3 }, null],
+    ['incomplete', { value: null, incompletos: 4 }, null],
+    ['none', { value: null, incompletos: 0 }, 'Sin ventas de la tienda TP-Link'],
+  ])('the Total TP card subtitle for a %s figure', (_kind, tp, subtitle) => {
+    strip({ ...OFF, total_tp: tp });
+    const card = within(cardOf('Total TP'));
+    if (subtitle === 'Tienda TP-Link') {
+      expect(card.getByText('Tienda TP-Link')).toBeInTheDocument();
+      expect(card.queryByText('Sin ventas de la tienda TP-Link')).not.toBeInTheDocument();
+    } else if (subtitle) {
+      expect(card.getByText(subtitle)).toBeInTheDocument();
+      expect(card.queryByText('Tienda TP-Link')).not.toBeInTheDocument();
+      expect(card.queryByText('incompleto')).not.toBeInTheDocument();
+    } else {
+      // Lines without a TP cost: the warning count takes the subtitle's place.
+      expect(card.getByText(/sin costo TP/)).toBeInTheDocument();
+      expect(card.queryByText('Tienda TP-Link')).not.toBeInTheDocument();
+      expect(card.queryByText('Sin ventas de la tienda TP-Link')).not.toBeInTheDocument();
+    }
+  });
 });
+
