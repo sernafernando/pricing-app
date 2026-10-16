@@ -168,6 +168,15 @@
   --money-negative: #d92332;
   --money-positive: #047a3a;
   --money-headline: #0062c4;
+  /* Selection role tokens: the selected state of the kit controls (facet chip,
+     switch chip, segmented option, switch track, checkbox accent). They default
+     to the money headline colour they used to read directly, so the base theme
+     is unchanged; a brand (data-brand) repaints selection without touching
+     money figures. */
+  --selection-fill: var(--money-headline);
+  --on-selection-fill: var(--cf-bg-card);
+  --selection-border: var(--money-headline);
+  --selection-accent: var(--money-headline);
 
   /* A card inside the Ventas ML detail panel: a step off the panel's own
      surface, like `detalle.jpg`'s grey cards on white. */

@@ -19,6 +19,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import baseline from './themeTokensBaseline.json';
 import { setTheme, tokenColor, tokenRaw, contrastRatio, mount } from './visualHelpers';
+import facet from '../../components/kit/FacetChips.module.css';
+import switchChip from '../../components/kit/SwitchChip.module.css';
+import segmented from '../../components/kit/SegmentedControl.module.css';
+import alertsChip from '../../components/ventasMl/AlertsFilterChip.module.css';
+import includeToggles from '../../components/ventasMl/IncludeToggles.module.css';
+import packPanel from '../../components/ventasMl/PackDetailPanel.module.css';
 
 const THEMES = ['light', 'dark'];
 const TEAL = 'rgb(74, 203, 214)';
@@ -312,6 +318,99 @@ describe('data-brand="tplink"', () => {
         host = mount('<img class="tplink-brand-logo" alt="TP-Link" src="/brand/tplink-logo-white.png" />');
         expect(host.firstElementChild.getBoundingClientRect().height).toBeGreaterThanOrEqual(22);
       });
+    });
+  }
+});
+
+// The kit's selected state (facet chip, switch chip, segmented option, alert
+// switch, include checkboxes) used to read the MONEY token, so it stayed blue
+// under the brand. It now reads semantic selection tokens that default to the
+// same money colour in the base theme.
+const mountSelected = () => {
+  host = mount(`
+    <button class="${facet.chip} ${facet.chipActive}">Todas</button>
+    <button class="${switchChip.chip} ${switchChip.on}">Flex</button>
+    <div class="${segmented.group}"><button class="${segmented.option} ${segmented.active}">Mes</button></div>
+    <button class="${alertsChip.toggle} ${alertsChip.toggleOn}"><span class="${alertsChip.track}"></span></button>
+    <label class="${includeToggles.toggle}"><input type="checkbox" checked /></label>
+    <button class="${packPanel.memberButton}">2000014907031737</button>
+  `);
+  const q = (sel) => host.querySelector(sel);
+  return {
+    facet: getComputedStyle(q(`.${facet.chipActive}`)),
+    switchOn: getComputedStyle(q(`.${switchChip.on}`)),
+    segmented: getComputedStyle(q(`.${segmented.active}`)),
+    track: getComputedStyle(q(`.${alertsChip.track}`)),
+    checkbox: getComputedStyle(q('input')),
+    member: getComputedStyle(q(`.${packPanel.memberButton}`)),
+  };
+};
+
+describe('kit selection state: base unchanged', () => {
+  for (const theme of THEMES) {
+    it(`selection tokens default to the money/card colours (${theme})`, () => {
+      setTheme(theme);
+      expect(tokenColor('--selection-fill')).toBe(tokenColor('--money-headline'));
+      expect(tokenColor('--selection-border')).toBe(tokenColor('--money-headline'));
+      expect(tokenColor('--selection-accent')).toBe(tokenColor('--money-headline'));
+      expect(tokenColor('--on-selection-fill')).toBe(tokenColor('--cf-bg-card'));
+    });
+
+    it(`selected controls paint exactly as before (${theme})`, () => {
+      setTheme(theme);
+      const c = mountSelected();
+      const money = tokenColor('--money-headline');
+      const card = tokenColor('--cf-bg-card');
+      expect([c.facet.backgroundColor, c.facet.borderTopColor, c.facet.color]).toEqual([money, money, card]);
+      expect([c.switchOn.backgroundColor, c.switchOn.color]).toEqual([money, card]);
+      expect(c.segmented.color).toBe(money);
+      expect(c.track.backgroundColor).toBe(money);
+      expect(c.checkbox.accentColor).toBe(money);
+      expect(c.member.color).toBe(tokenColor('--brand-primary'));
+    });
+  }
+});
+
+// Stitch mockup, selected filter chip: light = tint #e3f7f9 with deep teal
+// text; dark = #0f2e33 with light teal text and a Teal border.
+const SELECTED_CHIP = {
+  light: { bg: 'rgb(227, 247, 249)', fg: DEEP_TEAL },
+  dark: { bg: 'rgb(15, 46, 51)', fg: LIGHT_TEAL, border: TEAL },
+};
+
+describe('kit selection state under data-brand="tplink"', () => {
+  for (const theme of THEMES) {
+    it(`selected chips match the mockup (${theme})`, () => {
+      setTheme(theme);
+      setBrand('tplink');
+      const c = mountSelected();
+      const want = SELECTED_CHIP[theme];
+      for (const chip of [c.facet, c.switchOn]) {
+        expect(chip.backgroundColor).toBe(want.bg);
+        expect(chip.color).toBe(want.fg);
+        if (want.border) expect(chip.borderTopColor).toBe(want.border);
+        expect(contrastRatio(chip.color, chip.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it(`strong selection marks use the readable teal (${theme})`, () => {
+      setTheme(theme);
+      setBrand('tplink');
+      const c = mountSelected();
+      const card = tokenColor('--cf-bg-card');
+      expect(c.segmented.color).toBe(TEXT_TEAL[theme]);
+      expect(contrastRatio(c.segmented.color, card)).toBeGreaterThanOrEqual(4.5);
+      expect(c.track.backgroundColor).toBe(TEXT_TEAL[theme]);
+      expect(contrastRatio(c.track.backgroundColor, card)).toBeGreaterThanOrEqual(3);
+      expect(c.checkbox.accentColor).toBe(TEXT_TEAL[theme]);
+    });
+
+    it(`pack member links read as links, not Teal text (${theme})`, () => {
+      setTheme(theme);
+      setBrand('tplink');
+      const c = mountSelected();
+      expect(c.member.color).toBe(TEXT_TEAL[theme]);
+      expect(contrastRatio(c.member.color, c.member.backgroundColor)).toBeGreaterThanOrEqual(4.5);
     });
   }
 });

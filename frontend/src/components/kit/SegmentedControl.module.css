@@ -31,7 +31,7 @@
 
 .active {
   font-weight: var(--font-bold);
-  color: var(--money-headline);
+  color: var(--selection-accent);
   background: var(--cf-bg-card);
   box-shadow: var(--cf-card-shadow);
 }

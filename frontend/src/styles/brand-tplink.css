@@ -227,6 +227,11 @@
   --gradient-purple: linear-gradient(135deg, #3a1f99 0%, #250D71 100%);
   --gradient-success: linear-gradient(135deg, #0f7a52 0%, #0b6544 100%);
   --gradient-warning: linear-gradient(135deg, #FFCB00 0%, #f0b800 100%);
+  /* Selection (Stitch selected filter chip) */
+  --selection-fill: #e3f7f9;
+  --on-selection-fill: #006b75;
+  --selection-border: #e3f7f9;
+  --selection-accent: #006b75;
 }
 
 [data-brand="tplink"][data-theme="dark"] {
@@ -432,6 +437,11 @@
   --gradient-purple: linear-gradient(135deg, #5a3fc0 0%, #3a1f99 100%);
   --gradient-success: linear-gradient(135deg, #12875b 0%, #0f7a52 100%);
   --gradient-warning: linear-gradient(135deg, #FFCB00 0%, #f0b800 100%);
+  /* Selection (Stitch selected filter chip) */
+  --selection-fill: #0f2e33;
+  --on-selection-fill: #6fd6df;
+  --selection-border: #4ACBD6;
+  --selection-accent: #6fd6df;
 }
 
 /* ============================================================
