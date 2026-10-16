@@ -151,11 +151,20 @@ class BoardKpis(BaseModel):
     ageing: KpiAgeing
 
 
+class KpiTp(BaseModel):
+    """ "Costos TP" ON: the known Total TP of the TP store group's operations (null when none has a TP cost) and
+    how many of their sold lines lack a TP cost (incomplete, never counted as 0)."""
+
+    value: Optional[float] = None
+    incompletos: int = 0
+
+
 class BoardKpisWithAds(BoardKpis):
-    """The Métricas board's strip: the shared one plus the ads block (null with the toggle OFF). Publicaciones
-    keeps `BoardKpis`, so its strip never carries the field."""
+    """The Métricas board's strip: the shared one plus the ads block (null with the toggle OFF) and Total TP (null
+    with "Costos TP" OFF). Publicaciones keeps `BoardKpis`, so its strip never carries those fields."""
 
     ads: Optional[KpiAds] = None
+    total_tp: Optional[KpiTp] = None
 
 
 def round_money(value) -> Optional[float]:
@@ -265,6 +274,12 @@ def build_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
 
 
 def build_board_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpisWithAds:
-    """`build_kpis` plus the ads block: present only with the toggle ON and the profit-view permission."""
+    """`build_kpis` plus the ads block and Total TP: each present only with its toggle ON and the profit-view
+    permission."""
     ads = _kpi_ads(k.ads, k.gross) if can_see_margin and k.ads is not None else None
-    return BoardKpisWithAds(**build_kpis(k, can_see_margin).model_dump(), ads=ads)
+    tp = (
+        KpiTp(value=round_money(k.total_tp), incompletos=k.tp_incompletos)
+        if can_see_margin and k.tp_incompletos is not None
+        else None
+    )
+    return BoardKpisWithAds(**build_kpis(k, can_see_margin).model_dump(), ads=ads, total_tp=tp)

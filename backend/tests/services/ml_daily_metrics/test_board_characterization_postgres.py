@@ -133,11 +133,20 @@ def _board_response(session, name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
     data = response.model_dump()
     return {
         "meta": {k: v for k, v in data.items() if k not in ("kpis", "facets", "rows")},
-        # The additive `kpis.ads` (null with the toggle OFF) is not part of what these digests pin.
-        "kpis": {k: v for k, v in data["kpis"].items() if k != "ads" or v is not None},
+        # The additive `kpis.ads` and "Costos TP" fields (null with their toggles OFF) are not part of what
+        # these digests pin.
+        "kpis": {k: v for k, v in data["kpis"].items() if k not in ("ads", "total_tp") or v is not None},
         "facets": data["facets"],
-        "rows": data["rows"],
+        "rows": [_without_null_tp(row) for row in data["rows"]],
     }
+
+
+TP_FIELDS = ("total_tp", "tp_incompletos")
+
+
+def _without_null_tp(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A row minus the "Costos TP" fields while they are null (the toggle OFF): additive, not pinned here."""
+    return {k: v for k, v in row.items() if k not in TP_FIELDS or v is not None}
 
 
 def _compute(session) -> Dict[str, Dict[str, str]]:
@@ -168,7 +177,7 @@ def _compute(session) -> Dict[str, Dict[str, str]]:
 
 
 def _row_json(row: Any) -> Dict[str, Any]:
-    data = dict(row.__dict__)
+    data = _without_null_tp(dict(row.__dict__))
     data["flags"] = sorted(data.get("flags") or ())
     return data
 

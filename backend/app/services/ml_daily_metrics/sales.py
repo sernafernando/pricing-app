@@ -372,14 +372,21 @@ def _in_ranges(column, ranges: Optional[Iterable[Range]]):
     return or_(*(and_(column >= start, column < end) if end is not None else column >= start for start, end in ranges))
 
 
-def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[int] = None, mlas: Optional[Any] = None):
+def persisted_lines(
+    *,
+    ranges: Optional[List[Range]] = None,
+    product: Optional[int] = None,
+    mlas: Optional[Any] = None,
+    tp: bool = False,
+):
     """The same lines as `sale_lines` (same columns, same numbers), read from the
     persisted `ml_sale_lines` instead of derived: no joins, no windows. The table
     is written as if every order were settled; the recompute queue is applied here,
     as the live derivation does: an order being recalculated has no gross and no
     Total Gauss, and its group takes no part in the markup (no `mtg`, no `mcosto`).
     `mlas` (a list or a one-column select) limits it to those MLAs: each line is
-    independent, so no other line of the group is needed."""
+    independent, so no other line of the group is needed. `tp=True` adds the
+    TP-Link shares under the same queue rule (NULL, incomplete, stays NULL)."""
     L = MlSaleLine
     o2 = aliased(MlOrdersOps)
     queued_orders = select(D.order_id)
@@ -395,6 +402,15 @@ def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[i
         case((order_queued, 0), else_=L.tg).label("tg"),
         case((group_queued, 0), else_=L.mtg).label("mtg"),
         case((group_queued, 0), else_=L.mcosto).label("mcosto"),
+        *(
+            [
+                case((order_queued, 0), else_=L.tg_tp).label("tg_tp"),
+                case((group_queued, 0), else_=L.mtg_tp).label("mtg_tp"),
+                case((group_queued, 0), else_=L.mcosto_tp).label("mcosto_tp"),
+            ]
+            if tp
+            else []
+        ),
     )
     if ranges is not None:
         q = q.where(_in_ranges(L.group_date, ranges))
@@ -419,14 +435,16 @@ def lines_source(
     product: Optional[int] = None,
     groups: Optional[Any] = None,
     mlas: Optional[Any] = None,
+    tp: bool = False,
 ):
     """The sold lines (`sale_lines` columns) from the source `reads_persisted_lines`
     picks. `groups` bounds only the live derivation and `mlas` only the persisted
     read: the persisted lines are independent rows, while the live ones need their
-    whole groups (the caller still keeps the lines of its MLAs there)."""
+    whole groups (the caller still keeps the lines of its MLAs there). `tp=True`
+    adds the TP-Link shares (`tg_tp`, `mtg_tp`, `mcosto_tp`) from either source."""
     if reads_persisted_lines(sqlite):
-        return persisted_lines(ranges=ranges, product=product, mlas=mlas)
-    return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups)
+        return persisted_lines(ranges=ranges, product=product, mlas=mlas, tp=tp)
+    return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups, tp=tp)
 
 
 def persisted_last_sales(

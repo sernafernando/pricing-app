@@ -341,10 +341,18 @@ class BoardFilter:
     # Third position of the toggle (owner decision): also subtract, from the KPI totals, the spend no publication
     # owns (Display, Brand Ads). Needs `restar_publicidad`; only the unfiltered view can carry it.
     restar_todo: bool = False
+    # "Costos TP" (metricas-ml-tplink-mode P4): the operations of the TP store group -- the publication's
+    # CURRENT store is one of `tp_store_ids` (the `tplink` clave, resolved by the router) -- take the TP cost:
+    # their markup is Markup TP, and Total TP is reported next to Total Gauss (which never changes). Other
+    # stores are untouched. OFF by default; OFF emits the very same SQL as before the field existed.
+    costos_tp: bool = False
+    tp_store_ids: Tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if self.restar_todo and not self.restar_publicidad:
             raise ValueError("restar_todo is the third position of restar_publicidad: it needs the toggle on")
+        if self.costos_tp and not self.tp_store_ids:
+            raise ValueError("costos_tp needs the TP store ids (fail closed: never every store)")
 
 
 # Every `BoardFilter` field is classified, so a new one cannot silently change
@@ -385,6 +393,8 @@ NAVIGATION_FIELDS = frozenset(
         "sort_desc",
         "restar_publicidad",
         "restar_todo",
+        "costos_tp",
+        "tp_store_ids",
     }
 )
 
@@ -501,6 +511,10 @@ class Row:
     prev_costo: Decimal = Decimal("0")
     # Product Ads cost of the period, net of IVA; None unless the toggle is ON.
     ads_cost: Optional[Decimal] = None
+    # "Costos TP" ON only (both None when OFF): the known Total TP of the row's TP-store operations (None when it
+    # has none with a TP cost) and how many of its TP-store sold lines lack one (incomplete, never read as 0).
+    total_tp: Optional[Decimal] = None
+    tp_incompletos: Optional[int] = None
     windows: Dict[str, int] = field(default_factory=dict)
     units_24h: int = 0
     last_sale_at: Optional[datetime] = None
@@ -555,6 +569,9 @@ class Kpis:
     series_markup: List[Optional[float]]
     # Only with the toggle ON.
     ads: Optional["AdsKpis"] = None
+    # Only with "Costos TP" ON (see `Row`).
+    total_tp: Optional[Decimal] = None
+    tp_incompletos: Optional[int] = None
 
 
 @dataclass
@@ -683,6 +700,8 @@ class Board:
         # Whether this request subtracts the ads (the router already refused
         # the toggle without `ml_metricas.ver_ganancia`). OFF changes nothing.
         self.ads = f.restar_publicidad
+        # "Costos TP": the TP store group's operations take the TP cost. OFF changes nothing.
+        self.tp = f.costos_tp
         self.product_item_id = product_item_id
         self.scope = tuple(scope)
         self.scope_pairs = None if scope_pairs is None else [tuple(pair) for pair in scope_pairs]
@@ -895,7 +914,11 @@ class Board:
             product=self.product_item_id,
             groups=self._touched(),
             mlas=select(self.mla_set.c.mla) if pushdown else None,
+            tp=self.tp,
         )
+        markup = [func.sum(lines.c.mtg).label("mtg"), func.sum(lines.c.mcosto).label("mcosto")]
+        if self.tp:
+            markup = self._tp_line_sums(lines)
         return self._in_mla_set(
             select(
                 lines.c.product,
@@ -904,13 +927,33 @@ class Board:
                 func.sum(lines.c.qty).label("units"),
                 func.sum(lines.c.gross).label("gross"),
                 func.sum(lines.c.tg).label("tg"),
-                func.sum(lines.c.mtg).label("mtg"),
-                func.sum(lines.c.mcosto).label("mcosto"),
+                *markup,
                 func.sum(case((lines.c.group_date >= self.since_24h, lines.c.qty), else_=0)).label("u24"),
                 func.max(lines.c.group_date).label("last_at"),
             ),
             lines.c.mla,
         ).group_by(lines.c.product, lines.c.mla, lines.c.day)
+
+    def _tp_mlas(self) -> Any:
+        """The MLAs whose CURRENT publication (newest `mlp_id`, as `_pub`) is in the TP store group: the store is
+        the publication's, never the snapshot column of the order."""
+        latest = select(func.max(M.mlp_id)).where(M.mlp_publicationID.isnot(None)).group_by(M.mlp_publicationID)
+        return select(M.mlp_publicationID).where(
+            M.mlp_id.in_(latest), M.mlp_official_store_id.in_(list(self.f.tp_store_ids))
+        )
+
+    def _tp_line_sums(self, lines: Any) -> List[Any]:
+        """ "Costos TP": the markup sums of a TP-store MLA come from its TP shares, everyone else's stay. A TP
+        line without a TP cost (NULL share) leaves the markup population, like a group without Total Gauss
+        does; `tg_tp` sums only the KNOWN Total TP of TP-store lines (NULL when there is none) and
+        `tp_incompletos` counts the TP-store lines that lack it."""
+        is_tp = lines.c.mla.in_(self._tp_mlas())
+        return [
+            func.coalesce(func.sum(case((is_tp, lines.c.mtg_tp), else_=lines.c.mtg)), 0).label("mtg"),
+            func.coalesce(func.sum(case((is_tp, lines.c.mcosto_tp), else_=lines.c.mcosto)), 0).label("mcosto"),
+            func.sum(case((is_tp, lines.c.tg_tp))).label("tg_tp"),
+            func.sum(case((and_(is_tp, lines.c.tg_tp.is_(None)), 1), else_=0)).label("tp_incompletos"),
+        ]
 
     def _agg(self):
         """ONE pass over the request's lines, per (product, MLA): the period,
@@ -936,6 +979,13 @@ class Board:
             *(total(L.c.units, start, f.date_to).label(f"w{name}") for name, start in self.window_from.items()),
             func.coalesce(func.sum(L.c.u24), 0).label("u24"),
         ]
+        if self.tp:
+            in_period = L.c.day.between(self._day(f.date_from), self._day(f.date_to))
+            cols += [
+                # NULL, not 0, when the period has no known Total TP: "no TP figure" is not "TP figure 0".
+                func.sum(case((in_period, L.c.tg_tp))).label("tg_tp"),
+                total(L.c.tp_incompletos, f.date_from, f.date_to).label("tp_incompletos"),
+            ]
         return select(*cols).group_by(L.c.product, L.c.mla).subquery("agg")
 
     def _pair_source(self):
@@ -982,8 +1032,9 @@ class Board:
         prev_ads = func.coalesce(pair_ads.c.prev_ads, 0) if pair_ads is not None else None
 
         def money(name: str) -> Any:
-            base = func.coalesce(agg.c[name], 0)
-            if pair_ads is None or name not in ("tg", "mtg", "prev_tg", "prev_mtg"):
+            # Total TP stays NULL where it is unknown; the ads come off it like off Total Gauss.
+            base = agg.c[name] if name == "tg_tp" else func.coalesce(agg.c[name], 0)
+            if pair_ads is None or name not in ("tg", "mtg", "prev_tg", "prev_mtg", "tg_tp"):
                 return base
             if name.startswith("prev_"):
                 return base - prev_ads if self.prev_ads_covered else cast(null(), Numeric(16, 2))
@@ -1425,6 +1476,7 @@ class Board:
                         "w30d",
                         "u24",
                         *(("ads_cost",) if self.ads else ()),
+                        *(grouping.TP_SUM_COLUMNS if self.tp else ()),
                     )
                 ),
                 func.max(fp.c.last_day).label("last_day"),
@@ -1621,6 +1673,7 @@ class Board:
                 prev_mtg=_prev_cents(r["prev_mtg"]),
                 prev_costo=cents(r["prev_costo"]),
                 ads_cost=cents(r["ads_cost"]) if self.ads else None,
+                **self._tp_of(r),
                 last_sale_at=_as_aware(_as_datetime(r["last_at"])),
                 windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
                 units_24h=int(r["u24"] or 0),
@@ -1866,12 +1919,19 @@ class Board:
             prev_mtg=_prev_cents(r["prev_mtg"]),
             prev_costo=cents(r["prev_costo"]),
             ads_cost=cents(r["ads_cost"]) if self.ads else None,
+            **self._tp_of(r),
             last_sale_at=_as_aware(_as_datetime(r["last_at"])),
             windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
             units_24h=int(r["u24"] or 0),
             ageing_days=(self.today - ref_day).days if ref_day else None,
             stock=int(r["stock"]) if r["stock"] is not None else None,
         )
+
+    def _tp_of(self, r: Any) -> Dict[str, Any]:
+        """The `Row`/`Kpis` TP fields of a summed row: none with "Costos TP" OFF."""
+        if not self.tp:
+            return {}
+        return dict(total_tp=_prev_cents(r["tg_tp"]), tp_incompletos=int(r["tp_incompletos"] or 0))
 
     # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
 
@@ -1989,6 +2049,11 @@ class Board:
                     prev_sum(rows.c.prev_tg).label("prev_tg"),
                     prev_sum(rows.c.prev_mtg).label("prev_mtg"),
                     func.coalesce(func.sum(rows.c.prev_costo), 0).label("prev_costo"),
+                    *(
+                        [func.sum(rows.c.tg_tp).label("tg_tp"), func.sum(rows.c.tp_incompletos).label("tp_incompletos")]
+                        if self.tp
+                        else []
+                    ),
                     func.count().label("rows"),
                     func.coalesce(func.sum(case((rows.c.units > 0, 1), else_=0)), 0).label("with_sales"),
                     func.avg(self._days_since(rows.c.ref_day)).label("ageing_avg"),
@@ -2064,6 +2129,7 @@ class Board:
             series_tg=s_tg,
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
             ads=ads,
+            **self._tp_of(totals),
         )
 
     def _ads_kpis(self) -> AdsKpis:

@@ -121,9 +121,16 @@ SUM_COLUMNS = (
 )
 
 
+# The per-pair sums "Costos TP" adds (metricas-ml-tplink-mode P4): the known Total TP and the TP-store lines
+# without a TP cost.
+TP_SUM_COLUMNS = ("tg_tp", "tp_incompletos")
+
+
 def sum_columns(pairs: Any) -> tuple:
-    """`SUM_COLUMNS` plus the ads cost when the pair table carries it (the toggle ON)."""
-    return SUM_COLUMNS + (("ads_cost",) if "ads_cost" in pairs.c else ())
+    """`SUM_COLUMNS` plus the ads cost and the TP sums when the pair table carries them (their toggles ON)."""
+    return (
+        SUM_COLUMNS + (("ads_cost",) if "ads_cost" in pairs.c else ()) + (TP_SUM_COLUMNS if "tg_tp" in pairs.c else ())
+    )
 
 
 class Dimension(NamedTuple):
