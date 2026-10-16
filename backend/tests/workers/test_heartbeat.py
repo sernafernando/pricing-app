@@ -15,14 +15,20 @@ is identical at any timescale.
 
 from __future__ import annotations
 
+import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.orm import sessionmaker
 
 from app.workers.heartbeat import HeartbeatThread
+
+# Ticks the heartbeat must complete on its own while the main thread is blocked.
+TICKS = 3
+# Generous ceiling for the handshake: a slow CI runner only makes the test slower, never red.
+WAIT_SECONDS = 30
 
 
 @pytest.fixture()
@@ -43,15 +49,38 @@ def _worker_db_session(monkeypatch, pg_worker_engine):
 @pytest.mark.postgres
 class TestHeartbeatStaysAliveWhileMainThreadBlocked:
     def test_heartbeat_at_keeps_advancing_while_a_stubbed_handler_blocks(
-        self, _worker_db_session, pg_worker_engine
+        self, _worker_db_session, pg_worker_engine, monkeypatch
     ) -> None:
+        """Handshake, not sleeps: the main thread blocks on an Event until the
+        heartbeat thread has COMPLETED `TICKS` ticks on its own, and the
+        thread is then frozen at the start of the next tick, so nothing moves
+        while it is inspected. Health is read on an explicit clock (when the
+        main loop would next look, one interval after the last completed
+        tick), never on how long a tick took on a loaded machine."""
+        real_tick = HeartbeatThread._tick
+        tick_started_at: list[datetime] = []
+        ticks_done = threading.Event()
+        release = threading.Event()
+
+        def counted_tick(self) -> None:
+            if len(tick_started_at) == TICKS:
+                # Entering tick TICKS+1: run() has already recorded tick TICKS as completed.
+                ticks_done.set()
+                release.wait(timeout=WAIT_SECONDS)
+            tick_started_at.append(datetime.now(timezone.utc))
+            real_tick(self)
+
+        monkeypatch.setattr(HeartbeatThread, "_tick", counted_tick)
         thread = HeartbeatThread(worker_name="test-worker", interval=0.05)
         thread.start()
         try:
-            # Simulate the main thread stuck inside a long handler call --
-            # the heartbeat must keep ticking on its own regardless.
-            time.sleep(0.3)
-            assert thread.is_healthy() is True
+            # The main thread stuck inside a long handler call -- the heartbeat must keep ticking on its own.
+            assert ticks_done.wait(timeout=WAIT_SECONDS), "the heartbeat thread stopped ticking"
+            assert thread.is_alive() is True
+            assert thread.last_tick_error is None
+            last_tick = thread._last_tick_completed_at
+            assert last_tick is not None
+            assert thread.is_healthy(now=last_tick + timedelta(seconds=thread.interval)) is True
 
             with pg_worker_engine.connect() as conn:
                 row = conn.execute(
@@ -63,8 +92,10 @@ class TestHeartbeatStaysAliveWhileMainThreadBlocked:
             heartbeat_at = row[0]
             if heartbeat_at.tzinfo is None:
                 heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
-            assert (datetime.now(timezone.utc) - heartbeat_at).total_seconds() < 1.0
+            # Written by the LAST completed tick, i.e. it advanced past every earlier one.
+            assert tick_started_at[0] < tick_started_at[-1] <= heartbeat_at <= last_tick
         finally:
+            release.set()
             thread.stop()
             thread.join(timeout=2)
 
