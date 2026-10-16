@@ -9,6 +9,8 @@ El permiso **Acceso solo TP-Link**, que ya funcionaba en **Ventas ML**, ahora ta
 - **Solo la tienda TP-Link, siempre con costo TP:** no aparece el interruptor **Costos TP**, porque está siempre aplicado.
 - **Total TP y Markup TP:** se muestran la tarjeta y la columna **Total TP**, y el markup se llama **Markup TP**.
 - **Sin Total Gauss:** el **Total Gauss** no aparece en ningún lado: ni en las tarjetas, ni en la tabla, ni en el orden, ni en el selector de columnas, ni en el CSV.
+- **Ordenar por Total TP:** la columna **Total TP** se puede ordenar. Si la tabla estaba ordenada por **Total Gauss**, pasa a ordenarse por **Total TP**.
+- **También con Costos TP:** los demás usuarios pueden ordenar por **Total TP** cuando tienen encendido **Costos TP**. Si lo apagan con la tabla ordenada por **Total TP**, la tabla vuelve a ordenarse por **Facturado**, de mayor a menor.
 - **Vistas disponibles:** **Producto**, **Publicación** y **Agrupado**, este último solo por **Tienda**.
 - **Sin filtro de PM.**
 - **Publicidad:** el control de **Publicidad** sigue disponible, y sus textos explican cómo afecta al **Total TP** y al markup.
