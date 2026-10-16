@@ -181,8 +181,10 @@ SORTS = (
     "ageing",
     "title",
     "stock",
+    # Total TP: only with "Costos TP" on (the only column it exists in), always on for `tplink.solo`.
+    "total_tp",
 )
-MARGIN_SORTS = ("total_gauss", "markup", "markup_delta", "ads_cost")
+MARGIN_SORTS = ("total_gauss", "markup", "markup_delta", "ads_cost", "total_tp")
 SERIES_DAYS = 90
 WINDOWS = (("3d", 3), ("7d", 7), ("15d", 15), ("30d", 30))
 AGEING_ALERT_DAYS = 60
@@ -1621,11 +1623,16 @@ class Board:
             "title": func.lower(func.coalesce(rows.c.title, "")),
             # Unknown stock ("sin dato") goes last either way, like any NULL.
             "stock": rows.c.stock,
+            # An unknown Total TP (incomplete, or no TP-store sale) is NULL: last either way.
+            "total_tp": rows.c.tg_tp if self.tp else None,
         }
         if self.f.sort == "ads_cost" and not self.ads:
             # No ads column with the toggle OFF: every row ties and the unique key orders them. Never a constant
             # term: Postgres reads `ORDER BY 0` as a column position and rejects `ORDER BY NULL`.
             return (rows.c.rk.asc(),)
+        if self.f.sort == "total_tp" and not self.tp:
+            # The router answers 422 first; never a silent fallback to another order.
+            raise ValueError("sort=total_tp needs costos_tp: there is no Total TP without it")
         column = sort_cols[self.f.sort]
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc
         return ((column.desc() if descending else column.asc()).nulls_last(), rows.c.rk.asc())

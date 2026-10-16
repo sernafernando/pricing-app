@@ -24,7 +24,7 @@ from app.models.ml_order_metrics import MlOrderMetricsDirty
 from app.models.ml_sale_line import MlSaleLine
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.sales import sale_lines
-from app.services.order_metrics.sale_lines_store import STORED_COLUMNS
+from app.services.order_metrics.sale_lines_store import STORED_COLUMNS, derive_sale_lines
 from tests.services.ml_daily_metrics.test_board_postgres import _group, _order
 
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
@@ -234,3 +234,79 @@ class TestTplinkSoloLock:
             4,
         )
         assert set(facets.stores) <= {str(s) for s in TP_STORES}
+
+
+SORTED_ORDER = 2000012345678927
+
+
+def _add_known_tp_product(db) -> None:
+    """27: H27 in TP 471846 (tg50/c100, TP cost 30, Total TP 70): a second KNOWN Total TP, above product 21's 40."""
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (27, 'S27', 'Repetidor', 'TP-Link', 'Redes', 1, 1);"
+            "INSERT INTO tb_mercadolibre_items_publicados "
+            "(mlp_id, mlp_publicationid, item_id, mlp_official_store_id) VALUES (9027, 'MLA9000000027', 27, 471846)"
+        )
+    )
+    _order(db, SORTED_ORDER, [(27, "MLA9000000027", 1, Decimal("100"))], tg="50", costo="100")
+    db.execute(
+        text("UPDATE ml_order_metrics SET costo_tp = 30, total_tp = 70, tp_incompleto = false WHERE order_id = :o"),
+        {"o": SORTED_ORDER},
+    )
+    _group(db, f"o:{SORTED_ORDER}", [SORTED_ORDER], NOW - timedelta(hours=3))
+    db.flush()
+    if settings.METRICAS_SALE_LINES_ENABLED:
+        lines = derive_sale_lines([f"o:{SORTED_ORDER}"])
+        db.execute(
+            insert(MlSaleLine.__table__).from_select(
+                list(STORED_COLUMNS), select(*(lines.c[n] for n in STORED_COLUMNS))
+            )
+        )
+        db.flush()
+
+
+def _sorted_keys(db, f):
+    with board.Board(db, f, scope_pairs=None) as b:
+        return [row.key for row in b.page(None)]
+
+
+@pytest.mark.postgres
+class TestSortByTotalTp:
+    """`sort=total_tp` (metricas-ml-tplink-mode P6b): by the row's Total TP, an unknown one (incomplete, or no
+    TP-store sale) last in BOTH directions, and the row key closing every tie so pages stay stable."""
+
+    def test_descending_puts_the_highest_known_first_and_unknown_last(self, catalog) -> None:
+        _add_known_tp_product(catalog)
+
+        keys = _sorted_keys(catalog, dataclasses.replace(ON, sort="total_tp", sort_desc=True))
+
+        assert keys == ["27", "21", "22", "23", "24", "25", "26"]
+
+    def test_ascending_keeps_unknown_last(self, catalog) -> None:
+        _add_known_tp_product(catalog)
+
+        keys = _sorted_keys(catalog, dataclasses.replace(ON, sort="total_tp", sort_desc=False))
+
+        assert keys == ["21", "27", "22", "23", "24", "25", "26"]
+
+    def test_pages_neither_repeat_nor_skip_rows(self, catalog) -> None:
+        _add_known_tp_product(catalog)
+        f = dataclasses.replace(ON, sort="total_tp", sort_desc=True)
+
+        with board.Board(catalog, f, scope_pairs=None) as b:
+            paged = [row.key for offset in range(0, 7, 2) for row in b.page(2, offset)]
+
+        assert paged == _sorted_keys(catalog, f)
+
+    def test_the_group_nodes_sort_by_total_tp_too(self, catalog) -> None:
+        f = dataclasses.replace(ON, group_by="group", dimension="tienda", sort="total_tp", sort_desc=False)
+
+        with board.Board(catalog, f, scope_pairs=None) as b:
+            keys = [row.key for row in b.group_page(None)]
+
+        assert keys == ["c:tplink", "s:57997"]
+
+    def test_without_costos_tp_it_fails_closed(self, catalog) -> None:
+        with pytest.raises(ValueError, match="total_tp"):
+            _sorted_keys(catalog, dataclasses.replace(OFF, sort="total_tp"))
