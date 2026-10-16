@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
+from app.services.ml_daily_metrics.sales import frozen_cost_of_item
 from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids
 from app.services.ml_ventas_desglose.deducciones import CostoMercaderiaDeduccion, calcular_total_gauss
 from app.services.ml_ventas_desglose.iva import descomponer_neto
@@ -84,26 +85,20 @@ def costo_tp_by_order(db: Session, order_ids: Sequence[int]) -> Dict[int, Option
     `deducciones.CostoMercaderiaDeduccion` makes of the normal cost. `None`
     (Total TP incomplete) when the order has no items, or ANY item has no
     frozen cost row, no quantity or no TP cost: never a partial sum, never 0,
-    never the normal cost. Two bulk queries for the whole batch."""
-    items = (
-        db.query(MlOrderItemOps.order_id, MlOrderItemOps.item_id, MlOrderItemOps.variation_id, MlOrderItemOps.quantity)
+    never the normal cost.
+
+    Each item reaches its cost row through `frozen_cost_of_item` -- the one
+    item-to-cost join (same order, same MLA, same variation, NULL matching
+    NULL), the key the normal cost resolves by -- in ONE bulk query."""
+    rows = (
+        db.query(MlOrderItemOps.order_id, MlOrderItemOps.quantity, MlOrderItemCosto.costo_tp_unitario_ars)
+        .outerjoin(MlOrderItemCosto, frozen_cost_of_item())
         .filter(MlOrderItemOps.order_id.in_(order_ids))
         .all()
     )
-    costs = {
-        (row.order_id, row.item_id, row.variation_id): row.costo_tp_unitario_ars
-        for row in db.query(
-            MlOrderItemCosto.order_id,
-            MlOrderItemCosto.item_id,
-            MlOrderItemCosto.variation_id,
-            MlOrderItemCosto.costo_tp_unitario_ars,
-        ).filter(MlOrderItemCosto.order_id.in_(order_ids))
-    }
     lines: Dict[int, List[Tuple[Optional[Decimal], Optional[int]]]] = {}
-    for item in items:
-        lines.setdefault(item.order_id, []).append(
-            (costs.get((item.order_id, item.item_id, item.variation_id)), item.quantity)
-        )
+    for row in rows:
+        lines.setdefault(row.order_id, []).append((row.costo_tp_unitario_ars, row.quantity))
     result: Dict[int, Optional[Decimal]] = {}
     for order_id in order_ids:
         order_lines = lines.get(order_id)

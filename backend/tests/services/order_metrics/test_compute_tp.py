@@ -221,3 +221,74 @@ class TestTpFiguresAreStored:
         assert row.total_tp == stored.total_tp == row.total_gauss + row.costo_mercaderia - Decimal("16.00")
         assert row.markup_tp == stored.markup_tp
         assert row.tp_incompleto is False
+
+
+def _variation(db, order_id: int, item_id: str, variation_id, qty: int, costo: str, costo_tp, *, cost_variation=...):
+    """A sold item with a variation and its frozen cost row. `cost_variation`
+    is the cost row's own variation_id (defaults to the item's)."""
+    db.add(MlOrderItemOps(order_id=order_id, item_id=item_id, variation_id=variation_id, quantity=qty))
+    tp = {}
+    if costo_tp is not None:
+        tp = dict(
+            costo_tp_origen=Decimal(costo_tp),
+            costo_tp_moneda="ARS",
+            costo_tp_unitario_ars=Decimal(costo_tp),
+            costo_tp_fuente="lista8_ingesta",
+            costo_tp_at=datetime(2026, 8, 15, tzinfo=timezone.utc),
+        )
+    db.add(
+        MlOrderItemCosto(
+            order_id=order_id,
+            item_id=item_id,
+            variation_id=variation_id if cost_variation is ... else cost_variation,
+            costo_origen=Decimal(costo),
+            moneda="ARS",
+            costo_unitario_ars=Decimal(costo),
+            iva_pct=Decimal("21.00"),
+            precio_unitario=Decimal("100.00"),
+            fuente="sku",
+            producto_item_id=1,
+            **tp,
+        )
+    )
+
+
+class TestTpCostResolvesLikeTheNormalCost:
+    """The TP cost of an item comes from the SAME frozen cost row the normal
+    cost does: same order, same MLA, same variation (NULL matching NULL)."""
+
+    def test_each_variation_takes_its_own_tp_cost(self, db) -> None:
+        _order(db, 7201, paid="300.00")
+        _variation(db, 7201, "MLA1", 11, 2, "10.00", "8.00")
+        _variation(db, 7201, "MLA1", 12, 1, "100.00", "70.00")
+        _varios(db)
+        db.commit()
+
+        m = compute_order_metrics(db, [7201])[7201]
+
+        assert m.costo_mercaderia == Decimal("120.00")
+        assert m.costo_tp == Decimal("86.00")
+        assert m.tp_incompleto is False
+
+    def test_a_cost_row_of_another_variation_resolves_neither_cost(self, db) -> None:
+        _order(db, 7202, paid="100.00")
+        _variation(db, 7202, "MLA1", 11, 1, "10.00", "8.00", cost_variation=99)
+        _varios(db)
+        db.commit()
+
+        m = compute_order_metrics(db, [7202])[7202]
+
+        assert m.costo_mercaderia is None
+        assert (m.costo_tp, m.tp_incompleto) == (None, True)
+
+    def test_a_variation_with_cost_but_no_tp_cost_is_incomplete(self, db) -> None:
+        _order(db, 7203, paid="300.00")
+        _variation(db, 7203, "MLA1", 11, 2, "10.00", "8.00")
+        _variation(db, 7203, "MLA1", 12, 1, "100.00", None)
+        _varios(db)
+        db.commit()
+
+        m = compute_order_metrics(db, [7203])[7203]
+
+        assert m.costo_mercaderia == Decimal("120.00")
+        assert (m.costo_tp, m.tp_incompleto) == (None, True)
