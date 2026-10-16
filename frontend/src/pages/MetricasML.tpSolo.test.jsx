@@ -77,6 +77,18 @@ describe('MetricasML for a tplink.solo user', () => {
     expect(kpis.queryByText(/Total Gauss/)).not.toBeInTheDocument();
   });
 
+  it('has no PM filter button, and keeps the other product filters', async () => {
+    await renderWithRouter(<MetricasML />);
+    expect(await screen.findByRole('button', { name: 'Marca' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'PM' })).not.toBeInTheDocument();
+  });
+
+  it('describes the ads positions in terms of Total TP', async () => {
+    await renderWithRouter(<MetricasML />);
+    expect(await screen.findByText('No se resta publicidad de Total TP ni del markup.')).toBeInTheDocument();
+    expect(screen.queryByText(/Total Gauss/)).not.toBeInTheDocument();
+  });
+
   it('reads an unknown Total TP as an incomplete dash, with the warning count', async () => {
     await renderWithRouter(<MetricasML />);
     const cells = await screen.findAllByTestId('total-tp-cell');
@@ -126,5 +138,8 @@ describe('MetricasML without tplink.solo', () => {
     await userEvent.click(within(screen.getByRole('group', { name: 'Agrupar por' })).getByRole('button', { name: 'Agrupado' }));
     const dimensions = within(await screen.findByRole('group', { name: 'Dimensión' })).getAllByRole('button');
     expect(dimensions.map((button) => button.textContent)).toContain('PM');
+    // The PM filter button, besides the PM dimension.
+    expect(screen.getAllByRole('button', { name: 'PM' })).toHaveLength(2);
+    expect(screen.getByText('No se resta publicidad de Total Gauss ni del markup.')).toBeInTheDocument();
   });
 });

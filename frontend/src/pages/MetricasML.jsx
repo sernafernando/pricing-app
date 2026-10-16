@@ -530,7 +530,7 @@ export default function MetricasML() {
                 />
               </div>
             )}
-            {puedeVerGanancia && <AdsModeControl value={publicidad} onChange={withReset(setPublicidad)} />}
+            {puedeVerGanancia && <AdsModeControl value={publicidad} onChange={withReset(setPublicidad)} tpSolo={tpSolo} />}
             {puedeVerGanancia && !tpSolo && (
               <SwitchChip
                 label="Costos TP"
@@ -628,6 +628,7 @@ export default function MetricasML() {
               value={productFilters}
               onChange={withReset(setProductFilters)}
               options={facets?.product}
+              hidePm={tpSolo}
             />
           </div>
           <span className={styles.divider} aria-hidden="true" />

@@ -229,3 +229,18 @@ describe('ProductFiltersPanel dropdown dismissal', () => {
     expect(outerHandler).not.toHaveBeenCalled();
   });
 });
+
+describe('ProductFiltersPanel hidePm', () => {
+  it('shows the PM button by default', () => {
+    render(panel());
+    expect(screen.getByRole('button', { name: 'PM' })).toBeInTheDocument();
+  });
+
+  it('hides the PM button when asked, and keeps the others', () => {
+    render(panel({ hidePm: true }));
+    expect(screen.queryByRole('button', { name: 'PM' })).not.toBeInTheDocument();
+    for (const name of ['Marca', 'Categoría', 'Subcategoría']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+  });
+});
