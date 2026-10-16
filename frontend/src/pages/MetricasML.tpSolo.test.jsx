@@ -90,6 +90,13 @@ describe('MetricasML for a tplink.solo user', () => {
     expect(screen.queryByText(/Total Gauss/)).not.toBeInTheDocument();
   });
 
+  it('sorts by Total TP from its column header', async () => {
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Total TP' }));
+    await waitFor(() => expect(lastBoardParams().sort).toBe('total_tp'));
+    expect(screen.getByRole('columnheader', { name: /Total TP/ })).toHaveAttribute('aria-sort', 'descending');
+  });
+
   it('reads an unknown Total TP as an incomplete dash, with the warning count', async () => {
     await renderWithRouter(<MetricasML />);
     const cells = await screen.findAllByTestId('total-tp-cell');
@@ -155,7 +162,7 @@ describe('MetricasML for a tplink.solo user without ml_metricas.ver_ganancia', (
 
 describe('MetricasML sort once tplink.solo arrives', () => {
   // The permissions load after the first render: a Total Gauss sort picked before then must not reach a TP board.
-  it('turns a Total Gauss sort into the default sort on the board, the group nodes and the CSV', async () => {
+  it('turns a Total Gauss sort into a Total TP sort on the board, the group nodes and the CSV', async () => {
     mockPermisos.current = ['ml_metricas.ver', 'ml_metricas.ver_ganancia'];
     api.get.mockImplementation((url, config) => {
       if (url !== '/ml-metricas/board') return Promise.resolve({ data: { rows: [], total: 0 } });
@@ -174,18 +181,18 @@ describe('MetricasML sort once tplink.solo arrives', () => {
       </MemoryRouter>,
     );
     await waitFor(() => expect(lastBoardParams().costos_tp).toBe(true));
-    expect(lastBoardParams().sort).toBe('gross');
+    expect(lastBoardParams().sort).toBe('total_tp');
 
     await userEvent.click(within(screen.getByRole('group', { name: 'Agrupar por' })).getByRole('button', { name: 'Agrupado' }));
     await waitFor(() => expect(lastBoardParams().group_by).toBe('group'));
-    expect(lastBoardParams().sort).toBe('gross');
+    expect(lastBoardParams().sort).toBe('total_tp');
     await userEvent.click((await screen.findAllByRole('button', { name: /^Ver .+ de / }))[0]);
     const nodeCall = api.get.mock.calls.find(([url]) => url === '/ml-metricas/board/group-nodes');
-    expect(nodeCall[1].params.sort).toBe('gross');
+    expect(nodeCall[1].params.sort).toBe('total_tp');
 
     await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
     await waitFor(() => expect(exportMetricasCsv).toHaveBeenCalled());
-    expect(exportMetricasCsv.mock.calls.at(-1)[0].sort).toBe('gross');
+    expect(exportMetricasCsv.mock.calls.at(-1)[0].sort).toBe('total_tp');
     const sorts = api.get.mock.calls.filter(([, config]) => config?.params?.costos_tp).map(([, config]) => config.params.sort);
     expect(sorts).not.toContain('total_gauss');
   });

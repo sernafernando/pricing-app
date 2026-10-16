@@ -112,6 +112,11 @@ function appendNew(previous, next) {
   return [...previous, ...next.filter((row) => !seen.has(row.key))];
 }
 
+// Total TP exists only with "Costos TP" on (the backend answers 422 otherwise): turning it off leaves that sort.
+function withoutTpSort(sort) {
+  return sort.key === 'total_tp' ? { key: 'gross', desc: true } : sort;
+}
+
 // The current month in Argentina time, the same default as Ventas ML.
 function defaultRange() {
   const { desde, hasta } = currentMonthRange();
@@ -241,6 +246,7 @@ export default function MetricasML() {
     if (!message) return false;
     setTpError(message);
     setCostosTp(false);
+    setSort(withoutTpSort);
     setOffset(0);
     return true;
   }, [tpSolo]);
@@ -539,6 +545,7 @@ export default function MetricasML() {
                 onChange={withReset((next) => {
                   setCostosTp(next);
                   if (next) setTpError(null);
+                  else setSort(withoutTpSort);
                 })}
                 title="Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link"
               />

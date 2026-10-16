@@ -46,6 +46,7 @@ const SORT_BY = {
   markup_delta: 'markup_delta',
   gross: 'gross',
   total_gauss: 'total_gauss',
+  total_tp: 'total_tp',
   ads_cost: 'ads_cost',
   last_sale: 'last_sale',
   ageing: 'ageing',
