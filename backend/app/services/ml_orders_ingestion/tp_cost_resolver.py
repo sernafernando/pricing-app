@@ -9,10 +9,10 @@ full rules (price at the sale date, first-price fallback flagged approximate,
 combo precedence, rejected prices stay NULL).
 
 The five history/FX pickers (`as_date`, `tiene_precio`, `pick_history_row`,
-`usd_rates_by_date`, `pick_fx_rate`) are copies of the ones in
-`app/scripts/backfill_costo_congelado.py`, behaviour unchanged: importing that
-script would load `backend/.env` into whatever process imports this module
-(the worker included).
+`usd_rates_by_date`, `pick_fx_rate`) come from
+`app/services/ml_orders_ingestion/list_history.py`, shared with the
+normal-cost backfill; no `app.scripts` module is imported here, so the worker
+never loads `backend/.env` through this module.
 """
 
 from __future__ import annotations

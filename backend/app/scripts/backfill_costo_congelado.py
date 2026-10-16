@@ -54,7 +54,7 @@ import logging
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -92,7 +92,6 @@ from app.services.ml_orders_ingestion.list_history import (  # noqa: E402
     as_date,
     pick_fx_rate,
     pick_history_row,
-    tiene_precio,
     usd_rates_by_date,
 )
 
