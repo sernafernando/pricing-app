@@ -70,6 +70,17 @@ class MlOrderMetrics(Base):
     formula_version = Column(SmallInteger, nullable=False)
     computed_at = Column(DateTime(timezone=True), nullable=False)
 
+    # TP-Link figures (metricas-ml-tplink-mode P3), from the TP cost frozen on
+    # `ml_order_item_costos` (cost list 8). Total TP = total_gauss +
+    # costo_mercaderia - costo_tp; markup_tp = total_tp / costo_tp, as a
+    # percentage. `tp_incompleto` is True when ANY item lacks a TP cost: every
+    # TP figure is then NULL, never 0 and never the normal cost. NULL in
+    # `tp_incompleto` means the row predates these columns (not computed yet).
+    costo_tp = Column(Numeric(14, 2), nullable=True)
+    total_tp = Column(Numeric(14, 2), nullable=True)
+    markup_tp = Column(Numeric(9, 2), nullable=True)
+    tp_incompleto = Column(Boolean, nullable=True)
+
 
 class MlOrderMetricsDirty(Base):
     """Versioned dirty queue (design D3). Two PL/pgSQL helpers write here

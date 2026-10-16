@@ -35,8 +35,14 @@ History of the value:
   2026-10-10 store `iva_reconcilia = False` with no `neto_sin_iva` / Total
   Gauss. `neto` itself is unchanged. The bump re-enqueues every stored row so
   `iva_reconcilia`, `neto_sin_iva` and the Total Gauss are recomputed.
+- 7: metricas-ml-tplink-mode (P3). No Gauss formula changed: the drain now
+  also stores the TP-Link figures (`costo_tp`, `total_tp`, `markup_tp`,
+  `tp_incompleto`) and the lines' `tg_tp`/`mtg_tp`/`mcosto_tp`. The bump
+  re-enqueues every stored row so it gets them; an order whose items have no
+  TP cost yet stores `tp_incompleto = True`, and the TP backfill recomputes it
+  later through the `ml_order_item_costos` trigger.
 """
 
 from __future__ import annotations
 
-CURRENT_FORMULA_VERSION = 6
+CURRENT_FORMULA_VERSION = 7

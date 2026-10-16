@@ -41,5 +41,8 @@ def test_the_migration_creates_the_columns_and_indexes_of_the_model() -> None:
         indexes = {ix["name"]: ix["column_names"] for ix in inspector.get_indexes("ml_sale_lines")}
 
     table = MlSaleLine.__table__
-    assert columns == {c.name for c in table.columns}
+    # The TP-Link shares are added later by 20261027_tp_metrics_columns (checked
+    # by test_migration_tp_metrics_columns.py), not by this migration.
+    added_later = {"tg_tp", "mtg_tp", "mcosto_tp"}
+    assert columns == {c.name for c in table.columns} - added_later
     assert indexes == {ix.name: [c.name for c in ix.columns] for ix in table.indexes}

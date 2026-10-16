@@ -61,3 +61,9 @@ class MlSaleLine(Base):
     tg = Column(Numeric, nullable=False)
     mtg = Column(Numeric, nullable=False)
     mcosto = Column(Numeric, nullable=False)
+    # TP-Link shares (metricas-ml-tplink-mode P3), split like `tg`/`mtg`/
+    # `mcosto` from the order's Total TP and TP cost. NULL = incomplete (a
+    # member without a TP cost), never 0 -- hence nullable, unlike the above.
+    tg_tp = Column(Numeric, nullable=True)
+    mtg_tp = Column(Numeric, nullable=True)
+    mcosto_tp = Column(Numeric, nullable=True)

@@ -57,6 +57,12 @@ class OrderMetrics:
     # `(code, monto, concepto)` -- verbatim `TotalGaussResultado.lineas`
     # shape (deducciones.py), NOT a column of `ml_order_metrics`.
     lineas: List[Tuple[str, Optional[Decimal], Optional[str]]] = field(default_factory=list)
+    # TP-Link figures (metricas-ml-tplink-mode P3). Defaulted so a caller
+    # that predates them still builds a valid (TP-unknown) result.
+    costo_tp: Optional[Decimal] = None
+    total_tp: Optional[Decimal] = None
+    markup_tp: Optional[Decimal] = None
+    tp_incompleto: Optional[bool] = None
 
     def __post_init__(self) -> None:
         if self.gauss_status == GaussStatus.UNRESOLVED:
@@ -69,3 +75,12 @@ class OrderMetrics:
 
         if self.markup_pct is not None and (self.costo_mercaderia is None or self.costo_mercaderia == 0):
             raise ValueError("markup_pct must be None when costo_mercaderia is None or zero")
+
+        # TP: an incomplete order carries no TP figure; a Total TP needs a
+        # Total Gauss and a TP cost; a markup needs a non-zero TP cost.
+        if self.tp_incompleto and (self.costo_tp, self.total_tp, self.markup_tp) != (None, None, None):
+            raise ValueError("tp_incompleto requires costo_tp, total_tp and markup_tp to be None")
+        if self.total_tp is not None and (self.total_gauss is None or self.costo_tp is None):
+            raise ValueError("total_tp requires a total_gauss and a costo_tp")
+        if self.markup_tp is not None and (self.total_tp is None or not self.costo_tp):
+            raise ValueError("markup_tp requires a total_tp and a non-zero costo_tp")
