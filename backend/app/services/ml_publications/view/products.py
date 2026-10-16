@@ -16,7 +16,7 @@ then sums them per linked product, sorts and pages:
   summed cost (`board.markup_of`, the Board's own aggregate rule), never an average of percentages; the order-group
   all-or-nothing of numerator and cost is already in each publication's components, and a sum keeps it;
 * the last sale is the latest, the ageing counts from it (else from the earliest publication start), as the Board
-  ages its own product rows; the 90-day series sums the publications' daily lines (`Board._read_series`);
+  ages its own product rows; the 90-day series sums the publications' daily lines (`Board.read_series`);
 * a linked publication the Board has no row for (never sold, unknown to the ERP mirror) still counts in its product,
   with no figures; a product none of whose publications has a Board row has no figures at all (`without_figures`);
 * the figure sorts put the products without a sale in the 30 days last either way, as `/items` does; the product id
@@ -161,10 +161,9 @@ def _ordered(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
 
 def _row(r: Any, today: date) -> board.Row:
     product = int(r["product"])
-    # ponytail: `board._as_date`, `_as_datetime` and `_as_aware` are the Board's private readers of its temp-table
-    # values (SQLite text vs Postgres types); reused so a product row reads them exactly as the Board's own rows do.
-    # Switch to their public names once PR #1595 (which owns `ml_daily_metrics/board.py` now) merges.
-    ref_day = board._as_date(r["last_day"]) or board._as_date(r["start_day"])
+    # `board.as_date`, `as_datetime` and `as_aware` read the Board's temp-table values (SQLite text vs Postgres
+    # types), so a product row reads them exactly as the Board's own rows do.
+    ref_day = board.as_date(r["last_day"]) or board.as_date(r["start_day"])
     return board.Row(
         key=str(product),
         product_item_id=product,
@@ -183,7 +182,7 @@ def _row(r: Any, today: date) -> board.Row:
         prev_costo=board.cents(r["prev_costo"]),
         windows={name: int(r[column] or 0) for name, column in WINDOW_COLUMNS.items()},
         units_24h=int(r["u24"] or 0),
-        last_sale_at=board._as_aware(board._as_datetime(r["last_at"])),  # ponytail: see `_as_date` above
+        last_sale_at=board.as_aware(board.as_datetime(r["last_at"])),
         ageing_days=(today - ref_day).days if ref_day else None,
         stock=int(r["stock"]) if r["stock"] is not None else None,
     )
@@ -191,7 +190,7 @@ def _row(r: Any, today: date) -> board.Row:
 
 def _series(b: board.Board, members: Any, by_key: dict[str, board.Row]) -> None:
     """The page's 90-day series: the publications' daily lines summed per linked product, read by the Board's own
-    reader (`_read_series`: units summed, each day's markup from that day's summed components)."""
+    reader (`read_series`: units summed, each day's markup from that day's summed components)."""
     if not by_key:
         return
     fp, lines = b.filtered_pairs(), b.lines
@@ -213,10 +212,9 @@ def _series(b: board.Board, members: Any, by_key: dict[str, board.Row]) -> None:
         )
         .group_by(members.c.product, lines.c.day)
     )
-    # ponytail: `Board._read_series` is private; it is the Board's own series reader (each day's markup from that
-    # day's summed components), reused so a product's sparklines equal the sum of its publications'. Switch to its
-    # public name once PR #1595 (which owns `ml_daily_metrics/board.py` now) merges.
-    b._read_series(by_key, series)
+    # The Board's own series reader (each day's markup from that day's summed components), so a product's
+    # sparklines equal the sum of its publications'.
+    b.read_series(by_key, series)
 
 
 def list_products(
