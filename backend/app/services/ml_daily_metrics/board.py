@@ -652,8 +652,10 @@ def cents(value: Any) -> Decimal:
     return Decimal(str(value or 0)).quantize(CENT, ROUND_HALF_UP)
 
 
-def _prev_cents(value: Any) -> Optional[Decimal]:
-    """A previous-period money sum: NULL only when ads are subtracted and the comparison has unledgered days."""
+def _nullable_cents(value: Any) -> Optional[Decimal]:
+    """A money sum that may honestly be unknown, rounded to the cent: NULL stays NULL (never 0). A
+    previous-period sum is NULL when ads are subtracted and the comparison has unledgered days; Total TP is NULL
+    when no TP-store operation has a known Total TP."""
     return None if value is None else cents(value)
 
 
@@ -1669,8 +1671,8 @@ class Board:
                 tg=cents(r["tg"]),
                 mtg=cents(r["mtg"]),
                 costo=cents(r["costo"]),
-                prev_tg=_prev_cents(r["prev_tg"]),
-                prev_mtg=_prev_cents(r["prev_mtg"]),
+                prev_tg=_nullable_cents(r["prev_tg"]),
+                prev_mtg=_nullable_cents(r["prev_mtg"]),
                 prev_costo=cents(r["prev_costo"]),
                 ads_cost=cents(r["ads_cost"]) if self.ads else None,
                 **self._tp_of(r),
@@ -1915,8 +1917,8 @@ class Board:
             tg=cents(r["tg"]),
             mtg=cents(r["mtg"]),
             costo=cents(r["costo"]),
-            prev_tg=_prev_cents(r["prev_tg"]),
-            prev_mtg=_prev_cents(r["prev_mtg"]),
+            prev_tg=_nullable_cents(r["prev_tg"]),
+            prev_mtg=_nullable_cents(r["prev_mtg"]),
             prev_costo=cents(r["prev_costo"]),
             ads_cost=cents(r["ads_cost"]) if self.ads else None,
             **self._tp_of(r),
@@ -1931,7 +1933,7 @@ class Board:
         """The `Row`/`Kpis` TP fields of a summed row: none with "Costos TP" OFF."""
         if not self.tp:
             return {}
-        return dict(total_tp=_prev_cents(r["tg_tp"]), tp_incompletos=int(r["tp_incompletos"] or 0))
+        return dict(total_tp=_nullable_cents(r["tg_tp"]), tp_incompletos=int(r["tp_incompletos"] or 0))
 
     # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
 
