@@ -444,10 +444,20 @@
    Brand-scoped only; the base theme never matches these selectors.
    ============================================================ */
 
-/* Zero specificity, like index.css's own `*` rule, so any class that sets a
-   font (e.g. the monospace figures) still wins. */
-:where([data-brand="tplink"]) * {
+/* The brand font is set on the brand root and INHERITED. index.css forces
+   Inter on every element with `*`, which breaks inheritance (an unclassed span
+   inside a monospace cell would not stay monospace), so under the brand every
+   descendant inherits instead. Zero specificity: any class that sets its own
+   font still wins. Form controls do not inherit fonts by default, and this
+   rule covers them too. `body` is listed because theme.css gives it its own
+   font-family, which would otherwise win over the inherited one. */
+[data-brand="tplink"],
+[data-brand="tplink"] body {
   font-family: var(--brand-font-family);
+}
+
+:where([data-brand="tplink"]) * {
+  font-family: inherit;
 }
 
 /* Plain links only: anything with a class keeps its own styling. */

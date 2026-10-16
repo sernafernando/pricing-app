@@ -159,6 +159,24 @@ describe('data-brand="tplink"', () => {
         expect(cs.backgroundImage).toContain(TEAL);
       });
 
+      it('the brand font inherits: an unclassed child keeps a monospace container font', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        host = mount('<div style="font-family: monospace"><span>12.345</span></div>');
+        const container = host.firstElementChild;
+        const child = container.firstElementChild;
+        expect(getComputedStyle(child).fontFamily).toBe(getComputedStyle(container).fontFamily);
+        expect(getComputedStyle(host).fontFamily).toContain('Aktiv Grotesk');
+      });
+
+      it('form controls take the brand font', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        host = mount('<button>Ok</button><input /><select></select><textarea></textarea>');
+        const fonts = [...host.children].map((el) => getComputedStyle(el).fontFamily);
+        expect(fonts.every((font) => font.includes('Aktiv Grotesk'))).toBe(true);
+      });
+
       it('the TP-Link logo keeps its 22px minimum height', () => {
         setTheme(theme);
         setBrand('tplink');
