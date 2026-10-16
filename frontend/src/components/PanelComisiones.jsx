@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
-import { toLocalDateString } from '../utils/dateUtils';
+import { parseDateOnly, toLocalDateString } from '../utils/dateUtils';
 import './PanelComisiones.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
@@ -235,7 +235,7 @@ export default function PanelComisiones() {
         <div className="version-actual">
           <h3>Versión Actual: {versionActual.nombre}</h3>
           <div className="version-info">
-            <span>Vigencia: {new Date(versionActual.fecha_desde).toLocaleDateString('es-AR')} - {versionActual.fecha_hasta ? new Date(versionActual.fecha_hasta).toLocaleDateString('es-AR') : 'Actualidad'}</span>
+            <span>Vigencia: {parseDateOnly(versionActual.fecha_desde)?.toLocaleDateString('es-AR')} - {versionActual.fecha_hasta ? parseDateOnly(versionActual.fecha_hasta)?.toLocaleDateString('es-AR') : 'Actualidad'}</span>
             {versionActual.descripcion && <span>{versionActual.descripcion}</span>}
           </div>
         </div>
@@ -394,8 +394,8 @@ export default function PanelComisiones() {
               >
                 <div className="version-nombre">{v.nombre}</div>
                 <div className="version-fechas">
-                  {new Date(v.fecha_desde).toLocaleDateString('es-AR')} -
-                  {v.fecha_hasta ? new Date(v.fecha_hasta).toLocaleDateString('es-AR') : 'Actualidad'}
+                  {parseDateOnly(v.fecha_desde)?.toLocaleDateString('es-AR')} -
+                  {v.fecha_hasta ? parseDateOnly(v.fecha_hasta)?.toLocaleDateString('es-AR') : 'Actualidad'}
                 </div>
                 {v.descripcion && <div className="version-desc">{v.descripcion}</div>}
               </div>
@@ -420,7 +420,7 @@ export default function PanelComisiones() {
 
             <div className="modal-body">
               <div className="version-info" style={{ marginBottom: '24px' }}>
-                <div><strong>Vigencia:</strong> {new Date(versionSeleccionada.fecha_desde).toLocaleDateString('es-AR')} - {versionSeleccionada.fecha_hasta ? new Date(versionSeleccionada.fecha_hasta).toLocaleDateString('es-AR') : 'Actualidad'}</div>
+                <div><strong>Vigencia:</strong> {parseDateOnly(versionSeleccionada.fecha_desde)?.toLocaleDateString('es-AR')} - {versionSeleccionada.fecha_hasta ? parseDateOnly(versionSeleccionada.fecha_hasta)?.toLocaleDateString('es-AR') : 'Actualidad'}</div>
                 {versionSeleccionada.descripcion && <div><strong>Descripción:</strong> {versionSeleccionada.descripcion}</div>}
               </div>
 
