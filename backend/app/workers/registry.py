@@ -18,6 +18,7 @@ from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
 from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
+from app.workers.handlers.tp_cost_fill import fill as _tp_cost_fill
 
 
 class JobHandler(Protocol):
@@ -48,7 +49,13 @@ class JobHandler(Protocol):
 # Explicit, ordered list -- no auto-discovery. PR3 appends
 # `order_metrics.drain`; PR6 appends `order_metrics.reconcile` and
 # `order_metrics.divergence`.
-REGISTRY: List[JobHandler] = [_order_metrics_drain, _order_metrics_reconcile, _order_metrics_divergence]
+# metricas-ml-tplink-mode P2 appends `tp_cost.fill` (notify-driven, like the drain).
+REGISTRY: List[JobHandler] = [
+    _order_metrics_drain,
+    _order_metrics_reconcile,
+    _order_metrics_divergence,
+    _tp_cost_fill,
+]
 
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
 # `--registry ml_publications`, design D1): its handlers sleep for ML pacing and must
