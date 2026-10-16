@@ -526,8 +526,17 @@ def pg_payments_engine():
     from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
 
     tables = [_MlPaymentOps.__table__, _MlPaymentCharge.__table__]
+    # Real BigInteger PKs, not the SQLite-patched Integer (see
+    # `_restore_pristine_pg_types`): this table lives for the whole session
+    # and other Postgres fixtures (`board_pg_engine`) reuse it instead of
+    # creating their own, so an INTEGER `payment_id` built here overflows
+    # their seeds -- order- and xdist-worker-dependent.
+    _restore_pristine_pg_types(tables)
     eng = create_engine(POSTGRES_TEST_URL)
     Base.metadata.create_all(bind=eng, tables=tables)
+    # Leave the shared Column objects patched for SQLite again, in case the
+    # `db` fixture is used by a later test in this same session.
+    _patch_pg_types_for_sqlite()
     yield eng
     Base.metadata.drop_all(bind=eng, tables=tables)
     eng.dispose()
