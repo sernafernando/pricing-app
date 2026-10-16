@@ -649,6 +649,9 @@ class Facets:
     # Cross-filtered marca / categoría / subcategoría / PM options: each list
     # under every other filter (stores included), never its own.
     product: ProductFacetOptions = field(default_factory=ProductFacetOptions)
+    # The store buckets that still hold rows under every filter but the store one: a store chip there selects
+    # rows even when it counts 0 operations in the period.
+    stores_with_rows: List[str] = field(default_factory=list)
 
 
 CENT = Decimal("0.01")
@@ -2239,7 +2242,7 @@ class Board:
         An axis with a filter reads the pairs differently and so adds its own
         rows and members tables (CREATE + ANALYZE each); the rest share the
         unfiltered ones."""
-        stores, stores_total = self._store_operations()
+        stores, stores_total, stores_with_rows = self._store_operations()
 
         joined, fp = self._members("pub_status", narrow=True)
         pub_status = {
@@ -2312,10 +2315,13 @@ class Board:
             stock=stock,
             ageing=ageing,
             product=self._product_options(),
+            stores_with_rows=stores_with_rows,
         )
 
-    def _store_operations(self) -> Tuple[Dict[str, int], int]:
-        """The store chips: OPERATIONS of the period per store, and "Todas" (every operation once), never rows.
+    def _store_operations(self) -> Tuple[Dict[str, int], int, List[str]]:
+        """The store chips: OPERATIONS of the period per store, "Todas" (every operation once), never rows -- and
+        the stores that still hold ROWS under the same filters (`stores_with_rows`): a chip reading 0 operations
+        there still selects rows, so the UI keeps it clickable.
 
         An operation is what Ventas ML counts in its own store chips -- a pack or a lone order accredited in the
         period, cancelled ones included -- read through Ventas ML's own scope (`build_scope`, its default switches
@@ -2365,19 +2371,23 @@ class Board:
             .cte("store_operations")
             .prefix_with("MATERIALIZED", dialect="postgresql")
         )
-        # ONE statement: the per-store counts and "Todas" (bucket NULL) read the same materialized operations.
+        # ONE statement, told apart by `kind`: the per-store counts and "Todas" read the same materialized
+        # operations; the stores holding rows read the (small) members table.
         bucket = func.coalesce(cast(sold.c.store_id, String), literal(NO_STORE))
-        per_store = select(bucket.label("bucket"), func.count(func.distinct(sold.c.group_key)).label("n")).group_by(
-            bucket
-        )
-        everything = select(cast(null(), String).label("bucket"), func.count(func.distinct(sold.c.group_key)))
-        stores, total = {}, 0
-        for b, n in self.db.execute(union_all(per_store, everything)):
-            if b is None:
+        member_bucket = func.coalesce(cast(members.c.store_id, String), literal(NO_STORE))
+        operations_count = func.count(func.distinct(sold.c.group_key))
+        per_store = select(literal("store").label("kind"), bucket.label("bucket"), operations_count.label("n"))
+        everything = select(literal("all"), cast(null(), String), operations_count)
+        with_rows = select(literal("rows"), member_bucket, literal(0)).distinct()
+        stores, total, stores_with_rows = {}, 0, []
+        for kind, b, n in self.db.execute(union_all(per_store.group_by(bucket), everything, with_rows)):
+            if kind == "all":
                 total = int(n or 0)
-            else:
+            elif kind == "store":
                 stores[str(b)] = int(n)
-        return stores, total
+            else:
+                stores_with_rows.append(str(b))
+        return stores, total, sorted(stores_with_rows)
 
     def _product_options(self) -> ProductFacetOptions:
         """The four product lists: the distinct (marca, categoría,

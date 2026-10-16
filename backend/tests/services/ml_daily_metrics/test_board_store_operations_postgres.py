@@ -159,6 +159,23 @@ def test_tp_only_lock_counts_only_the_tp_stores_operations(shop) -> None:
 
 
 @pytest.mark.postgres
+def test_a_store_with_rows_but_no_operation_is_flagged(shop) -> None:
+    """July: no operation at all, but every store still has rows (the default view keeps every pair): each chip
+    reads 0, and `stores_with_rows` says which ones still select rows, so the UI keeps them clickable."""
+    with board.Board(shop, _filter(date_from=date(2026, 7, 1), date_to=date(2026, 7, 31)), scope_pairs=None) as b:
+        facets = b.facets()
+    assert (facets.stores, facets.stores_total) == ({}, 0)
+    assert sorted(facets.stores_with_rows) == sorted([str(GAUSS), str(TP), board.NO_STORE])
+    # Another filter narrows the flags like the counts; the store filter never narrows its own.
+    with board.Board(
+        shop,
+        _filter(date_from=date(2026, 7, 1), date_to=date(2026, 7, 31), marcas=("Logitech",), stores=(str(GAUSS),)),
+        scope_pairs=None,
+    ) as b:
+        assert b.facets().stores_with_rows == [str(TP)]
+
+
+@pytest.mark.postgres
 def test_an_item_without_a_frozen_cost_still_counts_like_ventas_ml(shop) -> None:
     """An order item with no frozen cost row (the board places its sale on the "sin producto" pair of its MLA)
     still counts in its publication's store, as Ventas ML counts it -- under every product filter that keeps

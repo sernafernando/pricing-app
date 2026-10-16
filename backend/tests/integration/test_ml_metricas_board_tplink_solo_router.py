@@ -117,6 +117,7 @@ class TestLockedToTheTpGroupAtTpCost:
         assert body["kpis"]["gross"]["value"] == 400.0
         assert body["kpis"]["total_tp"] == {"value": 73.17, "incompletos": 1}
         assert set(body["facets"]["stores"]) <= {str(TP_OLD), str(TP_NEW)}
+        assert set(body["facets"]["stores_with_rows"]) <= {str(TP_OLD), str(TP_NEW)}
         assert body["facets"]["stores_total"] == 2
 
     def test_a_client_store_filter_is_intersected_never_widened(self, client, admin_auth_headers, tp_solo) -> None:

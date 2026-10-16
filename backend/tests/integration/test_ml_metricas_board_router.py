@@ -1058,9 +1058,11 @@ class TestAgeing:
         assert body["kpis"]["ageing"] == {"avg_days": 101.5, "up_to_30": 0, "from_31_to_60": 0, "over_60": 2}
         assert body["kpis"]["units"]["value"] == 0
         assert body["facets"]["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
-        # Neither row sold in the period: no operation in any store.
+        # Neither row sold in the period: no operation in any store -- but both stores still hold rows, so their
+        # chips (reading 0) stay selectable.
         assert body["facets"]["stores"] == {}
         assert body["facets"]["stores_total"] == 0
+        assert body["facets"]["stores_with_rows"] == ["2645", "57997"]
 
     def test_ageing_and_stock_chips_see_each_other(self, client, admin_auth_headers, stock_data):
         assert _get(client, admin_auth_headers, ageing="over_60")["facets"]["stock"] == {

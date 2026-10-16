@@ -26,7 +26,10 @@ function ChipContent({ label, count }) {
   );
 }
 
-export default function FacetChips({ label, options, labels, counts, total, activeValue, onChange }) {
+/**
+ * `hints` (optional, per option value): a tooltip for that chip, e.g. why it can read 0 and still select rows.
+ */
+export default function FacetChips({ label, options, labels, counts, hints, total, activeValue, onChange }) {
   return (
     <div className={styles.row} role="group" aria-label={label}>
       <button
@@ -43,6 +46,7 @@ export default function FacetChips({ label, options, labels, counts, total, acti
           type="button"
           className={`${styles.chip} ${activeValue === value ? styles.chipActive : ''}`}
           aria-pressed={activeValue === value}
+          title={hints?.[value]}
           onClick={() => onChange(activeValue === value ? '' : value)}
         >
           <ChipContent label={labels[value] ?? value} count={counts?.[value]} />

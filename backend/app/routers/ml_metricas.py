@@ -166,8 +166,11 @@ class BoardRow(BaseModel):
 
 
 class BoardFacets(BaseModel):
+    # Operations of the period per store bucket, and every operation once ("Todas").
     stores: Dict[str, int]
     stores_total: int
+    # The store buckets that still hold rows under every other filter: their chip selects rows even at 0.
+    stores_with_rows: List[str] = []
     pub_status: Dict[str, int]
     pub_type: Dict[str, int]
     alerts: Dict[str, Optional[int]]
@@ -488,6 +491,7 @@ def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
     return BoardFacets(
         stores=facets.stores,
         stores_total=facets.stores_total,
+        stores_with_rows=facets.stores_with_rows,
         pub_status=facets.pub_status,
         pub_type=facets.pub_type,
         alerts=alerts,

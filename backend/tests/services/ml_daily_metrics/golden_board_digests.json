@@ -1,24 +1,24 @@
 {
  "alerts": {
-  "facets": "ece1dc08fe3d33ffedae",
+  "facets": "b1fa1b8f0d2c136cc5d6",
   "kpis": "456124ddb4c106cced34",
   "meta": "ae5358523dc05cbd6283",
   "rows": "69c5c3cd0f9419d9f1f5"
  },
  "everything_at_once": {
-  "facets": "5eac86032bba5b1664ce",
+  "facets": "d3936832174290b79b83",
   "kpis": "c1bda382465548c0cb5e",
   "meta": "6109946cbad763d486b3",
   "rows": "33c0baafee85c04ef814"
  },
  "exclusions": {
-  "facets": "fd00d7c09a5ec69f6c06",
+  "facets": "e9210252d95c83e52e6a",
   "kpis": "509a2a9bbe7e66d7f8a2",
   "meta": "2ff9062ff662c834086e",
   "rows": "bc5d22af711089d3200e"
  },
  "group_marca": {
-  "facets": "0c162e830097dd60cfdb",
+  "facets": "3c4db502836d4728b735",
   "kpis": "8cc5eb5a1ae1aeabc953",
   "meta": "ac594b9aa981ccdea730",
   "rows": "ed5b06def20abb626717"
@@ -27,139 +27,139 @@
   "rows": "2cdfbe4ed579d39c9fa0"
  },
  "group_tienda": {
-  "facets": "0c162e830097dd60cfdb",
+  "facets": "3c4db502836d4728b735",
   "kpis": "8cc5eb5a1ae1aeabc953",
   "meta": "b7e49cfb835493f359a2",
   "rows": "b34f7f1eb05e07540eac"
  },
  "marca": {
-  "facets": "7188895056891e3a5c60",
+  "facets": "87e7b8412fb5f8a6d7e2",
   "kpis": "1df9e9a569c846ffc62c",
   "meta": "b3cdcb91ed250ce53413",
   "rows": "a8e34a1c0efe059e83ff"
  },
  "marca_categoria_subcategoria": {
-  "facets": "4e1bc5d5c95a4147729c",
+  "facets": "175d542890d70b74e66f",
   "kpis": "5707b02e8735e1b38080",
   "meta": "3eae1d1a9e7dbdde92eb",
   "rows": "339935459a04c15db1e9"
  },
  "mla_source": {
-  "facets": "760438a4fafc2cc4325b",
+  "facets": "04eb11a4f8edc9b2b196",
   "kpis": "1df9e9a569c846ffc62c",
   "meta": "b3cdcb91ed250ce53413",
   "rows": "a8e34a1c0efe059e83ff"
  },
  "mla_source_empty": {
-  "facets": "f0c1d8430ab366af073d",
+  "facets": "f03c7631150fa01af06d",
   "kpis": "cb19012975de0527d0cf",
   "meta": "a941d69be95ef8c678e5",
   "rows": "4f53cda18c2baa0c0354"
  },
  "mla_source_publication": {
-  "facets": "7f9bd255df6079c6cc0e",
+  "facets": "5a111700d60d36a50595",
   "kpis": "9ed9c45fd2ceddd7ecad",
   "meta": "36b2985e3099b3d0b6ec",
   "rows": "769f776d42daef905873"
  },
  "product_30d_window": {
-  "facets": "0c162e830097dd60cfdb",
+  "facets": "3c4db502836d4728b735",
   "kpis": "430e8ab28e17cb67ae37",
   "meta": "c84f35bae06a6c1705cf",
   "rows": "3b62a6d6ca28d4777fbb"
  },
  "product_default": {
-  "facets": "0c162e830097dd60cfdb",
+  "facets": "3c4db502836d4728b735",
   "kpis": "430e8ab28e17cb67ae37",
   "meta": "c84f35bae06a6c1705cf",
   "rows": "3b62a6d6ca28d4777fbb"
  },
  "product_page2": {
-  "facets": "0c162e830097dd60cfdb",
+  "facets": "3c4db502836d4728b735",
   "kpis": "430e8ab28e17cb67ae37",
   "meta": "8657b1afc0bf14105ff2",
   "rows": "3dd83663800dc9223174"
  },
  "product_past_period": {
-  "facets": "42748481c2586fea2d0e",
+  "facets": "e881f3ac083f42d94ec9",
   "kpis": "c3c5e9cc04f2e6302200",
   "meta": "d90b2306f0f1319fcd67",
   "rows": "6f9d77e6c7b20721ab48"
  },
  "product_sort_last_sale": {
-  "facets": "0c162e830097dd60cfdb",
+  "facets": "3c4db502836d4728b735",
   "kpis": "430e8ab28e17cb67ae37",
   "meta": "c84f35bae06a6c1705cf",
   "rows": "8b530e27c800adad61fc"
  },
  "product_sort_title": {
-  "facets": "0c162e830097dd60cfdb",
+  "facets": "3c4db502836d4728b735",
   "kpis": "430e8ab28e17cb67ae37",
   "meta": "c84f35bae06a6c1705cf",
   "rows": "2381ea8a709885e01bfb"
  },
  "product_year_compare_markup_asc": {
-  "facets": "b1b0f270f44757134384",
+  "facets": "ed41b7e781e2b2268d43",
   "kpis": "c24121642ffa86b4516f",
   "meta": "c79395871281a8488473",
   "rows": "f91d346b16140e808103"
  },
  "publication": {
-  "facets": "6c02048e4f3d438d7143",
+  "facets": "f0fa791fa93d67bf334a",
   "kpis": "8efda0c62e17b7ddc7fa",
   "meta": "b191243d5fa47700d53c",
   "rows": "b10ac17e7751acf62e67"
  },
  "row_filters": {
-  "facets": "86d8301b7fe648091835",
+  "facets": "984932735cdf34d1197a",
   "kpis": "fe592c9a227e0fe18a60",
   "meta": "4f7557274b9089f7ffec",
   "rows": "fe5932e7ae6b346251d6"
  },
  "scope_empty": {
-  "facets": "f0c1d8430ab366af073d",
+  "facets": "f03c7631150fa01af06d",
   "kpis": "cb19012975de0527d0cf",
   "meta": "a941d69be95ef8c678e5",
   "rows": "4f53cda18c2baa0c0354"
  },
  "scope_one_pair": {
-  "facets": "b0881436de18b164929c",
+  "facets": "fae72d3d3483e3382293",
   "kpis": "0c88442b85bd0c59af2f",
   "meta": "c90692e72be566c5777b",
   "rows": "2f861a893a4faca49d48"
  },
  "search": {
-  "facets": "55c0e58b340949aacd91",
+  "facets": "f5d34ce85fc0f38fee89",
   "kpis": "d963abe39dc1ca5eac43",
   "meta": "c313d7ce849d91d7df6a",
   "rows": "b7436b4f018613d6f214"
  },
  "search_mla": {
-  "facets": "8aa3df37e8e8602ac3f4",
+  "facets": "425f7a973b0c2b5fc4f9",
   "kpis": "970cab61c89f1bbb309b",
   "meta": "4d35aa47e2663c73cafb",
   "rows": "0be930b7465b9d00a855"
  },
  "search_no_match": {
-  "facets": "f0c1d8430ab366af073d",
+  "facets": "f03c7631150fa01af06d",
   "kpis": "cb19012975de0527d0cf",
   "meta": "a941d69be95ef8c678e5",
   "rows": "4f53cda18c2baa0c0354"
  },
  "status_and_type": {
-  "facets": "12b85e186e43aa97976c",
+  "facets": "7a459ef31c12a11bcb72",
   "kpis": "3fce14b8a187cce3afce",
   "meta": "1f242f017817563632c6",
   "rows": "35cd88ddb1b5be9478ca"
  },
  "store": {
-  "facets": "379167f8786fd2b216ba",
+  "facets": "9ded75c9de8e9ee2c43e",
   "kpis": "1df9e9a569c846ffc62c",
   "meta": "b3cdcb91ed250ce53413",
   "rows": "a8e34a1c0efe059e83ff"
  },
  "store_and_no_store": {
-  "facets": "372793db041aa875f617",
+  "facets": "f902a3c867b7cd8b10fe",
   "kpis": "7f3e01b9356cf6ca4a6b",
   "meta": "f2fff2597fb1c5cd4182",
   "rows": "650505c82725bf6ced00"

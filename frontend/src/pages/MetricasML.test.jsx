@@ -66,6 +66,26 @@ describe('MetricasML page', () => {
     expect(screen.getByText('Tienda:')).toHaveAttribute('title', expect.stringMatching(/^Operaciones del período/));
   });
 
+  it('a store with rows but no operation in the period shows 0, a hint, and still filters', async () => {
+    seedTiendasOficiales([
+      { store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true },
+      { store_id: 144, nombre: 'Otra', clave: null, orden: 1, activa: true },
+    ]);
+    board = {
+      ...BOARD_RESPONSE,
+      facets: { ...BOARD_RESPONSE.facets, stores: {}, stores_total: 0, stores_with_rows: ['57997'] },
+    };
+    await renderWithRouter(<MetricasML />);
+
+    const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
+    const gauss = within(group).getByRole('button', { name: /Gauss · 0/ });
+    expect(gauss).toHaveAttribute('title', expect.stringMatching(/^Sin operaciones en el período/));
+    // A store with neither operations nor rows gets no hint.
+    expect(within(group).getByRole('button', { name: /Otra · 0/ })).not.toHaveAttribute('title');
+    await userEvent.click(gauss);
+    await waitFor(() => expect(lastBoardParams().stores).toBe('57997'));
+  });
+
   it('stores sharing a clave are ONE chip that filters by every id, inactive ones included', async () => {
     seedTiendasOficiales([
       { store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true },
