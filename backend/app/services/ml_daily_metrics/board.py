@@ -103,12 +103,13 @@ from sqlalchemy import (
     union_all,
 )
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_ads import MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
-from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps
+from app.models.ml_order_item_costo import MlOrderItemCosto
+from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
 from app.models.producto import ProductoERP
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import ads_owner_select
@@ -120,6 +121,7 @@ from app.services.ml_daily_metrics.sales import (
     LinePredicate,
     business_date,
     day_bounds,
+    frozen_cost_of_item,
     groups_touching,
     last_sales,
     lines_source,
@@ -127,7 +129,7 @@ from app.services.ml_daily_metrics.sales import (
     reads_persisted_lines,
 )
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
-from app.services.ml_sales_query.filters import NO_STORE, _resolve_pm_pairs
+from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
 from app.services.product_facets import (
     ProductFacetOptions,
     ProductSelection,
@@ -2237,16 +2239,7 @@ class Board:
         An axis with a filter reads the pairs differently and so adds its own
         rows and members tables (CREATE + ANALYZE each); the rest share the
         unfiltered ones."""
-        joined, fp = self._members("stores", narrow=True)
-        bucket = func.coalesce(cast(fp.c.store_id, String), literal(NO_STORE))
-        stores = {
-            str(b): int(n)
-            for b, n in self.db.execute(
-                select(bucket, func.count(func.distinct(fp.c.rk))).select_from(joined).group_by(bucket)
-            )
-        }
-        rows = self.rows(skip_pair_axis="stores")
-        stores_total = int(self.db.execute(select(func.count()).select_from(rows)).scalar() or 0)
+        stores, stores_total = self._store_operations()
 
         joined, fp = self._members("pub_status", narrow=True)
         pub_status = {
@@ -2320,6 +2313,69 @@ class Board:
             ageing=ageing,
             product=self._product_options(),
         )
+
+    def _store_operations(self) -> Tuple[Dict[str, int], int]:
+        """The store chips: OPERATIONS of the period per store, and "Todas" (every operation once), never rows.
+
+        An operation is what Ventas ML counts in its own store chips -- a pack or a lone order accredited in the
+        period, cancelled ones included -- read through Ventas ML's own scope (`build_scope`, its default switches
+        all ON), so both screens agree on the same period. It counts in a store when one of its items belongs to a
+        (product, MLA) pair of a row that survives every filter but the store one: the pair carries the store (the
+        publication's CURRENT one, as everywhere on the board) and every other filter, the TP lock's MLA set
+        included. A pack spanning two stores counts in both, and once in "Todas"."""
+        start, end = day_bounds(self.f.date_from, self.f.date_to)
+        scope = build_scope(
+            self.db,
+            SalesFilter(
+                date_range=(start, end),
+                include_unknown=True,
+                include_in_dispute=True,
+                include_mixed=True,
+                include_provisional=True,
+                include_cancelled=True,
+            ),
+        )
+        # The period's operations as a request temp table with statistics, read first: only THEIR items are
+        # reached, through the orders' indexes. As a CTE the planner sized the accreditation aggregate at a few
+        # hundred rows, or every order of history, and hashed every item ever sold (measured on the volume seed:
+        # ~0.7 s inlined, ~0.22 s as a materialized CTE).
+        operations = self._materialize(
+            self._next_table("board_operations"),
+            scope.store_facet_base.with_entities(
+                MlOrdersOps.order_id.label("order_id"), scope.group_key.label("group_key")
+            ).statement,
+            analyze=("order_id",),
+        )
+        members, _ = self._members("stores", narrow=True)
+        item, cost = aliased(MlOrderItemOps), aliased(MlOrderItemCosto)
+        sold = (
+            select(operations.c.group_key.label("group_key"), members.c.store_id.label("store_id"))
+            .select_from(operations)
+            .join(item, item.order_id == operations.c.order_id)
+            .outerjoin(cost, frozen_cost_of_item(cost, item))
+            .join(
+                members,
+                and_(
+                    members.c.mla == item.item_id,
+                    members.c.product == func.coalesce(cost.producto_item_id, NO_PRODUCT),
+                ),
+            )
+            .cte("store_operations")
+            .prefix_with("MATERIALIZED", dialect="postgresql")
+        )
+        # ONE statement: the per-store counts and "Todas" (bucket NULL) read the same materialized operations.
+        bucket = func.coalesce(cast(sold.c.store_id, String), literal(NO_STORE))
+        per_store = select(bucket.label("bucket"), func.count(func.distinct(sold.c.group_key)).label("n")).group_by(
+            bucket
+        )
+        everything = select(cast(null(), String).label("bucket"), func.count(func.distinct(sold.c.group_key)))
+        stores, total = {}, 0
+        for b, n in self.db.execute(union_all(per_store, everything)):
+            if b is None:
+                total = int(n or 0)
+            else:
+                stores[str(b)] = int(n)
+        return stores, total
 
     def _product_options(self) -> ProductFacetOptions:
         """The four product lists: the distinct (marca, categoría,

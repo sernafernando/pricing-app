@@ -58,6 +58,14 @@ describe('MetricasML page', () => {
     await waitFor(() => expect(lastBoardParams().stores).toBe('57997'));
   });
 
+  it('says the store chips count the operations of the period', async () => {
+    seedTiendasOficiales([{ store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true }]);
+    await renderWithRouter(<MetricasML />);
+
+    await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
+    expect(screen.getByText('Tienda:')).toHaveAttribute('title', expect.stringMatching(/^Operaciones del período/));
+  });
+
   it('stores sharing a clave are ONE chip that filters by every id, inactive ones included', async () => {
     seedTiendasOficiales([
       { store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true },

@@ -527,7 +527,10 @@ export default function MetricasML() {
 
         <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
-            <span className={styles.filterLabel} title="La tienda oficial ACTUAL de la publicación">
+            <span
+              className={styles.filterLabel}
+              title="Operaciones del período en cada tienda (la tienda oficial ACTUAL de la publicación), como en Ventas ML"
+            >
               Tienda:
             </span>
             <FacetChips
