@@ -24,7 +24,7 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
 from app.models.tb_item_association import TbItemAssociation
 from app.models.tipo_cambio import TipoCambio
-from app.scripts import backfill_tp_cost as script
+from app.services.ml_orders_ingestion import tp_cost_resolver as resolver
 from app.services.ml_orders_ingestion import tp_cost_fill
 from app.workers.context import WorkerContext
 from app.workers.handlers.tp_cost_fill import fill as handler
@@ -246,7 +246,7 @@ class TestHandler:
         result = handler.run(_ctx())
 
         assert result.success
-        assert _tp(pg_tp_engine, 1) == (Decimal("80.0000"), script.FUENTE_TP_HISTORIA)
+        assert _tp(pg_tp_engine, 1) == (Decimal("80.0000"), resolver.FUENTE_TP_HISTORIA)
         assert _tp(pg_tp_engine, 2) == (Decimal("11.0000"), "lista8_ingesta")
         assert _tp(pg_tp_engine, 3) == (None, None)
         assert _queued(pg_tp_engine) == []
@@ -261,7 +261,7 @@ class TestHandler:
 
         handler.run(_ctx())
 
-        assert _tp(pg_tp_engine, 4) == (Decimal("80.0000"), script.FUENTE_TP_PRIMER_PRECIO)
+        assert _tp(pg_tp_engine, 4) == (Decimal("80.0000"), resolver.FUENTE_TP_PRIMER_PRECIO)
 
     def test_a_combo_containing_the_queued_component_is_filled(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
@@ -277,7 +277,7 @@ class TestHandler:
 
         handler.run(_ctx())
 
-        assert _tp(pg_tp_engine, 5) == (Decimal("65.0000"), script.FUENTE_TP_HISTORIA_COMBO)
+        assert _tp(pg_tp_engine, 5) == (Decimal("65.0000"), resolver.FUENTE_TP_HISTORIA_COMBO)
 
     def test_an_item_still_without_a_price_is_dequeued_and_stays_null(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
@@ -348,16 +348,16 @@ class TestFixture:
 def _poison(monkeypatch: pytest.MonkeyPatch, bad_item: int, *, after_writing: bool = False) -> None:
     """Makes the fill raise for `bad_item`'s rows -- after writing them when
     `after_writing`, to prove the write is rolled back."""
-    original = tp_cost_fill._procesar_lote
+    original = tp_cost_fill.procesar_lote
 
-    def _maybe_raise(db: Session, rows: Sequence[Any], dry_run: bool, result: script.BackfillTpResult) -> None:
+    def _maybe_raise(db: Session, rows: Sequence[Any], dry_run: bool, result: resolver.BackfillTpResult) -> None:
         if any(row.producto_item_id == bad_item for row in rows):
             if after_writing:
                 original(db, rows, dry_run, result)
             raise RuntimeError(f"boom {bad_item}")
         return original(db, rows, dry_run, result)
 
-    monkeypatch.setattr(tp_cost_fill, "_procesar_lote", _maybe_raise)
+    monkeypatch.setattr(tp_cost_fill, "procesar_lote", _maybe_raise)
 
 
 @pytest.mark.postgres
@@ -481,7 +481,7 @@ class TestBrokenCombo:
 
         result = handler.run(_ctx())
 
-        assert _tp(pg_tp_engine, 300) == (Decimal("30.0000"), script.FUENTE_TP_HISTORIA)
+        assert _tp(pg_tp_engine, 300) == (Decimal("30.0000"), resolver.FUENTE_TP_HISTORIA)
         assert _tp(pg_tp_engine, 301) == (None, None)
         assert _queue_row(pg_tp_engine, 901) is None
         assert result.detail["failed"] == 0
@@ -508,3 +508,18 @@ class TestRowsResolvedOnce:
         assert batch.result.examined == 2
         assert _tp(pg_tp_engine, 400)[0] == Decimal("50.0000")
         assert _tp(pg_tp_engine, 401)[0] == Decimal("30.0000")
+
+
+def test_the_worker_never_imports_a_script_module() -> None:
+    """Importing a script runs its `load_dotenv`: the worker must reach the
+    resolver through the service module only."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, app.workers.handlers.tp_cost_fill; "
+        "print(sorted(m for m in sys.modules if m.startswith('app.scripts')))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+
+    assert out.stdout.strip().splitlines()[-1] == "[]"

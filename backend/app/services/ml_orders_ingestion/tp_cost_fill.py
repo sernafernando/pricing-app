@@ -16,8 +16,8 @@ item in `tp_cost_fill_queue` and `pg_notify` the worker:
 
 The handler (`app/workers/handlers/tp_cost_fill.py`) drains the queue in
 batches, one short transaction each: claim items, find the NULL rows of those
-items and of the combos containing them, and resolve them with the backfill
-script's own `_procesar_lote` -- same rules (price at the sale date, else the
+items and of the combos containing them, and resolve them with
+`tp_cost_resolver.procesar_lote`, shared with the backfill script -- same rules (price at the sale date, else the
 first price flagged approximate, combo precedence, rejected prices stay NULL),
 same `costo_tp_unitario_ars IS NULL` guard on the UPDATE so a TP cost already
 set is never rewritten. An item that still does not resolve (no usable price)
@@ -46,7 +46,7 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
 from app.models.tb_item_association import TbItemAssociation
-from app.scripts.backfill_tp_cost import SKIP_ERROR, BackfillTpResult, _procesar_lote
+from app.services.ml_orders_ingestion.tp_cost_resolver import SKIP_ERROR, BackfillTpResult, procesar_lote
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ def _llenar(
         if filas:
             # Rows already filled earlier in this batch are a no-op: the
             # UPDATE's `IS NULL` guard.
-            _procesar_lote(db, filas, False, parcial)
+            procesar_lote(db, filas, False, parcial)
         if parcial.skipped[SKIP_ERROR]:
             raise RuntimeError(f"{parcial.skipped[SKIP_ERROR]} row(s) failed to resolve")
         if after is not None:
