@@ -44,6 +44,7 @@ const SORT_BY = {
   markup_delta: 'markup_delta',
   gross: 'gross',
   total_gauss: 'total_gauss',
+  ads_cost: 'ads_cost',
   last_sale: 'last_sale',
   ageing: 'ageing',
   stock: 'stock',
@@ -305,6 +306,12 @@ function renderCell(colId, row, ctx) {
         </div>
       );
     }
+    case 'ads_cost':
+      return (
+        <span className={styles.money} data-money>
+          {formatSignedMoney(row.ads?.cost)}
+        </span>
+      );
     case 'last_sale': {
       const { when, ago } = formatLastSale(row.last_sale_at, ctx.now);
       return (
@@ -338,6 +345,7 @@ const NUMERIC = new Set([
   'markup',
   'gross',
   'total_gauss',
+  'ads_cost',
 ]);
 const CENTERED = new Set(['units_trend', 'markup_delta', 'markup_trend', 'markup_range', 'ageing', 'stock', 'compras_30d', 'sell_through', 'cobertura']);
 

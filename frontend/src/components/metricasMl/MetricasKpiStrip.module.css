@@ -170,3 +170,30 @@
 .segBad {
   background: var(--money-negative);
 }
+
+/* A card whose figure had the ads subtracted: the "Ajustado" mark and, under
+   it, the figure as it was (struck through). */
+.adjustedRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.adjusted {
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border: 1px solid var(--tone-info-border);
+  border-radius: var(--radius-base);
+}
+
+.original {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}

@@ -12,6 +12,7 @@ import Pagination from '../components/ventasMl/Pagination';
 import SegmentedControl from '../components/metricasMl/SegmentedControl';
 import ToggleChips from '../components/metricasMl/ToggleChips';
 import SwitchChip from '../components/metricasMl/SwitchChip';
+import AdsAppliedBanner from '../components/metricasMl/AdsAppliedBanner';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
 import { DIMENSION_OPTIONS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
@@ -323,10 +324,13 @@ export default function MetricasML() {
   };
 
   const canSeeMargin = Boolean(board?.can_see_margin);
+  // `kpis.ads` exists only while the board subtracts ads.
+  const ads = board?.kpis?.ads ?? null;
+  const adsOn = canSeeMargin && ads !== null;
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const columnDefs = useMemo(
-    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension }),
-    [canSeeMargin, periodLabel, groupBy, dimension],
+    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension, adsOn }),
+    [canSeeMargin, periodLabel, groupBy, dimension, adsOn],
   );
   const table = useReactTable({
     data: [],
@@ -611,6 +615,8 @@ export default function MetricasML() {
           )}
         </div>
       </section>
+
+      <AdsAppliedBanner ads={ads} />
 
       <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} />
 
