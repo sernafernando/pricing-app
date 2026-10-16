@@ -127,9 +127,9 @@ export const ThemeProvider = ({ children }) => {
  * they load they are the source of truth for both `data-brand` and the stored
  * value. Unmounting the hook after that (logout) clears the brand.
  *
- * It checks the explicit permission list, NOT `tienePermiso`: that one returns
- * true for every code when the role is SUPERADMIN, which would brand an
- * administrator's whole app.
+ * It checks the explicit permission list the backend returns. The brand codes
+ * are opt-in (`constants/permisosOptIn.js`): a SUPERADMIN has them only when
+ * explicitly granted, so administrators are not branded by default.
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export const useBrandFromPermisos = () => {
