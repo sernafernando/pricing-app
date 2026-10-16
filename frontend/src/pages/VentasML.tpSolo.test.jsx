@@ -3,7 +3,7 @@
  * in place of every Gauss one, no call to the endpoints that answer 403 for
  * this user, and only the TP stores in the "Tienda:" chips.
  */
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
@@ -109,6 +109,7 @@ beforeEach(() => {
   productosAPI.subcategorias.mockResolvedValue({ data: { categorias: [] } });
 });
 
+afterEach(() => localStorage.clear());
 afterAll(resetTiendasOficiales);
 
 describe('Ventas ML in TP mode', () => {
@@ -188,6 +189,5 @@ describe('Ventas ML in TP mode', () => {
     );
     await waitFor(() => expect(within(table).getByRole('columnheader', { name: /Total TP/ })).toBeInTheDocument());
     expect(within(table).queryByRole('columnheader', { name: 'Comprador' })).not.toBeInTheDocument();
-    localStorage.clear();
   });
 });
