@@ -35,6 +35,11 @@ NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
 TODAY = date(2026, 9, 30)
 GOLDEN = Path(__file__).parent / "golden" / "board_sql_no_mla_source.json"
 EPSON_LOGI = [("EPSON", "IMPRESORAS"), ("LOGITECH", "GAMING")]
+# The rows `rows_for_keys` reads in each view: the board's top three by gross on the clean fixture.
+FROZEN_KEYS = {
+    "product": ("21", "22", "26"),
+    "publication": ("MLA9000000022", "MLA9000000026", "MLA9000000121"),
+}
 
 
 @pytest.fixture(autouse=True)
@@ -73,8 +78,11 @@ def _everything(
         else:
             b.product_count()
             b.page(None)
-            keys = b.ordered_keys(3)
-            b.rows_for_keys(keys, with_series=True)
+            b.ordered_keys(3)
+            # FROZEN keys, never the ones just read: their order is a query RESULT, and any row another session
+            # commits into the shared test database (a parallel run) reorders them and moves this digest though
+            # the SQL did not change.
+            b.rows_for_keys(list(FROZEN_KEYS[f.group_by]), with_series=True)
 
 
 SCENARIOS = {
@@ -110,13 +118,34 @@ def _normalize(sql: str) -> str:
     return re.sub(r"\s+", " ", sql).strip()
 
 
+# An expanded `IN (...)` binds one parameter per value, named `<name>_<n>_<i>`.
+_IN_VALUE = re.compile(r"^(?P<group>.+_\d+)_(?P<i>\d+)$")
+
+
+def _canonical(parameters: dict) -> dict:
+    """The parameters with each expanded IN list's values sorted: an IN list is a SET, and the order its values
+    are bound in can follow a Python set's iteration order (`RELEVANT_PAYMENT_STATUSES` is a frozenset, whose
+    order changes with the interpreter's hash seed) -- a digest must not move with it."""
+    groups: dict = {}
+    for name in parameters:
+        match = _IN_VALUE.match(name)
+        if match:
+            groups.setdefault(match["group"], []).append(name)
+    out = dict(parameters)
+    for names in groups.values():
+        names.sort(key=lambda n: int(_IN_VALUE.match(n)["i"]))
+        for name, value in zip(names, sorted((parameters[n] for n in names), key=repr)):
+            out[name] = value
+    return out
+
+
 def _capture(db: Session, run: Callable[[Session], None]) -> List[str]:
     seen: list = []
     engine = db.get_bind()
 
     def spy(conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool) -> None:
         sql = _normalize(statement)
-        params = repr(sorted(parameters.items())) if isinstance(parameters, dict) else repr(parameters)
+        params = repr(sorted(_canonical(parameters).items())) if isinstance(parameters, dict) else repr(parameters)
         # A digest of the statement AND its bound values, plus the statement's head
         # so a mismatch says which one moved.
         seen.append(f"{hashlib.sha256((sql + params).encode()).hexdigest()[:16]} {sql[:70]}")

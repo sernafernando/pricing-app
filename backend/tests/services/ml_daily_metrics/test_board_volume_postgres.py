@@ -165,6 +165,18 @@ def _seed(session, scale: Scale = FULL) -> None:
         ),
         p,
     )
+    # Ventas ML days are the ACCREDITATION day: one approved payment per order, on its group's date (the store
+    # chips count operations through Ventas ML's scope).
+    session.execute(
+        text(
+            "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) "
+            "SELECT order_id * 10 + 1, order_id, 'approved', "
+            ":now - make_interval(days => CAST(CASE WHEN g <= :dense THEN g % 90 ELSE 90 + (g - :dense) % 450 END AS INTEGER), "
+            "secs => CAST((g * 37) % 86400 AS DOUBLE PRECISION)) "
+            f"FROM {members}"
+        ),
+        p,
+    )
     for name in (
         "ml_group_metrics",
         "ml_orders_ops",
@@ -172,6 +184,7 @@ def _seed(session, scale: Scale = FULL) -> None:
         "ml_order_item_costos",
         "ml_order_metrics",
         "ml_order_metrics_dirty",
+        "ml_payments_ops",
         "tb_mercadolibre_items_publicados",
         "productos_erp",
     ):
@@ -297,7 +310,9 @@ class TestBoardOnVolume:
         # An empty page skips the two per-page statements (details, series).
         # (the search text is looked up, +3, and, matching nothing, bounds the read, +2).
         assert not empty.rows and len(emptied.statements) == counts[50] - 2 + 5
-        assert counts[50] <= 23
+        # 24: the store chips count the period's operations (their own temp table, CREATE + ANALYZE, then ONE
+        # count for every store and "Todas") instead of two row counts.
+        assert counts[50] <= 24
 
     def test_the_scope_filter_adds_only_its_touched_groups(self, volume_session) -> None:
         """The PM scope bounds the groups the base reads: a scoped (or empty-scoped)
@@ -606,18 +621,6 @@ def test_ventas_product_option_lists_cost_on_volume(volume_session) -> None:
     from app.services.product_facets import product_combo_statement, product_combo_rows
 
     session = volume_session
-    # Ventas ML days are the ACCREDITATION day: one approved payment per order, on its group's date.
-    session.execute(
-        text(
-            "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) "
-            "SELECT order_id * 10 + 1, order_id, 'approved', "
-            ":now - make_interval(days => CAST(CASE WHEN g <= :dense THEN g % 90 ELSE 90 + (g - :dense) % 450 END AS INTEGER), "
-            "secs => CAST((g * 37) % 86400 AS DOUBLE PRECISION)) "
-            f"FROM {_members(FULL)}"
-        ),
-        {"groups": GROUPS, "dense": DENSE_GROUPS, "now": NOW},
-    )
-    session.execute(text("ANALYZE ml_payments_ops"))
     f = SalesFilter(
         date_range=(
             datetime.combine(TODAY - timedelta(days=29), datetime.min.time(), tzinfo=timezone.utc),

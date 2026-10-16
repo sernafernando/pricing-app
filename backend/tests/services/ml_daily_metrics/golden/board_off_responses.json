@@ -43,8 +43,7 @@
    },
    "stores": {
     "144": 1,
-    "2645": 1,
-    "57997": 2
+    "57997": 3
    },
    "stores_total": 4
   },
@@ -1146,9 +1145,9 @@
    },
    "stores": {
     "144": 1,
-    "57997": 1
+    "57997": 3
    },
-   "stores_total": 2
+   "stores_total": 4
   },
   "group_by": "group",
   "kpis": {
@@ -1811,8 +1810,7 @@
    },
    "stores": {
     "144": 1,
-    "2645": 1,
-    "57997": 2
+    "57997": 3
    },
    "stores_total": 4
   },
@@ -2917,9 +2915,9 @@
    },
    "stores": {
     "144": 1,
-    "57997": 1
+    "57997": 3
    },
-   "stores_total": 2
+   "stores_total": 4
   },
   "group_by": "product",
   "kpis": {
@@ -3579,10 +3577,9 @@
    },
    "stores": {
     "144": 1,
-    "2645": 1,
     "57997": 3
    },
-   "stores_total": 5
+   "stores_total": 4
   },
   "group_by": "publication",
   "kpis": {
@@ -4905,9 +4902,9 @@
    },
    "stores": {
     "144": 1,
-    "57997": 2
+    "57997": 3
    },
-   "stores_total": 3
+   "stores_total": 4
   },
   "group_by": "publication",
   "kpis": {
