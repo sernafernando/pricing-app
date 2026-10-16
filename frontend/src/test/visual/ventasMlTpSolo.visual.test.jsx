@@ -19,8 +19,9 @@ import {
 
 // The Ventas ML fixtures reshaped the way the backend answers a TP-only user
 // (`ml_ventas_ops.py` `_tp_model`): every Gauss key gone, TP figures in their
-// place, an unknown Total TP null and flagged. The TP cost is taken as 80% of
-// the Gauss one -- any plausible number serves a layout test.
+// place, an unknown Total TP null and flagged. Total TP is the Gauss total
+// x 1.1 and Markup TP the Gauss markup + 5 points -- any plausible number
+// serves a layout test.
 const GAUSS_KEYS = new Set(['total_gauss', 'total_gauss_provisional', 'total_gauss_provisional_falta', 'markup']);
 const toTp = (value) => {
   if (Array.isArray(value)) return value.map(toTp);
