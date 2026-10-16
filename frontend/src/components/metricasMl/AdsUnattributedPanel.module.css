@@ -49,15 +49,15 @@
   color: var(--cf-text-tertiary);
 }
 
-.num {
+.table .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  text-align: right !important;
+  text-align: right;
   white-space: nowrap;
 }
 
-.state {
-  text-align: right !important;
+.table .state {
+  text-align: right;
 }
 
 .chip {
