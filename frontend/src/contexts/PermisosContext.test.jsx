@@ -132,3 +132,53 @@ describe('PermisosContext — silent refetch on token rotation', () => {
     }
   });
 });
+
+describe('PermisosContext — SUPERADMIN and opt-in permissions', () => {
+  beforeEach(() => {
+    localStorage.setItem('token', 'token-inicial');
+    useAuthStore.setState({ token: 'token-inicial' });
+    api.get.mockReset();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  const cargar = async (permisos) => {
+    api.get.mockResolvedValue(permisosResponse(permisos, 'SUPERADMIN'));
+    const { result } = renderHook(() => usePermisos(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    return result.current;
+  };
+
+  it('SUPERADMIN still passes every regular check', async () => {
+    const ctx = await cargar([]);
+    expect(ctx.tienePermiso('productos.ver')).toBe(true);
+    expect(ctx.tieneAlgunPermiso(['tplink.tema', 'productos.ver'])).toBe(true);
+    expect(ctx.tieneTodosPermisos(['productos.ver', 'admin.ver_panel'])).toBe(true);
+  });
+
+  it('SUPERADMIN without an explicit grant does NOT have opt-in codes', async () => {
+    const ctx = await cargar(['productos.ver']);
+    expect(ctx.tienePermiso('tplink.tema')).toBe(false);
+    expect(ctx.tienePermiso('tplink.solo')).toBe(false);
+    expect(ctx.tieneAlgunPermiso(['tplink.tema', 'tplink.solo'])).toBe(false);
+    expect(ctx.tieneTodosPermisos(['productos.ver', 'tplink.tema'])).toBe(false);
+  });
+
+  it('SUPERADMIN with the opt-in code in its permisos has it', async () => {
+    const ctx = await cargar(['productos.ver', 'tplink.tema']);
+    expect(ctx.tienePermiso('tplink.tema')).toBe(true);
+    expect(ctx.tieneTodosPermisos(['productos.ver', 'tplink.tema'])).toBe(true);
+    expect(ctx.tienePermiso('tplink.solo')).toBe(false);
+  });
+
+  it('a regular user is unchanged: opt-in codes come from its permisos', async () => {
+    api.get.mockResolvedValue(permisosResponse(['tplink.tema'], 'VENTAS'));
+    const { result } = renderHook(() => usePermisos(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.tienePermiso('tplink.tema')).toBe(true);
+    expect(result.current.tienePermiso('tplink.solo')).toBe(false);
+    expect(result.current.tienePermiso('productos.ver')).toBe(false);
+  });
+});

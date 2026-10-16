@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { esPermisoOptIn } from '../constants/permisosOptIn';
 
 const PermisosContext = createContext();
 
@@ -116,8 +117,9 @@ export const PermisosProvider = ({ children }) => {
    * @returns {boolean}
    */
   const tienePermiso = useCallback((codigo) => {
-    // SUPERADMIN tiene todos los permisos
-    if (rol === 'SUPERADMIN') return true;
+    // SUPERADMIN tiene todos los permisos, salvo los opt-in: esos solo si se los
+    // otorgaron explícitamente (llegan en la lista del backend).
+    if (rol === 'SUPERADMIN' && !esPermisoOptIn(codigo)) return true;
     return permisos.has(codigo);
   }, [permisos, rol]);
 
@@ -127,9 +129,8 @@ export const PermisosProvider = ({ children }) => {
    * @returns {boolean}
    */
   const tieneAlgunPermiso = useCallback((codigos) => {
-    if (rol === 'SUPERADMIN') return true;
-    return codigos.some(codigo => permisos.has(codigo));
-  }, [permisos, rol]);
+    return codigos.some(codigo => tienePermiso(codigo));
+  }, [tienePermiso]);
 
   /**
    * Verifica si el usuario tiene todos los permisos
@@ -137,9 +138,8 @@ export const PermisosProvider = ({ children }) => {
    * @returns {boolean}
    */
   const tieneTodosPermisos = useCallback((codigos) => {
-    if (rol === 'SUPERADMIN') return true;
-    return codigos.every(codigo => permisos.has(codigo));
-  }, [permisos, rol]);
+    return codigos.every(codigo => tienePermiso(codigo));
+  }, [tienePermiso]);
 
   const value = {
     permisos: Array.from(permisos),
