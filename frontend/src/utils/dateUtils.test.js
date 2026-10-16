@@ -43,6 +43,23 @@ describe('parseDateOnly', () => {
     expect(parseDateOnly(value).getTime()).toBe(new Date(value).getTime());
   });
 
+  it('accepts a leap day in a leap year', () => {
+    const date = parseDateOnly('2028-02-29');
+    expect([date.getFullYear(), date.getMonth(), date.getDate()]).toEqual([2028, 1, 29]);
+  });
+
+  it.each(['2026-02-30', '2027-02-29', '2026-04-31', '2026-13-01', '2026-00-10', '2026-01-00'])(
+    'returns null for the impossible calendar date %s instead of rolling over',
+    (value) => {
+      expect(parseDateOnly(value)).toBeNull();
+    },
+  );
+
+  it('keeps years 0000-0099 literal instead of mapping them to 1900-1999', () => {
+    const date = parseDateOnly('0099-12-31');
+    expect([date.getFullYear(), date.getMonth(), date.getDate()]).toEqual([99, 11, 31]);
+  });
+
   it('returns null for empty or unparseable values', () => {
     expect(parseDateOnly(null)).toBeNull();
     expect(parseDateOnly('')).toBeNull();

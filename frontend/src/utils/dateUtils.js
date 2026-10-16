@@ -78,8 +78,12 @@ const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
  * day. Here it becomes local midnight of that same calendar day instead.
  * Values that carry a time are parsed as-is.
  *
+ * An impossible calendar date (e.g. "2026-02-30") returns `null` instead of
+ * silently rolling over into the next month. Years 0000-0099 stay literal:
+ * `setFullYear` avoids the `new Date(y, m, d)` rule that maps them to 1900-1999.
+ *
  * @param {string|Date|null|undefined} value
- * @returns {Date|null} `null` when the value is empty or unparseable.
+ * @returns {Date|null} `null` when the value is empty, unparseable or not a real calendar date.
  *
  * @example
  * parseDateOnly('2026-12-31').toLocaleDateString('es-AR') // "31/12/2026" in any zone
@@ -87,6 +91,14 @@ const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 export const parseDateOnly = (value) => {
   if (!value) return null;
   const match = typeof value === 'string' ? DATE_ONLY.exec(value.trim()) : null;
-  const date = match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
+  if (!match) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(2000, 0, 1);
+  date.setFullYear(year, month - 1, day);
+  const isSameCalendarDay =
+    date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+  return isSameCalendarDay ? date : null;
 };
