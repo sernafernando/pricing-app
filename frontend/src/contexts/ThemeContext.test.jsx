@@ -2,9 +2,11 @@
  * The TP-Link brand is driven by an explicit permission, never by a toggle.
  *
  * `data-brand` lives next to `data-theme` on <html>: the brand picks the
- * palette, the theme still picks light or dark inside it. The permission must
- * be granted explicitly — SUPERADMIN's `tienePermiso` wildcard must NOT brand
- * an administrator's whole app.
+ * palette, the theme still picks light or dark inside it. The brand comes from
+ * the `permisos` list the backend sends. tplink.tema / tplink.solo are opt-in
+ * codes: the backend leaves them out of a SUPERADMIN's list unless they were
+ * granted explicitly, so an administrator is branded only when granted. The
+ * stub's always-true `tienePermiso` proves the brand never reads that function.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from '@testing-library/react';
@@ -86,11 +88,20 @@ describe('ThemeContext — data-brand from the tplink.solo permission', () => {
     expect(html().hasAttribute('data-brand')).toBe(false);
   });
 
-  it('does not brand a SUPERADMIN through the tienePermiso wildcard', () => {
+  it('does not brand a SUPERADMIN that was not granted the theme', () => {
+    // What /permisos/mis-permisos returns for a SUPERADMIN without the grant:
+    // every code except the opt-in ones.
     permisosStub.rol = 'SUPERADMIN';
-    permisosStub.permisos = [];
+    permisosStub.permisos = ['productos.ver', 'ml_metricas.ver', 'admin.gestionar_permisos'];
     renderProbe();
     expect(html().hasAttribute('data-brand')).toBe(false);
+  });
+
+  it('brands a SUPERADMIN once tplink.tema was granted explicitly', () => {
+    permisosStub.rol = 'SUPERADMIN';
+    permisosStub.permisos = ['productos.ver', 'admin.gestionar_permisos', 'tplink.tema'];
+    renderProbe();
+    expect(html().getAttribute('data-brand')).toBe('tplink');
   });
 
   it('removes data-brand when the permission goes away', () => {
