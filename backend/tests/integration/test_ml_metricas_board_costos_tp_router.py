@@ -163,3 +163,28 @@ def test_restar_publicidad_takes_the_ads_off_total_tp_too(db, tp_data) -> None:
     ads = row.ads_cost
     assert ads > 0
     assert (row.tg, row.total_tp, row.mtg, row.costo) == (50 - ads, 70 - ads, 100 - ads, Decimal("150.00"))
+
+
+def test_the_csv_combines_the_publicidad_position_and_costos_tp(client, admin_auth_headers, db, tp_data) -> None:
+    # 10 of ads on the TP publication: off Total Gauss AND off Total TP, the board's figures at that position.
+    db.add(MlAdsItemDay(advertiser_id=1, ad_group_id=1, item_id="MLA2", day=date(2026, 9, 21), raw={}, cost=10))
+    db.commit()
+    both = {**ON, "publicidad": "mla"}
+    board_row = _by_key(_get(client, admin_auth_headers, **both))["11"]
+
+    lines = _csv(client, admin_auth_headers, **both)
+
+    header = lines[0]
+    gauss = header.index("Total Gauss")
+    assert header[gauss : gauss + 5] == [
+        "Total Gauss",
+        "Publicidad (inversión)",
+        "Total TP",
+        "TP incompletas",
+        "Markup %",
+    ]
+    router = {line[0]: line for line in lines[1:]}["Router AX55"]
+    money = [f"{value:.2f}".replace(".", ",") for value in (50 - board_row["ads"]["cost"], board_row["ads"]["cost"])]
+    assert board_row["ads"]["cost"] > 0
+    assert router[gauss : gauss + 4] == [*money, f"{board_row['total_tp']:.2f}".replace(".", ","), "0"]
+    assert board_row["total_tp"] == 70 - board_row["ads"]["cost"]
