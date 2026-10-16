@@ -55,4 +55,12 @@ describe('TP columns', () => {
     expect(within(cell).getByRole('status')).toHaveAttribute('data-state', 'pending');
     expect(cell).not.toHaveTextContent('incompleto');
   });
+
+  it('titles a member row without metrics_state like a settled one, as its cell does', () => {
+    const o = order({ metrics_state: undefined });
+    const props = totalTp.cellProps({ kind: 'member', order: o });
+    expect(props.title).toContain('811,02');
+    render(<div data-testid="member">{totalTp.cell({ kind: 'member', order: o })}</div>);
+    expect(screen.getByTestId('member')).toHaveTextContent('811,02');
+  });
 });

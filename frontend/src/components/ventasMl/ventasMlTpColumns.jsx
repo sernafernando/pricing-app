@@ -54,7 +54,7 @@ const TOTAL_TP_COLUMN = {
   },
   cellProps: (ctx) => {
     const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
-    const metricsState = ctx.kind === 'group' ? ctx.metricsState : ctx.order.metrics_state;
+    const metricsState = ctx.kind === 'group' ? ctx.metricsState : ctx.order.metrics_state || 'ok';
     return { title: moneyTitle(entity.total_tp, entity.currency_id, metricsState) };
   },
 };
