@@ -8,8 +8,8 @@ it only where it is still NULL; see `app/scripts/backfill_tp_cost.py` for the
 full rules (price at the sale date, first-price fallback flagged approximate,
 combo precedence, rejected prices stay NULL).
 
-The five history/FX pickers (`_as_date`, `_tiene_precio`, `_pick_history_row`,
-`_usd_rates_by_date`, `_pick_fx_rate`) are copies of the ones in
+The five history/FX pickers (`as_date`, `tiene_precio`, `pick_history_row`,
+`usd_rates_by_date`, `pick_fx_rate`) are copies of the ones in
 `app/scripts/backfill_costo_congelado.py`, behaviour unchanged: importing that
 script would load `backend/.env` into whatever process imports this module
 (the worker included).
@@ -20,8 +20,8 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from datetime import date
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import func, update
@@ -34,6 +34,13 @@ from app.services.ml_orders_ingestion.costeo_service import (
     _MONEDA_POR_CURR_ID,
     TPLINK_COSLIS_ID,
     componentes_por_combo,
+)
+from app.services.ml_orders_ingestion.list_history import (
+    as_date,
+    pick_fx_rate,
+    pick_history_row,
+    tiene_precio,
+    usd_rates_by_date,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,58 +93,6 @@ class BackfillTpResult:
     written_by_fuente: Counter = field(default_factory=Counter)
 
 
-def _as_date(value: Any) -> Optional[date]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    return value
-
-
-def _tiene_precio(row: ItemCostListHistory) -> bool:
-    """A history row that carries a real cost. A NULL or <= 0 `iclh_price`
-    is a HOLE in the ERP, not a product that became free."""
-    if row.iclh_price is None:
-        return False
-    try:
-        return Decimal(str(row.iclh_price)) > 0
-    except InvalidOperation:
-        return False
-
-
-def _pick_history_row(rows: Sequence[ItemCostListHistory], as_of: date) -> Optional[ItemCostListHistory]:
-    """The most recent history row dated AT OR BEFORE `as_of` that carries a
-    real price; a zero row is a missing cost, not a cost change. Compared by
-    DATE, not datetime."""
-    fechadas = [row for row in rows if _as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of]
-    con_precio = [row for row in fechadas if _tiene_precio(row)]
-    if not con_precio:
-        return None
-    return max(con_precio, key=lambda row: (_as_date(row.iclh_cd), row.iclh_id))
-
-
-def _usd_rates_by_date(db: Session, dates: Sequence[date]) -> List[TipoCambio]:
-    """Every USD `TipoCambio` row that could be "the rate in effect" for any
-    date in this batch, fetched ONCE."""
-    if not dates:
-        return []
-    return (
-        db.query(TipoCambio)
-        .filter(TipoCambio.moneda == "USD", TipoCambio.fecha <= max(dates))
-        .order_by(TipoCambio.fecha.asc(), TipoCambio.id.asc())
-        .all()
-    )
-
-
-def _pick_fx_rate(rates: Sequence[TipoCambio], as_of: date) -> Optional[TipoCambio]:
-    """The most recent USD `TipoCambio` row with `fecha <= as_of`: the rate in
-    effect AT THE SALE DATE, never today's."""
-    eligible = [rate for rate in rates if rate.fecha is not None and rate.venta and rate.fecha <= as_of]
-    if not eligible:
-        return None
-    return max(eligible, key=lambda rate: (rate.fecha, rate.id))
-
-
 def _historia_lista8(db: Session, item_ids: Sequence[int]) -> Dict[int, List[ItemCostListHistory]]:
     """Every list-8 history row for these ERP items, in ONE query per batch."""
     if not item_ids:
@@ -163,10 +118,10 @@ _SIN_PRECIO_A_FECHA = "sin_precio_a_fecha"
 
 def _primer_precio(rows: Sequence[ItemCostListHistory]) -> Optional[ItemCostListHistory]:
     """The EARLIEST dated row that carries a real price (`> 0`)."""
-    fechadas = [row for row in rows if _as_date(row.iclh_cd) is not None and _tiene_precio(row)]
+    fechadas = [row for row in rows if as_date(row.iclh_cd) is not None and tiene_precio(row)]
     if not fechadas:
         return None
-    return min(fechadas, key=lambda row: (_as_date(row.iclh_cd), row.iclh_id))
+    return min(fechadas, key=lambda row: (as_date(row.iclh_cd), row.iclh_id))
 
 
 def _validar(picks: Sequence[ItemCostListHistory]) -> Tuple[Optional[Tuple[Decimal, str]], Optional[str]]:
@@ -186,10 +141,10 @@ def _precio_exacto(
     `(None, reason)`. Never had a real price -> `SKIP_FUERA_CATALOGO`; real
     prices but none in effect yet -> `_SIN_PRECIO_A_FECHA`; anything else is
     a REJECTED price (companies disagree, unknown currency)."""
-    if not any(_tiene_precio(row) for row in rows):
+    if not any(tiene_precio(row) for row in rows):
         return None, SKIP_FUERA_CATALOGO
     companias = {row.comp_id for row in rows}
-    picks = [_pick_history_row([r for r in rows if r.comp_id == comp], as_of) for comp in companias]
+    picks = [pick_history_row([r for r in rows if r.comp_id == comp], as_of) for comp in companias]
     picks = [pick for pick in picks if pick is not None]
     if not picks:
         return None, _SIN_PRECIO_A_FECHA
@@ -213,7 +168,7 @@ def _a_ars(
     valor, moneda = precio
     if moneda == "ARS":
         return valor, None
-    rate = _pick_fx_rate(rates, as_of)
+    rate = pick_fx_rate(rates, as_of)
     if rate is None:
         return None
     tipo_cambio = Decimal(str(rate.venta))
@@ -333,8 +288,8 @@ def procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: Backf
     combos = componentes_por_combo(db, erp_ids)
     componentes = {componente_id for comps in combos.values() for componente_id, _ in comps}
     historia = _historia_lista8(db, erp_ids | componentes)
-    fechas = [_as_date(row.date_created) for row in rows if row.date_created is not None]
-    rates = _usd_rates_by_date(db, fechas)
+    fechas = [as_date(row.date_created) for row in rows if row.date_created is not None]
+    rates = usd_rates_by_date(db, fechas)
 
     # Rows that resolve to the same values share ONE UPDATE: far fewer
     # statements than rows, and each one's own RETURNING counts what it changed.
@@ -344,7 +299,7 @@ def procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: Backf
             result.skipped[SKIP_NO_ORDER_DATE] += 1
             continue
         try:
-            valores, motivo = _resolver(row.producto_item_id, _as_date(row.date_created), historia, combos, rates)
+            valores, motivo = _resolver(row.producto_item_id, as_date(row.date_created), historia, combos, rates)
         except Exception:  # noqa: BLE001 -- one row must never abort its batch
             logger.exception("backfill_tp_cost: resolving ml_order_item_costos.id=%s failed", row.id)
             valores, motivo = None, SKIP_ERROR
