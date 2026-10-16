@@ -414,3 +414,41 @@ describe('kit selection state under data-brand="tplink"', () => {
     });
   }
 });
+
+// The global checkbox (design-tokens.css, appearance: none) painted its checked
+// state with literal blues, so `accent-color` never reached it.
+const CHECKED_BASE = {
+  light: { border: 'rgb(59, 130, 246)', bg: 'rgba(59, 130, 246, 0.1)' },
+  dark: { border: 'rgb(92, 140, 255)', bg: 'rgba(92, 140, 255, 0.15)' },
+};
+const CHECKED_BRAND = {
+  light: { border: DEEP_TEAL, bg: 'rgb(227, 247, 249)' },
+  dark: { border: LIGHT_TEAL, bg: 'rgb(15, 46, 51)' },
+};
+const checkedBox = () => {
+  host = mount('<input type="checkbox" checked />');
+  const box = host.firstElementChild;
+  return {
+    border: getComputedStyle(box).borderTopColor,
+    bg: getComputedStyle(box).backgroundColor,
+    tick: getComputedStyle(box, '::after').borderRightColor,
+  };
+};
+
+describe('global checked checkbox', () => {
+  for (const theme of THEMES) {
+    it(`base paints exactly as before (${theme})`, () => {
+      setTheme(theme);
+      const c = checkedBox();
+      expect(c).toEqual({ ...CHECKED_BASE[theme], tick: CHECKED_BASE[theme].border });
+    });
+
+    it(`brand paints the readable teal on the selection tint (${theme})`, () => {
+      setTheme(theme);
+      setBrand('tplink');
+      const c = checkedBox();
+      expect(c).toEqual({ ...CHECKED_BRAND[theme], tick: CHECKED_BRAND[theme].border });
+      expect(contrastRatio(c.tick, c.bg)).toBeGreaterThanOrEqual(3);
+    });
+  }
+});

@@ -232,6 +232,8 @@
   --on-selection-fill: #006b75;
   --selection-border: #e3f7f9;
   --selection-accent: #006b75;
+  --checkbox-checked-bg: #e3f7f9;
+  --checkbox-checked-color: #006b75;
 }
 
 [data-brand="tplink"][data-theme="dark"] {
@@ -442,6 +444,8 @@
   --on-selection-fill: #6fd6df;
   --selection-border: #4ACBD6;
   --selection-accent: #6fd6df;
+  --checkbox-checked-bg: #0f2e33;
+  --checkbox-checked-color: #6fd6df;
 }
 
 /* ============================================================

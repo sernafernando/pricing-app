@@ -177,6 +177,10 @@
   --on-selection-fill: var(--cf-bg-card);
   --selection-border: var(--money-headline);
   --selection-accent: var(--money-headline);
+  /* Checked state of the global checkbox below (role tokens, so a brand can
+     repaint it). Light-mode values live in the light block. */
+  --checkbox-checked-bg: rgba(92, 140, 255, 0.15);
+  --checkbox-checked-color: #5c8cff;
 
   /* A card inside the Ventas ML detail panel: a step off the panel's own
      surface, like `detalle.jpg`'s grey cards on white. */
@@ -430,6 +434,10 @@
   /* Finance/ledger overrides — más sutiles sobre fondo claro */
   --cf-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px -1px rgba(0, 0, 0, 0.08);
   --cf-shadow-modal: 0 12px 40px -8px rgba(0, 0, 0, 0.18);
+
+  /* Checked global checkbox */
+  --checkbox-checked-bg: rgba(59, 130, 246, 0.1);
+  --checkbox-checked-color: #3b82f6;
 }
 
 /* ============================================
@@ -606,8 +614,8 @@ input[type="checkbox"]:hover {
 }
 
 input[type="checkbox"]:checked {
-  background: rgba(92, 140, 255, 0.15);
-  border-color: #5c8cff;
+  background: var(--checkbox-checked-bg);
+  border-color: var(--checkbox-checked-color);
 }
 
 input[type="checkbox"]:checked::after {
@@ -617,7 +625,7 @@ input[type="checkbox"]:checked::after {
   top: 40%;
   width: 5px;
   height: 9px;
-  border: solid #5c8cff;
+  border: solid var(--checkbox-checked-color);
   border-width: 0 2px 2px 0;
   transform: translate(-50%, -50%) rotate(45deg);
 }
@@ -638,14 +646,12 @@ input[type="checkbox"]:focus-visible {
   background: rgba(0, 0, 0, 0.06);
 }
 
+/* Needed for specificity: the light base rule above outranks plain :checked. */
 :root[data-theme="light"] input[type="checkbox"]:checked {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: #3b82f6;
+  background: var(--checkbox-checked-bg);
+  border-color: var(--checkbox-checked-color);
 }
 
-:root[data-theme="light"] input[type="checkbox"]:checked::after {
-  border-color: #3b82f6;
-}
 
 /* ============================================
    UTILITY CLASSES - Clases helper
