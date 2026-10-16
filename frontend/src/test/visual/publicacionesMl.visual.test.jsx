@@ -20,7 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { offsetsGananciaAPI, preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
-import { PRODUCTO } from '../../components/pricing/ProductPrices.fixtures';
+import { PRODUCTO_CON_REBATE_Y_OFERTA } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
   DATA_STATE_OK,
@@ -943,7 +943,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
       it(`${width}x${height} ${theme}: the Precios tab shows cost with offset, both markups as toned chips and fits the panel`, async () => {
-        preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
+        preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO_CON_REBATE_Y_OFERTA });
         offsetsGananciaAPI.vigentes.mockResolvedValue({
           data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
         });
@@ -957,7 +957,11 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(getComputedStyle(facts).backgroundColor).toBe(tokenColor('--tone-neutral-bg'));
 
           const groups = [...panel.querySelectorAll('section[data-list]')];
-          expect(groups.map((g) => getComputedStyle(g).borderLeftColor)).toEqual([tokenColor('--tone-info-fg'), tokenColor('--tone-purple-fg')]);
+          expect(groups.map((g) => getComputedStyle(g).borderLeftColor)).toEqual([
+            tokenColor('--tone-info-fg'),
+            tokenColor('--tone-purple-fg'),
+            tokenColor('--tone-warning-fg'),
+          ]);
 
           const row = (label) => [...panel.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('th').textContent === label);
           const chip = (label, col) => row(label).querySelector(`[data-col="${col}"] [data-tone]`);
@@ -981,6 +985,10 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
             if (r.width === 0) continue;
             expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
           }
+          // Rebate, best offer and web transferencia: chips by the same scale, details wrap under the label.
+          const extras = [...panel.querySelectorAll('section[data-list="extras"] tbody tr')];
+          expect(getComputedStyle(extras[0].querySelector('[data-tone]')).color).toBe(tokenColor('--tone-success-fg'));
+          expect(extras.some((tr) => tr.querySelector('th').textContent.includes('Hasta 31/12'))).toBe(true);
           // Editing by markup is offered on every row, not hidden behind the price editor.
           expect(panel.querySelectorAll('button[aria-label$=" por markup"]')).toHaveLength(10);
           screen.unmount();

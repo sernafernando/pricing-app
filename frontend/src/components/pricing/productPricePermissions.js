@@ -33,7 +33,8 @@ export function canViewProductPrices(tienePermiso) {
 /**
  * Which prices the user may write, with exactly the set each endpoint enforces.
  * @param {(code: string) => boolean} tienePermiso From `usePermisos()`.
- * @returns {{ canEditClasica: boolean, canEditMlCuotas: boolean, canEditPvp: boolean }}
+ * @returns {{ canEditClasica: boolean, canEditMlCuotas: boolean, canEditPvp: boolean,
+ *   canToggleRebate: boolean, canToggleWebTransf: boolean, canToggleOutOfCards: boolean }}
  */
 export function pricePermissions(tienePermiso) {
   const productos = PERMISOS_EDITAR_PRODUCTOS.some((code) => tienePermiso(code));
@@ -45,5 +46,9 @@ export function pricePermissions(tienePermiso) {
     canEditMlCuotas: productos || tienda,
     // set-rapido / set-cuota with lista_tipo=pvp: Productos editors only.
     canEditPvp: productos,
+    // The Productos toggles: each endpoint checks one code (productos_pricing.py).
+    canToggleRebate: tienePermiso('productos.toggle_rebate'),
+    canToggleWebTransf: tienePermiso('productos.toggle_web_transferencia'),
+    canToggleOutOfCards: tienePermiso('productos.toggle_out_of_cards'),
   };
 }

@@ -399,6 +399,13 @@ export const preciosAPI = {
   setRapido: (params) => api.post('/precios/set-rapido', null, { params }),
   // { item_id, tipo_cuota, precio, lista_tipo }
   setCuota: (params) => api.post('/precios/set-cuota', null, { params }),
+  // The Productos toggles (useProductosToggles), same payloads.
+  // { participa_rebate, porcentaje_rebate } -- the backend recomputes markup_rebate.
+  setRebate: (itemId, data) => api.patch(`/productos/${itemId}/rebate`, data),
+  // { participa, porcentaje_markup, preservar_porcentaje } as QUERY params, not body.
+  setWebTransferencia: (itemId, params) => api.patch(`/productos/${itemId}/web-transferencia`, null, { params }),
+  // 404 when the product has no pricing row yet.
+  setOutOfCards: (itemId, outOfCards) => api.patch(`/productos/${itemId}/out-of-cards`, { out_of_cards: outOfCards }),
 };
 
 // Sub-PM scope delegation (sub-pm-scope-marcas PR3). Non-admin titular-only
