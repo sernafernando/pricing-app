@@ -45,6 +45,7 @@ from app.services.pricing_columns import (
 )
 from app.services.pricing_context import PricingContext, build_pricing_context, resolve_envio
 from app.services.productos_pricing_view import (
+    PORCENTAJE_REBATE_DEFAULT,
     MejorOferta,
     Rebate,
     calcular_mejor_oferta,
@@ -1238,7 +1239,7 @@ def listar_productos(
             participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
             porcentaje_rebate=float(producto_pricing.porcentaje_rebate)
             if producto_pricing and producto_pricing.porcentaje_rebate is not None
-            else 3.8,
+            else PORCENTAJE_REBATE_DEFAULT,
             precio_rebate=precio_rebate,
             markup_rebate=markup_rebate,
             participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,
@@ -2535,7 +2536,7 @@ def listar_productos_tienda(
                 participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
                 porcentaje_rebate=float(producto_pricing.porcentaje_rebate)
                 if producto_pricing and producto_pricing.porcentaje_rebate is not None
-                else 3.8,
+                else PORCENTAJE_REBATE_DEFAULT,
                 precio_rebate=precio_rebate,
                 markup_rebate=markup_rebate,
                 precio_gremio_sin_iva=precio_gremio_sin_iva,
@@ -2868,7 +2869,7 @@ def obtener_producto(
         participa_rebate=producto_pricing.participa_rebate if producto_pricing else False,
         porcentaje_rebate=float(producto_pricing.porcentaje_rebate)
         if producto_pricing and producto_pricing.porcentaje_rebate is not None
-        else 3.8,
+        else PORCENTAJE_REBATE_DEFAULT,
         precio_rebate=rebate_d.precio,
         markup_rebate=rebate_d.markup,
         participa_web_transferencia=producto_pricing.participa_web_transferencia if producto_pricing else False,

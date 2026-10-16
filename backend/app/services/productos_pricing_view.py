@@ -2,8 +2,9 @@
 the rebate price and its markup, and the best current ML offer.
 
 ONE computation for every endpoint that returns them -- the Productos listing
-(`GET /productos`) and the product detail (`GET /productos/{item_id}`) -- so
-the two can never disagree on the same product. Pure functions over a
+(`GET /productos`), the tienda listing (`GET /productos/tienda`) and the
+product detail (`GET /productos/{item_id}`) -- so they can never disagree on
+the same product. Pure functions over a
 `PricingContext`; the only query is the batch prefetch of publications and
 current offers.
 """
