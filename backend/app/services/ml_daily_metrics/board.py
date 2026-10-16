@@ -451,7 +451,7 @@ def markup_of(tg: Optional[Decimal], costo: Optional[Decimal]) -> Optional[Decim
     return Decimal(tg) / Decimal(costo) * Decimal("100")
 
 
-def _as_date(value: Any) -> Optional[date]:
+def as_date(value: Any) -> Optional[date]:
     """SQLite hands dates back as text; Postgres as `date`."""
     if value is None or isinstance(value, date) and not isinstance(value, datetime):
         return value
@@ -460,7 +460,7 @@ def _as_date(value: Any) -> Optional[date]:
     return date.fromisoformat(str(value)[:10])
 
 
-def _as_datetime(value: Any) -> Optional[datetime]:
+def as_datetime(value: Any) -> Optional[datetime]:
     """SQLite hands a timestamp read through an untyped temp-table column
     back as text; Postgres as `datetime`."""
     if value is None or isinstance(value, datetime):
@@ -468,7 +468,7 @@ def _as_datetime(value: Any) -> Optional[datetime]:
     return datetime.fromisoformat(str(value))
 
 
-def _as_aware(moment: Optional[datetime]) -> Optional[datetime]:
+def as_aware(moment: Optional[datetime]) -> Optional[datetime]:
     if moment is not None and moment.tzinfo is None:
         return moment.replace(tzinfo=timezone.utc)
     return moment
@@ -1667,7 +1667,7 @@ class Board:
     def _rows_of(self, q: Any, with_series: bool) -> List[Row]:
         out = []
         for r in self.db.execute(q).mappings():
-            ref_day = _as_date(r["ref_day"])
+            ref_day = as_date(r["ref_day"])
             row = Row(
                 key=str(r["rk"]),
                 product_item_id=int(r["product"]) if r["product"] is not None else NO_PRODUCT,
@@ -1684,7 +1684,7 @@ class Board:
                 prev_costo=cents(r["prev_costo"]),
                 ads_cost=cents(r["ads_cost"]) if self.ads else None,
                 **self._tp_of(r),
-                last_sale_at=_as_aware(_as_datetime(r["last_at"])),
+                last_sale_at=as_aware(as_datetime(r["last_at"])),
                 windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
                 units_24h=int(r["u24"] or 0),
                 ageing_days=(self.today - ref_day).days if ref_day else None,
@@ -1781,16 +1781,16 @@ class Board:
             )
             .group_by(fp.c.rk, L.c.day)
         )
-        self._read_series(by_key, series)
+        self.read_series(by_key, series)
 
-    def _read_series(self, by_key: Dict[str, Row], series: Any) -> None:
+    def read_series(self, by_key: Dict[str, Row], series: Any) -> None:
         """Fill every row's 90-day series from `series` (`rk`, `day`, `units`,
         `tg`, `costo` per key and day)."""
         units = {key: [0] * SERIES_DAYS for key in by_key}
         tg = {key: [Decimal("0")] * SERIES_DAYS for key in by_key}
         costo = {key: [Decimal("0")] * SERIES_DAYS for key in by_key}
         for s in self.db.execute(series).mappings():
-            key, index = str(s["rk"]), (_as_date(s["day"]) - self.series_from).days
+            key, index = str(s["rk"]), (as_date(s["day"]) - self.series_from).days
             units[key][index] += int(s["units"] or 0)
             tg[key][index] += Decimal(str(s["tg"] or 0))
             costo[key][index] += Decimal(str(s["costo"] or 0))
@@ -1880,7 +1880,7 @@ class Board:
         level = self._node_level
         out = []
         for r in self.db.execute(q).mappings():
-            ref_day = _as_date(r["ref_day"])
+            ref_day = as_date(r["ref_day"])
             out.append(
                 Row(
                     key=str(r["rk"]),
@@ -1913,7 +1913,7 @@ class Board:
                 )
                 .group_by(key, L.c.day)
             )
-            self._read_series(by_key, series)
+            self.read_series(by_key, series)
         return out
 
     def _sums_of(self, r: Any, ref_day: Optional[date]) -> Dict[str, Any]:
@@ -1930,7 +1930,7 @@ class Board:
             prev_costo=cents(r["prev_costo"]),
             ads_cost=cents(r["ads_cost"]) if self.ads else None,
             **self._tp_of(r),
-            last_sale_at=_as_aware(_as_datetime(r["last_at"])),
+            last_sale_at=as_aware(as_datetime(r["last_at"])),
             windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
             units_24h=int(r["u24"] or 0),
             ageing_days=(self.today - ref_day).days if ref_day else None,
@@ -2022,7 +2022,7 @@ class Board:
         wanted = [(*key[:-1], int(key[-1])) for key in keys]
         found = {}
         for r in self.db.execute(select(rows).where(tuple_(*path, rows.c.product).in_(wanted))).mappings():
-            ref_day = _as_date(r["ref_day"])
+            ref_day = as_date(r["ref_day"])
             names = [r[f"t{i}"] for i in range(self.group_levels)]
             row = Row(
                 key=str(r["rk"]),
@@ -2099,7 +2099,7 @@ class Board:
         s_tg, s_costo = [Decimal("0")] * days, [Decimal("0")] * days
         s_mtg = [Decimal("0")] * days
         for s in self.db.execute(series).mappings():
-            i = (_as_date(s["day"]) - self.f.date_from).days
+            i = (as_date(s["day"]) - self.f.date_from).days
             s_units[i] = int(s["units"] or 0)
             # Each point is money like any other: rounded to the cent.
             s_gross[i] = cents(s["gross"])
@@ -2411,7 +2411,7 @@ def refreshed_at(db: Session) -> Optional[datetime]:
     last = (
         db.query(func.max(MlOpsSyncCursor.last_success_at)).filter(MlOpsSyncCursor.name.in_(FRESHNESS_CURSORS)).scalar()
     )
-    return _as_aware(_as_datetime(last))
+    return as_aware(as_datetime(last))
 
 
 __all__ = [
