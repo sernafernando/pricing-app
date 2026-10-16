@@ -21,3 +21,11 @@ export function withTp(board = BOARD_RESPONSE, kpi = TP_KPIS) {
     rows: board.rows.map((row, index) => ({ ...row, ...(ROW_TP[index] ?? { total_tp: null, tp_incompletos: 0 }) })),
   };
 }
+
+const dropGauss = (object) => Object.fromEntries(Object.entries(object).filter(([key]) => key !== 'total_gauss'));
+
+/** The board a `tplink.solo` user gets (backend P5b): TP costs forced on and `total_gauss` absent at any depth. */
+export function withTpSolo(board = BOARD_RESPONSE) {
+  const tp = withTp(board);
+  return { ...tp, kpis: dropGauss(tp.kpis), rows: tp.rows.map(dropGauss) };
+}

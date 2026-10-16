@@ -36,7 +36,13 @@ function productHeader(groupBy, dimension) {
   return 'Detalle / SKU / Marca';
 }
 
-export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension, adsOn = false, tpOn = false }) {
+/**
+ * `tpSolo`: a `tplink.solo` user's board (backend P5b) always carries the TP costs and never a Total Gauss, so
+ * Total TP takes its place and the markup is Markup TP.
+ */
+export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension, adsOn = false, tpOn = false, tpSolo = false }) {
+  const showTp = tpOn || tpSolo;
+  const markupHeader = tpSolo ? 'Markup TP' : 'Markup act.';
   const columns = [
     { id: 'producto', group: 'producto', header: productHeader(groupBy, dimension), enableHiding: false },
     { id: 'units_24h', group: 'ventas', header: '24H' },
@@ -46,14 +52,14 @@ export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimensio
     { id: 'units_30d', group: 'ventas', header: '30D' },
     { id: 'units_trend', group: 'ventas', header: 'Tendencia' },
     // "Costos TP": the markup of TP-store operations is Markup TP; the header's tooltip says so.
-    { id: 'markup', group: 'markup', header: 'Markup act.', ...(tpOn ? { title: TP_MARKUP_HINT } : {}) },
+    { id: 'markup', group: 'markup', header: markupHeader, ...(showTp ? { title: TP_MARKUP_HINT } : {}) },
     { id: 'markup_delta', group: 'markup', header: 'vs anterior' },
     { id: 'markup_trend', group: 'markup', header: 'Tendencia 90D' },
     { id: 'markup_range', group: 'markup', header: 'Mín / Máx 90D' },
     { id: 'gross', group: 'resultado', header: `Facturado ${periodLabel}` },
-    { id: 'total_gauss', group: 'resultado', header: 'Total Gauss' },
+    ...(tpSolo ? [] : [{ id: 'total_gauss', group: 'resultado', header: 'Total Gauss' }]),
     // "Costos TP" on: Total TP next to Total Gauss, which stays.
-    ...(tpOn ? [{ id: 'total_tp', group: 'resultado', header: 'Total TP' }] : []),
+    ...(showTp ? [{ id: 'total_tp', group: 'resultado', header: 'Total TP' }] : []),
     // Only once the board subtracts ads: the Product Ads (net of IVA) charged to the row.
     ...(adsOn ? [{ id: 'ads_cost', group: 'publicidad', header: 'Publicidad (inversión)' }] : []),
     { id: 'last_sale', group: 'rotacion', header: 'Última venta' },
