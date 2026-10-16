@@ -12,7 +12,7 @@ import itertools
 import select
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Iterator, List, Optional, Sequence
+from typing import Any, Callable, Iterator, List, Optional, Sequence
 
 import pytest
 from sqlalchemy import Engine, Row, create_engine, event, inspect, text
@@ -369,16 +369,18 @@ class TestFixture:
 def _poison(monkeypatch: pytest.MonkeyPatch, bad_item: int, *, after_writing: bool = False) -> None:
     """Makes the fill raise for `bad_item`'s rows -- after writing them when
     `after_writing`, to prove the write is rolled back."""
-    original = tp_cost_fill.procesar_lote
+    original = tp_cost_fill.resolver_y_escribir
 
-    def _maybe_raise(db: Session, rows: Sequence[Any], dry_run: bool, result: resolver.BackfillTpResult) -> None:
+    def _maybe_raise(
+        db: Session, rows: Sequence[Any], datos: Any, dry_run: bool, result: resolver.BackfillTpResult
+    ) -> None:
         if any(row.producto_item_id == bad_item for row in rows):
             if after_writing:
-                original(db, rows, dry_run, result)
+                original(db, rows, datos, dry_run, result)
             raise RuntimeError(f"boom {bad_item}")
-        return original(db, rows, dry_run, result)
+        return original(db, rows, datos, dry_run, result)
 
-    monkeypatch.setattr(tp_cost_fill, "procesar_lote", _maybe_raise)
+    monkeypatch.setattr(tp_cost_fill, "resolver_y_escribir", _maybe_raise)
 
 
 @pytest.mark.postgres
@@ -544,3 +546,68 @@ def test_the_worker_never_imports_a_script_module() -> None:
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
 
     assert out.stdout.strip().splitlines()[-1] == "[]"
+
+
+@pytest.mark.postgres
+class TestClaimedItemsFirst:
+    def test_a_failing_combo_that_is_itself_queued_is_charged_not_dropped(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with _session(pg_tp_engine) as s:
+            _venta(s, 500, 500)  # the component's own sale
+            _venta(s, 501, 900)  # a sale of the combo, which is queued too
+            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=500, iasso_qty=1))
+            _hist(s, 500, 30, date(2026, 9, 1))
+            _hist(s, 900, 50, date(2026, 9, 1))
+            s.commit()
+        assert _queued(pg_tp_engine) == [500, 900]
+        _poison(monkeypatch, 900)
+
+        result = handler.run(_ctx())
+
+        assert _tp(pg_tp_engine, 500)[0] == Decimal("30.0000")
+        assert _tp(pg_tp_engine, 501) == (None, None)
+        attempts, last_error = _queue_row(pg_tp_engine, 900)
+        assert attempts == 1 and "boom 900" in last_error
+        assert _queued(pg_tp_engine) == [900]
+        assert result.detail["failed"] == 1
+
+
+def _count_statements(engine: Engine, run: Callable[[], Any]) -> List[str]:
+    statements: List[str] = []
+
+    def _record(conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool) -> None:
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        run()
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+    return statements
+
+
+@pytest.mark.postgres
+class TestBoundedReads:
+    def _batch(self, engine: Engine, first_item: int, n: int) -> List[str]:
+        with _session(engine) as s:
+            for i in range(n):
+                item = first_item + i
+                _venta(s, item, item)
+                _hist(s, item, 80, date(2026, 9, 1))
+            s.commit()
+        return _count_statements(engine, lambda: handler.run(_ctx()))
+
+    def test_a_batch_reads_the_same_number_of_times_whatever_its_size(self, pg_tp_engine: Engine) -> None:
+        small = self._batch(pg_tp_engine, 1000, 2)
+        large = self._batch(pg_tp_engine, 2000, 6)
+
+        def reads(statements: List[str]) -> int:
+            return len([s for s in statements if s.lstrip().upper().startswith("SELECT")])
+
+        def cost_updates(statements: List[str]) -> int:
+            return len([s for s in statements if s.lstrip().upper().startswith("UPDATE ML_ORDER_ITEM_COSTOS")])
+
+        assert reads(small) == reads(large)
+        assert cost_updates(small) == 2
+        assert cost_updates(large) == 6

@@ -273,10 +273,41 @@ def _resolver(
     return None, motivo
 
 
+@dataclass(frozen=True)
+class DatosLote:
+    """Everything the resolver reads for a set of rows, prefetched once."""
+
+    combos: Dict[int, List[Tuple[int, Decimal]]]
+    historia: Dict[int, List[ItemCostListHistory]]
+    rates: List[TipoCambio]
+
+
+def leer_datos(db: Session, rows: Sequence[Any]) -> DatosLote:
+    """READ phase: combo compositions, list-8 history (items and components)
+    and USD rates for every row, in three queries whatever the row count."""
+    erp_ids = {row.producto_item_id for row in rows if row.producto_item_id is not None}
+    combos = componentes_por_combo(db, erp_ids)
+    componentes = {componente_id for comps in combos.values() for componente_id, _ in comps}
+    historia = _historia_lista8(db, erp_ids | componentes)
+    fechas = [
+        as_date(row.date_created) for row in rows if row.producto_item_id is not None and row.date_created is not None
+    ]
+    return DatosLote(combos=combos, historia=historia, rates=usd_rates_by_date(db, fechas))
+
+
 def procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: BackfillTpResult) -> None:
     """Resolves the TP cost of `rows` (each with `.id`, `.producto_item_id`,
     `.date_created`) and, unless `dry_run`, writes it where it is still NULL.
-    Counts into `result`; never commits. One bad row never aborts the batch."""
+    Counts into `result`; never commits. One bad row never aborts the batch.
+    READ (`leer_datos`) then RESOLVE+WRITE (`resolver_y_escribir`)."""
+    resolver_y_escribir(db, rows, leer_datos(db, rows), dry_run, result)
+
+
+def resolver_y_escribir(
+    db: Session, rows: Sequence[Any], datos: DatosLote, dry_run: bool, result: BackfillTpResult
+) -> None:
+    """RESOLVE+WRITE phase over prefetched `datos` (which must cover `rows`):
+    no reads, one UPDATE per group of rows resolving to the same values."""
     validas = []
     for row in rows:
         if row.producto_item_id is None:
@@ -284,12 +315,7 @@ def procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: Backf
         else:
             validas.append(row)
     rows = validas
-    erp_ids = {row.producto_item_id for row in rows}
-    combos = componentes_por_combo(db, erp_ids)
-    componentes = {componente_id for comps in combos.values() for componente_id, _ in comps}
-    historia = _historia_lista8(db, erp_ids | componentes)
-    fechas = [as_date(row.date_created) for row in rows if row.date_created is not None]
-    rates = usd_rates_by_date(db, fechas)
+    combos, historia, rates = datos.combos, datos.historia, datos.rates
 
     # Rows that resolve to the same values share ONE UPDATE: far fewer
     # statements than rows, and each one's own RETURNING counts what it changed.

@@ -19,7 +19,7 @@ item in `tp_cost_fill_queue` and `pg_notify` the worker:
 The handler (`app/workers/handlers/tp_cost_fill.py`) drains the queue in
 batches, one short transaction each: claim items, find the NULL rows of those
 items and of the combos containing them, and resolve them with
-`tp_cost_resolver.procesar_lote`, shared with the backfill script -- same rules (price at the sale date, else the
+`tp_cost_resolver` (prefetch once, then resolve per savepoint), shared with the backfill script -- same rules (price at the sale date, else the
 first price flagged approximate, combo precedence, rejected prices stay NULL),
 same `costo_tp_unitario_ars IS NULL` guard on the UPDATE so a TP cost already
 set is never rewritten. An item that still does not resolve (no usable price)
@@ -48,7 +48,13 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
 from app.models.tb_item_association import TbItemAssociation
-from app.services.ml_orders_ingestion.tp_cost_resolver import SKIP_ERROR, BackfillTpResult, procesar_lote
+from app.services.ml_orders_ingestion.tp_cost_resolver import (
+    SKIP_ERROR,
+    BackfillTpResult,
+    DatosLote,
+    leer_datos,
+    resolver_y_escribir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,18 +174,21 @@ def _sumar(total: BackfillTpResult, parcial: BackfillTpResult) -> None:
 
 
 def _llenar(
-    db: Session, filas: Sequence[Any], total: BackfillTpResult, after: Optional[Callable[[], Any]] = None
+    db: Session,
+    filas: Sequence[Any],
+    datos: DatosLote,
+    total: BackfillTpResult,
+    after: Optional[Callable[[], Any]] = None,
 ) -> None:
-    """Fills `filas` inside their OWN savepoint, then runs `after` in it. Any
-    failure, including a row the resolver could not handle, rolls the
-    savepoint back and re-raises; on success the counts join `total`."""
+    """Resolves and writes `filas` over the prefetched `datos` inside their OWN
+    savepoint, then runs `after` in it. Any failure, including a row the
+    resolver could not handle, rolls the savepoint back and re-raises; on
+    success the counts join `total`. No reads happen here."""
     parcial = BackfillTpResult(examined=len(filas))
     savepoint = db.begin_nested()
     try:
         if filas:
-            # Rows already filled earlier in this batch are a no-op: the
-            # UPDATE's `IS NULL` guard.
-            procesar_lote(db, filas, False, parcial)
+            resolver_y_escribir(db, filas, datos, False, parcial)
         if parcial.skipped[SKIP_ERROR]:
             raise RuntimeError(f"{parcial.skipped[SKIP_ERROR]} row(s) failed to resolve")
         if after is not None:
@@ -195,19 +204,24 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
     """Claims up to `limit` queued items and fills the NULL TP cost of their
     sales and of the sales of combos containing them. Does not commit.
 
-    Each item's OWN sales run in their own savepoint: a failure (an
-    exception, or a row the resolver could not handle) rolls back that item's
-    writes only, charges it an attempt with the error, and leaves the rest of
-    the batch going. An item that succeeds leaves the queue.
+    READ first, in a fixed number of queries whatever the batch size: the
+    claim, the combos containing the claimed items, the NULL cost rows of all
+    of them, and the resolver's prefetch (`leer_datos`). Every savepoint below
+    only resolves and writes.
 
-    Each combo containing a claimed item runs in ANOTHER savepoint, once per
-    batch: a broken combo never charges, undoes or parks its component. It is
-    logged and reported in `combo_failed`, its sales stay NULL (flagged), and
-    it is retried the next time any of its components is queued -- the combo
-    has no queue row of its own to charge or park.
+    1. The CLAIMED items, each in its own savepoint over its own rows: a
+       failure (an exception, or a row the resolver could not handle) rolls
+       back that item's writes only and charges it an attempt with the error.
+       A claimed item leaves the queue only when its own rows succeeded.
+    2. Then the combos containing a claimed item that are NOT claimed
+       themselves, each in its own savepoint: a broken combo never charges,
+       undoes or parks a component. It is logged and reported in
+       `combo_failed`, its sales stay NULL (flagged), and it is retried the
+       next time one of its components is queued -- it has no queue row.
 
-    An error outside any savepoint (claim, lookups) propagates: the caller's
-    transaction rolls back and the queue is unchanged.
+    A cost row belongs to exactly one product, so the two passes never touch
+    the same row. An error outside any savepoint (claim, reads) propagates:
+    the caller's transaction rolls back and the queue is unchanged.
     """
     batch = FillBatch(items=0)
     items = [
@@ -220,8 +234,13 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
         return batch
     batch.items = len(items)
 
+    reclamados = set(items)
     combos = _combos_de(db, items)
-    productos = set(items).union(*combos.values())
+    derivados: Dict[int, Set[int]] = {}  # combo -> claimed components that reach it
+    for componente_id, contenedores in combos.items():
+        for combo_id in contenedores - reclamados:
+            derivados.setdefault(combo_id, set()).add(componente_id)
+
     # `ix_ml_order_item_costos_tp_pendiente`: partial index on
     # `producto_item_id` WHERE `costo_tp_unitario_ars IS NULL`.
     rows = (
@@ -229,51 +248,45 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
         .outerjoin(MlOrdersOps, MlOrdersOps.order_id == MlOrderItemCosto.order_id)
         .filter(
             MlOrderItemCosto.costo_tp_unitario_ars.is_(None),
-            MlOrderItemCosto.producto_item_id.in_(sorted(productos)),
+            MlOrderItemCosto.producto_item_id.in_(sorted(reclamados | set(derivados))),
         )
         .order_by(MlOrderItemCosto.id)
         .all()
     )
+    datos = leer_datos(db, rows)
 
     # Grouped once (rows arrive ordered by id, and keep that order per product).
     filas_por_producto: Dict[int, List[Any]] = {}
     for row in rows:
         filas_por_producto.setdefault(row.producto_item_id, []).append(row)
 
-    # Each cost row is resolved at most ONCE per batch: a queued item can also
-    # be a combo of another queued item, which would reach its rows twice.
-    # Rows are taken when attempted, whatever the outcome -- a failed item's
-    # rows are retried with that item, not through another one.
-    vistas: Set[int] = set()
-
-    def _filas(producto_item_id: int) -> List[Any]:
-        nuevas = [row for row in filas_por_producto.get(producto_item_id, []) if row.id not in vistas]
-        vistas.update(row.id for row in nuevas)
-        return nuevas
-
-    combos_hechos: Set[int] = set()
     for item_id in items:
         try:
-            _llenar(db, _filas(item_id), batch.result, after=partial(db.execute, _DONE_SQL, {"item_id": item_id}))
+            _llenar(
+                db,
+                filas_por_producto.get(item_id, []),
+                datos,
+                batch.result,
+                after=partial(db.execute, _DONE_SQL, {"item_id": item_id}),
+            )
         except Exception as exc:  # noqa: BLE001 -- one item must never stop the batch
             logger.warning("tp_cost.fill: item_id=%s failed: %s", item_id, exc, exc_info=True)
             db.execute(_FAILED_SQL, {"item_id": item_id, "error": str(exc)[:500]})
             batch.failed.append(item_id)
 
-        for combo_id in sorted(combos.get(item_id, set()) - combos_hechos):
-            combos_hechos.add(combo_id)
-            filas = _filas(combo_id)
-            if not filas:
-                continue
-            try:
-                _llenar(db, filas, batch.result)
-            except Exception as exc:  # noqa: BLE001 -- a combo must never charge its component
-                logger.warning(
-                    "tp_cost.fill: combo item_id=%s (via component %s) failed: %s",
-                    combo_id,
-                    item_id,
-                    exc,
-                    exc_info=True,
-                )
-                batch.combo_failed.append(combo_id)
+    for combo_id in sorted(derivados):
+        filas = filas_por_producto.get(combo_id, [])
+        if not filas:
+            continue
+        try:
+            _llenar(db, filas, datos, batch.result)
+        except Exception as exc:  # noqa: BLE001 -- a combo must never charge its components
+            logger.warning(
+                "tp_cost.fill: combo item_id=%s (via components %s) failed: %s",
+                combo_id,
+                sorted(derivados[combo_id]),
+                exc,
+                exc_info=True,
+            )
+            batch.combo_failed.append(combo_id)
     return batch
