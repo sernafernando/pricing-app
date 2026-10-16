@@ -1,0 +1,44 @@
+.group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* An active value: filled like the kit's active facet chip, the X removes it. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--on-selection-fill);
+  background: var(--selection-fill);
+  border: 1px solid var(--selection-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  border-color: var(--cf-border-strong);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
