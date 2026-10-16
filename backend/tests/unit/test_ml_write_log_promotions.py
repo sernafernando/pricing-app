@@ -54,12 +54,19 @@ def _writes_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def bg_db(db, monkeypatch: pytest.MonkeyPatch):
-    """Routes the service's short-lived `get_background_db()` to the test session."""
+    """Routes the service's short-lived `get_background_db()` to the test session,
+    with the same exit contract as the real one: commit on a normal exit,
+    rollback + re-raise on an exception. The `db` fixture's SAVEPOINT keeps the
+    commit inside the test transaction."""
 
     @contextmanager
     def _fake():
-        yield db
-        db.flush()
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
     monkeypatch.setattr(write_service, "get_background_db", _fake)
     return db
