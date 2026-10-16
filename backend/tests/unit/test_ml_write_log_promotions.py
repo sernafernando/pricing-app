@@ -11,6 +11,7 @@ write-service tests use (`test_ml_promotions_write_service.py`).
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -175,7 +176,9 @@ class TestEnrollWritesLog:
         assert row.action == "enroll"
         assert row.payload["outcome"] == "reconciled_applied"
 
-    def test_log_failure_never_changes_a_confirmed_outcome(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_log_failure_never_changes_a_confirmed_outcome(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
         @contextmanager
         def _broken():
             raise RuntimeError("db down")
@@ -186,10 +189,13 @@ class TestEnrollWritesLog:
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=_live_deal()),
             patch.object(write_service.ml_webhook_client, "enroll_item", return_value=_OK_201),
         ):
-            outcome = write_service.enroll_one_item(MLA, "DEAL-1", "DEAL", deal_price=900.0, usuario_id=7)
+            with caplog.at_level(logging.ERROR, logger=write_service.logger.name):
+                outcome = write_service.enroll_one_item(MLA, "DEAL-1", "DEAL", deal_price=900.0, usuario_id=7)
 
         assert outcome["status"] == "submitted"
         assert outcome["submitted"] is True
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("ml_write_log insert failed" in r.getMessage() for r in errors)
 
 
 class TestRemoveWritesLog:
@@ -201,6 +207,20 @@ class TestRemoveWritesLog:
         (row,) = _rows(bg_db)
         assert (row.action, row.target_id, row.promotion_type) == ("remove", "DEAL-1", "DEAL")
         assert row.usuario_id == usuario.id
+
+    def test_ambiguous_remove_reconciled_applied_writes_row(self, bg_db, usuario) -> None:
+        # A successful DELETE returns the item to 'candidate' (the mirror row persists).
+        mirror_row = {"mla": MLA, "promotion_id": "DEAL-1", "promotion_type": "DEAL", "status": "candidate"}
+        with (
+            patch.object(write_service.ml_webhook_client, "remove_item", return_value=_AMBIGUOUS_504),
+            patch.object(write_service, "fetch_item_promotions", return_value=[mirror_row]),
+        ):
+            outcome = write_service.remove_one_item(MLA, "DEAL", "DEAL-1", usuario_id=usuario.id)
+
+        assert outcome["status"] == "reconciled_applied"
+        (row,) = _rows(bg_db)
+        assert (row.action, row.target_id, row.usuario_id) == ("remove", "DEAL-1", usuario.id)
+        assert row.payload["outcome"] == "reconciled_applied"
 
     def test_remove_rejection_writes_nothing(self, bg_db, usuario) -> None:
         with patch.object(write_service.ml_webhook_client, "remove_item", return_value=_REJECTED_400):
