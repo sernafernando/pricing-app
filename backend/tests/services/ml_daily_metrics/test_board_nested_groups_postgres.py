@@ -43,6 +43,17 @@ def _sell(db, n, product, mla, *, qty=1, tg="10", costo="50", ago=timedelta(hour
     order_id = 2000012345678900 + n
     _order(db, order_id, [(product, mla, qty, Decimal(costo) / qty)], tg=tg, costo=costo)
     _group(db, f"o:{order_id}", [order_id], NOW - ago)
+    # The accredited payment Ventas ML reads the day from (the store chips count operations through its scope).
+    _payment(db, order_id, NOW - ago)
+
+
+def _payment(db, order_id, approved) -> None:
+    db.execute(
+        text(
+            "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) VALUES (:o, :o, 'approved', :d)"
+        ),
+        {"o": order_id, "d": approved},
+    )
 
 
 @pytest.fixture()

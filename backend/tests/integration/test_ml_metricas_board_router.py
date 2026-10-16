@@ -418,7 +418,8 @@ class TestFilters:
     def test_other_axes_see_the_exclusions(self, client, admin_auth_headers, board_data):
         facets = _get(client, admin_auth_headers, pub_status_exclude="paused", pub_type_exclude="catalogo")["facets"]
 
-        assert facets["stores"] == {"57997": 1, "2645": 1, "144": 1}
+        # Operations of the period (not rows): MLA1's two sales and MLA5's; the paused MLA2 is hidden.
+        assert facets["stores"] == {"57997": 2, "144": 1}
         assert facets["stores_total"] == 3
 
     def test_nested_publications_honour_the_exclusion(self, client, admin_auth_headers, board_data):
@@ -469,7 +470,8 @@ class TestFilters:
     def test_facet_counts_ignore_their_own_axis(self, client, admin_auth_headers, board_data):
         facets = _get(client, admin_auth_headers, stores="2645")["facets"]
 
-        assert facets["stores"] == {"57997": 2, "2645": 1, "144": 1}
+        # Operations of the period: MLA1 x2 + MLA2 in Gauss, MLA5 in 144; Lenovo (2645) sold only in July.
+        assert facets["stores"] == {"57997": 3, "144": 1}
         assert facets["stores_total"] == 4
         assert facets["pub_status"] == {"active": 1}
         assert facets["alerts"] == {"sin_ventas_30d": 1, "ageing_60d": 1, "margen_cayendo": 0}
@@ -963,7 +965,8 @@ class TestStock:
         assert body["total"] == 2
         assert body["kpis"]["units"]["value"] == 6
         assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 2}
-        assert body["facets"]["stores"] == {"57997": 2}
+        # p11's three operations of the period (p13 never sold).
+        assert body["facets"]["stores"] == {"57997": 3}
         assert body["facets"]["alerts"]["sin_ventas_30d"] == 1
         # Its own chips ignore it: they keep showing what each would select.
         assert body["facets"]["stock"] == {"con_stock": 2, "sin_stock": 1, "sin_dato": 1}
@@ -1055,7 +1058,11 @@ class TestAgeing:
         assert body["kpis"]["ageing"] == {"avg_days": 101.5, "up_to_30": 0, "from_31_to_60": 0, "over_60": 2}
         assert body["kpis"]["units"]["value"] == 0
         assert body["facets"]["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
-        assert body["facets"]["stores"] == {"57997": 1, "2645": 1}
+        # Neither row sold in the period: no operation in any store -- but both stores still hold rows, so their
+        # chips (reading 0) stay selectable.
+        assert body["facets"]["stores"] == {}
+        assert body["facets"]["stores_total"] == 0
+        assert body["facets"]["stores_with_rows"] == ["2645", "57997"]
 
     def test_ageing_and_stock_chips_see_each_other(self, client, admin_auth_headers, stock_data):
         assert _get(client, admin_auth_headers, ageing="over_60")["facets"]["stock"] == {

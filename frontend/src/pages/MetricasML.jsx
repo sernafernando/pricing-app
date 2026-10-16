@@ -91,6 +91,18 @@ const ALERTS = [
   { value: 'margen_cayendo', label: 'Markup cayendo', icon: TrendingDown, tone: 'danger', margin: true },
 ];
 
+const ROWS_WITHOUT_OPERATIONS_HINT = 'Sin operaciones en el período, pero hay filas de esta tienda con los filtros actuales';
+
+/** The tooltip of each store chip that counts 0 operations but still selects rows (`stores_with_rows`). */
+function storeChipHints({ options, counts }, facets) {
+  const withRows = new Set(facets?.stores_with_rows ?? []);
+  const hints = {};
+  for (const value of options) {
+    if (!counts?.[value] && value.split(',').some((id) => withRows.has(id))) hints[value] = ROWS_WITHOUT_OPERATIONS_HINT;
+  }
+  return hints;
+}
+
 /** `next` after `previous`, without any row `previous` already has: a metric
  * that moved between two pages shifts the order, and a repeated row would
  * duplicate its React key. */
@@ -407,6 +419,7 @@ export default function MetricasML() {
   // toggle hides rows with no sale in the period mostly comes back empty:
   // say so -- never flip the toggle behind the operator's back. Excluding
   // chips or "Hasta 30 d" ask for no stale rows: no warning.
+  const storeChips = buildStoreChips({ tiendas, getLabel, counts: facets?.stores, selected: storeFilter, facetExtras: false });
   const hidesStale = soloConVentas && ageing.some((bucket) => STALE_AGEING_BUCKETS.has(bucket));
   const rows = board?.rows || [];
   const total = board?.total ?? 0;
@@ -527,12 +540,16 @@ export default function MetricasML() {
 
         <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
-            <span className={styles.filterLabel} title="La tienda oficial ACTUAL de la publicación">
+            <span
+              className={styles.filterLabel}
+              title="Operaciones del período en cada tienda (la tienda oficial ACTUAL de la publicación), como en Ventas ML"
+            >
               Tienda:
             </span>
             <FacetChips
               label="Filtrar por tienda oficial"
-              {...buildStoreChips({ tiendas, getLabel, counts: facets?.stores, selected: storeFilter, facetExtras: false })}
+              {...storeChips}
+              hints={storeChipHints(storeChips, facets)}
               total={facets?.stores_total}
               onChange={withReset(setStoreFilter)}
             />

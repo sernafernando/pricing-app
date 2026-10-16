@@ -154,7 +154,8 @@ class TestBoard:
         facets = _get(client, people["ana"])["facets"]
 
         assert facets["product"]["marcas"] == ["Epson"]
-        assert facets["stores"] == {"57997": 1}
+        # Epson's operations of the period only (MLA1 x2, MLA2), never another PM's.
+        assert facets["stores"] == {"57997": 3}
 
     def test_a_pm_cannot_widen_the_scope_with_marcas_or_pms(self, client, people):
         ana, beto = people["ana"], people["beto"]

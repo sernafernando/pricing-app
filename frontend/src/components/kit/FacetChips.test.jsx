@@ -47,6 +47,29 @@ describe('FacetChips', () => {
     expect(screen.getByRole('button', { name: /Pagada · 0/ })).toBeInTheDocument();
   });
 
+  it('keeps a 0 chip selectable and shows its optional hint', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <FacetChips
+        label="Operación"
+        options={OPTIONS}
+        labels={LABELS}
+        counts={{ paid: 0, cancelled: 1 }}
+        hints={{ paid: 'Sin operaciones, pero con filas' }}
+        total={1}
+        activeValue=""
+        onChange={onChange}
+      />
+    );
+    const zero = screen.getByRole('button', { name: /Pagada · 0/ });
+    expect(zero).toBeEnabled();
+    expect(zero).toHaveAttribute('title', 'Sin operaciones, pero con filas');
+    expect(screen.getByRole('button', { name: /Cancelada · 1/ })).not.toHaveAttribute('title');
+    await user.click(zero);
+    expect(onChange).toHaveBeenCalledWith('paid');
+  });
+
   it('marks the active chip pressed and calls onChange with the toggled value on click', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.services.ml_daily_metrics import board
+from tests.services.ml_daily_metrics.test_board_nested_groups_postgres import _payment
 from tests.services.ml_daily_metrics.test_board_postgres import _group, _order
 
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
@@ -52,6 +53,7 @@ def catalog(board_pg):
         order_id = 2000012345678930 + n
         _order(db, order_id, [(product, mla, 1, 10)])
         _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
+        _payment(db, order_id, NOW - timedelta(hours=3))
     return db
 
 
