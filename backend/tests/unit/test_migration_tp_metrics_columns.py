@@ -39,9 +39,10 @@ def _load(revision: str) -> ModuleType:
 
 
 class TestMigrationGraph:
-    def test_is_the_single_head_on_top_of_the_theme_permission(self) -> None:
+    def test_is_on_the_current_head_line_on_top_of_the_theme_permission(self) -> None:
         script = _script_directory()
-        assert script.get_heads() == [_REVISION]
+        (head,) = script.get_heads()
+        assert _REVISION in {rev.revision for rev in script.walk_revisions(base="base", head=head)}
         assert script.get_revision(_REVISION).down_revision == _PARENT
 
 
