@@ -4,7 +4,8 @@ import { formatPct, formatUnits } from '../../utils/metricasMlFormat';
 import { formatSignedMoney } from '../../utils/ventasMlTone';
 import styles from './AdsKpiBlock.module.css';
 
-const ratio = (value) => (value === null || value === undefined ? '—' : new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value));
+const TWO_DECIMALS = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ratio = (value) => (value === null || value === undefined ? '—' : TWO_DECIMALS.format(value));
 
 function Metric({ label, value, hint, money }) {
   return (

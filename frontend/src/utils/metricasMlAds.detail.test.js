@@ -18,6 +18,11 @@ describe('adsCoverageNote', () => {
     expect(note).toEqual({ tone: 'ok', text: 'Datos de Ads hasta el 13/10' });
   });
 
+  it('does not read as ok when the ledger has data but no cut-off date', () => {
+    const note = adsCoverageNote({ available: true, data_through: null, missing_days: [], mismatch_days: [] });
+    expect(note).toEqual({ tone: 'warn', text: 'Datos de Ads sin fecha de corte' });
+  });
+
   it('counts the missing and the mismatched days', () => {
     const note = adsCoverageNote({
       available: true,

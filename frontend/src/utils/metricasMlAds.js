@@ -58,7 +58,9 @@ export function adsCoverageNote(coverage) {
   if (!coverage.available) return { tone: 'warn', text: 'Sin datos de Ads para el período' };
   const missing = coverage.missing_days.length;
   const mismatch = coverage.mismatch_days.length;
-  const parts = [coverage.data_through ? `Datos de Ads hasta el ${dayMonth(coverage.data_through)}` : 'Datos de Ads'];
+  // Available without a date cannot vouch for the whole period: never a green "ok".
+  if (!coverage.data_through) return { tone: 'warn', text: 'Datos de Ads sin fecha de corte' };
+  const parts = [`Datos de Ads hasta el ${dayMonth(coverage.data_through)}`];
   if (missing) parts.push(missing === 1 ? 'falta 1 día' : `faltan ${missing} días`);
   if (mismatch) parts.push(`${days(mismatch)} con diferencias`);
   return { tone: missing || mismatch ? 'warn' : 'ok', text: parts.join(' · ') };
