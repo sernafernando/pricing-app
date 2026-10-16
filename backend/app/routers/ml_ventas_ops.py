@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import calendar
 import csv
+import dataclasses
 import io
 import logging
 from datetime import date, datetime, time, timedelta, timezone
@@ -33,8 +34,8 @@ from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field, computed_field, create_model
 from sqlalchemy import func
 from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
@@ -111,7 +112,9 @@ from app.models.producto import ProductoERP
 from app.services.order_metrics import health as order_metrics_health
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
 from app.services.order_metrics.types import GaussStatus
+from app.services import tplink_solo
 from app.services.permisos_service import PermisosService
+from app.services.tiendas_oficiales import StoreClaveNotConfigured
 from app.utils.csv_cells import csv_text
 
 DIVERGENCE_KINDS = (
@@ -1366,8 +1369,12 @@ def listar_ventas(
 
     Requires `ml_ops.ver`, checked BEFORE the feature flag (403 before
     503) -- same precedent as every other endpoint in this router.
+
+    A `tplink.solo` user gets `SaleListResponseTP`: TP store group only, TP
+    cost, no Gauss figure.
     """
-    return _sales_page(
+    tp_solo = tplink_solo.es_tplink_solo(db, current_user)
+    response = _sales_page(
         db,
         operation_status_filter=operation_status_filter,
         goods_status_filter=goods_status_filter,
@@ -1389,7 +1396,9 @@ def listar_ventas(
         only_alerts=only_alerts,
         limit=limit,
         offset=offset,
+        tp_solo=tp_solo,
     )
+    return _tp_json(response) if tp_solo else response
 
 
 def _sales_page(
@@ -1419,7 +1428,8 @@ def _sales_page(
     total: Optional[int] = None,
     group_keys: Optional[List[str]] = None,
     keys_only: bool = False,
-) -> "SaleListResponse | List[str]":
+    tp_solo: bool = False,
+) -> "SaleListResponse | SaleListResponseTP | List[str]":
     """The single scope/query path behind `GET /sales` AND the CSV export, so
     the export can never diverge from the listing. `with_facets=False` skips
     the facet counts and the alerts counter: the export reads neither, and
@@ -1433,7 +1443,10 @@ def _sales_page(
     the scope (`limit` of them, from `offset`), and `group_keys` then builds
     exactly those groups, in that order, with no key query of its own. A key
     passed in is always built from its CURRENT members, even if the group no
-    longer matches the filters; one with no members left is skipped."""
+    longer matches the filters; one with no members left is skipped.
+
+    `tp_solo=True` (a `tplink.solo` user) locks the stores to the TP group and
+    returns the Gauss-free `SaleListResponseTP` instead."""
     _require_flag_enabled()
 
     if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
@@ -1452,6 +1465,9 @@ def _sales_page(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"sort inválido: {sort!r} (esperado uno de {', '.join(SALE_SORTS)})",
         )
+    if tp_solo and sort == SORT_BY_TOTAL_GAUSS:
+        # Sorting by Total Gauss would leak its order even with the figure hidden.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"sort inválido: {sort!r}")
 
     # `date_from`/`date_to` win over `sold_month`. The month filter is the
     # older, coarser shape of the same idea and is kept so a bookmarked URL
@@ -1469,6 +1485,8 @@ def _sales_page(
     subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
     pms_list = parse_csv_ids(pms, "pms")
     stores_list = parse_csv_stores(stores)
+    if tp_solo:
+        stores_list = _tp_locked_stores(db, stores_list)
 
     # PR9.T1/T2 (design D12): the seller/date scoping, status derivation,
     # status filters and free-text search all live in `build_scope` now.
@@ -1500,6 +1518,9 @@ def _sales_page(
     goods_status_expr = scope.goods_status_expr
     facet_base = scope.facet_base
     members_base = scope.members_base
+    if tp_solo:
+        # A TP-only user never sees a pack's non-TP members.
+        members_base = members_base.filter(_tp_order_condition(db))
     listing_query = scope.listing_query
 
     # Pagination happens over GROUPS, so a pack can never be split across
@@ -1790,13 +1811,14 @@ def _sales_page(
         )
 
     if not with_facets:
-        return SaleListResponse(
+        response = SaleListResponse(
             total=total,
             limit=limit,
             offset=offset,
             sales=groups,
             facets=SaleFacetCounts(operation_status={}, goods_status={}),
         )
+        return _tp_listing(db, response) if tp_solo else response
 
     # Facets: each axis scoped by the OTHER active filter(s), never by its
     # own -- see `listar_ventas`'s docstring.
@@ -1828,9 +1850,11 @@ def _sales_page(
 
     goods_facet_total = goods_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
     store_counts, stores_total = store_facet_counts(scope)
+    if tp_solo:
+        store_counts, stores_total = _tp_store_facets(db, sales_filter, store_counts)
     product_options = sales_product_options(db, sales_filter, scope)
 
-    return SaleListResponse(
+    response = SaleListResponse(
         total=total,
         limit=limit,
         offset=offset,
@@ -1846,6 +1870,7 @@ def _sales_page(
             product=product_options,
         ),
     )
+    return _tp_listing(db, response) if tp_solo else response
 
 
 class SyncStatusResponse(BaseModel):
@@ -1936,7 +1961,13 @@ def _csv_items(order: SaleListItem) -> "tuple[str, str, str]":
     )
 
 
-def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) -> List[str]:
+# `tplink.solo` export: the sale columns, then the TP figures where the
+# Gauss ones go (`total_gauss`/`markup_pct`), then the rest.
+EXPORT_HEADER_TP = EXPORT_HEADER[:17] + ["costo_tp", "total_tp", "markup_tp", "tp_incompleto"] + EXPORT_HEADER[19:]
+
+
+def _csv_sale_cells(order: "SaleListItem | SaleListItemTP", accreditation_date: Optional[datetime]) -> List[str]:
+    """The columns up to `neto`: sale data only, shared by both exports."""
     product, sku, quantity = _csv_items(order)
     return [
         accreditation_date.isoformat() if accreditation_date else "",
@@ -1956,9 +1987,26 @@ def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) 
         _csv_money(order.total_amount),
         _csv_money(order.coupon_amount),
         _csv_money(order.neto),
+    ]
+
+
+def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) -> List[str]:
+    return _csv_sale_cells(order, accreditation_date) + [
         _csv_money(order.total_gauss),
         _csv_money(order.markup),
         "si" if order.total_gauss_provisional else "no",
+        order.metrics_state or "",
+        order.alert_level,
+    ]
+
+
+def _csv_order_row_tp(order: "SaleListItemTP", accreditation_date: Optional[datetime]) -> List[str]:
+    return _csv_sale_cells(order, accreditation_date) + [
+        _csv_money(order.costo_tp),
+        _csv_money(order.total_tp),
+        _csv_money(order.markup_tp),
+        "si" if order.tp_incompleto else "no",
+        "si" if order.total_tp_provisional else "no",
         order.metrics_state or "",
         order.alert_level,
     ]
@@ -1991,7 +2039,11 @@ def exportar_ventas(
     ordered group keys and the first page are fetched BEFORE the response
     starts, so a bad param, a disabled feature or an oversized set fail as a
     normal HTTP error instead of a truncated file, and every later page is
-    built from that fixed key list (never by OFFSET)."""
+    built from that fixed key list (never by OFFSET).
+
+    A `tplink.solo` user gets the TP store group only, with `EXPORT_HEADER_TP`."""
+    tp_solo = tplink_solo.es_tplink_solo(db, current_user)
+    row_of = _csv_order_row_tp if tp_solo else _csv_order_row
 
     filters = dict(
         operation_status_filter=operation_status_filter,
@@ -2014,6 +2066,7 @@ def exportar_ventas(
         only_alerts=only_alerts,
         offset=0,
         with_facets=False,
+        tp_solo=tp_solo,
     )
 
     def page_of(page_db: Session, page_keys: List[str], total: int) -> "tuple[SaleListResponse, str]":
@@ -2039,7 +2092,7 @@ def exportar_ventas(
             dates = [per_order[o.order_id] for o in group.orders if o.order_id in per_order]
             day = max(dates) if dates else None
             for order in group.orders:
-                writer.writerow(_csv_order_row(order, day))
+                writer.writerow(row_of(order, day))
         return buffer.getvalue()
 
     # The FIRST short transaction fixes the ORDERED list of group keys (and
@@ -2066,7 +2119,7 @@ def exportar_ventas(
 
     def stream():
         header = io.StringIO()
-        csv.writer(header, delimiter=";").writerow(EXPORT_HEADER)
+        csv.writer(header, delimiter=";").writerow(EXPORT_HEADER_TP if tp_solo else EXPORT_HEADER)
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + header.getvalue()
         current_rows, exported = first_rows, 0
@@ -2165,6 +2218,322 @@ def _toggle_excluded_counts(db: Session, f: SalesFilter) -> SalesKpiExcludedByTo
     )
 
 
+# ── tplink.solo: the TP-only views (metricas-ml-tplink-mode P5a) ──────
+#
+# A `tplink.solo` user sees only the TP store group, costed at the TP cost,
+# and never a Gauss figure. The TP models are built from an ALLOW-list of the
+# base model's fields: a field added to a base model later stays out of the
+# TP view until someone adds it here on purpose, so a new Gauss figure cannot
+# leak by default. Served as plain JSON (`_tp_json`), outside the endpoints'
+# `response_model`, which keeps every other user's response byte-for-byte.
+
+
+# The allow-listed base fields of each TP model, copied over by `_kept`.
+_TP_KEEP: Dict[Any, Tuple[str, ...]] = {}
+
+
+def _tp_model(name: str, base: type, keep: Tuple[str, ...], **extra: Any) -> Any:
+    fields = {f: (base.model_fields[f].annotation, base.model_fields[f]) for f in keep}
+    model = create_model(name, **fields, **extra)
+    _TP_KEEP[model] = keep
+    return model
+
+
+def _kept(model: Any, instance: BaseModel) -> Dict[str, Any]:
+    return {f: getattr(instance, f) for f in _TP_KEEP[model]}
+
+
+_TP_FIELDS: Dict[str, Any] = dict(
+    costo_tp=(Optional[float], None),
+    total_tp=(Optional[float], None),
+    markup_tp=(Optional[float], None),
+    # TP cost missing (no list-8 price): the figures above are null, never 0.
+    tp_incompleto=(bool, False),
+)
+
+SaleListItemTP = _tp_model(
+    "SaleListItemTP",
+    SaleListItem,
+    (
+        "order_id", "pack_id", "status", "date_created", "ml_last_updated", "buyer_nickname", "total_amount",
+        "paid_amount", "currency_id", "payment_status", "shipping_status", "shipping_id", "operation_status",
+        "goods_status", "neto", "modo_logistico", "neto_depositado", "retenciones_recuperables",
+        "bonificacion_envio", "item_category", "city", "province", "shipping_substatus", "coupon_amount",
+        "metrics_state", "alert_level", "items",
+    ),
+    **_TP_FIELDS,
+    total_tp_provisional=(bool, False),
+    total_tp_provisional_falta=(Optional[str], None),
+)  # fmt: skip
+SaleGroupTP = _tp_model(
+    "SaleGroupTP",
+    SaleGroup,
+    (
+        "group_key", "pack_id", "date_created", "ml_last_updated", "buyer_nickname", "total_amount", "currency_id",
+        "operation_status", "goods_status", "neto", "modo_logistico", "neto_depositado",
+        "retenciones_recuperables", "bonificacion_envio",
+    ),
+    orders=(List[SaleListItemTP], ...),
+    total_tp=(Optional[float], None),
+    tp_incompleto=(bool, False),
+    total_tp_provisional=(bool, False),
+    total_tp_provisional_falta=(Optional[str], None),
+)  # fmt: skip
+SaleListResponseTP = _tp_model(
+    "SaleListResponseTP", SaleListResponse, ("total", "limit", "offset", "facets"), sales=(List[SaleGroupTP], ...)
+)
+SalesKpiResponseTP = _tp_model(
+    "SalesKpiResponseTP",
+    SalesKpiResponse,
+    (
+        "groups_count", "orders_count", "gross_billed_ars", "gross_billed_other", "neto_sum", "neto_unknown_count",
+        "recalculating_count", "pending_count", "failed_count", "excluded_non_money_orders_count",
+        "excluded_non_money_ars", "worker_alive", "excluded_by_toggle", "effective_switches",
+    ),
+    total_tp_sum=(float, 0.0),
+    tp_incompleto_count=(int, 0),
+    markup_tp_weighted_pct=(Optional[float], None),
+)  # fmt: skip
+PackOperationSummaryTP = _tp_model(
+    "PackOperationSummaryTP",
+    PackOperationSummary,
+    ("pack_id", "monto_operacion", "item_lines", "item_lines_reconcilia", "item_lines_razon", "member_order_ids"),
+    **_TP_FIELDS,
+)
+
+
+class CadenaTotalTpSummary(BaseModel):
+    """`CadenaTotalGaussSummary` at the TP cost: the same chain with the goods
+    cost line swapped for the TP cost (`code="costo_tp"`), ending in Total TP
+    (= Total Gauss + Gauss cost - TP cost). No per-item Gauss cost."""
+
+    total_tp: Optional[float] = None
+    costo_tp: Optional[float] = None
+    markup_tp: Optional[float] = None
+    tp_incompleto: bool = False
+    lineas: List[DeduccionLineaSummary]
+    provisional: bool = False
+    provisional_falta: Optional[str] = None
+
+
+SaleCentricOperationTP = _tp_model(
+    "SaleCentricOperationTP",
+    SaleCentricOperation,
+    ("order", "items", "shipment", "claim", "questions", "messages", "breakdown", "iva_decomposicion", "metrics_state"),
+    total_tp=(Optional[float], None),
+    cadena_total_tp=(CadenaTotalTpSummary, ...),
+)
+
+
+def _tp_json(response: BaseModel) -> JSONResponse:
+    return JSONResponse(content=response.model_dump(mode="json"))
+
+
+def _tp_locked_stores(db: Session, requested: Tuple[str, ...]) -> Tuple[str, ...]:
+    try:
+        return tplink_solo.lock_stores(db, requested)
+    except StoreClaveNotConfigured:
+        # Fail closed: without the TP group there is nothing a TP-only user may see.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="La tienda TP-Link no está configurada"
+        )
+
+
+def _forbid_tp_solo(db: Session, current_user: Usuario) -> None:
+    if tplink_solo.es_tplink_solo(db, current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No disponible con acceso solo TP-Link")
+
+
+def _tp_order_condition(db: Session) -> Any:
+    try:
+        return tplink_solo.tp_order_condition(db)
+    except StoreClaveNotConfigured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="La tienda TP-Link no está configurada"
+        )
+
+
+def _in_tp_group(db: Session, condition: Any) -> bool:
+    """Whether an order (or a pack) matching `condition` has a member a
+    TP-only user may see: an order with an item published in a TP store."""
+    query = db.query(MlOrdersOps.order_id).filter(condition, _tp_order_condition(db))
+    if settings.ML_USER_ID:
+        query = query.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
+    return query.first() is not None
+
+
+def _tp_by_order(db: Session, order_ids: List[int]) -> Dict[int, Any]:
+    if not order_ids:
+        return {}
+    rows = db.query(
+        MlOrderMetrics.order_id,
+        MlOrderMetrics.costo_tp,
+        MlOrderMetrics.total_tp,
+        MlOrderMetrics.markup_tp,
+        MlOrderMetrics.tp_incompleto,
+    ).filter(MlOrderMetrics.order_id.in_(order_ids))
+    return {row.order_id: row for row in rows}
+
+
+def _float(value: Optional[Decimal]) -> Optional[float]:
+    return float(value) if value is not None else None
+
+
+# Metrics states whose stored row is stale or missing: their TP figures do not count.
+_TP_UNSETTLED_STATES = ("recalculating", "pending", "failed")
+_TP_UNKNOWN: Dict[str, Any] = {"costo_tp": None, "total_tp": None, "markup_tp": None, "tp_incompleto": True}
+
+
+def _tp_known(row: Any, state: Optional[str]) -> bool:
+    """Whether an order's stored TP figures can be shown and summed. Not when
+    its metrics are unsettled, it has no stored row, its row is flagged (or
+    predates the TP columns), or it carries a Total TP without a TP cost."""
+    return (
+        state not in _TP_UNSETTLED_STATES
+        and row is not None
+        and row.tp_incompleto is False
+        and not (row.total_tp is not None and row.costo_tp is None)
+    )
+
+
+def _tp_figures(row: Any, state: Optional[str]) -> Dict[str, Any]:
+    """One order's TP fields: the stored ones when known, else null and
+    flagged incomplete -- never 0."""
+    if not _tp_known(row, state):
+        return dict(_TP_UNKNOWN)
+    return {
+        "costo_tp": _float(row.costo_tp),
+        "total_tp": _float(row.total_tp),
+        "markup_tp": _float(row.markup_tp),
+        "tp_incompleto": False,
+    }
+
+
+def _tp_markup(total: Optional[Decimal], costo: Optional[Decimal]) -> Optional[float]:
+    if total is None or not costo:
+        return None
+    return float(round(total / costo * Decimal("100"), 2))
+
+
+def _tp_listing(db: Session, response: SaleListResponse) -> Any:
+    tp = _tp_by_order(db, [o.order_id for g in response.sales for o in g.orders])
+    groups = []
+    for group in response.sales:
+        orders = [
+            SaleListItemTP(
+                **_kept(SaleListItemTP, o),
+                **_tp_figures(tp.get(o.order_id), o.metrics_state),
+                total_tp_provisional=o.total_gauss_provisional,
+                total_tp_provisional_falta=o.total_gauss_provisional_falta,
+            )
+            for o in group.orders
+        ]
+        total_tp = sum_all_or_nothing([Decimal(str(o.total_tp)) if o.total_tp is not None else None for o in orders])
+        groups.append(
+            SaleGroupTP(
+                **_kept(SaleGroupTP, group),
+                orders=orders,
+                total_tp=_float(total_tp),
+                tp_incompleto=any(o.tp_incompleto for o in orders),
+                total_tp_provisional=group.total_gauss_provisional,
+                total_tp_provisional_falta=group.total_gauss_provisional_falta,
+            )
+        )
+    return SaleListResponseTP(**_kept(SaleListResponseTP, response), sales=groups)
+
+
+def _tp_store_facets(db: Session, f: SalesFilter, counts: Dict[str, int]) -> "tuple[Dict[str, int], int]":
+    """The store chips of a TP-only user: only the TP group's buckets, and a
+    "Todas" count over the whole TP group (every other filter standing)."""
+    tp_ids = _tp_locked_stores(db, ())
+    scope = build_scope(db, dataclasses.replace(f, stores=tp_ids))
+    total = scope.facet_base.with_entities(func.count(func.distinct(scope.group_key))).scalar() or 0
+    return {store: count for store, count in counts.items() if store in tp_ids}, total
+
+
+def _tp_kpis(db: Session, scope: SalesScope, members_base: Any, response: SalesKpiResponse) -> Any:
+    """The TP figures over the SAME orders `aggregate_order_metrics` counts
+    (the TP members of every selected group, minus recalculating/pending/failed
+    ones). An order whose TP is not known (`_tp_known`) is counted incomplete,
+    never summed. The weighted markup is all-or-nothing per group."""
+    keys = {r.group_key for r in scope.listing_query.with_entities(scope.group_key.label("group_key")).distinct()}
+    orders = (
+        members_base.with_entities(MlOrdersOps.order_id, scope.group_key.label("group_key"))
+        .filter(scope.group_key.in_(keys))
+        .all()
+        if keys
+        else []
+    )
+    order_ids = [o.order_id for o in orders]
+    states = metrics_state_for_orders(db, order_ids)
+    tp = _tp_by_order(db, order_ids)
+    total_sum, incompletos = Decimal("0"), 0
+    pairs_by_group: Dict[str, List[Tuple[Decimal, Decimal]]] = {}
+    size_by_group: Dict[str, int] = {}
+    for order in orders:
+        size_by_group[order.group_key] = size_by_group.get(order.group_key, 0) + 1
+        state, row = states.get(order.order_id, "pending"), tp.get(order.order_id)
+        if state in _TP_UNSETTLED_STATES:
+            continue
+        if not _tp_known(row, state):
+            incompletos += 1
+        elif row.total_tp is not None:
+            total_sum += row.total_tp
+            pairs_by_group.setdefault(order.group_key, []).append((row.total_tp, row.costo_tp))
+    pairs = [p for key, ps in pairs_by_group.items() if len(ps) == size_by_group[key] for p in ps]
+    return SalesKpiResponseTP(
+        **_kept(SalesKpiResponseTP, response),
+        total_tp_sum=float(total_sum),
+        tp_incompleto_count=incompletos,
+        markup_tp_weighted_pct=_tp_markup(sum(t for t, _ in pairs), sum(c for _, c in pairs)) if pairs else None,
+    )
+
+
+# Chain lines known to carry no Gauss figure (sale charges, not goods cost).
+# Allow-list: a line code added later stays out of the TP chain until added here.
+_TP_SAFE_LINE_CODES = frozenset({"envio_flex", "varios"})
+
+
+def _tp_operation(db: Session, response: SaleCentricOperation) -> Any:
+    order_id = response.order.order_id
+    figures = _tp_figures(_tp_by_order(db, [order_id]).get(order_id), response.metrics_state)
+    cadena = response.cadena_total_gauss
+    lineas = [
+        DeduccionLineaSummary(code="costo_tp", monto=figures["costo_tp"]) if linea.code == "costo_mercaderia" else linea
+        for linea in cadena.lineas
+        if linea.code == "costo_mercaderia" or linea.code in _TP_SAFE_LINE_CODES
+    ]
+    return SaleCentricOperationTP(
+        **_kept(SaleCentricOperationTP, response),
+        total_tp=figures["total_tp"],
+        cadena_total_tp=CadenaTotalTpSummary(
+            **figures, lineas=lineas, provisional=cadena.provisional, provisional_falta=cadena.provisional_falta
+        ),
+    )
+
+
+def _tp_pack(db: Session, response: PackOperationSummary) -> Any:
+    """Pack TP figures over its (TP) members, all-or-nothing: any member whose
+    TP is not known makes the pack's figures null and flagged."""
+    rows = _tp_by_order(db, response.member_order_ids)
+    states = metrics_state_for_orders(db, response.member_order_ids)
+    members = [_tp_figures(rows.get(oid), states.get(oid)) for oid in response.member_order_ids]
+    incompleto = any(m["tp_incompleto"] for m in members)
+    total = None if incompleto else sum_all_or_nothing([_decimal(m["total_tp"]) for m in members])
+    costo = None if incompleto else sum_all_or_nothing([_decimal(m["costo_tp"]) for m in members])
+    return PackOperationSummaryTP(
+        **_kept(PackOperationSummaryTP, response),
+        costo_tp=_float(costo),
+        total_tp=_float(total),
+        markup_tp=_tp_markup(total, costo),
+        tp_incompleto=incompleto,
+    )
+
+
+def _decimal(value: Optional[float]) -> Optional[Decimal]:
+    return Decimal(str(value)) if value is not None else None
+
+
 @router.get("/sales/kpis", response_model=SalesKpiResponse)
 def sales_kpis(
     operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
@@ -2210,9 +2579,11 @@ def sales_kpis(
     `excluded_by_toggle` (KPI R13) is computed in one aggregate query, not
     one full scope re-run per toggle (K3).
 
-    Requires `ml_ops.ver`, same precedent as `GET /sales`.
+    Requires `ml_ops.ver`, same precedent as `GET /sales`. A `tplink.solo`
+    user gets `SalesKpiResponseTP` over the TP store group.
     """
     _require_flag_enabled()
+    tp_solo = tplink_solo.es_tplink_solo(db, current_user)
 
     if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
         raise HTTPException(
@@ -2234,6 +2605,8 @@ def sales_kpis(
     subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
     pms_list = parse_csv_ids(pms, "pms")
     stores_list = parse_csv_stores(stores)
+    if tp_solo:
+        stores_list = _tp_locked_stores(db, stores_list)
 
     sales_filter = SalesFilter(
         date_range=sold_range,
@@ -2253,14 +2626,16 @@ def sales_kpis(
         only_alerts=only_alerts,
     )
     scope = build_scope(db, sales_filter)
-    result = aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)
+    # A TP-only user's figures cover only TP members (a mixed pack's others drop out).
+    members_base = scope.members_base.filter(_tp_order_condition(db)) if tp_solo else scope.members_base
+    result = aggregate_order_metrics(db, scope.listing_query, members_base, scope.group_key)
     excluded_by_toggle = _toggle_excluded_counts(db, sales_filter)
     # K2: the switches ACTUALLY applied by `build_scope` (an explicit
     # `operation_status`/`goods_status` facet selection may have overridden
     # one), never the raw accepted request params.
     applied_switches = effective_switches(sales_filter)
 
-    return SalesKpiResponse(
+    response = SalesKpiResponse(
         groups_count=result.groups_count,
         orders_count=result.orders_count,
         gross_billed_ars=float(result.gross_billed_ars),
@@ -2288,6 +2663,7 @@ def sales_kpis(
             "include_cancelled": applied_switches.include_cancelled,
         },
     )
+    return _tp_json(_tp_kpis(db, scope, members_base, response)) if tp_solo else response
 
 
 @router.get("/orders/{order_id}", response_model=SaleCentricOperation)
@@ -2298,11 +2674,13 @@ def obtener_operacion(
 ) -> SaleCentricOperation:
     """Sale-centric view: the order plus everything `ml_operation_links`
     resolved to it (shipment, claim, questions, messages) as one operation.
-    Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false."""
+    Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false.
+    A `tplink.solo` user gets `SaleCentricOperationTP`, and 404 outside the TP group."""
     _require_flag_enabled()
+    tp_solo = tplink_solo.es_tplink_solo(db, current_user)
 
     order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).first()
-    if order is None:
+    if order is None or (tp_solo and not _in_tp_group(db, MlOrdersOps.order_id == order_id)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Orden no encontrada")
 
     items = db.query(MlOrderItemOps).filter(MlOrderItemOps.order_id == order_id).all()
@@ -2398,7 +2776,7 @@ def obtener_operacion(
         )
         envio_flex_prorateado = sibling_sharing_shipment is not None
 
-    return SaleCentricOperation(
+    response = SaleCentricOperation(
         order=OrderOpsSummary.from_order(
             order,
             payment_method_id,
@@ -2421,6 +2799,7 @@ def obtener_operacion(
         ),
         metrics_state=order_metrics_state,
     )
+    return _tp_json(_tp_operation(db, response)) if tp_solo else response
 
 
 def _con_importe_de_bonificacion(resumen: OperationBreakdownSummary, descomposicion) -> OperationBreakdownSummary:
@@ -2458,8 +2837,10 @@ def resincronizar_venta(
     requests and rewrites stored money fields. Failures are explicit and
     leave the stored data untouched: 404 unknown order, 409 a resync of it is
     already running (or just finished), 502 Mercado Libre could not be read or
-    the data could not be saved."""
+    the data could not be saved. 404 for a `tplink.solo` user outside the TP group."""
     _require_flag_enabled()
+    if tplink_solo.es_tplink_solo(db, current_user) and not _in_tp_group(db, MlOrdersOps.order_id == order_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Orden no encontrada")
     try:
         result = resync_order(db, order_id)
     except OrderNotFound:
@@ -2489,12 +2870,16 @@ def obtener_pack(
     `ml_group_metrics` row (PR20), never summed live -- so this detail and
     the KPI can never answer from two different mechanisms. All null
     together when that row is `unresolved` or not written yet. 404 when `pack_id` matches no order -- never
-    silently falls back to treating it as an order id (R39)."""
+    silently falls back to treating it as an order id (R39). A `tplink.solo`
+    user gets `PackOperationSummaryTP`, and 404 outside the TP group."""
     _require_flag_enabled()
+    tp_solo = tplink_solo.es_tplink_solo(db, current_user)
 
-    member_order_ids = [
-        row.order_id for row in db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == pack_id).all()
-    ]
+    members_query = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == pack_id)
+    if tp_solo:
+        # Only the TP members: a mixed pack's others are not a TP-only user's.
+        members_query = members_query.filter(_tp_order_condition(db))
+    member_order_ids = [row.order_id for row in members_query.all()]
     if not member_order_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pack no encontrado")
 
@@ -2512,7 +2897,7 @@ def obtener_pack(
     # the KPI exactly when the record is missing.
     grupo = db.query(MlGroupMetrics).filter(MlGroupMetrics.group_key == f"p:{pack_id}").one_or_none()
 
-    return PackOperationSummary(
+    response = PackOperationSummary(
         pack_id=pack_id,
         monto_operacion=(float(breakdown.monto_operacion) if breakdown.monto_operacion is not None else None),
         item_lines=[
@@ -2536,6 +2921,7 @@ def obtener_pack(
         markup=(float(grupo.markup_pct) if grupo is not None and grupo.markup_pct is not None else None),
         member_order_ids=sorted(member_order_ids),
     )
+    return _tp_json(_tp_pack(db, response)) if tp_solo else response
 
 
 @router.get("/divergences", response_model=DivergenceListResponse)
@@ -2548,7 +2934,9 @@ def listar_divergencias(
     db: Session = Depends(get_db),
 ) -> DivergenceListResponse:
     """Paginated (slice 4a precedent: every list endpoint MUST paginate).
-    Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false."""
+    Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false.
+    Forbidden to a `tplink.solo` user: the rows carry stored Gauss figures."""
+    _forbid_tp_solo(db, current_user)
     _require_flag_enabled()
 
     if kind is not None and kind not in DIVERGENCE_KINDS:
@@ -2581,7 +2969,9 @@ def obtener_divergencia(
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
     db: Session = Depends(get_db),
 ) -> DivergenceSummary:
-    """Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false."""
+    """Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false.
+    Forbidden to a `tplink.solo` user (see `listar_divergencias`)."""
+    _forbid_tp_solo(db, current_user)
     _require_flag_enabled()
 
     row = db.query(MlOpsDivergence).filter(MlOpsDivergence.id == divergence_id).first()
@@ -2600,7 +2990,9 @@ def actualizar_divergencia(
     """State/assignee/note changes. Requires `ml_ops.gestionar`, distinct
     from the read-only `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is
     false. Never touches the ML/GBP data the divergence describes -- only
-    this row's own bookkeeping (`state`, `assigned_to_id`, `note`)."""
+    this row's own bookkeeping (`state`, `assigned_to_id`, `note`). Forbidden
+    to a `tplink.solo` user (see `listar_divergencias`)."""
+    _forbid_tp_solo(db, current_user)
     _require_flag_enabled()
 
     row = db.query(MlOpsDivergence).filter(MlOpsDivergence.id == divergence_id).first()
