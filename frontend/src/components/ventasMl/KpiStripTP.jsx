@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import KpiStrip from './KpiStrip';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
+import { formatInt, formatOtherCurrencies, formatPct } from '../kit/kpiFormat';
 import styles from '../kit/KpiStrip.module.css';
 
 /**
@@ -9,18 +10,6 @@ import styles from '../kit/KpiStrip.module.css';
  * counts the sales without a usable Total TP. Loading, error and empty
  * states are the shared strip's own.
  */
-
-const INT_FORMAT = new Intl.NumberFormat('es-AR');
-const PCT_FORMAT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
-const MONEY_FORMAT = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const formatInt = (value) => INT_FORMAT.format(value || 0);
-
-function formatOtherCurrencies(grossBilledOther) {
-  const entries = Object.entries(grossBilledOther || {});
-  if (entries.length === 0) return null;
-  return entries.map(([currency, amount]) => `${MONEY_FORMAT.format(Number(amount))} ${currency}`).join(' · ');
-}
 
 export default function KpiStripTP({ kpi, loading, error }) {
   if (loading || error || !kpi) return <KpiStrip kpi={kpi} loading={loading} error={error} />;
@@ -77,7 +66,7 @@ export default function KpiStripTP({ kpi, loading, error }) {
           <div className={styles.value} data-testid="markup-tp">
             {markupKnown ? (
               <span className={`${styles.markupChip} ${styles[`markup_${markupTone(markup)}`]}`}>
-                {`${PCT_FORMAT.format(Number(markup))}%`}
+                {formatPct(markup)}
               </span>
             ) : (
               '—'
