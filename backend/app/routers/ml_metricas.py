@@ -11,7 +11,8 @@ Permissions (migration `20261001_ml_metricas_permisos`):
 - `ml_metricas.ver_ganancia`: Total Gauss, markup and anything derived from
   them (sorting by them, the "Margen cayendo" alert). Without it those
   fields come back `null` and asking to sort/filter by them is 403 -- same
-  split as `dashboard_tplink.ver` / `.ver_ganancia`.
+  split as `dashboard_tplink.ver` / `.ver_ganancia`. "Costos TP"
+  (`costos_tp`, Total TP and Markup TP) is a profit view too: 403 without it.
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from app.services.ml_daily_metrics.kpi_strip import (
 from app.services import pm_scope
 from app.services.permisos_service import PermisosService
 from app.services.product_facets import ProductFacetOptions
+from app.services.tiendas_oficiales import TPLINK_CLAVE, StoreClaveNotConfigured, require_store_ids_for_clave
 from app.utils.csv_cells import csv_text
 
 PERMISO_VER = "ml_metricas.ver"
@@ -112,6 +114,10 @@ class BoardRow(BaseModel):
     series_units_90d: List[int]
     series_markup_90d: Optional[List[Optional[float]]] = None
     ads: Optional[RowAds] = None
+    # "Costos TP" ON only: the row's known Total TP (null when it has no TP-store operation with a TP cost) and
+    # its TP-store sold lines without a TP cost.
+    total_tp: Optional[float] = None
+    tp_incompletos: Optional[int] = None
     last_sale_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
     # `productos_erp.stock` of the row's product (a publication row: its
@@ -333,6 +339,29 @@ def board_filter(
     )
 
 
+def board_filter_tp(
+    f: board.BoardFilter = Depends(board_filter),
+    costos_tp: bool = Query(
+        default=False,
+        description="Costo TP en las operaciones de la tienda TP-Link (clave tplink): Markup TP y Total TP junto a "
+        "Total Gauss (requiere ml_metricas.ver_ganancia)",
+    ),
+    current_user: Usuario = Depends(require_ver),
+    db: Session = Depends(get_db),
+) -> board.BoardFilter:
+    """`board_filter` plus "Costos TP": 403 without the profit view, and the TP store group resolved from the
+    `tplink` clave here, server-side (503 when none is configured: never every store)."""
+    if not costos_tp:
+        return f
+    if not _can_see_margin(db, current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Costos TP requiere {PERMISO_GANANCIA}")
+    try:
+        store_ids = require_store_ids_for_clave(db, TPLINK_CLAVE)
+    except StoreClaveNotConfigured as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return replace(f, costos_tp=True, tp_store_ids=tuple(store_ids))
+
+
 def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> None:
     if can_see_margin:
         return
@@ -379,6 +408,8 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, lea
         series_units_90d=row.series_units,
         series_markup_90d=row.series_markup if can_see_margin else None,
         ads=RowAds(cost=round_money(row.ads_cost)) if can_see_margin and row.ads_cost is not None else None,
+        total_tp=round_money(row.total_tp) if can_see_margin else None,
+        tp_incompletos=row.tp_incompletos if can_see_margin else None,
         last_sale_at=row.last_sale_at,
         ageing_days=row.ageing_days,
         stock=row.stock,
@@ -471,7 +502,7 @@ def build_board_response(
 
 @router.get("/board", response_model=BoardResponse)
 def get_board(
-    f: board.BoardFilter = Depends(board_filter),
+    f: board.BoardFilter = Depends(board_filter_tp),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_ver),
@@ -497,7 +528,7 @@ def get_board(
 @router.get("/board/products/{product_item_id}/publications", response_model=PublicationsResponse)
 def get_product_publications(
     product_item_id: int,
-    f: board.BoardFilter = Depends(board_filter),
+    f: board.BoardFilter = Depends(board_filter_tp),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
 ) -> PublicationsResponse:
@@ -562,7 +593,7 @@ def get_group_nodes(
     path: str = Query(..., min_length=2, description="JSON list: the keys of the node's ancestors and its own"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    f: board.BoardFilter = Depends(board_filter),
+    f: board.BoardFilter = Depends(board_filter_tp),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
 ) -> GroupNodesResponse:
@@ -635,12 +666,16 @@ def _csv_layout(f: board.BoardFilter) -> CsvLayout:
     )
 
 
-def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout, with_ads: bool = False) -> list:
+def _csv_line(
+    row: board.Row, can_see_margin: bool, layout: CsvLayout, with_ads: bool = False, tp: bool = False
+) -> list:
     """One CSV line: the layout's own columns, then the ones every layout
     shares, in the same order (units and windows, money, margin when allowed,
     last sale, ageing, stock). `with_ads` (the "Publicidad" position is not
     off, margin allowed): the row's ads cost right after Total Gauss, which
-    already has it subtracted -- the board's column order and figures."""
+    already has it subtracted -- the board's column order and figures. `tp`
+    ("Costos TP"): Total TP and the incomplete count after them (Total TP is
+    net of the same ads)."""
     line = layout.head_of(row) + [
         row.units,
         row.units_24h,
@@ -654,6 +689,7 @@ def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout, with_ads:
         line += [
             _csv_money(round_money(row.tg)),
             *([_csv_money(round_money(row.ads_cost))] if with_ads else []),
+            *([_csv_money(round_money(row.total_tp)), row.tp_incompletos] if tp else []),
             _csv_money(round_pp(row.markup)),
             _csv_money(round_pp(row.markup_prev)),
             _csv_money(round_pp(row.markup_delta)),
@@ -685,7 +721,7 @@ if set(LEVEL_HEADERS) != set(groups.LEVEL_KINDS):
 
 @router.get("/board/export")
 def export_board(
-    f: board.BoardFilter = Depends(board_filter),
+    f: board.BoardFilter = Depends(board_filter_tp),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
@@ -745,7 +781,7 @@ def export_board(
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";")
         for row in rows:
-            writer.writerow(_csv_line(row, can_see_margin, layout, with_ads))
+            writer.writerow(_csv_line(row, can_see_margin, layout, with_ads, tp=f.costos_tp))
         return buffer.getvalue()
 
     # CLOSE the request session (the permission check left it holding a
@@ -757,6 +793,7 @@ def export_board(
         header += [
             "Total Gauss",
             *([ADS_CSV_HEADER] if with_ads else []),
+            *(["Total TP", "TP incompletas"] if f.costos_tp else []),
             "Markup %",
             "Markup anterior %",
             "Variación pp",
