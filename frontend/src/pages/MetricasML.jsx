@@ -13,6 +13,7 @@ import SegmentedControl from '../components/metricasMl/SegmentedControl';
 import ToggleChips from '../components/metricasMl/ToggleChips';
 import SwitchChip from '../components/metricasMl/SwitchChip';
 import AdsAppliedBanner from '../components/metricasMl/AdsAppliedBanner';
+import AdsKpiBlock from '../components/metricasMl/AdsKpiBlock';
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
@@ -632,6 +633,8 @@ export default function MetricasML() {
       <AdsAppliedBanner ads={ads} />
 
       <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} />
+
+      {adsOn && <AdsKpiBlock ads={ads} />}
 
       <section className={styles.tableCard} aria-label={`Tablero de ${noun}`} aria-busy={loading}>
         <div className={styles.tableScroll} data-table-scroll>

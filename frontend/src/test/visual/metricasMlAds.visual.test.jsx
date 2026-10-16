@@ -107,6 +107,7 @@ describe.each(['light', 'dark'])('Métricas ML ads toggle (%s)', (theme) => {
     await expect.element(screen.getByText(/Publicidad restada/)).toBeVisible();
     await expect.element(screen.getByRole('columnheader', { name: /Publicidad \(inversión\)/ })).toBeVisible();
     expect(document.querySelectorAll('s')).toHaveLength(1);
+    await expect.element(screen.getByRole('region', { name: 'Publicidad (ML Ads)' })).toBeVisible();
     expect(wrappedMoney()).toEqual([]);
     await shot(`ads-publicaciones-${theme}`);
   });
@@ -117,6 +118,7 @@ describe.each(['light', 'dark'])('Métricas ML ads toggle (%s)', (theme) => {
     await expect.element(screen.getByText(/sin producto y cuenta/)).toBeVisible();
     expect(document.body.textContent).not.toContain('Con filtros solo se restan');
     expect(wrappedMoney()).toEqual([]);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
     await shot(`ads-todo-${theme}`);
   });
 

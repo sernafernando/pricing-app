@@ -45,3 +45,21 @@ export function originalAmount(value, subtracted) {
 export function adsRequestParams(position) {
   return position && position !== 'off' ? { publicidad: position } : {};
 }
+
+const dayMonth = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+const days = (n) => (n === 1 ? '1 día' : `${n} días`);
+
+/**
+ * What the ads ledger admits about the period, for the chip of the ads block. A missing day is NOT zero spend:
+ * it says so, instead of letting a short ledger read as a cheap month. `null` without coverage.
+ */
+export function adsCoverageNote(coverage) {
+  if (!coverage) return null;
+  if (!coverage.available) return { tone: 'warn', text: 'Sin datos de Ads para el período' };
+  const missing = coverage.missing_days.length;
+  const mismatch = coverage.mismatch_days.length;
+  const parts = [coverage.data_through ? `Datos de Ads hasta el ${dayMonth(coverage.data_through)}` : 'Datos de Ads'];
+  if (missing) parts.push(missing === 1 ? 'falta 1 día' : `faltan ${missing} días`);
+  if (mismatch) parts.push(`${days(mismatch)} con diferencias`);
+  return { tone: missing || mismatch ? 'warn' : 'ok', text: parts.join(' · ') };
+}
