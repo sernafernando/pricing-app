@@ -177,7 +177,9 @@ def _total(db: Session, page: list[Any], key: Any) -> int:
 
 
 def product_key() -> Any:
-    return case((T.p.item_id.is_(None), literal(NO_GROUP)), else_=cast(T.p.item_id, String))
+    """The product a publication sits under: its item-level LINK's product id (the one `producto=` filters on), even
+    when that product is gone from the catalog; `NO_GROUP` when the link names none."""
+    return case((T.l.producto_item_id.is_(None), literal(NO_GROUP)), else_=cast(T.l.producto_item_id, String))
 
 
 def family_key() -> Any:
@@ -334,10 +336,10 @@ def _with_store_ids(db: Session, f: PublicationFilter, page: GroupsPage) -> Grou
 
 def _product_columns() -> list[Any]:
     label = case(
-        (T.p.item_id.is_(None), literal(NO_PRODUCT_LABEL)),
-        else_=func.coalesce(T.p.descripcion, T.p.codigo, literal("Producto #") + cast(T.p.item_id, String)),
+        (T.l.producto_item_id.is_(None), literal(NO_PRODUCT_LABEL)),
+        else_=func.coalesce(T.p.descripcion, T.p.codigo, literal("Producto #") + cast(T.l.producto_item_id, String)),
     )
-    return [product_key().label("k"), label.label("t"), T.p.codigo.label("codigo"), T.p.item_id.label("pid")]
+    return [product_key().label("k"), label.label("t"), T.p.codigo.label("codigo"), T.l.producto_item_id.label("pid")]
 
 
 def _products(
