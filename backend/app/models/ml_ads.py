@@ -1,16 +1,18 @@
 """Mercado Libre Product Ads facts (ml-billing-balance, PR 1a; design "Schema", D1-D2).
 
-Three tables, all keyed by the ad day in the account's local (Argentina) calendar:
+Days are ad days in the account's local (Argentina) calendar:
 
 - `ml_ads_day_ledger`: one row per (source, advertiser, day) saying whether that day was fetched. A
   missing ledger row means "not fetched"; a missing fact row on a ledgered day means zero (owner Q4).
 - `ml_ads_ad_group_days`: the ad-group grain of a day, with the drill status of its `/ads` pages.
 - `ml_ads_item_days`: the (ad group, item) grain, the one the Board joins on.
 - `ml_ads_display_campaign_days` and `ml_ads_brand_days`: account-level Display and Brand Ads (PR 3), never MLA-level.
+- `ml_ads_campaigns` (latest catalog, not per day) and `ml_ads_campaign_days` (metrics per day): the Product Ads
+  campaigns that the day's `campaigns/search` call lists.
 
 Money is `Numeric(16, 2)` built from `Decimal(str(value))`; payloads are kept in `raw`. No table stores
 a sum that this system computed (ADS-4): ML's own reported figures (`summary_cost`, a group's `cost`)
-are facts, sums over rows are queries. Nothing reads or writes these tables yet (PR 1b onward).
+are facts, sums over rows are queries.
 """
 
 from __future__ import annotations
@@ -162,5 +164,56 @@ class MlAdsBrandDay(Base):
     cost = Column(Numeric(16, 2), nullable=True)
     prints = Column(BigInteger, nullable=True)
     clicks = Column(Integer, nullable=True)
+    raw = Column(JSONB, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MlAdsCampaign(Base):
+    """The latest catalog of one Product Ads campaign, as `campaigns/search` lists it (any day's call).
+
+    Keyed by the advertiser that REPORTS it (ADS-3). `raw` is ML's row without `metrics`, which are per day.
+    """
+
+    __tablename__ = "ml_ads_campaigns"
+
+    advertiser_id = Column(BigInteger, primary_key=True)
+    campaign_id = Column(BigInteger, primary_key=True)
+
+    name = Column(Text, nullable=True)
+    status = Column(String(20), nullable=True)
+    strategy = Column(String(30), nullable=True)
+    channel = Column(String(30), nullable=True)
+    budget = Column(Numeric(16, 2), nullable=True)
+    daily_budget = Column(Numeric(16, 2), nullable=True)
+    automatic_budget = Column(Boolean, nullable=True)
+    acos_target = Column(Numeric(10, 2), nullable=True)
+    acos_top_search_target = Column(Numeric(10, 2), nullable=True)
+    roas_target = Column(Numeric(10, 2), nullable=True)
+    salesforce_event_id = Column(BigInteger, nullable=True)
+    date_created = Column(DateTime(timezone=True), nullable=True)
+    last_updated = Column(DateTime(timezone=True), nullable=True)
+    raw = Column(JSONB, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MlAdsCampaignDay(Base):
+    """One campaign's metrics for one day, every campaign ML lists (zero days included). Ratios stay in `raw`."""
+
+    __tablename__ = "ml_ads_campaign_days"
+
+    advertiser_id = Column(BigInteger, primary_key=True)
+    campaign_id = Column(BigInteger, primary_key=True)
+    day = Column(Date, primary_key=True)
+
+    cost = Column(Numeric(16, 2), nullable=False, server_default="0", default=0)
+    direct_amount = Column(Numeric(16, 2), nullable=False, server_default="0", default=0)
+    indirect_amount = Column(Numeric(16, 2), nullable=False, server_default="0", default=0)
+    organic_amount = Column(Numeric(16, 2), nullable=False, server_default="0", default=0)
+    clicks = Column(Integer, nullable=False, server_default="0", default=0)
+    prints = Column(BigInteger, nullable=False, server_default="0", default=0)
+    direct_units = Column(Integer, nullable=False, server_default="0", default=0)
+    indirect_units = Column(Integer, nullable=False, server_default="0", default=0)
+    units_quantity = Column(Integer, nullable=False, server_default="0", default=0)
+    organic_units = Column(Integer, nullable=False, server_default="0", default=0)
     raw = Column(JSONB, nullable=False)
     fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
