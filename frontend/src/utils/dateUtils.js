@@ -67,3 +67,26 @@ export const toLocalTimestamp = (date = new Date()) => {
   const s = String(date.getSeconds()).padStart(2, '0');
   return `${y}-${m}-${d}T${h}-${min}-${s}`;
 };
+
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Parses a date value into a `Date` without shifting a calendar date by timezone.
+ *
+ * A bare "YYYY-MM-DD" (how the backend serializes SQL `Date` columns) is parsed
+ * natively as UTC midnight, which in Argentina (UTC-3) renders as the PREVIOUS
+ * day. Here it becomes local midnight of that same calendar day instead.
+ * Values that carry a time are parsed as-is.
+ *
+ * @param {string|Date|null|undefined} value
+ * @returns {Date|null} `null` when the value is empty or unparseable.
+ *
+ * @example
+ * parseDateOnly('2026-12-31').toLocaleDateString('es-AR') // "31/12/2026" in any zone
+ */
+export const parseDateOnly = (value) => {
+  if (!value) return null;
+  const match = typeof value === 'string' ? DATE_ONLY.exec(value.trim()) : null;
+  const date = match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};

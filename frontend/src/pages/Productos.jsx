@@ -28,6 +28,7 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 import { PROMO_TYPES } from '../constants/promoTypes';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
+import { parseDateOnly } from '../utils/dateUtils';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
 import PrecioTransfHint from '../components/PrecioTransfHint';
@@ -1960,7 +1961,7 @@ export default function Productos() {
                           )}
                           {p.mejor_oferta_fecha_hasta && (
                             <div className="mejor-oferta-detalle">
-                              Hasta {new Date(p.mejor_oferta_fecha_hasta).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
+                              Hasta {parseDateOnly(p.mejor_oferta_fecha_hasta)?.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
                             </div>
                           )}
                           {p.mejor_oferta_pvp_seller && (
