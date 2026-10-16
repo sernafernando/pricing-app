@@ -19,6 +19,7 @@ import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
 import { adsRequestParams } from '../utils/metricasMlAds';
+import { tpErrorMessage, tpRequestParams } from '../utils/metricasMlTp';
 import { DIMENSION_OPTIONS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -134,6 +135,10 @@ export default function MetricasML() {
   const [soloConVentas, setSoloConVentas] = useState(true);
   // The ads toggle's position (`off | mla | todo`); a view mode, so "Limpiar filtros" leaves it alone.
   const [publicidad, setPublicidad] = useState('off');
+  // "Costos TP" (TP cost on the TP store's operations, Total TP next to Total Gauss): off by default, a view mode
+  // like the ads toggle. `tpError` says why the board turned it back off (403 / 503) until it is turned on again.
+  const [costosTp, setCostosTp] = useState(false);
+  const [tpError, setTpError] = useState(null);
   const [sort, setSort] = useState({ key: 'gross', desc: true });
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -176,6 +181,7 @@ export default function MetricasML() {
         soloConVentas,
       }),
       ...adsRequestParams(puedeVerGanancia ? publicidad : 'off'),
+      ...tpRequestParams(puedeVerGanancia && costosTp),
     }),
     [
       range,
@@ -196,6 +202,7 @@ export default function MetricasML() {
       ageingExclude,
       soloConVentas,
       publicidad,
+      costosTp,
       puedeVerGanancia,
     ],
   );
@@ -206,13 +213,24 @@ export default function MetricasML() {
     setOffset(0);
   };
 
+  // A request with TP costs the API refuses (403 without the profit view, 503 without a TP store): say why and
+  // turn the toggle off, which reloads the board without them. True when it handled the failure.
+  const rejectTp = useCallback((params, err) => {
+    const message = params.costos_tp ? tpErrorMessage(err?.response?.status) : null;
+    if (!message) return false;
+    setTpError(message);
+    setCostosTp(false);
+    setOffset(0);
+    return true;
+  }, []);
+
   const cargar = useCallback(async () => {
     if (!puedeVer) return;
     const requestId = ++latestRequestRef.current;
     setLoading(true);
     setErrorKind(null);
+    const params = { ...filterParams, sort: sort.key, sort_dir: sort.desc ? 'desc' : 'asc', limit: pageSize, offset };
     try {
-      const params = { ...filterParams, sort: sort.key, sort_dir: sort.desc ? 'desc' : 'asc', limit: pageSize, offset };
       const { data } = await api.get('/ml-metricas/board', { params });
       if (requestId !== latestRequestRef.current) return;
       setBoard(data);
@@ -220,6 +238,7 @@ export default function MetricasML() {
       setSubRows({});
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
+      if (rejectTp(params, err)) return;
       const status = err?.response?.status;
       if (status === 422) {
         const data = err.response.data;
@@ -232,7 +251,7 @@ export default function MetricasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, filterParams, sort, pageSize, offset]);
+  }, [puedeVer, filterParams, sort, pageSize, offset, rejectTp]);
 
   useEffect(() => {
     cargar();
@@ -292,12 +311,15 @@ export default function MetricasML() {
             fetched: fetched + (data.rows || []).length,
           },
         }));
-      } catch {
+      } catch (err) {
         if (generation !== latestRequestRef.current) return;
+        // A TP refusal also turns "Costos TP" off (its message in the bar); the row still leaves "loading" for its
+        // error note, so it never sticks there if the board reload is slow or fails.
+        rejectTp(filterParams, err);
         setSubRows((prev) => ({ ...prev, [id]: { loading: false, rows: previous, level, fetched, error: true } }));
       }
     },
-    [expanded, subRows, filterParams, groupBy, sort],
+    [expanded, subRows, filterParams, groupBy, sort, rejectTp],
   );
 
   const handleSort = useCallback((key) => {
@@ -309,7 +331,7 @@ export default function MetricasML() {
     setExporting(true);
     setExportError(null);
     try {
-      // The CSV follows the board's "Publicidad" position (filterParams carries it only when not off).
+      // The CSV follows the board's "Publicidad" position and "Costos TP" (filterParams carries each only when on).
       await exportMetricasCsv({ ...filterParams, sort: sort.key, sort_dir: sort.desc ? 'desc' : 'asc' });
     } catch (err) {
       setExportError(err.message);
@@ -340,10 +362,12 @@ export default function MetricasML() {
   // `kpis.ads` exists only while the board subtracts ads.
   const ads = board?.kpis?.ads ?? null;
   const adsOn = canSeeMargin && ads !== null;
+  // `kpis.total_tp` exists only while the board shows the TP costs.
+  const tpOn = canSeeMargin && Boolean(board?.kpis?.total_tp);
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const columnDefs = useMemo(
-    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension, adsOn }),
-    [canSeeMargin, periodLabel, groupBy, dimension, adsOn],
+    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension, adsOn, tpOn }),
+    [canSeeMargin, periodLabel, groupBy, dimension, adsOn, tpOn],
   );
   const table = useReactTable({
     data: [],
@@ -437,6 +461,11 @@ export default function MetricasML() {
           <ShieldAlert size={16} /> Error al cargar las métricas.
         </div>
       )}
+      {tpError && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} /> {tpError}
+        </div>
+      )}
       {exportError && (
         <div className={styles.errorBar} role="alert">
           <ShieldAlert size={16} /> {exportError}
@@ -478,6 +507,17 @@ export default function MetricasML() {
               </div>
             )}
             {puedeVerGanancia && <AdsModeControl value={publicidad} onChange={withReset(setPublicidad)} />}
+            {puedeVerGanancia && (
+              <SwitchChip
+                label="Costos TP"
+                checked={costosTp}
+                onChange={withReset((next) => {
+                  setCostosTp(next);
+                  if (next) setTpError(null);
+                })}
+                title="Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link"
+              />
+            )}
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Comparar con:</span>
               <SegmentedControl label="Comparar con" options={COMPARE_OPTIONS} value={compararCon} onChange={withReset(setCompararCon)} />

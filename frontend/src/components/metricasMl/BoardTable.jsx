@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Layers, Package } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Layers, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import {
@@ -15,6 +15,7 @@ import {
 import { COLUMN_GROUPS } from './metricasMlColumns';
 import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels';
 import { ADS_ROW_BADGES, adsRowKind } from '../../utils/metricasMlAds';
+import { tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
 import styles from './BoardTable.module.css';
 
 /**
@@ -62,6 +63,32 @@ function StockCell({ value }) {
     <span className={`${styles.units} ${tone}`} data-stock={kind}>
       {known ? formatUnits(value) : '—'}
     </span>
+  );
+}
+
+/** "Costos TP": the row's known Total TP, or a dash -- marked "incompleto" when its TP-store lines lack a TP
+ * cost, plain when it has no TP-store sale -- and the count of lines without a TP cost. Never 0 for unknown. */
+function TotalTpCell({ value, incompletos: raw }) {
+  const { known, incompletos, kind } = tpCellState(value, raw);
+  return (
+    <div className={styles.gaussCell} data-testid="total-tp-cell" data-tp={kind}>
+      {known ? (
+        <span className={`${styles.money} ${styles[`money_${moneyTone(value)}`] || ''}`} data-money>
+          {formatSignedMoney(value)}
+        </span>
+      ) : (
+        <span className={styles.muted} title={kind === 'none' ? 'Sin ventas de la tienda TP-Link' : undefined}>
+          —
+        </span>
+      )}
+      {kind === 'incomplete' && <span className={styles.tpHint}>incompleto</span>}
+      {incompletos > 0 && (
+        <span className={styles.tpWarn} title={tpIncompleteTitle(incompletos)}>
+          <AlertTriangle size={10} aria-hidden="true" />
+          {formatUnits(incompletos)}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -313,6 +340,8 @@ function renderCell(colId, row, ctx) {
         </div>
       );
     }
+    case 'total_tp':
+      return <TotalTpCell value={row.total_tp} incompletos={row.tp_incompletos} />;
     case 'ads_cost':
       return (
         <span className={styles.money} data-money>
@@ -352,6 +381,7 @@ const NUMERIC = new Set([
   'markup',
   'gross',
   'total_gauss',
+  'total_tp',
   'ads_cost',
 ]);
 const CENTERED = new Set(['units_trend', 'markup_delta', 'markup_trend', 'markup_range', 'ageing', 'stock', 'compras_30d', 'sell_through', 'cobertura']);
@@ -492,6 +522,7 @@ export default function BoardTable({
                 key={col.id}
                 scope="col"
                 className={colClass(col)}
+                title={col.title}
                 aria-sort={active ? (sortDesc ? 'descending' : 'ascending') : undefined}
               >
                 {sortKey ? (

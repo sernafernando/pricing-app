@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Boxes,
+  Coins,
   Hourglass,
   PieChart,
   ReceiptText,
@@ -11,6 +12,7 @@ import Sparkline from './Sparkline';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatUnits } from '../../utils/metricasMlFormat';
 import { originalAmount } from '../../utils/metricasMlAds';
+import { TP_MARKUP_HINT, tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
 import styles from './MetricasKpiStrip.module.css';
 
 /**
@@ -59,17 +61,49 @@ function Adjusted({ original }) {
 
 const pctOf = (part, whole) => (whole ? (part / whole) * 100 : null);
 
+/** "Costos TP" on: the known Total TP of the TP store group's operations, never 0 when unknown, and how many
+ * of their lines lack a TP cost. */
+function TotalTpCard({ tp }) {
+  const { known, incompletos, kind } = tpCellState(tp.value, tp.incompletos);
+  return (
+    <Card label="Total TP" icon={Coins}>
+      <div className={styles.valueRow}>
+        <span
+          className={`${styles.value} ${known ? styles[`money_${moneyTone(tp.value)}`] || '' : styles.unknown}`}
+          data-money
+          data-kpi-value
+        >
+          {known ? formatSignedMoney(tp.value) : '—'}
+        </span>
+        {kind === 'incomplete' && <span className={styles.unknownHint}>incompleto</span>}
+      </div>
+      <div className={styles.adjustedRow}>
+        {incompletos > 0 ? (
+          <span className={styles.warn} title={tpIncompleteTitle(incompletos)}>
+            <AlertTriangle size={12} aria-hidden="true" />
+            {formatUnits(incompletos)} sin costo TP
+          </span>
+        ) : (
+          <span className={styles.subtitle}>{kind === 'none' ? 'Sin ventas de la tienda TP-Link' : 'Tienda TP-Link'}</span>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading }) {
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
   const noun = { publication: 'Publicaciones', group: 'Grupos' }[groupBy] ?? 'Productos';
   // The ageing buckets count PRODUCTS (or publications) even in the grouped view.
   const short = groupBy === 'publication' ? 'pub' : 'prod';
   const { units, gross, total_gauss: tg, markup, rows_with_sales: withSales, ageing, ads } = kpis;
+  // `kpis.total_tp` exists only while the board shows the TP costs (and only with the profit view).
+  const tp = canSeeMargin ? (kpis.total_tp ?? null) : null;
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
   return (
-    <section className={styles.cards} aria-label="Indicadores del período" aria-busy={loading}>
+    <section className={styles.cards} aria-label="Indicadores del período" aria-busy={loading} data-tp={tp ? '' : undefined}>
       <Card label="Unidades vendidas" icon={ShoppingBag}>
         <div className={styles.valueRow}>
           <span className={styles.value} data-kpi-value>
@@ -109,6 +143,8 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
         )}
       </Card>
 
+      {tp && <TotalTpCard tp={tp} />}
+
       <Card label="Markup promedio" icon={PieChart}>
         {canSeeMargin ? (
           <>
@@ -123,6 +159,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
                 <Adjusted />
               </div>
             )}
+            {tp && <span className={styles.subtitle}>{TP_MARKUP_HINT}</span>}
             <Sparkline values={markup.series} width={200} height={22} tone={deltaTone(markup.delta_pp)} className={styles.spark} label="Markup por día" />
           </>
         ) : (
