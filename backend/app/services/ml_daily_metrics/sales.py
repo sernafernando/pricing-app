@@ -235,8 +235,9 @@ def sale_lines(
     identify a line (`item_row_id`, `order_id`, `group_key`); `narrow=True`
     reaches the orders of a small `groups` set through their indexes instead of
     hashing every order. `tp=True` adds the TP-Link shares (`tg_tp`, `mtg_tp`,
-    `mcosto_tp`): only the persisted lines ask for them, so the board's live
-    derivation pays nothing for them."""
+    `mcosto_tp`). Two callers ask for them: the `ml_sale_lines` writer
+    (`queue=False`) and the board's live derivation with "Costos TP" ON (through
+    `lines_source`, queue applied); without `tp` the SQL carries none of them."""
     qty = func.coalesce(I.quantity, 0)
     weight = C.costo_unitario_ars * qty
     # (group, order): the same partitions as by order alone, but sorted the
