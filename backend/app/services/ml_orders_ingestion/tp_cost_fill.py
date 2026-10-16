@@ -36,8 +36,8 @@ queues it at low priority.
 from __future__ import annotations
 
 import logging
-from functools import partial
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
 
 from sqlalchemy import text
@@ -223,8 +223,13 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
         .all()
     )
 
+    # Grouped once (rows arrive ordered by id, and keep that order per product).
+    filas_por_producto: Dict[int, List[Any]] = {}
+    for row in rows:
+        filas_por_producto.setdefault(row.producto_item_id, []).append(row)
+
     def _filas(producto_item_id: int) -> List[Any]:
-        return [row for row in rows if row.producto_item_id == producto_item_id]
+        return filas_por_producto.get(producto_item_id, [])
 
     combos_hechos: Set[int] = set()
     for item_id in items:
