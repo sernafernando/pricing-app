@@ -525,6 +525,7 @@ class TestPagingIsStableUnderTies:
         monkeypatch.setattr(ml_metricas, "_can_see_margin", lambda db, user: True)
         # A full-view caller: this test is about paging, not the PM scope.
         monkeypatch.setattr(ml_metricas, "_scope_pairs", lambda db, user: None)
+        monkeypatch.setattr(ml_metricas, "_tp_solo", lambda db, user: False)
 
         @contextmanager
         def page_session():

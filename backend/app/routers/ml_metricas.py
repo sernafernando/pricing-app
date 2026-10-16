@@ -13,6 +13,10 @@ Permissions (migration `20261001_ml_metricas_permisos`):
   fields come back `null` and asking to sort/filter by them is 403 -- same
   split as `dashboard_tplink.ver` / `.ver_ganancia`. "Costos TP"
   (`costos_tp`, Total TP and Markup TP) is a profit view too: 403 without it.
+- `tplink.solo` (opt-in, wins over every other permission; still needs `ml_metricas.ver`): locked to the TP store
+  group (the client store filter is intersected), always "Costos TP" (Total TP and Markup TP without
+  `ver_ganancia`), never a Gauss figure (`_tp_solo_response`, `TP_SOLO_DENY_CSV`), no PM filter (422), PM scope or
+  PM facet, and only the product, publication and "Agrupado" by tienda views (422 otherwise).
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from datetime import date, datetime, timedelta
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -50,6 +54,7 @@ from app.services import pm_scope
 from app.services.permisos_service import PermisosService
 from app.services.product_facets import ProductFacetOptions
 from app.services.tiendas_oficiales import TPLINK_CLAVE, StoreClaveNotConfigured, require_store_ids_for_clave
+from app.services.tplink_solo import es_tplink_solo, lock_stores
 from app.utils.csv_cells import csv_text
 
 PERMISO_VER = "ml_metricas.ver"
@@ -62,6 +67,12 @@ EXPORT_PAGE_SIZE = 500
 # beyond this many rows it refuses and asks for narrower filters, like the
 # Ventas ML export.
 EXPORT_MAX_ROWS = 10_000
+
+# `tplink.solo`: the one "Agrupado" dimension it may read, and the Gauss figures it never gets -- the response keys
+# (dropped at any depth by `_tp_solo_response`) and the CSV columns. Its markup fields carry Markup TP.
+TP_SOLO_DIMENSION = "tienda"
+TP_SOLO_DENY_KEYS = frozenset({"total_gauss"})
+TP_SOLO_DENY_CSV = frozenset({"Total Gauss"})
 
 logger = logging.getLogger(__name__)
 
@@ -350,16 +361,42 @@ def board_filter_tp(
     db: Session = Depends(get_db),
 ) -> board.BoardFilter:
     """`board_filter` plus "Costos TP": 403 without the profit view, and the TP store group resolved from the
-    `tplink` clave here, server-side (503 when none is configured: never every store)."""
+    `tplink` clave here, server-side (503 when none is configured: never every store). A `tplink.solo` user gets
+    the TP lock instead, whatever `costos_tp` says (`_tp_solo_filter`)."""
+    if _tp_solo(db, current_user):
+        return _tp_solo_filter(db, f)
     if not costos_tp:
         return f
     if not _can_see_margin(db, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Costos TP requiere {PERMISO_GANANCIA}")
+    return replace(f, costos_tp=True, tp_store_ids=_tp_store_ids(db))
+
+
+def _tp_store_ids(db: Session) -> Tuple[int, ...]:
     try:
-        store_ids = require_store_ids_for_clave(db, TPLINK_CLAVE)
+        return tuple(require_store_ids_for_clave(db, TPLINK_CLAVE))
     except StoreClaveNotConfigured as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    return replace(f, costos_tp=True, tp_store_ids=tuple(store_ids))
+
+
+def _tp_solo_filter(db: Session, f: board.BoardFilter) -> board.BoardFilter:
+    """The `tplink.solo` lock: the requested stores intersected with the TP group, the universe bounded to the MLAs
+    published there (every count and facet included), "Costos TP" forced on. 422 on a PM filter, a sort by Total
+    Gauss or an "Agrupado" view by anything but tienda."""
+    if f.pms:
+        raise HTTPException(status_code=422, detail="tplink.solo: el filtro por PM no está disponible")
+    if f.group_by == "group" and f.dimension != TP_SOLO_DIMENSION:
+        raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
+    if f.sort == "total_gauss":
+        raise HTTPException(status_code=422, detail="tplink.solo: no se ordena por Total Gauss")
+    tp_ids = _tp_store_ids(db)
+    return replace(
+        f,
+        stores=lock_stores(db, f.stores),
+        costos_tp=True,
+        tp_store_ids=tp_ids,
+        mla_source=board.mlas_in_stores(tp_ids),
+    )
 
 
 def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> None:
@@ -440,7 +477,30 @@ def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
 
 
 def _can_see_margin(db: Session, user: Usuario) -> bool:
-    return PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA)
+    """The profit view: `ver_ganancia`, or `tplink.solo` (its TP figures; `_tp_solo_response` drops the Gauss
+    ones)."""
+    return PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA) or _tp_solo(db, user)
+
+
+def _tp_solo(db: Session, user: Usuario) -> bool:
+    """Whether the caller is TP-only (`tplink.solo`): the one seam every endpoint asks."""
+    return es_tplink_solo(db, user)
+
+
+def _without_gauss(value):
+    if isinstance(value, dict):
+        return {key: _without_gauss(item) for key, item in value.items() if key not in TP_SOLO_DENY_KEYS}
+    if isinstance(value, list):
+        return [_without_gauss(item) for item in value]
+    return value
+
+
+def _tp_solo_response(response: BaseModel) -> JSONResponse:
+    """The ONE place a `tplink.solo` JSON answer is shaped: every Gauss key dropped at any depth, no PM facet."""
+    body = _without_gauss(response.model_dump(mode="json"))
+    if "facets" in body:
+        body["facets"]["product"]["pms"] = []
+    return JSONResponse(body)
 
 
 def _scope_pairs(db: Session, user: Usuario) -> Optional[List[Tuple[str, str]]]:
@@ -448,7 +508,10 @@ def _scope_pairs(db: Session, user: Usuario) -> Optional[List[Tuple[str, str]]]:
     may see (`marcas_pm` + `marca_sub_pm`), `[]` for none (or an inactive
     user), `None` for a full-view caller. Resolved server-side from the
     authenticated user, never from the query, and handed to EVERY `Board`:
-    the `pms` filter can only narrow it further."""
+    the `pms` filter can only narrow it further. A `tplink.solo` user has no
+    PM scope: the TP store lock bounds what they read."""
+    if _tp_solo(db, user):
+        return None
     return pm_scope.get_pares_marca_categoria_usuario(db, user)
 
 
@@ -515,7 +578,7 @@ def get_board(
     (`ml_daily_metrics.sales.sale_lines`), the same rules as Ventas ML."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    return build_board_response(
+    response = build_board_response(
         db,
         f,
         limit=limit,
@@ -523,6 +586,7 @@ def get_board(
         can_see_margin=can_see_margin,
         scope_pairs=_scope_pairs(db, current_user),
     )
+    return _tp_solo_response(response) if _tp_solo(db, current_user) else response
 
 
 @router.get("/board/products/{product_item_id}/publications", response_model=PublicationsResponse)
@@ -555,11 +619,18 @@ def get_product_publications(
     with board.Board(db, by_pub, product_item_id=product_item_id, scope_pairs=_scope_pairs(db, current_user)) as b:
         rows = b.page(limit=None, apply_alerts=False)
     out = [_row_out(row, can_see_margin) for row in rows]
-    earned = (lambda r: (r.tg, r.units)) if can_see_margin else (lambda r: (r.gross, r.units))
+    tp_solo = _tp_solo(db, current_user)
+
+    def earned(r: board.Row) -> tuple:
+        if tp_solo:  # never Total Gauss
+            return (r.total_tp or 0, r.units)
+        return (r.tg, r.units) if can_see_margin else (r.gross, r.units)
+
     best = max(rows, key=earned, default=None)
     for row, item in zip(rows, out):
         item.is_best = best is not None and row is best and best.units > 0
-    return PublicationsResponse(rows=out)
+    response = PublicationsResponse(rows=out)
+    return _tp_solo_response(response) if tp_solo else response
 
 
 # A path is at most as long as the longest tree; each key is a brand, a store
@@ -605,6 +676,9 @@ def get_group_nodes(
     thousands of products), in the board's sort order."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
+    tp_solo = _tp_solo(db, current_user)
+    if tp_solo and f.dimension != TP_SOLO_DIMENSION:
+        raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
     scope = _parse_path(path, f.dimension)
     levels = groups.levels_of(f.dimension)
     leaf = len(scope) == len(levels) - 1
@@ -620,13 +694,14 @@ def get_group_nodes(
         else:
             total = b.group_counts()[0]
             rows = b.group_page(limit, offset)
-    return GroupNodesResponse(
+    response = GroupNodesResponse(
         level=levels[len(scope)],
         rows=[_row_out(row, can_see_margin, group_view=not leaf, leaf=leaf) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
     )
+    return _tp_solo_response(response) if tp_solo else response
 
 
 def _csv_money(value: Optional[float]) -> str:
@@ -742,6 +817,7 @@ def export_board(
     explicit error line."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
+    tp_solo = _tp_solo(db, current_user)
     # The CSV follows the board's "Publicidad" position: off keeps the pre-ads file byte for byte.
     with_ads = can_see_margin and f.restar_publicidad
     # Resolved ONCE, here, on the request session: every page runs on its own
@@ -781,7 +857,8 @@ def export_board(
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";")
         for row in rows:
-            writer.writerow(_csv_line(row, can_see_margin, layout, with_ads, tp=f.costos_tp))
+            line = _csv_line(row, can_see_margin, layout, with_ads, tp=f.costos_tp)
+            writer.writerow([line[i] for i in kept])
         return buffer.getvalue()
 
     # CLOSE the request session (the permission check left it holding a
@@ -799,6 +876,9 @@ def export_board(
             "Variación pp",
         ]
     header += ["Última venta", "Ageing (días)", "Stock"]
+    # `tplink.solo`: the Gauss columns never reach the file (header and every line).
+    kept = [i for i, name in enumerate(header) if not (tp_solo and name in TP_SOLO_DENY_CSV)]
+    header = [header[i] for i in kept]
 
     def stream():
         head = io.StringIO()

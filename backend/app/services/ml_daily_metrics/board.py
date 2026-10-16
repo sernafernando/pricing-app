@@ -410,6 +410,13 @@ def is_unfiltered(f: BoardFilter, scope_pairs: Optional[Sequence[Tuple[str, str]
     return scope_pairs is None and all(empty(getattr(f, name)) for name in FILTER_FIELDS)
 
 
+def mlas_in_stores(store_ids: Sequence[int]) -> Any:
+    """The MLAs whose CURRENT publication (newest `mlp_id`, as `Board._pub`) is in one of `store_ids`: the store is
+    the publication's, never the snapshot column of the order. A one-column SELECT, usable as `mla_source`."""
+    latest = select(func.max(M.mlp_id)).where(M.mlp_publicationID.isnot(None)).group_by(M.mlp_publicationID)
+    return select(M.mlp_publicationID).where(M.mlp_id.in_(latest), M.mlp_official_store_id.in_(list(store_ids)))
+
+
 def mla_set_query(source: Any) -> Any:
     """The distinct, non-null MLAs of `source` (exactly one column), as the
     SELECT that `board_mla_set` is created from."""
@@ -937,12 +944,8 @@ class Board:
         ).group_by(lines.c.product, lines.c.mla, lines.c.day)
 
     def _tp_mlas(self) -> Any:
-        """The MLAs whose CURRENT publication (newest `mlp_id`, as `_pub`) is in the TP store group: the store is
-        the publication's, never the snapshot column of the order."""
-        latest = select(func.max(M.mlp_id)).where(M.mlp_publicationID.isnot(None)).group_by(M.mlp_publicationID)
-        return select(M.mlp_publicationID).where(
-            M.mlp_id.in_(latest), M.mlp_official_store_id.in_(list(self.f.tp_store_ids))
-        )
+        """The MLAs whose CURRENT publication is in the TP store group (`mlas_in_stores`)."""
+        return mlas_in_stores(self.f.tp_store_ids)
 
     def _tp_line_sums(self, lines: Any) -> List[Any]:
         """ "Costos TP": the markup sums of a TP-store MLA come from its TP shares, everyone else's stay. A TP
