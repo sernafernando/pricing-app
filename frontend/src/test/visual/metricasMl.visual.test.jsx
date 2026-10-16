@@ -188,7 +188,8 @@ describe('Métricas ML board (visual)', () => {
         await expect.element(screen.getByRole('columnheader', { name: /^Stock/ })).toHaveAttribute('aria-sort', 'descending');
         await shot(`board-${width}-${theme}-periodo-stock`, { width, height });
 
-        const toggle = document.querySelector('[role="switch"]');
+        // By its name: "Costos TP" is a switch of the toolbar too.
+        const toggle = [...document.querySelectorAll('[role="switch"]')].find((el) => /Solo con ventas/.test(el.textContent));
         const hint = [...document.querySelectorAll('[role="status"]')].find((el) => /Ocultando/.test(el.textContent));
         const groups = ['Filtrar por stock', 'Filtrar por ageing'].map((name) =>
           document.querySelector(`[role="group"][aria-label="${name}"]`),
