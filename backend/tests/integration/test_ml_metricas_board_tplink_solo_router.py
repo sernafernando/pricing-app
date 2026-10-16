@@ -16,10 +16,13 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from pydantic import BaseModel
 
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.routers import ml_metricas
 from app.services import pm_scope
+from app.services.tplink_solo import es_tplink_solo
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
     _frozen_clock,
@@ -218,3 +221,39 @@ def test_a_user_without_tplink_solo_still_sees_every_store_and_gauss(
     assert _by_key(body)["11"]["gross"] == 400.0
     assert body["kpis"]["total_gauss"]["value"] == 95.49
     assert body["kpis"]["total_tp"] is None
+
+
+class TestResolvedOncePerRequest:
+    @pytest.mark.parametrize(
+        "suffix, params",
+        [
+            ("", {}),
+            ("/products/11/publications", {}),
+            ("/group-nodes", {"path": '["c:tplink"]', "dimension": "tienda"}),
+            ("/export", {}),
+        ],
+    )
+    def test_tplink_solo_is_looked_up_once(
+        self, client, admin_auth_headers, tp_solo, monkeypatch, suffix, params
+    ) -> None:
+        calls = []
+
+        def spy(db, user):
+            calls.append(user.id)
+            return es_tplink_solo(db, user)
+
+        monkeypatch.setattr(ml_metricas, "es_tplink_solo", spy)
+
+        assert client.get(URL + suffix, params=params, headers=admin_auth_headers).status_code == 200
+        assert len(calls) == 1
+
+
+class _NoProductFacets(BaseModel):
+    facets: dict = {"stores": {"2645": 1}}
+    total_gauss: float = 31.13
+
+
+def test_the_sanitizer_tolerates_a_body_without_product_facets() -> None:
+    body = json.loads(ml_metricas._tp_solo_response(_NoProductFacets()).body)
+
+    assert body == {"facets": {"stores": {"2645": 1}}}

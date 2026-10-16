@@ -27,7 +27,7 @@ import logging
 import io
 from dataclasses import replace
 from datetime import date, datetime, timedelta
-from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Annotated, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -83,6 +83,26 @@ def require_ver(current_user: Usuario = Depends(get_current_user), db: Session =
     if not PermisosService(db).tiene_permiso(current_user, PERMISO_VER):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Falta el permiso {PERMISO_VER}")
     return current_user
+
+
+def _tp_solo(db: Session, user: Usuario) -> bool:
+    """Whether the caller is TP-only (`tplink.solo`): the one seam every endpoint asks, through `get_tp_solo`."""
+    return es_tplink_solo(db, user)
+
+
+def get_tp_solo(current_user: Usuario = Depends(require_ver), db: Session = Depends(get_db)) -> bool:
+    """`_tp_solo`, resolved ONCE per request: FastAPI caches a dependency within a request, so the filter and the
+    endpoint share the answer."""
+    return _tp_solo(db, current_user)
+
+
+# Defaults to None for a direct (non-FastAPI) call, which resolves it itself (`_tp_solo_of`): never "not TP-only"
+# by omission.
+TpSolo = Annotated[Optional[bool], Depends(get_tp_solo)]
+
+
+def _tp_solo_of(tp_solo: Optional[bool], db: Session, user: Usuario) -> bool:
+    return _tp_solo(db, user) if tp_solo is None else tp_solo
 
 
 # ── Response models ──────────────────────────────────────────────
@@ -359,11 +379,12 @@ def board_filter_tp(
     ),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
+    tp_solo: TpSolo = None,
 ) -> board.BoardFilter:
     """`board_filter` plus "Costos TP": 403 without the profit view, and the TP store group resolved from the
     `tplink` clave here, server-side (503 when none is configured: never every store). A `tplink.solo` user gets
     the TP lock instead, whatever `costos_tp` says (`_tp_solo_filter`)."""
-    if _tp_solo(db, current_user):
+    if _tp_solo_of(tp_solo, db, current_user):
         return _tp_solo_filter(db, f)
     if not costos_tp:
         return f
@@ -477,14 +498,15 @@ def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
 
 
 def _can_see_margin(db: Session, user: Usuario) -> bool:
-    """The profit view: `ver_ganancia`, or `tplink.solo` (its TP figures; `_tp_solo_response` drops the Gauss
-    ones)."""
-    return PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA) or _tp_solo(db, user)
+    return PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA)
 
 
-def _tp_solo(db: Session, user: Usuario) -> bool:
-    """Whether the caller is TP-only (`tplink.solo`): the one seam every endpoint asks."""
-    return es_tplink_solo(db, user)
+def _viewer(db: Session, user: Usuario, tp_solo: bool) -> Tuple[bool, Optional[List[Tuple[str, str]]]]:
+    """The caller's profit view and PM scope. `tplink.solo` sees its TP figures (`_tp_solo_response` drops the
+    Gauss ones) and has no PM scope: the TP store lock bounds what it reads."""
+    if tp_solo:
+        return True, None
+    return _can_see_margin(db, user), _scope_pairs(db, user)
 
 
 def _without_gauss(value):
@@ -498,8 +520,9 @@ def _without_gauss(value):
 def _tp_solo_response(response: BaseModel) -> JSONResponse:
     """The ONE place a `tplink.solo` JSON answer is shaped: every Gauss key dropped at any depth, no PM facet."""
     body = _without_gauss(response.model_dump(mode="json"))
-    if "facets" in body:
-        body["facets"]["product"]["pms"] = []
+    product = (body.get("facets") or {}).get("product")
+    if isinstance(product, dict) and "pms" in product:
+        product["pms"] = []
     return JSONResponse(body)
 
 
@@ -508,10 +531,7 @@ def _scope_pairs(db: Session, user: Usuario) -> Optional[List[Tuple[str, str]]]:
     may see (`marcas_pm` + `marca_sub_pm`), `[]` for none (or an inactive
     user), `None` for a full-view caller. Resolved server-side from the
     authenticated user, never from the query, and handed to EVERY `Board`:
-    the `pms` filter can only narrow it further. A `tplink.solo` user has no
-    PM scope: the TP store lock bounds what they read."""
-    if _tp_solo(db, user):
-        return None
+    the `pms` filter can only narrow it further."""
     return pm_scope.get_pares_marca_categoria_usuario(db, user)
 
 
@@ -570,23 +590,20 @@ def get_board(
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
-) -> BoardResponse:
+    tp_solo: TpSolo = None,
+) -> Union[BoardResponse, JSONResponse]:
     """The board: rows of the requested grouping (sorted and paged in SQL),
     the KPI strip over the WHOLE filtered set (never the page), and every
     chip count scoped by the other filters. Every number -- money, units, all
     windows, the 24h included -- from the orders themselves
     (`ml_daily_metrics.sales.sale_lines`), the same rules as Ventas ML."""
-    can_see_margin = _can_see_margin(db, current_user)
+    tp_solo = _tp_solo_of(tp_solo, db, current_user)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
     _margin_gate(f, can_see_margin)
     response = build_board_response(
-        db,
-        f,
-        limit=limit,
-        offset=offset,
-        can_see_margin=can_see_margin,
-        scope_pairs=_scope_pairs(db, current_user),
+        db, f, limit=limit, offset=offset, can_see_margin=can_see_margin, scope_pairs=scope_pairs
     )
-    return _tp_solo_response(response) if _tp_solo(db, current_user) else response
+    return _tp_solo_response(response) if tp_solo else response
 
 
 @router.get("/board/products/{product_item_id}/publications", response_model=PublicationsResponse)
@@ -595,7 +612,8 @@ def get_product_publications(
     f: board.BoardFilter = Depends(board_filter_tp),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
-) -> PublicationsResponse:
+    tp_solo: TpSolo = None,
+) -> Union[PublicationsResponse, JSONResponse]:
     """A product row's publications (the expandable sub-rows), under the same
     filters as the board. `is_best` marks the one that earned the most in the
     period (Total Gauss, or gross without the margin permission).
@@ -604,7 +622,8 @@ def get_product_publications(
     product is on the board: its sub-rows are every publication passing the
     PAIR filters (store, status, type, brand, search), so they add up to the
     product row."""
-    can_see_margin = _can_see_margin(db, current_user)
+    tp_solo = _tp_solo_of(tp_solo, db, current_user)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
     _margin_gate(f, can_see_margin)
     by_pub = replace(
         f,
@@ -616,10 +635,9 @@ def get_product_publications(
         ageing_exclude=(),
         solo_con_ventas=False,
     )
-    with board.Board(db, by_pub, product_item_id=product_item_id, scope_pairs=_scope_pairs(db, current_user)) as b:
+    with board.Board(db, by_pub, product_item_id=product_item_id, scope_pairs=scope_pairs) as b:
         rows = b.page(limit=None, apply_alerts=False)
     out = [_row_out(row, can_see_margin) for row in rows]
-    tp_solo = _tp_solo(db, current_user)
 
     def earned(r: board.Row) -> tuple:
         if tp_solo:  # never Total Gauss
@@ -667,16 +685,17 @@ def get_group_nodes(
     f: board.BoardFilter = Depends(board_filter_tp),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
-) -> GroupNodesResponse:
+    tp_solo: TpSolo = None,
+) -> Union[GroupNodesResponse, JSONResponse]:
     """What a node of the "Agrupado" tree opens into: the nodes of the level
     below it, or -- below the last level -- its PRODUCTS. Under the same filters
     as the board and the same `dimension`; every row of the page carries only
     the sales of its own path (under "tienda", the sales of that store's
     publications), so the page adds up to the node. Paged (a brand can hold
     thousands of products), in the board's sort order."""
-    can_see_margin = _can_see_margin(db, current_user)
+    tp_solo = _tp_solo_of(tp_solo, db, current_user)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
     _margin_gate(f, can_see_margin)
-    tp_solo = _tp_solo(db, current_user)
     if tp_solo and f.dimension != TP_SOLO_DIMENSION:
         raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
     scope = _parse_path(path, f.dimension)
@@ -686,7 +705,7 @@ def get_group_nodes(
         db,
         replace(f, group_by="product" if leaf else "group"),
         scope=scope,
-        scope_pairs=_scope_pairs(db, current_user),
+        scope_pairs=scope_pairs,
     ) as b:
         if leaf:
             total = b.product_count()
@@ -799,6 +818,7 @@ def export_board(
     f: board.BoardFilter = Depends(board_filter_tp),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
+    tp_solo: TpSolo = None,
 ) -> StreamingResponse:
     """CSV of every filtered row, same columns as the board (no sparklines),
     STREAMED page by page. Margin columns only with `ml_metricas.ver_ganancia`.
@@ -815,14 +835,13 @@ def export_board(
     export. Each page builds its own pair table in its own transaction
     (PgBouncer, see `board`). A page failing mid-stream ends the file with an
     explicit error line."""
-    can_see_margin = _can_see_margin(db, current_user)
+    tp_solo = _tp_solo_of(tp_solo, db, current_user)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
     _margin_gate(f, can_see_margin)
-    tp_solo = _tp_solo(db, current_user)
     # The CSV follows the board's "Publicidad" position: off keeps the pre-ads file byte for byte.
     with_ads = can_see_margin and f.restar_publicidad
-    # Resolved ONCE, here, on the request session: every page runs on its own
-    # background session and gets the plain list.
-    scope_pairs = _scope_pairs(db, current_user)
+    # `scope_pairs` is resolved ONCE, above, on the request session: every page
+    # runs on its own background session and gets the plain list.
 
     # The FIRST short transaction fixes the ordered keys of every row (and
     # reads page 1): the pages after it fetch rows BY KEY, so a sale or a
