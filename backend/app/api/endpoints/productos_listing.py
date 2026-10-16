@@ -43,7 +43,7 @@ from app.services.pricing_columns import (
     PVP_TO_WEB_PRICELIST,
     ml_cuota_prices,
 )
-from app.services.pricing_context import build_pricing_context, resolve_envio
+from app.services.pricing_context import PricingContext, build_pricing_context, resolve_envio
 from app.services.productos_pricing_view import (
     MejorOferta,
     Rebate,
@@ -2200,8 +2200,6 @@ def listar_productos_tienda(
         overrides = db.query(PrecioGremioOverride).filter(PrecioGremioOverride.item_id.in_(item_ids_results)).all()
         precio_gremio_overrides = {o.item_id: o for o in overrides}
 
-    from app.models.oferta_ml import OfertaML
-    from app.models.publicacion_ml import PublicacionML
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
         convertir_a_pesos,
@@ -2216,9 +2214,11 @@ def listar_productos_tienda(
     hoy = date.today()
     productos = []
 
-    # ponytail: this tienda listing still carries its own copy of the pricing prefetch
-    # (the _t closures below); `build_pricing_context` is the single source. Migrate it in
-    # a follow-up PR with its own golden snapshot, or the two will diverge.
+    # ponytail: this tienda listing still carries its own copy of the pricing PREFETCH
+    # (the _t closures below; `build_pricing_context` is the single source). The rebate
+    # and best offer already run the shared computation over it (`ctx_t`). Moving the
+    # prefetch itself to `build_pricing_context` re-reads the rate and the constants
+    # this endpoint read above for sorting (two more statements), so it is its own change.
     # ── T-8/T-3: Prefetch tipo_cambio + constantes ───────────────────────
     # Ambos ya se resolvieron arriba del bloque de ordenamiento (una sola
     # lectura cada uno); acá sólo se reusan.
@@ -2295,30 +2295,7 @@ def listar_productos_tienda(
                 envio_promedio_by_grupo_t[gid] = sum(vals) / len(vals)
 
     # ── T-8/T-7: Batch-load PublicacionML + OfertaML ─────────────────────
-    all_pubs_t = (
-        db.query(PublicacionML).filter(PublicacionML.item_id.in_(item_ids_results)).all() if item_ids_results else []
-    )
-    pubs_by_item_t: dict = {}
-    all_mla_list_t: list = []
-    for pub in all_pubs_t:
-        pubs_by_item_t.setdefault(pub.item_id, []).append(pub)
-        all_mla_list_t.append(pub.mla)
-
-    ofertas_by_mla_t: dict = {}
-    if all_mla_list_t:
-        all_ofertas_t = (
-            db.query(OfertaML)
-            .filter(
-                OfertaML.mla.in_(all_mla_list_t),
-                OfertaML.fecha_desde <= hoy,
-                OfertaML.fecha_hasta >= hoy,
-                OfertaML.pvp_seller.isnot(None),
-            )
-            .all()
-        )
-        for oferta in all_ofertas_t:
-            if oferta.mla not in ofertas_by_mla_t:
-                ofertas_by_mla_t[oferta.mla] = oferta
+    pubs_by_item_t, ofertas_by_mla_t, all_mla_list_t = cargar_ofertas_vigentes(db, item_ids_results, hoy)
 
     # ── Batch-resolve real shipping costs (one cross-DB query per page) ──────
     envio_real_by_item_t: dict[int, float] = resolver_costos_envio_batch(
@@ -2340,6 +2317,20 @@ def listar_productos_tienda(
             costo_envio = envio_promedio_by_grupo_t.get(grupo_id, 0.0)
         return costo_envio
 
+    # The tienda prefetch above as a PricingContext (no extra query), for the
+    # rebate and best-offer computation shared with the Productos listing and
+    # the product detail (app/services/productos_pricing_view.py).
+    ctx_t = PricingContext(
+        hoy=hoy,
+        tipo_cambio_usd=tipo_cambio_usd_t,
+        constantes=constantes_t,
+        subcat_to_grupo=subcat_to_grupo_t,
+        active_version_id=_active_version_t.id if _active_version_t else None,
+        comision_base={grupo_id: base for (_, grupo_id), base in _comision_base_map_t.items()},
+        comision_adicional={cuotas: adicional for (_, cuotas), adicional in _comision_adicional_map_t.items()},
+        envio_promedio_by_grupo=envio_promedio_by_grupo_t,
+    )
+
     for producto_erp, producto_pricing in results:
         # Calcular costo en ARS
         costo_ars = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tipo_cambio_usd_t)
@@ -2354,79 +2345,17 @@ def listar_productos_tienda(
         _ppp_source_t = ppp_by_item_t.get(producto_erp.item_id)
         ppp_t = PppMarkups(_ppp_source_t, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd_t)
 
-        # Mejor oferta (T-7: dict lookup)
-        (
-            mejor_oferta_precio,
-            mejor_oferta_monto,
-            mejor_oferta_pvp,
-            mejor_oferta_markup,
-            mejor_oferta_porcentaje,
-            mejor_oferta_fecha_hasta,
-        ) = None, None, None, None, None, None
+        # Best current offer and rebate: the computation shared with the
+        # Productos listing and the product detail.
         pubs = pubs_by_item_t.get(producto_erp.item_id, [])
-        mejor_oferta, mejor_pub = None, None
-        for pub in pubs:
-            oferta = ofertas_by_mla_t.get(pub.mla)
-            if oferta and not mejor_oferta:
-                mejor_oferta, mejor_pub = oferta, pub
-        if mejor_oferta and mejor_pub:
-            mejor_oferta_precio = float(mejor_oferta.precio_final) if mejor_oferta.precio_final else None
-            mejor_oferta_pvp = float(mejor_oferta.pvp_seller) if mejor_oferta.pvp_seller else None
-            mejor_oferta_porcentaje = (
-                float(mejor_oferta.aporte_meli_porcentaje) if mejor_oferta.aporte_meli_porcentaje else None
-            )
-            mejor_oferta_fecha_hasta = mejor_oferta.fecha_hasta
-            if mejor_oferta_precio and mejor_oferta_pvp:
-                mejor_oferta_monto = mejor_oferta_pvp - mejor_oferta_precio
-            if mejor_oferta_pvp and mejor_oferta_pvp > 0:
-                tc_oferta = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
-                costo_calc = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_oferta)
-                comision_base = _lookup_comision_t(mejor_pub.pricelist_id, grupo_id)
-                if comision_base:
-                    comisiones = calcular_comision_ml_total(
-                        mejor_oferta_pvp, comision_base, producto_erp.iva, constantes=constantes_t
-                    )
-                    costo_envio_of = _resolve_envio_t(
-                        producto_erp.item_id, producto_erp.envio or 0, grupo_id, mejor_oferta_pvp
-                    )
-                    limpio = calcular_limpio(
-                        mejor_oferta_pvp,
-                        producto_erp.iva,
-                        costo_envio_of,
-                        comisiones["comision_total"],
-                        constantes=constantes_t,
-                    )
-                    mejor_oferta_markup = calcular_markup(limpio, costo_calc)
-                    ppp_t.record(PPP_KEY_MEJOR_OFERTA, limpio, percent=False)
-
-        # Rebate
-        precio_rebate, markup_rebate = None, None
-        # Reset per product — see the equivalent note in listar_productos.
-        limpio_rebate = None
-        if producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate:
-            porcentaje_rebate_val = float(
-                producto_pricing.porcentaje_rebate if producto_pricing.porcentaje_rebate is not None else 3.8
-            )
-            precio_rebate = float(producto_pricing.precio_lista_ml) / (1 - porcentaje_rebate_val / 100)
-            tc_rebate = tipo_cambio_usd_t if producto_erp.moneda_costo == "USD" else None
-            costo_rebate = convertir_a_pesos(producto_erp.costo, producto_erp.moneda_costo, tc_rebate)
-            comision_base_rebate = _lookup_comision_t(4, grupo_id)
-            if comision_base_rebate and precio_rebate > 0:
-                comisiones_rebate = calcular_comision_ml_total(
-                    precio_rebate, comision_base_rebate, producto_erp.iva, constantes=constantes_t
-                )
-                costo_envio_reb = _resolve_envio_t(
-                    producto_erp.item_id, producto_erp.envio or 0, grupo_id, precio_rebate
-                )
-                limpio_rebate = calcular_limpio(
-                    precio_rebate,
-                    producto_erp.iva,
-                    costo_envio_reb,
-                    comisiones_rebate["comision_total"],
-                    constantes=constantes_t,
-                )
-                markup_rebate = calcular_markup(limpio_rebate, costo_rebate) * 100
-                ppp_t.record(PPP_KEY_REBATE, limpio_rebate)
+        oferta = calcular_mejor_oferta(ctx_t, producto_erp, pubs, ofertas_by_mla_t, grupo_id, _resolve_envio_t)
+        if oferta.limpio is not None:
+            ppp_t.record(PPP_KEY_MEJOR_OFERTA, oferta.limpio, percent=False)
+        rebate = calcular_rebate(ctx_t, producto_erp, producto_pricing, grupo_id, _resolve_envio_t)
+        precio_rebate = rebate.precio
+        markup_rebate = rebate.markup
+        if rebate.limpio is not None:
+            ppp_t.record(PPP_KEY_REBATE, rebate.limpio)
 
         # PPP companion for the clásica (list-cost) markup (T2.6, reopened).
         # Same rationale as the listing block above.
@@ -2451,19 +2380,16 @@ def listar_productos_tienda(
                 )
                 ppp_t.record(PPP_KEY_CLASICA, limpio_clasica_t)
 
-        if (
-            producto_pricing
-            and producto_pricing.out_of_cards
-            and precio_rebate is not None
-            and markup_rebate is not None
-        ):
-            mejor_oferta_precio, mejor_oferta_pvp = precio_rebate, precio_rebate
-            mejor_oferta_markup = markup_rebate / 100
-            mejor_oferta_porcentaje, mejor_oferta_monto, mejor_oferta_fecha_hasta = None, None, None
-            # Mirror the rebate override on the PPP side too — same
-            # correspondence fix as the listing endpoint above.
-            if limpio_rebate is not None:
-                ppp_t.record(PPP_KEY_MEJOR_OFERTA, limpio_rebate, percent=False)
+        # Out of cards with a priced rebate: the rebate is the best offer.
+        mejor = mejor_oferta_out_of_cards(oferta, rebate, producto_pricing)
+        if mejor is not oferta and mejor.limpio is not None:
+            ppp_t.record(PPP_KEY_MEJOR_OFERTA, mejor.limpio, percent=False)
+        mejor_oferta_precio = mejor.precio
+        mejor_oferta_monto = mejor.monto_rebate
+        mejor_oferta_pvp = mejor.pvp_seller
+        mejor_oferta_markup = mejor.markup
+        mejor_oferta_porcentaje = mejor.porcentaje_rebate
+        mejor_oferta_fecha_hasta = mejor.fecha_hasta
 
         # Precio Gremio - Verificar override manual primero
         precio_gremio_sin_iva, precio_gremio_con_iva, markup_gremio = None, None, None
