@@ -14,6 +14,7 @@ import {
 } from '../../utils/metricasMlFormat';
 import { COLUMN_GROUPS } from './metricasMlColumns';
 import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels';
+import { ADS_ROW_BADGES, adsRowKind } from '../../utils/metricasMlAds';
 import styles from './BoardTable.module.css';
 
 /**
@@ -86,11 +87,17 @@ function ProductBadges({ row, canSeeMargin }) {
   const badges = [];
   if (canSeeMargin && row.markup_pct !== null && row.markup_pct < 0) badges.push('PÉRDIDA');
   if (row.alerts.includes('sin_ventas_30d') && row.alerts.includes('ageing_60d')) badges.push('INMOVILIZADO');
-  return badges.map((badge) => (
-    <span key={badge} className={styles.dangerBadge}>
-      {badge}
-    </span>
-  ));
+  const adsKind = adsRowKind(row);
+  return (
+    <>
+      {badges.map((badge) => (
+        <span key={badge} className={styles.dangerBadge}>
+          {badge}
+        </span>
+      ))}
+      {adsKind && <span className={styles.adsBadge}>{ADS_ROW_BADGES[adsKind]}</span>}
+    </>
+  );
 }
 
 /** "12 productos · 31 publicaciones": what a group row sums. */

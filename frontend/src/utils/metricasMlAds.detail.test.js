@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { adsCoverageNote } from './metricasMlAds';
+import { adsCoverageNote, adsRowKind, unattributedLines } from './metricasMlAds';
 
 const day = (d) => ({ source: 'product_ads', advertiser_id: 1, day: d, status: null });
 
@@ -34,5 +34,34 @@ describe('adsCoverageNote', () => {
       tone: 'warn',
       text: 'Datos de Ads hasta el 13/10 · faltan 2 días · 1 día con diferencias',
     });
+  });
+});
+
+describe('unattributedLines', () => {
+  const unattributed = {
+    sin_producto_cost: 412380,
+    account_level: { display: { cost_api: 1512500, cost_net: 1250000, subtracted: false }, brand: { cost: 380500, subtracted: false } },
+  };
+
+  it('lists Display, Brand and Ads sin producto; sin producto is subtracted at every position', () => {
+    expect(unattributedLines(unattributed).map((l) => [l.key, l.amount, l.subtracted])).toEqual([
+      ['display', 1250000, false],
+      ['brand', 380500, false],
+      ['sin_producto', 412380, true],
+    ]);
+  });
+
+  it('marks Display and Brand as subtracted when the API says so', () => {
+    const on = { ...unattributed, account_level: { display: { ...unattributed.account_level.display, subtracted: true }, brand: { cost: 380500, subtracted: true } } };
+    expect(unattributedLines(on).map((l) => l.subtracted)).toEqual([true, true, true]);
+  });
+});
+
+describe('adsRowKind', () => {
+  it('tells the "sin producto" row and an ads-only row from a normal one', () => {
+    expect(adsRowKind({ product_item_id: 0, units: 0, ads: { cost: 5 } })).toBe('sin_producto');
+    expect(adsRowKind({ product_item_id: 7, units: 0, ads: { cost: 5 } })).toBe('solo_ads');
+    expect(adsRowKind({ product_item_id: 7, units: 3, ads: { cost: 5 } })).toBeNull();
+    expect(adsRowKind({ product_item_id: 7, units: 0 })).toBeNull();
   });
 });
