@@ -424,3 +424,46 @@ class TestRemoveEndpoint:
             _clear_overrides()
 
         assert response.status_code == 202
+
+
+class TestActingUserReachesTheService:
+    """The acting user is threaded down to the service so its `ml_write_log`
+    row says who made the write (eventos-historial-legibles T2)."""
+
+    def test_enroll_passes_current_user_id(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.enroll_one_item",
+                    return_value={"submitted": True, "status": "submitted", "price": 900.0, "status_code": 201},
+                ) as mock_enroll,
+            ):
+                client.post(
+                    "/api/promociones/item/MLA123456789",
+                    json={"promotion_id": "DEAL-1", "promotion_type": "DEAL", "deal_price": 900.0},
+                )
+        finally:
+            _clear_overrides()
+
+        assert mock_enroll.call_args.kwargs["usuario_id"] == 1
+
+    def test_remove_passes_current_user_id(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.remove_one_item",
+                    return_value={"submitted": True, "status": "submitted", "status_code": 200},
+                ) as mock_remove,
+            ):
+                client.delete(
+                    "/api/promociones/item/MLA123456789",
+                    params={"promotion_type": "DEAL", "promotion_id": "DEAL-1"},
+                )
+        finally:
+            _clear_overrides()
+
+        assert mock_remove.call_args.kwargs["usuario_id"] == 1

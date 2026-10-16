@@ -703,6 +703,7 @@ def inscribir_item_en_promocion(
             top_deal_price=body.top_deal_price,
             precio_visto=body.precio_visto,
             markup_visto=body.markup_visto,
+            usuario_id=current_user.id,
         )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
@@ -753,7 +754,7 @@ def remover_item_de_promocion(
     Requiere permiso: promos.escribir
     """
     try:
-        outcome = remove_one_item(mla_id, promotion_type, promotion_id)
+        outcome = remove_one_item(mla_id, promotion_type, promotion_id, usuario_id=current_user.id)
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
         raise HTTPException(

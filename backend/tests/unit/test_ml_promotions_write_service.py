@@ -56,6 +56,13 @@ def _stub_refresh_hook(request: pytest.FixtureRequest, monkeypatch: pytest.Monke
     monkeypatch.setattr(write_service, "_maybe_refresh_after_write", lambda *a, **k: None)
 
 
+@pytest.fixture(autouse=True)
+def _stub_write_log(monkeypatch: pytest.MonkeyPatch):
+    """No-ops the `ml_write_log` insert for every test in this file; it is
+    exercised against a real session in `test_ml_write_log_promotions.py`."""
+    monkeypatch.setattr(write_service, "_record_write_log", lambda *a, **k: None)
+
+
 def _fake_live_item_promotions(
     promotion_id: str = "DEAL-1",
     promotion_type: str = "DEAL",
