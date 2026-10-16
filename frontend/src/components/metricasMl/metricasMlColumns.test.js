@@ -23,3 +23,27 @@ describe('buildBoardColumns: ads column', () => {
     expect(ids({ canSeeMargin: false, adsOn: true })).not.toContain('ads_cost');
   });
 });
+
+describe('buildBoardColumns: Costos TP', () => {
+  it('has no Total TP column with the toggle off', () => {
+    expect(ids({})).not.toContain('total_tp');
+  });
+
+  it('puts Total TP right after Total Gauss, in the financial result, ahead of the ads column', () => {
+    const order = ids({ tpOn: true, adsOn: true });
+    expect(order.indexOf('total_tp')).toBe(order.indexOf('total_gauss') + 1);
+    const columns = buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product', tpOn: true });
+    expect(columns.find((col) => col.id === 'total_tp')).toMatchObject({ group: 'resultado', header: 'Total TP' });
+  });
+
+  it('says the markup uses the TP cost while the toggle is on', () => {
+    const markup = (tpOn) =>
+      buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product', tpOn }).find((col) => col.id === 'markup');
+    expect(markup(true).title).toBe('Usa el costo TP en las operaciones de la tienda TP-Link');
+    expect(markup(false).title).toBeUndefined();
+  });
+
+  it('never shows it without the margin permission', () => {
+    expect(ids({ canSeeMargin: false, tpOn: true })).not.toContain('total_tp');
+  });
+});

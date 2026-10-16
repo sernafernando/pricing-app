@@ -566,3 +566,26 @@ thead .colProducto {
   font-family: var(--font-mono);
   color: var(--cf-text-muted);
 }
+
+/* "Costos TP": an unknown Total TP's "incompleto" mark and the count of TP lines without a TP cost, in the
+   board's warning badge look. */
+.tpHint {
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  color: var(--tone-warning-fg);
+}
+
+.tpWarn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-base);
+  font-size: 9px;
+  font-weight: var(--font-bold);
+  line-height: 15px;
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  white-space: nowrap;
+}

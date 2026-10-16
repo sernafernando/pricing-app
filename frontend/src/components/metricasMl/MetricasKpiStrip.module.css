@@ -18,6 +18,11 @@
   .cards {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
+
+  /* "Costos TP" on: the Total TP card joins the row. */
+  .cards[data-tp] {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
 }
 
 .card {
@@ -194,6 +199,22 @@
 
 .original {
   font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* "Costos TP": an unknown Total TP (a dash, never 0) and the line under a figure. */
+.unknown {
+  color: var(--cf-text-tertiary);
+}
+
+.unknownHint {
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--tone-warning-fg);
+}
+
+.subtitle {
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
