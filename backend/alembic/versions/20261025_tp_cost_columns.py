@@ -1,7 +1,7 @@
 """ml_order_item_costos: TP-Link cost (cost list 8) columns
 
 Revision ID: 20261025_tp_cost_columns
-Revises: 20261024_sell_in_tables
+Revises: 20261025_sell_in_permisos
 Create Date: 2026-10-15
 
 metricas-ml-tplink-mode / P1. Adds the TP-Link cost frozen next to the
@@ -28,7 +28,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261025_tp_cost_columns"
-down_revision: Union[str, None] = "20261024_sell_in_tables"
+down_revision: Union[str, None] = "20261025_sell_in_permisos"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
