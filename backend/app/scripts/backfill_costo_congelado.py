@@ -54,7 +54,7 @@ import logging
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -87,6 +87,12 @@ from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     _productos_por_item,
     componentes_por_combo,
     tiene_iva_conocido,
+)
+from app.services.ml_orders_ingestion.list_history import (  # noqa: E402
+    as_date,
+    pick_fx_rate,
+    pick_history_row,
+    usd_rates_by_date,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,7 +180,7 @@ def _dated_history_rows(db: Session, item_ids: Sequence[int]) -> Dict[int, List[
     query for the whole batch -- never one query per item (bulk rule, same
     discipline `_productos_por_item` documents). Grouped by `item_id` and
     kept unsorted here; the per-item "most recent row dated at or before
-    the sale" pick happens in `_pick_history_row`, in Python, off this
+    the sale" pick happens in `pick_history_row`, in Python, off this
     already-fetched set."""
     if not item_ids:
         return {}
@@ -192,80 +198,12 @@ def _dated_history_rows(db: Session, item_ids: Sequence[int]) -> Dict[int, List[
     return by_item
 
 
-def _as_date(value: Any) -> Optional[date]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    return value
-
-
-def _tiene_precio(row: ItemCostListHistory) -> bool:
-    """A history row that carries a real cost. A NULL or <= 0 `iclh_price`
-    is a HOLE in the ERP, not a product that became free."""
-    if row.iclh_price is None:
-        return False
-    try:
-        return Decimal(str(row.iclh_price)) > 0
-    except InvalidOperation:
-        return False
-
-
-def _pick_history_row(rows: Sequence[ItemCostListHistory], as_of: date) -> Optional[ItemCostListHistory]:
-    """The most recent history row dated AT OR BEFORE `as_of` THAT CARRIES
-    A REAL PRICE.
-
-    Still no fallback to a later row and no fallback to `ProductoERP.costo`
-    -- the sale is never costed with a figure from after it happened. What
-    this DOES skip over is a priced-at-zero row, and that is not a loosening
-    of the rule, it is the rule applied correctly: measured in production,
-    4.360 zero rows spread over 4.353 products blocked 3.462 sales, because
-    one junk row poisons every sale between itself and the next real cost.
-    A zero is a MISSING cost, not a cost change, so the last real cost known
-    before the sale is still the honest answer.
-
-    Compared by DATE, not datetime: `iclh_cd` carries a time-of-day that "at
-    the sale" was never meant to discriminate against."""
-    fechadas = [row for row in rows if _as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of]
-    con_precio = [row for row in fechadas if _tiene_precio(row)]
-    if not con_precio:
-        return None
-    return max(con_precio, key=lambda row: (_as_date(row.iclh_cd), row.iclh_id))
-
-
 def _hay_fila_fechada(rows: Sequence[ItemCostListHistory], as_of: date) -> bool:
     """Whether ANY row is dated at or before `as_of`, priced or not. Only
     used to tell the two skip reasons apart: "the ERP has no cost for that
     date" and "every row it has for that date came empty" get fixed in
     different places."""
-    return any(_as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of for row in rows)
-
-
-def _usd_rates_by_date(db: Session, dates: Sequence[date]) -> List[TipoCambio]:
-    """Every USD `TipoCambio` row that could possibly be "the rate in
-    effect" for any date in this batch, fetched ONCE. Covers from the
-    earliest requested date back to the widest available row so the
-    per-item pick in `_pick_fx_rate` (most recent row with
-    `fecha <= sale date`) always has candidates without a second query."""
-    if not dates:
-        return []
-    return (
-        db.query(TipoCambio)
-        .filter(TipoCambio.moneda == "USD", TipoCambio.fecha <= max(dates))
-        .order_by(TipoCambio.fecha.asc(), TipoCambio.id.asc())
-        .all()
-    )
-
-
-def _pick_fx_rate(rates: Sequence[TipoCambio], as_of: date) -> Optional[TipoCambio]:
-    """The most recent USD `TipoCambio` row with `fecha <= as_of` -- the
-    rate in effect AT THE SALE DATE, never today's `latest_usd_rate_with_date`
-    (that would reintroduce the wrong-date bug this whole script exists to
-    close)."""
-    eligible = [rate for rate in rates if rate.fecha is not None and rate.venta and rate.fecha <= as_of]
-    if not eligible:
-        return None
-    return max(eligible, key=lambda rate: (rate.fecha, rate.id))
+    return any(as_date(row.iclh_cd) is not None and as_date(row.iclh_cd) <= as_of for row in rows)
 
 
 @dataclass(frozen=True)
@@ -298,7 +236,7 @@ def _a_ars(
     if curr_id != 2:
         return None, SKIP_BAD_CURRENCY
 
-    rate_row = _pick_fx_rate(usd_rates, order_date)
+    rate_row = pick_fx_rate(usd_rates, order_date)
     if rate_row is None:
         return None, SKIP_NO_FX
     try:
@@ -332,14 +270,14 @@ def _resolver_combo(
     tipo_cambio_fecha: Optional[date] = None
 
     for componente_id, qty in componentes:
-        fila = _pick_history_row(history_by_item.get(componente_id, []), order_date)
+        fila = pick_history_row(history_by_item.get(componente_id, []), order_date)
         if fila is None:
             return None, SKIP_COMBO_COMPONENT_NO_COST
         en_ars, motivo = _a_ars(fila, usd_rates, order_date)
         if en_ars is None:
             return None, motivo
         total += en_ars.valor * qty
-        fecha = _as_date(fila.iclh_cd)
+        fecha = as_date(fila.iclh_cd)
         if fecha is not None and (fecha_mas_reciente is None or fecha > fecha_mas_reciente):
             fecha_mas_reciente = fecha
         if en_ars.tipo_cambio is not None:
@@ -396,7 +334,7 @@ def _resolve_backfill_cost(
         result.skipped[SKIP_UNPARSEABLE] += 1
         return None
 
-    history_row = _pick_history_row(history_rows, order_date)
+    history_row = pick_history_row(history_rows, order_date)
 
     if history_row is None:
         if componentes:
@@ -426,8 +364,8 @@ def _resolve_backfill_cost(
         return None
 
     if costo_origen <= 0:
-        # Unreachable by construction: `_pick_history_row` only ever
-        # returns a row `_tiene_precio` accepted. Kept as a backstop so a
+        # Unreachable by construction: `pick_history_row` only ever
+        # returns a row `tiene_precio` accepted. Kept as a backstop so a
         # future change to the picker cannot silently freeze a zero and
         # declare the sale 100% margin.
         result.skipped[SKIP_ZERO_COST] += 1
@@ -445,7 +383,7 @@ def _resolve_backfill_cost(
         "tipo_cambio_fecha": en_ars.tipo_cambio_fecha,
         "costo_unitario_ars": en_ars.valor,
         "iva_pct": iva_pct,
-        "costo_fecha": _as_date(history_row.iclh_cd),
+        "costo_fecha": as_date(history_row.iclh_cd),
         "fuente": _FUENTE_TRANSLATION[fuente_live],
         "producto_item_id": producto.item_id,
     }
@@ -485,8 +423,8 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
                 item_ids_needed.extend(componente_id for componente_id, _ in componentes)
 
             history_by_item = _dated_history_rows(db, item_ids_needed)
-            dates_needed = [_as_date(d) for d in order_dates.values() if d is not None]
-            usd_rates = _usd_rates_by_date(db, dates_needed)
+            dates_needed = [as_date(d) for d in order_dates.values() if d is not None]
+            usd_rates = usd_rates_by_date(db, dates_needed)
 
             values_to_insert: List[Dict[str, Any]] = []
 
@@ -495,7 +433,7 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
                 if order_date_dt is None:
                     result.skipped[SKIP_NO_ORDER_DATE] += 1
                     continue
-                order_date = _as_date(order_date_dt)
+                order_date = as_date(order_date_dt)
 
                 if item.unit_price is None:
                     result.skipped[SKIP_NO_PRICE] += 1
