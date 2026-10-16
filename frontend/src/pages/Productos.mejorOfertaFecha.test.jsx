@@ -8,21 +8,13 @@
  * byte-identical; the render setup below mirrors its setupApiMocks.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, act } from '@testing-library/react';
 import { renderWithRouter } from '../test/renderWithRouter';
 import Productos from './Productos';
 import api, { productosAPI } from '../services/api';
 
 vi.mock('../hooks/useSSEChannel', () => ({ useSSEChannel: vi.fn() }));
-
-beforeAll(() => {
-  vi.stubEnv('TZ', 'America/Argentina/Buenos_Aires');
-});
-
-afterAll(() => {
-  vi.unstubAllEnvs();
-});
 
 const PRODUCTO = {
   item_id: 'ITEM001',

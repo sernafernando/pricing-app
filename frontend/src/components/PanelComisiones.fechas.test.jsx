@@ -1,25 +1,17 @@
 /**
  * ComisionVersion.fecha_desde/hasta are SQL Date columns serialized as bare
  * YYYY-MM-DD. Parsed natively they are UTC midnight, which in Argentina
- * (UTC-3) renders the PREVIOUS day. The zone is pinned so a UTC CI still
- * exercises the bug.
+ * (UTC-3) renders the PREVIOUS day. The unit project pins TZ in
+ * vite.config.js so a UTC CI still exercises the bug.
  */
 
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PanelComisiones from './PanelComisiones';
 import api from '../services/api';
 
 vi.mock('../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-
-beforeAll(() => {
-  vi.stubEnv('TZ', 'America/Argentina/Buenos_Aires');
-});
-
-afterAll(() => {
-  vi.unstubAllEnvs();
-});
 
 const VERSION = {
   id: 1,

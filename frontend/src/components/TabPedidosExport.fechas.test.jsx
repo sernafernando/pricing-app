@@ -1,11 +1,11 @@
 /**
  * /pedidos-local/estadisticas serializes fecha_desde with
  * strftime('%Y-%m-%d'), a bare YYYY-MM-DD. Parsed natively it is UTC midnight,
- * which in Argentina (UTC-3) renders the PREVIOUS day. The zone is pinned so a
- * UTC CI still exercises the bug.
+ * which in Argentina (UTC-3) renders the PREVIOUS day. The unit project pins TZ in
+ * vite.config.js so a UTC CI still exercises the bug.
  */
 
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import TabPedidosExport from './TabPedidosExport';
 import api from '../services/api';
@@ -15,14 +15,6 @@ vi.mock('../services/api', () => ({ default: { get: vi.fn(), post: vi.fn(), put:
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({ tienePermiso: () => true }),
 }));
-
-beforeAll(() => {
-  vi.stubEnv('TZ', 'America/Argentina/Buenos_Aires');
-});
-
-afterAll(() => {
-  vi.unstubAllEnvs();
-});
 
 describe('TabPedidosExport - stats window start date', () => {
   it('shows the window start date on its calendar day in Argentina', async () => {

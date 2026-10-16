@@ -1,23 +1,16 @@
 /**
  * "Vigente hasta" shows OfertaML.fecha_hasta, a SQL Date serialized as a bare
  * YYYY-MM-DD. Parsed natively it is UTC midnight, which in Argentina (UTC-3)
- * renders the PREVIOUS day. The zone is pinned so a UTC CI still exercises it.
+ * renders the PREVIOUS day. The unit project pins TZ in
+ * vite.config.js so a UTC CI still exercises it.
  */
 
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import PricingModalTesla from './PricingModalTesla';
 import api from '../services/api';
 
 vi.mock('../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-
-beforeAll(() => {
-  vi.stubEnv('TZ', 'America/Argentina/Buenos_Aires');
-});
-
-afterAll(() => {
-  vi.unstubAllEnvs();
-});
 
 describe('PricingModalTesla - active offer end date', () => {
   it('shows the offer end date on its calendar day in Argentina', async () => {

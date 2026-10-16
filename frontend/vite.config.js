@@ -26,6 +26,10 @@ export default defineConfig({
           setupFiles: './src/test/setup.js',
           // jsdom computes no layout, so parsing CSS buys nothing but time.
           css: false,
+          // Users are in Argentina (UTC-3). Date-only bugs (a bare YYYY-MM-DD
+          // parsed as UTC midnight shows the previous day) only appear in a
+          // negative-offset zone, so a CI runner in UTC would hide them.
+          env: { TZ: 'America/Argentina/Buenos_Aires' },
           exclude: [...configDefaults.exclude, VISUAL_TESTS],
         },
       },

@@ -4,23 +4,16 @@
  * previous day, so the best-offer column showed "Hasta 30/12" for an offer
  * ending on 2026-12-31.
  *
- * The bug only shows in negative-offset zones, so the zone is pinned here;
+ * The bug only shows in negative-offset zones, so the unit project pins TZ
+ * (vite.config.js);
  * the first test guards that premise.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 import { parseDateOnly } from './dateUtils';
 
 const DAY_MONTH = { day: '2-digit', month: '2-digit' };
-
-beforeAll(() => {
-  vi.stubEnv('TZ', 'America/Argentina/Buenos_Aires');
-});
-
-afterAll(() => {
-  vi.unstubAllEnvs();
-});
 
 describe('test environment premise', () => {
   it('runs in a zone where native parsing shifts the day back', () => {
