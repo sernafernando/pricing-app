@@ -36,8 +36,9 @@ queues it at low priority.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -130,6 +131,7 @@ _FAILED_SQL = text(
 class FillBatch:
     items: int
     failed: List[int] = field(default_factory=list)
+    combo_failed: List[int] = field(default_factory=list)
     result: BackfillTpResult = field(default_factory=BackfillTpResult)
 
 
@@ -153,15 +155,47 @@ def _sumar(total: BackfillTpResult, parcial: BackfillTpResult) -> None:
     total.written_by_fuente.update(parcial.written_by_fuente)
 
 
+def _llenar(
+    db: Session, filas: Sequence[Any], total: BackfillTpResult, after: Optional[Callable[[], Any]] = None
+) -> None:
+    """Fills `filas` inside their OWN savepoint, then runs `after` in it. Any
+    failure, including a row the resolver could not handle, rolls the
+    savepoint back and re-raises; on success the counts join `total`."""
+    parcial = BackfillTpResult(examined=len(filas))
+    savepoint = db.begin_nested()
+    try:
+        if filas:
+            # Rows already filled earlier in this batch are a no-op: the
+            # UPDATE's `IS NULL` guard.
+            _procesar_lote(db, filas, False, parcial)
+        if parcial.skipped[SKIP_ERROR]:
+            raise RuntimeError(f"{parcial.skipped[SKIP_ERROR]} row(s) failed to resolve")
+        if after is not None:
+            after()
+        savepoint.commit()
+    except Exception:
+        savepoint.rollback()
+        raise
+    _sumar(total, parcial)
+
+
 def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBatch:
     """Claims up to `limit` queued items and fills the NULL TP cost of their
     sales and of the sales of combos containing them. Does not commit.
 
-    Each item runs in its OWN savepoint: a failure (an exception, or a row the
-    resolver could not handle) rolls back that item's writes only, charges it
-    an attempt with the error, and leaves the rest of the batch going. An item
-    that succeeds leaves the queue. An error outside any item (claim, lookups)
-    propagates: the caller's transaction rolls back and the queue is unchanged.
+    Each item's OWN sales run in their own savepoint: a failure (an
+    exception, or a row the resolver could not handle) rolls back that item's
+    writes only, charges it an attempt with the error, and leaves the rest of
+    the batch going. An item that succeeds leaves the queue.
+
+    Each combo containing a claimed item runs in ANOTHER savepoint, once per
+    batch: a broken combo never charges, undoes or parks its component. It is
+    logged and reported in `combo_failed`, its sales stay NULL (flagged), and
+    it is retried the next time any of its components is queued -- the combo
+    has no queue row of its own to charge or park.
+
+    An error outside any savepoint (claim, lookups) propagates: the caller's
+    transaction rolls back and the queue is unchanged.
     """
     batch = FillBatch(items=0)
     items = [
@@ -189,25 +223,32 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
         .all()
     )
 
+    def _filas(producto_item_id: int) -> List[Any]:
+        return [row for row in rows if row.producto_item_id == producto_item_id]
+
+    combos_hechos: Set[int] = set()
     for item_id in items:
-        suyos = {item_id} | combos.get(item_id, set())
-        filas = [row for row in rows if row.producto_item_id in suyos]
-        parcial = BackfillTpResult(examined=len(filas))
-        savepoint = db.begin_nested()
         try:
-            if filas:
-                # Already filled by an earlier item of this batch: the UPDATE's
-                # `IS NULL` guard makes it a no-op.
-                _procesar_lote(db, filas, False, parcial)
-            if parcial.skipped[SKIP_ERROR]:
-                raise RuntimeError(f"{parcial.skipped[SKIP_ERROR]} row(s) failed to resolve")
-            db.execute(_DONE_SQL, {"item_id": item_id})
-            savepoint.commit()
+            _llenar(db, _filas(item_id), batch.result, after=partial(db.execute, _DONE_SQL, {"item_id": item_id}))
         except Exception as exc:  # noqa: BLE001 -- one item must never stop the batch
-            savepoint.rollback()
             logger.warning("tp_cost.fill: item_id=%s failed: %s", item_id, exc, exc_info=True)
             db.execute(_FAILED_SQL, {"item_id": item_id, "error": str(exc)[:500]})
             batch.failed.append(item_id)
-            continue
-        _sumar(batch.result, parcial)
+
+        for combo_id in sorted(combos.get(item_id, set()) - combos_hechos):
+            combos_hechos.add(combo_id)
+            filas = _filas(combo_id)
+            if not filas:
+                continue
+            try:
+                _llenar(db, filas, batch.result)
+            except Exception as exc:  # noqa: BLE001 -- a combo must never charge its component
+                logger.warning(
+                    "tp_cost.fill: combo item_id=%s (via component %s) failed: %s",
+                    combo_id,
+                    item_id,
+                    exc,
+                    exc_info=True,
+                )
+                batch.combo_failed.append(combo_id)
     return batch

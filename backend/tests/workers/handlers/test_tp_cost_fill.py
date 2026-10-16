@@ -12,10 +12,11 @@ import itertools
 import select
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Any, Iterator, List, Optional, Sequence
 
 import pytest
-from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Engine, Row, create_engine, event, inspect, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
@@ -41,7 +42,7 @@ _TABLES = [
 _ids = itertools.count(1)
 
 
-def _install_queue(engine) -> bool:
+def _install_queue(engine: Engine) -> bool:
     """Installs the queue and its triggers unless the migration (or an earlier
     run) already did: returns whether THIS call installed them, so teardown
     only drops what the fixture created."""
@@ -53,12 +54,12 @@ def _install_queue(engine) -> bool:
     return True
 
 
-def _triggers(engine) -> int:
+def _triggers(engine: Engine) -> int:
     with engine.connect() as conn:
         return conn.execute(text("SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'trg_tp_cost_fill%'")).scalar()
 
 
-def _queue_row(engine, item_id: int):
+def _queue_row(engine: Engine, item_id: int) -> Optional[Row]:
     with engine.connect() as conn:
         return conn.execute(
             text("SELECT attempts, last_error FROM tp_cost_fill_queue WHERE item_id = :i"), {"i": item_id}
@@ -66,7 +67,7 @@ def _queue_row(engine, item_id: int):
 
 
 @pytest.fixture(scope="module")
-def pg_tp_engine():
+def pg_tp_engine() -> Iterator[Engine]:
     if not _postgres_reachable():
         pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
     engine = create_engine(POSTGRES_TEST_URL)
@@ -86,7 +87,7 @@ def pg_tp_engine():
 
 
 @pytest.fixture(autouse=True)
-def _db(monkeypatch, pg_tp_engine):
+def _db(monkeypatch: pytest.MonkeyPatch, pg_tp_engine: Engine) -> Iterator[None]:
     monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=pg_tp_engine))
     yield
     with pg_tp_engine.begin() as conn:
@@ -95,21 +96,21 @@ def _db(monkeypatch, pg_tp_engine):
             conn.execute(text(f"DELETE FROM {name}"))
 
 
-def _session(engine):
+def _session(engine: Engine) -> Session:
     return sessionmaker(bind=engine)()
 
 
-def _queued(engine) -> list:
+def _queued(engine: Engine) -> List[int]:
     with engine.connect() as conn:
         return [r[0] for r in conn.execute(text("SELECT item_id FROM tp_cost_fill_queue ORDER BY item_id"))]
 
 
-def _clear_queue(engine) -> None:
+def _clear_queue(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM tp_cost_fill_queue"))
 
 
-def _venta(session, order_id: int, producto_item_id: int, when: date = date(2026, 10, 1), **tp) -> None:
+def _venta(session: Session, order_id: int, producto_item_id: int, when: date = date(2026, 10, 1), **tp: Any) -> None:
     moment = datetime.combine(when, datetime.min.time(), tzinfo=timezone.utc)
     session.add(MlOrdersOps(order_id=order_id, seller_id=1, date_created=moment, ml_last_updated=moment))
     session.add(
@@ -128,7 +129,7 @@ def _venta(session, order_id: int, producto_item_id: int, when: date = date(2026
     )
 
 
-def _hist(session, item_id: int, price, when: date, coslis_id: int = 8, curr_id: int = 1) -> None:
+def _hist(session: Session, item_id: int, price: float, when: date, coslis_id: int = 8, curr_id: int = 1) -> None:
     session.add(
         ItemCostListHistory(
             iclh_id=next(_ids),
@@ -142,11 +143,11 @@ def _hist(session, item_id: int, price, when: date, coslis_id: int = 8, curr_id:
     )
 
 
-def _lista(session, item_id: int, price, coslis_id: int = 8, curr_id: int = 1) -> None:
+def _lista(session: Session, item_id: int, price: float, coslis_id: int = 8, curr_id: int = 1) -> None:
     session.add(ItemCostList(comp_id=1, coslis_id=coslis_id, item_id=item_id, coslis_price=price, curr_id=curr_id))
 
 
-def _tp(engine, order_id: int):
+def _tp(engine: Engine, order_id: int) -> Row:
     with engine.connect() as conn:
         return conn.execute(
             text("SELECT costo_tp_unitario_ars, costo_tp_fuente FROM ml_order_item_costos WHERE order_id = :o"),
@@ -160,7 +161,7 @@ def _ctx() -> WorkerContext:
 
 @pytest.mark.postgres
 class TestTrigger:
-    def test_a_list8_insert_enqueues_the_item_and_other_lists_do_not(self, pg_tp_engine):
+    def test_a_list8_insert_enqueues_the_item_and_other_lists_do_not(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
             _lista(s, 500, 80)
             _lista(s, 501, 80, coslis_id=1)
@@ -168,7 +169,7 @@ class TestTrigger:
 
         assert _queued(pg_tp_engine) == [500]
 
-    def test_a_price_or_currency_change_enqueues_and_a_no_op_update_does_not(self, pg_tp_engine):
+    def test_a_price_or_currency_change_enqueues_and_a_no_op_update_does_not(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
             _lista(s, 500, 80)
             _lista(s, 501, 80)
@@ -185,7 +186,7 @@ class TestTrigger:
 
         assert _queued(pg_tp_engine) == [500, 501]
 
-    def test_a_list8_history_row_enqueues_its_item(self, pg_tp_engine):
+    def test_a_list8_history_row_enqueues_its_item(self, pg_tp_engine: Engine) -> None:
         """The resolver reads the HISTORY, and the ERP sync writes the current
         list before the history: the history insert must wake the fill too."""
         with _session(pg_tp_engine) as s:
@@ -195,7 +196,7 @@ class TestTrigger:
 
         assert _queued(pg_tp_engine) == [600]
 
-    def test_the_trigger_notifies_the_channel(self, pg_tp_engine):
+    def test_the_trigger_notifies_the_channel(self, pg_tp_engine: Engine) -> None:
         raw = pg_tp_engine.raw_connection()
         try:
             raw.driver_connection.autocommit = True
@@ -217,12 +218,12 @@ class TestTrigger:
 
 @pytest.mark.postgres
 class TestHandler:
-    def test_it_is_registered_and_woken_by_its_channel(self):
+    def test_it_is_registered_and_woken_by_its_channel(self) -> None:
         assert handler in REGISTRY
         assert handler.channels == (tp_cost_fill.CHANNEL,)
         assert handler.interval is None and handler.run_at_local is None
 
-    def test_it_fills_null_rows_of_the_item_and_leaves_set_ones_alone(self, pg_tp_engine):
+    def test_it_fills_null_rows_of_the_item_and_leaves_set_ones_alone(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
             _venta(s, 1, 500)
             _venta(
@@ -252,7 +253,7 @@ class TestHandler:
         assert result.detail["items"] == 1
         assert result.detail["written"] == 1
 
-    def test_a_later_first_price_fills_with_the_approximate_fuente(self, pg_tp_engine):
+    def test_a_later_first_price_fills_with_the_approximate_fuente(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
             _venta(s, 4, 500, when=date(2026, 9, 1))
             _hist(s, 500, 80, date(2026, 10, 15))
@@ -262,7 +263,7 @@ class TestHandler:
 
         assert _tp(pg_tp_engine, 4) == (Decimal("80.0000"), script.FUENTE_TP_PRIMER_PRECIO)
 
-    def test_a_combo_containing_the_queued_component_is_filled(self, pg_tp_engine):
+    def test_a_combo_containing_the_queued_component_is_filled(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
             _venta(s, 5, 900)
             s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=901, iasso_qty=2))
@@ -278,7 +279,7 @@ class TestHandler:
 
         assert _tp(pg_tp_engine, 5) == (Decimal("65.0000"), script.FUENTE_TP_HISTORIA_COMBO)
 
-    def test_an_item_still_without_a_price_is_dequeued_and_stays_null(self, pg_tp_engine):
+    def test_an_item_still_without_a_price_is_dequeued_and_stays_null(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
             _venta(s, 6, 500)
             _hist(s, 500, 0, date(2026, 9, 1))
@@ -289,7 +290,7 @@ class TestHandler:
         assert _tp(pg_tp_engine, 6) == (None, None)
         assert _queued(pg_tp_engine) == []
 
-    def test_it_drains_the_queue_in_batches(self, pg_tp_engine, monkeypatch):
+    def test_it_drains_the_queue_in_batches(self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(tp_cost_fill, "BATCH_ITEMS", 1)
         with _session(pg_tp_engine) as s:
             for order_id, item in ((7, 500), (8, 501), (9, 502)):
@@ -303,10 +304,10 @@ class TestHandler:
         assert result.detail["items"] == 3
         assert [_tp(pg_tp_engine, o)[0] for o in (7, 8, 9)] == [Decimal("80.0000")] * 3
 
-    def test_an_empty_queue_costs_one_query(self, pg_tp_engine):
-        statements: list = []
+    def test_an_empty_queue_costs_one_query(self, pg_tp_engine: Engine) -> None:
+        statements: List[str] = []
 
-        def _record(conn, cursor, statement, parameters, context, executemany):
+        def _record(conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool) -> None:
             statements.append(statement)
 
         event.listen(pg_tp_engine, "before_cursor_execute", _record)
@@ -316,13 +317,13 @@ class TestHandler:
             event.remove(pg_tp_engine, "before_cursor_execute", _record)
 
         assert result.success
-        assert result.detail == {"items": 0, "batches": 0, "written": 0, "failed": 0}
+        assert result.detail == {"items": 0, "batches": 0, "written": 0, "failed": 0, "combo_failed": 0}
         queries = [s for s in statements if "tp_cost_fill_queue" in s]
         assert len(queries) == 1
         assert not [s for s in statements if "ml_order_item_costos" in s]
 
 
-def test_the_migration_carries_the_live_definition():
+def test_the_migration_carries_the_live_definition() -> None:
     """The migration is a frozen copy of `tp_cost_fill.UPGRADE_SQL`/`DOWNGRADE_SQL`."""
     import importlib.util
     from pathlib import Path
@@ -339,17 +340,17 @@ def test_the_migration_carries_the_live_definition():
 
 @pytest.mark.postgres
 class TestFixture:
-    def test_installing_again_over_an_installed_schema_is_a_no_op(self, pg_tp_engine):
+    def test_installing_again_over_an_installed_schema_is_a_no_op(self, pg_tp_engine: Engine) -> None:
         assert _install_queue(pg_tp_engine) is False
         assert _triggers(pg_tp_engine) == 3
 
 
-def _poison(monkeypatch, bad_item: int, *, after_writing: bool = False):
+def _poison(monkeypatch: pytest.MonkeyPatch, bad_item: int, *, after_writing: bool = False) -> None:
     """Makes the fill raise for `bad_item`'s rows -- after writing them when
     `after_writing`, to prove the write is rolled back."""
     original = tp_cost_fill._procesar_lote
 
-    def _maybe_raise(db, rows, dry_run, result):
+    def _maybe_raise(db: Session, rows: Sequence[Any], dry_run: bool, result: script.BackfillTpResult) -> None:
         if any(row.producto_item_id == bad_item for row in rows):
             if after_writing:
                 original(db, rows, dry_run, result)
@@ -361,14 +362,16 @@ def _poison(monkeypatch, bad_item: int, *, after_writing: bool = False):
 
 @pytest.mark.postgres
 class TestPoisonedItems:
-    def _seed(self, engine, items):
+    def _seed(self, engine: Engine, items: Sequence[int]) -> None:
         with _session(engine) as s:
             for order_id, item in enumerate(items, start=100):
                 _venta(s, order_id, item)
                 _hist(s, item, 80, date(2026, 9, 1))
             s.commit()
 
-    def test_a_failing_item_is_charged_and_the_others_in_its_batch_are_filled(self, pg_tp_engine, monkeypatch):
+    def test_a_failing_item_is_charged_and_the_others_in_its_batch_are_filled(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._seed(pg_tp_engine, [500, 501, 502])
         _poison(monkeypatch, 501)
 
@@ -383,7 +386,9 @@ class TestPoisonedItems:
         assert _queued(pg_tp_engine) == [501]
         assert result.detail["failed"] == 1
 
-    def test_a_failure_after_writing_rolls_the_item_back(self, pg_tp_engine, monkeypatch):
+    def test_a_failure_after_writing_rolls_the_item_back(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._seed(pg_tp_engine, [500])
         _poison(monkeypatch, 500, after_writing=True)
 
@@ -392,7 +397,9 @@ class TestPoisonedItems:
         assert _tp(pg_tp_engine, 100) == (None, None)
         assert _queue_row(pg_tp_engine, 500)[0] == 1
 
-    def test_an_item_failing_on_every_run_is_parked_and_never_starves_new_ones(self, pg_tp_engine, monkeypatch):
+    def test_an_item_failing_on_every_run_is_parked_and_never_starves_new_ones(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._seed(pg_tp_engine, [500])
         _poison(monkeypatch, 500)
         monkeypatch.setattr(tp_cost_fill, "BATCH_ITEMS", 1)
@@ -408,13 +415,15 @@ class TestPoisonedItems:
         assert _queue_row(pg_tp_engine, 500)[0] == tp_cost_fill.MAX_ATTEMPTS
         assert _queued(pg_tp_engine) == [500]
 
-    def test_a_parked_item_is_not_claimed_and_costs_one_query(self, pg_tp_engine, monkeypatch):
+    def test_a_parked_item_is_not_claimed_and_costs_one_query(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._seed(pg_tp_engine, [500])
         with pg_tp_engine.begin() as conn:
             conn.execute(text("UPDATE tp_cost_fill_queue SET attempts = :n"), {"n": tp_cost_fill.MAX_ATTEMPTS})
-        statements: list = []
+        statements: List[str] = []
 
-        def _record(conn, cursor, statement, parameters, context, executemany):
+        def _record(conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool) -> None:
             statements.append(statement)
 
         event.listen(pg_tp_engine, "before_cursor_execute", _record)
@@ -427,7 +436,7 @@ class TestPoisonedItems:
         assert len([s for s in statements if "tp_cost_fill_queue" in s]) == 1
         assert _tp(pg_tp_engine, 100) == (None, None)
 
-    def test_a_new_list8_change_unparks_the_item(self, pg_tp_engine):
+    def test_a_new_list8_change_unparks_the_item(self, pg_tp_engine: Engine) -> None:
         self._seed(pg_tp_engine, [500])
         with pg_tp_engine.begin() as conn:
             conn.execute(
@@ -440,10 +449,12 @@ class TestPoisonedItems:
 
         assert _queue_row(pg_tp_engine, 500) == (0, None)
 
-    def test_an_error_outside_any_item_rolls_the_whole_batch_back(self, pg_tp_engine, monkeypatch):
+    def test_an_error_outside_any_item_rolls_the_whole_batch_back(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._seed(pg_tp_engine, [500])
 
-        def _boom(*args, **kwargs):
+        def _boom(*args: Any, **kwargs: Any) -> None:
             raise RuntimeError("combo lookup failed")
 
         monkeypatch.setattr(tp_cost_fill, "_combos_de", _boom)
@@ -453,3 +464,25 @@ class TestPoisonedItems:
 
         assert _queue_row(pg_tp_engine, 500) == (0, None)
         assert _tp(pg_tp_engine, 100) == (None, None)
+
+
+@pytest.mark.postgres
+class TestBrokenCombo:
+    def test_a_broken_combo_never_charges_or_undoes_its_component(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with _session(pg_tp_engine) as s:
+            _venta(s, 300, 901)  # the component's own sale
+            _venta(s, 301, 900)  # a sale of the combo that contains it
+            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=901, iasso_qty=1))
+            _hist(s, 901, 30, date(2026, 9, 1))
+            s.commit()
+        _poison(monkeypatch, 900, after_writing=True)
+
+        result = handler.run(_ctx())
+
+        assert _tp(pg_tp_engine, 300) == (Decimal("30.0000"), script.FUENTE_TP_HISTORIA)
+        assert _tp(pg_tp_engine, 301) == (None, None)
+        assert _queue_row(pg_tp_engine, 901) is None
+        assert result.detail["failed"] == 0
+        assert result.detail["combo_failed"] == 1

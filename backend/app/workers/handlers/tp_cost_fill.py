@@ -32,7 +32,7 @@ class TpCostFillHandler:
     run_at_local: Optional[time] = None
 
     def run(self, ctx: WorkerContext) -> JobResult:
-        detail = {"items": 0, "batches": 0, "written": 0, "failed": 0}
+        detail = {"items": 0, "batches": 0, "written": 0, "failed": 0, "combo_failed": 0}
         # Failed items are charged in the queue and not claimed again in this
         # run: the next wake or safety poll retries them, until they park.
         failed: set[int] = set()
@@ -52,6 +52,9 @@ class TpCostFillHandler:
             detail["batches"] += 1
             detail["written"] += batch.result.written
             detail["failed"] += len(batch.failed)
+            # A broken combo is not queued itself: it is retried the next time
+            # one of its components is queued.
+            detail["combo_failed"] += len(batch.combo_failed)
             if batch.result.skipped:
                 logger.info(
                     "tp_cost.fill: %s item(s), written=%s skipped=%s",
