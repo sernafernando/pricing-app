@@ -13,6 +13,11 @@ joins it).
 - `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree, grouped by one of
   Métricas ML's dimensions (`dimension`, default `marca`: marca > categoria > subcategoria > producto > [familia]),
   with the same filters as `/items`; the publications of a leaf node come from `/items` with the node's `params`.
+- `GET /ml-publications/view/products` (`ml_ops.ver`): the Producto view, one row per LINKED product (the
+  publication -> product link; "Sin producto" = no link) over the MLAs the same filters select, its figures the sum of
+  its publications' own (one Board, publication view, over the last 30 business days), sorted (`orden`/`dir`) and
+  paged. Each row's `params` select exactly its `publications_count` publications in `/items`. Figures and figure
+  sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`.
 - `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
   the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`.
 - `GET /ml-publications/view/items/{item_id}/events` (`ml_ops.ver`): the publication's business events from
@@ -45,6 +50,7 @@ from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services.ml_daily_metrics import board, kpi_strip
+from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
     detail,
@@ -53,6 +59,7 @@ from app.services.ml_publications.view import (
     history,
     kpis,
     listing,
+    products,
     row_metrics,
     status_block,
     variations,
@@ -524,6 +531,34 @@ class GroupsResponse(BaseModel):
     ads: Optional[AdsOut] = None  # present only with ml_metricas.ver_ganancia
 
 
+class ProductRowOut(BaseModel):
+    """One row of the Producto view: a linked product and its publications among the selected ones.
+    `product_item_id` is null on the "Sin producto" row (no link); `params` select the row's publications in `/items`,
+    exactly `publications_count` of them. `metrics` (a publication's shape, its figures the sum of the row's
+    publications') needs `ml_metricas.ver`; null when none of its publications has Métricas figures."""
+
+    key: str
+    product_item_id: Optional[int] = None
+    codigo: Optional[str] = None
+    descripcion: str
+    marca: Optional[str] = None
+    publications_count: int
+    stock: Optional[int] = None
+    params: dict[str, str]
+    metrics: Optional[MetricsOut] = None
+
+
+class ProductsResponse(BaseModel):
+    rows: list[ProductRowOut]
+    total: int  # the product rows of the whole filtered set
+    mla_count: int  # the publications the filter selects: the list's `total`
+    limit: int
+    offset: int
+    orden: str
+    dir: str
+    can_see_margin: bool
+
+
 class KpiStripOut(BaseModel):
     """Métricas' KPI strip, figure for figure (`kpi_strip.BoardKpis`); the profit figures (`total_gauss`, `markup`)
     are absent, not null, without `ml_metricas.ver_ganancia`. The Board has no Ads figures, so neither has this."""
@@ -875,6 +910,96 @@ def get_groups(
     if ads_status is not None:
         body["ads"] = _ads_out(ads_status.degraded() if page.ads_failed else ads_status)
     return body
+
+
+def _product_out(row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool) -> dict[str, Any]:
+    no_product = row.product_item_id == NO_PRODUCT
+    out: dict[str, Any] = {
+        "key": row.key,
+        "product_item_id": None if no_product else row.product_item_id,
+        "codigo": row.sku,
+        "descripcion": row.title,
+        "marca": row.marca,
+        "publications_count": row.publications_count,
+        "stock": row.stock,
+        "params": (
+            {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
+        ),
+    }
+    if with_metrics:
+        out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
+    return out
+
+
+@router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)
+def get_products(
+    response: Response,
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    orden: Optional[str] = Query(
+        None,
+        description=(
+            "facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); markup_30d, "
+            "total_gauss_30d (also ver_ganancia); titulo (the default without ml_metricas.ver)"
+        ),
+    ),
+    direction: Optional[str] = Query(None, alias="dir", description="asc or desc (default desc; asc by titulo)"),
+    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
+) -> dict[str, Any]:
+    """The Producto view: one page of product rows over the MLAs the filters select, with Métricas ML's figures."""
+    timer = Timer("products")
+    permisos = PermisosService(auth_db)
+    can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
+    can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
+    sort_name = (orden or "").strip() or (products.DEFAULT_SORT if can_see_sales else products.NEUTRAL_SORT)
+    known = sort_name in products.PRODUCT_SORTS
+    if known and products.needs_metrics(sort_name) and not can_see_sales:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_METRICAS} para ordenar por las cifras de Métricas ML",
+        )
+    if known and products.needs_margin(sort_name) and not can_see_margin:
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar por markup",
+        )
+    default_dir = "asc" if sort_name == products.NEUTRAL_SORT else "desc"
+    sort_dir = (direction or default_dir).strip().lower()
+    try:
+        if sort_dir not in ("asc", "desc"):
+            raise FilterError("dir", "must be asc or desc")
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        with timer.stage("products"):
+            page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(rows=len(page.rows), total=page.total)
+    return {
+        "rows": [
+            _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures) for row in page.rows
+        ],
+        "total": page.total,
+        "mla_count": page.mla_count,
+        "limit": limit,
+        "offset": offset,
+        "orden": sort_name,
+        "dir": sort_dir,
+        "can_see_margin": can_see_margin,
+    }
 
 
 @router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)
