@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
+import { formatInt, formatOtherCurrencies, formatPct } from './kpiFormat';
 import styles from './KpiStrip.module.css';
 
 /**
@@ -18,27 +19,9 @@ import styles from './KpiStrip.module.css';
  * they are a different unit, not "more pesos".
  */
 
-const INT_FORMAT = new Intl.NumberFormat('es-AR');
-const MONEY_FORMAT = new Intl.NumberFormat('es-AR', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-const PCT_FORMAT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
-
 function formatMoneyARS(value) {
   // `-$ 1.234,00`, never `$ -1.234,00`: the sign belongs to the figure.
   return formatSignedMoney(value);
-}
-
-function formatOtherCurrencies(grossBilledOther) {
-  const entries = Object.entries(grossBilledOther || {});
-  if (entries.length === 0) return null;
-  return entries.map(([currency, amount]) => `${MONEY_FORMAT.format(Number(amount))} ${currency}`).join(' · ');
-}
-
-function formatPct(value) {
-  if (value === null || value === undefined) return '—';
-  return `${PCT_FORMAT.format(Number(value))}%`;
 }
 
 export default function KpiStrip({ kpi, loading, error }) {
@@ -114,8 +97,8 @@ export default function KpiStrip({ kpi, loading, error }) {
       <div className={styles.cards}>
         <div className={styles.card}>
           <span className={styles.label}>Ventas</span>
-          <div className={styles.value}>{INT_FORMAT.format(kpi.groups_count ?? 0)}</div>
-          <div className={styles.sub}>{INT_FORMAT.format(kpi.orders_count ?? 0)} ventas individuales</div>
+          <div className={styles.value}>{formatInt(kpi.groups_count)}</div>
+          <div className={styles.sub}>{formatInt(kpi.orders_count)} ventas individuales</div>
         </div>
 
         <div className={styles.card}>
@@ -130,7 +113,7 @@ export default function KpiStrip({ kpi, loading, error }) {
           <span className={styles.label}>Neto ML</span>
           <div className={`${styles.value} ${styles.valueHeadline}`}>{formatMoneyARS(kpi.neto_sum)}</div>
           <div className={styles.sub}>
-            {kpi.neto_unknown_count > 0 ? `${INT_FORMAT.format(kpi.neto_unknown_count)} desconocidos` : 'Depositado por ML'}
+            {kpi.neto_unknown_count > 0 ? `${formatInt(kpi.neto_unknown_count)} desconocidos` : 'Depositado por ML'}
           </div>
         </div>
 
@@ -141,7 +124,7 @@ export default function KpiStrip({ kpi, loading, error }) {
           </div>
           <div className={styles.sub}>
             {kpi.total_gauss_provisional_count > 0
-              ? `${INT_FORMAT.format(kpi.total_gauss_provisional_count)} provisorios`
+              ? `${formatInt(kpi.total_gauss_provisional_count)} provisorios`
               : 'Costos + comisiones aplicadas'}
           </div>
         </div>
@@ -161,7 +144,7 @@ export default function KpiStrip({ kpi, loading, error }) {
           )}
           <div className={styles.sub}>
             {kpi.markup_skipped_count > 0
-              ? `${INT_FORMAT.format(kpi.markup_skipped_count)} sin datos para calcular`
+              ? `${formatInt(kpi.markup_skipped_count)} sin datos para calcular`
               : 'Ponderado por venta'}
           </div>
         </div>
@@ -171,18 +154,18 @@ export default function KpiStrip({ kpi, loading, error }) {
             Desglose incompleto
             <AlertTriangle size={14} aria-hidden="true" />
           </span>
-          <div className={styles.value}>{INT_FORMAT.format(noUsableGaussCount)}</div>
+          <div className={styles.value}>{formatInt(noUsableGaussCount)}</div>
           <div className={styles.sub}>sin Total Gauss usable</div>
           <div className={styles.sub}>
-            {`${INT_FORMAT.format(kpi.total_gauss_unresolved_count || 0)} sin resolver · ${INT_FORMAT.format(
+            {`${formatInt(kpi.total_gauss_unresolved_count || 0)} sin resolver · ${formatInt(
               kpi.recalculating_count || 0
-            )} recalculando · ${INT_FORMAT.format(kpi.pending_count || 0)} pendientes · ${INT_FORMAT.format(
+            )} recalculando · ${formatInt(kpi.pending_count || 0)} pendientes · ${formatInt(
               kpi.failed_count || 0
             )} fallidos`}
           </div>
           {/* Apart, never folded in: this one can describe the SAME order as
               `sin resolver` above, so adding it would count that order twice. */}
-          <div className={styles.sub}>{`además, ${INT_FORMAT.format(netoUnknown)} sin neto`}</div>
+          <div className={styles.sub}>{`además, ${formatInt(netoUnknown)} sin neto`}</div>
         </div>
 
         {excludedNonMoneyCount > 0 && (
@@ -190,7 +173,7 @@ export default function KpiStrip({ kpi, loading, error }) {
             <span className={styles.label}>Ventas sin cobro efectivo</span>
             <div className={styles.value}>{formatMoneyARS(kpi.excluded_non_money_ars)}</div>
             <div className={styles.sub}>
-              {`${INT_FORMAT.format(excludedNonMoneyCount)} ventas con pago rechazado o no completado`}
+              {`${formatInt(excludedNonMoneyCount)} ventas con pago rechazado o no completado`}
             </div>
             <div className={styles.sub}>excluidas de Facturado bruto: no es dinero cobrado</div>
           </div>

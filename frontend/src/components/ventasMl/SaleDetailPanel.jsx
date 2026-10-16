@@ -99,9 +99,25 @@ const RAZON_LABELS = {
 // same chain order the backend already applies them.
 const DEDUCCION_LABELS = {
   costo_mercaderia: 'Costo de mercadería',
+  costo_tp: 'Costo TP',
   envio_flex: 'Envío Flex',
   varios: '% de varios',
 };
+
+// The detail's Total chain, one shape for both views: `cadena_total_gauss`,
+// or `cadena_total_tp` for a `tplink.solo` user (metricas-ml-tplink-mode P7:
+// the same chain with the TP cost line, ending in Total TP, no Gauss word).
+// A missing TP figure is normalised to null, so every `=== null` check below
+// reads it as unknown instead of rendering an amount.
+function chainFrom(data) {
+  const tp = data.cadena_total_tp;
+  if (tp) {
+    return { ...tp, total: tp.total_tp ?? null, markup: tp.markup_tp ?? null, label: 'Total TP', markupLabel: 'Markup TP' };
+  }
+  const gauss = data.cadena_total_gauss;
+  if (!gauss) return null;
+  return { ...gauss, total: gauss.total_gauss, label: 'Total Gauss', markupLabel: 'Markup' };
+}
 
 function formatAlicuota(value) {
   if (value === null || value === undefined) return 'Sin alícuota';
@@ -178,7 +194,7 @@ export default function SaleDetailPanel({
   // (the older `origen: api/propio` lines) since they are two different
   // views of the sale, not one replacing the other.
   const [ivaDecomposicion, setIvaDecomposicion] = useState(null);
-  const [cadenaTotalGauss, setCadenaTotalGauss] = useState(null);
+  const [cadenaTotal, setCadenaTotal] = useState(null);
   // ODD ventas-ml-ui-pendiente T4: who bought, how it was paid, how it ships
   // -- from the same response, rendered by `SaleContextSections`.
   const [orderInfo, setOrderInfo] = useState(null);
@@ -207,7 +223,7 @@ export default function SaleDetailPanel({
       if (requestId !== latestRequestRef.current) return;
       setBreakdown(data.breakdown || null);
       setIvaDecomposicion(data.iva_decomposicion || null);
-      setCadenaTotalGauss(data.cadena_total_gauss || null);
+      setCadenaTotal(chainFrom(data));
       setOrderInfo(data.order || null);
       setShipmentInfo(data.shipment || null);
       setOrderItems(Array.isArray(data.items) ? data.items : []);
@@ -216,7 +232,7 @@ export default function SaleDetailPanel({
       setErrorKind('generic');
       setBreakdown(null);
       setIvaDecomposicion(null);
-      setCadenaTotalGauss(null);
+      setCadenaTotal(null);
       setOrderInfo(null);
       setShipmentInfo(null);
       setOrderItems([]);
@@ -280,9 +296,9 @@ export default function SaleDetailPanel({
   // panel — the new sections simply do not render.
   const componentesIva = ivaDecomposicion?.componentes || [];
   const razonesIva = ivaDecomposicion?.razones || [];
-  const lineasGauss = cadenaTotalGauss?.lineas || [];
+  const lineasGauss = cadenaTotal?.lineas || [];
   const itemLines = breakdown?.item_lines || [];
-  const costoItems = cadenaTotalGauss?.costo_mercaderia_items || [];
+  const costoItems = cadenaTotal?.costo_mercaderia_items || [];
   const mlUrl = mlSaleUrl({ orderId, packId: orderInfo?.pack_id });
 
   const montoOperacion = breakdown?.monto_operacion;
@@ -291,7 +307,7 @@ export default function SaleDetailPanel({
     breakdown?.retenciones_recuperables,
     breakdown?.bonificacion_envio,
   );
-  const gaussTone = moneyTone(cadenaTotalGauss?.total_gauss);
+  const gaussTone = moneyTone(cadenaTotal?.total);
   const syncedAgo = timeAgo(lastSyncedAt);
 
   return (
@@ -535,13 +551,13 @@ export default function SaleDetailPanel({
                 Total Gauss. A `null` link renders "—" and is named below the
                 chain; Total Gauss itself is only ever shown when every link
                 resolved -- never a zero. */}
-            {cadenaTotalGauss && (
-              <section className={styles.card} aria-label="Total Gauss">
+            {cadenaTotal && (
+              <section className={styles.card} aria-label={cadenaTotal.label}>
                 <div className={styles.cardTitleRow}>
-                  <h3 className={styles.cardTitle}>Total Gauss</h3>
+                  <h3 className={styles.cardTitle}>{cadenaTotal.label}</h3>
                   {/* total-gauss-provisorio: a REAL computed number, just
                       flagged -- never rendered as if it were unknown. */}
-                  {cadenaTotalGauss.total_gauss !== null && cadenaTotalGauss.provisional && (
+                  {cadenaTotal.total !== null && cadenaTotal.provisional && (
                     <span className={styles.provisionalBadge}>Provisorio</span>
                   )}
                 </div>
@@ -626,16 +642,17 @@ export default function SaleDetailPanel({
                   </ul>
                 )}
 
-                {cadenaTotalGauss.total_gauss === null ? (
+                {cadenaTotal.total === null ? (
                   <div>
                     <div className={`${styles.total} ${styles.totalIncomplete}`}>
-                      <span className={styles.totalLabel}>Total Gauss</span>
+                      <span className={styles.totalLabel}>{cadenaTotal.label}</span>
                       <span className={styles.totalMonto}>—</span>
                     </div>
                     {/* Names EXACTLY which link is missing, never a bare
                         "unknown". */}
                     <p className={styles.stateText}>
                       {(() => {
+                        if (cadenaTotal.tp_incompleto) return 'Total TP incompleto: falta el costo TP.';
                         const unresolved = lineasGauss.find((linea) => linea.monto === null);
                         if (unresolved) {
                           return `Sin ${(DEDUCCION_LABELS[unresolved.code] || unresolved.code).toLowerCase()} conocido.`;
@@ -643,25 +660,25 @@ export default function SaleDetailPanel({
                         if (ivaDecomposicion && !ivaDecomposicion.reconcilia) {
                           return 'El neto sin IVA no reconcilia — ver la razón arriba.';
                         }
-                        return 'Total Gauss desconocido.';
+                        return `${cadenaTotal.label} desconocido.`;
                       })()}
                     </p>
                   </div>
                 ) : (
                   <div>
                     <div className={styles.total}>
-                      <span className={styles.totalLabel}>Total Gauss</span>
+                      <span className={styles.totalLabel}>{cadenaTotal.label}</span>
                       <span
                         className={`${styles.totalMonto} ${
                           gaussTone === 'negative' ? styles.money_negative : gaussTone === 'positive' ? styles.money_positive : ''
                         }`}
                       >
-                        {formatSignedMoney(cadenaTotalGauss.total_gauss)}
+                        {formatSignedMoney(cadenaTotal.total)}
                       </span>
                     </div>
-                    {cadenaTotalGauss.provisional && (
+                    {cadenaTotal.provisional && (
                       <p className={styles.provisionalNote}>
-                        Calculado sin {(cadenaTotalGauss.provisional_falta || 'Envío Flex').toLowerCase()}: todavía
+                        Calculado sin {(cadenaTotal.provisional_falta || 'Envío Flex').toLowerCase()}: todavía
                         no se cargó la etiqueta de envío. Se va a actualizar solo cuando se cargue.
                       </p>
                     )}
@@ -673,15 +690,15 @@ export default function SaleDetailPanel({
                     listing (`markupTone`). `null` (never "0%") whenever it is
                     undefined -- see `TotalGaussResultado.markup`. */}
                 <div className={styles.markupRow}>
-                  <span className={styles.totalLabel}>Markup</span>
+                  <span className={styles.totalLabel}>{cadenaTotal.markupLabel}</span>
                   <span
                     className={`${styles.markupChip} ${
-                      markupTone(cadenaTotalGauss.markup) ? styles[`markup_${markupTone(cadenaTotalGauss.markup)}`] : ''
+                      markupTone(cadenaTotal.markup) ? styles[`markup_${markupTone(cadenaTotal.markup)}`] : ''
                     }`}
                   >
-                    {cadenaTotalGauss.markup === null || cadenaTotalGauss.markup === undefined
+                    {cadenaTotal.markup === null || cadenaTotal.markup === undefined
                       ? '—'
-                      : `${formatAmount(cadenaTotalGauss.markup)}%`}
+                      : `${formatAmount(cadenaTotal.markup)}%`}
                   </span>
                 </div>
               </section>

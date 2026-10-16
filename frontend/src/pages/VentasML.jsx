@@ -62,9 +62,12 @@ import FacetChips from '../components/ventasMl/FacetChips';
 import AlertsFilterChip from '../components/ventasMl/AlertsFilterChip';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import KpiStrip from '../components/ventasMl/KpiStrip';
+import KpiStripTP from '../components/ventasMl/KpiStripTP';
 import IncludeToggles from '../components/ventasMl/IncludeToggles';
 import ColumnPicker from '../components/ventasMl/ColumnPicker';
 import { COLUMNS } from '../components/ventasMl/ventasMlColumns';
+import { TP_COLUMNS } from '../components/ventasMl/ventasMlTpColumns';
+import { isTpSolo, onlyFacetStoreChips } from '../components/ventasMl/tpMode';
 import { useColumnSizing } from '../components/ml-bot/useColumnSizing';
 import { useColumnResize } from '../components/ventasMl/useColumnResize';
 import {
@@ -114,8 +117,12 @@ const EMPTY_FACETS = {
 
 export default function VentasML() {
   const latestRequestRef = useRef(0);
-  const { tienePermiso } = usePermisos();
+  const { permisos, tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('ml_ops.ver');
+  // metricas-ml-tplink-mode P7: TP figures in place of every Gauss one, and
+  // nothing that would hit an endpoint answering 403 for this user.
+  const tpSolo = isTpSolo(permisos);
+  const columns = tpSolo ? TP_COLUMNS : COLUMNS;
   const puedeResincronizar = tienePermiso('ml_ops.resincronizar');
 
   const [sales, setSales] = useState([]);
@@ -190,7 +197,7 @@ export default function VentasML() {
   // pack-member rows, from `table.getVisibleLeafColumns()` -- that is what
   // keeps a hidden column out of every row kind at once (T4).
   const [columnVisibility, setColumnVisibilityState] = useState(() =>
-    loadColumnVisibility(COLUMNS),
+    loadColumnVisibility(columns),
   );
 
   const handleColumnVisibilityChange = useCallback((updater) => {
@@ -211,7 +218,7 @@ export default function VentasML() {
   } = useColumnSizing(COLUMN_SIZING_STORAGE_KEY);
 
   const table = useReactTable({
-    columns: COLUMNS,
+    columns,
     data: useMemo(() => [], []),
     getCoreRowModel: getCoreRowModel(),
     state: { columnVisibility, columnSizing },
@@ -618,7 +625,8 @@ export default function VentasML() {
   // `limit: 1` is requested — `total` is all this banner needs, not the
   // rows themselves.
   useEffect(() => {
-    if (!puedeVer) return;
+    // A TP-only user may not read divergences (403): no request, no banner.
+    if (!puedeVer || tpSolo) return;
     let cancelled = false;
     api
       .get('/ml-ventas-ops/divergences', {
@@ -635,7 +643,7 @@ export default function VentasML() {
     return () => {
       cancelled = true;
     };
-  }, [puedeVer]);
+  }, [puedeVer, tpSolo]);
 
   if (!puedeVer) {
     return null;
@@ -645,6 +653,10 @@ export default function VentasML() {
   // detail endpoint carries no status axes or sale date, the row does. The
   // panel shows those pills only when it has them -- a deep link to an
   // order on another page simply goes without.
+  // TP mode narrows the chips to the stores the TP facet returned.
+  const allStoreChips = buildStoreChips({ tiendas, getLabel, counts: facets.stores, selected: storeFilter });
+  const storeChips = tpSolo ? onlyFacetStoreChips(allStoreChips, facets.stores) : allStoreChips;
+
   const selectedListOrder =
     selectedOrderId === null || selectedOrderId === undefined
       ? null
@@ -733,7 +745,7 @@ export default function VentasML() {
         </div>
       )}
 
-      {failedIngestCount > 0 && (
+      {!tpSolo && failedIngestCount > 0 && (
         <Link to="/ml-ventas-divergencias" className={styles.ingestFailedBanner}>
           <AlertTriangle size={16} />
           {failedIngestCount === 1
@@ -777,7 +789,7 @@ export default function VentasML() {
             </span>
             <FacetChips
               label="Filtrar por tienda oficial"
-              {...buildStoreChips({ tiendas, getLabel, counts: facets.stores, selected: storeFilter })}
+              {...storeChips}
               total={facets.stores_total}
               onChange={handleStoreChange}
             />
@@ -847,7 +859,11 @@ export default function VentasML() {
         </div>
       </section>
 
-      <KpiStrip kpi={kpi} loading={kpiLoading} error={kpiError} />
+      {tpSolo ? (
+        <KpiStripTP kpi={kpi} loading={kpiLoading} error={kpiError} />
+      ) : (
+        <KpiStrip kpi={kpi} loading={kpiLoading} error={kpiError} />
+      )}
 
       <VentasMLLayout
         selectedOrderId={selectedOrderId}
