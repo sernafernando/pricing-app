@@ -12,7 +12,9 @@ item in `tp_cost_fill_queue` and `pg_notify` the worker:
 - `tb_item_cost_list_history`, coslis_id 8: on insert. The resolver reads the
   HISTORY, and `sync_all_incremental` syncs the current list BEFORE the history:
   woken by the current list alone, the worker would run before the history row
-  exists, dequeue the item and fill nothing.
+  exists, dequeue the item and fill nothing. Also on an update that actually
+  changes `iclh_price` or `curr_id`: `sync_item_cost_history` corrects existing
+  history rows in place when the ERP fixes a past price.
 
 The handler (`app/workers/handlers/tp_cost_fill.py`) drains the queue in
 batches, one short transaction each: claim items, find the NULL rows of those
@@ -97,9 +99,19 @@ AFTER INSERT ON tb_item_cost_list_history
 FOR EACH ROW WHEN (NEW.coslis_id = 8 AND NEW.item_id IS NOT NULL)
 EXECUTE FUNCTION tp_cost_fill_enqueue()
 """,
+    """
+CREATE TRIGGER trg_tp_cost_fill_history_update
+AFTER UPDATE OF iclh_price, curr_id ON tb_item_cost_list_history
+FOR EACH ROW WHEN (
+    NEW.coslis_id = 8 AND NEW.item_id IS NOT NULL
+    AND (OLD.iclh_price IS DISTINCT FROM NEW.iclh_price OR OLD.curr_id IS DISTINCT FROM NEW.curr_id)
+)
+EXECUTE FUNCTION tp_cost_fill_enqueue()
+""",
 ]
 
 DOWNGRADE_SQL: List[str] = [
+    "DROP TRIGGER IF EXISTS trg_tp_cost_fill_history_update ON tb_item_cost_list_history",
     "DROP TRIGGER IF EXISTS trg_tp_cost_fill_history_insert ON tb_item_cost_list_history",
     "DROP TRIGGER IF EXISTS trg_tp_cost_fill_list_update ON tb_item_cost_list",
     "DROP TRIGGER IF EXISTS trg_tp_cost_fill_list_insert ON tb_item_cost_list",

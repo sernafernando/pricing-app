@@ -1,7 +1,7 @@
 """tp_cost_fill_queue + list-8 triggers that wake the TP cost fill worker
 
 Revision ID: 20261029_tp_cost_fill_queue
-Revises: 20261028_tplink_solo_permiso
+Revises: 20261029_ml_ads_campaigns
 Create Date: 2026-10-16
 
 metricas-ml-tplink-mode P2 (worker half). Sales frozen without a TP-Link cost
@@ -11,7 +11,8 @@ drains the queue. Fired by:
 - `tb_item_cost_list`, coslis_id 8: insert, or an update that actually changes
   `coslis_price`/`curr_id`;
 - `tb_item_cost_list_history`, coslis_id 8: insert (the resolver reads the
-  history, which the ERP sync writes after the current list).
+  history, which the ERP sync writes after the current list), or an update
+  that actually changes `iclh_price`/`curr_id` (the ERP correcting a past price).
 
 Frozen copy of `app/services/ml_orders_ingestion/tp_cost_fill.py`'s
 `UPGRADE_SQL`/`DOWNGRADE_SQL` (that module is the live definition). The
@@ -26,7 +27,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "20261029_tp_cost_fill_queue"
-down_revision: Union[str, None] = "20261028_tplink_solo_permiso"
+down_revision: Union[str, None] = "20261029_ml_ads_campaigns"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -70,9 +71,19 @@ AFTER INSERT ON tb_item_cost_list_history
 FOR EACH ROW WHEN (NEW.coslis_id = 8 AND NEW.item_id IS NOT NULL)
 EXECUTE FUNCTION tp_cost_fill_enqueue()
 """,
+    """
+CREATE TRIGGER trg_tp_cost_fill_history_update
+AFTER UPDATE OF iclh_price, curr_id ON tb_item_cost_list_history
+FOR EACH ROW WHEN (
+    NEW.coslis_id = 8 AND NEW.item_id IS NOT NULL
+    AND (OLD.iclh_price IS DISTINCT FROM NEW.iclh_price OR OLD.curr_id IS DISTINCT FROM NEW.curr_id)
+)
+EXECUTE FUNCTION tp_cost_fill_enqueue()
+""",
 ]
 
 _DOWNGRADE = [
+    "DROP TRIGGER IF EXISTS trg_tp_cost_fill_history_update ON tb_item_cost_list_history",
     "DROP TRIGGER IF EXISTS trg_tp_cost_fill_history_insert ON tb_item_cost_list_history",
     "DROP TRIGGER IF EXISTS trg_tp_cost_fill_list_update ON tb_item_cost_list",
     "DROP TRIGGER IF EXISTS trg_tp_cost_fill_list_insert ON tb_item_cost_list",

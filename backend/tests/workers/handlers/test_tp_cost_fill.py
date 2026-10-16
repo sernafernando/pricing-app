@@ -196,6 +196,27 @@ class TestTrigger:
 
         assert _queued(pg_tp_engine) == [600]
 
+    def test_a_list8_history_price_correction_enqueues_and_others_do_not(self, pg_tp_engine: Engine) -> None:
+        """`sync_item_cost_history` corrects existing history rows with UPDATE:
+        a fixed list-8 price must re-queue its item."""
+        with _session(pg_tp_engine) as s:
+            _hist(s, 700, 80, date(2026, 9, 1))
+            _hist(s, 701, 80, date(2026, 9, 1))
+            _hist(s, 702, 80, date(2026, 9, 1))
+            _hist(s, 703, 80, date(2026, 9, 1), coslis_id=1)
+            s.commit()
+        _clear_queue(pg_tp_engine)
+
+        with pg_tp_engine.begin() as conn:
+            conn.execute(text("UPDATE tb_item_cost_list_history SET iclh_price = 85 WHERE item_id = 700"))
+            conn.execute(text("UPDATE tb_item_cost_list_history SET curr_id = 2 WHERE item_id = 701"))
+            conn.execute(
+                text("UPDATE tb_item_cost_list_history SET iclh_price = 80, iclh_lote = 'x' WHERE item_id = 702")
+            )
+            conn.execute(text("UPDATE tb_item_cost_list_history SET iclh_price = 99 WHERE item_id = 703"))
+
+        assert _queued(pg_tp_engine) == [700, 701]
+
     def test_the_trigger_notifies_the_channel(self, pg_tp_engine: Engine) -> None:
         raw = pg_tp_engine.raw_connection()
         try:
@@ -335,14 +356,14 @@ def test_the_migration_carries_the_live_definition() -> None:
 
     assert module._UPGRADE == tp_cost_fill.UPGRADE_SQL
     assert module._DOWNGRADE == tp_cost_fill.DOWNGRADE_SQL
-    assert module.down_revision == "20261028_tplink_solo_permiso"
+    assert module.down_revision == "20261029_ml_ads_campaigns"
 
 
 @pytest.mark.postgres
 class TestFixture:
     def test_installing_again_over_an_installed_schema_is_a_no_op(self, pg_tp_engine: Engine) -> None:
         assert _install_queue(pg_tp_engine) is False
-        assert _triggers(pg_tp_engine) == 3
+        assert _triggers(pg_tp_engine) == 4
 
 
 def _poison(monkeypatch: pytest.MonkeyPatch, bad_item: int, *, after_writing: bool = False) -> None:
