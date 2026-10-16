@@ -55,10 +55,10 @@ REBATE_OFERTA_KEYS = (
 
 OUT_OF_CARDS_ITEM = 8
 
-# Statements of one GET /productos/{item_id}, recorded (R3-003): a product with
-# prices, a rebate and an offer; and a product with no pricing row and no publication.
-DETAIL_STATEMENTS_PRICED = 21
-DETAIL_STATEMENTS_BARE = 12
+# Upper bound for one GET /productos/{item_id} of a product with prices, a
+# rebate and an offer (21 when recorded): a guard against a per-row query
+# creeping in, not an exact pin.
+DETAIL_STATEMENTS_PRICED_MAX = 25
 
 
 @pytest.fixture(autouse=True)
@@ -303,13 +303,40 @@ class TestDeterministicBestOffer:
 
 class TestDetailStatementCount:
     """R3-003: the detail reads the offers always (an offer needs no stored price)
-    and the pricing inputs and shipping only when something is priced."""
+    and the pricing inputs and the shipping batch only when something is priced."""
 
-    @pytest.mark.parametrize(
-        ("item_id", "expected"),
-        [(OUT_OF_CARDS_ITEM, DETAIL_STATEMENTS_PRICED), (BARE_ITEM, DETAIL_STATEMENTS_BARE)],
-    )
-    def test_statement_count(self, client, auth_headers, seeded_extra, query_counter, item_id, expected) -> None:
-        with query_counter() as counter:
-            _detail(client, auth_headers, item_id)
-        assert counter.total == expected
+    @staticmethod
+    def _spy(monkeypatch) -> dict[str, int]:
+        from app.api.endpoints import productos_listing
+
+        calls = {"build_pricing_context": 0, "resolver_costos_envio_batch": 0}
+        for name in calls:
+            original = getattr(productos_listing, name)
+
+            def _counting(*args, _name=name, _original=original, **kwargs):
+                calls[_name] += 1
+                return _original(*args, **kwargs)
+
+            monkeypatch.setattr(productos_listing, name, _counting)
+        return calls
+
+    def test_a_bare_product_reads_no_pricing_inputs_and_no_shipping(
+        self, client, auth_headers, seeded_extra, monkeypatch
+    ) -> None:
+        calls = self._spy(monkeypatch)
+        _detail(client, auth_headers, BARE_ITEM)
+        assert calls == {"build_pricing_context": 0, "resolver_costos_envio_batch": 0}
+
+    def test_a_priced_product_reads_them_once(self, client, auth_headers, seeded_extra, monkeypatch) -> None:
+        calls = self._spy(monkeypatch)
+        _detail(client, auth_headers, OUT_OF_CARDS_ITEM)
+        assert calls == {"build_pricing_context": 1, "resolver_costos_envio_batch": 1}
+
+    def test_a_bare_product_costs_fewer_statements_than_a_priced_one(
+        self, client, auth_headers, seeded_extra, query_counter
+    ) -> None:
+        with query_counter() as bare:
+            _detail(client, auth_headers, BARE_ITEM)
+        with query_counter() as priced:
+            _detail(client, auth_headers, OUT_OF_CARDS_ITEM)
+        assert bare.total < priced.total <= DETAIL_STATEMENTS_PRICED_MAX
