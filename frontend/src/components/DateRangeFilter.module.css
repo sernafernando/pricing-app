@@ -49,15 +49,18 @@
   color: var(--text-primary);
 }
 
+/* Text uses --brand-link, the role token for primary-coloured TEXT: it equals
+   --brand-primary in the base theme, and stays readable on the light tint where
+   a brand's primary (TP-Link Teal) is too pale to be text. */
 .btnFiltroRapido.activo {
   background: var(--brand-primary-light, var(--bg-hover));
-  color: var(--brand-primary);
+  color: var(--brand-link);
   font-weight: var(--font-medium);
 }
 
 .btnFiltroRapido.activo:hover {
   background: var(--brand-primary-light, var(--bg-hover));
-  color: var(--brand-primary);
+  color: var(--brand-link);
 }
 
 /* Catches the click that closes the dropdown, without blocking the wheel. */
