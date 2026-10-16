@@ -313,7 +313,9 @@ export default function MetricasML() {
         }));
       } catch (err) {
         if (generation !== latestRequestRef.current) return;
-        if (rejectTp(filterParams, err)) return;
+        // A TP refusal also turns "Costos TP" off (its message in the bar); the row still leaves "loading" for its
+        // error note, so it never sticks there if the board reload is slow or fails.
+        rejectTp(filterParams, err);
         setSubRows((prev) => ({ ...prev, [id]: { loading: false, rows: previous, level, fetched, error: true } }));
       }
     },
