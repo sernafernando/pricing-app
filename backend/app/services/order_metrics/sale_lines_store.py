@@ -23,11 +23,26 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import String, bindparam, column, delete, except_, func, or_, select, text, union_all, values
+from sqlalchemy import (
+    String,
+    bindparam,
+    case,
+    column,
+    delete,
+    except_,
+    func,
+    null,
+    or_,
+    select,
+    text,
+    union_all,
+    values,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
+from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.ml_sale_line import MlSaleLine
 from app.services.ml_daily_metrics.sales import sale_lines
 
@@ -47,10 +62,13 @@ COLUMNS = (
 )
 
 # The TP-Link shares (metricas-ml-tplink-mode P3), derived with `tp=True`.
-# Written by the same INSERT as the Gauss columns, so the divergence check
-# keeps comparing `COLUMNS` only: lines stored before these columns existed
-# carry NULL here and must not all read as diverging.
 TP_COLUMNS = ("tg_tp", "mtg_tp", "mcosto_tp")
+
+# The `ml_order_metrics.formula_version` that introduced `TP_COLUMNS`. The
+# divergence check compares them only for lines of orders stored at or above
+# it: older lines carry NULL there by construction, and bringing them up to
+# date is `order_metrics.reconcile`'s job (the version bump), not a divergence.
+TP_FORMULA_VERSION = 7
 
 # Everything a stored line carries.
 STORED_COLUMNS = COLUMNS + TP_COLUMNS
@@ -58,21 +76,36 @@ STORED_COLUMNS = COLUMNS + TP_COLUMNS
 
 def derive_sale_lines(group_keys: Sequence[str]):
     """The lines of `group_keys` as `sale_lines` derives them now (a subquery
-    with `COLUMNS`): what the divergence check compares the stored lines with."""
+    with `STORED_COLUMNS`): what the divergence check compares the stored lines with."""
     keys = values(column("group_key", String), name="wanted").data([(key,) for key in group_keys])
-    return sale_lines(sqlite=False, groups=select(keys.c.group_key), queue=False, keyed=True, narrow=True)
+    return sale_lines(sqlite=False, groups=select(keys.c.group_key), queue=False, keyed=True, narrow=True, tp=True)
+
+
+def _comparable(lines):
+    """`STORED_COLUMNS` of `lines`, with the TP shares blanked (NULL) for an
+    order stored below `TP_FORMULA_VERSION`, so only the Gauss columns of those
+    lines are compared. EXCEPT treats NULL as equal to NULL."""
+    metrics = MlOrderMetrics.__table__
+    current = metrics.c.formula_version >= TP_FORMULA_VERSION
+    return (
+        select(
+            *(lines.c[name] for name in COLUMNS),
+            *(case((current, lines.c[name]), else_=null()).label(name) for name in TP_COLUMNS),
+        )
+        .select_from(lines)
+        .outerjoin(metrics, metrics.c.order_id == lines.c.order_id)
+    )
 
 
 def diverging_groups(db, group_keys: Sequence[str]) -> list:
     """The groups, among `group_keys`, whose stored lines differ from a live
-    derivation (a missing, an extra or a different line). Money is compared by
-    value."""
+    derivation (a missing, an extra or a different line). Money, TP shares
+    included, is compared by value."""
     if not group_keys:
         return []
     table = MlSaleLine.__table__
-    derived = derive_sale_lines(group_keys)
-    live = select(*(derived.c[name] for name in COLUMNS))
-    stored = select(*(table.c[name] for name in COLUMNS)).where(table.c.group_key.in_(group_keys))
+    live = _comparable(derive_sale_lines(group_keys))
+    stored = _comparable(select(table).where(table.c.group_key.in_(group_keys)).subquery("stored"))
     both = union_all(except_(live, stored), except_(stored, live)).subquery("diff")
     return sorted(db.execute(select(both.c.group_key).distinct()).scalars().all())
 
