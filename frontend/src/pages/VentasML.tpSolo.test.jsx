@@ -5,14 +5,19 @@
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
+import { COLUMN_VISIBILITY_STORAGE_KEY } from './ventasMlTableHelpers';
 import api, { productosAPI } from '../services/api';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 
+const TP_PERMISOS = ['ml_ops.ver', 'tplink.solo'];
+const mockPermisos = vi.hoisted(() => ({ current: null }));
+
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
-    permisos: ['ml_ops.ver', 'tplink.solo'],
+    permisos: mockPermisos.current,
     tienePermiso: () => true,
     cargandoPermisos: false,
   }),
@@ -82,6 +87,7 @@ const KPI_TP = {
 };
 
 beforeEach(() => {
+  mockPermisos.current = TP_PERMISOS;
   seedTiendasOficiales([
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true },
     { store_id: 2645, nombre: 'TP-Link vieja', clave: 'tplink', orden: 1, activa: false },
@@ -147,5 +153,41 @@ describe('Ventas ML in TP mode', () => {
     for (const [, config] of api.get.mock.calls) {
       expect(config?.params?.sort).not.toBe('total_gauss');
     }
+  });
+
+  it('switches to the TP columns when the permissions arrive after the first render', async () => {
+    // Still loading: no permission list yet, so the page starts in Gauss mode.
+    mockPermisos.current = [];
+    const view = await renderWithRouter(<VentasML />);
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('columnheader', { name: /Total Gauss/ })).toBeInTheDocument();
+
+    mockPermisos.current = TP_PERMISOS;
+    view.rerender(
+      <MemoryRouter>
+        <VentasML />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(within(table).getByRole('columnheader', { name: /Total TP/ })).toBeInTheDocument());
+    expect(within(table).queryByRole('columnheader', { name: /Gauss/ })).not.toBeInTheDocument();
+    const headers = within(table).getAllByRole('columnheader').map((th) => th.dataset.colId || th.textContent);
+    expect(headers.some((h) => /gauss/i.test(h))).toBe(false);
+  });
+
+  it('keeps a hidden column hidden when the TP columns take over', async () => {
+    localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify({ comprador: false }));
+    mockPermisos.current = [];
+    const view = await renderWithRouter(<VentasML />);
+    const table = await screen.findByRole('table');
+    mockPermisos.current = TP_PERMISOS;
+    view.rerender(
+      <MemoryRouter>
+        <VentasML />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(within(table).getByRole('columnheader', { name: /Total TP/ })).toBeInTheDocument());
+    expect(within(table).queryByRole('columnheader', { name: 'Comprador' })).not.toBeInTheDocument();
+    localStorage.clear();
   });
 });

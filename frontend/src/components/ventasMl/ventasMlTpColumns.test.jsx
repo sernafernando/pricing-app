@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { TP_COLUMNS } from './ventasMlTpColumns';
 import { COLUMNS } from './ventasMlColumns';
 
@@ -52,6 +52,7 @@ describe('TP columns', () => {
   it('keeps the recalculating badge while the metrics are not settled', () => {
     const o = order({ metrics_state: 'pending', total_tp: null, tp_incompleto: true });
     const cell = renderCell({ kind: 'member', order: o });
+    expect(within(cell).getByRole('status')).toHaveAttribute('data-state', 'pending');
     expect(cell).not.toHaveTextContent('incompleto');
   });
 });
