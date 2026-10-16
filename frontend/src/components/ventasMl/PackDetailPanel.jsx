@@ -51,6 +51,12 @@ export default function PackDetailPanel({ packId, onClose, onSelectOrder }) {
 
   const itemLines = pack?.item_lines || [];
   const memberOrderIds = pack?.member_order_ids || [];
+  // A `tplink.solo` user's pack carries TP figures instead
+  // (metricas-ml-tplink-mode P7): same section, no Gauss word.
+  const isTp = Boolean(pack) && 'total_tp' in pack;
+  const label = isTp ? 'Total TP' : 'Total Gauss';
+  const total = isTp ? pack.total_tp : pack?.total_gauss;
+  const markup = isTp ? pack.markup_tp : pack?.markup;
 
   return (
     <>
@@ -111,39 +117,29 @@ export default function PackDetailPanel({ packId, onClose, onSelectOrder }) {
               </p>
             )}
 
-            {/* A `tplink.solo` user's pack carries TP figures instead
-                (metricas-ml-tplink-mode P7): same section, no Gauss word. */}
-            {(() => {
-              const isTp = 'total_tp' in pack;
-              const label = isTp ? 'Total TP' : 'Total Gauss';
-              const total = isTp ? pack.total_tp : pack.total_gauss;
-              const markup = isTp ? pack.markup_tp : pack.markup;
-              return (
-                <section className={saleStyles.section} aria-label={`${label} del pack`}>
-                  <h3 className={saleStyles.sectionTitle}>{label}</h3>
-                  {total === null || total === undefined ? (
-                    <div className={`${saleStyles.total} ${saleStyles.totalIncomplete}`}>
-                      <span className={saleStyles.totalLabel}>{label}</span>
-                      <span className={saleStyles.totalMonto}>—</span>
-                    </div>
-                  ) : (
-                    <div className={saleStyles.total}>
-                      <span className={saleStyles.totalLabel}>{label}</span>
-                      <span className={saleStyles.totalMonto}>{formatAmount(total)}</span>
-                    </div>
-                  )}
-                  {isTp && pack.tp_incompleto && (
-                    <p className={saleStyles.stateText}>Total TP incompleto: falta el costo TP de alguna orden.</p>
-                  )}
-                  <div className={saleStyles.total}>
-                    <span className={saleStyles.totalLabel}>{isTp ? 'Markup TP' : 'Markup'}</span>
-                    <span className={saleStyles.totalMonto}>
-                      {markup === null || markup === undefined ? '—' : `${formatAmount(markup)}%`}
-                    </span>
-                  </div>
-                </section>
-              );
-            })()}
+            <section className={saleStyles.section} aria-label={`${label} del pack`}>
+              <h3 className={saleStyles.sectionTitle}>{label}</h3>
+              {total === null || total === undefined ? (
+                <div className={`${saleStyles.total} ${saleStyles.totalIncomplete}`}>
+                  <span className={saleStyles.totalLabel}>{label}</span>
+                  <span className={saleStyles.totalMonto}>—</span>
+                </div>
+              ) : (
+                <div className={saleStyles.total}>
+                  <span className={saleStyles.totalLabel}>{label}</span>
+                  <span className={saleStyles.totalMonto}>{formatAmount(total)}</span>
+                </div>
+              )}
+              {isTp && pack.tp_incompleto && (
+                <p className={saleStyles.stateText}>Total TP incompleto: falta el costo TP de alguna orden.</p>
+              )}
+              <div className={saleStyles.total}>
+                <span className={saleStyles.totalLabel}>{isTp ? 'Markup TP' : 'Markup'}</span>
+                <span className={saleStyles.totalMonto}>
+                  {markup === null || markup === undefined ? '—' : `${formatAmount(markup)}%`}
+                </span>
+              </div>
+            </section>
 
             <section className={saleStyles.section} aria-label="Órdenes del pack">
               <h3 className={saleStyles.sectionTitle}>

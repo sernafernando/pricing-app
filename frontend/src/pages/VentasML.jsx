@@ -653,6 +653,10 @@ export default function VentasML() {
   // detail endpoint carries no status axes or sale date, the row does. The
   // panel shows those pills only when it has them -- a deep link to an
   // order on another page simply goes without.
+  // TP mode narrows the chips to the stores the TP facet returned.
+  const allStoreChips = buildStoreChips({ tiendas, getLabel, counts: facets.stores, selected: storeFilter });
+  const storeChips = tpSolo ? onlyFacetStoreChips(allStoreChips, facets.stores) : allStoreChips;
+
   const selectedListOrder =
     selectedOrderId === null || selectedOrderId === undefined
       ? null
@@ -785,12 +789,7 @@ export default function VentasML() {
             </span>
             <FacetChips
               label="Filtrar por tienda oficial"
-              {...(tpSolo
-                ? onlyFacetStoreChips(
-                    buildStoreChips({ tiendas, getLabel, counts: facets.stores, selected: storeFilter }),
-                    facets.stores,
-                  )
-                : buildStoreChips({ tiendas, getLabel, counts: facets.stores, selected: storeFilter }))}
+              {...storeChips}
               total={facets.stores_total}
               onChange={handleStoreChange}
             />
