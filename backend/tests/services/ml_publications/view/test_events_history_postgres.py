@@ -30,6 +30,7 @@ from tests.routers.test_ml_publications_view import seed_rows
 from tests.routers.test_ml_publications_view_markup import pg, reader, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import (  # noqa: F401
     bulk_item,
+    load_fixture,
     mlpub_pg,
     sample_item,
     subresource_body,
@@ -139,6 +140,34 @@ def insert_event(conn, log_id: int, derived, at: datetime) -> int:
             "key": key,
         },
     ).scalar_one()
+
+
+CAPTURE = "history_events_MLA1402898289_20261016.json"
+
+
+def store_captured_event(conn, captured: dict, at: datetime) -> None:
+    """A production `ml_item_events` row stored on ITEM as it was captured (type, ids, values, payload)."""
+    log_id = insert_log(conn, "promotions", ITEM, ITEM, at, "change", [], {})
+    conn.execute(
+        text(
+            "INSERT INTO ml_item_events (event_type, item_id, promotion_id, promotion_type, price_kind, old_value, "
+            "new_value, payload, observed_at, change_log_id, dedupe_key) VALUES (:t, :i, :pid, :ptype, :kind, "
+            "CAST(:old AS jsonb), CAST(:new AS jsonb), CAST(:payload AS jsonb), :at, :log, :key)"
+        ),
+        {
+            "t": captured["event_type"],
+            "i": ITEM,
+            "pid": captured["promotion_id"],
+            "ptype": captured["promotion_type"],
+            "kind": captured["price_kind"],
+            "old": json.dumps(captured["old_value"]),
+            "new": json.dumps(captured["new_value"]),
+            "payload": json.dumps(captured["payload"]),
+            "at": at,
+            "log": log_id,
+            "key": f"captured-{captured['id']}".encode(),
+        },
+    )
 
 
 def mutated(body: dict, **fields: Any) -> dict:
@@ -253,7 +282,27 @@ class TestEvents:
             "price_kind",
             "old_value",
             "new_value",
+            "promotion_id",
+            "payload",
+            "status_label",
         }
+        assert newest["promotion_id"] is None and newest["status_label"] is None
+        assert isinstance(newest["payload"], dict)
+
+    def test_a_promotion_event_carries_its_id_payload_and_state(self, client, events_on, pg, reader) -> None:
+        """Real `promotion_offered` and `promotion_finished` events of MLA1402898289, stored on this item."""
+        captured = {e["id"]: e for e in load_fixture(CAPTURE)["events"]}
+
+        def promotions(conn) -> None:
+            for hours, event_id in ((2, 6376), (1, 6378)):
+                store_captured_event(conn, captured[event_id], seed.hours_ago(hours))
+
+        seed_rows(pg, promotions)
+        offered, finished = ok(events_of(client, reader))["events"]
+        assert offered["promotion_id"] == "C-MLA1717457" and offered["status_label"] == "Disponible para activar"
+        assert offered["payload"] == captured[6378]["payload"] and offered["promotion_type"] == "SELLER_COUPON_CAMPAIGN"
+        assert finished["promotion_id"] == "C-MLA1713876" and finished["payload"] == {"reason": "absent"}
+        assert finished["status_label"] == "Ya no se ofrece"
 
     def test_an_unmapped_type_has_the_generic_spanish_label(self, client, events_on, pg, reader) -> None:
         def odd(conn) -> None:
@@ -376,7 +425,7 @@ class TestEvents:
 class TestHistory:
     def test_empty(self, client, rows, reader) -> None:
         """S58.2."""
-        assert ok(history_of(client, reader)) == {"entries": [], "next_cursor": None}
+        assert ok(history_of(client, reader)) == {"entries": [], "next_cursor": None, "hidden_technical_count": 0}
 
     def test_the_history_does_not_need_the_events_flag(self, client, rows, pg, reader) -> None:
         with pg.begin() as conn:
@@ -397,6 +446,22 @@ class TestHistory:
         assert (price["old"], price["new"]) == (55882.0, 56382.0)
         assert price["label_key"] == "price" and price["label"] == "Precio"
         assert entry["technical"][0]["label_key"] is None
+
+    def test_readable_rows_hide_the_technical_ones_and_count_them_unless_asked(self, client, rows, pg, reader) -> None:
+        with pg.begin() as conn:
+            old = sample_item(ITEM)
+            new = mutated(old, price=old["price"] + 500, health=0.1)
+            log_change(conn, "item", old, new, entity_id=ITEM, item_id=ITEM, at=seed.hours_ago(1))
+        body = ok(history_of(client, reader))
+        (entry,) = body["entries"]
+        assert [r["path"] for r in entry["rows"]] == ["price"]
+        assert entry["rows"][0]["label"] == "Precio" and entry["rows"][0]["after"] == "$ 56.382"
+        assert entry["hidden_technical_count"] == 1 and body["hidden_technical_count"] == 1
+        assert [c["path"] for c in entry["technical"]] == ["health"]  # the legacy lines are unchanged
+        body = ok(history_of(client, reader, tecnicos="true"))
+        (entry,) = body["entries"]
+        assert [(r["path"], r["is_technical"]) for r in entry["rows"]] == [("health", True), ("price", False)]
+        assert entry["hidden_technical_count"] == 0 and body["hidden_technical_count"] == 0
 
     def test_one_change_touching_several_fields_is_one_line_per_field(self, client, rows, pg, reader) -> None:
         """S58.3."""

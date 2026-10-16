@@ -459,6 +459,9 @@ class EventOut(BaseModel):
     price_kind: Optional[str] = None
     old_value: Any = None
     new_value: Any = None
+    promotion_id: Optional[str] = None
+    payload: Optional[dict[str, Any]] = None  # the typed payload of the event type (events.py)
+    status_label: Optional[str] = None  # promotion events: "Disponible para activar", "Aplicada", ...
 
 
 class EventsResponse(BaseModel):
@@ -481,6 +484,20 @@ class HistoryChangeOut(BaseModel):
     new: Any = None
 
 
+class HistoryRowOut(BaseModel):
+    """One readable line: a Spanish `label`, `before`/`after` already formatted for display (never a dict or a
+    list), `subject` when the label alone is not enough (a promotion's name, a day), `status_label` on promotion
+    states. Technical lines come only with `tecnicos=true`."""
+
+    path: str
+    label: str
+    subject: Optional[str] = None
+    before: Optional[str] = None
+    after: Optional[str] = None
+    is_technical: bool
+    status_label: Optional[str] = None
+
+
 class HistoryEntryOut(BaseModel):
     """One change-log row: `kind` is `change`, `restored` or `gone`; the lines are one per changed field."""
 
@@ -490,11 +507,14 @@ class HistoryEntryOut(BaseModel):
     kind: str
     business: list[HistoryChangeOut]
     technical: list[HistoryChangeOut]
+    rows: list[HistoryRowOut]
+    hidden_technical_count: int
 
 
 class HistoryResponse(BaseModel):
     entries: list[HistoryEntryOut]
     next_cursor: Optional[str] = None
+    hidden_technical_count: int = 0  # technical lines of the page left out of `rows` ("Ocultos N cambios técnicos")
 
 
 class GroupNodeOut(BaseModel):
@@ -1133,6 +1153,7 @@ def get_item_history(
     item_id: str = Path(..., pattern=admin.ITEM_ID_PATTERN),
     cursor: Optional[str] = Query(None, description="opaque position returned as next_cursor by the previous page"),
     limit: int = Query(history.DEFAULT_LIMIT, ge=1, le=history.MAX_LIMIT),
+    tecnicos: bool = Query(False, description="include the technical lines in each entry's rows"),
     user: Usuario = Depends(require_permiso(PERMISO_VER)),
     db: Session = Depends(get_view_db),
 ) -> dict[str, Any]:
@@ -1142,7 +1163,7 @@ def get_item_history(
     try:
         position = _page_cursor(cursor)
         with timer.stage("history"):
-            found = history.list_history(db, item_id, cursor=position, limit=limit)
+            found = history.list_history(db, item_id, cursor=position, limit=limit, include_technical=tecnicos)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1155,7 +1176,11 @@ def get_item_history(
         raise api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"La publicación {item_id} no existe")
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(rows=len(found.entries))
-    return {"entries": found.entries, "next_cursor": found.next_cursor}
+    return {
+        "entries": found.entries,
+        "next_cursor": found.next_cursor,
+        "hidden_technical_count": found.hidden_technical_count,
+    }
 
 
 KPI_PERIOD_PRESETS = (7, 15, 30, 60, 90)  # days, ending today

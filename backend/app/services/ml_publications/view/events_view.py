@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.ml_publications import events_query
-from app.services.ml_publications.view import listing
+from app.services.ml_publications.view import history_rows, listing
 from app.services.ml_publications.view.filters import FilterError
 
 DEFAULT_LIMIT = 50
@@ -107,7 +107,22 @@ class EventsPage:
     next_cursor: Optional[str]
 
 
+def status_label_of(event_type: str, new_value: Any, payload: Any) -> Optional[str]:
+    """The promotion's state in business words: offered (a candidate) is available to activate, activated is
+    applied, finished reads by its reason (`absent`: no longer offered). `None` for any other event."""
+    if event_type == "promotion_offered":
+        return history_rows.promotion_status_label(new_value if isinstance(new_value, str) else "candidate")
+    if event_type == "promotion_activated":
+        return history_rows.promotion_status_label("started")
+    if event_type == "promotion_finished":
+        reason = payload.get("reason") if isinstance(payload, dict) else None
+        return history_rows.promotion_status_label("finished", reason)
+    return None
+
+
 def _event_out(row: Any) -> dict[str, Any]:
+    """The stored fields plus the label; `payload` is the event's typed payload (`events.py`), `promotion_id` the
+    promotion it is about (or the sale price's offer id), `status_label` the promotion state when it has one."""
     return {
         "id": row["id"],
         "event_type": row["event_type"],
@@ -117,6 +132,9 @@ def _event_out(row: Any) -> dict[str, Any]:
         "price_kind": row["price_kind"],
         "old_value": row["old_value"],
         "new_value": row["new_value"],
+        "promotion_id": row["promotion_id"],
+        "payload": row["payload"],
+        "status_label": status_label_of(row["event_type"], row["new_value"], row["payload"]),
     }
 
 
