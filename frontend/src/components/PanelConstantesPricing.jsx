@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Pencil } from 'lucide-react';
 import api from '../services/api';
-import { toLocalDateString } from '../utils/dateUtils';
+import { formatDateOnly, toLocalDateString } from '../utils/dateUtils';
 import './PanelConstantesPricing.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 
@@ -381,10 +381,10 @@ export default function PanelConstantesPricing() {
             <div className="version-card-header">
               <div className="version-fechas">
                 <span className="version-fecha-desde">
-                  Desde: {new Date(version.fecha_desde).toLocaleDateString('es-AR')}
+                  Desde: {formatDateOnly(version.fecha_desde)}
                 </span>
                 <span className="version-fecha-hasta">
-                  Hasta: {version.fecha_hasta ? new Date(version.fecha_hasta).toLocaleDateString('es-AR') : <strong>Vigente</strong>}
+                  Hasta: {version.fecha_hasta ? formatDateOnly(version.fecha_hasta) : <strong>Vigente</strong>}
                 </span>
               </div>
               {versiones.length > 1 && (

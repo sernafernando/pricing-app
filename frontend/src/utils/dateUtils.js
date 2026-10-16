@@ -67,3 +67,53 @@ export const toLocalTimestamp = (date = new Date()) => {
   const s = String(date.getSeconds()).padStart(2, '0');
   return `${y}-${m}-${d}T${h}-${min}-${s}`;
 };
+
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Parses a date value into a `Date` without shifting a calendar date by timezone.
+ *
+ * A bare "YYYY-MM-DD" (how the backend serializes SQL `Date` columns) is parsed
+ * natively as UTC midnight, which in Argentina (UTC-3) renders as the PREVIOUS
+ * day. Here it becomes local midnight of that same calendar day instead.
+ * Values that carry a time are parsed as-is.
+ *
+ * An impossible calendar date (e.g. "2026-02-30") returns `null` instead of
+ * silently rolling over into the next month. Years 0000-0099 stay literal:
+ * `setFullYear` avoids the `new Date(y, m, d)` rule that maps them to 1900-1999.
+ *
+ * @param {string|Date|null|undefined} value
+ * @returns {Date|null} `null` when the value is empty, unparseable or not a real calendar date.
+ *
+ * @example
+ * parseDateOnly('2026-12-31').toLocaleDateString('es-AR') // "31/12/2026" in any zone
+ */
+export const parseDateOnly = (value) => {
+  if (!value) return null;
+  const match = typeof value === 'string' ? DATE_ONLY.exec(value.trim()) : null;
+  if (!match) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(2000, 0, 1);
+  date.setFullYear(year, month - 1, day);
+  const isSameCalendarDay =
+    date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+  return isSameCalendarDay ? date : null;
+};
+
+/**
+ * Formats a date-only value (see `parseDateOnly`) for display in es-AR.
+ *
+ * @param {string|Date|null|undefined} value
+ * @param {Intl.DateTimeFormatOptions} [options] - passed to `toLocaleDateString`.
+ * @returns {string} the formatted date, or '-' when the value is empty or not a real date.
+ *
+ * @example
+ * formatDateOnly('2026-12-31')                                  // "31/12/2026"
+ * formatDateOnly('2026-12-31', { day: '2-digit', month: '2-digit' }) // "31/12"
+ * formatDateOnly('2026-02-30')                                  // "-"
+ */
+export const formatDateOnly = (value, options) =>
+  parseDateOnly(value)?.toLocaleDateString('es-AR', options) ?? '-';

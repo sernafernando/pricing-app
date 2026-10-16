@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Package, Tag, ShoppingCart, Phone, Pencil, AlertTriangle, Printer, RefreshCw, X, Loader2, Save, Trash2, ClipboardList, Lightbulb, FileText, Truck, Search, CheckCircle, Clock, ScanBarcode, FileDown } from 'lucide-react';
 import api from '../services/api';
-import { toLocalDateString } from '../utils/dateUtils';
+import { formatDateOnly, toLocalDateString } from '../utils/dateUtils';
 import { useToast } from '../hooks/useToast';
 import { usePermisos } from '../contexts/PermisosContext';
 import Toast from './Toast';
@@ -760,7 +760,7 @@ export default function TabPedidosExport() {
         <div className={styles.statItem}>
           <span className={styles.statLabel}>ÚLTIMOS {estadisticas?.dias_filtro || 60} DÍAS</span>
           <span className={styles.statValue}>
-            {estadisticas?.fecha_desde ? new Date(estadisticas.fecha_desde).toLocaleDateString('es-AR') : '-'}
+            {formatDateOnly(estadisticas?.fecha_desde)}
           </span>
         </div>
       </div>
