@@ -10,6 +10,7 @@ current offers.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any, Callable, Optional
@@ -20,6 +21,8 @@ from app.models.oferta_ml import OfertaML
 from app.models.publicacion_ml import PublicacionML
 from app.services.pricing_calculator import calcular_comision_ml_total, calcular_limpio, calcular_markup
 from app.services.pricing_context import PricingContext
+
+logger = logging.getLogger(__name__)
 
 # Rebate percentage when the product has none stored.
 PORCENTAJE_REBATE_DEFAULT = 3.8
@@ -60,8 +63,15 @@ class Rebate:
 def cargar_ofertas_vigentes(
     db: Session, item_ids: list[int], hoy: date
 ) -> tuple[dict[int, list[PublicacionML]], dict[str, OfertaML], list[str]]:
-    """The products' publications by product, per MLA its first current offer
-    with a seller PVP, and every MLA in the order the publications were read."""
+    """The products' publications by product, per MLA its current offer with a
+    seller PVP (the lowest id when there are several), and every MLA, both in
+    the order the publications were read (other columns of the listings use
+    that order; the best offer sorts for itself).
+
+    Ties are broken by id, the order the rows were stored -- what the old
+    unordered reads returned in practice -- so the winner never depends on the
+    database's row order.
+    """
     all_pubs = db.query(PublicacionML).filter(PublicacionML.item_id.in_(item_ids)).all() if item_ids else []
     pubs_by_item: dict[int, list[PublicacionML]] = {}
     all_mla_list: list[str] = []
@@ -81,7 +91,7 @@ def cargar_ofertas_vigentes(
             )
             .all()
         )
-        for oferta in all_ofertas:
+        for oferta in sorted(all_ofertas, key=lambda oferta: oferta.id):
             if oferta.mla not in ofertas_by_mla:
                 ofertas_by_mla[oferta.mla] = oferta
     return pubs_by_item, ofertas_by_mla, all_mla_list
@@ -95,10 +105,11 @@ def calcular_mejor_oferta(
     grupo_id: Optional[int],
     resolve_envio: ResolveEnvio,
 ) -> MejorOferta:
-    """The first publication's current offer, with its markup over the list cost."""
+    """The current offer of the lowest-id publication that has one, with its
+    markup over the list cost."""
     mejor_oferta = None
     mejor_pub = None
-    for pub in pubs:
+    for pub in sorted(pubs, key=lambda pub: pub.id):
         oferta = ofertas_by_mla.get(pub.mla)
         if oferta and not mejor_oferta:
             mejor_oferta = oferta
@@ -150,6 +161,13 @@ def calcular_rebate(
         if producto_pricing.porcentaje_rebate is not None
         else PORCENTAJE_REBATE_DEFAULT
     )
+    if not 0 <= porcentaje < 100:
+        # 100% divides by zero and more grosses the price up to a negative one:
+        # not a rebate. The store accepts 0-100, so this is bad data, not a rule.
+        logger.warning(
+            "porcentaje_rebate fuera de rango para item %s: %s; sin rebate", producto_erp.item_id, porcentaje
+        )
+        return Rebate()
     precio = float(producto_pricing.precio_lista_ml) / (1 - porcentaje / 100)
 
     costo = ctx.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)

@@ -1643,6 +1643,44 @@ def listar_productos_con_precios_listas(
 # ========== ENDPOINT TIENDA ==========
 
 
+def tienda_pricing_context(
+    *,
+    hoy: date,
+    tipo_cambio_usd: Optional[float],
+    constantes,
+    subcat_to_grupo: dict,
+    active_version_id: Optional[int],
+    comision_base_map: dict,
+    comision_adicional_map: dict,
+    envio_promedio_by_grupo: dict,
+) -> PricingContext:
+    """The tienda listing's prefetch as a `PricingContext`.
+
+    Its commission maps are keyed by (version_id, grupo_id) and
+    (version_id, cuotas); the context is keyed by grupo / cuotas of the ACTIVE
+    version only. Only that version's entries are kept, so two versions that
+    share a grupo or a cuotas count can never collapse into one entry.
+    """
+    return PricingContext(
+        hoy=hoy,
+        tipo_cambio_usd=tipo_cambio_usd,
+        constantes=constantes,
+        subcat_to_grupo=subcat_to_grupo,
+        active_version_id=active_version_id,
+        comision_base={
+            grupo_id: base
+            for (version_id, grupo_id), base in comision_base_map.items()
+            if version_id == active_version_id
+        },
+        comision_adicional={
+            cuotas: adicional
+            for (version_id, cuotas), adicional in comision_adicional_map.items()
+            if version_id == active_version_id
+        },
+        envio_promedio_by_grupo=envio_promedio_by_grupo,
+    )
+
+
 @router.get("/productos/tienda", response_model=ProductoTiendaListResponse)
 def listar_productos_tienda(
     page: int = Query(1, ge=1),
@@ -2320,14 +2358,14 @@ def listar_productos_tienda(
     # The tienda prefetch above as a PricingContext (no extra query), for the
     # rebate and best-offer computation shared with the Productos listing and
     # the product detail (app/services/productos_pricing_view.py).
-    ctx_t = PricingContext(
+    ctx_t = tienda_pricing_context(
         hoy=hoy,
         tipo_cambio_usd=tipo_cambio_usd_t,
         constantes=constantes_t,
         subcat_to_grupo=subcat_to_grupo_t,
         active_version_id=_active_version_t.id if _active_version_t else None,
-        comision_base={grupo_id: base for (_, grupo_id), base in _comision_base_map_t.items()},
-        comision_adicional={cuotas: adicional for (_, cuotas), adicional in _comision_adicional_map_t.items()},
+        comision_base_map=_comision_base_map_t,
+        comision_adicional_map=_comision_adicional_map_t,
         envio_promedio_by_grupo=envio_promedio_by_grupo_t,
     )
 
@@ -2713,36 +2751,42 @@ def obtener_producto(
         for pricelist_id in PVP_PRICELIST_TO_CAMPO
     ]
     precios_markup = [(precio, pl, cuota) for precio, pl, cuota in precios_markup if precio and float(precio) > 0]
+    # The offers are read always: an offer needs no stored price. The pricing
+    # inputs and the shipping batch only when something is priced -- a stored
+    # price, or what the listing prices a rebate or an offer for (its exact
+    # preconditions, so the detail never leaves empty what the listing fills).
     pubs_by_item_d, ofertas_by_mla_d, _ = cargar_ofertas_vigentes(db, [producto_erp.item_id], date.today())
+    rebate_u_oferta = bool(ofertas_by_mla_d) or bool(
+        producto_pricing and producto_pricing.precio_lista_ml and producto_pricing.participa_rebate
+    )
     ctx_markups = None
-    if precios_markup or ofertas_by_mla_d:
+    if precios_markup or rebate_u_oferta:
         try:
             ctx_markups = build_pricing_context(db)
             grupo_id_markups = ctx_markups.grupo_of(producto_erp.subcategoria_id)
             costo_markups = ctx_markups.costo_en_pesos(producto_erp.costo, producto_erp.moneda_costo)
             envio_real_markups = resolver_costos_envio_batch(db, [producto_erp.item_id], pubs_by_item=pubs_by_item_d)
         except Exception as exc:
-            # Without its inputs no markup is priced: the detail still answers
+            if rebate_u_oferta:
+                # The listings fail without these inputs when they price a rebate
+                # or an offer; the detail does the same, never empty figures.
+                raise
+            # Only the stored prices' markups need them: the detail still answers
             # with the prices and empty markups, as when one price fails.
             logger.debug("Markups no calculados para item %s: %s", producto_erp.item_id, exc)
             ctx_markups = None
             precios_markup = []
 
-    # Best current offer and rebate: the same computation the listing runs
-    # (app/services/productos_pricing_view.py), so both show the same figures.
+    # Best current offer and rebate: the same computation the listings run
+    # (app/services/productos_pricing_view.py), with the same failures.
     oferta_d, rebate_d = MejorOferta(), Rebate()
     if ctx_markups is not None:
         resolve_envio_d = partial(resolve_envio, ctx_markups, envio_real_markups)
-        try:
-            pubs_d = pubs_by_item_d.get(producto_erp.item_id, [])
-            oferta_d = calcular_mejor_oferta(
-                ctx_markups, producto_erp, pubs_d, ofertas_by_mla_d, grupo_id_markups, resolve_envio_d
-            )
-            rebate_d = calcular_rebate(ctx_markups, producto_erp, producto_pricing, grupo_id_markups, resolve_envio_d)
-        except Exception as exc:
-            # Same as a failing markup: logged, left empty, the detail still answers.
-            logger.debug("Rebate y mejor oferta no calculados para item %s: %s", producto_erp.item_id, exc)
-            oferta_d, rebate_d = MejorOferta(), Rebate()
+        pubs_d = pubs_by_item_d.get(producto_erp.item_id, [])
+        oferta_d = calcular_mejor_oferta(
+            ctx_markups, producto_erp, pubs_d, ofertas_by_mla_d, grupo_id_markups, resolve_envio_d
+        )
+        rebate_d = calcular_rebate(ctx_markups, producto_erp, producto_pricing, grupo_id_markups, resolve_envio_d)
     if oferta_d.limpio is not None:
         ppp_d.record(PPP_KEY_MEJOR_OFERTA, oferta_d.limpio, percent=False)
     if rebate_d.limpio is not None:

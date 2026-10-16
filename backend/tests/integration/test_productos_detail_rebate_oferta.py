@@ -55,6 +55,11 @@ REBATE_OFERTA_KEYS = (
 
 OUT_OF_CARDS_ITEM = 8
 
+# Statements of one GET /productos/{item_id}, recorded (R3-003): a product with
+# prices, a rebate and an offer; and a product with no pricing row and no publication.
+DETAIL_STATEMENTS_PRICED = 21
+DETAIL_STATEMENTS_BARE = 12
+
 
 @pytest.fixture(autouse=True)
 def _ventas_ve_productos(grant_permiso, rol_ventas):
@@ -164,10 +169,147 @@ class TestDetailMatchesListing:
                 iclh_cd=datetime(2026, 2, 14),
             )
         )
-        seeded.flush()
+        seeded.commit()
 
         row = _listing_rows(client, auth_headers)[OUT_OF_CARDS_ITEM]
         detail = _detail(client, auth_headers, OUT_OF_CARDS_ITEM)
 
         assert {"rebate", "mejor_oferta"} <= set(row["ppp"]["markups"])
         assert detail["ppp"]["markups"] == row["ppp"]["markups"]
+
+
+# Products added on top of the shared seed for the review follow-ups.
+REBATE_ONLY_ITEM = 9  # rebate on, ML list price only: no cuota, no PVP, no offer
+NEGATIVE_LIST_ITEM = 10  # rebate on over a negative stored list price
+TWO_PUBS_ITEM = 11  # two publications, each with a current offer
+TWO_OFFERS_ITEM = 12  # one publication with two current offers
+BARE_ITEM = 13  # no pricing row, no publication
+
+
+def _pricing(item_id, **fields) -> ProductoPricing:
+    return ProductoPricing(item_id=item_id, fecha_modificacion=datetime(2026, 1, 1, 12, 0, 0), **fields)
+
+
+def _oferta(oferta_id, mla, precio_final, pvp_seller) -> OfertaML:
+    return OfertaML(
+        id=oferta_id,
+        mla=mla,
+        fecha_desde=_PAST,
+        fecha_hasta=_FUTURE,
+        precio_final=precio_final,
+        pvp_seller=pvp_seller,
+        aporte_meli_pesos=pvp_seller - precio_final,
+        aporte_meli_porcentaje=5.0,
+    )
+
+
+@pytest.fixture()
+def seeded_extra(seeded):
+    db = seeded
+    for item_id in (REBATE_ONLY_ITEM, NEGATIVE_LIST_ITEM, TWO_PUBS_ITEM, TWO_OFFERS_ITEM, BARE_ITEM):
+        db.add(_producto(item_id, costo=9000.0, moneda="ARS", subcat=100, envio=0.0))
+    db.flush()
+    db.add(_pricing(REBATE_ONLY_ITEM, precio_lista_ml=25000.0, participa_rebate=True, porcentaje_rebate=4.0))
+    db.add(_pricing(NEGATIVE_LIST_ITEM, precio_lista_ml=-100.0, participa_rebate=True, porcentaje_rebate=4.0))
+    db.add(_pricing(TWO_PUBS_ITEM, precio_lista_ml=30000.0))
+    db.add(_pricing(TWO_OFFERS_ITEM, precio_lista_ml=30000.0))
+    # Publication ids out of insertion order: the lower id wins, whatever order the rows come back in.
+    db.add(PublicacionML(id=902, mla="MLA902", item_id=TWO_PUBS_ITEM, pricelist_id=4, activo=True))
+    db.add(PublicacionML(id=901, mla="MLA901", item_id=TWO_PUBS_ITEM, pricelist_id=17, activo=True))
+    db.add(PublicacionML(id=903, mla="MLA903", item_id=TWO_OFFERS_ITEM, pricelist_id=4, activo=True))
+    db.flush()
+    db.add(_oferta(9902, "MLA902", 27000.0, 29000.0))
+    db.add(_oferta(9901, "MLA901", 26000.0, 28000.0))
+    db.add(_oferta(9932, "MLA903", 25500.0, 27500.0))
+    db.add(_oferta(9931, "MLA903", 25000.0, 27000.0))
+    db.commit()
+    return db
+
+
+class TestDetailGate:
+    """R3-001: the detail prices the rebate whenever the listing does."""
+
+    def test_a_rebate_with_only_the_ml_list_price_and_no_offer(self, client, auth_headers, seeded_extra) -> None:
+        row = _listing_rows(client, auth_headers)[REBATE_ONLY_ITEM]
+        detail = _detail(client, auth_headers, REBATE_ONLY_ITEM)
+
+        assert row["precio_rebate"] is not None
+        assert {key: detail[key] for key in REBATE_OFERTA_KEYS} == {key: row[key] for key in REBATE_OFERTA_KEYS}
+
+    def test_a_rebate_over_a_negative_list_price(self, client, auth_headers, seeded_extra) -> None:
+        """No markup is priced for a negative list price, but the listing still
+        returns the grossed-up rebate price: the detail must too."""
+        row = _listing_rows(client, auth_headers)[NEGATIVE_LIST_ITEM]
+        detail = _detail(client, auth_headers, NEGATIVE_LIST_ITEM)
+
+        assert row["precio_rebate"] is not None
+        assert {key: detail[key] for key in REBATE_OFERTA_KEYS} == {key: row[key] for key in REBATE_OFERTA_KEYS}
+
+
+class TestFailuresBehaveLikeTheListing:
+    """R3-002: a failing rebate or offer computation is not hidden as empty fields."""
+
+    def test_a_failing_commission_fails_the_detail_like_the_listing(
+        self, client, auth_headers, seeded_extra, monkeypatch
+    ) -> None:
+        from app.services.pricing_context import PricingContext
+
+        def _boom(self, pricelist_id, grupo_id):
+            raise ValueError("comision rota")
+
+        monkeypatch.setattr(PricingContext, "comision", _boom)
+        with patch(_FETCH_LIST_COST, return_value={}):
+            listing = client.get("/api/productos?page=1&page_size=50", headers=auth_headers)
+            detail = client.get(f"/api/productos/{REBATE_ONLY_ITEM}", headers=auth_headers)
+
+        assert listing.status_code == 500
+        assert detail.status_code == 500
+
+    def test_missing_pricing_inputs_fail_the_detail_of_a_rebate_like_the_listing(
+        self, client, auth_headers, seeded_extra, monkeypatch
+    ) -> None:
+        from app.api.endpoints import productos_listing
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("sin cotizacion")
+
+        monkeypatch.setattr(productos_listing, "build_pricing_context", _boom)
+        listing = client.get("/api/productos?page=1&page_size=50", headers=auth_headers)
+        detail = client.get(f"/api/productos/{REBATE_ONLY_ITEM}", headers=auth_headers)
+
+        assert listing.status_code == 500
+        assert detail.status_code == 500
+
+
+class TestDeterministicBestOffer:
+    """R3-004: the winning publication and offer do not depend on row order."""
+
+    def test_two_publications_with_offers_the_lowest_publication_id_wins(
+        self, client, auth_headers, seeded_extra
+    ) -> None:
+        row = _listing_rows(client, auth_headers)[TWO_PUBS_ITEM]
+        detail = _detail(client, auth_headers, TWO_PUBS_ITEM)
+
+        assert row["mejor_oferta_precio"] == 26000.0  # MLA901, publication 901
+        assert {key: detail[key] for key in REBATE_OFERTA_KEYS} == {key: row[key] for key in REBATE_OFERTA_KEYS}
+
+    def test_two_offers_on_one_publication_the_lowest_offer_id_wins(self, client, auth_headers, seeded_extra) -> None:
+        row = _listing_rows(client, auth_headers)[TWO_OFFERS_ITEM]
+        detail = _detail(client, auth_headers, TWO_OFFERS_ITEM)
+
+        assert row["mejor_oferta_precio"] == 25000.0  # offer 9931
+        assert {key: detail[key] for key in REBATE_OFERTA_KEYS} == {key: row[key] for key in REBATE_OFERTA_KEYS}
+
+
+class TestDetailStatementCount:
+    """R3-003: the detail reads the offers always (an offer needs no stored price)
+    and the pricing inputs and shipping only when something is priced."""
+
+    @pytest.mark.parametrize(
+        ("item_id", "expected"),
+        [(OUT_OF_CARDS_ITEM, DETAIL_STATEMENTS_PRICED), (BARE_ITEM, DETAIL_STATEMENTS_BARE)],
+    )
+    def test_statement_count(self, client, auth_headers, seeded_extra, query_counter, item_id, expected) -> None:
+        with query_counter() as counter:
+            _detail(client, auth_headers, item_id)
+        assert counter.total == expected
