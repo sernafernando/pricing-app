@@ -538,7 +538,13 @@ def pg_payments_engine():
     # `db` fixture is used by a later test in this same session.
     _patch_pg_types_for_sqlite()
     yield eng
-    Base.metadata.drop_all(bind=eng, tables=tables)
+    # Per-`Table.drop()`, NOT `Base.metadata.drop_all(tables=...)`: the
+    # metadata-level drop still fires every native ENUM's `after_drop` hook on
+    # the WHOLE shared `Base.metadata`, so it issued `DROP TYPE rolusuario`
+    # while `pg_tickets_engine`'s `usuarios` was still alive on the same
+    # worker (see `pg_order_metrics_engine`). Reverse order: charges FK payments.
+    for table in reversed(tables):
+        table.drop(bind=eng, checkfirst=True)
     eng.dispose()
 
 
