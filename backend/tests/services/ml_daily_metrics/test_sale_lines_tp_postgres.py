@@ -2,8 +2,9 @@
 `tg_tp`, `mtg_tp`, `mcosto_tp`, split from the order's stored Total TP and TP
 cost exactly like `tg`/`mtg`/`mcosto` are split from Total Gauss and cost.
 
-- `tg_tp`: NULL on the lines of an order with Total Gauss but no Total TP (a
-  missing TP cost); 0 where `tg` is 0 (no Total Gauss).
+- `tg_tp`: NULL on the lines of an order without a known Total TP: a missing
+  TP cost, or no Total Gauss at all (unresolved, never computed) -- Total TP
+  needs Total Gauss. Never 0 for "unknown", unlike `tg`.
 - `mtg_tp`/`mcosto_tp`: all-or-nothing per group, like the markup: a group
   that takes part in the Gauss markup but has a member without Total TP gets
   NULL on every line (incomplete), never a partial or a 0.
@@ -111,8 +112,8 @@ class TestSaleLinesTp:
             # needs every member's: incomplete.
             "MLA4": _d("35", None, None),
             "MLA5": _d(None, None, None),
-            # No Total Gauss: no money, like `tg`.
-            "MLA6": _d("0", "0", "0"),
+            # No Total Gauss: Total TP unknown (NULL), where `tg` says 0.
+            "MLA6": _d(None, None, None),
         }
 
     def test_the_stored_tp_shares_are_what_sale_lines_derives(self, board_pg):

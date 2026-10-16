@@ -31,6 +31,8 @@ NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
 TODAY = date(2026, 9, 30)
 TP_STORES = (2645, 471846)
 QUEUED_ORDER = 2000012345678905
+UNRESOLVED_ORDER = 2000012345678908
+NO_METRICS_ORDER = 2000012345678909
 OFF = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
 ON = dataclasses.replace(OFF, costos_tp=True, tp_store_ids=TP_STORES)
 
@@ -47,13 +49,16 @@ def catalog(request, board_pg, monkeypatch):
     22: C22 in TP 471846 (tg90/c100) WITHOUT a TP cost: Total TP incomplete.
     23: D23 in Gauss (tg10/c50); it also has a TP cost, which must be ignored there.
     24: E24 in TP 471846 (tg25/c100, TP cost 70, Total TP 55), its only order QUEUED for a recompute.
+    25: F25 in TP 471846, its Total Gauss UNRESOLVED (TP cost known): Total TP needs Total Gauss, so unknown.
+    26: G26 in TP 471846, its metrics NEVER computed: Total TP unknown too.
     Comparison period (40 days ago), product 21: A21 (tg10/c50) and B21 (tg40/c100, TP cost 130, Total TP 10)."""
     db = board_pg
     db.execute(
         text(
             "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
             "VALUES (21, 'S21', 'Router', 'TP-Link', 'Redes', 1, 1), (22, 'S22', 'Switch', 'TP-Link', 'Redes', 1, 1), "
-            "(23, 'S23', 'Impresora', 'Epson', 'Impresoras', 2, 1), (24, 'S24', 'AP', 'TP-Link', 'Redes', 1, 1);"
+            "(23, 'S23', 'Impresora', 'Epson', 'Impresoras', 2, 1), (24, 'S24', 'AP', 'TP-Link', 'Redes', 1, 1), "
+            "(25, 'S25', 'Mesh', 'TP-Link', 'Redes', 1, 1), (26, 'S26', 'Cam', 'TP-Link', 'Redes', 1, 1);"
             "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
             "(57997, 'Gauss', NULL, 1, true), (2645, 'TP-Link vieja', 'tplink', 2, false), "
             "(471846, 'TP-Link', 'tplink', 3, true)"
@@ -68,6 +73,8 @@ def catalog(request, board_pg, monkeypatch):
         (5, 24, "MLA9000000024", 471846, "25", "100", "70", "55", recent),
         (6, 21, "MLA9000000021", 57997, "10", "50", None, None, before),
         (7, 21, "MLA9000000121", 2645, "40", "100", "130", "10", before),
+        (8, 25, "MLA9000000025", 471846, "15", "100", "20", None, recent),
+        (9, 26, "MLA9000000026", 471846, "15", "100", "20", "35", recent),
     )
     published = set()
     for n, product, mla, store, tg, costo, costo_tp, total_tp, ago in sales:
@@ -87,6 +94,11 @@ def catalog(request, board_pg, monkeypatch):
             {"c": costo_tp, "t": total_tp, "i": costo_tp is None, "o": order_id},
         )
         _group(db, f"o:{order_id}", [order_id], NOW - ago)
+    db.execute(
+        text("UPDATE ml_order_metrics SET gauss_status = 'unresolved', total_gauss = NULL WHERE order_id = :o"),
+        {"o": UNRESOLVED_ORDER},
+    )
+    db.execute(text("DELETE FROM ml_order_metrics WHERE order_id = :o"), {"o": NO_METRICS_ORDER})
     db.flush()
     if request.param == "persisted":
         lines = sale_lines(sqlite=False, queue=False, keyed=True, tp=True)
@@ -141,6 +153,14 @@ class TestCostosTp:
         assert (r24.tg, r24.mtg, r24.costo) == (_d("0.00"), _d("0.00"), _d("0.00"))
         assert (r24.total_tp, r24.tp_incompletos) == (None, 1)
 
+    @pytest.mark.parametrize("product", ["25", "26"])
+    def test_without_total_gauss_total_tp_is_incomplete_never_zero(self, catalog, product) -> None:
+        # 25: Total Gauss unresolved; 26: metrics never computed. Total TP needs Total Gauss: unknown.
+        row = _rows(catalog, ON)[product]
+
+        assert (row.tg, row.mtg, row.costo) == (_d("0.00"), _d("0.00"), _d("0.00"))
+        assert (row.total_tp, row.tp_incompletos) == (None, 1)
+
     def test_the_comparison_period_switches_to_markup_tp_too(self, catalog) -> None:
         off, on = _rows(catalog, OFF)["21"], _rows(catalog, ON)["21"]
 
@@ -161,8 +181,8 @@ class TestCostosTp:
             off = b.kpis()
 
         assert on.tg == off.tg == _d("130.00")
-        # The queued order of 24 is incomplete too.
-        assert (on.total_tp, on.tp_incompletos) == (_d("40.00"), 2)
+        # 24 (queued), 25 (Gauss unresolved) and 26 (no metrics) are incomplete too.
+        assert (on.total_tp, on.tp_incompletos) == (_d("40.00"), 4)
         assert (on.mtg, on.costo) == (_d("60.00"), _d("180.00"))
         assert (off.total_tp, off.tp_incompletos) == (None, None)
 
@@ -172,7 +192,7 @@ class TestCostosTp:
             groups = {row.key: row for row in b.group_page(None)}
 
         tp, gauss = groups["c:tplink"], groups["s:57997"]
-        assert (tp.total_tp, tp.tp_incompletos, tp.markup) == (_d("40.00"), 2, _d("50"))
+        assert (tp.total_tp, tp.tp_incompletos, tp.markup) == (_d("40.00"), 4, _d("50"))
         assert (gauss.total_tp, gauss.tp_incompletos) == (None, 0)
 
     def test_the_csv_leaves_carry_total_tp(self, catalog) -> None:

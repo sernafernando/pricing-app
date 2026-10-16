@@ -26,12 +26,25 @@ _SET_TP_COST = (
 )
 
 
+# What resolves Total Gauss for `_seed_sold_order`'s order (2 x 100): a payment
+# whose net received reconciles with the items, and a "% de varios" rate. Total
+# TP needs Total Gauss: without it the TP shares are NULL (unknown), and a drift
+# could not change their value.
+_RESOLVE_GAUSS = (
+    "UPDATE ml_payments_ops SET net_received_amount = 200 WHERE order_id = :oid",
+    "INSERT INTO ml_venta_varios_pct (porcentaje, fecha_desde) "
+    "SELECT 0, DATE '2020-01-01' WHERE NOT EXISTS (SELECT 1 FROM ml_venta_varios_pct)",
+)
+
+
 def _seed_with_tp(engine, order_id: int) -> None:
-    """A sold order whose item has a TP cost, stored by the real writer at the
-    current formula version: its lines carry non-NULL TP shares."""
+    """A sold order with a resolved Total Gauss whose item has a TP cost, stored
+    by the real writer at the current formula version: its lines carry non-NULL
+    TP shares."""
     _seed_sold_order(engine, order_id)
     with engine.connect() as conn:
-        conn.execute(text(_SET_TP_COST), {"oid": order_id})
+        for statement in (_SET_TP_COST, *_RESOLVE_GAUSS):
+            conn.execute(text(statement), {"oid": order_id})
         conn.execute(text("DELETE FROM ml_order_metrics_dirty"))
         conn.commit()
     with sessionmaker(bind=engine)() as session:
@@ -42,6 +55,13 @@ def _seed_with_tp(engine, order_id: int) -> None:
 def _tg_tp(engine, order_id: int):
     with engine.connect() as conn:
         return conn.execute(text("SELECT tg_tp FROM ml_sale_lines WHERE order_id = :oid"), {"oid": order_id}).scalar()
+
+
+def _gauss_status(engine, order_id: int):
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT gauss_status FROM ml_order_metrics WHERE order_id = :oid"), {"oid": order_id}
+        ).scalar()
 
 
 def _queued(engine, order_id: int):
@@ -66,8 +86,8 @@ class TestTpLineDivergence:
     def test_a_drifted_tp_share_is_flagged_and_repaired(self, pg_order_metrics_divergence_engine) -> None:
         engine = pg_order_metrics_divergence_engine
         _seed_with_tp(engine, 620001)
-        good = _tg_tp(engine, 620001)
-        assert good is not None
+        status, good = _gauss_status(engine, 620001), _tg_tp(engine, 620001)
+        assert status == "ok" and good is not None
         with engine.connect() as conn:
             conn.execute(text("UPDATE ml_sale_lines SET tg_tp = tg_tp + 1 WHERE order_id = 620001"))
             conn.commit()
