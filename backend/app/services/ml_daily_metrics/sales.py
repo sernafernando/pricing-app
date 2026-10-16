@@ -32,8 +32,10 @@ Rules (the Ventas ML ones, so both screens agree on the same orders):
   shown on its own (`tg`) still includes every known value.
 - TP-LINK (`tg_tp`/`mtg_tp`/`mcosto_tp`, only with `tp=True`): the same
   split and the same rules, from the order's stored Total TP and TP cost.
-  NULL means incomplete (an order with Total Gauss but no Total TP, or a
-  markup group with such a member), never 0.
+  NULL means unknown, never 0: an order without a TP cost, or without a
+  Total Gauss at all (unresolved, never computed, queued for a recompute --
+  Total TP needs Total Gauss), and the markup shares of a group that does
+  not take part in the TP markup.
 """
 
 from __future__ import annotations
@@ -235,8 +237,9 @@ def sale_lines(
     identify a line (`item_row_id`, `order_id`, `group_key`); `narrow=True`
     reaches the orders of a small `groups` set through their indexes instead of
     hashing every order. `tp=True` adds the TP-Link shares (`tg_tp`, `mtg_tp`,
-    `mcosto_tp`): only the persisted lines ask for them, so the board's live
-    derivation pays nothing for them."""
+    `mcosto_tp`). Two callers ask for them: the `ml_sale_lines` writer
+    (`queue=False`) and the board's live derivation with "Costos TP" ON (through
+    `lines_source`, queue applied); without `tp` the SQL carries none of them."""
     qty = func.coalesce(I.quantity, 0)
     weight = C.costo_unitario_ars * qty
     # (group, order): the same partitions as by order alone, but sorted the
@@ -318,24 +321,27 @@ def sale_lines(
         case((x.has_gauss == 1, x.order_tg * share), else_=0).label("tg"),
         case((eligible, x.order_tg * share), else_=0).label("mtg"),
         case((eligible, x.order_costo * share), else_=0).label("mcosto"),
-        *(_tp_shares(x, share, eligible) if tp else []),
+        *(_tp_shares(x, share) if tp else []),
     ).where(x.is_sale == 1)
     if product is not None:
         q = q.where(x.product == product)
     return q.subquery("lines")
 
 
-def _tp_shares(x, share, eligible) -> list:
+def _tp_shares(x, share) -> list:
     """`tg_tp`, `mtg_tp`, `mcosto_tp` of a line: `tg`/`mtg`/`mcosto` with the
-    order's Total TP and TP cost. `order_tp` is NULL for an incomplete order,
-    so its `tg_tp` share stays NULL; a markup group with such a member gets
-    NULL `mtg_tp`/`mcosto_tp` (no literal 0: NULL is what incomplete means)."""
+    order's Total TP and TP cost, NULL wherever they are unknown -- never 0.
+    `tg_tp` is NULL for an order without a known Total TP: no TP cost
+    (`order_tp` NULL) or no Total Gauss (unresolved, never computed, or queued
+    when the queue applies), since Total TP = Total Gauss + cost - TP cost.
+    `mtg_tp`/`mcosto_tp` are NULL for a group that does not take part in the TP
+    markup (all-or-nothing, like `mtg`/`mcosto`, whose 0 means the same)."""
     eligible_tp = x.eligible_tp == 1
-    incomplete = cast(null(), Numeric)
+    unknown = cast(null(), Numeric)
     return [
-        case((x.has_gauss == 1, x.order_tp * share), else_=0).label("tg_tp"),
-        case((eligible_tp, x.order_tp * share), (eligible, incomplete), else_=0).label("mtg_tp"),
-        case((eligible_tp, x.order_costo_tp * share), (eligible, incomplete), else_=0).label("mcosto_tp"),
+        case((x.has_gauss == 1, x.order_tp * share), else_=unknown).label("tg_tp"),
+        case((eligible_tp, x.order_tp * share), else_=unknown).label("mtg_tp"),
+        case((eligible_tp, x.order_costo_tp * share), else_=unknown).label("mcosto_tp"),
     ]
 
 
@@ -372,14 +378,22 @@ def _in_ranges(column, ranges: Optional[Iterable[Range]]):
     return or_(*(and_(column >= start, column < end) if end is not None else column >= start for start, end in ranges))
 
 
-def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[int] = None, mlas: Optional[Any] = None):
+def persisted_lines(
+    *,
+    ranges: Optional[List[Range]] = None,
+    product: Optional[int] = None,
+    mlas: Optional[Any] = None,
+    tp: bool = False,
+):
     """The same lines as `sale_lines` (same columns, same numbers), read from the
     persisted `ml_sale_lines` instead of derived: no joins, no windows. The table
     is written as if every order were settled; the recompute queue is applied here,
     as the live derivation does: an order being recalculated has no gross and no
     Total Gauss, and its group takes no part in the markup (no `mtg`, no `mcosto`).
     `mlas` (a list or a one-column select) limits it to those MLAs: each line is
-    independent, so no other line of the group is needed."""
+    independent, so no other line of the group is needed. `tp=True` adds the
+    TP-Link shares under the same queue rule, but NULL (unknown) where the
+    Gauss columns say 0, as the live derivation does."""
     L = MlSaleLine
     o2 = aliased(MlOrdersOps)
     queued_orders = select(D.order_id)
@@ -395,6 +409,16 @@ def persisted_lines(*, ranges: Optional[List[Range]] = None, product: Optional[i
         case((order_queued, 0), else_=L.tg).label("tg"),
         case((group_queued, 0), else_=L.mtg).label("mtg"),
         case((group_queued, 0), else_=L.mcosto).label("mcosto"),
+        *(
+            [
+                # Queued: Total TP unknown until recomputed -- NULL (incomplete), never 0.
+                case((order_queued, cast(null(), Numeric)), else_=L.tg_tp).label("tg_tp"),
+                case((group_queued, cast(null(), Numeric)), else_=L.mtg_tp).label("mtg_tp"),
+                case((group_queued, cast(null(), Numeric)), else_=L.mcosto_tp).label("mcosto_tp"),
+            ]
+            if tp
+            else []
+        ),
     )
     if ranges is not None:
         q = q.where(_in_ranges(L.group_date, ranges))
@@ -419,14 +443,16 @@ def lines_source(
     product: Optional[int] = None,
     groups: Optional[Any] = None,
     mlas: Optional[Any] = None,
+    tp: bool = False,
 ):
     """The sold lines (`sale_lines` columns) from the source `reads_persisted_lines`
     picks. `groups` bounds only the live derivation and `mlas` only the persisted
     read: the persisted lines are independent rows, while the live ones need their
-    whole groups (the caller still keeps the lines of its MLAs there)."""
+    whole groups (the caller still keeps the lines of its MLAs there). `tp=True`
+    adds the TP-Link shares (`tg_tp`, `mtg_tp`, `mcosto_tp`) from either source."""
     if reads_persisted_lines(sqlite):
-        return persisted_lines(ranges=ranges, product=product, mlas=mlas)
-    return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups)
+        return persisted_lines(ranges=ranges, product=product, mlas=mlas, tp=tp)
+    return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups, tp=tp)
 
 
 def persisted_last_sales(

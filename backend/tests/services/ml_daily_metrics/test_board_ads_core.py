@@ -44,9 +44,11 @@ VIEWS = {
 
 
 def _without_ads(body: Dict[str, Any]) -> Dict[str, Any]:
-    """The response minus the fields later slices add (`kpis.ads`, `rows[].ads`)."""
-    kept = {**body, "kpis": {k: v for k, v in body["kpis"].items() if k != "ads"}}
-    kept["rows"] = [{k: v for k, v in row.items() if k != "ads"} for row in body["rows"]]
+    """The response minus the fields later slices add (`kpis.ads`, `rows[].ads`, and the "Costos TP" ones,
+    null with that toggle OFF)."""
+    later = ("ads", "total_tp", "tp_incompletos")
+    kept = {**body, "kpis": {k: v for k, v in body["kpis"].items() if k not in later}}
+    kept["rows"] = [{k: v for k, v in row.items() if k not in later} for row in body["rows"]]
     return kept
 
 
