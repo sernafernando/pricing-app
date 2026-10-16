@@ -102,3 +102,18 @@ export const parseDateOnly = (value) => {
     date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
   return isSameCalendarDay ? date : null;
 };
+
+/**
+ * Formats a date-only value (see `parseDateOnly`) for display in es-AR.
+ *
+ * @param {string|Date|null|undefined} value
+ * @param {Intl.DateTimeFormatOptions} [options] - passed to `toLocaleDateString`.
+ * @returns {string} the formatted date, or '-' when the value is empty or not a real date.
+ *
+ * @example
+ * formatDateOnly('2026-12-31')                                  // "31/12/2026"
+ * formatDateOnly('2026-12-31', { day: '2-digit', month: '2-digit' }) // "31/12"
+ * formatDateOnly('2026-02-30')                                  // "-"
+ */
+export const formatDateOnly = (value, options) =>
+  parseDateOnly(value)?.toLocaleDateString('es-AR', options) ?? '-';

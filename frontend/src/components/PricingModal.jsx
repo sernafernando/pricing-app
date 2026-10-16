@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import { useState, useEffect } from 'react';
 import api from '../services/api';
-import { parseDateOnly } from '../utils/dateUtils';
+import { formatDateOnly } from '../utils/dateUtils';
 import styles from './PricingModal.module.css';
 
 export default function PricingModal({ producto, onClose, onSave }) {
@@ -178,7 +178,7 @@ export default function PricingModal({ producto, onClose, onSave }) {
                       {pub.oferta.aporte_meli_porcentaje && ` (${pub.oferta.aporte_meli_porcentaje}%)`}
                     </div>
                     <div style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>
-                      Vigente hasta: {parseDateOnly(pub.oferta.fecha_hasta)?.toLocaleDateString('es-AR')}
+                      Vigente hasta: {formatDateOnly(pub.oferta.fecha_hasta)}
                     </div>
                   </div>
                 ))}

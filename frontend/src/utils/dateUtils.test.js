@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { parseDateOnly } from './dateUtils';
+import { formatDateOnly, parseDateOnly } from './dateUtils';
 
 const DAY_MONTH = { day: '2-digit', month: '2-digit' };
 
@@ -57,5 +57,19 @@ describe('parseDateOnly', () => {
     expect(parseDateOnly(null)).toBeNull();
     expect(parseDateOnly('')).toBeNull();
     expect(parseDateOnly('not-a-date')).toBeNull();
+  });
+});
+
+describe('formatDateOnly', () => {
+  it('formats a bare YYYY-MM-DD on its calendar day with es-AR defaults', () => {
+    expect(formatDateOnly('2026-12-31')).toBe('31/12/2026');
+  });
+
+  it('passes the format options through', () => {
+    expect(formatDateOnly('2026-12-31', DAY_MONTH)).toBe('31/12');
+  });
+
+  it.each([null, undefined, '', 'not-a-date', '2026-02-30'])("returns '-' for %s", (value) => {
+    expect(formatDateOnly(value)).toBe('-');
   });
 });

@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
-import { parseDateOnly } from '../utils/dateUtils';
+import { formatDateOnly } from '../utils/dateUtils';
 import ModalTesla, { ModalSection, ModalAlert, ModalFooterButtons } from './ModalTesla';
 import './PricingModalTesla.css';
 
@@ -214,7 +214,7 @@ export default function PricingModalTesla({ producto, onClose, onSave, isOpen })
                     {pub.oferta.aporte_meli_porcentaje && ` (${pub.oferta.aporte_meli_porcentaje}%)`}
                   </div>
                   <div className="oferta-vigencia">
-                    Vigente hasta: {parseDateOnly(pub.oferta.fecha_hasta)?.toLocaleDateString('es-AR')}
+                    Vigente hasta: {formatDateOnly(pub.oferta.fecha_hasta)}
                   </div>
                 </div>
               ))}
