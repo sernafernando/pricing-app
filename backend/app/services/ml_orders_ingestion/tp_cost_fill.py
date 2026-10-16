@@ -19,7 +19,8 @@ item in `tp_cost_fill_queue` and `pg_notify` the worker:
 The handler (`app/workers/handlers/tp_cost_fill.py`) drains the queue in
 batches, one short transaction each: claim items, find the NULL rows of those
 items and of the combos containing them, and resolve them with
-`tp_cost_resolver` (prefetch once, then resolve per savepoint), shared with the backfill script -- same rules (price at the sale date, else the
+`tp_cost_resolver` (prefetch once, then resolve per savepoint), shared with
+the backfill script -- same rules (price at the sale date, else the
 first price flagged approximate, combo precedence, rejected prices stay NULL),
 same `costo_tp_unitario_ars IS NULL` guard on the UPDATE so a TP cost already
 set is never rewritten. An item that still does not resolve (no usable price)
