@@ -209,3 +209,28 @@ class TestCostosTp:
     def test_on_needs_the_tp_store_ids(self) -> None:
         with pytest.raises(ValueError):
             dataclasses.replace(OFF, costos_tp=True)
+
+
+@pytest.mark.postgres
+class TestTplinkSoloLock:
+    """P5b: the `tplink.solo` filter (`ml_metricas._tp_solo_filter`) -- TP stores, the MLA set published there and
+    "Costos TP" -- bounds every figure, the KPIs and the chip counts to the TP group on real Postgres."""
+
+    LOCK = dataclasses.replace(ON, stores=tuple(str(s) for s in TP_STORES), mla_source=board.mlas_in_stores(TP_STORES))
+
+    def test_rows_kpis_and_facets_hold_only_the_tp_group(self, catalog) -> None:
+        with board.Board(catalog, self.LOCK, scope_pairs=None) as b:
+            rows = {row.key: row for row in b.page(None)}
+            kpis = b.kpis()
+            facets = b.facets()
+
+        # Product 21 keeps only its TP pair (Markup TP 40 / 80); 23 sells only in Gauss: gone.
+        assert "23" not in rows
+        assert (rows["21"].mtg, rows["21"].costo, rows["21"].total_tp) == (_d("40.00"), _d("80.00"), _d("40.00"))
+        assert (kpis.mtg, kpis.costo, kpis.total_tp, kpis.tp_incompletos) == (
+            _d("40.00"),
+            _d("80.00"),
+            _d("40.00"),
+            4,
+        )
+        assert set(facets.stores) <= {str(s) for s in TP_STORES}
