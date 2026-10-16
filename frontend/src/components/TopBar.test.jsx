@@ -51,6 +51,12 @@ describe('TopBar — brand logo', () => {
     expect(document.documentElement.getAttribute('data-brand')).toBe('tplink');
   });
 
+  it('shows the TP-Link logo for tplink.tema users too', () => {
+    permisosStub.permisos = ['tplink.tema'];
+    renderTopBar();
+    expect(screen.getByRole('img', { name: 'TP-Link' })).toBeTruthy();
+  });
+
   it('keeps the app logo for everyone else', () => {
     permisosStub.permisos = ['ml_metricas.ver'];
     renderTopBar();

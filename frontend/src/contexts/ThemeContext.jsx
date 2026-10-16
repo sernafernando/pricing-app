@@ -3,8 +3,11 @@ import { usePermisos } from './PermisosContext';
 
 const ThemeContext = createContext();
 
-/** Users holding this permission see the whole app in TP-Link colors. */
+/** TP-only users (data lock, later) also see the whole app in TP-Link colors. */
 export const PERMISO_TPLINK_SOLO = 'tplink.solo';
+/** Turns on only the TP-Link theme, with no data restriction. */
+export const PERMISO_TPLINK_TEMA = 'tplink.tema';
+const PERMISOS_BRAND_TPLINK = [PERMISO_TPLINK_TEMA, PERMISO_TPLINK_SOLO];
 const BRAND_TPLINK = 'tplink';
 const KNOWN_BRANDS = new Set([BRAND_TPLINK]);
 
@@ -134,7 +137,8 @@ export const useBrandFromPermisos = () => {
   const { permisos, initialized } = usePermisos();
   // `initialized` is false only while the first load is pending (or failed).
   const loaded = initialized !== false;
-  const resolved = Array.isArray(permisos) && permisos.includes(PERMISO_TPLINK_SOLO)
+  const resolved = Array.isArray(permisos)
+    && PERMISOS_BRAND_TPLINK.some((codigo) => permisos.includes(codigo))
     ? BRAND_TPLINK
     : null;
   const appliedRef = useRef(false);

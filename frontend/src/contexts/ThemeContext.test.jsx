@@ -14,6 +14,7 @@ import {
   useTheme,
   applyStoredBrand,
   PERMISO_TPLINK_SOLO,
+  PERMISO_TPLINK_TEMA,
   BRAND_STORAGE_KEY,
 } from './ThemeContext';
 
@@ -195,5 +196,33 @@ describe('ThemeContext — stored brand avoids the base-theme flash on reload', 
     await useAuthStore.getState().logout();
     expect(localStorage.getItem(BRAND_STORAGE_KEY)).toBeNull();
     expect(html().hasAttribute('data-brand')).toBe(false);
+  });
+});
+
+describe('ThemeContext — tplink.tema turns on only the theme', () => {
+  it('uses the tplink.tema permission code', () => {
+    expect(PERMISO_TPLINK_TEMA).toBe('tplink.tema');
+  });
+
+  it('tplink.tema alone turns the brand on', () => {
+    permisosStub.permisos = ['tplink.tema'];
+    renderProbe();
+    expect(html().getAttribute('data-brand')).toBe('tplink');
+    expect(localStorage.getItem(BRAND_STORAGE_KEY)).toBe('tplink');
+  });
+
+  it('tplink.solo still turns the brand on without tplink.tema', () => {
+    permisosStub.permisos = ['tplink.solo'];
+    renderProbe();
+    expect(html().getAttribute('data-brand')).toBe('tplink');
+  });
+
+  it('neither permission leaves the brand off', () => {
+    html().setAttribute('data-brand', 'tplink');
+    localStorage.setItem(BRAND_STORAGE_KEY, 'tplink');
+    permisosStub.permisos = ['ml_metricas.ver', 'dashboard_tplink.ver'];
+    renderProbe();
+    expect(html().hasAttribute('data-brand')).toBe(false);
+    expect(localStorage.getItem(BRAND_STORAGE_KEY)).toBeNull();
   });
 });
