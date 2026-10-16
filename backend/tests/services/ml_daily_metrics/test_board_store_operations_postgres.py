@@ -156,3 +156,20 @@ def test_tp_only_lock_counts_only_the_tp_stores_operations(shop) -> None:
     )
     # Two TP board rows (Epson, Logitech), three TP operations (o5, o8, the pack).
     assert _board_stores(shop, f) == ({str(TP): 3}, 3)
+
+
+@pytest.mark.postgres
+def test_an_item_without_a_frozen_cost_still_counts_like_ventas_ml(shop) -> None:
+    """An order item with no frozen cost row (the board places its sale on the "sin producto" pair of its MLA)
+    still counts in its publication's store, as Ventas ML counts it -- under every product filter that keeps
+    that MLA."""
+    order_id = 2000071000000009
+    _sale(shop, order_id, [(21, MLA_A, 1, 10)], NOW - timedelta(days=1))
+    _group(shop, f"o:{order_id}", [order_id], NOW - timedelta(days=1))
+    shop.execute(text("DELETE FROM ml_order_item_costos WHERE order_id = :o"), {"o": order_id})
+    shop.flush()
+
+    assert _board_stores(shop, _filter()) == _ventas_stores(shop)
+    assert _board_stores(shop, _filter()) == ({str(GAUSS): 4, str(TP): 3, board.NO_STORE: 1}, 7)
+    # Epson: o1, o2, the pack's Epson item and this one in Gauss; o5 in TP; the cancelled Tinta with no store.
+    assert _board_stores(shop, _filter(marcas=("Epson",))) == ({str(GAUSS): 4, str(TP): 1, board.NO_STORE: 1}, 6)

@@ -2322,7 +2322,9 @@ class Board:
         all ON), so both screens agree on the same period. It counts in a store when one of its items belongs to a
         (product, MLA) pair of a row that survives every filter but the store one: the pair carries the store (the
         publication's CURRENT one, as everywhere on the board) and every other filter, the TP lock's MLA set
-        included. A pack spanning two stores counts in both, and once in "Todas"."""
+        included. An item with no frozen cost row has no product of its own (the board files its sale under
+        "sin producto"): it matches by its MLA alone, so it counts wherever its publication does, as in Ventas ML.
+        A pack spanning two stores counts in both, and once in "Todas"."""
         start, end = day_bounds(self.f.date_from, self.f.date_to)
         scope = build_scope(
             self.db,
@@ -2357,7 +2359,7 @@ class Board:
                 members,
                 and_(
                     members.c.mla == item.item_id,
-                    members.c.product == func.coalesce(cost.producto_item_id, NO_PRODUCT),
+                    or_(cost.producto_item_id.is_(None), members.c.product == cost.producto_item_id),
                 ),
             )
             .cte("store_operations")
