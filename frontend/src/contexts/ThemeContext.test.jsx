@@ -8,13 +8,27 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from '@testing-library/react';
-import { ThemeProvider, useBrandFromPermisos, useTheme, PERMISO_TPLINK_SOLO } from './ThemeContext';
+import {
+  ThemeProvider,
+  useBrandFromPermisos,
+  useTheme,
+  applyStoredBrand,
+  PERMISO_TPLINK_SOLO,
+  BRAND_STORAGE_KEY,
+} from './ThemeContext';
 
-const permisosStub = { permisos: [], rol: null, tienePermiso: () => true };
+const permisosStub = { permisos: [], rol: null, initialized: true, tienePermiso: () => true };
 
 vi.mock('./PermisosContext', () => ({
   usePermisos: () => permisosStub,
   PermisosProvider: ({ children }) => children,
+}));
+
+// authStore's real logout is exercised below; it needs these api exports.
+vi.mock('../services/api', () => ({
+  default: { get: vi.fn(), post: vi.fn() },
+  authAPI: { login: vi.fn(), me: vi.fn() },
+  registerAuthFailureHandler: vi.fn(),
 }));
 
 const html = () => document.documentElement;
@@ -36,6 +50,7 @@ beforeEach(() => {
   localStorage.clear();
   permisosStub.permisos = [];
   permisosStub.rol = null;
+  permisosStub.initialized = true;
   html().removeAttribute('data-brand');
 });
 
@@ -117,5 +132,68 @@ describe('ThemeContext — data-brand from the tplink.solo permission', () => {
     );
     expect(ctx.toggleBrand).toBeUndefined();
     expect(typeof ctx.toggleTheme).toBe('function');
+  });
+});
+
+describe('ThemeContext — stored brand avoids the base-theme flash on reload', () => {
+  it('stores the brand under a dedicated key', () => {
+    expect(BRAND_STORAGE_KEY).toBe('brand');
+  });
+
+  it('applyStoredBrand() sets data-brand synchronously, before React renders', () => {
+    localStorage.setItem(BRAND_STORAGE_KEY, 'tplink');
+    applyStoredBrand();
+    expect(html().getAttribute('data-brand')).toBe('tplink');
+  });
+
+  it('applyStoredBrand() ignores unknown stored values', () => {
+    localStorage.setItem(BRAND_STORAGE_KEY, 'acme');
+    applyStoredBrand();
+    expect(html().hasAttribute('data-brand')).toBe(false);
+  });
+
+  it('applyStoredBrand() survives a throwing localStorage', () => {
+    const spy = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    try {
+      expect(() => applyStoredBrand()).not.toThrow();
+      expect(html().hasAttribute('data-brand')).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps the stored brand while permisos are still loading', () => {
+    localStorage.setItem(BRAND_STORAGE_KEY, 'tplink');
+    permisosStub.initialized = false;
+    permisosStub.permisos = [];
+    renderProbe();
+    expect(html().getAttribute('data-brand')).toBe('tplink');
+    expect(localStorage.getItem(BRAND_STORAGE_KEY)).toBe('tplink');
+  });
+
+  it('clears the stored brand when loaded permisos lack tplink.solo', () => {
+    localStorage.setItem(BRAND_STORAGE_KEY, 'tplink');
+    html().setAttribute('data-brand', 'tplink');
+    permisosStub.permisos = ['ml_metricas.ver'];
+    renderProbe();
+    expect(html().hasAttribute('data-brand')).toBe(false);
+    expect(localStorage.getItem(BRAND_STORAGE_KEY)).toBeNull();
+  });
+
+  it('stores the brand once loaded permisos include tplink.solo', () => {
+    permisosStub.permisos = ['tplink.solo'];
+    renderProbe();
+    expect(localStorage.getItem(BRAND_STORAGE_KEY)).toBe('tplink');
+  });
+
+  it('logout clears the stored brand and data-brand', async () => {
+    const { useAuthStore } = await vi.importActual('../store/authStore');
+    localStorage.setItem(BRAND_STORAGE_KEY, 'tplink');
+    html().setAttribute('data-brand', 'tplink');
+    await useAuthStore.getState().logout();
+    expect(localStorage.getItem(BRAND_STORAGE_KEY)).toBeNull();
+    expect(html().hasAttribute('data-brand')).toBe(false);
   });
 });

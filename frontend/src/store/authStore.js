@@ -64,6 +64,20 @@ async function silentRefresh(set, get) {
   }
 }
 
+// Same key as BRAND_STORAGE_KEY in contexts/ThemeContext.jsx (not imported:
+// ThemeContext -> PermisosContext -> authStore would be a cycle). The stored
+// brand belongs to the user who logged out, so it must not paint the next one.
+const BRAND_STORAGE_KEY = 'brand';
+
+const clearStoredBrand = () => {
+  try {
+    localStorage.removeItem(BRAND_STORAGE_KEY);
+  } catch {
+    // Storage blocked: nothing was stored either.
+  }
+  document.documentElement.removeAttribute('data-brand');
+};
+
 export const useAuthStore = create((set, get) => {
   // Registrar el handler de auth failure para que api.js pueda
   // triggear un logout limpio sin recargar la página
@@ -72,6 +86,7 @@ export const useAuthStore = create((set, get) => {
       clearTimeout(refreshTimer);
       refreshTimer = null;
     }
+    clearStoredBrand();
     set({ token: null, user: null, isAuthenticated: false });
   });
 
@@ -122,6 +137,7 @@ export const useAuthStore = create((set, get) => {
       }
       localStorage.removeItem('token');
       localStorage.removeItem('refresh_token');
+      clearStoredBrand();
       set({ token: null, user: null, isAuthenticated: false });
     },
 
@@ -138,6 +154,7 @@ export const useAuthStore = create((set, get) => {
       } catch {
         localStorage.removeItem('token');
         localStorage.removeItem('refresh_token');
+        clearStoredBrand();
         set({ token: null, user: null, isAuthenticated: false });
       }
     },

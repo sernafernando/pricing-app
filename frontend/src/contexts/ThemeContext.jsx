@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { usePermisos } from './PermisosContext';
 
 const ThemeContext = createContext();
@@ -6,6 +6,45 @@ const ThemeContext = createContext();
 /** Users holding this permission see the whole app in TP-Link colors. */
 export const PERMISO_TPLINK_SOLO = 'tplink.solo';
 const BRAND_TPLINK = 'tplink';
+const KNOWN_BRANDS = new Set([BRAND_TPLINK]);
+
+/**
+ * The last resolved brand, remembered per viewer so a reload paints the brand
+ * before permissions load (no base-theme flash). A convenience only: once the
+ * permissions arrive they decide, and logout clears it (see authStore.js,
+ * which repeats this key to avoid an import cycle).
+ */
+export const BRAND_STORAGE_KEY = 'brand';
+
+const readStoredBrand = () => {
+  try {
+    const stored = localStorage.getItem(BRAND_STORAGE_KEY);
+    return KNOWN_BRANDS.has(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredBrand = (brand) => {
+  try {
+    if (brand) {
+      localStorage.setItem(BRAND_STORAGE_KEY, brand);
+    } else {
+      localStorage.removeItem(BRAND_STORAGE_KEY);
+    }
+  } catch {
+    // Storage blocked (private window, previews): the permission still applies.
+  }
+};
+
+/** Call before the first render (main.jsx) so a stored brand paints immediately. */
+// eslint-disable-next-line react-refresh/only-export-components
+export const applyStoredBrand = () => {
+  const brand = readStoredBrand();
+  if (brand) {
+    document.documentElement.setAttribute('data-brand', brand);
+  }
+};
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useTheme = () => {
@@ -34,8 +73,9 @@ export const ThemeProvider = ({ children }) => {
   }, [theme]);
 
   // The brand is NOT user-toggleable: it is derived from a permission (see
-  // useBrandFromPermisos), so it is neither persisted nor exposed as a toggle.
-  const [brand, setBrand] = useState(null);
+  // useBrandFromPermisos), so it is never exposed as a toggle. It starts from
+  // the stored brand so the provider does not undo applyStoredBrand().
+  const [brand, setBrand] = useState(readStoredBrand);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -78,7 +118,11 @@ export const ThemeProvider = ({ children }) => {
  *
  * ThemeProvider sits OUTSIDE PermisosProvider in App.jsx, so the provider
  * cannot read permissions itself; the authenticated layout calls this hook
- * instead. Unmounting it (logout) clears the brand.
+ * instead.
+ *
+ * While permissions are still loading the stored brand stays in place; once
+ * they load they are the source of truth for both `data-brand` and the stored
+ * value. Unmounting the hook after that (logout) clears the brand.
  *
  * It checks the explicit permission list, NOT `tienePermiso`: that one returns
  * true for every code when the role is SUPERADMIN, which would brand an
@@ -86,16 +130,25 @@ export const ThemeProvider = ({ children }) => {
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export const useBrandFromPermisos = () => {
-  const { setBrand } = useTheme();
-  const { permisos } = usePermisos();
-  const brand = Array.isArray(permisos) && permisos.includes(PERMISO_TPLINK_SOLO)
+  const { brand: currentBrand, setBrand } = useTheme();
+  const { permisos, initialized } = usePermisos();
+  // `initialized` is false only while the first load is pending (or failed).
+  const loaded = initialized !== false;
+  const resolved = Array.isArray(permisos) && permisos.includes(PERMISO_TPLINK_SOLO)
     ? BRAND_TPLINK
     : null;
+  const appliedRef = useRef(false);
 
   useEffect(() => {
-    setBrand(brand);
-    return () => setBrand(null);
-  }, [brand, setBrand]);
+    if (!loaded) return;
+    setBrand(resolved);
+    writeStoredBrand(resolved);
+    appliedRef.current = true;
+  }, [loaded, resolved, setBrand]);
 
-  return brand;
+  useEffect(() => () => {
+    if (appliedRef.current) setBrand(null);
+  }, [setBrand]);
+
+  return loaded ? resolved : currentBrand;
 };
