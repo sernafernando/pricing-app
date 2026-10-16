@@ -16,7 +16,7 @@ import styles from './TopBar.module.css';
 import logoIcon from '../assets/white-g-logo.png';
 
 // Served from public/: the TP-Link logo is a brand asset, not a bundled icon.
-const TPLINK_LOGO_SRC = '/brand/tplink-logo-white.png';
+export const TPLINK_LOGO_SRC = '/brand/tplink-logo-white.png';
 
 export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, onMobileMenuToggle }) {
   const user = useAuthStore((state) => state.user);

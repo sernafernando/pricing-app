@@ -8,7 +8,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { ThemeProvider } from '../contexts/ThemeContext';
-import TopBar from './TopBar';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import TopBar, { TPLINK_LOGO_SRC } from './TopBar';
 
 const permisosStub = { permisos: [], rol: null, tienePermiso: () => true };
 
@@ -55,5 +58,11 @@ describe('TopBar — brand logo', () => {
     const logo = screen.getByRole('img', { name: 'Logo' });
     expect(logo.getAttribute('src')).not.toContain('tplink');
     expect(document.documentElement.hasAttribute('data-brand')).toBe(false);
+  });
+
+  it('points the TP-Link logo at an asset that exists in public/', () => {
+    const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public');
+    expect(TPLINK_LOGO_SRC).toMatch(/^\//);
+    expect(fs.existsSync(path.join(publicDir, TPLINK_LOGO_SRC))).toBe(true);
   });
 });
