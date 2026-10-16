@@ -116,8 +116,8 @@ def tiene_costo_propio(producto: ProductoERP) -> bool:
     service itself has not synced yet, not for the "no cost" case the sync
     actually produces.
 
-    Same criterion the backfill's `_tiene_precio`
-    (`app/scripts/backfill_costo_congelado.py`) already applies to
+    Same criterion `tiene_precio`
+    (`app/services/ml_orders_ingestion/list_history.py`) already applies to
     `ItemCostListHistory.iclh_price` -- that predicate's own docstring:
     "A NULL or <= 0 `iclh_price` is a HOLE in the ERP, not a product that
     became free." `producto.costo` is a different column on a different

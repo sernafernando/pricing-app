@@ -11,7 +11,7 @@ rewritten, even one written concurrently by the late-load worker.
 The price is the list-8 price IN EFFECT AT THE SALE DATE
 (`tb_item_cost_list_history`, `coslis_id = 8`), never a later one and never
 the current list. Same picker as the normal-cost backfill
-(`backfill_costo_congelado._pick_history_row`) and the list-8 metrics job:
+(`list_history.pick_history_row`) and the list-8 metrics job:
 the most recent row dated at or before the sale that carries a REAL price
 (`> 0`) -- a zero row is an ERP hole, not a free product.
 
