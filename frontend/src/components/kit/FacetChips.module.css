@@ -40,9 +40,9 @@
 .chipActive {
   /* The card colour on the headline blue: white on blue in light mode,
      near-black on light blue in dark mode -- both legible. */
-  color: var(--cf-bg-card);
-  background: var(--money-headline);
-  border-color: var(--money-headline);
+  color: var(--on-selection-fill);
+  background: var(--selection-fill);
+  border-color: var(--selection-border);
 }
 
 .chipActive .count {

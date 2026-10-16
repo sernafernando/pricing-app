@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, useBrandFromPermisos } from '../contexts/ThemeContext';
 import { Menu, CloudRain, Droplets, Wind, Fingerprint } from 'lucide-react';
 
 import ThemeToggleSimple from './ThemeToggleSimple';
@@ -15,9 +15,13 @@ import { toLocalDateString } from '../utils/dateUtils';
 import styles from './TopBar.module.css';
 import logoIcon from '../assets/white-g-logo.png';
 
+// Served from public/: the TP-Link logo is a brand asset, not a bundled icon.
+export const TPLINK_LOGO_SRC = '/brand/tplink-logo-white.png';
+
 export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, onMobileMenuToggle }) {
   const user = useAuthStore((state) => state.user);
   const { highContrast, toggleHighContrast } = useTheme();
+  const brand = useBrandFromPermisos();
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [facturadoHoy, setFacturadoHoy] = useState(null);
@@ -101,7 +105,13 @@ export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, 
         </button>
         
         <Link to="/productos" className={styles.logoLink}>
-          <img src={logoIcon} alt="Logo" className={styles.logoIcon} />
+          {brand === 'tplink' ? (
+            // Global class from brand-tplink.css: the module's .logoIcon inverts
+            // the logo in light mode, which the brand header must not do.
+            <img src={TPLINK_LOGO_SRC} alt="TP-Link" className="tplink-brand-logo" />
+          ) : (
+            <img src={logoIcon} alt="Logo" className={styles.logoIcon} />
+          )}
         </Link>
       </div>
 

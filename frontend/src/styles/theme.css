@@ -16,7 +16,7 @@
   /* Borders - Sutiles */
   --border-primary: #e0e0e0;
   --border-secondary: #d0d0d0;
-  --border-focus: #3e6ae1;
+  --border-focus: var(--brand-focus-ring);
   --border-color: #e0e0e0;
 
   /* Brand colors - Azul eléctrico Tesla */
@@ -24,14 +24,20 @@
   --brand-primary-rgb: 62, 106, 225;
   --brand-primary-hover: #1e4fc2;
   --brand-primary-light: #e8eef9;
-  --primary: #3e6ae1;
+  /* Role tokens: the seam a brand (data-brand) repaints. Defaults resolve to
+     exactly the values this theme had before they existed. */
+  --on-brand-primary: var(--text-inverse);
+  --on-brand-primary-hover: var(--text-inverse);
+  --brand-focus-ring: var(--brand-primary);
+  --brand-link: var(--brand-primary);
+  --primary: var(--brand-primary);
   --primary-light: #f0f4fc;
   --danger: #e31937;
   --purple: #8b5cf6;
 
   /* Accent */
-  --accent-bg: #e8eef9;
-  --accent-text: #1e4fc2;
+  --accent-bg: var(--brand-primary-light);
+  --accent-text: var(--brand-primary-hover);
 
   /* Success - Verde Tesla */
   --success: #00cc66;
@@ -79,7 +85,7 @@
   --shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.16);
 
   /* Gradients - Minimalistas */
-  --gradient-primary: linear-gradient(135deg, #3e6ae1 0%, #1e4fc2 100%);
+  --gradient-primary: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-hover) 100%);
   --gradient-success: linear-gradient(135deg, #00cc66 0%, #00b359 100%);
   --gradient-warning: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
   --gradient-error: linear-gradient(135deg, #e31937 0%, #c41230 100%);
@@ -106,7 +112,7 @@
   /* Borders - Tonales estilo Stitch */
   --border-primary: #2a2a2a;
   --border-secondary: #353534;
-  --border-focus: #3e6ae1;
+  --border-focus: var(--brand-focus-ring);
   --border-color: #2a2a2a;
 
   /* Brand colors - Azul Stitch (#3e6ae1) */
@@ -114,14 +120,19 @@
   --brand-primary-rgb: 62, 106, 225;
   --brand-primary-hover: #5c8cff;
   --brand-primary-light: #1a2847;
-  --primary: #3e6ae1;
+  /* Role tokens — see the light block. */
+  --on-brand-primary: var(--text-inverse);
+  --on-brand-primary-hover: var(--text-inverse);
+  --brand-focus-ring: var(--brand-primary);
+  --brand-link: var(--brand-primary);
+  --primary: var(--brand-primary);
   --primary-light: #1a2847;
   --danger: #ff3b5c;
   --purple: #a78bfa;
 
   /* Accent */
-  --accent-bg: #1a2847;
-  --accent-text: #5c8cff;
+  --accent-bg: var(--brand-primary-light);
+  --accent-text: var(--brand-primary-hover);
 
   /* Success - Verde eléctrico */
   --success: #00ff88;
@@ -169,7 +180,7 @@
   --shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.9);
 
   /* Gradients - Eléctricos sobre negro */
-  --gradient-primary: linear-gradient(135deg, #5c8cff 0%, #3e6ae1 100%);
+  --gradient-primary: linear-gradient(135deg, var(--brand-primary-hover) 0%, var(--brand-primary) 100%);
   --gradient-success: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
   --gradient-warning: linear-gradient(135deg, #ffb800 0%, #ff9800 100%);
   --gradient-error: linear-gradient(135deg, #ff3b5c 0%, #e31937 100%);

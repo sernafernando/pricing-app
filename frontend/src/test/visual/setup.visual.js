@@ -37,6 +37,9 @@ import '../../styles/buttons-tesla.css';
 import '../../styles/modals-tesla.css';
 import '../../styles/table-tesla.css';
 import '../../styles/theme.css';
+// Loaded last, like main.jsx does: brand blocks only apply under
+// `data-brand="tplink"`, so the base theme is unaffected.
+import '../../styles/brand-tplink.css';
 
 import { afterEach } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
@@ -139,6 +142,7 @@ if (wideFont) {
 afterEach(() => {
   cleanup();
   document.documentElement.setAttribute('data-theme', 'light');
+  document.documentElement.removeAttribute('data-brand');
 });
 
 document.documentElement.setAttribute('data-theme', 'light');

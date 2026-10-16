@@ -55,7 +55,7 @@
 }
 
 .toggleOn .track {
-  background: var(--money-headline);
+  background: var(--selection-accent);
 }
 
 .toggleOn .thumb {

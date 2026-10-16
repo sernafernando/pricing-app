@@ -32,7 +32,7 @@
   height: 14px;
   margin: 0;
   cursor: pointer;
-  accent-color: var(--money-headline);
+  accent-color: var(--selection-accent);
 }
 
 .excludedBadge {
