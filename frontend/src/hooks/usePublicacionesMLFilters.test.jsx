@@ -12,6 +12,8 @@ import {
   FILTER_KEYS,
   PAGE_SIZE,
   effectiveSort,
+  effectiveProductSort,
+  buildProductsParams,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
@@ -319,5 +321,45 @@ describe('the legacy stock chip value', () => {
   it('sends the new value to /items', () => {
     const filters = setup('/?stock=sin_stock').result.current.hook.filters;
     expect(buildItemsParams(filters).stock).toBe('propio_sin_stock');
+  });
+});
+
+describe('the Producto view (vista=producto)', () => {
+  const base = setup('/').result.current.hook.filters;
+  const sales = { canSeeSales: true, canSeeMargin: false };
+
+  it('reads vista=producto from the URL and keeps it through "Limpiar filtros"', () => {
+    const { result } = setup('/?vista=producto&estado=active');
+    expect(result.current.hook.filters.vista).toBe('producto');
+    act(() => result.current.hook.resetFilters());
+    expect(result.current.search).toBe('?vista=producto');
+  });
+
+  it('sorts by Facturado 30D for who sees the sales, by name otherwise', () => {
+    expect(effectiveProductSort(base, sales)).toEqual({ key: 'facturado_30d', dir: 'desc' });
+    expect(effectiveProductSort(base, {})).toEqual({ key: 'titulo', dir: 'asc' });
+  });
+
+  it("keeps the URL's sort only when the products can be sorted by it and the user may ask for it", () => {
+    expect(effectiveProductSort({ ...base, orden: 'unidades_7d', dir: 'asc' }, sales)).toEqual({ key: 'unidades_7d', dir: 'asc' });
+    // A sort of the publication list the products have no figure for.
+    expect(effectiveProductSort({ ...base, orden: 'precio', dir: 'asc' }, sales)).toEqual({ key: 'facturado_30d', dir: 'desc' });
+    // A margin sort without the margin permission.
+    expect(effectiveProductSort({ ...base, orden: 'markup_30d' }, sales)).toEqual({ key: 'facturado_30d', dir: 'desc' });
+    expect(effectiveProductSort({ ...base, orden: 'markup_30d' }, { canSeeSales: true, canSeeMargin: true })).toEqual({
+      key: 'markup_30d',
+      dir: 'desc',
+    });
+  });
+
+  it('asks /products with the filters, the effective sort and the page, never the markup filters', () => {
+    const filters = { ...base, estado: ['active'], markup_neg: '1', markup_min: '5', orden: 'precio', pagina: 2 };
+    expect(buildProductsParams(filters, 25, sales)).toEqual({
+      estado: 'active',
+      orden: 'facturado_30d',
+      dir: 'desc',
+      limit: 25,
+      offset: 25,
+    });
   });
 });

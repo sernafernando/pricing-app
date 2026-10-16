@@ -15,7 +15,7 @@ import { useSearchParams } from 'react-router-dom';
  *  - VIEW state (`pagina`, `sel`, `tab`): moves inside the same result set.
  *    The sort (`orden`, `dir`) and the page size (`limite`) also go back to
  *    page 1 but need no new facets.
- *    `vista` (`agrupado` = the tree) and `familias` (family nodes in the tree)
+ *    `vista` (`producto` = the product rows, `agrupado` = the tree) and `familias` (family nodes in the tree)
  *    choose how the set is shown: they go back to page 1 and close the
  *    selection too, but are not filters (no new facets). So does `agrupar`,
  *    the dimension the tree is grouped by (`AGRUPAR_DIMENSIONS`, default marca).
@@ -42,7 +42,8 @@ const CSV_KEYS = [
 const TEXT_KEYS = ['q', 'familia', 'evento_desde', 'markup_neg', 'markup_min', 'markup_max'];
 export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS];
 
-const VISTAS = ['publicacion', 'agrupado'];
+// `producto` = one row per product, opening into its publications (`/view/products`).
+const VISTAS = ['publicacion', 'producto', 'agrupado'];
 // The dimensions `GET /ml-publications/view/groups` takes, the default first; the picker offers exactly these.
 // They are Métricas ML's five, in its order (`DIMENSION_OPTIONS`).
 export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria', 'tienda', 'pm'];
@@ -90,6 +91,22 @@ const mayAsk = (orden, { canSeeSales = false, canSeeMargin = false }) =>
 export function effectiveSort(filters, permissions = {}) {
   const asked = filters.orden && mayAsk(filters.orden, permissions) ? filters.orden : '';
   const key = asked || defaultSortFor(permissions);
+  return { key, dir: (asked && filters.dir) || DEFAULT_DIRECTION[key] || 'desc' };
+}
+
+/**
+ * The sorts of the Producto view (`/view/products` `orden`): Métricas ML's figures of a product and its name. A sort
+ * of the publication list the products have no figure for (price, stock...) is not one of them.
+ */
+export const PRODUCT_SORTS = ['titulo', 'unidades_7d', 'unidades_30d', 'markup_30d', 'facturado_30d', 'total_gauss_30d'];
+
+/**
+ * The sort the Producto view really applies: the URL's when the products can be sorted by it and the user may ask
+ * for it, else Métricas' default (Facturado 30D) for who sees the sales and the name otherwise.
+ */
+export function effectiveProductSort(filters, permissions = {}) {
+  const asked = PRODUCT_SORTS.includes(filters.orden) && mayAsk(filters.orden, permissions) ? filters.orden : '';
+  const key = asked || (permissions.canSeeSales ? 'facturado_30d' : 'titulo');
   return { key, dir: (asked && filters.dir) || DEFAULT_DIRECTION[key] || 'desc' };
 }
 
@@ -176,6 +193,17 @@ export function buildItemsParams(
   params.limit = pageSize;
   params.offset = (filters.pagina - 1) * pageSize;
   return params;
+}
+
+/**
+ * The `GET /ml-publications/view/products` query: the list's filters, the Producto view's own sort and the page.
+ * Never the markup filters: `/products` does not apply them (its figures are Métricas', over the whole selection).
+ */
+export function buildProductsParams(filters, pageSize = filters.limite ?? PAGE_SIZE, permissions = {}) {
+  const { orden, dir, ...params } = buildItemsParams(filters, pageSize, { canSeeMargin: false });
+  void orden, dir;
+  const sort = effectiveProductSort(filters, permissions);
+  return { ...params, orden: sort.key, dir: sort.dir };
 }
 
 const MARKUP_KEYS = ['markup_neg', 'markup_min', 'markup_max'];

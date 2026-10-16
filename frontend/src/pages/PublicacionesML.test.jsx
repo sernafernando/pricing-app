@@ -26,6 +26,7 @@ import {
   makeItem,
   VARIATIONS_RESPONSE,
   VARIATION_ITEM,
+  productsResponse,
 } from '../test/visual/publicacionesMlFixtures';
 
 vi.mock('../services/api', () => ({
@@ -33,7 +34,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -1098,5 +1099,69 @@ describe('the KPI strip (publicaciones-ml-vista P12b)', () => {
     await page();
     await strip();
     expect(screen.queryByText(/no aplican el filtro de markup/)).not.toBeInTheDocument();
+  });
+});
+
+describe('the Producto view', () => {
+  const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
+  const products = async (entry = '/ml-publicaciones?vista=producto') => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    await screen.findByText('Router Archer AX55');
+  };
+
+  beforeEach(() => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
+  });
+
+  it('offers the views in Métricas ML order: Producto, Publicaciones, Agrupado', async () => {
+    await page();
+    const views = within(screen.getByRole('group', { name: 'Vista' })).getAllByRole('button');
+    expect(views.map((button) => button.textContent)).toEqual(['Producto', 'Publicaciones', 'Agrupado']);
+    expect(screen.getByRole('button', { name: 'Publicaciones' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows the products for vista=producto, by Facturado 30D, the page in the URL', async () => {
+    await products('/ml-publicaciones?vista=producto&estado=active&pagina=2');
+    expect(productCalls()).toEqual([{ estado: 'active', orden: 'facturado_30d', dir: 'desc', limit: 50, offset: 50 }]);
+    expect(screen.getByRole('table', { name: /por producto/ })).toBeInTheDocument();
+    expect(screen.getByText(/de 120 productos/)).toBeInTheDocument();
+  });
+
+  it('asks /items only for the state and the facet counts', async () => {
+    await products();
+    await waitFor(() => expect(publicacionesMlAPI.items).toHaveBeenCalled());
+    expect(lastParams()).toEqual({ limit: 1, offset: 0, facets: true });
+  });
+
+  it('switches to it from the header, in the URL', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(screen.getByRole('button', { name: 'Producto' }));
+    await screen.findByText('Router Archer AX55');
+    expect(screen.queryByText('MLA1100000001')).not.toBeInTheDocument();
+  });
+
+  it('sorts the products from a figure header', async () => {
+    const user = userEvent.setup();
+    await products();
+    await user.click(screen.getByRole('button', { name: /^7D/ }));
+    await waitFor(() => expect(productCalls().at(-1)).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
+  });
+
+  it('opens a publication of a product in the side panel, as the list does', async () => {
+    publicacionesMlAPI.detail.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    await products();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await user.click(await screen.findByText('MLA1100000001'));
+    expect(await screen.findByRole('complementary', { name: 'Detalle de la publicación' })).toBeInTheDocument();
+  });
+
+  it('does not offer the markup filters it does not apply', async () => {
+    canSeeMargin = true;
+    await products('/ml-publicaciones?vista=producto&markup_neg=1');
+    expect(screen.queryByText('Markup:')).not.toBeInTheDocument();
+    expect(productCalls()[0]).not.toHaveProperty('markup_neg');
   });
 });

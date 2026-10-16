@@ -624,3 +624,71 @@ export const DETAIL_LINKED_MARGIN = makeDetail({
   markup_breakdown: MARKUP_BREAKDOWN,
   can_resync: true,
 });
+
+/**
+ * Rows of `GET /ml-publications/view/products` (router `ProductsResponse`): one row per linked product over the
+ * selected MLAs, its figures the sum of its publications'. `metrics` has the publications' shape (`MetricsOut`),
+ * comes only with `ml_metricas.ver`, and is null when none of the product's publications has figures. The
+ * "Sin producto" row (no link) has no `product_item_id` and its `params` open the publications without a product.
+ */
+const productMetrics = (overrides = {}) => ({
+  units_7d: 1234,
+  units_30d: 12345,
+  series_units_90d: Array.from({ length: 90 }, (_, d) => 100 + (d % 9) * 20),
+  gross_30d: 123456789.5,
+  last_sale_at: '2026-10-14T13:05:00Z',
+  ageing_days: 0,
+  total_gauss_30d: 9876543.2,
+  markup_30d: 18.4,
+  markup_delta_pp: -1.2,
+  series_markup_90d: Array.from({ length: 90 }, (_, d) => (d % 7 === 0 ? null : 15 + (d % 5))),
+  ...overrides,
+});
+
+export const makeProductRow = (overrides = {}) => ({
+  key: '4101',
+  product_item_id: 4101,
+  codigo: 'ARCHER-AX55',
+  descripcion: 'Router Archer AX55',
+  marca: 'TP-LINK',
+  publications_count: 3,
+  stock: 12,
+  params: { producto: '4101' },
+  metrics: productMetrics(),
+  ...overrides,
+});
+
+export const PRODUCT_ROWS = [
+  makeProductRow(),
+  makeProductRow({
+    key: '4102',
+    product_item_id: 4102,
+    codigo: 'DECO-X20-3PACK-CON-UN-CODIGO-LARGO',
+    descripcion: 'Sistema Mesh Deco X20 pack x3 con una descripción bastante larga para ver cómo corta',
+    publications_count: 12,
+    metrics: productMetrics({ units_7d: 0, units_30d: 3, gross_30d: 45000, total_gauss_30d: -1500, markup_30d: -6.5, ageing_days: 24 }),
+  }),
+  makeProductRow({
+    key: '0',
+    product_item_id: null,
+    codigo: null,
+    descripcion: 'Sin producto',
+    marca: null,
+    publications_count: 2,
+    stock: null,
+    params: { sin_producto: 'true' },
+    metrics: productMetrics({ units_7d: 0, units_30d: 1, gross_30d: 1000, total_gauss_30d: 0, markup_30d: null }),
+  }),
+];
+
+export const productsResponse = (rows = PRODUCT_ROWS, overrides = {}) => ({
+  rows,
+  total: rows.length,
+  mla_count: 17,
+  limit: 50,
+  offset: 0,
+  orden: 'facturado_30d',
+  dir: 'desc',
+  can_see_margin: true,
+  ...overrides,
+});

@@ -78,6 +78,8 @@ export function columnChoicesOver(visibility, defaults) {
  * `agrupado` (the tree view) adds the node figures -- publication count and,
  * with the margin, negatives; the page makes the tree unsortable.
  * Its first column names the chain of levels of `dimension`, like Métricas ML.
+ * `producto` (the Producto view) adds the products' publication count and
+ * names the first column "Producto › Publicación".
  */
 export function buildColumns({
   eventsEnabled,
@@ -88,6 +90,7 @@ export function buildColumns({
   agrupado = false,
   dimension = 'marca',
   familias = false,
+  producto = false,
 }) {
   const withSales = (columns) => (canSeeSales ? columns : []);
   const withMargin = (columns) => (canSeeMargin ? columns : []);
@@ -95,7 +98,11 @@ export function buildColumns({
     {
       key: 'titulo',
       // The tree goes past Métricas' levels: [familia ›] publicación under each product.
-      header: agrupado ? `${chainHeader(dimension)}${familias ? ' › Familia' : ''} › Publicación` : 'Publicación',
+      header: agrupado
+        ? `${chainHeader(dimension)}${familias ? ' › Familia' : ''} › Publicación`
+        : producto
+          ? 'Producto › Publicación'
+          : 'Publicación',
       label: 'Publicación',
       width: 360,
       sortable: true,
@@ -109,12 +116,10 @@ export function buildColumns({
           <PublicationCell item={item} />
         ),
     },
-    ...(agrupado
-      ? [
-          { key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'right', render: () => null },
-          ...withMargin([{ key: 'negativos', header: 'Negativos', width: 110, align: 'right', render: () => null }]),
-        ]
+    ...(agrupado || producto
+      ? [{ key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'right', render: () => null }]
       : []),
+    ...(agrupado ? withMargin([{ key: 'negativos', header: 'Negativos', width: 110, align: 'right', render: () => null }]) : []),
     {
       key: 'estado',
       header: 'Estado',
