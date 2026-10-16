@@ -486,3 +486,25 @@ class TestBrokenCombo:
         assert _queue_row(pg_tp_engine, 901) is None
         assert result.detail["failed"] == 0
         assert result.detail["combo_failed"] == 1
+
+
+@pytest.mark.postgres
+class TestRowsResolvedOnce:
+    def test_an_item_that_is_also_a_combo_of_another_queued_item_is_examined_once(self, pg_tp_engine: Engine) -> None:
+        with _session(pg_tp_engine) as s:
+            _venta(s, 400, 900)  # a sale of the combo
+            _venta(s, 401, 901)  # a sale of its component
+            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=901, iasso_qty=1))
+            _hist(s, 900, 50, date(2026, 9, 1))  # queues the combo itself
+            _hist(s, 901, 30, date(2026, 9, 1))  # queues the component
+            s.commit()
+        assert _queued(pg_tp_engine) == [900, 901]
+
+        with _session(pg_tp_engine) as s:
+            batch = tp_cost_fill.fill_batch(s, limit=10)
+            s.commit()
+
+        assert batch.items == 2
+        assert batch.result.examined == 2
+        assert _tp(pg_tp_engine, 400)[0] == Decimal("50.0000")
+        assert _tp(pg_tp_engine, 401)[0] == Decimal("30.0000")

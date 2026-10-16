@@ -228,8 +228,16 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
     for row in rows:
         filas_por_producto.setdefault(row.producto_item_id, []).append(row)
 
+    # Each cost row is resolved at most ONCE per batch: a queued item can also
+    # be a combo of another queued item, which would reach its rows twice.
+    # Rows are taken when attempted, whatever the outcome -- a failed item's
+    # rows are retried with that item, not through another one.
+    vistas: Set[int] = set()
+
     def _filas(producto_item_id: int) -> List[Any]:
-        return filas_por_producto.get(producto_item_id, [])
+        nuevas = [row for row in filas_por_producto.get(producto_item_id, []) if row.id not in vistas]
+        vistas.update(row.id for row in nuevas)
+        return nuevas
 
     combos_hechos: Set[int] = set()
     for item_id in items:
