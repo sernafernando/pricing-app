@@ -760,7 +760,7 @@ export default function TabPedidosExport() {
         <div className={styles.statItem}>
           <span className={styles.statLabel}>ÚLTIMOS {estadisticas?.dias_filtro || 60} DÍAS</span>
           <span className={styles.statValue}>
-            {estadisticas?.fecha_desde ? parseDateOnly(estadisticas.fecha_desde)?.toLocaleDateString('es-AR') : '-'}
+            {estadisticas?.fecha_desde ? (parseDateOnly(estadisticas.fecha_desde)?.toLocaleDateString('es-AR') ?? '-') : '-'}
           </span>
         </div>
       </div>
