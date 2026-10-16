@@ -26,10 +26,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
+from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInPreviewIn
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
@@ -79,7 +82,10 @@ def _calcular(db: Session, data: SellInPreviewIn) -> _Calculo:
         if producto is None:
             raise SellInError(f"El item {linea.item_id} no existe")
         if linea.costo_base_unit is not None:
-            costo = linea.costo_base_unit
+            if linea.costo_base_unit < 0:
+                raise SellInError(f"El costo base no puede ser negativo (item {linea.item_id})")
+            # Same precision as a converted product cost, so the preview shows exactly what gets stored.
+            costo = linea.costo_base_unit.quantize(UNIT_PRECISION, rounding=ROUND_HALF_UP)
         elif producto.costo is None:
             raise SellInError(f"El item {linea.item_id} no tiene costo cargado: indicá el costo base a mano")
         else:
@@ -158,15 +164,40 @@ def _audit(db: Session, compra: SellInCompra, items: list[SellInCompraItem], tip
         )
 
 
+def _validar_referencias(db: Session, data: SellInCompraCreate) -> None:
+    """The supplier and purchase order, when given, must exist (a clear 422 instead of a foreign-key error)."""
+    if data.proveedor_id is not None and db.get(Proveedor, data.proveedor_id) is None:
+        raise SellInError(f"El proveedor {data.proveedor_id} no existe")
+    if data.pedido_compra_id is not None and db.get(PedidoCompra, data.pedido_compra_id) is None:
+        raise SellInError(f"El pedido de compra {data.pedido_compra_id} no existe")
+
+
 def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> SellInCompra:
-    """Recompute the split, freeze each line's cost and save the purchase with its audit rows (one transaction)."""
+    """Recompute the split, freeze each line's cost and save the purchase with its audit rows (one transaction).
+
+    A reference that disappears between the checks and the write (a concurrent delete) surfaces as a
+    foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too.
+    """
     if data.cuenta_desde == "ingreso" and data.fecha_ingreso is None:
         raise SellInError("Para contar desde el ingreso hace falta la fecha de ingreso")
+    _validar_referencias(db, data)
     try:
         calculo = _calcular(db, data)
     except SellInSplitError as exc:
         raise SellInError(str(exc)) from exc
 
+    try:
+        compra = _guardar(db, data, calculo, usuario_id)
+    except IntegrityError as exc:
+        db.rollback()
+        raise SellInError(
+            "No se pudo guardar la compra: el proveedor, el pedido de compra o algún item dejó de existir"
+        ) from exc
+    db.refresh(compra)
+    return compra
+
+
+def _guardar(db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_id: int) -> SellInCompra:
     compra = SellInCompra(
         proveedor_id=data.proveedor_id,
         pedido_compra_id=data.pedido_compra_id,
@@ -197,7 +228,6 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     db.flush()
     _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id, None)
     db.commit()
-    db.refresh(compra)
     return compra
 
 

@@ -8,13 +8,18 @@ portable SQL.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.empresa import Empresa
+from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP, TipoMoneda
-from app.models.sell_in import SellInCompra, SellInCompraItem
+from app.models.proveedor import Proveedor
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.services.sell_in import compras as compras_service
 
 BASE = "/api/sell-in/compras"
 VER = "sell_in.ver"
@@ -291,3 +296,153 @@ def test_create_from_goods_receipt_needs_its_date(client, gestor, productos):
 
     assert resp.status_code == 422
     assert "fecha de ingreso" in _message(resp).lower()
+
+
+# ── Supplier and purchase-order references ─────────────────────────
+
+
+@pytest.fixture()
+def proveedor(db):
+    row = Proveedor(nombre="TP-Link")
+    db.add(row)
+    db.flush()
+    return row
+
+
+@pytest.fixture()
+def pedido(db, proveedor, admin_user):
+    empresa = Empresa(nombre="Gauss", activo=True, orden=0)
+    db.add(empresa)
+    db.flush()
+    row = PedidoCompra(
+        numero="P-SI-00001",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="ARS",
+        monto=D("5000"),
+        estado="aprobado",
+        tipo="mercaderia",
+        creado_por_id=admin_user.id,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def test_create_keeps_a_known_supplier_and_purchase_order(client, gestor, productos, proveedor, pedido, db):
+    data = _crear(client, gestor, proveedor_id=proveedor.id, pedido_compra_id=pedido.id)
+
+    compra = db.get(SellInCompra, data["id"])
+    assert (compra.proveedor_id, compra.pedido_compra_id) == (proveedor.id, pedido.id)
+
+
+@pytest.mark.parametrize(
+    "overrides,fragment",
+    [({"proveedor_id": 987654}, "proveedor 987654"), ({"pedido_compra_id": 987654}, "pedido de compra 987654")],
+)
+def test_create_rejects_unknown_references(client, gestor, productos, db, overrides, fragment):
+    resp = client.post(BASE, json=_create_body(**overrides), headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert fragment in _message(resp)
+    assert db.query(SellInCompra).count() == 0
+
+
+def test_create_turns_an_integrity_error_into_a_422_and_rolls_back(client, gestor, productos, db, monkeypatch):
+    """A reference that disappears between the check and the write (a race) is a 422, not a raw 500."""
+    monkeypatch.setattr(compras_service, "_validar_referencias", lambda db, data: None)
+
+    resp = client.post(BASE, json=_create_body(proveedor_id=987654), headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    assert "no se pudo guardar" in _message(resp).lower()
+    assert db.query(SellInCompra).count() == 0
+    assert db.query(SellInCompraItem).count() == 0
+    assert db.query(Auditoria).count() == 0
+
+
+# ── Client cost override ─────────────────────────────────────────
+
+
+def test_a_negative_cost_override_is_rejected(client, gestor, productos):
+    body = _preview_body(lineas=[{"item_id": 4512, "cantidad": 1, "costo_base_unit": "-1"}])
+    for url in (f"{BASE}/preview", BASE):
+        resp = client.post(url, json={**_create_body(), **body}, headers=gestor)
+        assert resp.status_code == 422, resp.text
+        assert "negativo" in _message(resp).lower()
+
+
+def test_a_cost_override_is_rounded_like_product_costs_in_preview_and_record(client, gestor, productos, db):
+    lineas = [{"item_id": 4512, "cantidad": 3, "costo_base_unit": "100.12345678"}]
+    preview = client.post(f"{BASE}/preview", json=_preview_body(lineas=lineas, monto_total="30.00"), headers=gestor)
+    assert preview.status_code == 200, preview.text
+    data = _crear(client, gestor, lineas=lineas, monto_total="30.00")
+
+    expected = D("100.123457")  # ROUND_HALF_UP to UNIT_PRECISION (6 decimals)
+    assert D(preview.json()["lineas"][0]["costo_base_unit"]) == expected
+    assert D(data["items"][0]["costo_base_unit"]) == expected
+    item = db.query(SellInCompraItem).filter_by(compra_id=data["id"]).one()
+    assert D(item.costo_base_unit) == expected
+    assert D(preview.json()["lineas"][0]["costo_con_sell_in_unit"]) == D(data["items"][0]["costo_con_sell_in_unit"])
+
+
+# ── Consumed units ───────────────────────────────────────────────
+
+
+def test_serialized_lines_count_consumed_and_remaining_units(client, gestor, productos, db):
+    data = _crear(client, gestor)
+    ids = {i["item_id"]: i["id"] for i in data["items"]}
+    for venta_ref, unidades in ((1, 3), (2, 4)):
+        db.add(
+            SellInConsumo(
+                compra_item_id=ids[4512],
+                canal="ml",
+                venta_ref=venta_ref,
+                item_id=4512,
+                fecha_venta=date(2026, 10, 2),
+                unidades=unidades,
+                descuento_ars=D("25.00") * unidades,
+            )
+        )
+    db.add(
+        SellInConsumo(
+            compra_item_id=ids[4513],
+            canal="fuera",
+            venta_ref=9,
+            item_id=4513,
+            fecha_venta=date(2026, 10, 3),
+            unidades=10,
+            descuento_ars=D("750.00"),
+        )
+    )
+    db.flush()
+
+    (row,) = compras_service.serializar(db, [db.get(SellInCompra, data["id"])])
+
+    por_item = {i["item_id"]: i for i in row["items"]}
+    assert (por_item[4512]["unidades_consumidas"], por_item[4512]["unidades_restantes"]) == (7, 3)
+    assert (por_item[4513]["unidades_consumidas"], por_item[4513]["unidades_restantes"]) == (10, 0)
+    assert (row["unidades_total"], row["unidades_consumidas"], row["unidades_restantes"]) == (20, 17, 3)
+
+
+# ── USD purchase ─────────────────────────────────────────────────
+
+
+def test_create_in_usd_freezes_the_ars_cost_converted_with_its_own_rate(client, gestor, productos, db):
+    data = _crear(
+        client,
+        gestor,
+        moneda="USD",
+        tipo_cambio="1250.5",
+        monto_total="2.00",
+        lineas=[{"item_id": 4512, "cantidad": 10}, {"item_id": 4514, "cantidad": 1}],
+    )
+
+    compra = db.get(SellInCompra, data["id"])
+    assert compra.moneda == "USD"
+    assert D(compra.tipo_cambio) == D("1250.5")
+    assert (data["moneda"], D(data["tipo_cambio"])) == ("USD", D("1250.5"))
+    costos = {i.item_id: D(i.costo_base_unit) for i in db.query(SellInCompraItem).filter_by(compra_id=compra.id)}
+    assert costos[4512] == D("0.079968")  # 100 ARS / 1250.5, half up to 6 decimals
+    assert costos[4514] == D("10")  # already in USD: not converted
