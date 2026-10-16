@@ -19,6 +19,7 @@ import { flattenTree } from './groupTree';
  * request of the previous list is dropped.
  */
 const ROOT = '';
+const NO_SUMMARY = { total: 0, mlaCount: 0 };
 
 /** A row of `/view/products` as a leaf node of the tree. `metrics` is absent without `ml_metricas.ver`. */
 export function readProduct(raw) {
@@ -47,7 +48,8 @@ function appendPage(rows, page) {
 export default function useProductRows({ filters, pageSize, canSeeSales = false, canSeeMargin = false, enabled = true }) {
   const [branches, setBranches] = useState({});
   const [expanded, setExpanded] = useState(() => new Set());
-  const [summary, setSummary] = useState({ total: 0, mlaCount: 0 });
+  // The pager's figures belong to ONE list: a new list starts without them, and keeps none if it fails.
+  const [summary, setSummary] = useState(NO_SUMMARY);
   const generation = useRef(0);
   const inflight = useRef(new Set());
   const permissions = useMemo(() => ({ canSeeSales, canSeeMargin }), [canSeeSales, canSeeMargin]);
@@ -65,8 +67,10 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     const { filters: current, pageSize: size, permissions: allowed } = latest.current;
     const mine = generation.current;
     const page = `${key}@${offset}`;
-    if (inflight.current.has(page)) return;
-    inflight.current.add(page);
+    // This generation's guard: a late answer of an older list settles in its own Set, never in the current one.
+    const pending = inflight.current;
+    if (pending.has(page)) return;
+    pending.add(page);
     const leaf = key !== ROOT;
     setBranches((all) => ({
       ...all,
@@ -77,7 +81,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
       : publicacionesMlAPI.products(buildProductsParams(current, size, allowed));
     request
       .then((response) => {
-        inflight.current.delete(page);
+        pending.delete(page);
         if (mine !== generation.current) return;
         if (!leaf) {
           const rows = (response.data?.rows ?? []).map(readProduct);
@@ -98,7 +102,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
         }));
       })
       .catch((error) => {
-        inflight.current.delete(page);
+        pending.delete(page);
         if (mine !== generation.current) return;
         setBranches((all) => ({ ...all, [key]: { ...all[key], status: 'error', error } }));
       });
@@ -109,6 +113,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     inflight.current = new Set();
     setExpanded(new Set());
     setBranches({});
+    setSummary(NO_SUMMARY);
     if (listKey) fetchPage(ROOT, null, 0);
   }, [listKey, fetchPage]);
 

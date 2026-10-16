@@ -77,6 +77,9 @@ function Harness({ filters = FILTERS, canSeeSales = true, canSeeMargin = true, o
 }
 
 const rowOf = (text) => screen.getByText(text).closest('tr');
+// Métricas ML's figures (`ml_metricas.ver`) and, among them, the margin ones (`ml_metricas.ver_ganancia`).
+const FIGURE_HEADERS = ['7D', '30D', 'Facturado 30D', 'Total Gauss 30D', 'Real 30D', 'Última venta', 'Ageing'];
+const MARGIN_HEADERS = ['Total Gauss 30D', 'Real 30D', 'Actual'];
 
 beforeEach(() => {
   publicacionesMlAPI.products.mockReset();
@@ -199,5 +202,21 @@ describe('a new product list', () => {
     render(<Harness canSeeSales={false} canSeeMargin={false} />);
     await screen.findByText('Router Archer AX55');
     expect(productCalls()[0]).toMatchObject({ orden: 'titulo', dir: 'asc' });
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    for (const figure of FIGURE_HEADERS) expect(headers.some((text) => text.includes(figure)), figure).toBe(false);
+    expect(screen.getByRole('columnheader', { name: /Publicaciones/ })).toBeInTheDocument();
+    const row = rowOf('Router Archer AX55');
+    expect(within(row).queryByText('12.345')).not.toBeInTheDocument(); // the fixture's units 30d
+  });
+
+  it('with ml_metricas.ver but without ver_ganancia shows the sales and no margin', async () => {
+    render(<Harness canSeeSales canSeeMargin={false} />);
+    await screen.findByText('Router Archer AX55');
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(headers.some((text) => text.includes('30D'))).toBe(true);
+    for (const margin of MARGIN_HEADERS) expect(headers.some((text) => text.includes(margin)), margin).toBe(false);
+    const row = rowOf('Router Archer AX55');
+    expect(within(row).getByText('12.345')).toBeInTheDocument();
+    expect(within(row).queryByText(/18,4/)).not.toBeInTheDocument(); // the fixture's real markup
   });
 });
