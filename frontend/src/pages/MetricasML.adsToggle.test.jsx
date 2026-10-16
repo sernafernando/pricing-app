@@ -74,11 +74,20 @@ describe('MetricasML ads toggle', () => {
     expect(screen.getByText('$ 410.200,00')).toBeInTheDocument();
   });
 
-  it('keeps the CSV as it is today: the export never carries the position', async () => {
+  it('exports the CSV at the same position as the board', async () => {
     board = withAds(ADS_KPIS);
     await renderWithRouter(<MetricasML />);
     await userEvent.click(within(await control()).getByRole('button', { name: 'Restar toda la publicidad' }));
     await waitFor(() => expect(lastBoardParams().publicidad).toBe('todo'));
+
+    await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
+    await waitFor(() => expect(exportMetricasCsv).toHaveBeenCalled());
+    expect(exportMetricasCsv.mock.calls[0][0].publicidad).toBe('todo');
+  });
+
+  it('keeps the CSV without ads when the position is "Sin publicidad"', async () => {
+    await renderWithRouter(<MetricasML />);
+    await waitFor(() => expect(boardCalls().length).toBeGreaterThan(0));
 
     await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
     await waitFor(() => expect(exportMetricasCsv).toHaveBeenCalled());
