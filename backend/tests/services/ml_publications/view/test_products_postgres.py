@@ -238,3 +238,41 @@ def test_a_link_to_a_product_missing_from_the_catalog_is_its_own_row(store) -> N
     assert dangling.publications_count == 1
     assert "MLA8" not in expansion(store, rows[NO_PRODUCT], estado="active")
     assert rows[NO_PRODUCT].publications_count == len(expansion(store, rows[NO_PRODUCT], estado="active"))
+
+
+def _more(store, *rows) -> None:
+    """Extra publications for one test: (mla, product to add or None, its code, its description, link target, status)."""
+    conn = store.connection()
+    for mla, product, codigo, descripcion, link_to, match_status, stock in rows:
+        if product is not None:
+            seed.add_product(conn, product, codigo, descripcion, stock=stock)
+        seed.add_item(conn, mla, status="active")
+        seed.add_link(conn, mla, link_to, match_status=match_status)
+    store.commit()
+
+
+def test_sorted_by_name_is_by_what_the_row_shows_with_sin_producto_last(store) -> None:
+    _more(
+        store,
+        ("MLA8", 73, "AAA-73", None, 73, "linked", None),  # no description: the row shows its code
+        ("MLA9", None, None, None, 99, "linked", None),  # dangling: the row shows "Producto #99"
+    )
+    asc = [row.title for row in page(store, "titulo", False, estado="active").rows]
+    assert asc == ["AAA-73", "Antena", "Producto #99", "Router AX", "Switch 8p", "Sin producto"]
+    desc = [row.title for row in page(store, "titulo", True, estado="active").rows]
+    assert desc == ["Switch 8p", "Router AX", "Producto #99", "Antena", "AAA-73", "Sin producto"]
+
+
+def test_the_stock_is_the_erp_stock_of_items_only_through_a_linked_link(store) -> None:
+    """Same rule as `/items` (`filters.erp_stock`): only a `linked` link gives a product its ERP stock. A conflict
+    link names no product (the table's CHECK: `linked` <=> `producto_item_id` set), so its publication sits in
+    "Sin producto", which has no stock -- the candidate product's stock never leaks in."""
+    conn = store.connection()
+    seed.add_product(conn, 74, "D74", "Mouse", stock=5)
+    seed.add_item(conn, "MLA8", status="active")
+    seed.add_link(conn, "MLA8", None, match_status="conflict")
+    store.commit()
+    rows = by_product(page(store, estado="active"))
+    assert 74 not in rows
+    assert rows[NO_PRODUCT].stock is None and "MLA8" in expansion(store, rows[NO_PRODUCT], estado="active")
+    assert rows[70].stock == 9  # a linked link keeps it

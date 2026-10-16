@@ -44,6 +44,7 @@ from app.services.ml_publications.view.filters import (
     PublicationFilter,
     T,
     build_base_select,
+    erp_stock,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
 
@@ -55,7 +56,7 @@ PRODUCT_SORTS: dict[str, tuple[str, bool, bool]] = {
     "unidades_30d": ("w30d", False, True),
     "markup_30d": ("markup", True, True),
     "total_gauss_30d": ("tg", True, True),
-    "titulo": ("descripcion", False, False),
+    "titulo": ("name", False, False),
 }
 DEFAULT_SORT = "facturado_30d"
 NEUTRAL_SORT = "titulo"  # the default for a caller who may not see Métricas' figures
@@ -100,7 +101,7 @@ def _members(mla_set: Any) -> Any:
             T.p.descripcion,
             T.p.codigo,
             T.p.marca,
-            T.p.stock,
+            erp_stock().label("stock"),  # `/items`' own rule: only a `linked` link gives the ERP stock
         )
         .select_from(mla_set)
         .outerjoin(T.l, and_(T.l.item_id == mla_set.c.mla, T.l.variation_id == LINK_ITEM_LEVEL))
@@ -130,26 +131,44 @@ def _summed(members: Any, rows: Any) -> Any:
         .subquery("products")
     )
     markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
-    return select(*g.c, markup.label("markup")).subquery("product_rows")
+    # What the row shows (and its name sort): the description, else the code, else the link's id -- a product gone
+    # from the catalog keeps a name of its own; "Sin producto" for the publications with no linked product.
+    name = case(
+        (g.c.product == NO_PRODUCT, literal(NO_PRODUCT_LABEL)),
+        else_=func.coalesce(
+            func.nullif(g.c.descripcion, ""),
+            func.nullif(g.c.codigo, ""),
+            literal("Producto #") + cast(g.c.product, String),
+        ),
+    )
+    return select(*g.c, markup.label("markup"), name.label("name")).subquery("product_rows")
 
 
 def _ordered(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
     column = rows.c[PRODUCT_SORTS[key][0]]
     if key == NEUTRAL_SORT:
-        figure = func.lower(column)  # "Sin producto" has no name: last either way
-    else:
-        figure = case((rows.c.units > 0, column), else_=None)  # no sale in the 30 days: no figure, last
+        # By the name the row shows, case-insensitively; "Sin producto" is not a name: pinned last either way.
+        name = func.lower(column)
+        return (
+            (rows.c.product == NO_PRODUCT).asc(),
+            name.desc() if descending else name.asc(),
+            rows.c.product.asc(),
+        )
+    figure = case((rows.c.units > 0, column), else_=None)  # no sale in the 30 days: no figure, last
     return ((figure.desc() if descending else figure.asc()).nulls_last(), rows.c.product.asc())
 
 
 def _row(r: Any, today: date) -> board.Row:
     product = int(r["product"])
+    # ponytail: `board._as_date`, `_as_datetime` and `_as_aware` are the Board's private readers of its temp-table
+    # values (SQLite text vs Postgres types); reused so a product row reads them exactly as the Board's own rows do.
+    # Switch to their public names once PR #1595 (which owns `ml_daily_metrics/board.py` now) merges.
     ref_day = board._as_date(r["last_day"]) or board._as_date(r["start_day"])
     return board.Row(
         key=str(product),
         product_item_id=product,
         mla=None,
-        title=NO_PRODUCT_LABEL if product == NO_PRODUCT else r["descripcion"] or r["codigo"] or f"Producto #{product}",
+        title=r["name"],
         sku=r["codigo"],
         marca=r["marca"],
         publications_count=int(r["pubs"]),
@@ -163,9 +182,9 @@ def _row(r: Any, today: date) -> board.Row:
         prev_costo=board.cents(r["prev_costo"]),
         windows={name: int(r[column] or 0) for name, column in WINDOW_COLUMNS.items()},
         units_24h=int(r["u24"] or 0),
-        last_sale_at=board._as_aware(board._as_datetime(r["last_at"])),
+        last_sale_at=board._as_aware(board._as_datetime(r["last_at"])),  # ponytail: see `_as_date` above
         ageing_days=(today - ref_day).days if ref_day else None,
-        stock=int(r["stock"]) if r["stock"] is not None and product != NO_PRODUCT else None,
+        stock=int(r["stock"]) if r["stock"] is not None else None,
     )
 
 
@@ -193,6 +212,9 @@ def _series(b: board.Board, members: Any, by_key: dict[str, board.Row]) -> None:
         )
         .group_by(members.c.product, lines.c.day)
     )
+    # ponytail: `Board._read_series` is private; it is the Board's own series reader (each day's markup from that
+    # day's summed components), reused so a product's sparklines equal the sum of its publications'. Switch to its
+    # public name once PR #1595 (which owns `ml_daily_metrics/board.py` now) merges.
     b._read_series(by_key, series)
 
 
