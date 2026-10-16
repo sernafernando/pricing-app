@@ -23,6 +23,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models.ml_sale_line import MlSaleLine
 from app.services.ml_daily_metrics.sales import sale_lines
+from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 from app.services.order_metrics.sale_lines_store import STORED_COLUMNS
 from app.services.order_metrics.store import store_order_metrics
 from app.services.order_metrics.types import GaussStatus, OrderMetrics
@@ -52,7 +53,7 @@ def _metrics(
         gauss_status=GaussStatus.OK if resolved else GaussStatus.UNRESOLVED,
         provisional_falta=None,
         unresolved_reason=None if resolved else "sin_pagos",
-        formula_version=6,
+        formula_version=CURRENT_FORMULA_VERSION,
         computed_at=datetime.now(timezone.utc),
         costo_tp=Decimal(costo_tp) if costo_tp is not None else None,
         total_tp=Decimal(total_tp) if total_tp is not None else None,
