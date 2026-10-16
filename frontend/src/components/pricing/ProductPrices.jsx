@@ -5,7 +5,9 @@ import { useOffsetsVigentes } from '../../hooks/useOffsetsVigentes';
 import { costoConOffset, markupConOffset, requiereTipoCambio } from '../../utils/offsetsGanancia';
 import { formatMarkupInput, formatPrecioInput, parseMarkupInput, parsePrecioInput } from '../../utils/precioInput';
 import { formatAmount } from '../../utils/ventasMlFormat';
-import { markupTone } from '../../utils/ventasMlTone';
+import { Empty, MarkupChip } from './PriceParts';
+import { formatRate, isBlank } from './priceFormat';
+import ProductToggles from './ProductToggles';
 import styles from './ProductPrices.module.css';
 
 /**
@@ -72,28 +74,10 @@ const LISTS = [
   },
 ];
 
-const isBlank = (value) => value === null || value === undefined;
-
 const errorText = (error, fallback) => {
   const detail = error?.response?.data?.detail;
   return typeof detail === 'string' && detail ? detail : fallback;
 };
-
-const Empty = () => <span className={styles.empty}>—</span>;
-
-/**
- * A markup painted by the app's markup scale (`markupTone`: negative, low
- * under 6%, good), the same cut points as the Métricas and Publicaciones ML
- * markups. Unknown is "—" with no colour, never 0.
- */
-function MarkupChip({ value }) {
-  if (isBlank(value)) return <Empty />;
-  return (
-    <span className={styles.chip} data-tone={markupTone(value) ?? undefined}>
-      {formatAmount(value)}%
-    </span>
-  );
-}
 
 /** The user's Productos preference for recalculating instalments, default on. */
 function recalcularCuotasPreference() {
@@ -138,8 +122,6 @@ function writePrice(row, itemId, precio, product) {
   }
   return preciosAPI.setCuota({ item_id: itemId, tipo_cuota: row.cuota, precio, lista_tipo: row.listaTipo });
 }
-
-const formatRate = (value) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(Number(value));
 
 /**
  * The current USD rate (`venta`, the one pricing converts costs with), read
@@ -348,7 +330,8 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
 
 /**
  * The prices of ONE product (ML list and PVP, clásica and instalments) with
- * their markups, as `GET /productos/{item_id}` stores them. It needs only the
+ * their markups, then its rebate, best offer and web transferencia
+ * (ProductToggles), as `GET /productos/{item_id}` stores them. It needs only the
  * product's `item_id`, so the panel of a publication mounts it today and a
  * product row can mount it later. A missing price or markup is "—" (an older
  * backend sends no instalment markups), never 0.
@@ -420,17 +403,38 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
   // After a write the stored prices and markups are the backend's: read them again.
   const isShown = (itemId) => shownItemRef.current === itemId;
 
-  const afterWrite = async (itemId) => {
-    setMessage({ tone: 'ok', text: 'Precio guardado.' });
+  const afterWrite = async (itemId, saved = 'Precio guardado') => {
+    setMessage({ tone: 'ok', text: `${saved}.` });
     try {
       const fresh = await load();
       if (!isShown(itemId)) return;
       setState({ status: 'ready', product: fresh, error: null });
     } catch {
       if (!isShown(itemId)) return;
-      setMessage({ tone: 'error', text: 'Precio guardado, pero no se pudieron releer los precios.' });
+      setMessage({ tone: 'error', text: `${saved}, pero no se pudieron releer los precios.` });
     }
     onWritten?.();
+  };
+
+  /**
+   * A rebate / web transferencia / fuera de tarjetas write (ProductToggles):
+   * the same re-read and report as a price. Resolves true when it was saved.
+   */
+  const saveToggle = async (write, { saved, fallback }) => {
+    const itemId = productItemId;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await write(itemId);
+      if (!isShown(itemId)) return false;
+      await afterWrite(itemId, saved);
+      return true;
+    } catch (error) {
+      if (isShown(itemId)) setMessage({ tone: 'error', text: errorText(error, fallback) });
+      return false;
+    } finally {
+      if (isShown(itemId)) setSaving(false);
+    }
   };
 
   const save = async (row, value, force = false) => {
@@ -630,6 +634,15 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
               </table>
             </section>
           ))}
+
+          <ProductToggles
+            key={productItemId}
+            product={product}
+            permissions={permissions}
+            saving={saving}
+            onSave={saveToggle}
+            onInvalid={(text) => setMessage({ tone: 'error', text })}
+          />
 
           {pending && (
             <div className={pending.kind === 'markup' ? styles.preview : styles.warning} role={pending.kind === 'markup' ? 'status' : 'alert'}>

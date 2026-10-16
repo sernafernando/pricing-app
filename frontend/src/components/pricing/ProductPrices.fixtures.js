@@ -35,3 +35,26 @@ export const PRODUCTO = {
   markup_pvp_12_cuotas: null,
   recalcular_cuotas_auto: null,
 };
+
+// The rebate, best offer and web transferencia fields of the same response,
+// for a product that has all three (GET /productos/{item_id} computes them as
+// the Productos listing does).
+export const PRODUCTO_CON_REBATE_Y_OFERTA = {
+  ...PRODUCTO,
+  participa_rebate: true,
+  porcentaje_rebate: 3.8,
+  precio_rebate: 102391.37,
+  markup_rebate: 21.3,
+  out_of_cards: false,
+  mejor_oferta_precio: 92000,
+  mejor_oferta_monto_rebate: 4000,
+  mejor_oferta_pvp_seller: 96000,
+  mejor_oferta_markup: 0.1234,
+  mejor_oferta_porcentaje_rebate: 4.17,
+  mejor_oferta_fecha_hasta: '2099-12-31',
+  participa_web_transferencia: true,
+  porcentaje_markup_web: 6,
+  precio_web_transferencia: 95000,
+  markup_web_real: 24.4,
+  preservar_porcentaje_web: false,
+};

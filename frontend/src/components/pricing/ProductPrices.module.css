@@ -174,6 +174,15 @@
   color: var(--tone-purple-fg);
 }
 
+/* Rebate, best offer and web transferencia (ProductToggles): warning amber. */
+.group[data-list='extras'] {
+  border-left-color: var(--tone-warning-fg);
+}
+
+.group[data-list='extras'] .captionTitle {
+  color: var(--tone-warning-fg);
+}
+
 .captionSub {
   display: block;
   font-size: var(--font-xs);
@@ -323,6 +332,41 @@
 .warningActions {
   display: flex;
   gap: var(--spacing-sm);
+}
+
+/* A detail line under a row label (rebate %, the offer's end date, ...). */
+.sub {
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+  white-space: normal;
+  color: var(--cf-text-secondary);
+}
+
+.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--spacing-xs);
+}
+
+/* Rebate / web transferencia editor, under its card. */
+.editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: var(--spacing-sm);
+  border-top: 1px solid var(--cf-border-default);
+  background: var(--tone-info-bg);
+  font-size: var(--font-sm);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--cf-text-primary);
 }
 
 .srOnly {
