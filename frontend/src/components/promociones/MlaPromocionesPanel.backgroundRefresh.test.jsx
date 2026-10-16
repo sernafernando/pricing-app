@@ -67,7 +67,12 @@ describe('MlaPromocionesPanel - background refresh', () => {
 
     expect(await screen.findByText('Deal promo')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(REFRESHING);
-    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_BG');
+    // The "updating" state is derived in the same render the mirror lands in; the pull itself starts in a
+    // passive effect React flushes in a LATER task, so `findByText` can resolve before the call is made.
+    // `pull` is never resolved here, so waiting for the call cannot reach a settled refresh.
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_BG'));
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent(REFRESHING);
     // The refresh is the ONLY thing still pending: the first read did not wait for it.
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
   });
