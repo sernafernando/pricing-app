@@ -260,7 +260,12 @@ def _promotion_entry(path: str, old: Any, new: Any, match: "re.Match[str]") -> l
     new = new if isinstance(new, dict) else {}
     about = text_of(new.get("name") or old.get("name") or match.group(1))
     before_state = promotion_status_label(old.get("status")) if old else None
-    after_state = promotion_status_label(new.get("status")) if new else (NO_LONGER_OFFERED if old else None)
+    if new:
+        after_state = promotion_status_label(new.get("status"))
+    elif old:  # it left the list: an applied one finished, one never applied is no longer offered
+        after_state = promotion_status_label("finished") if old.get("status") == "started" else NO_LONGER_OFFERED
+    else:
+        after_state = None
     promo_type = names(PROMOTION_TYPES)
     rows = [
         Row(path, "Promoción", text_of(old.get("name")), text_of(new.get("name")), False, about),

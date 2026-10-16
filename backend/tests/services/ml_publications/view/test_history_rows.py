@@ -111,6 +111,13 @@ class TestPromotions:
             "Cupón del vendedor"
         )
 
+    def test_an_applied_promotion_that_left_the_list_is_finished_not_no_longer_offered(self) -> None:
+        """71677: C-MLA1717163 (started, "A PVP TODO") removed from the list."""
+        rows = [row for row in rows_of(71677) if row.path == "[C-MLA1717163]"]
+        state = one(rows, "Estado de la promoción")
+        assert (state.before, state.after, state.status_label) == ("Aplicada", "Finalizada", "Finalizada")
+        assert state.subject == "A PVP TODO"
+
     def test_a_candidate_without_a_price_has_no_price_row(self) -> None:
         rows = [row for row in rows_of(9282) if row.path == "[C-MLA1717457]"]
         assert by_label(rows, "Precio de la promoción") == []

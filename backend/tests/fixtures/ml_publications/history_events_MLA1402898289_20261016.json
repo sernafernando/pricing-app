@@ -473,6 +473,139 @@
    ]
   },
   {
+   "id": 71677,
+   "resource_type": "promotions",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-13T19:11:18.698193+00:00",
+   "changes": [
+    {
+     "p": "[C-MLA1664342].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1664342].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[C-MLA1669550].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1669550].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[C-MLA1684530].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1684530].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[C-MLA1713282].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1713319].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1713469].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1713491].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1717163]",
+     "op": "remove",
+     "old": {
+      "id": "C-MLA1717163",
+      "name": "A PVP TODO",
+      "type": "SELLER_CAMPAIGN",
+      "price": 77000,
+      "status": "started",
+      "sub_type": "FLEXIBLE_PERCENTAGE",
+      "start_date": "2026-10-10T00:00:00",
+      "finish_date": "2026-10-10T23:59:59",
+      "original_price": 91193
+     }
+    },
+    {
+     "p": "[C-MLA1717457].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1717475].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[P-MLA18067012].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[P-MLA18067012].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[P-MLA18119024].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[P-MLA18119024].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[PRICE_DISCOUNT].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[PRICE_DISCOUNT].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    }
+   ]
+  },
+  {
    "id": 123143,
    "resource_type": "promotions",
    "kind": "change",
