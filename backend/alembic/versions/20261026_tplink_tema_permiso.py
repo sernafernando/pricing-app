@@ -2,13 +2,11 @@
 
 `tplink.tema` only turns on the TP-Link theme (colors and logo across the
 interface). It carries no data restriction: the TP-only data lock is
-`tplink.solo`, which comes later. Granted to no role; give it per user.
-
-NOTE: chained on the current head of main; re-chain on top of the sell-in
-permissions migration once that PR merges.
+`tplink.solo`, which comes later. Granted to no role; give it per user. It is an
+opt-in code (OPT_IN_PERMISSION_CODES), so SUPERADMIN has it only when granted.
 
 Revision ID: 20261026_tplink_tema_permiso
-Revises: 20261024_sell_in_tables
+Revises: 20261025_tp_cost_columns
 Create Date: 2026-10-26
 
 """
@@ -16,7 +14,7 @@ Create Date: 2026-10-26
 from alembic import op
 
 revision = "20261026_tplink_tema_permiso"
-down_revision = "20261024_sell_in_tables"
+down_revision = "20261025_tp_cost_columns"
 branch_labels = None
 depends_on = None
 

@@ -15,7 +15,7 @@ from alembic.script import ScriptDirectory
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _REVISION = "20261026_tplink_tema_permiso"
-_DOWN_REVISION = "20261024_sell_in_tables"
+_DOWN_REVISION = "20261025_tp_cost_columns"
 _FILE = Path(_BACKEND_ROOT) / "alembic" / "versions" / "20261026_tplink_tema_permiso.py"
 
 
