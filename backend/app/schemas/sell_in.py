@@ -12,12 +12,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 Moneda = Literal["ARS", "USD"]
 Formula = Literal["proporcional", "por_unidad", "manual"]
 CuentaDesde = Literal["compra", "ingreso"]
 Estado = Literal["activa", "anulada"]
+
+MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 
 
 class SellInLineaIn(BaseModel):
@@ -44,6 +46,10 @@ class SellInCompraCreate(SellInPreviewIn):
     proveedor_id: Optional[int] = None
     pedido_compra_id: Optional[int] = None
     descripcion: Optional[str] = None
+
+
+class SellInAnularIn(BaseModel):
+    motivo: Optional[str] = Field(default=None, max_length=MOTIVO_MAX)
 
 
 class SellInPreviewLinea(BaseModel):
@@ -102,3 +108,10 @@ class SellInCompraOut(BaseModel):
     unidades_consumidas: int
     unidades_restantes: int
     items: list[SellInCompraItemOut]
+
+
+class SellInCompraListOut(BaseModel):
+    items: list[SellInCompraOut]
+    total: int
+    page: int
+    page_size: int

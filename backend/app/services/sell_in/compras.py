@@ -1,4 +1,4 @@
-"""Sell-in purchases: preview and load.
+"""Sell-in purchases: preview, load, list, detail and void.
 
 The preview and the load run the SAME code (`_calcular`): the server resolves
 each line's base cost and splits the total with `split.preview`, so what the
@@ -15,13 +15,15 @@ informational in Productos. A line can override the cost (`costo_base_unit`
 in the body), already in the purchase currency.
 
 A load freezes that cost on every line. A purchase is never edited nor deleted:
-it can only be voided (`anulada`).
+it can only be voided (`anulada`), once; the reason goes to the audit rows.
+The list and the detail report each line's consumed units (the sum of its
+`sell_in_consumos`) and the units still left.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
@@ -40,6 +42,10 @@ from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitEr
 
 class SellInError(ValueError):
     """The request cannot be served as asked; the message is for the operator."""
+
+
+class SellInYaAnulada(SellInError):
+    """The purchase was already voided."""
 
 
 def _moneda(value) -> str:
@@ -139,7 +145,15 @@ def calcular_preview(db: Session, data: SellInPreviewIn) -> dict:
     }
 
 
-def _audit(db: Session, compra: SellInCompra, items: list[SellInCompraItem], tipo: TipoAccion, usuario_id: int):
+def _audit(
+    db: Session,
+    compra: SellInCompra,
+    items: list[SellInCompraItem],
+    tipo: TipoAccion,
+    usuario_id: int,
+    motivo: Optional[str] = None,
+) -> None:
+    """One audit row per line; `motivo` (the void's reason, if any) goes to `comentario`."""
     fecha = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC, like the column's default
     for item in items:
         valores = {
@@ -158,7 +172,7 @@ def _audit(db: Session, compra: SellInCompra, items: list[SellInCompraItem], tip
                 valores_anteriores=None,
                 valores_nuevos=valores,
                 es_masivo=0,
-                comentario=None,
+                comentario=motivo,
                 fecha=fecha,
             )
         )
@@ -229,6 +243,58 @@ def _guardar(db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_i
     _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id)
     db.commit()
     return compra
+
+
+def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
+    """Void a purchase. None when it does not exist; `SellInYaAnulada` on a second call."""
+    compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
+    if compra is None:
+        return None
+    if compra.estado == "anulada":
+        raise SellInYaAnulada(f"La compra {compra_id} ya está anulada")
+    compra.estado = "anulada"
+    items = db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
+    _audit(db, compra, list(items), TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
+    db.commit()
+    db.refresh(compra)
+    return compra
+
+
+def listar_compras(
+    db: Session,
+    *,
+    item_id: Optional[int] = None,
+    proveedor_id: Optional[int] = None,
+    estado: Optional[str] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> tuple[list[SellInCompra], int]:
+    """One page of purchases, newest purchase date first; the date range is inclusive on `fecha_compra`."""
+    query = db.query(SellInCompra)
+    if item_id is not None:
+        query = query.filter(
+            db.query(SellInCompraItem)
+            .filter(SellInCompraItem.compra_id == SellInCompra.id, SellInCompraItem.item_id == item_id)
+            .exists()
+        )
+    if proveedor_id is not None:
+        query = query.filter(SellInCompra.proveedor_id == proveedor_id)
+    if estado is not None:
+        query = query.filter(SellInCompra.estado == estado)
+    if fecha_desde is not None:
+        query = query.filter(SellInCompra.fecha_compra >= fecha_desde)
+    if fecha_hasta is not None:
+        query = query.filter(SellInCompra.fecha_compra <= fecha_hasta)
+    total = query.count()
+    compras = (
+        query.order_by(SellInCompra.fecha_compra.desc(), SellInCompra.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return compras, total
 
 
 def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
