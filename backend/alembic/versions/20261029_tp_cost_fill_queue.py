@@ -34,14 +34,16 @@ _UPGRADE = [
     """
 CREATE TABLE IF NOT EXISTS tp_cost_fill_queue (
     item_id INTEGER PRIMARY KEY,
-    enqueued_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    enqueued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
 )
 """,
     """
 CREATE OR REPLACE FUNCTION tp_cost_fill_enqueue() RETURNS TRIGGER AS $trg$
 BEGIN
     INSERT INTO tp_cost_fill_queue (item_id) VALUES (NEW.item_id)
-    ON CONFLICT (item_id) DO UPDATE SET enqueued_at = now();
+    ON CONFLICT (item_id) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     PERFORM pg_notify('tp_cost_fill', '');
     RETURN NULL;
 END;

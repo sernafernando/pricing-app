@@ -5,7 +5,7 @@ Wired like `order_metrics.drain`: `channels=("tp_cost_fill",)` with no
 `interval`/`run_at_local`, so `WorkerRuntime.drain_once` runs it on every
 LISTEN wake (the triggers in `services/ml_orders_ingestion/tp_cost_fill.py`
 notify that channel) AND on every safety poll. On an empty queue that costs
-one indexed query. Otherwise it drains `tp_cost_fill_queue` in batches of
+one query. Otherwise it drains `tp_cost_fill_queue` in batches of
 `BATCH_ITEMS`, each in its own short `get_background_db()` transaction, until
 the queue is empty or `ctx.deadline` is reached.
 """
@@ -32,18 +32,26 @@ class TpCostFillHandler:
     run_at_local: Optional[time] = None
 
     def run(self, ctx: WorkerContext) -> JobResult:
-        detail = {"items": 0, "batches": 0, "written": 0}
+        detail = {"items": 0, "batches": 0, "written": 0, "failed": 0}
+        # Failed items are charged in the queue and not claimed again in this
+        # run: the next wake or safety poll retries them, until they park.
+        failed: set = set()
         while datetime.now(timezone.utc) < ctx.deadline:
+            # `get_background_db` commits only when the block exits cleanly and
+            # rolls back on an exception, so a batch-level error leaves the
+            # queue exactly as it was.
             with get_background_db() as db:
                 if db.get_bind().dialect.name != "postgresql":
                     # The queue, its triggers and SKIP LOCKED are Postgres-only.
                     break
-                batch = service.fill_batch(db, service.BATCH_ITEMS)
+                batch = service.fill_batch(db, service.BATCH_ITEMS, excluded=failed)
             if batch.items == 0:
                 break
+            failed.update(batch.failed)
             detail["items"] += batch.items
             detail["batches"] += 1
             detail["written"] += batch.result.written
+            detail["failed"] += len(batch.failed)
             if batch.result.skipped:
                 logger.info(
                     "tp_cost.fill: %s item(s), written=%s skipped=%s",

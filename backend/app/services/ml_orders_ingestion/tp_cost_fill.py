@@ -20,8 +20,10 @@ items and of the combos containing them, and resolve them with the backfill
 script's own `_procesar_lote` -- same rules (price at the sale date, else the
 first price flagged approximate, combo precedence, rejected prices stay NULL),
 same `costo_tp_unitario_ars IS NULL` guard on the UPDATE so a TP cost already
-set is never rewritten. An item that still does not resolve is dequeued anyway:
-the next list-8 change queues it again.
+set is never rewritten. An item that still does not resolve (no usable price)
+leaves the queue anyway: the next list-8 change queues it again. An item whose
+fill FAILS (an error) is isolated in its own savepoint, charged an attempt with
+`last_error`, and parked after `MAX_ATTEMPTS`; a new list-8 change resets it.
 
 The metrics recompute is not done here: setting `costo_tp_unitario_ars` fires
 the `ml_order_item_costos` UPDATE trigger (20261027_tp_metrics_columns), which
@@ -33,8 +35,9 @@ queues it at low priority.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, Iterable, List, Sequence, Set
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -42,23 +45,31 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
 from app.models.tb_item_association import TbItemAssociation
-from app.scripts.backfill_tp_cost import BackfillTpResult, _procesar_lote
+from app.scripts.backfill_tp_cost import SKIP_ERROR, BackfillTpResult, _procesar_lote
+
+logger = logging.getLogger(__name__)
 
 CHANNEL = "tp_cost_fill"
 BATCH_ITEMS = 50
+# Failed runs after which an item is PARKED: never claimed again until its
+# list-8 price changes, which re-queues it with `attempts = 0`. Same shape as
+# `order_metrics.queue`'s POISON_THRESHOLD.
+MAX_ATTEMPTS = 5
 
 UPGRADE_SQL: List[str] = [
     """
 CREATE TABLE IF NOT EXISTS tp_cost_fill_queue (
     item_id INTEGER PRIMARY KEY,
-    enqueued_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    enqueued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
 )
 """,
     """
 CREATE OR REPLACE FUNCTION tp_cost_fill_enqueue() RETURNS TRIGGER AS $trg$
 BEGIN
     INSERT INTO tp_cost_fill_queue (item_id) VALUES (NEW.item_id)
-    ON CONFLICT (item_id) DO UPDATE SET enqueued_at = now();
+    ON CONFLICT (item_id) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     PERFORM pg_notify('tp_cost_fill', '');
     RETURN NULL;
 END;
@@ -95,44 +106,76 @@ DOWNGRADE_SQL: List[str] = [
     "DROP TABLE IF EXISTS tp_cost_fill_queue",
 ]
 
-# The ONE query an empty queue costs: a pick in primary-key order (index) on
-# a table that is empty almost all the time. Claimed rows are deleted in the same
-# transaction that fills their sales, so a failure rolls the claim back.
+# The ONE query an empty queue costs, on a table that is empty almost all the
+# time. Parked items (`attempts >= MAX_ATTEMPTS`) are never claimed; items that
+# already failed in THIS run are excluded so they cannot spin it. Fresh items
+# (`attempts = 0`) go first. The rows stay in the queue, locked, until their
+# own outcome is settled in the same transaction.
 _CLAIM_SQL = text(
     """
-DELETE FROM tp_cost_fill_queue
-WHERE item_id IN (
-    SELECT item_id FROM tp_cost_fill_queue
-    ORDER BY item_id
-    LIMIT :limit
-    FOR UPDATE SKIP LOCKED
-)
-RETURNING item_id
+SELECT item_id FROM tp_cost_fill_queue
+WHERE attempts < :max_attempts AND NOT (item_id = ANY(CAST(:excluded AS integer[])))
+ORDER BY attempts, item_id
+LIMIT :limit
+FOR UPDATE SKIP LOCKED
 """
+)
+_DONE_SQL = text("DELETE FROM tp_cost_fill_queue WHERE item_id = :item_id")
+_FAILED_SQL = text(
+    "UPDATE tp_cost_fill_queue SET attempts = attempts + 1, last_error = :error WHERE item_id = :item_id"
 )
 
 
 @dataclass
 class FillBatch:
     items: int
-    result: BackfillTpResult
+    failed: List[int] = field(default_factory=list)
+    result: BackfillTpResult = field(default_factory=BackfillTpResult)
 
 
-def fill_batch(db: Session, limit: int) -> FillBatch:
+def _combos_de(db: Session, items: Sequence[int]) -> Dict[int, Set[int]]:
+    """`{component: {combos containing it}}` for the whole batch, one query."""
+    combos: Dict[int, Set[int]] = {}
+    for combo_id, componente_id in db.query(TbItemAssociation.item_id, TbItemAssociation.item_id_1).filter(
+        TbItemAssociation.item_id_1.in_(items), TbItemAssociation.iasso_qty > 0
+    ):
+        if combo_id is not None:
+            combos.setdefault(componente_id, set()).add(combo_id)
+    return combos
+
+
+def _sumar(total: BackfillTpResult, parcial: BackfillTpResult) -> None:
+    total.examined += parcial.examined
+    total.resolved += parcial.resolved
+    total.written += parcial.written
+    total.skipped.update(parcial.skipped)
+    total.resolved_by_fuente.update(parcial.resolved_by_fuente)
+    total.written_by_fuente.update(parcial.written_by_fuente)
+
+
+def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBatch:
     """Claims up to `limit` queued items and fills the NULL TP cost of their
-    sales and of the sales of combos containing them. Does not commit."""
-    items = [row[0] for row in db.execute(_CLAIM_SQL, {"limit": limit})]
-    result = BackfillTpResult()
-    if not items:
-        return FillBatch(items=0, result=result)
+    sales and of the sales of combos containing them. Does not commit.
 
-    combos = {
+    Each item runs in its OWN savepoint: a failure (an exception, or a row the
+    resolver could not handle) rolls back that item's writes only, charges it
+    an attempt with the error, and leaves the rest of the batch going. An item
+    that succeeds leaves the queue. An error outside any item (claim, lookups)
+    propagates: the caller's transaction rolls back and the queue is unchanged.
+    """
+    batch = FillBatch(items=0)
+    items = [
         row[0]
-        for row in db.query(TbItemAssociation.item_id).filter(
-            TbItemAssociation.item_id_1.in_(items), TbItemAssociation.iasso_qty > 0
+        for row in db.execute(
+            _CLAIM_SQL, {"max_attempts": MAX_ATTEMPTS, "excluded": sorted(set(excluded)), "limit": limit}
         )
-        if row[0] is not None
-    }
+    ]
+    if not items:
+        return batch
+    batch.items = len(items)
+
+    combos = _combos_de(db, items)
+    productos = set(items).union(*combos.values())
     # `ix_ml_order_item_costos_tp_pendiente`: partial index on
     # `producto_item_id` WHERE `costo_tp_unitario_ars IS NULL`.
     rows = (
@@ -140,12 +183,31 @@ def fill_batch(db: Session, limit: int) -> FillBatch:
         .outerjoin(MlOrdersOps, MlOrdersOps.order_id == MlOrderItemCosto.order_id)
         .filter(
             MlOrderItemCosto.costo_tp_unitario_ars.is_(None),
-            MlOrderItemCosto.producto_item_id.in_(sorted(set(items) | combos)),
+            MlOrderItemCosto.producto_item_id.in_(sorted(productos)),
         )
         .order_by(MlOrderItemCosto.id)
         .all()
     )
-    if rows:
-        _procesar_lote(db, rows, False, result)
-        result.examined = len(rows)
-    return FillBatch(items=len(items), result=result)
+
+    for item_id in items:
+        suyos = {item_id} | combos.get(item_id, set())
+        filas = [row for row in rows if row.producto_item_id in suyos]
+        parcial = BackfillTpResult(examined=len(filas))
+        savepoint = db.begin_nested()
+        try:
+            if filas:
+                # Already filled by an earlier item of this batch: the UPDATE's
+                # `IS NULL` guard makes it a no-op.
+                _procesar_lote(db, filas, False, parcial)
+            if parcial.skipped[SKIP_ERROR]:
+                raise RuntimeError(f"{parcial.skipped[SKIP_ERROR]} row(s) failed to resolve")
+            db.execute(_DONE_SQL, {"item_id": item_id})
+            savepoint.commit()
+        except Exception as exc:  # noqa: BLE001 -- one item must never stop the batch
+            savepoint.rollback()
+            logger.warning("tp_cost.fill: item_id=%s failed: %s", item_id, exc, exc_info=True)
+            db.execute(_FAILED_SQL, {"item_id": item_id, "error": str(exc)[:500]})
+            batch.failed.append(item_id)
+            continue
+        _sumar(batch.result, parcial)
+    return batch
