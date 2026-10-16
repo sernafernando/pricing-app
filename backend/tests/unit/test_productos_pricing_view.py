@@ -96,9 +96,6 @@ class TestDeterministicWinner:
             def filter(self, *args):
                 return self
 
-            def order_by(self, *args):
-                return self
-
             def all(self):
                 return rows[self.key]
 
