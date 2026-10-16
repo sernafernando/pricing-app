@@ -18,7 +18,7 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import baseline from './themeTokensBaseline.json';
-import { setTheme, tokenColor, contrastRatio, mount } from './visualHelpers';
+import { setTheme, tokenColor, tokenRaw, contrastRatio, mount } from './visualHelpers';
 
 const THEMES = ['light', 'dark'];
 const TEAL = 'rgb(74, 203, 214)';
@@ -64,21 +64,62 @@ describe('base theme is identical with the role-token layer in place', () => {
   });
 });
 
+const DEEP_TEAL = 'rgb(0, 107, 117)'; // #006b75
+const LIGHT_TEAL = 'rgb(111, 214, 223)'; // #6fd6df
+
 const FINAL = {
   light: {
     '--brand-primary': TEAL,
     '--on-brand-primary': 'rgb(27, 36, 41)',
-    '--brand-link': 'rgb(0, 107, 117)',
-    '--cf-bg-app': 'rgb(246, 248, 249)',
+    '--brand-link': DEEP_TEAL,
+    '--cf-bg-app': 'rgb(245, 250, 251)',
+    '--bg-secondary': 'rgb(245, 250, 251)',
+    '--cf-bg-card': 'rgb(255, 255, 255)',
     '--brand-header-bg': 'rgb(255, 255, 255)',
   },
   dark: {
     '--brand-primary': TEAL,
     '--on-brand-primary': 'rgb(11, 26, 31)',
-    '--brand-link': TEAL,
-    '--cf-bg-app': 'rgb(8, 12, 14)',
+    '--brand-link': LIGHT_TEAL,
+    '--cf-bg-app': 'rgb(14, 20, 23)',
+    '--bg-secondary': 'rgb(14, 20, 23)',
+    '--cf-bg-card': 'rgb(27, 37, 41)',
+    '--metricas-head-bg': 'rgb(35, 47, 53)',
+    '--cf-border-subtle': 'rgb(42, 56, 62)',
     '--brand-header-bg': 'rgb(14, 20, 23)',
   },
+};
+
+// Teal is a FILL only. Every role that paints teal as text, icon or border
+// resolves to the readable teal for the mode instead.
+const TEAL_AS_TEXT = [
+  '--brand-link',
+  '--brand-focus-ring',
+  '--primary',
+  '--accent-text',
+  '--teal-text',
+  '--cf-accent-teal',
+  '--color-teal',
+  '--cf-accent-blue',
+];
+const TEXT_TEAL = { light: DEEP_TEAL, dark: LIGHT_TEAL };
+
+const POSITIVE = ['--success', '--success-text', '--tone-success-fg', '--money-positive', '--cf-saldo-positive', '--cf-accent-green'];
+const NEGATIVE = ['--danger', '--error', '--error-text', '--cf-danger', '--tone-danger-fg', '--money-negative', '--cf-saldo-negative', '--cf-accent-red'];
+const NUMBERS = {
+  light: { positive: 'rgb(10, 92, 61)', negative: 'rgb(166, 31, 31)' },
+  dark: { positive: 'rgb(95, 224, 165)', negative: 'rgb(255, 138, 138)' },
+};
+
+// Soft tinted badge backgrounds, solid so contrast is measurable.
+const BADGE_BG = {
+  light: { success: 'rgb(230, 245, 238)', danger: 'rgb(253, 236, 236)', warning: 'rgb(255, 246, 214)' },
+  dark: { success: 'rgb(19, 45, 32)', danger: 'rgb(50, 19, 19)', warning: 'rgb(50, 44, 17)' },
+};
+const BADGE_TOKENS = {
+  success: ['--success-bg', '--tone-success-bg', '--cf-ml-delivered-bg'],
+  danger: ['--error-bg', '--tone-danger-bg', '--cf-ml-cancelled-bg'],
+  warning: ['--warning-bg', '--tone-warning-bg', '--cf-ml-not-delivered-bg'],
 };
 
 // Global classes that used Teal as a text colour (or white text on Teal) and
@@ -109,6 +150,94 @@ describe('data-brand="tplink"', () => {
           Object.keys(FINAL[theme]).map((name) => [name, tokenColor(name)]),
         );
         expect(actual).toEqual(FINAL[theme]);
+      });
+
+      it('uses Teal only as a fill: text/icon/border roles resolve to the readable teal', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        const wrong = TEAL_AS_TEXT.filter((name) => tokenColor(name) !== TEXT_TEAL[theme]);
+        expect(wrong).toEqual([]);
+        const card = tokenColor('--cf-bg-card');
+        const app = tokenColor('--cf-bg-app');
+        expect(contrastRatio(TEXT_TEAL[theme], card)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(TEXT_TEAL[theme], app)).toBeGreaterThanOrEqual(4.5);
+      });
+
+      it('paints positive and negative numbers with the brand success/danger text', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        const wrong = [
+          ...POSITIVE.filter((n) => tokenColor(n) !== NUMBERS[theme].positive),
+          ...NEGATIVE.filter((n) => tokenColor(n) !== NUMBERS[theme].negative),
+        ];
+        expect(wrong).toEqual([]);
+      });
+
+      it('keeps status badges on soft tinted backgrounds with readable text', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        const wrong = Object.entries(BADGE_TOKENS).flatMap(([tone, names]) =>
+          names.filter((n) => tokenColor(n) !== BADGE_BG[theme][tone]).map((n) => `${n}: ${tokenColor(n)}`),
+        );
+        expect(wrong).toEqual([]);
+        const pairs = [
+          ['--success-text', '--success-bg'],
+          ['--tone-success-fg', '--tone-success-bg'],
+          ['--error-text', '--error-bg'],
+          ['--tone-danger-fg', '--tone-danger-bg'],
+          ['--warning-text', '--warning-bg'],
+          ['--tone-warning-fg', '--tone-warning-bg'],
+          ['--cf-ml-delivered-text', '--cf-ml-delivered-bg'],
+          ['--cf-ml-cancelled-text', '--cf-ml-cancelled-bg'],
+          ['--cf-ml-not-delivered-text', '--cf-ml-not-delivered-bg'],
+        ];
+        const failing = pairs
+          .map(([fg, bg]) => [fg, bg, contrastRatio(tokenColor(fg), tokenColor(bg))])
+          .filter(([, , ratio]) => ratio < 4.5)
+          .map(([fg, bg, ratio]) => `${fg} on ${bg}: ${ratio.toFixed(2)}`);
+        expect(failing).toEqual([]);
+      });
+
+      it('separates surfaces by tone, not shadow', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        for (const name of ['--cf-card-shadow', '--cf-card-shadow-hover', '--cf-shadow-card', '--shadow-sm']) {
+          expect(tokenRaw(name), name).toBe('none');
+        }
+        expect(tokenColor('--cf-bg-card')).not.toBe(tokenColor('--cf-bg-app'));
+      });
+
+      it('secondary and muted text stay readable on cards and table group headers', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        const pairs = [
+          ['--cf-text-secondary', '--cf-bg-card'],
+          ['--cf-text-tertiary', '--cf-bg-card'],
+          ['--cf-text-muted', '--cf-bg-card'],
+          ['--cf-text-primary', '--metricas-head-bg'],
+          ['--cf-text-secondary', '--metricas-head-bg'],
+          ['--text-secondary', '--bg-secondary'],
+        ];
+        const failing = pairs
+          .map(([fg, bg]) => [fg, bg, contrastRatio(tokenColor(fg), tokenColor(bg))])
+          .filter(([, , ratio]) => ratio < 4.5)
+          .map(([fg, bg, ratio]) => `${fg} on ${bg}: ${ratio.toFixed(2)}`);
+        expect(failing).toEqual([]);
+      });
+
+      it('meaningful borders reach 3:1 (focus ring on card, strong border on card)', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        const card = tokenColor('--cf-bg-card');
+        expect(contrastRatio(tokenColor('--brand-focus-ring'), card)).toBeGreaterThanOrEqual(3);
+        expect(contrastRatio(tokenColor('--cf-border-strong'), card)).toBeGreaterThanOrEqual(3);
+      });
+
+      it('draws the 2px Teal accent line under the top bar', () => {
+        setTheme(theme);
+        setBrand('tplink');
+        host = mount('<header data-sidebar-hidden="false" data-sidebar-expanded="true">x</header>');
+        expect(getComputedStyle(host.firstElementChild).boxShadow).toBe(`${TEAL} 0px -2px 0px 0px inset`);
       });
 
       it('reroutes Teal-as-text and text-on-Teal to the role tokens', () => {

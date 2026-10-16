@@ -26,26 +26,26 @@
 [data-brand="tplink"][data-theme="light"] {
   /* Surfaces */
   --bg-primary: #ffffff;
-  --bg-secondary: #f6f8f9;
+  --bg-secondary: #f5fafb;
   --bg-tertiary: #eef2f4;
   --bg-hover: #e7eef1;
   --bg-active: #d9e4e8;
   --bg-overlay: rgba(15, 22, 26, 0.6);
   --cf-avatar-bg: #d2f3f6;
   --cf-avatar-text: #1b2429;
-  --cf-bg-app: #f6f8f9;
+  --cf-bg-app: #f5fafb;
   --cf-bg-card: #ffffff;
   --cf-bg-hover: #eef2f4;
   --cf-bg-sidebar: #ffffff;
   --cf-bg-topbar: var(--brand-header-bg);
   --cf-card-bg: #ffffff;
-  --cf-card-hover-bg: #f6f8f9;
+  --cf-card-hover-bg: #f5fafb;
   --cf-hover-overlay: rgba(54, 68, 75, 0.06);
   --metricas-head-bg: #eef2f4;
   --metricas-open-bg: #eafafb;
-  --metricas-sub-bg: #f6f8f9;
+  --metricas-sub-bg: #f5fafb;
   --metricas-subhead-bg: #f9fbfb;
-  --ventas-card-bg: #f6f8f9;
+  --ventas-card-bg: #f5fafb;
   /* Text */
   --text-primary: #1b2429;
   --text-secondary: #45545b;
@@ -73,39 +73,39 @@
   --brand-primary-rgb: 74, 203, 214;
   --on-brand-primary: #1b2429;
   --on-brand-primary-hover: #1b2429;
-  --brand-focus-ring: #00808c;
+  --brand-focus-ring: #006b75;
   --brand-link: #006b75;
   --brand-header-bg: #ffffff;
   /* The logo asset is white: darken it on the white light-mode header. */
   --brand-header-logo-filter: invert(1) brightness(0.25);
   --brand-font-family: 'Aktiv Grotesk', Arial, sans-serif;
   --gradient-primary: linear-gradient(135deg, #4ACBD6 0%, #34b9c5 100%);
-  --primary: #00727d;
+  --primary: #006b75;
   --primary-light: #eef9fa;
   --accent-bg: #e3f7f9;
   --accent-text: #006b75;
   /* Accents */
-  --cf-accent-blue: #007aa8;
-  --cf-accent-blue-hover: #006690;
-  --cf-accent-blue-light: rgba(0, 163, 223, 0.10);
+  --cf-accent-blue: #006b75;
+  --cf-accent-blue-hover: #005564;
+  --cf-accent-blue-light: rgba(74, 203, 214, 0.16);
   --cf-accent-gray: #5f6e75;
-  --cf-accent-green: #0f7a52;
+  --cf-accent-green: #0a5c3d;
   --cf-accent-orange: #C11C66;
   --cf-accent-purple: #5a3fc0;
   --cf-accent-purple-light: rgba(37, 13, 113, 0.08);
-  --cf-accent-red: #c62828;
-  --cf-accent-teal: #00808c;
+  --cf-accent-red: #a61f1f;
+  --cf-accent-teal: #006b75;
   --cf-accent-yellow: #a87a00;
   --color-blue: #007aa8;
   --color-gray: #5f6e75;
-  --color-green: #0f7a52;
+  --color-green: #0a5c3d;
   --color-orange: #C11C66;
   --color-purple: #5a3fc0;
-  --color-red: #c62828;
-  --color-teal: #00808c;
+  --color-red: #a61f1f;
+  --color-teal: #006b75;
   --color-yellow: #a87a00;
   /* Status */
-  --success: #0f7a52;
+  --success: #0a5c3d;
   --success-hover: #0b6544;
   --success-bg: #e6f5ee;
   --success-light: #e6f5ee;
@@ -115,8 +115,8 @@
   --warning-bg: #fff6d6;
   --warning-light: #fff6d6;
   --warning-text: #6e5200;
-  --danger: #c62828;
-  --error: #c62828;
+  --danger: #a61f1f;
+  --error: #a61f1f;
   --error-hover: #a32020;
   --error-bg: #fdecec;
   --error-light: #fdecec;
@@ -126,13 +126,13 @@
   --info-bg: #e5f5fc;
   --info-light: #e5f5fc;
   --info-text: #005f85;
-  --cf-danger: #c62828;
+  --cf-danger: #a61f1f;
   --cf-warning: #a87a00;
-  --cf-saldo-negative: #c62828;
-  --cf-saldo-positive: #0f7a52;
+  --cf-saldo-negative: #a61f1f;
+  --cf-saldo-positive: #0a5c3d;
   --money-headline: #005f85;
-  --money-negative: #b02222;
-  --money-positive: #0a6b47;
+  --money-negative: #a61f1f;
+  --money-positive: #0a5c3d;
   --purple: #5a3fc0;
   --purple-hover: #3d22a0;
   --purple-bg: #ece8fa;
@@ -161,9 +161,9 @@
   --tone-warning-border: #f0d47a;
   --tone-warning-fg: #6e5200;
   /* Badges */
-  --cf-dac-disponible-bg: rgba(15, 122, 82, 0.12);
+  --cf-dac-disponible-bg: #e6f5ee;
   --cf-dac-disponible-text: #0a5c3d;
-  --cf-dac-parcial-bg: rgba(255, 203, 0, 0.22);
+  --cf-dac-parcial-bg: #fff6d6;
   --cf-dac-parcial-text: #6e5200;
   --cf-flag-action-bg: rgba(193, 28, 102, 0.18);
   --cf-flag-action-border: rgba(240, 106, 165, 0.5);
@@ -185,11 +185,11 @@
   --cf-flag-remove-hover-bg: rgba(198, 40, 40, 0.30);
   --cf-flag-remove-hover-border: rgba(255, 107, 107, 0.65);
   --cf-flag-remove-text: #ffa3a3;
-  --cf-ml-cancelled-bg: rgba(198, 40, 40, 0.10);
+  --cf-ml-cancelled-bg: #fdecec;
   --cf-ml-cancelled-text: #8f1d1d;
-  --cf-ml-delivered-bg: rgba(15, 122, 82, 0.12);
+  --cf-ml-delivered-bg: #e6f5ee;
   --cf-ml-delivered-text: #0a5c3d;
-  --cf-ml-not-delivered-bg: rgba(255, 203, 0, 0.24);
+  --cf-ml-not-delivered-bg: #fff6d6;
   --cf-ml-not-delivered-text: #5c4400;
   --cf-ml-ready-bg: rgba(0, 163, 223, 0.12);
   --cf-ml-ready-text: #005f85;
@@ -211,13 +211,13 @@
   --cf-selection-bar-btn-subtle-text: rgba(255, 255, 255, 0.78);
   --cf-selection-bar-text: #ffffff;
   /* Shadows */
-  --cf-card-shadow: 0 1px 3px rgba(27, 36, 41, 0.10);
-  --cf-card-shadow-hover: 0 2px 6px rgba(27, 36, 41, 0.15);
-  --cf-shadow-card: 0 1px 2px rgba(27, 36, 41, 0.06), 0 1px 3px -1px rgba(27, 36, 41, 0.08);
+  --cf-card-shadow: none;
+  --cf-card-shadow-hover: none;
+  --cf-shadow-card: none;
   --cf-shadow-modal: 0 12px 40px -8px rgba(27, 36, 41, 0.20);
   --cf-shadow-sidebar-peek: 4px 0 12px rgba(27, 36, 41, 0.10);
-  --shadow-sm: 0 1px 3px 0 rgba(27, 36, 41, 0.08);
-  --shadow-md: 0 2px 8px 0 rgba(27, 36, 41, 0.12);
+  --shadow-sm: none;
+  --shadow-md: 0 1px 2px rgba(27, 36, 41, 0.06);
   --shadow-lg: 0 8px 16px 0 rgba(27, 36, 41, 0.14);
   --shadow-xl: 0 12px 24px 0 rgba(27, 36, 41, 0.16);
   /* Gradients */
@@ -232,26 +232,26 @@
 [data-brand="tplink"][data-theme="dark"] {
   /* Surfaces */
   --bg-primary: #0e1417;
-  --bg-secondary: #141c20;
-  --bg-tertiary: #1b2529;
-  --bg-hover: #212d32;
+  --bg-secondary: #0e1417;
+  --bg-tertiary: #232f35;
+  --bg-hover: #232f35;
   --bg-active: #2a383e;
   --bg-overlay: rgba(0, 0, 0, 0.65);
   --cf-avatar-bg: rgba(74, 203, 214, 0.18);
   --cf-avatar-text: #ffffff;
-  --cf-bg-app: #080c0e;
-  --cf-bg-card: #141c20;
-  --cf-bg-hover: #1b2529;
+  --cf-bg-app: #0e1417;
+  --cf-bg-card: #1b2529;
+  --cf-bg-hover: #232f35;
   --cf-bg-sidebar: #0e1417;
   --cf-bg-topbar: var(--brand-header-bg);
-  --cf-card-bg: #141c20;
-  --cf-card-hover-bg: #1b2529;
+  --cf-card-bg: #1b2529;
+  --cf-card-hover-bg: #232f35;
   --cf-hover-overlay: rgba(255, 255, 255, 0.05);
-  --metricas-head-bg: #1b2529;
+  --metricas-head-bg: #232f35;
   --metricas-open-bg: #102a2e;
-  --metricas-sub-bg: #172024;
-  --metricas-subhead-bg: #161e22;
-  --ventas-card-bg: #172024;
+  --metricas-sub-bg: #1b2529;
+  --metricas-subhead-bg: #1f2a2f;
+  --ventas-card-bg: #1b2529;
   /* Text */
   --text-primary: #eef3f5;
   --text-secondary: #b5c1c6;
@@ -267,10 +267,10 @@
   --border-secondary: #36464d;
   --border-focus: var(--brand-focus-ring);
   --cf-border-default: #2a383e;
-  --cf-border-strong: #5f6e75;
-  --cf-border-subtle: #1b2529;
+  --cf-border-strong: #6b7a81;
+  --cf-border-subtle: #2a383e;
   --cf-card-border: #2a383e;
-  --cf-card-divider: 1px solid #1b2529;
+  --cf-card-divider: 1px solid #2a383e;
   --ventas-divider: #2a383e;
   /* Brand */
   --brand-primary: #4ACBD6;
@@ -279,62 +279,62 @@
   --brand-primary-rgb: 74, 203, 214;
   --on-brand-primary: #0b1a1f;
   --on-brand-primary-hover: #0b1a1f;
-  --brand-focus-ring: #4ACBD6;
-  --brand-link: #4ACBD6;
+  --brand-focus-ring: #6fd6df;
+  --brand-link: #6fd6df;
   --brand-header-bg: #0e1417;
   --brand-header-logo-filter: brightness(0) invert(1);
   --brand-font-family: 'Aktiv Grotesk', Arial, sans-serif;
   --gradient-primary: linear-gradient(135deg, #7dd9e1 0%, #4ACBD6 100%);
-  --primary: #4ACBD6;
+  --primary: #6fd6df;
   --primary-light: #0f2e33;
   --accent-bg: #0f2e33;
   --accent-text: #6fd6df;
   /* Accents */
-  --cf-accent-blue: #33b9ea;
-  --cf-accent-blue-hover: #6ccdf2;
-  --cf-accent-blue-light: rgba(0, 163, 223, 0.16);
+  --cf-accent-blue: #6fd6df;
+  --cf-accent-blue-hover: #7dd9e1;
+  --cf-accent-blue-light: rgba(74, 203, 214, 0.14);
   --cf-accent-gray: #95a2a8;
-  --cf-accent-green: #3ecf8e;
+  --cf-accent-green: #5fe0a5;
   --cf-accent-orange: #f06aa5;
   --cf-accent-purple: #a28ff0;
   --cf-accent-purple-light: rgba(162, 143, 240, 0.16);
-  --cf-accent-red: #ff6b6b;
-  --cf-accent-teal: #4ACBD6;
+  --cf-accent-red: #ff8a8a;
+  --cf-accent-teal: #6fd6df;
   --cf-accent-yellow: #FFCB00;
   --color-blue: #33b9ea;
   --color-gray: #95a2a8;
-  --color-green: #3ecf8e;
+  --color-green: #5fe0a5;
   --color-orange: #f06aa5;
   --color-purple: #a28ff0;
-  --color-red: #ff6b6b;
-  --color-teal: #4ACBD6;
+  --color-red: #ff8a8a;
+  --color-teal: #6fd6df;
   --color-yellow: #FFCB00;
   /* Status */
-  --success: #3ecf8e;
+  --success: #5fe0a5;
   --success-hover: #2bb67a;
-  --success-bg: #0d2a1f;
-  --success-light: #0d2a1f;
+  --success-bg: #132d20;
+  --success-light: #132d20;
   --success-text: #5fe0a5;
   --warning: #FFCB00;
   --warning-hover: #ffd83d;
-  --warning-bg: #2b2300;
-  --warning-light: #2b2300;
+  --warning-bg: #322c11;
+  --warning-light: #322c11;
   --warning-text: #ffd43b;
-  --danger: #ff6b6b;
-  --error: #ff6b6b;
+  --danger: #ff8a8a;
+  --error: #ff8a8a;
   --error-hover: #ff8a8a;
-  --error-bg: #2e1214;
-  --error-light: #2e1214;
+  --error-bg: #321313;
+  --error-light: #321313;
   --error-text: #ff8a8a;
   --info: #33b9ea;
   --info-hover: #6ccdf2;
   --info-bg: #0a2633;
   --info-light: #0a2633;
   --info-text: #6ccdf2;
-  --cf-danger: #ff6b6b;
+  --cf-danger: #ff8a8a;
   --cf-warning: #FFCB00;
-  --cf-saldo-negative: #ff6b6b;
-  --cf-saldo-positive: #3ecf8e;
+  --cf-saldo-negative: #ff8a8a;
+  --cf-saldo-positive: #5fe0a5;
   --money-headline: #6ccdf2;
   --money-negative: #ff8a8a;
   --money-positive: #5fe0a5;
@@ -347,7 +347,7 @@
   --teal-bg: #0f2e33;
   --teal-text: #6fd6df;
   /* Tones */
-  --tone-danger-bg: rgba(255, 107, 107, 0.12);
+  --tone-danger-bg: #321313;
   --tone-danger-border: rgba(255, 107, 107, 0.34);
   --tone-danger-fg: #ff8a8a;
   --tone-info-bg: rgba(0, 163, 223, 0.14);
@@ -359,16 +359,16 @@
   --tone-purple-bg: rgba(162, 143, 240, 0.14);
   --tone-purple-border: rgba(162, 143, 240, 0.36);
   --tone-purple-fg: #c7bcf7;
-  --tone-success-bg: rgba(62, 207, 142, 0.12);
+  --tone-success-bg: #132d20;
   --tone-success-border: rgba(62, 207, 142, 0.32);
   --tone-success-fg: #5fe0a5;
-  --tone-warning-bg: rgba(255, 203, 0, 0.12);
+  --tone-warning-bg: #322c11;
   --tone-warning-border: rgba(255, 203, 0, 0.34);
   --tone-warning-fg: #ffd43b;
   /* Badges */
-  --cf-dac-disponible-bg: rgba(62, 207, 142, 0.14);
+  --cf-dac-disponible-bg: #132d20;
   --cf-dac-disponible-text: #5fe0a5;
-  --cf-dac-parcial-bg: rgba(255, 203, 0, 0.14);
+  --cf-dac-parcial-bg: #322c11;
   --cf-dac-parcial-text: #ffd43b;
   --cf-flag-action-bg: rgba(193, 28, 102, 0.18);
   --cf-flag-action-border: rgba(240, 106, 165, 0.5);
@@ -390,11 +390,11 @@
   --cf-flag-remove-hover-bg: rgba(198, 40, 40, 0.30);
   --cf-flag-remove-hover-border: rgba(255, 107, 107, 0.65);
   --cf-flag-remove-text: #ffa3a3;
-  --cf-ml-cancelled-bg: rgba(255, 107, 107, 0.14);
+  --cf-ml-cancelled-bg: #321313;
   --cf-ml-cancelled-text: #ff8a8a;
-  --cf-ml-delivered-bg: rgba(62, 207, 142, 0.14);
+  --cf-ml-delivered-bg: #132d20;
   --cf-ml-delivered-text: #5fe0a5;
-  --cf-ml-not-delivered-bg: rgba(255, 203, 0, 0.16);
+  --cf-ml-not-delivered-bg: #322c11;
   --cf-ml-not-delivered-text: #ffd43b;
   --cf-ml-ready-bg: rgba(0, 163, 223, 0.16);
   --cf-ml-ready-text: #6ccdf2;
@@ -416,12 +416,12 @@
   --cf-selection-bar-btn-subtle-text: rgba(255, 255, 255, 0.78);
   --cf-selection-bar-text: #ffffff;
   /* Shadows */
-  --cf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  --cf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.45);
-  --cf-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  --cf-card-shadow: none;
+  --cf-card-shadow-hover: none;
+  --cf-shadow-card: none;
   --cf-shadow-modal: 0 20px 60px -20px rgba(0, 0, 0, 0.55);
   --cf-shadow-sidebar-peek: 4px 0 12px rgba(0, 0, 0, 0.5);
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6);
+  --shadow-sm: none;
   --shadow-md: 0 2px 8px 0 rgba(0, 0, 0, 0.7);
   --shadow-lg: 0 8px 16px 0 rgba(0, 0, 0, 0.8);
   --shadow-xl: 0 12px 24px 0 rgba(0, 0, 0, 0.9);
@@ -509,6 +509,12 @@
 
 [data-brand="tplink"] .keyboard-row-active {
   outline-color: var(--brand-focus-ring) !important;
+}
+
+/* 2px Teal accent line under the top bar (TopBar's <header> carries these
+   data attributes). Inset shadow, so the 56px bar height does not change. */
+[data-brand="tplink"] header[data-sidebar-hidden] {
+  box-shadow: inset 0 -2px 0 var(--brand-primary);
 }
 
 /* TopBar logo for the brand. The brand guide sets a 22px minimum height. */
