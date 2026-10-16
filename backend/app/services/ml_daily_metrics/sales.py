@@ -32,8 +32,8 @@ Rules (the Ventas ML ones, so both screens agree on the same orders):
   shown on its own (`tg`) still includes every known value.
 - TP-LINK (`tg_tp`/`mtg_tp`/`mcosto_tp`, only with `tp=True`): the same
   split and the same rules, from the order's stored Total TP and TP cost.
-  NULL means incomplete (an order with Total Gauss but no Total TP, or a
-  markup group with such a member), never 0.
+  NULL means incomplete (an order with Total Gauss but no Total TP, an order
+  queued for a recompute, or a markup group with such a member), never 0.
 """
 
 from __future__ import annotations
@@ -256,6 +256,7 @@ def sale_lines(
             MT.total_tp.label("order_tp"),
             MT.costo_tp.label("order_costo_tp"),
             func.min(candidate_tp).over(partition_by=G.group_key).label("eligible_tp"),
+            *([case((D.order_id.isnot(None), 1), else_=0).label("queued")] if queue else []),
         ]
         if tp
         else []
@@ -318,22 +319,25 @@ def sale_lines(
         case((x.has_gauss == 1, x.order_tg * share), else_=0).label("tg"),
         case((eligible, x.order_tg * share), else_=0).label("mtg"),
         case((eligible, x.order_costo * share), else_=0).label("mcosto"),
-        *(_tp_shares(x, share, eligible) if tp else []),
+        *(_tp_shares(x, share, eligible, queue) if tp else []),
     ).where(x.is_sale == 1)
     if product is not None:
         q = q.where(x.product == product)
     return q.subquery("lines")
 
 
-def _tp_shares(x, share, eligible) -> list:
+def _tp_shares(x, share, eligible, queue: bool) -> list:
     """`tg_tp`, `mtg_tp`, `mcosto_tp` of a line: `tg`/`mtg`/`mcosto` with the
     order's Total TP and TP cost. `order_tp` is NULL for an incomplete order,
     so its `tg_tp` share stays NULL; a markup group with such a member gets
-    NULL `mtg_tp`/`mcosto_tp` (no literal 0: NULL is what incomplete means)."""
+    NULL `mtg_tp`/`mcosto_tp` (no literal 0: NULL is what incomplete means).
+    An order queued for a recompute (`queue`) has no known Total TP either: NULL,
+    where `tg` says 0 (its group already leaves both markups)."""
     eligible_tp = x.eligible_tp == 1
     incomplete = cast(null(), Numeric)
+    queued = [(x.queued == 1, incomplete)] if queue else []
     return [
-        case((x.has_gauss == 1, x.order_tp * share), else_=0).label("tg_tp"),
+        case(*queued, (x.has_gauss == 1, x.order_tp * share), else_=0).label("tg_tp"),
         case((eligible_tp, x.order_tp * share), (eligible, incomplete), else_=0).label("mtg_tp"),
         case((eligible_tp, x.order_costo_tp * share), (eligible, incomplete), else_=0).label("mcosto_tp"),
     ]
@@ -386,7 +390,8 @@ def persisted_lines(
     Total Gauss, and its group takes no part in the markup (no `mtg`, no `mcosto`).
     `mlas` (a list or a one-column select) limits it to those MLAs: each line is
     independent, so no other line of the group is needed. `tp=True` adds the
-    TP-Link shares under the same queue rule (NULL, incomplete, stays NULL)."""
+    TP-Link shares under the same queue rule, except that a queued order's
+    `tg_tp` is NULL (incomplete), not 0, as in the live derivation."""
     L = MlSaleLine
     o2 = aliased(MlOrdersOps)
     queued_orders = select(D.order_id)
@@ -404,7 +409,8 @@ def persisted_lines(
         case((group_queued, 0), else_=L.mcosto).label("mcosto"),
         *(
             [
-                case((order_queued, 0), else_=L.tg_tp).label("tg_tp"),
+                # Queued: Total TP unknown until recomputed -- NULL (incomplete), never 0.
+                case((order_queued, cast(null(), Numeric)), else_=L.tg_tp).label("tg_tp"),
                 case((group_queued, 0), else_=L.mtg_tp).label("mtg_tp"),
                 case((group_queued, 0), else_=L.mcosto_tp).label("mcosto_tp"),
             ]
