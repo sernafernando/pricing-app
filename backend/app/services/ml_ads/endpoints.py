@@ -19,6 +19,7 @@ BRAND_API_VERSION = "1"
 
 GROUPS_PAGE_SIZE = 200
 ADS_PAGE_SIZE = 50
+CAMPAIGNS_PAGE_SIZE = 50  # ML's default page of `campaigns/search`, as captured
 
 METRICS = ",".join(
     (
@@ -89,6 +90,16 @@ def campaigns_summary_request(advertiser_id: Any, day: date) -> AdsRequest:
         family="ads_campaigns",
         path=f"/advertising/MLA/advertisers/{_int_id(advertiser_id)}/product_ads/campaigns/search",
         params={**_one_day(day), "metrics": METRICS, "metrics_summary": "true"},
+        headers=_product_ads_headers(),
+    )
+
+
+def campaigns_page_request(advertiser_id: Any, day: date, *, offset: int) -> AdsRequest:
+    """A further page of the day's `campaigns/search` listing (the captured `limit`/`offset` shape, no summary)."""
+    return AdsRequest(
+        family="ads_campaigns",
+        path=f"/advertising/MLA/advertisers/{_int_id(advertiser_id)}/product_ads/campaigns/search",
+        params={**_one_day(day), "metrics": METRICS, "limit": CAMPAIGNS_PAGE_SIZE, "offset": _offset(offset)},
         headers=_product_ads_headers(),
     )
 

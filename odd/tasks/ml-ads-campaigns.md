@@ -29,9 +29,9 @@ Delivery: `stacked-to-main`, slices of about 400 authored lines (the whole chang
 
 - [x] T1 (PR A) Migration + models for `ml_ads_campaigns` and `ml_ads_campaign_days`, migration test
   (route: inline; one coherent backend slice already mapped).
-- [ ] T2 (PR B) Mapper + store: catalog upsert (latest), day upsert, drop the day rows of campaigns ML no
+- [x] T2 (PR B) Mapper + store: catalog upsert (latest), day upsert, drop the day rows of campaigns ML no
   longer lists.
-- [ ] T3 (PR B) Ingestion: persist from `_read_summary`, read extra pages when `paging.total` says so.
+- [x] T3 (PR B) Ingestion: persist from `_read_summary`, read extra pages when `paging.total` says so.
 - [ ] T4 (PR C) Backfill of days already closed (see Next slice).
 
 ## Acceptance criteria

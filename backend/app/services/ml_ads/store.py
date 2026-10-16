@@ -21,7 +21,15 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.models.ml_ads import MlAdsAdGroupDay, MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
+from app.models.ml_ads import (
+    MlAdsAdGroupDay,
+    MlAdsBrandDay,
+    MlAdsCampaign,
+    MlAdsCampaignDay,
+    MlAdsDayLedger,
+    MlAdsDisplayCampaignDay,
+    MlAdsItemDay,
+)
 from app.services.ml_ads.mapper import BrandFact, DaySummary, DisplayFact, GroupFact, ItemFact
 
 SOURCE = "product_ads"
@@ -463,6 +471,39 @@ def delete_stale_brand(db: Session, advertiser_id: int, day: date, *, fetch_star
             MlAdsBrandDay.advertiser_id == advertiser_id,
             MlAdsBrandDay.day == day,
             MlAdsBrandDay.fetched_at < fetch_started_at,
+        )
+    )
+    db.flush()
+
+
+def save_campaigns(
+    db: Session,
+    advertiser_id: int,
+    day: date,
+    campaigns: list[dict[str, Any]],
+    days: list[dict[str, Any]],
+    *,
+    now: datetime,
+) -> None:
+    """The day's whole campaign listing: catalog rows take the latest values, the day's rows are replaced.
+
+    A campaign ML no longer lists for the day loses its day row; its catalog row stays.
+    """
+    for model, rows, keys in (
+        (MlAdsCampaign, campaigns, ["advertiser_id", "campaign_id"]),
+        (MlAdsCampaignDay, days, ["advertiser_id", "campaign_id", "day"]),
+    ):
+        if not rows:
+            continue
+        stmt = pg_insert(model).values([{**row, "fetched_at": now} for row in rows])
+        refreshed = {name: getattr(stmt.excluded, name) for name in rows[0] if name not in keys}
+        refreshed["fetched_at"] = stmt.excluded.fetched_at
+        db.execute(stmt.on_conflict_do_update(index_elements=keys, set_=refreshed))
+    db.execute(
+        delete(MlAdsCampaignDay).where(
+            MlAdsCampaignDay.advertiser_id == advertiser_id,
+            MlAdsCampaignDay.day == day,
+            MlAdsCampaignDay.campaign_id.notin_([row["campaign_id"] for row in days]),
         )
     )
     db.flush()

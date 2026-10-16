@@ -1,9 +1,9 @@
 """Ads day ingestion: one (advertiser, day) per `run_ads_step` (ADS-1..ADS-5, D2-D4).
 
 Per day: page `ad_groups/search` (pages of 200), drill `/ads` (pages of 50) only for the groups that
-spent, read `campaigns/search` `metrics_summary` for ML's own total, then verify and close. The ledger
-row and each group's drill status are the cursor, so every request is followed by its own short
-transaction and no DB session is open while a request is in flight (a stopped run loses at most the
+spent, read `campaigns/search` `metrics_summary` for ML's own total (its campaigns are stored too), then
+verify and close. The ledger row and each group's drill status are the cursor, so every request is followed
+by its own short transaction and no DB session is open while a request is in flight (a stopped run loses at most the
 page in flight).
 
 `run_ads_step` always (re)fetches the day it is given; choosing WHICH day (backfill order, refresh
@@ -301,7 +301,21 @@ class _DayRun:
                     source=self.source,
                 )
             raise _Stop(ERROR)
+        campaigns, days = mapper.map_campaigns(self.advertiser_id, self.day, self._all_campaigns(body))
+        with self.session_factory() as db:
+            store.save_campaigns(db, self.advertiser_id, self.day, campaigns, days, now=self.now())
         return summary
+
+    def _all_campaigns(self, body: Mapping[str, Any]) -> list[Any]:
+        """The summary page's campaigns plus any further page `paging.total` announces (bounded by it)."""
+        results = list(body.get("results") or [])
+        paging = body.get("paging") or {}
+        offset = int(paging.get("offset") or 0) + int(paging.get("limit") or endpoints.CAMPAIGNS_PAGE_SIZE)
+        while not _is_last_page(body, offset):
+            body = self._call(endpoints.campaigns_page_request(self.advertiser_id, self.day, offset=offset))
+            results.extend(body.get("results") or [])
+            offset += endpoints.CAMPAIGNS_PAGE_SIZE
+        return results
 
     def _close(self, summary: mapper.DaySummary) -> StepResult:
         with self.session_factory() as db:

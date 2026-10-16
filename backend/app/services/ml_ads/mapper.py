@@ -14,7 +14,7 @@ sov) are derived by ML and do not count as activity.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
@@ -158,6 +158,72 @@ def parse_advertisers(body: Mapping[str, Any]) -> list[int]:
     """Advertiser ids of `GET /advertising/advertisers`; an entry without a numeric id is ignored."""
     ids = (entry.get("advertiser_id") for entry in body.get("advertisers") or [] if isinstance(entry, Mapping))
     return sorted({int(i) for i in ids if isinstance(i, int) and not isinstance(i, bool)})
+
+
+# --- Product Ads campaigns (the day's `campaigns/search` listing) -----------------------------------
+
+CAMPAIGN_TEXT = ("name", "status", "strategy", "channel")
+CAMPAIGN_DECIMALS = ("budget", "daily_budget", "acos_target", "acos_top_search_target", "roas_target")
+
+
+def _optional_money(value: Any) -> Optional[Decimal]:
+    return None if value is None else Decimal(str(value))
+
+
+def _timestamp(value: Any) -> Optional[datetime]:
+    """ML's `2026-10-03T13:53:08.000Z`; anything unreadable stays None (the value is still in `raw`)."""
+    try:
+        return datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def map_campaigns(
+    advertiser_id: int, day: date, results: list[Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """`(catalog rows, day rows)` of every listed campaign, keyed by the REPORTING advertiser (ADS-3).
+
+    Every campaign gets a day row, zero metrics included: the listing is ML's whole answer for the day.
+    An entry without an integer `id` is ignored.
+    """
+    campaigns, days = [], []
+    for raw in results:
+        campaign_id = raw.get("id") if isinstance(raw, Mapping) else None
+        if not isinstance(campaign_id, int) or isinstance(campaign_id, bool):
+            continue
+        key = {"advertiser_id": advertiser_id, "campaign_id": campaign_id}
+        event = raw.get("salesforce_event_id")
+        campaigns.append(
+            {
+                **key,
+                **{name: raw.get(name) for name in CAMPAIGN_TEXT},
+                **{name: _optional_money(raw.get(name)) for name in CAMPAIGN_DECIMALS},
+                "automatic_budget": raw.get("automatic_budget"),
+                "salesforce_event_id": event if isinstance(event, int) and not isinstance(event, bool) else None,
+                "date_created": _timestamp(raw.get("date_created")),
+                "last_updated": _timestamp(raw.get("last_updated")),
+                "raw": {k: v for k, v in raw.items() if k != "metrics"},
+            }
+        )
+        metrics = raw.get("metrics") or {}
+        days.append(
+            {
+                **key,
+                "day": day,
+                "cost": _money(metrics.get("cost")),
+                "direct_amount": _money(metrics.get("direct_amount")),
+                "indirect_amount": _money(metrics.get("indirect_amount")),
+                "organic_amount": _money(metrics.get("organic_units_amount")),
+                "clicks": _count(metrics.get("clicks")),
+                "prints": _count(metrics.get("prints")),
+                "direct_units": _count(metrics.get("direct_units_quantity")),
+                "indirect_units": _count(metrics.get("indirect_units_quantity")),
+                "units_quantity": _count(metrics.get("units_quantity")),
+                "organic_units": _count(metrics.get("organic_units_quantity")),
+                "raw": dict(raw),
+            }
+        )
+    return campaigns, days
 
 
 # --- Display (account-level, ADS-9) -----------------------------------------------------------------
