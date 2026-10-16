@@ -156,7 +156,10 @@ def _parse_moment(value: Any) -> Optional[datetime]:
 def day(value: Any) -> Optional[str]:
     """The calendar day written in the value (ML keys days at UTC midnight, so no time-zone shift)."""
     if isinstance(value, str) and re.match(r"^\d{4}-\d{2}-\d{2}", value):
-        return date.fromisoformat(value[:10]).strftime("%d/%m/%Y")
+        try:
+            return date.fromisoformat(value[:10]).strftime("%d/%m/%Y")
+        except ValueError:  # date-shaped but impossible (2026-13-00): shown as written
+            pass
     return text_of(value)
 
 
@@ -434,7 +437,10 @@ def readable(resource_type: str, changes: Iterable[dict[str, Any]]) -> list[Row]
         for pattern, build in rules:
             match = pattern.search(path)
             if match:
-                rows.extend(build(path, old, new, match))
+                try:
+                    rows.extend(build(path, old, new, match))
+                except Exception:  # an odd stored shape must not fail the whole history: show it as plain text
+                    rows.append(_fallback(path, old, new))
                 break
         else:
             rows.append(_fallback(path, old, new))

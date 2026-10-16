@@ -107,14 +107,17 @@ class EventsPage:
     next_cursor: Optional[str]
 
 
-def status_label_of(event_type: str, new_value: Any, payload: Any) -> Optional[str]:
+def status_label_of(event_type: str, new_value: Any, payload: Any, old_value: Any = None) -> Optional[str]:
     """The promotion's state in business words: offered (a candidate) is available to activate, activated is
-    applied, finished reads by its reason (`absent`: no longer offered). `None` for any other event."""
+    applied, finished is "Finalizada" when it had been applied (`old_value` started) and otherwise reads by its
+    reason (`absent`: a candidate or pending one is no longer offered). `None` for any other event."""
     if event_type == "promotion_offered":
         return history_rows.promotion_status_label(new_value if isinstance(new_value, str) else "candidate")
     if event_type == "promotion_activated":
         return history_rows.promotion_status_label("started")
     if event_type == "promotion_finished":
+        if old_value == "started":  # it had been applied: it finished, whatever the reason
+            return history_rows.promotion_status_label("finished")
         reason = payload.get("reason") if isinstance(payload, dict) else None
         return history_rows.promotion_status_label("finished", reason)
     return None
@@ -134,7 +137,7 @@ def _event_out(row: Any) -> dict[str, Any]:
         "new_value": row["new_value"],
         "promotion_id": row["promotion_id"],
         "payload": row["payload"],
-        "status_label": status_label_of(row["event_type"], row["new_value"], row["payload"]),
+        "status_label": status_label_of(row["event_type"], row["new_value"], row["payload"], row["old_value"]),
     }
 
 

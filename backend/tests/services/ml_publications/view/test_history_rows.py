@@ -195,6 +195,25 @@ class TestVisitsStockReplenishmentCompetition:
         assert next(row for row in winner if row.path == "winner.price").after == "$ 81.191,59"
 
 
+class TestOddShapes:
+    def test_an_impossible_date_with_a_date_shape_is_shown_as_written(self) -> None:
+        assert history_rows.day("2026-13-00") == "2026-13-00"
+
+    def test_an_odd_stored_shape_falls_back_to_a_technical_text_row_instead_of_failing(self) -> None:
+        """7671's real prices[1058] entry with `conditions` stored as a list and `type` as a dict."""
+        (entry,) = [c for c in log_row(7671)["changes"] if c["p"] == "prices[1058]"]
+        odd = {**entry["new"], "conditions": ["channel_marketplace"], "type": {"id": "promotion"}}
+        (row,) = history_rows.readable("prices", [{**entry, "new": odd}])
+        assert row.is_technical and row.path == "prices[1058]"
+        assert not isinstance(row.after, (dict, list)) and row.after
+
+    def test_the_rows_after_an_odd_one_are_still_read(self) -> None:
+        changes = log_row(7671)["changes"]
+        odd = {"p": "prices[1]", "op": "add", "new": {"conditions": "x", "type": ["promotion"]}}
+        rows = history_rows.readable("prices", [odd, *changes])
+        assert rows[0].is_technical and one(rows, "Precio de promoción").after == "$ 77.000"
+
+
 class TestVisible:
     def test_technical_rows_are_hidden_and_counted_unless_asked(self) -> None:
         rows = rows_of(34965)
@@ -228,7 +247,7 @@ class TestEvents:
             (6378, "Disponible para activar"),  # promotion_offered, candidate
             (3689, "Aplicada"),  # promotion_activated
             (6376, "Ya no se ofrece"),  # promotion_finished, reason absent (was a candidate)
-            (43804, "Ya no se ofrece"),  # promotion_finished, reason absent (was started)
+            (43804, "Finalizada"),  # promotion_finished, reason absent, but it had been applied (was started)
             (3688, None),  # price_changed: no promotion state
         ],
     )
