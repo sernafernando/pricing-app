@@ -13,8 +13,10 @@ import SegmentedControl from '../components/metricasMl/SegmentedControl';
 import ToggleChips from '../components/metricasMl/ToggleChips';
 import SwitchChip from '../components/metricasMl/SwitchChip';
 import AdsAppliedBanner from '../components/metricasMl/AdsAppliedBanner';
+import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
+import { adsRequestParams } from '../utils/metricasMlAds';
 import { DIMENSION_OPTIONS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -103,6 +105,8 @@ function defaultRange() {
 export default function MetricasML() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('ml_metricas.ver');
+  // The ads toggle subtracts from Total Gauss and markup: same permission as the backend's (it answers 403 otherwise).
+  const puedeVerGanancia = tienePermiso('ml_metricas.ver_ganancia');
   const latestRequestRef = useRef(0);
 
   const [range, setRange] = useState(() => ({ ...defaultRange(), filtro: DEFAULT_PRESET }));
@@ -126,6 +130,8 @@ export default function MetricasML() {
   // "Solo con ventas en el período": on by default -- a short period shows
   // what sold in it, not the whole catalog (ODD "Período y stock" PS1).
   const [soloConVentas, setSoloConVentas] = useState(true);
+  // The ads toggle's position (`off | mla | todo`); a view mode, so "Limpiar filtros" leaves it alone.
+  const [publicidad, setPublicidad] = useState('off');
   const [sort, setSort] = useState({ key: 'gross', desc: true });
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -146,8 +152,8 @@ export default function MetricasML() {
   const [exportError, setExportError] = useState(null);
 
   const filterParams = useMemo(
-    () =>
-      buildMetricasMLParams({
+    () => ({
+      ...buildMetricasMLParams({
         fechaDesde: range.desde,
         fechaHasta: range.hasta,
         compararCon,
@@ -167,6 +173,8 @@ export default function MetricasML() {
         ageingExclude,
         soloConVentas,
       }),
+      ...adsRequestParams(puedeVerGanancia ? publicidad : 'off'),
+    }),
     [
       range,
       compararCon,
@@ -185,6 +193,8 @@ export default function MetricasML() {
       ageing,
       ageingExclude,
       soloConVentas,
+      publicidad,
+      puedeVerGanancia,
     ],
   );
 
@@ -297,7 +307,9 @@ export default function MetricasML() {
     setExporting(true);
     setExportError(null);
     try {
-      await exportMetricasCsv({ ...filterParams, sort: sort.key, sort_dir: sort.desc ? 'desc' : 'asc' });
+      // The CSV stays as it was before ads: it never carries the toggle's position.
+      const { publicidad: _omitted, ...csvParams } = filterParams;
+      await exportMetricasCsv({ ...csvParams, sort: sort.key, sort_dir: sort.desc ? 'desc' : 'asc' });
     } catch (err) {
       setExportError(err.message);
     } finally {
@@ -464,6 +476,7 @@ export default function MetricasML() {
                 />
               </div>
             )}
+            {puedeVerGanancia && <AdsModeControl value={publicidad} onChange={withReset(setPublicidad)} />}
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Comparar con:</span>
               <SegmentedControl label="Comparar con" options={COMPARE_OPTIONS} value={compararCon} onChange={withReset(setCompararCon)} />

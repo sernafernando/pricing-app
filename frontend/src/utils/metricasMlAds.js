@@ -3,6 +3,19 @@
  * `KpiAds`). Nothing here decides what is subtracted -- the API does, and
  * says what it applied.
  */
+/** The three positions of the toggle, in the order the control shows them. */
+export const ADS_MODE_OPTIONS = [
+  { value: 'off', label: 'Sin publicidad' },
+  { value: 'mla', label: 'Restar Ads de publicaciones' },
+  { value: 'todo', label: 'Restar toda la publicidad' },
+];
+
+export const ADS_MODE_HINTS = {
+  off: 'No se resta publicidad de Total Gauss ni del markup.',
+  mla: 'Resta del Total Gauss y del markup solo los Ads atribuidos a cada publicación.',
+  todo: 'Resta del Total Gauss y del markup los Ads de cada publicación y además Display, Brand Ads y Ads sin producto.',
+};
+
 /** What the banner says was subtracted, by the position the API APPLIED. */
 export const ADS_APPLIED_LABELS = {
   mla: 'Ads de publicaciones',
@@ -26,4 +39,9 @@ export function adsModeNotice(ads) {
 export function originalAmount(value, subtracted) {
   if (value === null || value === undefined) return null;
   return Math.round((Number(value) + Number(subtracted || 0)) * 100) / 100;
+}
+
+/** The board's query for a position: absent at `off`, so the request is exactly the one made without ads. */
+export function adsRequestParams(position) {
+  return position && position !== 'off' ? { publicidad: position } : {};
 }

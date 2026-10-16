@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { adsModeNotice, originalAmount } from './metricasMlAds';
+import { ADS_MODE_HINTS, ADS_MODE_OPTIONS, adsModeNotice, adsRequestParams, originalAmount } from './metricasMlAds';
 
 describe('adsModeNotice', () => {
   it('says nothing while the applied position is the requested one', () => {
@@ -26,5 +26,23 @@ describe('originalAmount', () => {
 
   it('is null when there is no adjusted value to undo', () => {
     expect(originalAmount(null, 100)).toBeNull();
+  });
+});
+
+describe('adsRequestParams', () => {
+  it('sends nothing at the default position, so the request is exactly the one made without ads', () => {
+    expect(adsRequestParams('off')).toEqual({});
+    expect(adsRequestParams(undefined)).toEqual({});
+  });
+
+  it.each(['mla', 'todo'])('sends the %s position as the API value', (position) => {
+    expect(adsRequestParams(position)).toEqual({ publicidad: position });
+  });
+});
+
+describe('ads toggle positions', () => {
+  it('offers off, mla and todo, in that order, each with its own hint', () => {
+    expect(ADS_MODE_OPTIONS.map((option) => option.value)).toEqual(['off', 'mla', 'todo']);
+    expect(Object.keys(ADS_MODE_HINTS)).toEqual(['off', 'mla', 'todo']);
   });
 });
