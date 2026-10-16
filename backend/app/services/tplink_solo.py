@@ -9,10 +9,12 @@ It is opt-in (`OPT_IN_PERMISSION_CODES`), so SUPERADMIN has it only by grant.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Any, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.tiendas_oficiales import TPLINK_CLAVE, require_store_ids_for_clave
@@ -39,3 +41,20 @@ def lock_stores(db: Session, requested: Tuple[str, ...]) -> Tuple[str, ...]:
         return tp_ids
     kept = tuple(store for store in requested if store in tp_ids)
     return kept or (NO_STORE_MATCH,)
+
+
+def tp_order_condition(db: Session) -> Any:
+    """An `EXISTS` correlated to `MlOrdersOps`: true when the order has an item
+    whose MLA is published in a TP-group store (the publication's store, never
+    the snapshot column). Per ORDER, so a pack's non-TP members drop out.
+    Raises `StoreClaveNotConfigured` like `lock_stores`."""
+    tp_ids = [int(store_id) for store_id in lock_stores(db, ())]
+    return (
+        db.query(MlOrderItemOps.id)
+        .join(MercadoLibreItemPublicado, MercadoLibreItemPublicado.mlp_publicationID == MlOrderItemOps.item_id)
+        .filter(
+            MlOrderItemOps.order_id == MlOrdersOps.order_id,
+            MercadoLibreItemPublicado.mlp_official_store_id.in_(tp_ids),
+        )
+        .exists()
+    )

@@ -21,12 +21,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-from app.models.ml_order_metrics import MlOrderMetrics
+from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.ml_venta_deduccion import MlVentaDeduccion
 from app.routers import ml_ventas_ops
 from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
+from app.services.order_metrics.queue import POISON_THRESHOLD
 from tests.integration.test_ml_ventas_ops_sales_router import _order_ids, _seed_order
 
 SEP_1 = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -61,12 +62,17 @@ def _bg_sessions(db, monkeypatch):
     monkeypatch.setattr(ml_ventas_ops, "get_background_db", _fake, raising=False)
 
 
-def _sale(db, order_id: int, mla: str, *, pack_id: int | None = None, tp: dict | None = None) -> None:
+def _sale(
+    db, order_id: int, mla: str, *, pack_id: int | None = None, tp: dict | None = None, metrics: bool = True
+) -> None:
     _seed_order(db, order_id, pack_id=pack_id, date_created=SEP_1)
     db.add(MlOrderItemOps(order_id=order_id, item_id=mla, quantity=1, unit_price=100, title=f"Item {mla}"))
+    if not metrics:
+        db.flush()
+        return
     tp = tp if tp is not None else {"costo_tp": Decimal("300.00"), "total_tp": Decimal("811.02")}
     markup_tp = None
-    if tp.get("total_tp") is not None:
+    if tp.get("total_tp") is not None and tp.get("costo_tp"):
         markup_tp = (tp["total_tp"] / tp["costo_tp"] * 100).quantize(Decimal("0.01"))
     db.add(
         MlOrderMetrics(
@@ -257,10 +263,25 @@ class TestDetail:
         _assert_no_gauss(resp)
         cadena = resp.json()["cadena_total_tp"]
         assert (cadena["total_tp"], cadena["markup_tp"], cadena["tp_incompleto"]) == (811.02, 270.34, False)
-        assert cadena["lineas"] == [
-            {"code": "costo_tp", "monto": 300.0, "concepto": None, "prorateado": False},
-        ]
+        assert [(linea["code"], linea["monto"]) for linea in cadena["lineas"]] == [("costo_tp", 300.0)]
         assert resp.json()["total_tp"] == 811.02
+
+    def test_the_chain_keeps_only_known_gauss_free_lines(self, db, client, admin_auth_headers, tp_solo):
+        """Allow-list: an unknown (future) line code is dropped, never passed through."""
+        for orden, code, monto in ((2, "envio_flex", "50.00"), (3, "futuro_gauss", "777.71"), (4, "varios", "20.00")):
+            db.add(MlVentaDeduccion(order_id=98002, code=code, orden=orden, monto=Decimal(monto)))
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/orders/98002", headers=admin_auth_headers)
+
+        _assert_no_gauss(resp)
+        lineas = resp.json()["cadena_total_tp"]["lineas"]
+        assert [(linea["code"], linea["monto"]) for linea in lineas] == [
+            ("costo_tp", 300.0),
+            ("envio_flex", 50.0),
+            ("varios", 20.0),
+        ]
+        assert "futuro_gauss" not in resp.text
 
     def test_a_gauss_store_order_is_not_found(self, client, admin_auth_headers, tp_solo):
         assert client.get("/api/ml-ventas-ops/orders/98001", headers=admin_auth_headers).status_code == 404
@@ -308,3 +329,165 @@ class TestWithoutTheLock:
         db.commit()
 
         assert client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).status_code == 503
+
+
+# Every Gauss field name of the base Ventas ML models (and the sale-line ones),
+# at ANY depth: a Gauss field added later to a nested model fails here.
+GAUSS_DENY = {
+    "total_gauss",
+    "total_gauss_provisional",
+    "total_gauss_provisional_falta",
+    "total_gauss_sum",
+    "total_gauss_ok_count",
+    "total_gauss_provisional_count",
+    "total_gauss_unresolved_count",
+    "cadena_total_gauss",
+    "markup",
+    "markup_pct",
+    "markup_weighted_pct",
+    "markup_skipped_count",
+    "costo_mercaderia",
+    "costo_mercaderia_items",
+    "costo_unitario_ars",
+    "costo_origen",
+    "tipo_cambio",
+    "tipo_cambio_fecha",
+    "costo_fecha",
+    "fuente",
+    "tg",
+    "mtg",
+    "mcosto",
+}
+
+
+def _all_keys(obj) -> set[str]:
+    if isinstance(obj, dict):
+        return set(obj) | {k for v in obj.values() for k in _all_keys(v)}
+    if isinstance(obj, list):
+        return {k for v in obj for k in _all_keys(v)}
+    return set()
+
+
+class TestNoGaussKeyAtAnyDepth:
+    def test_every_ventas_ml_response_is_free_of_gauss_keys(self, client, admin_auth_headers, tp_solo):
+        responses = [
+            client.get("/api/ml-ventas-ops/sales", params=SALES_PARAMS, headers=admin_auth_headers),
+            client.get("/api/ml-ventas-ops/sales/kpis", params=SALES_PARAMS, headers=admin_auth_headers),
+            client.get("/api/ml-ventas-ops/orders/98002", headers=admin_auth_headers),
+            client.get("/api/ml-ventas-ops/packs/98500", headers=admin_auth_headers),
+        ]
+        keys = set()
+        for resp in responses:
+            assert resp.status_code == 200, resp.text
+            keys |= _all_keys(resp.json())
+        export = client.get("/api/ml-ventas-ops/sales/export", headers=admin_auth_headers)
+        keys |= set(next(csv.reader(io.StringIO(export.content.decode("utf-8-sig")), delimiter=";")))
+
+        assert keys & GAUSS_DENY == set()
+
+
+@pytest.fixture()
+def mixto(db, catalogo):
+    """pack 98700 = 98008 (TP-Link) + 98009 (Gauss store)."""
+    _sale(db, 98008, "MLA2", pack_id=98700)
+    _sale(db, 98009, "MLA1", pack_id=98700, tp={"costo_tp": Decimal("10.00"), "total_tp": Decimal("99.00")})
+    db.commit()
+
+
+class TestMixedPacks:
+    def test_the_listing_drops_the_non_tp_member(self, client, admin_auth_headers, tp_solo, mixto):
+        body = client.get("/api/ml-ventas-ops/sales", params=SALES_PARAMS, headers=admin_auth_headers).json()
+        group = next(g for g in body["sales"] if g["pack_id"] == 98700)
+
+        assert [o["order_id"] for o in group["orders"]] == [98008]
+        assert (group["total_amount"], group["total_tp"]) == (100.0, 811.02)
+
+    def test_the_kpis_leave_the_non_tp_member_out(self, client, admin_auth_headers, tp_solo, mixto):
+        body = client.get("/api/ml-ventas-ops/sales/kpis", params=SALES_PARAMS, headers=admin_auth_headers).json()
+
+        assert body["orders_count"] == 5
+        assert body["total_tp_sum"] == pytest.approx(811.02 * 4)
+
+    def test_the_export_drops_the_non_tp_member(self, client, admin_auth_headers, tp_solo, mixto):
+        rows = _csv_rows(client.get("/api/ml-ventas-ops/sales/export", headers=admin_auth_headers))
+
+        assert "98009" not in {r["orden"] for r in rows}
+        assert "98008" in {r["orden"] for r in rows}
+
+    def test_pack_detail_counts_only_tp_members(self, client, admin_auth_headers, tp_solo, mixto):
+        body = client.get("/api/ml-ventas-ops/packs/98700", headers=admin_auth_headers).json()
+
+        assert body["member_order_ids"] == [98008]
+        assert (body["costo_tp"], body["total_tp"]) == (300.0, 811.02)
+        assert body["monto_operacion"] == 100.0
+
+    def test_the_non_tp_member_detail_is_not_found(self, client, admin_auth_headers, tp_solo, mixto):
+        assert client.get("/api/ml-ventas-ops/orders/98009", headers=admin_auth_headers).status_code == 404
+
+
+def _dirty(db, order_id: int, attempts: int) -> None:
+    db.add(MlOrderMetricsDirty(order_id=order_id, reason="test", attempts=attempts))
+
+
+@pytest.fixture()
+def estados(db, catalogo):
+    """TP-Link sales whose TP figures must not count yet:
+    - 98010 recalculating, 98011 failed (both with a full stored TP row)
+    - 98012 pending (no stored row)
+    - pack 98800 = 98013 (TP known) + 98014 (TP incomplete): partial group
+    - 98015 Total TP with a NULL TP cost (inconsistent row)"""
+    _sale(db, 98010, "MLA2")
+    _dirty(db, 98010, 0)
+    _sale(db, 98011, "MLA2")
+    _dirty(db, 98011, POISON_THRESHOLD)
+    _sale(db, 98012, "MLA2", metrics=False)
+    _sale(db, 98013, "MLA2", pack_id=98800, tp={"costo_tp": Decimal("100.00"), "total_tp": Decimal("500.00")})
+    _sale(db, 98014, "MLA2", pack_id=98800, tp={"tp_incompleto": True})
+    _sale(db, 98015, "MLA2", tp={"costo_tp": None, "total_tp": Decimal("400.00")})
+    db.commit()
+
+
+class TestTpStateRules:
+    def test_kpis_skip_unsettled_orders_and_partial_groups(self, client, admin_auth_headers, tp_solo, estados):
+        resp = client.get("/api/ml-ventas-ops/sales/kpis", params=SALES_PARAMS, headers=admin_auth_headers)
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert (body["recalculating_count"], body["failed_count"], body["pending_count"]) == (1, 1, 1)
+        # 98013's 500 counts in the sum; 98015's 400 has no cost, so it does not.
+        assert body["total_tp_sum"] == pytest.approx(811.02 * 3 + 500)
+        assert body["tp_incompleto_count"] == 3
+        # Pack 98800 is partial: it stays out of the weighted markup.
+        assert body["markup_tp_weighted_pct"] == pytest.approx(811.02 * 3 / 900 * 100)
+
+    @pytest.mark.parametrize("order_id", [98010, 98011, 98012, 98015])
+    def test_listing_shows_unsettled_or_costless_tp_as_null_and_flagged(
+        self, client, admin_auth_headers, tp_solo, estados, order_id
+    ):
+        body = client.get("/api/ml-ventas-ops/sales", params=SALES_PARAMS, headers=admin_auth_headers).json()
+        order = next(o for g in body["sales"] for o in g["orders"] if o["order_id"] == order_id)
+
+        assert (order["costo_tp"], order["total_tp"], order["markup_tp"], order["tp_incompleto"]) == (
+            None,
+            None,
+            None,
+            True,
+        )
+
+
+class TestMoreForbiddenAndFailClosed:
+    def test_divergence_patch_is_forbidden(self, client, admin_auth_headers, rol_admin, grant_permiso, tp_solo):
+        grant_permiso(rol_admin, "ml_ops.gestionar")
+
+        resp = client.patch("/api/ml-ventas-ops/divergences/1", json={"state": "resolved"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 403
+
+    @pytest.mark.parametrize(
+        "path", ["/api/ml-ventas-ops/orders/98002", "/api/ml-ventas-ops/sales/kpis", "/api/ml-ventas-ops/sales/export"]
+    )
+    def test_no_tp_store_configured_is_503(self, db, client, admin_auth_headers, tp_solo, path):
+        db.query(MlTiendaOficial).filter(MlTiendaOficial.clave == "tplink").delete()
+        db.commit()
+
+        assert client.get(path, headers=admin_auth_headers).status_code == 503

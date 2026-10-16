@@ -1518,6 +1518,9 @@ def _sales_page(
     goods_status_expr = scope.goods_status_expr
     facet_base = scope.facet_base
     members_base = scope.members_base
+    if tp_solo:
+        # A TP-only user never sees a pack's non-TP members.
+        members_base = members_base.filter(_tp_order_condition(db))
     listing_query = scope.listing_query
 
     # Pagination happens over GROUPS, so a pack can never be split across
@@ -2341,22 +2344,22 @@ def _forbid_tp_solo(db: Session, current_user: Usuario) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No disponible con acceso solo TP-Link")
 
 
+def _tp_order_condition(db: Session) -> Any:
+    try:
+        return tplink_solo.tp_order_condition(db)
+    except StoreClaveNotConfigured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="La tienda TP-Link no está configurada"
+        )
+
+
 def _in_tp_group(db: Session, condition: Any) -> bool:
-    """Whether an order/pack matching `condition` is one the TP-only listing
-    shows: the SAME `build_scope` store rule (publication's store, a pack as a
-    whole), every doubtful-case switch on so none of them hides it."""
-    scope = build_scope(
-        db,
-        SalesFilter(
-            stores=_tp_locked_stores(db, ()),
-            include_unknown=True,
-            include_in_dispute=True,
-            include_mixed=True,
-            include_provisional=True,
-            include_cancelled=True,
-        ),
-    )
-    return scope.listing_query.with_entities(MlOrdersOps.order_id).filter(condition).first() is not None
+    """Whether an order (or a pack) matching `condition` has a member a
+    TP-only user may see: an order with an item published in a TP store."""
+    query = db.query(MlOrdersOps.order_id).filter(condition, _tp_order_condition(db))
+    if settings.ML_USER_ID:
+        query = query.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
+    return query.first() is not None
 
 
 def _tp_by_order(db: Session, order_ids: List[int]) -> Dict[int, Any]:
@@ -2376,17 +2379,33 @@ def _float(value: Optional[Decimal]) -> Optional[float]:
     return float(value) if value is not None else None
 
 
-def _tp_figures(row: Any) -> Dict[str, Any]:
-    """One order's TP fields. A stored row whose `tp_incompleto` is not
-    `False` (missing list-8 price, or computed before the TP columns) is
-    flagged incomplete; no stored row at all is `metrics_state`'s business."""
-    if row is None:
-        return {"costo_tp": None, "total_tp": None, "markup_tp": None, "tp_incompleto": False}
+# Metrics states whose stored row is stale or missing: their TP figures do not count.
+_TP_UNSETTLED_STATES = ("recalculating", "pending", "failed")
+_TP_UNKNOWN: Dict[str, Any] = {"costo_tp": None, "total_tp": None, "markup_tp": None, "tp_incompleto": True}
+
+
+def _tp_known(row: Any, state: Optional[str]) -> bool:
+    """Whether an order's stored TP figures can be shown and summed. Not when
+    its metrics are unsettled, it has no stored row, its row is flagged (or
+    predates the TP columns), or it carries a Total TP without a TP cost."""
+    return (
+        state not in _TP_UNSETTLED_STATES
+        and row is not None
+        and row.tp_incompleto is False
+        and not (row.total_tp is not None and row.costo_tp is None)
+    )
+
+
+def _tp_figures(row: Any, state: Optional[str]) -> Dict[str, Any]:
+    """One order's TP fields: the stored ones when known, else null and
+    flagged incomplete -- never 0."""
+    if not _tp_known(row, state):
+        return dict(_TP_UNKNOWN)
     return {
         "costo_tp": _float(row.costo_tp),
         "total_tp": _float(row.total_tp),
         "markup_tp": _float(row.markup_tp),
-        "tp_incompleto": row.tp_incompleto is not False,
+        "tp_incompleto": False,
     }
 
 
@@ -2403,7 +2422,7 @@ def _tp_listing(db: Session, response: SaleListResponse) -> Any:
         orders = [
             SaleListItemTP(
                 **_kept(SaleListItemTP, o),
-                **_tp_figures(tp.get(o.order_id)),
+                **_tp_figures(tp.get(o.order_id), o.metrics_state),
                 total_tp_provisional=o.total_gauss_provisional,
                 total_tp_provisional_falta=o.total_gauss_provisional_falta,
             )
@@ -2432,13 +2451,14 @@ def _tp_store_facets(db: Session, f: SalesFilter, counts: Dict[str, int]) -> "tu
     return {store: count for store, count in counts.items() if store in tp_ids}, total
 
 
-def _tp_kpis(db: Session, scope: SalesScope, response: SalesKpiResponse) -> Any:
+def _tp_kpis(db: Session, scope: SalesScope, members_base: Any, response: SalesKpiResponse) -> Any:
     """The TP figures over the SAME orders `aggregate_order_metrics` counts
-    (every member of every selected group, minus recalculating/pending/failed
-    ones). The weighted markup is all-or-nothing per group, like the Gauss one."""
+    (the TP members of every selected group, minus recalculating/pending/failed
+    ones). An order whose TP is not known (`_tp_known`) is counted incomplete,
+    never summed. The weighted markup is all-or-nothing per group."""
     keys = {r.group_key for r in scope.listing_query.with_entities(scope.group_key.label("group_key")).distinct()}
     orders = (
-        scope.members_base.with_entities(MlOrdersOps.order_id, scope.group_key.label("group_key"))
+        members_base.with_entities(MlOrdersOps.order_id, scope.group_key.label("group_key"))
         .filter(scope.group_key.in_(keys))
         .all()
         if keys
@@ -2452,11 +2472,12 @@ def _tp_kpis(db: Session, scope: SalesScope, response: SalesKpiResponse) -> Any:
     size_by_group: Dict[str, int] = {}
     for order in orders:
         size_by_group[order.group_key] = size_by_group.get(order.group_key, 0) + 1
-        row = tp.get(order.order_id)
-        if states.get(order.order_id, "pending") in ("recalculating", "pending", "failed") or row is None:
+        state, row = states.get(order.order_id, "pending"), tp.get(order.order_id)
+        if state in _TP_UNSETTLED_STATES:
             continue
-        incompletos += _tp_figures(row)["tp_incompleto"]
-        if row.total_tp is not None:
+        if not _tp_known(row, state):
+            incompletos += 1
+        elif row.total_tp is not None:
             total_sum += row.total_tp
             pairs_by_group.setdefault(order.group_key, []).append((row.total_tp, row.costo_tp))
     pairs = [p for key, ps in pairs_by_group.items() if len(ps) == size_by_group[key] for p in ps]
@@ -2468,12 +2489,19 @@ def _tp_kpis(db: Session, scope: SalesScope, response: SalesKpiResponse) -> Any:
     )
 
 
+# Chain lines known to carry no Gauss figure (sale charges, not goods cost).
+# Allow-list: a line code added later stays out of the TP chain until added here.
+_TP_SAFE_LINE_CODES = frozenset({"envio_flex", "varios"})
+
+
 def _tp_operation(db: Session, response: SaleCentricOperation) -> Any:
-    figures = _tp_figures(_tp_by_order(db, [response.order.order_id]).get(response.order.order_id))
+    order_id = response.order.order_id
+    figures = _tp_figures(_tp_by_order(db, [order_id]).get(order_id), response.metrics_state)
     cadena = response.cadena_total_gauss
     lineas = [
         DeduccionLineaSummary(code="costo_tp", monto=figures["costo_tp"]) if linea.code == "costo_mercaderia" else linea
         for linea in cadena.lineas
+        if linea.code == "costo_mercaderia" or linea.code in _TP_SAFE_LINE_CODES
     ]
     return SaleCentricOperationTP(
         **_kept(SaleCentricOperationTP, response),
@@ -2485,18 +2513,25 @@ def _tp_operation(db: Session, response: SaleCentricOperation) -> Any:
 
 
 def _tp_pack(db: Session, response: PackOperationSummary) -> Any:
-    """Pack TP figures summed over its members' stored rows, all-or-nothing."""
+    """Pack TP figures over its (TP) members, all-or-nothing: any member whose
+    TP is not known makes the pack's figures null and flagged."""
     rows = _tp_by_order(db, response.member_order_ids)
-    members = [rows.get(order_id) for order_id in response.member_order_ids]
-    total = sum_all_or_nothing([r.total_tp if r is not None else None for r in members])
-    costo = sum_all_or_nothing([r.costo_tp if r is not None else None for r in members])
+    states = metrics_state_for_orders(db, response.member_order_ids)
+    members = [_tp_figures(rows.get(oid), states.get(oid)) for oid in response.member_order_ids]
+    incompleto = any(m["tp_incompleto"] for m in members)
+    total = None if incompleto else sum_all_or_nothing([_decimal(m["total_tp"]) for m in members])
+    costo = None if incompleto else sum_all_or_nothing([_decimal(m["costo_tp"]) for m in members])
     return PackOperationSummaryTP(
         **_kept(PackOperationSummaryTP, response),
         costo_tp=_float(costo),
         total_tp=_float(total),
         markup_tp=_tp_markup(total, costo),
-        tp_incompleto=any(_tp_figures(r)["tp_incompleto"] for r in members if r is not None),
+        tp_incompleto=incompleto,
     )
+
+
+def _decimal(value: Optional[float]) -> Optional[Decimal]:
+    return Decimal(str(value)) if value is not None else None
 
 
 @router.get("/sales/kpis", response_model=SalesKpiResponse)
@@ -2591,7 +2626,9 @@ def sales_kpis(
         only_alerts=only_alerts,
     )
     scope = build_scope(db, sales_filter)
-    result = aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)
+    # A TP-only user's figures cover only TP members (a mixed pack's others drop out).
+    members_base = scope.members_base.filter(_tp_order_condition(db)) if tp_solo else scope.members_base
+    result = aggregate_order_metrics(db, scope.listing_query, members_base, scope.group_key)
     excluded_by_toggle = _toggle_excluded_counts(db, sales_filter)
     # K2: the switches ACTUALLY applied by `build_scope` (an explicit
     # `operation_status`/`goods_status` facet selection may have overridden
@@ -2626,7 +2663,7 @@ def sales_kpis(
             "include_cancelled": applied_switches.include_cancelled,
         },
     )
-    return _tp_json(_tp_kpis(db, scope, response)) if tp_solo else response
+    return _tp_json(_tp_kpis(db, scope, members_base, response)) if tp_solo else response
 
 
 @router.get("/orders/{order_id}", response_model=SaleCentricOperation)
@@ -2838,10 +2875,12 @@ def obtener_pack(
     _require_flag_enabled()
     tp_solo = tplink_solo.es_tplink_solo(db, current_user)
 
-    member_order_ids = [
-        row.order_id for row in db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == pack_id).all()
-    ]
-    if not member_order_ids or (tp_solo and not _in_tp_group(db, MlOrdersOps.pack_id == pack_id)):
+    members_query = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == pack_id)
+    if tp_solo:
+        # Only the TP members: a mixed pack's others are not a TP-only user's.
+        members_query = members_query.filter(_tp_order_condition(db))
+    member_order_ids = [row.order_id for row in members_query.all()]
+    if not member_order_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pack no encontrado")
 
     breakdown = compute_breakdown(db, member_order_ids)
