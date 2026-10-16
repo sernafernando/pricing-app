@@ -153,7 +153,7 @@ def _metrics(**overrides) -> OrderMetrics:
         gauss_status=GaussStatus.OK,
         provisional_falta=None,
         unresolved_reason=None,
-        formula_version=6,
+        formula_version=7,
         computed_at=datetime.now(timezone.utc),
     )
     values.update(overrides)
