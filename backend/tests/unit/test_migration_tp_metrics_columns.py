@@ -1,7 +1,7 @@
 """Migration `20261027_tp_metrics_columns` (metricas-ml-tplink-mode P3).
 
-Graph and frozen-copy assertions run everywhere; the upgrade/downgrade round
-trip runs against a scratch copy of the dev database (see the PR).
+Graph and frozen-copy assertions run everywhere; the real upgrade/downgrade
+round trip against Postgres is `test_migration_tp_metrics_columns_postgres.py`.
 """
 
 from __future__ import annotations
