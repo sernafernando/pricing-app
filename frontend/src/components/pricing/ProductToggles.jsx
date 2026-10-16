@@ -167,8 +167,12 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
   const offer = product.mejor_oferta_precio ? offerDetails(product) : [];
   const webTransf = Boolean(product.participa_web_transferencia);
 
+  const storedRebate = isBlank(product.porcentaje_rebate) ? REBATE_DEFAULT : product.porcentaje_rebate;
+
   const saveRebate = async ({ participa, porcentaje }) => {
-    const value = parsePercent(porcentaje);
+    // Turning it off sends the stored percentage, as Productos' quick toggle
+    // does: the field is hidden then, so whatever it holds is not read.
+    const value = participa ? parsePercent(porcentaje) : storedRebate;
     if (!Number.isFinite(value) || value < 0 || value > 100) {
       onInvalid('El porcentaje de rebate debe ser un número entre 0 y 100.');
       return;
@@ -190,11 +194,20 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
     if (saved) setEditing(null);
   };
 
-  const saveOutOfCards = (checked) =>
-    onSave((itemId) => preciosAPI.setOutOfCards(itemId, checked), {
+  // A written "fuera de tarjetas" whose re-read failed: shown until the next
+  // successful read replaces the product (the override belongs to the product
+  // object it was written over), so the box never snaps back to a stale value.
+  const [writtenOutOfCards, setWrittenOutOfCards] = useState(null);
+  const outOfCards = writtenOutOfCards?.over === product ? writtenOutOfCards.value : Boolean(product.out_of_cards);
+
+  const saveOutOfCards = async (checked) => {
+    const over = product;
+    const saved = await onSave((itemId) => preciosAPI.setOutOfCards(itemId, checked), {
       saved: 'Fuera de tarjetas guardado',
       fallback: 'No se pudo guardar fuera de tarjetas.',
     });
+    if (saved) setWrittenOutOfCards({ over, value: checked });
+  };
 
   const cancel = () => setEditing(null);
 
@@ -241,7 +254,7 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
                   type="checkbox"
                   aria-label="Fuera de tarjetas"
                   title={canOutOfCards ? undefined : 'Sin permiso para cambiarlo'}
-                  checked={Boolean(product.out_of_cards)}
+                  checked={outOfCards}
                   onChange={(event) => saveOutOfCards(event.target.checked)}
                   disabled={!canOutOfCards || saving}
                 />
@@ -295,7 +308,7 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
         <RebateEditor
           initial={{
             participa: Boolean(product.participa_rebate),
-            porcentaje: formatRate(isBlank(product.porcentaje_rebate) ? REBATE_DEFAULT : product.porcentaje_rebate),
+            porcentaje: formatRate(storedRebate),
           }}
           saving={saving}
           onSave={saveRebate}
@@ -306,7 +319,7 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
         <WebTransfEditor
           initial={{
             participa: Boolean(product.participa_web_transferencia),
-            porcentaje: formatRate(product.porcentaje_markup_web || WEB_TRANSF_DEFAULT),
+            porcentaje: formatRate(isBlank(product.porcentaje_markup_web) ? WEB_TRANSF_DEFAULT : product.porcentaje_markup_web),
             preservar: Boolean(product.preservar_porcentaje_web),
           }}
           saving={saving}

@@ -154,6 +154,36 @@ describe('editing the rebate', () => {
     await waitFor(() => expect(preciosAPI.setRebate).toHaveBeenCalledWith(4101, { participa_rebate: false, porcentaje_rebate: 3.8 }));
   });
 
+  it('saves "no participa" whatever the hidden percentage holds, with the stored percentage', async () => {
+    // As Productos turning a rebate off (r / toggleRebateRapido): the stored % is sent, the typed one is not.
+    const user = userEvent.setup();
+    renderPrices();
+    await user.click(await screen.findByRole('button', { name: 'Editar rebate' }));
+    const editor = screen.getByRole('group', { name: 'Rebate' });
+    const pct = within(editor).getByRole('textbox', { name: '% de rebate' });
+    await user.clear(pct);
+    await user.type(pct, '150');
+    await user.click(within(editor).getByRole('checkbox', { name: 'Participa' }));
+    await user.click(within(editor).getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(preciosAPI.setRebate).toHaveBeenCalledWith(4101, { participa_rebate: false, porcentaje_rebate: 3.8 }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Rebate guardado.');
+  });
+
+  it('says the rebate was saved and still tells the caller when the re-read fails', async () => {
+    preciosAPI.obtenerProducto
+      .mockResolvedValueOnce({ data: PRODUCTO_CON_REBATE_Y_OFERTA })
+      .mockRejectedValueOnce(new Error('Network Error'));
+    const user = userEvent.setup();
+    const onWritten = vi.fn();
+    renderPrices({ onWritten });
+    await user.click(await screen.findByRole('button', { name: 'Editar rebate' }));
+    await user.click(within(screen.getByRole('group', { name: 'Rebate' })).getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Rebate guardado, pero no se pudieron releer los precios.');
+    await waitFor(() => expect(onWritten).toHaveBeenCalledTimes(1));
+  });
+
   it('starts a product without a rebate at 3,8%', async () => {
     preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, participa_rebate: false, porcentaje_rebate: null } });
     const user = userEvent.setup();
@@ -236,6 +266,19 @@ describe('editing web transferencia', () => {
     );
   });
 
+  it('keeps a stored 0%: saving untouched sends 0, not the 6% default', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, porcentaje_markup_web: 0 } });
+    const user = userEvent.setup();
+    renderPrices();
+    await user.click(await screen.findByRole('button', { name: 'Editar web transferencia' }));
+    const editor = screen.getByRole('group', { name: 'Web transferencia' });
+    expect(within(editor).getByRole('textbox', { name: '% sobre la clásica' })).toHaveValue('0');
+    await user.click(within(editor).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() =>
+      expect(preciosAPI.setWebTransferencia).toHaveBeenCalledWith(4101, { participa: true, porcentaje_markup: 0, preservar_porcentaje: false }),
+    );
+  });
+
   it('sends an unreadable percentage as 0, as Productos does', async () => {
     const user = userEvent.setup();
     renderPrices();
@@ -272,6 +315,39 @@ describe('fuera de tarjetas', () => {
     expect(box).toBeChecked();
     await user.click(box);
     await waitFor(() => expect(preciosAPI.setOutOfCards).toHaveBeenCalledWith(4101, false));
+  });
+
+  it('keeps the written value when the re-read fails, instead of snapping back to the stale one', async () => {
+    preciosAPI.obtenerProducto
+      .mockResolvedValueOnce({ data: PRODUCTO_CON_REBATE_Y_OFERTA })
+      .mockRejectedValueOnce(new Error('Network Error'));
+    const user = userEvent.setup();
+    const onWritten = vi.fn();
+    renderPrices({ onWritten });
+    const box = await screen.findByRole('checkbox', { name: 'Fuera de tarjetas' });
+    await user.click(box);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Fuera de tarjetas guardado, pero no se pudieron releer los precios.');
+    await waitFor(() => expect(onWritten).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('checkbox', { name: 'Fuera de tarjetas' })).toBeChecked();
+  });
+
+  it('shows the next successful read, not the kept value', async () => {
+    preciosAPI.obtenerProducto
+      .mockResolvedValueOnce({ data: PRODUCTO_CON_REBATE_Y_OFERTA })
+      .mockRejectedValueOnce(new Error('Network Error'))
+      .mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, participa_web_transferencia: false } });
+    const user = userEvent.setup();
+    renderPrices();
+    await user.click(await screen.findByRole('checkbox', { name: 'Fuera de tarjetas' }));
+    await screen.findByRole('alert');
+    expect(screen.getByRole('checkbox', { name: 'Fuera de tarjetas' })).toBeChecked();
+
+    // Another save re-reads successfully: the stored value (still off here) is shown again.
+    await user.click(screen.getByRole('button', { name: 'Editar web transferencia' }));
+    await user.click(within(screen.getByRole('group', { name: 'Web transferencia' })).getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(screen.getByRole('row', { name: /^Web transferencia\b/ })).toHaveTextContent('—'));
+    expect(screen.getByRole('checkbox', { name: 'Fuera de tarjetas' })).not.toBeChecked();
   });
 
   it('shows the backend reason when it fails', async () => {
