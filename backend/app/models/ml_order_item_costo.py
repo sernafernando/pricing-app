@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -34,6 +35,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.sql import func
 
@@ -57,6 +59,37 @@ class MlOrderItemCosto(Base):
         # PM) reaches the product THROUGH this column -- see migration
         # 20260922_ix_producto_item_id.
         Index("ix_ml_order_item_costos_producto_item_id", "producto_item_id"),
+        # TP cost (cost list 8). A NULL `costo_tp_unitario_ars` is the
+        # "Total TP incomplete" flag; the backfill and the late-load worker
+        # find those rows per product through this partial index -- see
+        # migration 20261025_tp_cost_columns.
+        Index(
+            "ix_ml_order_item_costos_tp_pendiente",
+            "producto_item_id",
+            postgresql_where=text("costo_tp_unitario_ars IS NULL"),
+            sqlite_where=text("costo_tp_unitario_ars IS NULL"),
+        ),
+        CheckConstraint(
+            "(costo_tp_origen IS NULL OR costo_tp_origen >= 0)"
+            " AND (costo_tp_tipo_cambio IS NULL OR costo_tp_tipo_cambio >= 0)"
+            " AND (costo_tp_unitario_ars IS NULL OR costo_tp_unitario_ars >= 0)",
+            name="ck_ml_order_item_costos_tp_no_negativo",
+        ),
+        # All or nothing: a TP cost is either fully known or fully NULL --
+        # never a half-written row that reads like a real one.
+        CheckConstraint(
+            "(costo_tp_unitario_ars IS NULL) = (costo_tp_origen IS NULL)"
+            " AND (costo_tp_unitario_ars IS NULL) = (costo_tp_moneda IS NULL)"
+            " AND (costo_tp_unitario_ars IS NULL) = (costo_tp_fuente IS NULL)"
+            " AND (costo_tp_unitario_ars IS NULL) = (costo_tp_at IS NULL)",
+            name="ck_ml_order_item_costos_tp_completo",
+        ),
+        # The rate is kept only for a USD price: an ARS TP cost (an ARS
+        # list-8 price, or a combo sum already in ARS) carries none.
+        CheckConstraint(
+            "costo_tp_moneda <> 'ARS' OR costo_tp_tipo_cambio IS NULL",
+            name="ck_ml_order_item_costos_tp_ars_sin_tc",
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -84,3 +117,19 @@ class MlOrderItemCosto(Base):
     producto_item_id = Column(Integer, nullable=False)
 
     congelado_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    # TP-Link cost (cost list 8, `tb_item_cost_list.coslis_id = 8`), frozen
+    # next to the normal cost for EVERY item regardless of store, so a
+    # publication that later moves to the TP store still has it. ALL NULL
+    # means "no usable list-8 price" -- that NULL IS the "Total TP
+    # incomplete" flag (no separate boolean): never 0, never the normal
+    # cost. Written by `congelar()` from the CURRENT list-8 price
+    # (`fuente` 'lista8_ingesta' / 'lista8_ingesta_combo'); P2's backfill
+    # and late-load worker fill NULL rows once ('lista8_historia' /
+    # 'lista8_carga_posterior') and never rewrite a set one.
+    costo_tp_origen = Column(Numeric(14, 4), nullable=True)
+    costo_tp_moneda = Column(String(3), nullable=True)
+    costo_tp_tipo_cambio = Column(Numeric(14, 4), nullable=True)
+    costo_tp_unitario_ars = Column(Numeric(14, 4), nullable=True)
+    costo_tp_fuente = Column(String(30), nullable=True)
+    costo_tp_at = Column(DateTime(timezone=True), nullable=True)
