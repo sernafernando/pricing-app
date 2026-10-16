@@ -35,7 +35,7 @@ class TpCostFillHandler:
         detail = {"items": 0, "batches": 0, "written": 0, "failed": 0}
         # Failed items are charged in the queue and not claimed again in this
         # run: the next wake or safety poll retries them, until they park.
-        failed: set = set()
+        failed: set[int] = set()
         while datetime.now(timezone.utc) < ctx.deadline:
             # `get_background_db` commits only when the block exits cleanly and
             # rolls back on an exception, so a batch-level error leaves the
