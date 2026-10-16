@@ -5,14 +5,12 @@ lowers the cost of THAT purchase's units only. The math lives in
 `app.services.sell_in` (split + `compras`); this module is HTTP only.
 
 - The preview and the load need `sell_in.gestionar` (migration
-  `20261025_sell_in_permisos`); the reads (`sell_in.ver`) and the void come next.
+  `20261025_sell_in_permisos`).
 - `POST /preview` writes nothing. `POST ""` recomputes the same split
   server-side, freezes each line's base cost and records the author from the
   token, never from the body.
 - Business-rule errors are a 422 with one readable Spanish message.
-- There is no delete and no edit: a wrong purchase is voided (`POST /{id}/anular`,
-  409 if it already was) and loaded again. Whether lines can be edited once
-  units have been consumed is a later decision, deliberately left out here.
+- There is no delete and no edit.
 """
 
 from __future__ import annotations

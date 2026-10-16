@@ -1,4 +1,4 @@
-"""Sell-in purchases: preview, load, list, detail and void.
+"""Sell-in purchases: preview and load.
 
 The preview and the load run the SAME code (`_calcular`): the server resolves
 each line's base cost and splits the total with `split.preview`, so what the
@@ -139,7 +139,7 @@ def calcular_preview(db: Session, data: SellInPreviewIn) -> dict:
     }
 
 
-def _audit(db: Session, compra: SellInCompra, items: list[SellInCompraItem], tipo: TipoAccion, usuario_id: int, motivo):
+def _audit(db: Session, compra: SellInCompra, items: list[SellInCompraItem], tipo: TipoAccion, usuario_id: int):
     fecha = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC, like the column's default
     for item in items:
         valores = {
@@ -158,7 +158,7 @@ def _audit(db: Session, compra: SellInCompra, items: list[SellInCompraItem], tip
                 valores_anteriores=None,
                 valores_nuevos=valores,
                 es_masivo=0,
-                comentario=motivo,
+                comentario=None,
                 fecha=fecha,
             )
         )
@@ -226,7 +226,7 @@ def _guardar(db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_i
     ]
     db.add_all(items)
     db.flush()
-    _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id, None)
+    _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id)
     db.commit()
     return compra
 
