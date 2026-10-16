@@ -91,9 +91,6 @@ const ALERTS = [
   { value: 'margen_cayendo', label: 'Markup cayendo', icon: TrendingDown, tone: 'danger', margin: true },
 ];
 
-/** `next` after `previous`, without any row `previous` already has: a metric
- * that moved between two pages shifts the order, and a repeated row would
- * duplicate its React key. */
 const ROWS_WITHOUT_OPERATIONS_HINT = 'Sin operaciones en el período, pero hay filas de esta tienda con los filtros actuales';
 
 /** The tooltip of each store chip that counts 0 operations but still selects rows (`stores_with_rows`). */
@@ -106,6 +103,9 @@ function storeChipHints({ options, counts }, facets) {
   return hints;
 }
 
+/** `next` after `previous`, without any row `previous` already has: a metric
+ * that moved between two pages shifts the order, and a repeated row would
+ * duplicate its React key. */
 function appendNew(previous, next) {
   const seen = new Set(previous.map((row) => row.key));
   return [...previous, ...next.filter((row) => !seen.has(row.key))];
