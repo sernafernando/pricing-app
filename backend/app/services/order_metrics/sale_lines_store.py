@@ -46,6 +46,15 @@ COLUMNS = (
     "mcosto",
 )
 
+# The TP-Link shares (metricas-ml-tplink-mode P3), derived with `tp=True`.
+# Written by the same INSERT as the Gauss columns, so the divergence check
+# keeps comparing `COLUMNS` only: lines stored before these columns existed
+# carry NULL here and must not all read as diverging.
+TP_COLUMNS = ("tg_tp", "mtg_tp", "mcosto_tp")
+
+# Everything a stored line carries.
+STORED_COLUMNS = COLUMNS + TP_COLUMNS
+
 
 def derive_sale_lines(group_keys: Sequence[str]):
     """The lines of `group_keys` as `sale_lines` derives them now (a subquery
@@ -76,13 +85,15 @@ def _insert_statement(seller: Optional[str]):
     and the drain stores ~25 orders a second. `seller` only keys the cache: the
     seller filter is read from the settings while the statement is built."""
     wanted = func.unnest(bindparam("keys", type_=ARRAY(String))).column_valued("group_key")
-    lines = sale_lines(sqlite=False, groups=select(wanted), queue=False, keyed=True, narrow=True)
-    statement = pg_insert(MlSaleLine.__table__).from_select(list(COLUMNS), select(*(lines.c[name] for name in COLUMNS)))
+    lines = sale_lines(sqlite=False, groups=select(wanted), queue=False, keyed=True, narrow=True, tp=True)
+    statement = pg_insert(MlSaleLine.__table__).from_select(
+        list(STORED_COLUMNS), select(*(lines.c[name] for name in STORED_COLUMNS))
+    )
     # A sibling that JOINS the group is derived with it while its own lines are
     # still stored under its previous group: the line moves instead of colliding.
     return statement.on_conflict_do_update(
         index_elements=["item_row_id"],
-        set_={name: statement.excluded[name] for name in COLUMNS if name != "item_row_id"},
+        set_={name: statement.excluded[name] for name in STORED_COLUMNS if name != "item_row_id"},
     )
 
 

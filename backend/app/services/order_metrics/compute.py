@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Dict, Optional, Sequence
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.models.ml_orders_ops import MlOrdersOps
+from app.models.ml_order_item_costo import MlOrderItemCosto
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids
 from app.services.ml_ventas_desglose.deducciones import CostoMercaderiaDeduccion, calcular_total_gauss
 from app.services.ml_ventas_desglose.iva import descomponer_neto
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 # `persistir_total_gauss`).
 MARKUP_PCT_MAX = Decimal("9999999.99")
 
+_CENT = Decimal("0.01")
+
 
 def normalize_markup_pct(
     markup_pct: Optional[Decimal],
@@ -37,6 +40,7 @@ def normalize_markup_pct(
     gauss_status: GaussStatus,
     *,
     order_id: int,
+    field: str = "markup_pct",
 ) -> Optional[Decimal]:
     """The markup to STORE, or None when it is unknown.
 
@@ -64,13 +68,74 @@ def normalize_markup_pct(
     if reason is None:
         return markup_pct
     logger.warning(
-        "order_metrics: markup_pct=%s normalized to None for order_id=%s (%s; costo_mercaderia=%s)",
+        "order_metrics: %s=%s normalized to None for order_id=%s (%s; cost=%s)",
+        field,
         markup_pct,
         order_id,
         reason,
         costo_mercaderia,
     )
     return None
+
+
+def costo_tp_by_order(db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
+    """The TP-Link cost of goods of each order: `costo_tp_unitario_ars x
+    quantity` over every item, each rounded to the cent -- the same sum
+    `deducciones.CostoMercaderiaDeduccion` makes of the normal cost. `None`
+    (Total TP incomplete) when the order has no items, or ANY item has no
+    frozen cost row, no quantity or no TP cost: never a partial sum, never 0,
+    never the normal cost. Two bulk queries for the whole batch."""
+    items = (
+        db.query(MlOrderItemOps.order_id, MlOrderItemOps.item_id, MlOrderItemOps.variation_id, MlOrderItemOps.quantity)
+        .filter(MlOrderItemOps.order_id.in_(order_ids))
+        .all()
+    )
+    costs = {
+        (row.order_id, row.item_id, row.variation_id): row.costo_tp_unitario_ars
+        for row in db.query(
+            MlOrderItemCosto.order_id,
+            MlOrderItemCosto.item_id,
+            MlOrderItemCosto.variation_id,
+            MlOrderItemCosto.costo_tp_unitario_ars,
+        ).filter(MlOrderItemCosto.order_id.in_(order_ids))
+    }
+    lines: Dict[int, List[Tuple[Optional[Decimal], Optional[int]]]] = {}
+    for item in items:
+        lines.setdefault(item.order_id, []).append(
+            (costs.get((item.order_id, item.item_id, item.variation_id)), item.quantity)
+        )
+    result: Dict[int, Optional[Decimal]] = {}
+    for order_id in order_ids:
+        order_lines = lines.get(order_id)
+        if not order_lines or any(cost is None or qty is None for cost, qty in order_lines):
+            result[order_id] = None
+            continue
+        result[order_id] = sum(
+            ((Decimal(cost) * qty).quantize(_CENT, rounding=ROUND_HALF_UP) for cost, qty in order_lines), Decimal("0")
+        )
+    return result
+
+
+def tp_figures(
+    total_gauss: Optional[Decimal],
+    costo_mercaderia: Optional[Decimal],
+    costo_tp: Optional[Decimal],
+    gauss_status: GaussStatus,
+    *,
+    order_id: int,
+) -> Tuple[Optional[Decimal], Optional[Decimal]]:
+    """`(total_tp, markup_tp)`. Total TP swaps the normal cost for the TP cost
+    in Total Gauss (envío Flex and varios do not depend on cost): `total_gauss
+    + costo_mercaderia - costo_tp`, unknown when any of the three is. The
+    markup goes through `normalize_markup_pct`, so a zero TP cost or a value
+    the column cannot hold is stored as unknown."""
+    if total_gauss is None or costo_mercaderia is None or costo_tp is None:
+        return None, None
+    total_tp = total_gauss + costo_mercaderia - costo_tp
+    markup_tp = None
+    if costo_tp != 0:
+        markup_tp = (total_tp / costo_tp * Decimal("100")).quantize(_CENT, rounding=ROUND_HALF_UP)
+    return total_tp, normalize_markup_pct(markup_tp, costo_tp, gauss_status, order_id=order_id, field="markup_tp")
 
 
 def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, OrderMetrics]:
@@ -111,6 +176,7 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
     base_varios_by_order = {oid: desc.base_varios for oid, desc in descomposiciones.items()}
 
     resultados = calcular_total_gauss(db, order_ids, neto_sin_iva_by_order, base_varios_by_order=base_varios_by_order)
+    costo_tp_by_id = costo_tp_by_order(db, order_ids)
 
     computed_at = datetime.now(timezone.utc)
 
@@ -169,6 +235,10 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
             unresolved_reason = None
 
         markup_pct = normalize_markup_pct(resultado.markup, costo_mercaderia, gauss_status, order_id=order_id)
+        costo_tp = costo_tp_by_id.get(order_id)
+        total_tp, markup_tp = tp_figures(
+            resultado.total_gauss, costo_mercaderia, costo_tp, gauss_status, order_id=order_id
+        )
 
         result[order_id] = OrderMetrics(
             order_id=order_id,
@@ -184,6 +254,10 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
             formula_version=CURRENT_FORMULA_VERSION,
             computed_at=computed_at,
             lineas=resultado.lineas,
+            costo_tp=costo_tp,
+            total_tp=total_tp,
+            markup_tp=markup_tp,
+            tp_incompleto=costo_tp is None,
         )
 
     return result

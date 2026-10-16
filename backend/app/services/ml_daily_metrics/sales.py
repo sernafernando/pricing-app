@@ -30,6 +30,10 @@ Rules (the Ventas ML ones, so both screens agree on the same orders):
   Ventas ML KPI: a group contributes only when every member order carries
   both Total Gauss and cost and is settled (`mtg`/`mcosto`). Total Gauss
   shown on its own (`tg`) still includes every known value.
+- TP-LINK (`tg_tp`/`mtg_tp`/`mcosto_tp`, only with `tp=True`): the same
+  split and the same rules, from the order's stored Total TP and TP cost.
+  NULL means incomplete (an order with Total Gauss but no Total TP, or a
+  markup group with such a member), never 0.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ from decimal import Decimal
 from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import BigInteger, Date, Numeric, String, and_, case, cast, func, literal, or_, select, union
+from sqlalchemy import BigInteger, Date, Numeric, String, and_, case, cast, func, literal, null, or_, select, union
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -210,6 +214,7 @@ def sale_lines(
     queue: bool = True,
     keyed: bool = False,
     narrow: bool = False,
+    tp: bool = False,
 ):
     """One row per sold item line of every accredited group in `ranges`
     (all history when None), restricted to `product` if given: `product`,
@@ -229,7 +234,9 @@ def sale_lines(
     board puts the queue back at read time. `keyed=True` adds the columns that
     identify a line (`item_row_id`, `order_id`, `group_key`); `narrow=True`
     reaches the orders of a small `groups` set through their indexes instead of
-    hashing every order."""
+    hashing every order. `tp=True` adds the TP-Link shares (`tg_tp`, `mtg_tp`,
+    `mcosto_tp`): only the persisted lines ask for them, so the board's live
+    derivation pays nothing for them."""
     qty = func.coalesce(I.quantity, 0)
     weight = C.costo_unitario_ars * qty
     # (group, order): the same partitions as by order alone, but sorted the
@@ -238,6 +245,21 @@ def sale_lines(
     settled = and_(D.order_id.is_(None), MT.order_id.isnot(None)) if queue else MT.order_id.isnot(None)
     has_gauss = and_(settled, MT.gauss_status.in_(GAUSS_STATUSES), MT.total_gauss.isnot(None))
     candidate = case((and_(has_gauss, MT.costo_mercaderia.isnot(None)), 1), else_=0)
+    # A group takes part in the TP markup when every member also has Total TP
+    # and TP cost.
+    candidate_tp = case(
+        (and_(has_gauss, MT.costo_mercaderia.isnot(None), MT.total_tp.isnot(None), MT.costo_tp.isnot(None)), 1),
+        else_=0,
+    )
+    tp_source = (
+        [
+            MT.total_tp.label("order_tp"),
+            MT.costo_tp.label("order_costo_tp"),
+            func.min(candidate_tp).over(partition_by=G.group_key).label("eligible_tp"),
+        ]
+        if tp
+        else []
+    )
     identity = (
         [I.id.label("item_row_id"), O.order_id.label("order_id"), G.group_key.label("group_key")] if keyed else []
     )
@@ -262,6 +284,7 @@ def sale_lines(
             func.sum(weight).over(**by_order).label("weight_sum"),
             func.sum(qty).over(**by_order).label("qty_sum"),
             func.min(candidate).over(partition_by=G.group_key).label("eligible"),
+            *tp_source,
         )
         .select_from(G)
         .join(O, _members_of_group(narrow=narrow or product is not None))
@@ -295,10 +318,25 @@ def sale_lines(
         case((x.has_gauss == 1, x.order_tg * share), else_=0).label("tg"),
         case((eligible, x.order_tg * share), else_=0).label("mtg"),
         case((eligible, x.order_costo * share), else_=0).label("mcosto"),
+        *(_tp_shares(x, share, eligible) if tp else []),
     ).where(x.is_sale == 1)
     if product is not None:
         q = q.where(x.product == product)
     return q.subquery("lines")
+
+
+def _tp_shares(x, share, eligible) -> list:
+    """`tg_tp`, `mtg_tp`, `mcosto_tp` of a line: `tg`/`mtg`/`mcosto` with the
+    order's Total TP and TP cost. `order_tp` is NULL for an incomplete order,
+    so its `tg_tp` share stays NULL; a markup group with such a member gets
+    NULL `mtg_tp`/`mcosto_tp` (no literal 0: NULL is what incomplete means)."""
+    eligible_tp = x.eligible_tp == 1
+    incomplete = cast(null(), Numeric)
+    return [
+        case((x.has_gauss == 1, x.order_tp * share), else_=0).label("tg_tp"),
+        case((eligible_tp, x.order_tp * share), (eligible, incomplete), else_=0).label("mtg_tp"),
+        case((eligible_tp, x.order_costo_tp * share), (eligible, incomplete), else_=0).label("mcosto_tp"),
+    ]
 
 
 def last_sales(

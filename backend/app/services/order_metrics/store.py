@@ -123,6 +123,10 @@ def store_order_metrics(db: Session, metrics_by_order: Dict[int, OrderMetrics]) 
                 "unresolved_reason": metrics.unresolved_reason,
                 "formula_version": metrics.formula_version,
                 "computed_at": metrics.computed_at,
+                "costo_tp": metrics.costo_tp,
+                "total_tp": metrics.total_tp,
+                "markup_tp": metrics.markup_tp,
+                "tp_incompleto": metrics.tp_incompleto,
             }
         )
 

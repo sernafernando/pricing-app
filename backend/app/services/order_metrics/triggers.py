@@ -251,13 +251,16 @@ FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_order_item_costos();
 
 -- The table is INSERT-only by writer convention (`costeo_service.congelar`,
 -- ON CONFLICT DO NOTHING) but the trigger still covers UPDATE/DELETE so a
--- future or manual write is not a silent staleness hole.
+-- future or manual write is not a silent staleness hole. The TP cost IS
+-- written by UPDATE: the TP backfill and late-load worker fill a NULL
+-- `costo_tp_unitario_ars` once (migration 20261027_tp_metrics_columns).
 CREATE TRIGGER trg_order_metrics_item_costos_update
-AFTER UPDATE OF costo_unitario_ars, iva_pct, precio_unitario ON ml_order_item_costos
+AFTER UPDATE OF costo_unitario_ars, iva_pct, precio_unitario, costo_tp_unitario_ars ON ml_order_item_costos
 FOR EACH ROW WHEN (
     OLD.costo_unitario_ars IS DISTINCT FROM NEW.costo_unitario_ars
     OR OLD.iva_pct IS DISTINCT FROM NEW.iva_pct
     OR OLD.precio_unitario IS DISTINCT FROM NEW.precio_unitario
+    OR OLD.costo_tp_unitario_ars IS DISTINCT FROM NEW.costo_tp_unitario_ars
 )
 EXECUTE FUNCTION order_metrics_enqueue_order_item_costos();
 
