@@ -16,7 +16,8 @@ Qué tenés que saber:
 - **Filas solo de publicidad.** Los productos con inversión pero sin ventas aparecen en la tabla con la marca **SOLO ADS**, y los Ads sin producto en una fila **SIN PRODUCTO**.
 - **Con filtros, solo se restan los Ads de publicaciones.** Si elegís "Restar toda la publicidad" y tenés filtros o un PM aplicado, el gasto de cuenta no se puede repartir entre productos. Entonces se resta solo lo de las publicaciones, y la pantalla te lo avisa con la marca **Aplicado**.
 - **Permisos.** El control solo aparece si tenés el permiso de ver ganancia.
-- **Sin cambios por ahora:** los gráficos chicos de las tarjetas y el **CSV** siguen mostrando las cifras sin restar publicidad.
+- **El CSV sigue a la pantalla.** Con publicidad restada, **Exportar CSV** suma la columna **Publicidad (inversión)** al lado de Total Gauss, y el Total Gauss y el markup salen ajustados, igual que en la tabla. Con **Sin publicidad** el archivo queda como siempre.
+- **Sin cambios por ahora:** los gráficos chicos de las tarjetas siguen mostrando las cifras sin restar publicidad.
 
 ## Cómo se usa
 

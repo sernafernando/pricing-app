@@ -309,9 +309,8 @@ export default function MetricasML() {
     setExporting(true);
     setExportError(null);
     try {
-      // The CSV stays as it was before ads: it never carries the toggle's position.
-      const { publicidad: _omitted, ...csvParams } = filterParams;
-      await exportMetricasCsv({ ...csvParams, sort: sort.key, sort_dir: sort.desc ? 'desc' : 'asc' });
+      // The CSV follows the board's "Publicidad" position (filterParams carries it only when not off).
+      await exportMetricasCsv({ ...filterParams, sort: sort.key, sort_dir: sort.desc ? 'desc' : 'asc' });
     } catch (err) {
       setExportError(err.message);
     } finally {

@@ -635,10 +635,12 @@ def _csv_layout(f: board.BoardFilter) -> CsvLayout:
     )
 
 
-def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout) -> list:
+def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout, with_ads: bool = False) -> list:
     """One CSV line: the layout's own columns, then the ones every layout
     shares, in the same order (units and windows, money, margin when allowed,
-    last sale, ageing, stock)."""
+    last sale, ageing, stock). `with_ads` (the "Publicidad" position is not
+    off, margin allowed): the row's ads cost right after Total Gauss, which
+    already has it subtracted -- the board's column order and figures."""
     line = layout.head_of(row) + [
         row.units,
         row.units_24h,
@@ -651,6 +653,7 @@ def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout) -> list:
     if can_see_margin:
         line += [
             _csv_money(round_money(row.tg)),
+            *([_csv_money(round_money(row.ads_cost))] if with_ads else []),
             _csv_money(round_pp(row.markup)),
             _csv_money(round_pp(row.markup_prev)),
             _csv_money(round_pp(row.markup_delta)),
@@ -662,6 +665,9 @@ def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout) -> list:
     ]
     return line
 
+
+# The board's label of the ads column (`metricasMlColumns.js`), so the file reads like the screen.
+ADS_CSV_HEADER = "Publicidad (inversión)"
 
 # The CSV header of each level of the "Agrupado" tree.
 LEVEL_HEADERS = {
@@ -700,6 +706,8 @@ def export_board(
     explicit error line."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
+    # The CSV follows the board's "Publicidad" position: off keeps the pre-ads file byte for byte.
+    with_ads = can_see_margin and f.restar_publicidad
     # Resolved ONCE, here, on the request session: every page runs on its own
     # background session and gets the plain list.
     scope_pairs = _scope_pairs(db, current_user)
@@ -737,7 +745,7 @@ def export_board(
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";")
         for row in rows:
-            writer.writerow(_csv_line(row, can_see_margin, layout))
+            writer.writerow(_csv_line(row, can_see_margin, layout, with_ads))
         return buffer.getvalue()
 
     # CLOSE the request session (the permission check left it holding a
@@ -746,7 +754,13 @@ def export_board(
 
     header = layout.header + ["Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
     if can_see_margin:
-        header += ["Total Gauss", "Markup %", "Markup anterior %", "Variación pp"]
+        header += [
+            "Total Gauss",
+            *([ADS_CSV_HEADER] if with_ads else []),
+            "Markup %",
+            "Markup anterior %",
+            "Variación pp",
+        ]
     header += ["Última venta", "Ageing (días)", "Stock"]
 
     def stream():
