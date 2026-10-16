@@ -15,6 +15,15 @@ the current list. Same picker as the normal-cost backfill
 the most recent row dated at or before the sale that carries a REAL price
 (`> 0`) -- a zero row is an ERP hole, not a free product.
 
+List 8 only started being used on 2026-06-26, so most historical sales
+predate every list-8 row (owner decision, measured on prod). Such a sale --
+no real price at or before its date, but real prices later -- is costed with
+the item's FIRST real list-8 price, still converted at the SALE-DATE rate,
+and stamped `lista8_primer_precio` (`lista8_primer_precio_combo` when any
+component of a combo took it) so it can be shown as approximate. An item
+that never had a real list-8 price is not in TP's catalog: it stays NULL
+and is counted as `fuera_catalogo_tp`, apart from the real problems.
+
 Same rules as `congelar()` otherwise, and anything that cannot be resolved
 stays NULL (the "Total TP incomplete" flag), never 0, never the normal cost:
 - rows from more than one company whose prices at the sale date disagree,
@@ -67,6 +76,7 @@ from app.scripts.backfill_costo_congelado import (  # noqa: E402
     _as_date,
     _pick_fx_rate,
     _pick_history_row,
+    _tiene_precio,
     _usd_rates_by_date,
 )
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
@@ -84,8 +94,19 @@ DEFAULT_BATCH_SIZE = 500
 # effect at the sale date, own or summed from components.
 FUENTE_TP_HISTORIA = "lista8_historia"
 FUENTE_TP_HISTORIA_COMBO = "lista8_historia_combo"
+# APPROXIMATE: list 8 only started being used on 2026-06-26, so a sale before
+# an item's first list-8 row has no price in effect at its date. It is costed
+# with the item's FIRST real list-8 price instead, and stamped with its own
+# `fuente` so the screen can show it as approximate. A combo where at least
+# one component took that fallback gets the `_combo` variant.
+FUENTE_TP_PRIMER_PRECIO = "lista8_primer_precio"
+FUENTE_TP_PRIMER_PRECIO_COMBO = "lista8_primer_precio_combo"
 
 SKIP_NO_ORDER_DATE = "no_order_date"
+# Never had a real list-8 price: not in TP's catalog (only products with a
+# list-8 price are). Expected, kept apart from the real problems below.
+SKIP_FUERA_CATALOGO = "fuera_catalogo_tp"
+# Has real list-8 prices, but none of them carries a date to pick from.
 SKIP_NO_HISTORY = "no_dated_list8_price"
 SKIP_AMBIGUOUS = "companies_disagree"
 SKIP_BAD_CURRENCY = "unknown_currency"
@@ -106,6 +127,8 @@ class BackfillTpResult:
     batches: int = 0
     last_id: int = 0
     skipped: Counter = field(default_factory=Counter)
+    resolved_by_fuente: Counter = field(default_factory=Counter)
+    written_by_fuente: Counter = field(default_factory=Counter)
 
 
 def _historia_lista8(db: Session, item_ids: Sequence[int]) -> Dict[int, List[ItemCostListHistory]]:
@@ -126,25 +149,52 @@ def _historia_lista8(db: Session, item_ids: Sequence[int]) -> Dict[int, List[Ite
     return by_item
 
 
-def _precio_a_fecha(
-    rows: Sequence[ItemCostListHistory], as_of: date
-) -> Tuple[Optional[Tuple[Decimal, str]], Optional[str]]:
-    """`((price, moneda), None)`, or `(None, reason)`. The reason tells a
-    MISSING price (`SKIP_NO_HISTORY`, a combo may still sum its components)
-    from a REJECTED one (any other reason, never falls back)."""
-    picks = []
-    for comp_id in {row.comp_id for row in rows}:
-        pick = _pick_history_row([row for row in rows if row.comp_id == comp_id], as_of)
-        if pick is not None:
-            picks.append(pick)
-    if not picks:
-        return None, SKIP_NO_HISTORY
+# Reasons that mean "this item has no own price to use" -- a combo may still
+# be summed from its components. Every other reason is a REJECTED price
+# (companies disagree, unknown currency) and never falls back.
+_SIN_PRECIO_PROPIO = (SKIP_FUERA_CATALOGO, SKIP_NO_HISTORY)
+
+
+def _primer_precio(rows: Sequence[ItemCostListHistory]) -> Optional[ItemCostListHistory]:
+    """The EARLIEST dated row that carries a real price (`> 0`)."""
+    fechadas = [row for row in rows if _as_date(row.iclh_cd) is not None and _tiene_precio(row)]
+    if not fechadas:
+        return None
+    return min(fechadas, key=lambda row: (_as_date(row.iclh_cd), row.iclh_id))
+
+
+def _validar(picks: Sequence[ItemCostListHistory]) -> Tuple[Optional[Tuple[Decimal, str]], Optional[str]]:
+    """One pick per company: they must agree, in a known currency."""
     if len({(Decimal(str(p.iclh_price)), p.curr_id) for p in picks}) > 1:
         return None, SKIP_AMBIGUOUS
     moneda = _MONEDA_POR_CURR_ID.get(picks[0].curr_id)
     if moneda is None:
         return None, SKIP_BAD_CURRENCY
     return (Decimal(str(picks[0].iclh_price)), moneda), None
+
+
+def _precio_lista8(
+    rows: Sequence[ItemCostListHistory], as_of: date
+) -> Tuple[Optional[Tuple[Decimal, str]], bool, Optional[str]]:
+    """`((price, moneda), aproximado, None)` or `(None, False, reason)`.
+
+    The price in effect at `as_of` when there is one; otherwise, when the
+    item's list-8 history only starts AFTER the sale, its first real price
+    (`aproximado=True`). Never had a real price -> `SKIP_FUERA_CATALOGO`."""
+    if not any(_tiene_precio(row) for row in rows):
+        return None, False, SKIP_FUERA_CATALOGO
+    companias = {row.comp_id for row in rows}
+    picks = [_pick_history_row([r for r in rows if r.comp_id == comp], as_of) for comp in companias]
+    picks = [pick for pick in picks if pick is not None]
+    if picks:
+        precio, motivo = _validar(picks)
+        return precio, False, motivo
+    primeros = [_primer_precio([r for r in rows if r.comp_id == comp]) for comp in companias]
+    primeros = [pick for pick in primeros if pick is not None]
+    if not primeros:
+        return None, False, SKIP_NO_HISTORY
+    precio, motivo = _validar(primeros)
+    return precio, precio is not None, motivo
 
 
 def _a_ars(
@@ -167,28 +217,37 @@ def _resolver(
     combos: Dict[int, List[Tuple[int, Decimal]]],
     rates: Sequence[TipoCambio],
 ) -> Tuple[Optional[_TpValues], Optional[str]]:
-    precio, motivo = _precio_a_fecha(historia.get(erp_id, []), as_of)
+    precio, aproximado, motivo = _precio_lista8(historia.get(erp_id, []), as_of)
     if precio is not None:
+        # A first-price fallback still converts at the SALE-DATE rate.
         convertido = _a_ars(precio, rates, as_of)
         if convertido is None:
             return None, SKIP_NO_FX
-        return (precio[0], precio[1], convertido[1], convertido[0], FUENTE_TP_HISTORIA), None
+        fuente = FUENTE_TP_PRIMER_PRECIO if aproximado else FUENTE_TP_HISTORIA
+        return (precio[0], precio[1], convertido[1], convertido[0], fuente), None
     componentes = combos.get(erp_id)
-    if motivo != SKIP_NO_HISTORY or not componentes:
+    if motivo not in _SIN_PRECIO_PROPIO or not componentes:
         return None, motivo
 
     total = Decimal("0")
+    algun_aproximado = False
     for componente_id, qty in componentes:
-        precio_componente, _ = _precio_a_fecha(historia.get(componente_id, []), as_of)
+        precio_componente, aproximado, motivo_componente = _precio_lista8(historia.get(componente_id, []), as_of)
         if precio_componente is None:
+            # A component that never had a list-8 price puts the combo out of
+            # TP's catalog too; any other failure is a real problem.
+            if motivo_componente == SKIP_FUERA_CATALOGO:
+                return None, SKIP_FUERA_CATALOGO
             return None, SKIP_COMBO_COMPONENT
         convertido = _a_ars(precio_componente, rates, as_of)
         if convertido is None:
             return None, SKIP_NO_FX
         total += convertido[0] * qty
+        algun_aproximado = algun_aproximado or aproximado
     if total <= 0:
         return None, SKIP_COMBO_COMPONENT
-    return (total, "ARS", None, total, FUENTE_TP_HISTORIA_COMBO), None
+    fuente = FUENTE_TP_PRIMER_PRECIO_COMBO if algun_aproximado else FUENTE_TP_HISTORIA_COMBO
+    return (total, "ARS", None, total, fuente), None
 
 
 def _procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: BackfillTpResult) -> None:
@@ -211,6 +270,7 @@ def _procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: Back
             result.skipped[motivo] += 1
             continue
         result.resolved += 1
+        result.resolved_by_fuente[valores[4]] += 1
         grupos.setdefault(valores, []).append(row.id)
 
     if dry_run:
@@ -230,7 +290,9 @@ def _procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: Back
             )
             .returning(tabla.c.id)
         )
-        result.written += len(db.execute(stmt).fetchall())
+        escritas = len(db.execute(stmt).fetchall())
+        result.written += escritas
+        result.written_by_fuente[fuente] += escritas
 
 
 def run_backfill(
@@ -289,7 +351,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     result = run_backfill(limit=args.limit, dry_run=args.dry_run, batch_size=args.batch_size, after_id=args.after_id)
     logger.info(
         "backfill_tp_cost: complete (dry_run=%s, limit=%s) -- examined=%s resolved=%s written=%s "
-        "batches=%s last_id=%s skipped_total=%s skipped_breakdown=%s",
+        "batches=%s last_id=%s resolved_by_fuente=%s written_by_fuente=%s skipped_total=%s skipped_breakdown=%s",
         args.dry_run,
         args.limit,
         result.examined,
@@ -297,6 +359,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         result.written,
         result.batches,
         result.last_id,
+        dict(result.resolved_by_fuente),
+        dict(result.written_by_fuente),
         sum(result.skipped.values()),
         dict(result.skipped),
     )

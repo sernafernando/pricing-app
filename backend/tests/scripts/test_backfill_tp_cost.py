@@ -151,9 +151,8 @@ class TestPriceAtTheSaleDate:
         _assert_tp_null(_row(db, 3))
         assert result.skipped[script.SKIP_NO_FX] == 1
 
-    def test_only_later_or_other_list_history_stays_null(self, db):
+    def test_an_item_never_priced_on_list8_is_out_of_the_tp_catalog(self, db):
         _venta(db, 4, when=date(2026, 7, 15))
-        _hist(db, 500, 80, date(2026, 8, 1))
         _hist(db, 500, 70, date(2026, 7, 1), coslis_id=1)
         db.commit()
 
@@ -162,7 +161,7 @@ class TestPriceAtTheSaleDate:
         row = _row(db, 4)
         _assert_tp_null(row)
         assert row.costo_unitario_ars == Decimal("100")
-        assert result.skipped[script.SKIP_NO_HISTORY] == 1
+        assert result.skipped[script.SKIP_FUERA_CATALOGO] == 1
 
     def test_a_zero_row_is_a_hole_and_the_last_real_price_before_it_applies(self, db):
         """Same picker as the normal-cost backfill (and the list-8 metrics
@@ -180,11 +179,13 @@ class TestPriceAtTheSaleDate:
     def test_only_zero_rows_stay_null_never_zero(self, db):
         _venta(db, 6, when=date(2026, 7, 15))
         _hist(db, 500, 0, date(2026, 7, 1))
+        _hist(db, 500, 0, date(2026, 8, 1))
         db.commit()
 
-        script.run_backfill(limit=None, dry_run=False)
+        result = script.run_backfill(limit=None, dry_run=False)
 
         _assert_tp_null(_row(db, 6))
+        assert result.skipped[script.SKIP_FUERA_CATALOGO] == 1
 
     def test_unknown_currency_stays_null(self, db):
         _venta(db, 7)
@@ -241,17 +242,28 @@ class TestCombos:
         assert row.costo_tp_tipo_cambio is None
         assert row.costo_tp_fuente == script.FUENTE_TP_HISTORIA_COMBO
 
-    def test_one_component_without_a_dated_price_sinks_the_combo(self, db):
+    def test_one_component_never_priced_sinks_the_combo(self, db):
         _venta(db, 21, producto_item_id=500)
         _componente(db, 500, 901, 1)
         _componente(db, 500, 902, 1)
         _hist(db, 901, 30, date(2026, 7, 1))
-        _hist(db, 902, 5, date(2026, 9, 1))
         db.commit()
 
         result = script.run_backfill(limit=None, dry_run=False)
 
         _assert_tp_null(_row(db, 21))
+        assert result.skipped[script.SKIP_FUERA_CATALOGO] == 1
+
+    def test_one_ambiguous_component_sinks_the_combo(self, db):
+        _venta(db, 25, producto_item_id=500)
+        _componente(db, 500, 901, 1)
+        _hist(db, 901, 30, date(2026, 7, 1), comp_id=1)
+        _hist(db, 901, 31, date(2026, 7, 1), comp_id=2)
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        _assert_tp_null(_row(db, 25))
         assert result.skipped[script.SKIP_COMBO_COMPONENT] == 1
 
     def test_a_combo_with_its_own_dated_price_uses_it(self, db):
@@ -361,3 +373,108 @@ class TestNeverRewritesAndRuns:
 
         assert "examined=1" in caplog.text
         assert "last_id=" in caplog.text
+        assert "resolved_by_fuente=" in caplog.text
+        assert "written_by_fuente=" in caplog.text
+
+
+class TestFirstPriceFallback:
+    """List 8 started on 2026-06-26: a sale before an item's first list-8
+    row is costed with that item's FIRST real list-8 price, flagged as
+    approximate by its own `fuente`."""
+
+    def test_a_sale_before_the_first_list8_row_uses_the_first_real_price(self, db):
+        _venta(db, 70, when=date(2026, 5, 10))
+        _hist(db, 500, 0, date(2026, 6, 26))
+        _hist(db, 500, 80, date(2026, 6, 27))
+        _hist(db, 500, 95, date(2026, 8, 1))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        row = _row(db, 70)
+        assert row.costo_tp_origen == Decimal("80")
+        assert row.costo_tp_unitario_ars == Decimal("80")
+        assert row.costo_tp_tipo_cambio is None
+        assert row.costo_tp_fuente == script.FUENTE_TP_PRIMER_PRECIO
+        assert result.resolved_by_fuente[script.FUENTE_TP_PRIMER_PRECIO] == 1
+        assert result.written_by_fuente[script.FUENTE_TP_PRIMER_PRECIO] == 1
+
+    def test_a_usd_first_price_converts_at_the_sale_date_rate(self, db):
+        _venta(db, 71, when=date(2026, 5, 10))
+        _hist(db, 500, 10, date(2026, 6, 27), curr_id=USD)
+        _rate(db, date(2026, 5, 1), 1100)
+        _rate(db, date(2026, 6, 27), 1300)
+        db.commit()
+
+        script.run_backfill(limit=None, dry_run=False)
+
+        row = _row(db, 71)
+        assert row.costo_tp_moneda == "USD"
+        assert row.costo_tp_tipo_cambio == Decimal("1100")
+        assert row.costo_tp_unitario_ars == Decimal("11000")
+        assert row.costo_tp_fuente == script.FUENTE_TP_PRIMER_PRECIO
+
+    def test_first_prices_that_disagree_across_companies_stay_null(self, db):
+        _venta(db, 72, when=date(2026, 5, 10))
+        _hist(db, 500, 80, date(2026, 6, 27), comp_id=1)
+        _hist(db, 500, 90, date(2026, 6, 27), comp_id=2)
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        _assert_tp_null(_row(db, 72))
+        assert result.skipped[script.SKIP_AMBIGUOUS] == 1
+
+    def test_a_first_price_in_an_unknown_currency_stays_null(self, db):
+        _venta(db, 73, when=date(2026, 5, 10))
+        _hist(db, 500, 80, date(2026, 6, 27), curr_id=99)
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        _assert_tp_null(_row(db, 73))
+        assert result.skipped[script.SKIP_BAD_CURRENCY] == 1
+
+    def test_a_combo_with_a_component_on_its_first_price_is_flagged_approximate(self, db):
+        _venta(db, 74, producto_item_id=500, when=date(2026, 7, 15))
+        _componente(db, 500, 901, 2)
+        _componente(db, 500, 902, 1)
+        _hist(db, 901, 30, date(2026, 7, 1))
+        _hist(db, 902, 5, date(2026, 9, 1))
+        _hist(db, 902, 7, date(2026, 10, 1))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        row = _row(db, 74)
+        # 2 * 30 (dated) + 1 * 5 (first price)
+        assert row.costo_tp_unitario_ars == Decimal("65")
+        assert row.costo_tp_tipo_cambio is None
+        assert row.costo_tp_fuente == script.FUENTE_TP_PRIMER_PRECIO_COMBO
+        assert result.resolved_by_fuente[script.FUENTE_TP_PRIMER_PRECIO_COMBO] == 1
+
+    def test_a_combo_with_its_own_later_price_uses_its_own_first_price(self, db):
+        _venta(db, 75, producto_item_id=500, when=date(2026, 5, 10))
+        _componente(db, 500, 901, 1)
+        _hist(db, 500, 55, date(2026, 6, 27))
+        _hist(db, 901, 30, date(2026, 6, 27))
+        db.commit()
+
+        script.run_backfill(limit=None, dry_run=False)
+
+        row = _row(db, 75)
+        assert row.costo_tp_unitario_ars == Decimal("55")
+        assert row.costo_tp_fuente == script.FUENTE_TP_PRIMER_PRECIO
+
+    def test_a_dated_price_still_wins_over_the_first_price(self, db):
+        _venta(db, 76, when=date(2026, 7, 15))
+        _hist(db, 500, 80, date(2026, 6, 27))
+        _hist(db, 500, 90, date(2026, 7, 10))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        row = _row(db, 76)
+        assert row.costo_tp_unitario_ars == Decimal("90")
+        assert row.costo_tp_fuente == script.FUENTE_TP_HISTORIA
+        assert result.resolved_by_fuente[script.FUENTE_TP_HISTORIA] == 1
