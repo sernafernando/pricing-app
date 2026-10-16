@@ -38,6 +38,7 @@ beforeEach(() => {
   exportMetricasCsv.mockClear();
   api.get.mockReset();
   api.get.mockImplementation((url, config) => {
+    if (url === '/ml-metricas/board/products/4101/publications') return Promise.resolve({ data: { rows: [], total: 0 } });
     if (url === '/ml-metricas/board') return Promise.resolve({ data: config?.params?.publicidad ? board : BOARD_RESPONSE });
     return Promise.resolve({ data: {} });
   });
@@ -82,6 +83,17 @@ describe('MetricasML ads toggle', () => {
     await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
     await waitFor(() => expect(exportMetricasCsv).toHaveBeenCalled());
     expect(exportMetricasCsv.mock.calls[0][0]).not.toHaveProperty('publicidad');
+  });
+
+  it('asks for the same position when a product opens into its publications', async () => {
+    board = withAds(ADS_KPIS);
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(within(await control()).getByRole('button', { name: 'Restar Ads de publicaciones' }));
+    await waitFor(() => expect(lastBoardParams().publicidad).toBe('mla'));
+
+    await userEvent.click(await screen.findByRole('button', { name: /publicaciones de Impresora Multifunción Epson/ }));
+    const call = api.get.mock.calls.find(([url]) => url === '/ml-metricas/board/products/4101/publications');
+    expect(call[1].params.publicidad).toBe('mla');
   });
 
   it('hides the control without ver_ganancia, and never asks for ads', async () => {
