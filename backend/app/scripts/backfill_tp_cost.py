@@ -23,6 +23,8 @@ and stamped `lista8_primer_precio` (`lista8_primer_precio_combo` when any
 component of a combo took it) so it can be shown as approximate. An item
 that never had a real list-8 price is not in TP's catalog: it stays NULL
 and is counted as `fuera_catalogo_tp`, apart from the real problems.
+Exact always beats approximate: a combo's exact component sum at the sale
+wins over its own first price (order in `_resolver`).
 
 Same rules as `congelar()` otherwise, and anything that cannot be resolved
 stays NULL (the "Total TP incomplete" flag), never 0, never the normal cost:
@@ -103,6 +105,11 @@ FUENTE_TP_PRIMER_PRECIO = "lista8_primer_precio"
 FUENTE_TP_PRIMER_PRECIO_COMBO = "lista8_primer_precio_combo"
 
 SKIP_NO_ORDER_DATE = "no_order_date"
+# `producto_item_id` is NOT NULL in the schema; guarded anyway so one bad
+# row can never abort its batch -- and every re-run with it.
+SKIP_SIN_ITEM_ERP = "sin_item_erp"
+# Any unexpected error resolving ONE row: logged, counted, the batch goes on.
+SKIP_ERROR = "error_resolucion"
 # Never had a real list-8 price: not in TP's catalog (only products with a
 # list-8 price are). Expected, kept apart from the real problems below.
 SKIP_FUERA_CATALOGO = "fuera_catalogo_tp"
@@ -149,10 +156,9 @@ def _historia_lista8(db: Session, item_ids: Sequence[int]) -> Dict[int, List[Ite
     return by_item
 
 
-# Reasons that mean "this item has no own price to use" -- a combo may still
-# be summed from its components. Every other reason is a REJECTED price
-# (companies disagree, unknown currency) and never falls back.
-_SIN_PRECIO_PROPIO = (SKIP_FUERA_CATALOGO, SKIP_NO_HISTORY)
+# Internal, never counted: the item has real list-8 prices, but none in
+# effect at the sale date -- the first-price fallback may still apply.
+_SIN_PRECIO_A_FECHA = "sin_precio_a_fecha"
 
 
 def _primer_precio(rows: Sequence[ItemCostListHistory]) -> Optional[ItemCostListHistory]:
@@ -173,28 +179,32 @@ def _validar(picks: Sequence[ItemCostListHistory]) -> Tuple[Optional[Tuple[Decim
     return (Decimal(str(picks[0].iclh_price)), moneda), None
 
 
-def _precio_lista8(
+def _precio_exacto(
     rows: Sequence[ItemCostListHistory], as_of: date
-) -> Tuple[Optional[Tuple[Decimal, str]], bool, Optional[str]]:
-    """`((price, moneda), aproximado, None)` or `(None, False, reason)`.
-
-    The price in effect at `as_of` when there is one; otherwise, when the
-    item's list-8 history only starts AFTER the sale, its first real price
-    (`aproximado=True`). Never had a real price -> `SKIP_FUERA_CATALOGO`."""
+) -> Tuple[Optional[Tuple[Decimal, str]], Optional[str]]:
+    """The price in effect at `as_of`: `((price, moneda), None)` or
+    `(None, reason)`. Never had a real price -> `SKIP_FUERA_CATALOGO`; real
+    prices but none in effect yet -> `_SIN_PRECIO_A_FECHA`; anything else is
+    a REJECTED price (companies disagree, unknown currency)."""
     if not any(_tiene_precio(row) for row in rows):
-        return None, False, SKIP_FUERA_CATALOGO
+        return None, SKIP_FUERA_CATALOGO
     companias = {row.comp_id for row in rows}
     picks = [_pick_history_row([r for r in rows if r.comp_id == comp], as_of) for comp in companias]
     picks = [pick for pick in picks if pick is not None]
-    if picks:
-        precio, motivo = _validar(picks)
-        return precio, False, motivo
+    if not picks:
+        return None, _SIN_PRECIO_A_FECHA
+    return _validar(picks)
+
+
+def _precio_primero(rows: Sequence[ItemCostListHistory]) -> Tuple[Optional[Tuple[Decimal, str]], Optional[str]]:
+    """The item's FIRST real list-8 price (approximate), per company and
+    validated the same way. Only undated real rows -> `SKIP_NO_HISTORY`."""
+    companias = {row.comp_id for row in rows}
     primeros = [_primer_precio([r for r in rows if r.comp_id == comp]) for comp in companias]
     primeros = [pick for pick in primeros if pick is not None]
     if not primeros:
-        return None, False, SKIP_NO_HISTORY
-    precio, motivo = _validar(primeros)
-    return precio, precio is not None, motivo
+        return None, SKIP_NO_HISTORY
+    return _validar(primeros)
 
 
 def _a_ars(
@@ -210,6 +220,55 @@ def _a_ars(
     return valor * tipo_cambio, tipo_cambio
 
 
+def _sumar_componentes(
+    componentes: Sequence[Tuple[int, Decimal]],
+    as_of: date,
+    historia: Dict[int, List[ItemCostListHistory]],
+    rates: Sequence[TipoCambio],
+    con_primer_precio: bool,
+) -> Tuple[Optional[Tuple[Decimal, bool]], Optional[str]]:
+    """`((total_ars, algun_aproximado), None)` or `(None, reason)`, ALL OR
+    NOTHING. Every component is examined before deciding, so a REJECTED
+    component always wins: `SKIP_COMBO_COMPONENT`/`SKIP_NO_FX` (terminal),
+    then `SKIP_FUERA_CATALOGO` (a component never on list 8, terminal), then
+    `_SIN_PRECIO_A_FECHA` (only without `con_primer_precio`: try later)."""
+    total = Decimal("0")
+    algun_aproximado = False
+    motivos = set()
+    for componente_id, qty in componentes:
+        rows = historia.get(componente_id, [])
+        precio, motivo = _precio_exacto(rows, as_of)
+        aproximado = False
+        if precio is None and motivo == _SIN_PRECIO_A_FECHA and con_primer_precio:
+            precio, motivo = _precio_primero(rows)
+            aproximado = precio is not None
+        if precio is None:
+            motivos.add(motivo if motivo in (SKIP_FUERA_CATALOGO, _SIN_PRECIO_A_FECHA) else SKIP_COMBO_COMPONENT)
+            continue
+        convertido = _a_ars(precio, rates, as_of)
+        if convertido is None:
+            motivos.add(SKIP_NO_FX)
+            continue
+        total += convertido[0] * qty
+        algun_aproximado = algun_aproximado or aproximado
+    for motivo in (SKIP_COMBO_COMPONENT, SKIP_NO_FX, SKIP_FUERA_CATALOGO, _SIN_PRECIO_A_FECHA):
+        if motivo in motivos:
+            return None, motivo
+    if total <= 0:
+        return None, SKIP_COMBO_COMPONENT
+    return (total, algun_aproximado), None
+
+
+def _valores_propios(
+    precio: Tuple[Decimal, str], fuente: str, rates: Sequence[TipoCambio], as_of: date
+) -> Tuple[Optional[_TpValues], Optional[str]]:
+    # A first-price fallback still converts at the SALE-DATE rate.
+    convertido = _a_ars(precio, rates, as_of)
+    if convertido is None:
+        return None, SKIP_NO_FX
+    return (precio[0], precio[1], convertido[1], convertido[0], fuente), None
+
+
 def _resolver(
     erp_id: int,
     as_of: date,
@@ -217,40 +276,56 @@ def _resolver(
     combos: Dict[int, List[Tuple[int, Decimal]]],
     rates: Sequence[TipoCambio],
 ) -> Tuple[Optional[_TpValues], Optional[str]]:
-    precio, aproximado, motivo = _precio_lista8(historia.get(erp_id, []), as_of)
-    if precio is not None:
-        # A first-price fallback still converts at the SALE-DATE rate.
-        convertido = _a_ars(precio, rates, as_of)
-        if convertido is None:
-            return None, SKIP_NO_FX
-        fuente = FUENTE_TP_PRIMER_PRECIO if aproximado else FUENTE_TP_HISTORIA
-        return (precio[0], precio[1], convertido[1], convertido[0], fuente), None
+    """Exact beats approximate. In order, stopping at the first that applies:
+    1. own price in effect at the sale (`lista8_historia`);
+    2. a combo's exact component sum at the sale (`lista8_historia_combo`);
+    3. own first price (`lista8_primer_precio`);
+    4. a combo's component sum with each component's first-price fallback
+       (`lista8_primer_precio_combo`).
+    A REJECTED price at any step (companies disagree, unknown currency, no
+    rate, a rejected component) ends it: NULL, no later step."""
+    rows = historia.get(erp_id, [])
     componentes = combos.get(erp_id)
-    if motivo not in _SIN_PRECIO_PROPIO or not componentes:
+
+    precio, motivo = _precio_exacto(rows, as_of)
+    if precio is not None:
+        return _valores_propios(precio, FUENTE_TP_HISTORIA, rates, as_of)
+    if motivo not in (SKIP_FUERA_CATALOGO, _SIN_PRECIO_A_FECHA):
         return None, motivo
 
-    total = Decimal("0")
-    algun_aproximado = False
-    for componente_id, qty in componentes:
-        precio_componente, aproximado, motivo_componente = _precio_lista8(historia.get(componente_id, []), as_of)
-        if precio_componente is None:
-            # A component that never had a list-8 price puts the combo out of
-            # TP's catalog too; any other failure is a real problem.
-            if motivo_componente == SKIP_FUERA_CATALOGO:
-                return None, SKIP_FUERA_CATALOGO
-            return None, SKIP_COMBO_COMPONENT
-        convertido = _a_ars(precio_componente, rates, as_of)
-        if convertido is None:
-            return None, SKIP_NO_FX
-        total += convertido[0] * qty
-        algun_aproximado = algun_aproximado or aproximado
-    if total <= 0:
-        return None, SKIP_COMBO_COMPONENT
-    fuente = FUENTE_TP_PRIMER_PRECIO_COMBO if algun_aproximado else FUENTE_TP_HISTORIA_COMBO
-    return (total, "ARS", None, total, fuente), None
+    if componentes:
+        suma, motivo_componentes = _sumar_componentes(componentes, as_of, historia, rates, con_primer_precio=False)
+        if suma is not None:
+            return (suma[0], "ARS", None, suma[0], FUENTE_TP_HISTORIA_COMBO), None
+        # Rejected component: terminal. Missing ones (not dated yet, or
+        # never on list 8) leave room for the combo's own first price.
+        if motivo_componentes not in (_SIN_PRECIO_A_FECHA, SKIP_FUERA_CATALOGO):
+            return None, motivo_componentes
+
+    if motivo == _SIN_PRECIO_A_FECHA:
+        precio, motivo = _precio_primero(rows)
+        if precio is not None:
+            return _valores_propios(precio, FUENTE_TP_PRIMER_PRECIO, rates, as_of)
+        if motivo != SKIP_NO_HISTORY:
+            return None, motivo
+
+    if componentes:
+        suma, motivo_componentes = _sumar_componentes(componentes, as_of, historia, rates, con_primer_precio=True)
+        if suma is None:
+            return None, motivo_componentes
+        fuente = FUENTE_TP_PRIMER_PRECIO_COMBO if suma[1] else FUENTE_TP_HISTORIA_COMBO
+        return (suma[0], "ARS", None, suma[0], fuente), None
+    return None, motivo
 
 
 def _procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: BackfillTpResult) -> None:
+    validas = []
+    for row in rows:
+        if row.producto_item_id is None:
+            result.skipped[SKIP_SIN_ITEM_ERP] += 1
+        else:
+            validas.append(row)
+    rows = validas
     erp_ids = {row.producto_item_id for row in rows}
     combos = componentes_por_combo(db, erp_ids)
     componentes = {componente_id for comps in combos.values() for componente_id, _ in comps}
@@ -265,7 +340,11 @@ def _procesar_lote(db: Session, rows: Sequence[Any], dry_run: bool, result: Back
         if row.date_created is None:
             result.skipped[SKIP_NO_ORDER_DATE] += 1
             continue
-        valores, motivo = _resolver(row.producto_item_id, _as_date(row.date_created), historia, combos, rates)
+        try:
+            valores, motivo = _resolver(row.producto_item_id, _as_date(row.date_created), historia, combos, rates)
+        except Exception:  # noqa: BLE001 -- one row must never abort its batch
+            logger.exception("backfill_tp_cost: resolving ml_order_item_costos.id=%s failed", row.id)
+            valores, motivo = None, SKIP_ERROR
         if valores is None:
             result.skipped[motivo] += 1
             continue

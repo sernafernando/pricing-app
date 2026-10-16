@@ -478,3 +478,140 @@ class TestFirstPriceFallback:
         assert row.costo_tp_unitario_ars == Decimal("90")
         assert row.costo_tp_fuente == script.FUENTE_TP_HISTORIA
         assert result.resolved_by_fuente[script.FUENTE_TP_HISTORIA] == 1
+
+
+class TestComboPrecedence:
+    """Exact beats approximate: own dated price, then the exact component
+    sum, then own first price, then the component sum with fallback."""
+
+    def test_own_price_only_later_but_components_dated_gives_the_exact_component_sum(self, db):
+        _venta(db, 80, producto_item_id=500, when=date(2026, 7, 15))
+        _componente(db, 500, 901, 2)
+        _componente(db, 500, 902, 1)
+        _hist(db, 500, 55, date(2026, 9, 1))
+        _hist(db, 901, 30, date(2026, 7, 1))
+        _hist(db, 902, 5, date(2026, 7, 1))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        row = _row(db, 80)
+        assert row.costo_tp_unitario_ars == Decimal("65")
+        assert row.costo_tp_fuente == script.FUENTE_TP_HISTORIA_COMBO
+        assert result.resolved_by_fuente[script.FUENTE_TP_HISTORIA_COMBO] == 1
+
+    def test_a_component_rejected_at_the_sale_date_sinks_the_combo_even_with_an_own_later_price(self, db):
+        _venta(db, 81, producto_item_id=500, when=date(2026, 7, 15))
+        _componente(db, 500, 901, 1)
+        _componente(db, 500, 902, 1)
+        _hist(db, 500, 55, date(2026, 9, 1))
+        _hist(db, 901, 30, date(2026, 7, 1), comp_id=1)
+        _hist(db, 901, 31, date(2026, 7, 1), comp_id=2)
+        _hist(db, 902, 5, date(2026, 9, 1))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        _assert_tp_null(_row(db, 81))
+        assert result.skipped[script.SKIP_COMBO_COMPONENT] == 1
+
+    def test_own_first_price_beats_a_component_sum_that_needs_the_fallback(self, db):
+        _venta(db, 82, producto_item_id=500, when=date(2026, 7, 15))
+        _componente(db, 500, 901, 1)
+        _componente(db, 500, 902, 1)
+        _hist(db, 500, 55, date(2026, 9, 1))
+        _hist(db, 901, 30, date(2026, 7, 1))
+        _hist(db, 902, 5, date(2026, 9, 1))
+        db.commit()
+
+        script.run_backfill(limit=None, dry_run=False)
+
+        row = _row(db, 82)
+        assert row.costo_tp_unitario_ars == Decimal("55")
+        assert row.costo_tp_fuente == script.FUENTE_TP_PRIMER_PRECIO
+
+
+class TestUnresolvableRowsAreCounted:
+    def test_a_cost_row_without_an_order_is_counted_and_stays_null(self, db):
+        _venta(db, 90)
+        _hist(db, 500, 80, date(2026, 7, 1))
+        db.query(MlOrdersOps).filter_by(order_id=90).delete()
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        _assert_tp_null(_row(db, 90))
+        assert result.skipped[script.SKIP_NO_ORDER_DATE] == 1
+
+    def test_an_order_without_a_date_is_counted_and_stays_null(self, db):
+        _venta(db, 91)
+        _hist(db, 500, 80, date(2026, 7, 1))
+        db.query(MlOrdersOps).filter_by(order_id=91).update({"date_created": None})
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        _assert_tp_null(_row(db, 91))
+        assert result.skipped[script.SKIP_NO_ORDER_DATE] == 1
+
+    def test_real_prices_only_on_undated_rows_are_counted_and_stay_null(self, db):
+        _venta(db, 92)
+        db.add(ItemCostListHistory(iclh_id=next(_ids), comp_id=1, coslis_id=8, item_id=500, iclh_price=80, curr_id=ARS))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        _assert_tp_null(_row(db, 92))
+        assert result.skipped[script.SKIP_NO_HISTORY] == 1
+
+
+class TestOneBadRowNeverAbortsTheBatch:
+    """`producto_item_id` is NOT NULL in the schema, so these rows are built
+    by hand: the guard is defensive, and a batch must survive them."""
+
+    def _filas(self, db):
+        from types import SimpleNamespace
+
+        _venta(db, 100)
+        _venta(db, 101)
+        _hist(db, 500, 80, date(2026, 7, 1))
+        db.commit()
+        ids = {r.order_id: r.id for r in db.query(MlOrderItemCosto)}
+        fecha = datetime(2026, 7, 15, tzinfo=timezone.utc)
+        return [
+            SimpleNamespace(id=ids[100], producto_item_id=500, date_created=fecha),
+            SimpleNamespace(id=999_999, producto_item_id=None, date_created=fecha),
+            SimpleNamespace(id=ids[101], producto_item_id=500, date_created=fecha),
+        ]
+
+    def test_a_row_without_an_erp_item_is_counted_and_the_others_are_written(self, db):
+        filas = self._filas(db)
+
+        for _ in range(2):  # a re-run hits the same row and still does not crash
+            result = script.BackfillTpResult()
+            script._procesar_lote(db, filas, False, result)
+            db.commit()
+
+        assert result.skipped[script.SKIP_SIN_ITEM_ERP] == 1
+        assert _row(db, 100).costo_tp_unitario_ars == Decimal("80")
+        assert _row(db, 101).costo_tp_unitario_ars == Decimal("80")
+
+    def test_an_unexpected_error_on_one_row_is_counted_and_the_others_are_written(self, db, monkeypatch):
+        filas = [f for f in self._filas(db) if f.producto_item_id is not None]
+        original = script._resolver
+
+        def _falla_en_la_primera(erp_id, as_of, *args):
+            if as_of and filas and _falla_en_la_primera.llamadas == 0:
+                _falla_en_la_primera.llamadas += 1
+                raise ValueError("boom")
+            return original(erp_id, as_of, *args)
+
+        _falla_en_la_primera.llamadas = 0
+        monkeypatch.setattr(script, "_resolver", _falla_en_la_primera)
+
+        result = script.BackfillTpResult()
+        script._procesar_lote(db, filas, False, result)
+        db.commit()
+
+        assert result.skipped[script.SKIP_ERROR] == 1
+        assert result.written == 1
