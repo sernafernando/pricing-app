@@ -107,10 +107,12 @@ const DEDUCCION_LABELS = {
 // The detail's Total chain, one shape for both views: `cadena_total_gauss`,
 // or `cadena_total_tp` for a `tplink.solo` user (metricas-ml-tplink-mode P7:
 // the same chain with the TP cost line, ending in Total TP, no Gauss word).
+// A missing TP figure is normalised to null, so every `=== null` check below
+// reads it as unknown instead of rendering an amount.
 function chainFrom(data) {
   const tp = data.cadena_total_tp;
   if (tp) {
-    return { ...tp, total: tp.total_tp, markup: tp.markup_tp, label: 'Total TP', markupLabel: 'Markup TP' };
+    return { ...tp, total: tp.total_tp ?? null, markup: tp.markup_tp ?? null, label: 'Total TP', markupLabel: 'Markup TP' };
   }
   const gauss = data.cadena_total_gauss;
   if (!gauss) return null;

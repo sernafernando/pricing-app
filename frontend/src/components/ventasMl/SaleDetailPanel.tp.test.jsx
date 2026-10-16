@@ -74,4 +74,22 @@ describe('SaleDetailPanel, TP chain', () => {
     expect(section).not.toHaveTextContent('0,00');
     expect(document.body).not.toHaveTextContent(/gauss/i);
   });
+
+  it('treats a missing total_tp key like null: a dash, never an amount', async () => {
+    mockDetail(
+      detail({
+        costo_tp: null,
+        markup_tp: null,
+        tp_incompleto: true,
+        lineas: [{ code: 'costo_tp', monto: null }],
+        provisional: false,
+        provisional_falta: null,
+      }),
+    );
+    render(<SaleDetailPanel orderId={2001} onClose={vi.fn()} />);
+    const section = await screen.findByRole('region', { name: 'Total TP' });
+    expect(section).toHaveTextContent('Total TP incompleto: falta el costo TP.');
+    expect(section).not.toHaveTextContent('$ 0,00');
+    expect(section).not.toHaveTextContent('NaN');
+  });
 });
