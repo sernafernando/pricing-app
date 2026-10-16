@@ -220,10 +220,13 @@ describe('PermisosPorPantalla', () => {
     expect(within(sueltos).getByRole('button', { name: 'Conceder admin.sincronizar' })).toBeInTheDocument();
   });
 
-  it('shows everything as accessible and no actions for a SUPERADMIN target', async () => {
-    renderPanel({ permisosUsuario: payload('SUPERADMIN') });
+  it('shows everything as accessible and actions only for opt-in codes on a SUPERADMIN target', async () => {
+    const superadmin = payload('SUPERADMIN');
+    superadmin.permisos_detallados.ventas_ml.push(permiso('tplink.tema', { origen: 'sin_permiso' }));
+    renderPanel({ permisosUsuario: superadmin });
     expect(within(fila('/admin')).getByText('Accede')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: ACCION })).not.toBeInTheDocument();
+    const acciones = screen.getAllByRole('button', { name: ACCION });
+    expect(acciones.map((boton) => boton.getAttribute('aria-label'))).toEqual(['Conceder tplink.tema']);
   });
 
   describe('override failures', () => {

@@ -11,6 +11,13 @@ from app.models.rol import Rol
 from app.models.usuario import Usuario
 from app.models.usuario_rol_adicional import UsuarioRolAdicional
 
+# Opt-in permission codes: SUPERADMIN does NOT get these implicitly. They change
+# how the app looks or which data it shows (TP-Link theme, TP-only data lock), so
+# a SUPERADMIN gets one only through an explicit per-user override. Everyone else
+# gets them through roles/overrides as usual. Mirrored in
+# frontend/src/constants/permisosOptIn.js (a test keeps both lists equal).
+OPT_IN_PERMISSION_CODES = frozenset({"tplink.tema", "tplink.solo"})
+
 
 class PermisosService:
     """Servicio para verificar y gestionar permisos de usuarios"""
@@ -28,10 +35,11 @@ class PermisosService:
         Returns:
             Set de códigos de permisos que el usuario tiene
         """
-        # SUPERADMIN siempre tiene TODOS los permisos
+        # SUPERADMIN tiene TODOS los permisos salvo los opt-in, que solo recibe
+        # por override explícito.
         if usuario.es_superadmin:
-            todos_permisos = self.db.query(Permiso.codigo).all()
-            return {p.codigo for p in todos_permisos}
+            todos_permisos = {p.codigo for p in self.db.query(Permiso.codigo).all()}
+            return (todos_permisos - OPT_IN_PERMISSION_CODES) | self._opt_in_concedidos(usuario)
 
         # Obtener permisos base del rol (usando rol_id si existe, sino fallback a rol enum)
         if usuario.rol_id:
@@ -61,6 +69,26 @@ class PermisosService:
                     permisos_finales.discard(permiso.codigo)
 
         return permisos_finales
+
+    def _opt_in_concedidos(self, usuario: Usuario) -> Set[str]:
+        """Códigos opt-in otorgados al usuario por override (`concedido=True`)."""
+        filas = (
+            self.db.query(Permiso.codigo)
+            .join(UsuarioPermisoOverride, UsuarioPermisoOverride.permiso_id == Permiso.id)
+            .filter(
+                UsuarioPermisoOverride.usuario_id == usuario.id,
+                UsuarioPermisoOverride.concedido.is_(True),
+                Permiso.codigo.in_(OPT_IN_PERMISSION_CODES),
+            )
+            .all()
+        )
+        return {f.codigo for f in filas}
+
+    def _permisos_efectivos(self, usuario: Usuario) -> Set[str]:
+        """Permisos del usuario: el cache del request si existe, si no se calculan."""
+        if hasattr(usuario, "_permisos_cache"):
+            return usuario._permisos_cache
+        return self.obtener_permisos_usuario(usuario)
 
     def _obtener_permisos_rol_por_id(self, rol_id: int) -> List[str]:
         """Obtiene los permisos base de un rol por ID"""
@@ -129,8 +157,8 @@ class PermisosService:
         Returns:
             True si el usuario tiene el permiso
         """
-        # SUPERADMIN siempre tiene todos los permisos
-        if usuario.es_superadmin:
+        # SUPERADMIN tiene todos los permisos salvo los opt-in (ver OPT_IN_PERMISSION_CODES)
+        if usuario.es_superadmin and permiso_codigo not in OPT_IN_PERMISSION_CODES:
             return True
 
         # Fast path: use pre-loaded cache from get_current_user
@@ -143,7 +171,7 @@ class PermisosService:
 
     def tiene_algun_permiso(self, usuario: Usuario, permisos: List[str]) -> bool:
         """Verifica si el usuario tiene al menos uno de los permisos listados"""
-        if usuario.es_superadmin:
+        if usuario.es_superadmin and any(p not in OPT_IN_PERMISSION_CODES for p in permisos):
             return True
 
         # Fast path: use pre-loaded cache from get_current_user
@@ -157,7 +185,8 @@ class PermisosService:
     def tiene_todos_los_permisos(self, usuario: Usuario, permisos: List[str]) -> bool:
         """Verifica si el usuario tiene todos los permisos listados"""
         if usuario.es_superadmin:
-            return True
+            opt_in = [p for p in permisos if p in OPT_IN_PERMISSION_CODES]
+            return not opt_in or all(p in self._permisos_efectivos(usuario) for p in opt_in)
 
         # Fast path: use pre-loaded cache from get_current_user
         if hasattr(usuario, "_permisos_cache"):
@@ -310,15 +339,21 @@ class PermisosService:
             if categoria not in resultado:
                 resultado[categoria] = []
 
-            # SUPERADMIN tiene todos los permisos por rol por definición
+            # SUPERADMIN tiene todos los permisos por rol por definición, salvo los
+            # opt-in: esos solo los tiene por override, como cualquier otro usuario.
             roles_adicionales = permisos_adicionales.get(p.codigo, [])
             tiene_por_rol_principal = p.codigo in permisos_rol
-            tiene_por_rol = True if es_superadmin else (tiene_por_rol_principal or bool(roles_adicionales))
+            es_opt_in = p.codigo in OPT_IN_PERMISSION_CODES
+            if es_superadmin:
+                tiene_por_rol = not es_opt_in
+                tiene_por_rol_principal = False
+            else:
+                tiene_por_rol = tiene_por_rol_principal or bool(roles_adicionales)
             override = overrides.get(p.codigo)
 
             # Calcular estado efectivo
-            # SUPERADMIN siempre tiene todos los permisos efectivos
-            if es_superadmin:
+            # SUPERADMIN siempre tiene todos los permisos efectivos (salvo opt-in)
+            if es_superadmin and not es_opt_in:
                 efectivo = True
                 origen = "superadmin"
             elif override is not None:
@@ -355,7 +390,7 @@ def verificar_permiso(db: Session, usuario: Usuario, permiso: str) -> bool:
     """Helper function para verificar permisos de forma rápida"""
     # Fast path: use pre-loaded cache from get_current_user
     if hasattr(usuario, "_permisos_cache"):
-        if usuario.es_superadmin:
+        if usuario.es_superadmin and permiso not in OPT_IN_PERMISSION_CODES:
             return True
         return permiso in usuario._permisos_cache
 

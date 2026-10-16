@@ -175,10 +175,27 @@ describe('PermisosPorPermiso', () => {
     expect(screen.queryByRole('button', { name: ACCION })).not.toBeInTheDocument();
   });
 
-  it('hides the actions for a SUPERADMIN target', () => {
-    renderVista({ permisosUsuario: payload('SUPERADMIN') });
+  it('offers actions on a SUPERADMIN target only for opt-in codes', () => {
+    const superadmin = payload('SUPERADMIN');
+    superadmin.permisos_detallados.ventas_ml = [
+      permiso('tplink.tema', { nombre: 'Ver tema TP-Link', origen: 'sin_permiso' }),
+    ];
+    renderVista({ permisosUsuario: superadmin });
 
-    expect(screen.queryByRole('button', { name: ACCION })).not.toBeInTheDocument();
+    const acciones = screen.getAllByRole('button', { name: ACCION });
+    expect(acciones.map((boton) => boton.getAttribute('aria-label'))).toEqual(['Conceder tplink.tema']);
+  });
+
+  it('offers Resetear on a SUPERADMIN opt-in code it was granted', () => {
+    const superadmin = payload('SUPERADMIN');
+    superadmin.permisos_detallados.ventas_ml = [
+      permiso('tplink.tema', { override: true, efectivo: true, origen: 'override_agregado' }),
+    ];
+    renderVista({ permisosUsuario: superadmin });
+
+    expect(screen.getAllByRole('button', { name: ACCION }).map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Resetear tplink.tema',
+    ]);
   });
   it('says there are no permissions, not a search miss, when the payload is empty', () => {
     renderVista({ permisosUsuario: { rol: 'PRICING', permisos_detallados: {} } });

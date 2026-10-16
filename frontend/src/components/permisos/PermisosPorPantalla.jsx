@@ -250,7 +250,7 @@ function FilaPantalla({ item, expandida, onAlternar, acciones }) {
           </span>
         )}
 
-        {unicaFalta && acciones.puedeEditar && (
+        {unicaFalta && acciones.puedeEditarCodigo(unicaFalta.codigo) && (
           <button
             type="button"
             className={styles.btnConceder}
@@ -289,12 +289,12 @@ function FilaPantalla({ item, expandida, onAlternar, acciones }) {
 }
 
 export function FilaPermiso({ permiso, acciones, mostrarCategoria = false }) {
-  const { puedeEditar, enCurso, forzar, resetear } = acciones;
+  const { puedeEditarCodigo, enCurso, forzar, resetear } = acciones;
   const tieneOverride = permiso.override !== null && permiso.override !== undefined;
   const ocupado = enCurso !== null;
 
   let accion = null;
-  if (puedeEditar && !permiso.desconocido) {
+  if (puedeEditarCodigo(permiso.codigo) && !permiso.desconocido) {
     if (tieneOverride) {
       accion = (
         <button

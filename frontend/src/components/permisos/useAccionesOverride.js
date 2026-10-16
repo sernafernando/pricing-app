@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { esPermisoOptIn } from '../../constants/permisosOptIn';
 
 const PERMISO_GESTIONAR = 'admin.gestionar_permisos';
 const MOTIVO_OVERRIDE = 'Override desde panel de permisos';
@@ -10,7 +11,10 @@ const MOTIVO_OVERRIDE = 'Override desde panel de permisos';
  * "Por pantalla" and "Por permiso" views.
  *
  * Editing needs `admin.gestionar_permisos` (the backend gate of the override
- * endpoints) and is never offered on a SUPERADMIN target. After a change it
+ * endpoints). On a SUPERADMIN target it is offered only for opt-in codes
+ * (constants/permisosOptIn.js): SUPERADMIN holds every other code implicitly,
+ * but an opt-in code only by explicit grant. `puedeEditarCodigo(codigo)` is the
+ * per-code rule the views must use. After a change it
  * awaits `onActualizado()` (the parent reloads the payload) and only then
  * announces success through `onMensaje`.
  *
@@ -22,7 +26,8 @@ export default function useAccionesOverride({ usuarioId, rol, onActualizado, onM
   const { tienePermiso } = usePermisos();
   const [enCursoLocal, setEnCursoLocal] = useState(null);
   const { enCurso, setEnCurso } = bloqueo ?? { enCurso: enCursoLocal, setEnCurso: setEnCursoLocal };
-  const puedeEditar = tienePermiso(PERMISO_GESTIONAR) && rol !== 'SUPERADMIN';
+  const puedeGestionar = tienePermiso(PERMISO_GESTIONAR);
+  const puedeEditarCodigo = (codigo) => puedeGestionar && (rol !== 'SUPERADMIN' || esPermisoOptIn(codigo));
 
   const ejecutar = async (codigo, accion, textoOk, textoError) => {
     setEnCurso(codigo);
@@ -67,5 +72,5 @@ export default function useAccionesOverride({ usuarioId, rol, onActualizado, onM
       'Error al resetear permiso',
     );
 
-  return { puedeEditar, enCurso, forzar, resetear };
+  return { puedeEditarCodigo, enCurso, forzar, resetear };
 }
