@@ -50,6 +50,13 @@ function renderPanel(props = {}) {
 
 const REFRESHING = /actualizando desde ml/i;
 
+// `findBy*` resolves on the DOM change, BEFORE React runs that render's passive effects -- and the pull
+// starts in one. A "did not pull" check made right after it would pass even for a panel that is about to
+// pull, so every negative check first lets the pending effects (and the microtasks they queue) run.
+async function flushEffects() {
+  await act(async () => {});
+}
+
 describe('MlaPromocionesPanel - background refresh', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -67,7 +74,12 @@ describe('MlaPromocionesPanel - background refresh', () => {
 
     expect(await screen.findByText('Deal promo')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(REFRESHING);
-    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_BG');
+    // The "updating" state is derived in the same render the mirror lands in; the pull itself starts in a
+    // passive effect React flushes in a LATER task, so `findByText` can resolve before the call is made.
+    // `pull` is never resolved here, so waiting for the call cannot reach a settled refresh.
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_BG'));
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent(REFRESHING);
     // The refresh is the ONLY thing still pending: the first read did not wait for it.
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
   });
@@ -148,6 +160,7 @@ describe('MlaPromocionesPanel - background refresh', () => {
     renderPanel({ pullOnOpen: false });
 
     expect(await screen.findByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+    await flushEffects();
     expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
@@ -159,6 +172,7 @@ describe('MlaPromocionesPanel - background refresh', () => {
     renderPanel();
 
     expect(await screen.findByRole('button', { name: /^aplicar$/i })).toBeEnabled();
+    await flushEffects();
     expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
   });
 });
@@ -216,6 +230,7 @@ describe('MlaPromocionesPanel - only active publications are pulled from ML', ()
     expect(screen.getByText(new RegExp(motivo))).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^aplicar$/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /solo lectura/i })).toBeDisabled();
+    await flushEffects();
     expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(1);
@@ -229,6 +244,7 @@ describe('MlaPromocionesPanel - only active publications are pulled from ML', ()
     renderPanel();
 
     expect(await screen.findByText(new RegExp(MOTIVO))).toBeInTheDocument();
+    await flushEffects();
     expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
     expect(promocionesAPI.confirmarSinPromosML).not.toHaveBeenCalled();
   });
