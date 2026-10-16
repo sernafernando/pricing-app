@@ -40,6 +40,7 @@ import {
   VARIATION_ITEM,
   groupsResponse,
   makeNode,
+  productsResponse,
 } from './publicacionesMlFixtures';
 
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
@@ -63,7 +64,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
@@ -645,6 +646,83 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
       const alert = document.querySelector('tbody [role="alert"]');
       expect(rect(alert).right).toBeLessThanOrEqual(rect(scrollerOf()).right + 0.5);
       expect(getComputedStyle(alert).color).toBe(tokenColor('--cf-text-secondary'));
+      screen.unmount();
+    });
+  }
+});
+
+const renderProducts = async ({ width, height, theme }) => {
+  canSeeMargin = true;
+  publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
+  publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
+  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234 }) });
+  await page.viewport(width, height);
+  setTheme(theme);
+  document.body.style.background = 'var(--cf-bg-app)';
+  window.scrollTo(0, 0);
+  const screen = await render(
+    <MemoryRouter initialEntries={['/ml-publicaciones?vista=producto']}>
+      <Shell>
+        <PublicacionesML />
+      </Shell>
+    </MemoryRouter>,
+  );
+  await expect.element(screen.getByText('Router Archer AX55')).toBeVisible();
+  return screen;
+};
+
+describe('Publicaciones ML Producto view (visual)', () => {
+  beforeEach(() => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.variations.mockReset();
+    publicacionesMlAPI.products.mockReset();
+  });
+
+  for (const theme of THEMES) {
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product table fits the screen, the view picker and the pager included`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        const scroller = scrollerOf();
+        expect(rect(scroller).right).toBeLessThanOrEqual(width + 0.5);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        expect(getComputedStyle(scroller).backgroundColor).toBe(tokenColor('--cf-bg-card'));
+        for (const control of document.querySelectorAll('header button')) {
+          expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
+        }
+        await expect.element(screen.getByText(/de 1234 productos/)).toBeVisible();
+        expect(document.body.textContent).not.toContain('Markup:');
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: a product's figures, money and sparklines stay on one line inside their cells`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        const scroller = scrollerOf();
+        const figures = [...scroller.querySelectorAll('tbody td[data-align="right"] span')].filter((el) => el.textContent.trim());
+        expect(figures.length).toBeGreaterThan(0);
+        expect(wrapped(figures)).toEqual([]);
+        expect(overflowingCells(scroller)).toEqual([]);
+        screen.unmount();
+      });
+    }
+
+    it(`1366x768 ${theme}: an open product shows its publications one level deeper, "Ver más" inside the table`, async () => {
+      const screen = await renderProducts({ width: 1366, height: 768, theme });
+      await screen.getByRole('button', { name: /Abrir Router Archer AX55/ }).click();
+      await expect.element(screen.getByText('Router TP-Link Archer AX55 por color')).toBeVisible();
+      const scroller = scrollerOf();
+      expect(pinnedPadding(rowWith(scroller, 'Router TP-Link Archer AX55 por color'))).toBeGreaterThan(
+        pinnedPadding(rowWith(scroller, 'Router Archer AX55')),
+      );
+      const more = [...scroller.querySelectorAll('button')].find((button) => /Ver más/.test(button.textContent));
+      expect(more).toBeDefined();
+      more.scrollIntoView({ block: 'center' });
+      await frame();
+      expect(rect(more).right).toBeLessThanOrEqual(rect(scroller).right + 0.5);
+      scroller.scrollTo({ top: 0, left: 160 });
+      await frame();
+      const pinned = rowWith(scroller, 'Router TP-Link Archer AX55 por color').querySelector('td[data-pinned]');
+      expect(Math.abs(rect(pinned).left - rect(scroller).left)).toBeLessThanOrEqual(2);
+      expect(overflowingCells(scroller)).toEqual([]);
       screen.unmount();
     });
   }

@@ -1,0 +1,97 @@
+import { useMemo } from 'react';
+import { TableShell } from '../kit';
+import VariationRows from './VariationRows';
+import { BranchState, NodeCount, NodeTitle } from './NodeCells';
+import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
+
+/**
+ * Producto view of Publicaciones ML, like Métricas ML's: one row per product
+ * (`tree` from `useProductRows`), opening into its publications, in the kit's
+ * `TableShell` (`getRowDepth` indents, `renderSubRows` keeps the variation
+ * sub-rows of a publication).
+ *
+ * `columns` are the page's visible ones (`buildColumns({producto: true})`): a
+ * product fills its name, its publication count and the sum of its
+ * publications' Métricas ML figures (the row's `metrics` has the publications'
+ * shape, so the same cells draw it; null reads "—"); a
+ * publication fills them all, exactly like the list. Only the product figures
+ * are sortable (`PRODUCT_SORTS`): the backend sorts the products, not their
+ * publications.
+ */
+// The columns whose cell reads only `metrics`: a product draws them with the publications' own cells.
+const PRODUCT_FIGURES = new Set([
+  'unidades_7d',
+  'unidades_30d',
+  'units_trend',
+  'markup_30d',
+  'markup_trend',
+  'facturado_30d',
+  'total_gauss_30d',
+  'last_sale',
+  'ageing',
+]);
+
+export default function ProductoTable({
+  tree,
+  columns,
+  canSeeMargin,
+  expandedIds,
+  onSelectItem,
+  selectedKey,
+  sort,
+  onSort,
+  offset,
+  emptyMessage = 'Ningún producto coincide con los filtros',
+}) {
+  const { rows, toggle, loadMore } = tree;
+
+  const productColumns = useMemo(
+    () =>
+      columns.map((column, index) => ({
+        ...column,
+        sortable: Boolean(column.sortable) && PRODUCT_SORTS.includes(column.key),
+        render: (row) => {
+          if (row.type === 'item') return column.render(row.item);
+          if (row.type === 'node') {
+            if (column.key === 'titulo') return <NodeTitle row={row} onToggle={toggle} />;
+            if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
+            if (PRODUCT_FIGURES.has(column.key)) return column.render({ metrics: row.node.metrics });
+            return null;
+          }
+          // "Ver más" and the states of a product's publications live in the pinned cell.
+          return index === 0 ? <BranchState row={row} onMore={loadMore} onRetry={loadMore} /> : null;
+        },
+      })),
+    [columns, toggle, loadMore],
+  );
+
+  // The page selects by MLA; the table by row, so only one row is highlighted.
+  const selectedRowId =
+    selectedKey === undefined ? undefined : rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id;
+
+  const handleRowClick = (row, event) => {
+    if (row.type === 'node') toggle(row);
+    else if (row.type === 'item') onSelectItem(row.item, event);
+  };
+
+  return (
+    <TableShell
+      columns={productColumns}
+      rows={rows}
+      getRowKey={(row) => row.id}
+      getRowDepth={(row) => row.depth}
+      renderSubRows={(row) =>
+        row.type === 'item' && row.item.variations_count > 1 && expandedIds.has(row.item.item_id) ? (
+          <VariationRows item={row.item} columns={columns} canSeeMargin={canSeeMargin} depth={row.depth} />
+        ) : null
+      }
+      sort={sort}
+      onSort={onSort}
+      onRowClick={handleRowClick}
+      selectedKey={selectedRowId}
+      offset={offset}
+      emptyMessage={emptyMessage}
+      ariaLabel="Publicaciones de Mercado Libre por producto"
+    />
+  );
+}

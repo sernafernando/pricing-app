@@ -112,3 +112,15 @@ describe('publicacionesMlAPI product links', () => {
     expect(get).toHaveBeenCalledWith('/buscar-productos-erp', { params: { q: 'ax55' } });
   });
 });
+
+describe('publicacionesMlAPI.products', () => {
+  it('GETs /ml-publications/view/products with the params as the query', async () => {
+    const actual = await vi.importActual('./api');
+    const get = vi.spyOn(actual.default, 'get').mockResolvedValue({ data: { rows: [] } });
+    const params = { estado: 'active', orden: 'facturado_30d', dir: 'desc', limit: 50, offset: 0 };
+
+    await actual.publicacionesMlAPI.products(params);
+
+    expect(get).toHaveBeenCalledWith('/ml-publications/view/products', { params });
+  });
+});

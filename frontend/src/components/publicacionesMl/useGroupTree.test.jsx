@@ -34,4 +34,25 @@ describe('useGroupTree', () => {
     await waitFor(() => expect(publicacionesMlAPI.groups.mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(publicacionesMlAPI.groups.mock.calls.filter(([params]) => params.path === row.node.key)).toHaveLength(1);
   });
+
+  it("a late answer of the previous tree does not lift the new tree's guard for the same page", async () => {
+    let settleOld;
+    const old = new Promise((resolve) => {
+      settleOld = resolve;
+    });
+    publicacionesMlAPI.groups.mockReset();
+    publicacionesMlAPI.groups.mockReturnValueOnce(old).mockReturnValue(new Promise(() => {}));
+    const { result, rerender } = renderHook(
+      ({ filters }) => useGroupTree({ filters, familias: false, canSeeMargin: false }),
+      { initialProps: { filters: FILTERS } },
+    );
+    rerender({ filters: { ...FILTERS, tiendas: ['57997'] } }); // the new tree asks for its roots while the old is pending
+    await waitFor(() => expect(publicacionesMlAPI.groups).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      settleOld({ data: groupsResponse('marca', BRAND_NODES) });
+      await old;
+    });
+    act(() => result.current.loadMore('')); // the new roots are still pending: asking again must ask for nothing
+    expect(publicacionesMlAPI.groups).toHaveBeenCalledTimes(2);
+  });
 });

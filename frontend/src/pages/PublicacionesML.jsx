@@ -11,6 +11,8 @@ import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStr
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
+import ProductoTable from '../components/publicacionesMl/ProductoTable';
+import useProductRows from '../components/publicacionesMl/useProductRows';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -41,6 +43,11 @@ import styles from './PublicacionesML.module.css';
  * page and selection live in the URL (`usePublicacionesMLFilters`).
  * Ctrl/Cmd+click opens the publication in Mercado Libre; a plain click selects
  * the row, which opens the detail panel beside the table (`sel`, `tab` in the URL).
+ *
+ * `vista=producto` swaps the list for one row per product, like Métricas ML's
+ * Producto view (`ProductoTable`, `/view/products`), each opening into its
+ * publications; it pages and sorts the products, and `/items` is asked only for
+ * the honest-state block and the facet counts, as in the tree.
  *
  * `vista=agrupado` swaps the list for the tree (the levels of the `agrupar`
  * dimension, marca > categoría > subcategoría by default, > producto > [familia]
@@ -76,7 +83,10 @@ const STOCK_LABELS = { propio_sin_stock: 'Sin stock propio', full_sin_stock: 'Fu
 
 const EMPTY_ROWS = [];
 
+// Métricas ML's order (Producto | Publicación | Agrupado). The publication list stays the default: it is this
+// screen's own unit, and every link without `vista` already opens it.
 const VISTA_OPTIONS = [
+  { value: 'producto', label: 'Producto' },
   { value: 'publicacion', label: 'Publicaciones' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
@@ -164,6 +174,9 @@ export default function PublicacionesML() {
 
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
+  const producto = filters.vista === 'producto';
+  // The views that load their own rows: `/items` brings them only the state and the facets.
+  const ownRows = agrupado || producto;
   const latestRequest = useRef(0);
   // The filter set the current `facets` belong to. Advances only when a
   // response that carried facets is applied, so a failure asks again.
@@ -173,7 +186,7 @@ export default function PublicacionesML() {
   // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts; nor is it
   // sorted, so its one-row facets request never asks for a Métricas sort (a ranking of the whole set).
   const requestKey = JSON.stringify(
-    agrupado
+    ownRows
       ? { ...buildItemsParams(filters, 1, { canSeeMargin: false }), offset: 0 }
       : buildItemsParams(filters, pageSize, { canSeeMargin, canSeeSales }),
   );
@@ -208,6 +221,7 @@ export default function PublicacionesML() {
   }, [requestKey, filterKey, reloadToken]);
 
   const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
+  const productRows = useProductRows({ filters, pageSize, canSeeSales, canSeeMargin, enabled: producto });
 
   const eventsEnabled = data?.events_enabled ?? false;
   const columns = useMemo(
@@ -219,10 +233,11 @@ export default function PublicacionesML() {
         expandedIds,
         onToggleVariations: toggleVariations,
         agrupado,
+        producto,
         dimension: filters.agrupar,
         familias: filters.familias === '1',
       }),
-    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, filters.agrupar, filters.familias],
+    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, producto, filters.agrupar, filters.familias],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
@@ -242,7 +257,8 @@ export default function PublicacionesML() {
 
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
-  const sort = effectiveSort(filters, { canSeeSales, canSeeMargin });
+  // The Producto view sorts the products by their own figures (`effectiveProductSort`).
+  const sort = producto ? productRows.sort : effectiveSort(filters, { canSeeSales, canSeeMargin });
   const closePanel = () => setFilters({ sel: '', tab: '' });
   const changeTab = (tab) => setFilters({ tab });
   const handleSort = (key) => {
@@ -275,12 +291,13 @@ export default function PublicacionesML() {
   const csvChange = (key) => (value) => setFilters({ [key]: value ? value.split(',') : [] });
   const activeOf = (values) => values.join(',');
   // The markup filters are invisible (and not sent) without the permission, or in the tree, so they do not count either.
-  const showMarkupFilters = canSeeMargin && !agrupado;
+  const showMarkupFilters = canSeeMargin && !ownRows;
   const activeKeys = showMarkupFilters ? FILTER_KEYS : FILTER_KEYS.filter((key) => !key.startsWith('markup_'));
   const hasActiveFilters = activeKeys.some((key) => (Array.isArray(filters[key]) ? filters[key].length > 0 : filters[key] !== ''));
 
   const items = data?.items ?? EMPTY_ROWS;
-  const total = data?.total ?? 0;
+  const total = producto ? productRows.total : (data?.total ?? 0);
+  const unit = producto ? 'productos' : 'publicaciones';
   const offset = (filters.pagina - 1) * pageSize;
   const emptyMessage = data?.data_state?.store_empty
     ? 'Todavía no hay publicaciones sincronizadas'
@@ -419,8 +436,8 @@ export default function PublicacionesML() {
         </div>
       )}
 
-      {/* In the tree `/items` only brings the state and the facets: its failure leaves the tree (which has its own errors) on screen. */}
-      {error && !agrupado ? null : !data && !agrupado ? (
+      {/* In the tree and the Producto view `/items` only brings the state and the facets: its failure leaves their rows (which have their own errors) on screen. */}
+      {error && !ownRows ? null : !data && !ownRows ? (
         <ListSkeleton />
       ) : (
         <div className={styles.listArea} aria-busy={loading}>
@@ -442,7 +459,20 @@ export default function PublicacionesML() {
               ) : null
             }
           >
-            {agrupado ? (
+            {producto ? (
+              <ProductoTable
+                tree={productRows}
+                columns={visibleColumns}
+                canSeeMargin={canSeeMargin}
+                expandedIds={expandedIds}
+                onSelectItem={handleRowClick}
+                selectedKey={filters.sel || undefined}
+                sort={sort}
+                onSort={handleSort}
+                offset={TABLE_OFFSET}
+                emptyMessage={hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos'}
+              />
+            ) : agrupado ? (
               <AgrupadoTable
                 columns={visibleColumns}
                 filters={filters}
@@ -484,7 +514,7 @@ export default function PublicacionesML() {
                 pageSizeOptions={PAGE_SIZES}
                 summary={
                   <span>
-                    mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} publicaciones
+                    mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} {unit}
                   </span>
                 }
                 onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}

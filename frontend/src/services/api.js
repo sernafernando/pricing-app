@@ -878,6 +878,8 @@ export const publicacionesMlAPI = {
   items: (params) => api.get('/ml-publications/view/items', { params }),
   // The children of one node of the Agrupado tree (see `buildGroupsParams`).
   groups: (params) => api.get('/ml-publications/view/groups', { params }),
+  // One page of the Producto view: Métricas ML's product rows over the selected publications (see `buildProductsParams`).
+  products: (params) => api.get('/ml-publications/view/products', { params }),
   // The variations of one publication, for its expanded row. Fetched when the
   // row is opened, never with the page.
   variations: (itemId) => api.get(`/ml-publications/view/items/${encodeURIComponent(itemId)}/variations`),
