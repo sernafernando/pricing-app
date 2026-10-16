@@ -126,7 +126,8 @@ export default function MetricasML() {
   const tpSolo = isTpSolo(permisos);
   const dimensionOptions = tpSolo ? DIMENSION_OPTIONS.filter((option) => option.value === TP_SOLO_DIMENSION) : DIMENSION_OPTIONS;
   // The ads toggle subtracts from Total Gauss and markup: same permission as the backend's (it answers 403 otherwise).
-  const puedeVerGanancia = tienePermiso('ml_metricas.ver_ganancia');
+  // A `tplink.solo` user has the profit view without it (backend `_viewer`), so it gets the toggle too.
+  const puedeVerGanancia = tpSolo || tienePermiso('ml_metricas.ver_ganancia');
   const latestRequestRef = useRef(0);
 
   const [range, setRange] = useState(() => ({ ...defaultRange(), filtro: DEFAULT_PRESET }));

@@ -8,9 +8,10 @@ export const TP_MARKUP_HINT = 'Usa el costo TP en las operaciones de la tienda T
 /** The one "Agrupado" dimension a `tplink.solo` user's board takes (backend P5b). */
 export const TP_SOLO_DIMENSION = 'tienda';
 
-/** A `tplink.solo` board has no Total Gauss to sort by (422): Total TP takes its place. */
+/** A `tplink.solo` board refuses a Total Gauss sort (422) and has no Total TP one (not in the backend's
+ * `board.SORTS`): the board's default sort takes its place. */
 export function tpSoloSortKey(key, tpSolo) {
-  return tpSolo && key === 'total_gauss' ? 'total_tp' : key;
+  return tpSolo && key === 'total_gauss' ? 'gross' : key;
 }
 
 /** The board's query for the toggle: absent while off, so the request is exactly the one made without it. */

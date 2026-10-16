@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import MetricasML from './MetricasML';
 import api, { productosAPI } from '../services/api';
@@ -124,6 +125,69 @@ describe('MetricasML for a tplink.solo user', () => {
     expect(await screen.findByText('Error al cargar las métricas.')).toBeInTheDocument();
     expect(screen.queryByText(/Se desactivó "Costos TP"/)).not.toBeInTheDocument();
     expect(boardCalls().every(([, config]) => config.params.costos_tp === true)).toBe(true);
+  });
+});
+
+describe('MetricasML for a tplink.solo user without ml_metricas.ver_ganancia', () => {
+  // The backend gives a TP-only user its TP figures and the ads toggle without the profit permission (`_viewer`).
+  beforeEach(() => {
+    mockPermisos.current = ['ml_metricas.ver', 'tplink.solo'];
+  });
+
+  it('shows the Total TP card and column, the Markup TP value and the margin columns', async () => {
+    await renderWithRouter(<MetricasML />);
+    expect(await screen.findByRole('columnheader', { name: 'Total TP' })).toBeInTheDocument();
+    for (const name of [/Markup TP/, 'vs anterior', 'Tendencia 90D', 'Mín / Máx 90D']) {
+      expect(screen.getByRole('columnheader', { name })).toBeInTheDocument();
+    }
+    const kpis = within(screen.getByRole('region', { name: 'Indicadores del período' }));
+    expect(kpis.getByText('Total TP')).toBeInTheDocument();
+    expect(kpis.getByText('Markup TP')).toBeInTheDocument();
+    expect(screen.queryByText('Sin permiso para ver ganancia')).not.toBeInTheDocument();
+  });
+
+  it('offers the ads toggle and asks for the chosen position', async () => {
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Restar Ads de publicaciones' }));
+    await waitFor(() => expect(lastBoardParams().publicidad).toBe('mla'));
+  });
+});
+
+describe('MetricasML sort once tplink.solo arrives', () => {
+  // The permissions load after the first render: a Total Gauss sort picked before then must not reach a TP board.
+  it('turns a Total Gauss sort into the default sort on the board, the group nodes and the CSV', async () => {
+    mockPermisos.current = ['ml_metricas.ver', 'ml_metricas.ver_ganancia'];
+    api.get.mockImplementation((url, config) => {
+      if (url !== '/ml-metricas/board') return Promise.resolve({ data: { rows: [], total: 0 } });
+      const group = config?.params?.group_by === 'group';
+      const board = group ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE;
+      return Promise.resolve({ data: config.params.costos_tp ? withTpSolo(board) : board });
+    });
+    const { rerender } = await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: /Total Gauss/ }));
+    await waitFor(() => expect(lastBoardParams().sort).toBe('total_gauss'));
+
+    mockPermisos.current = ['ml_metricas.ver', 'ml_metricas.ver_ganancia', 'tplink.solo'];
+    rerender(
+      <MemoryRouter>
+        <MetricasML />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(lastBoardParams().costos_tp).toBe(true));
+    expect(lastBoardParams().sort).toBe('gross');
+
+    await userEvent.click(within(screen.getByRole('group', { name: 'Agrupar por' })).getByRole('button', { name: 'Agrupado' }));
+    await waitFor(() => expect(lastBoardParams().group_by).toBe('group'));
+    expect(lastBoardParams().sort).toBe('gross');
+    await userEvent.click((await screen.findAllByRole('button', { name: /^Ver .+ de / }))[0]);
+    const nodeCall = api.get.mock.calls.find(([url]) => url === '/ml-metricas/board/group-nodes');
+    expect(nodeCall[1].params.sort).toBe('gross');
+
+    await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
+    await waitFor(() => expect(exportMetricasCsv).toHaveBeenCalled());
+    expect(exportMetricasCsv.mock.calls.at(-1)[0].sort).toBe('gross');
+    const sorts = api.get.mock.calls.filter(([, config]) => config?.params?.costos_tp).map(([, config]) => config.params.sort);
+    expect(sorts).not.toContain('total_gauss');
   });
 });
 

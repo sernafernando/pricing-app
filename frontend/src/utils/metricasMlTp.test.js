@@ -43,8 +43,8 @@ it('the markup hint names the TP cost', () => {
 });
 
 describe('tpSoloSortKey', () => {
-  it('never sorts a tplink.solo board by Total Gauss: Total TP takes its place', () => {
-    expect(tpSoloSortKey('total_gauss', true)).toBe('total_tp');
+  it('never sorts a tplink.solo board by Total Gauss: the default sort takes its place (no Total TP sort exists)', () => {
+    expect(tpSoloSortKey('total_gauss', true)).toBe('gross');
     expect(tpSoloSortKey('gross', true)).toBe('gross');
   });
 
