@@ -86,6 +86,7 @@ from app.routers import (
     ml_metricas,
     ml_publications_admin,
     ml_publications_links,
+    sell_in_compras,
     ml_ads,
     ml_publications_view,
     prearmado,
@@ -390,6 +391,7 @@ app.include_router(ml_ventas_ops.router, prefix="/api")
 app.include_router(ml_metricas.router, prefix="/api")
 app.include_router(ml_publications_admin.router, prefix="/api")
 app.include_router(ml_publications_links.router, prefix="/api")
+app.include_router(sell_in_compras.router, prefix="/api")
 app.include_router(ml_publications_view.router, prefix="/api")
 app.include_router(ml_ads.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")

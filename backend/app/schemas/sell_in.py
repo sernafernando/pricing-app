@@ -1,0 +1,104 @@
+"""Schemas of the sell-in purchases API (`/api/sell-in/compras`).
+
+Only the shape is validated here (types and closed choices). The business
+rules (quantities, totals, duplicated items, the manual split adding up, the FX
+rate) are checked by the service and the split, so their errors come back as a
+422 with one readable Spanish message instead of a list of field errors.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Literal, Optional
+
+from pydantic import BaseModel, ConfigDict
+
+Moneda = Literal["ARS", "USD"]
+Formula = Literal["proporcional", "por_unidad", "manual"]
+CuentaDesde = Literal["compra", "ingreso"]
+Estado = Literal["activa", "anulada"]
+
+
+class SellInLineaIn(BaseModel):
+    item_id: int
+    cantidad: int
+    monto_manual: Optional[Decimal] = None
+    # Unit cost in the purchase currency. When missing, the server takes the product's current cost.
+    costo_base_unit: Optional[Decimal] = None
+
+
+class SellInPreviewIn(BaseModel):
+    moneda: Moneda
+    monto_total: Decimal
+    # ARS per USD. Required for a USD purchase, and to convert a product cost kept in the other currency.
+    tipo_cambio: Optional[Decimal] = None
+    formula: Formula = "proporcional"
+    lineas: list[SellInLineaIn]
+
+
+class SellInCompraCreate(SellInPreviewIn):
+    fecha_compra: date
+    fecha_ingreso: Optional[date] = None
+    cuenta_desde: CuentaDesde = "compra"
+    proveedor_id: Optional[int] = None
+    pedido_compra_id: Optional[int] = None
+    descripcion: Optional[str] = None
+
+
+class SellInPreviewLinea(BaseModel):
+    item_id: int
+    codigo: Optional[str]
+    descripcion: Optional[str]
+    cantidad: int
+    costo_base_unit: Decimal
+    monto_asignado: Decimal
+    descuento_unit: Decimal
+    costo_con_sell_in_unit: Decimal
+    porcentaje: Optional[Decimal]
+
+
+class SellInPreviewTotales(BaseModel):
+    cantidad: int
+    costo_base_total: Decimal
+    monto_asignado_total: Decimal
+    costo_con_sell_in_total: Decimal
+    porcentaje: Optional[Decimal]
+
+
+class SellInPreviewOut(BaseModel):
+    moneda: Moneda
+    formula: Formula
+    monto_total: Decimal
+    lineas: list[SellInPreviewLinea]
+    totales: SellInPreviewTotales
+
+
+class SellInCompraItemOut(SellInPreviewLinea):
+    id: int
+    unidades_consumidas: int
+    unidades_restantes: int
+
+
+class SellInCompraOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    proveedor_id: Optional[int]
+    pedido_compra_id: Optional[int]
+    fecha_compra: date
+    fecha_ingreso: Optional[date]
+    cuenta_desde: CuentaDesde
+    moneda: Moneda
+    monto_total: Decimal
+    tipo_cambio: Optional[Decimal]
+    formula: Formula
+    estado: Estado
+    descripcion: Optional[str]
+    usuario_id: int
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+    unidades_total: int
+    unidades_consumidas: int
+    unidades_restantes: int
+    items: list[SellInCompraItemOut]
