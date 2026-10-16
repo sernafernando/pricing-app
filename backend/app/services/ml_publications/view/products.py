@@ -97,6 +97,7 @@ def _members(mla_set: Any) -> Any:
     return (
         select(
             mla_set.c.mla,
+            # NO_PRODUCT (0) is the Board's own "no product" sentinel; ERP item ids are positive.
             func.coalesce(T.l.producto_item_id, NO_PRODUCT).label("product"),
             T.p.descripcion,
             T.p.codigo,
