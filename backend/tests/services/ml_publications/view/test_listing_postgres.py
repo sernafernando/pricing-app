@@ -109,6 +109,17 @@ class TestOneRowPerMla:
         by_id = {row["item_id"]: row["seller_sku"] for row in run(db).items}
         assert by_id == {"MLA1": "AX55-SKU", "MLA2": "3075", "MLA3": None}
 
+    @pytest.mark.parametrize(
+        ("attribute", "custom_field"),
+        [("AX55-SKU", "ARCHER"), ("", "3075"), ("   ", "3075"), (None, "3075"), ("", ""), (None, None)],
+    )
+    def test_the_row_sku_is_exactly_the_link_rule_key(self, conn, db, attribute, custom_field) -> None:
+        from app.services.ml_publications.links import sku_key
+
+        seed.add_item(conn, "MLA1", seller_sku=attribute, seller_custom_field=custom_field)
+        (row,) = run(db).items
+        assert row["seller_sku"] == sku_key(attribute, custom_field)[0]
+
     def test_the_response_schema_keeps_the_sku(self, conn, db) -> None:
         from app.routers.ml_publications_view import ItemRowOut
 

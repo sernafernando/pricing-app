@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.services.ml_publications.links import sku_key
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import (
     AXES,
@@ -184,9 +185,8 @@ def _price(row: Any) -> dict[str, Any]:
 
 
 def _seller_sku(row: Any) -> Optional[str]:
-    """The publication's SKU with the link rule's precedence: the SELLER_SKU attribute, else
-    `seller_custom_field`; an empty string counts as absent."""
-    return row.sku_attribute or row.sku_custom_field or None
+    """The publication's SKU: the automatic link's own key (`links.sku_key`), so the row shows what the rule reads."""
+    return sku_key(row.sku_attribute, row.sku_custom_field)[0]
 
 
 def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_events: Optional[dict[str, Any]]) -> dict:
