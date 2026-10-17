@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { TableShell } from '../kit';
 import VariationRows from './VariationRows';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
+import { WithProductCheckbox } from './ProductCheckbox';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
 
 /**
@@ -16,7 +17,8 @@ import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
  * shape, so the same cells draw it; null reads "—"); a
  * publication fills them all, exactly like the list. Only the product figures
  * are sortable (`PRODUCT_SORTS`): the backend sorts the products, not their
- * publications.
+ * publications. With `selection` (`{ checked, onToggle }`) a product row leads
+ * with its product's checkbox, for the bulk pricing actions.
  */
 // The columns whose cell reads only `metrics`: a product draws them with the publications' own cells.
 const PRODUCT_FIGURES = new Set([
@@ -42,6 +44,7 @@ export default function ProductoTable({
   onSort,
   offset,
   emptyMessage = 'Ningún producto coincide con los filtros',
+  selection,
 }) {
   const { rows, toggle, loadMore } = tree;
 
@@ -53,7 +56,15 @@ export default function ProductoTable({
         render: (row) => {
           if (row.type === 'item') return column.render(row.item);
           if (row.type === 'node') {
-            if (column.key === 'titulo') return <NodeTitle row={row} onToggle={toggle} />;
+            if (column.key === 'titulo') {
+              const title = <NodeTitle row={row} onToggle={toggle} />;
+              if (!selection) return title;
+              return (
+                <WithProductCheckbox productId={row.node.productoItemId} label={row.node.label} selection={selection}>
+                  {title}
+                </WithProductCheckbox>
+              );
+            }
             if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
             if (PRODUCT_FIGURES.has(column.key)) return column.render({ metrics: row.node.metrics });
             return null;
@@ -62,7 +73,7 @@ export default function ProductoTable({
           return index === 0 ? <BranchState row={row} onMore={loadMore} onRetry={loadMore} /> : null;
         },
       })),
-    [columns, toggle, loadMore],
+    [columns, toggle, loadMore, selection],
   );
 
   // The page selects by MLA; the table by row, so only one row is highlighted.

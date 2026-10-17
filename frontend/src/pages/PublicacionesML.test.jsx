@@ -34,7 +34,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
@@ -94,6 +94,8 @@ beforeEach(() => {
     Promise.resolve({ data: { ...DETAIL_RESPONSE, row: ITEMS.find((item) => item.item_id === itemId) ?? ITEMS[0] } }),
   );
   openInMlPanel.mockReset();
+  publicacionesMlAPI.productIds.mockReset();
+  publicacionesMlAPI.productIds.mockResolvedValue({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } });
   respond({ ...ITEMS_RESPONSE, facets: FACETS });
 });
 
@@ -1227,5 +1229,42 @@ describe('the product filters (Marca, Categoría, Subcategoría, PM)', () => {
     await user.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
     await waitFor(() => expect(lastParams()).not.toHaveProperty('marcas'));
     expect(lastParams()).not.toHaveProperty('pms');
+  });
+});
+
+describe('bulk actions over products (S6)', () => {
+  const pick = (mla) => screen.getByRole('checkbox', { name: `Seleccionar el producto de ${mla}` });
+
+  it('asks the products of the filter and shows their count', async () => {
+    await page('/ml-publicaciones?estado=active');
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();
+    expect(publicacionesMlAPI.productIds.mock.calls.at(-1)[0]).toEqual({ estado: 'active' });
+  });
+
+  it('checking a publication checks its product; a publication with no product cannot be checked', async () => {
+    await page();
+    await userEvent.click(pick('MLA1100000001'));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
+    expect(pick('MLA1100000001')).toBeChecked();
+    expect(pick('MLA1100000004')).toBeDisabled();
+  });
+
+  it('a filter change clears the checked products', async () => {
+    await page();
+    await userEvent.click(pick('MLA1100000001'));
+    await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' });
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeInTheDocument();
+  });
+
+  it('in the Producto view a product row checks the product; "Sin producto" cannot be checked', async () => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    await screen.findByText('Router Archer AX55');
+    await userEvent.click(pick('Router Archer AX55'));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
+    expect(pick('Sin producto')).toBeDisabled();
   });
 });
