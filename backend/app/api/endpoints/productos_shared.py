@@ -5,7 +5,7 @@ All schemas used across productos sub-modules live here.
 """
 
 from typing import Optional, List, Literal, Tuple
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from datetime import datetime, date
 import logging
 
@@ -288,16 +288,33 @@ class ExportRebateRequest(BaseModel):
     )
 
 
-class CalculoWebMasivoRequest(BaseModel):
+# The most products one explicit bulk run may name: the cap of the Publicaciones ML resolver
+# (`ml_publications.view.products.MAX_PRODUCT_IDS`) that produces these lists.
+MAX_MASIVO_ITEM_IDS = 10000
+
+
+class ExplicitItemIdsRequest(BaseModel):
+    """An optional explicit write set. With `item_ids` the run touches exactly those products; `filtros` alongside
+    would name a second set, so it is refused (422). An empty list is refused too: it must never read as "all"."""
+
+    filtros: dict = None
+    item_ids: Optional[List[int]] = Field(default=None, min_length=1, max_length=MAX_MASIVO_ITEM_IDS)
+
+    @model_validator(mode="after")
+    def _one_write_set(self):
+        if self.item_ids is not None and self.filtros:
+            raise ValueError("item_ids y filtros son excluyentes: mandá uno solo")
+        return self
+
+
+class CalculoWebMasivoRequest(ExplicitItemIdsRequest):
     porcentaje_con_precio: float
     porcentaje_sin_precio: float
-    filtros: dict = None
 
 
-class CalculoPVPMasivoRequest(BaseModel):
+class CalculoPVPMasivoRequest(ExplicitItemIdsRequest):
     markup_pvp_clasica: float
     adicional_cuotas: float
-    filtros: dict = None
 
 
 class RecalcularCuotasMasivoRequest(BaseModel):

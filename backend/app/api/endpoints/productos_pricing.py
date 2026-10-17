@@ -304,6 +304,8 @@ def calcular_web_masivo(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
     query = join_color_layer(query, layer_activo)
+    if request.item_ids is not None:  # an explicit write set (Publicaciones ML): exactly these, `filtros` is None
+        query = query.filter(ProductoERP.item_id.in_(request.item_ids))
 
     # Aplicar filtros si existen
     if request.filtros:
@@ -602,6 +604,8 @@ def calcular_web_masivo(
             "porcentaje_con_precio": request.porcentaje_con_precio,
             "porcentaje_sin_precio": request.porcentaje_sin_precio,
             "filtros": request.filtros,
+            # only on an explicit run, so the audit of a filtered one stays as it was
+            **({"item_ids_explicitos": len(request.item_ids)} if request.item_ids is not None else {}),
         },
         comentario="Cálculo masivo de precios web transferencia",
     )
@@ -626,6 +630,8 @@ def calcular_pvp_masivo(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
     query = join_color_layer(query, layer_activo)
+    if request.item_ids is not None:  # an explicit write set (Publicaciones ML): exactly these, `filtros` is None
+        query = query.filter(ProductoERP.item_id.in_(request.item_ids))
 
     # Aplicar filtros si existen (misma lógica que web masivo)
     if request.filtros:
@@ -862,6 +868,8 @@ def calcular_pvp_masivo(
             "markup_pvp_clasica": request.markup_pvp_clasica,
             "adicional_cuotas": request.adicional_cuotas,
             "filtros": request.filtros,
+            # only on an explicit run, so the audit of a filtered one stays as it was
+            **({"item_ids_explicitos": len(request.item_ids)} if request.item_ids is not None else {}),
         },
         comentario="Cálculo masivo de precios PVP",
     )
