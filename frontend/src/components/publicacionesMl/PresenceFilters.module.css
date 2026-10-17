@@ -1,31 +1,53 @@
-.item {
-  display: inline-flex;
+/* The button and its panel: the panel floats over the page, so opening it never grows the filter card. */
+.anchor {
+  position: relative;
+}
+
+.count {
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  line-height: 18px;
+  text-align: center;
+  color: var(--on-selection-fill);
+  background: var(--selection-fill);
+  border-radius: var(--radius-full);
+}
+
+.panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2) var(--spacing-md);
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+/* label + select pairs as the panel's two columns */
+.item {
+  display: contents;
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
-  white-space: nowrap;
 }
 
 .name {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
+/* The shared dense select (box, colors, focus); only its width is ours: as wide as its options, not the row. */
 .select {
-  height: 28px;
-  padding: 0 8px;
-  font-family: inherit;
-  font-size: var(--font-xs);
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.select:focus-visible {
-  outline: 2px solid var(--cf-accent-blue);
-  outline-offset: 1px;
+  composes: select selectSm from '../../styles/forms-tesla.css';
+  width: auto;
 }

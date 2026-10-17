@@ -415,8 +415,8 @@ export default function PublicacionesML() {
         </div>
         <div className={styles.filterBand}>
           <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
-        </div>
-        <div className={styles.filterBand}>
+          {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
+              the fold at 1366x768. */}
           <PresenceFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
         </div>
         {showMarkupFilters && (

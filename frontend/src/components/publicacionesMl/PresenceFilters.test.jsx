@@ -20,10 +20,43 @@ describe('presenceFilters', () => {
   });
 });
 
+const openPanel = () => userEvent.click(screen.getByRole('button', { name: /Filtros de presencia/ }));
+
 describe('PresenceFilters', () => {
-  it("offers Productos' five toggles with Productos' options under \"Presencia:\"", () => {
+  it('keeps the five toggles behind one button, as Productos keeps them behind "Filtros Avanzados"', async () => {
     render(<PresenceFilters filters={filters()} setFilters={vi.fn()} />);
     expect(screen.getByText('Presencia:')).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: /Filtros de presencia/ });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    await openPanel();
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getAllByRole('combobox')).toHaveLength(5);
+  });
+
+  it('closes the panel on Escape and on a click outside it', async () => {
+    render(
+      <>
+        <PresenceFilters filters={filters()} setFilters={vi.fn()} />
+        <p>afuera</p>
+      </>,
+    );
+    await openPanel();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    await openPanel();
+    await userEvent.click(screen.getByText('afuera'));
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('the button counts the active toggles', () => {
+    render(<PresenceFilters filters={filters({ rebate: 'con_rebate', oferta: 'sin_oferta' })} setFilters={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Filtros de presencia (2 activos)' })).toBeInTheDocument();
+  });
+
+  it("offers Productos' five toggles with Productos' options", async () => {
+    render(<PresenceFilters filters={filters()} setFilters={vi.fn()} />);
+    await openPanel();
     const options = (name) => [...screen.getByRole('combobox', { name }).options].map((o) => o.textContent);
     expect(options('Rebate')).toEqual(['Todos', 'Con Rebate', 'Sin Rebate']);
     expect(options('Mejor Oferta')).toEqual(['Todos', 'Con Oferta', 'Sin Oferta']);
@@ -35,6 +68,7 @@ describe('PresenceFilters', () => {
   it('writes the picked value to the URL and "Todos" clears it', async () => {
     const setFilters = vi.fn();
     render(<PresenceFilters filters={filters({ oferta: 'con_oferta' })} setFilters={setFilters} />);
+    await openPanel();
     expect(screen.getByRole('combobox', { name: 'Mejor Oferta' })).toHaveValue('con_oferta');
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Tienda Nube' }), 'no_publicado');
     expect(setFilters).toHaveBeenLastCalledWith({ tiendanube: 'no_publicado' });
@@ -52,10 +86,11 @@ describe('PresenceFilters', () => {
     expect(setFilters).toHaveBeenLastCalledWith(EMPTY_PRESENCE_FILTERS);
   });
 
-  it('uses no emoji: the toggles that carry an icon draw a lucide one, hidden from assistive tech', () => {
+  it('uses no emoji: the toggles that carry an icon draw a lucide one, hidden from assistive tech', async () => {
     const { container } = render(
       <PresenceFilters filters={filters({ tiendanube: 'no_publicado', rebate: 'con_rebate' })} setFilters={vi.fn()} />,
     );
+    await openPanel();
     expect(container.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
     const icons = container.querySelectorAll('label svg');
     expect(icons).toHaveLength(3); // Rebate, Web Transferencia, Tienda Nube, as in Productos
