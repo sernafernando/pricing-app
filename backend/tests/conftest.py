@@ -526,10 +526,25 @@ def pg_payments_engine():
     from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
 
     tables = [_MlPaymentOps.__table__, _MlPaymentCharge.__table__]
+    # Real BigInteger PKs, not the SQLite-patched Integer (see
+    # `_restore_pristine_pg_types`): this table lives for the whole session
+    # and other Postgres fixtures (`board_pg_engine`) reuse it instead of
+    # creating their own, so an INTEGER `payment_id` built here overflows
+    # their seeds -- order- and xdist-worker-dependent.
+    _restore_pristine_pg_types(tables)
     eng = create_engine(POSTGRES_TEST_URL)
     Base.metadata.create_all(bind=eng, tables=tables)
+    # Leave the shared Column objects patched for SQLite again, in case the
+    # `db` fixture is used by a later test in this same session.
+    _patch_pg_types_for_sqlite()
     yield eng
-    Base.metadata.drop_all(bind=eng, tables=tables)
+    # Per-`Table.drop()`, NOT `Base.metadata.drop_all(tables=...)`: the
+    # metadata-level drop still fires every native ENUM's `after_drop` hook on
+    # the WHOLE shared `Base.metadata`, so it issued `DROP TYPE rolusuario`
+    # while `pg_tickets_engine`'s `usuarios` was still alive on the same
+    # worker (see `pg_order_metrics_engine`). Reverse order: charges FK payments.
+    for table in reversed(tables):
+        table.drop(bind=eng, checkfirst=True)
     eng.dispose()
 
 

@@ -25,7 +25,8 @@ failure sequence.
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger
+import pytest
+from sqlalchemy import BigInteger, text
 
 from app.models.ml_orders_ops import MlOrdersOps
 from tests.conftest import _PRISTINE_PG_COLUMN_TYPES, _patch_pg_types_for_sqlite, _restore_pristine_pg_types
@@ -71,3 +72,33 @@ def test_restore_pristine_pg_types_undoes_bigint_pk_downgrade() -> None:
         # Never leak a mutated shared Column into the rest of the session,
         # whatever this test's outcome.
         column.type = original_type
+
+
+@pytest.mark.postgres
+def test_pg_payments_engine_builds_bigint_ids_after_the_sqlite_patch(engine, pg_payments_engine) -> None:
+    """`pg_payments_engine` must build `ml_payments_ops` with production's
+    BIGINT ids even when the SQLite `engine` fixture (requested FIRST here)
+    already downgraded the shared BigInteger PK columns to `Integer`.
+
+    The table is session-scoped and other Postgres fixtures (the board's
+    `board_pg_engine`) REUSE an existing table instead of creating their own,
+    so an INTEGER `payment_id` built here leaked into the board's volume seed
+    (`payment_id = order_id * 10 + 1`, ~3.5e16) as `NumericValueOutOfRange`
+    -- only on the xdist workers where this fixture happened to run first.
+    """
+    with pg_payments_engine.connect() as conn:
+        types = dict(
+            conn.execute(
+                text(
+                    "SELECT table_name || '.' || column_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() "
+                    "AND (table_name, column_name) IN (('ml_payments_ops', 'payment_id'), "
+                    "('ml_payments_ops', 'order_id'), ('ml_payment_charges', 'id'))"
+                )
+            ).all()
+        )
+    assert types == {
+        "ml_payments_ops.payment_id": "bigint",
+        "ml_payments_ops.order_id": "bigint",
+        "ml_payment_charges.id": "bigint",
+    }
