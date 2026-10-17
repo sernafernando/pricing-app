@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import uuid
 from typing import Iterator
 
 import pytest
@@ -58,29 +59,48 @@ class TestMigrationGraph:
 
 @pytest.fixture()
 def pg_engine() -> Iterator[Engine]:
+    """A throwaway schema (first on `search_path`) holding only the two source
+    tables: whatever other tests left in the shared database (a `sell_dirty`
+    table, its triggers or function) is invisible here, so the test never skips
+    and always runs the real upgrade and downgrade."""
     if not _postgres_reachable():
         pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
     _restore_pristine_pg_types(_SOURCES)
-    engine = create_engine(POSTGRES_TEST_URL)
-    existing = set(inspect(engine).get_table_names())
-    if "sell_dirty" in existing:
-        pytest.skip("sell_dirty already exists in the test database (owned by another fixture)")
-    created = [t for t in _SOURCES if t.name not in existing]
-    for table in created:
-        table.create(bind=engine)
-    yield engine
-    with engine.begin() as conn:
-        for statement in queue.DOWNGRADE_SQL:
-            conn.execute(text(statement))
-        conn.execute(text("DROP TABLE IF EXISTS sell_dirty"))
-    for table in reversed(created):
-        table.drop(bind=engine)
-    engine.dispose()
+    schema = f"sell_dirty_mig_{uuid.uuid4().hex[:8]}"
+    admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f"CREATE SCHEMA {schema}"))
+    engine = create_engine(POSTGRES_TEST_URL, connect_args={"options": f"-csearch_path={schema}"})
+    try:
+        with engine.begin() as conn:
+            assert conn.execute(text("SELECT current_schema()")).scalar() == schema
+            for table in _SOURCES:
+                table.create(bind=conn)
+        yield engine
+    finally:
+        engine.dispose()
+        with admin.connect() as conn:
+            conn.execute(text(f"DROP SCHEMA {schema} CASCADE"))
+        admin.dispose()
 
 
 def _triggers(conn) -> set:
-    rows = conn.execute(text("SELECT tgname FROM pg_trigger WHERE tgname LIKE 'trg_sell_dirty_%'"))
+    rows = conn.execute(
+        text(
+            "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+            "WHERE c.relnamespace = CAST(current_schema() AS regnamespace) AND t.tgname LIKE 'trg_sell_dirty_%'"
+        )
+    )
     return {row[0] for row in rows}
+
+
+def _functions(conn) -> int:
+    return conn.execute(
+        text(
+            "SELECT count(*) FROM pg_proc "
+            "WHERE pronamespace = CAST(current_schema() AS regnamespace) AND proname LIKE 'sell_dirty_%'"
+        )
+    ).scalar()
 
 
 @pytest.mark.postgres
@@ -91,6 +111,7 @@ class TestMigrationDdl:
         with pg_engine.begin() as conn:
             with Operations.context(MigrationContext.configure(conn)):
                 module.upgrade()
+            assert _functions(conn) == 1
             columns = {c["name"] for c in inspect(conn).get_columns("sell_dirty")}
             assert columns == {c.name for c in SellDirty.__table__.columns}
             assert _triggers(conn) == {
@@ -105,4 +126,4 @@ class TestMigrationDdl:
                 module.downgrade()
             assert not inspect(conn).has_table("sell_dirty")
             assert _triggers(conn) == set()
-            assert conn.execute(text("SELECT count(*) FROM pg_proc WHERE proname LIKE 'sell_dirty_%'")).scalar() == 0
+            assert _functions(conn) == 0
