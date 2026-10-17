@@ -70,6 +70,7 @@
 }
 
 .store,
+.sku,
 .link {
   display: inline-flex;
   align-items: center;
@@ -77,7 +78,8 @@
   white-space: nowrap;
 }
 
-.store {
+.store,
+.sku {
   color: var(--cf-text-secondary);
 }
 

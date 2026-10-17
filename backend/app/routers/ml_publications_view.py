@@ -232,6 +232,7 @@ class ItemRowOut(BaseModel):
     family_id: Optional[int] = None
     family_name: Optional[str] = None
     user_product_id: Optional[str] = None
+    seller_sku: Optional[str] = None  # SELLER_SKU attribute, else seller_custom_field (the link rule's key)
     variations_count: int
     gone: bool
     gone_at: Optional[datetime] = None

@@ -112,3 +112,17 @@ describe('PublicationCell store and link', () => {
     expect(link).toHaveAttribute('title', 'Vínculo: Manual · EP-544-BK Tinta Epson 544');
   });
 });
+
+describe('PublicationCell seller SKU', () => {
+  it('shows the publication SKU, labeled like the detail panel', () => {
+    render(<PublicationCell item={makeItem({ seller_sku: 'AX55-SKU' })} />);
+    const sku = screen.getByLabelText('SKU del vendedor: AX55-SKU');
+    expect(sku).toHaveTextContent('AX55-SKU');
+    expect(sku).toHaveAttribute('title', 'SKU del vendedor: AX55-SKU');
+  });
+
+  it('shows nothing when the publication has no SKU', () => {
+    render(<PublicationCell item={makeItem({ seller_sku: null })} />);
+    expect(screen.queryByLabelText(/SKU del vendedor/)).not.toBeInTheDocument();
+  });
+});

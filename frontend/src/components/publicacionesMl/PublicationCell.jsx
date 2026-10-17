@@ -1,4 +1,4 @@
-import { CircleDashed, Link2, Store, TriangleAlert, Unlink } from 'lucide-react';
+import { Barcode, CircleDashed, Link2, Store, TriangleAlert, Unlink } from 'lucide-react';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../../utils/mlSellerPanel';
 import MlSellerLinks from './MlSellerLinks';
 import styles from './PublicationCell.module.css';
@@ -45,6 +45,18 @@ function StoreTag({ item }) {
     <span className={styles.store} aria-label={`Tienda: ${name}`} title={`Tienda: ${name}`}>
       <Store size={11} aria-hidden="true" />
       {name}
+    </span>
+  );
+}
+
+/** The publication's SKU (the key of the automatic link), compact: nothing when ML carries none. */
+function SkuTag({ sku }) {
+  if (!sku) return null;
+  const label = `SKU del vendedor: ${sku}`;
+  return (
+    <span className={styles.sku} aria-label={label} title={label}>
+      <Barcode size={11} aria-hidden="true" />
+      <span className={styles.code}>{sku}</span>
     </span>
   );
 }
@@ -101,6 +113,7 @@ export default function PublicationCell({ item }) {
             {item.item_id}
           </span>
           <MlSellerLinks itemId={item.item_id} />
+          <SkuTag sku={item.seller_sku} />
           <LinkTag link={item.link} />
           <StoreTag item={item} />
           {tags.map((tag) => (
