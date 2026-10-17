@@ -4,11 +4,11 @@
 }
 
 .count {
-  min-width: 18px;
-  padding: 0 5px;
+  min-width: var(--space-5);
+  padding: 0 var(--space-1);
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
-  line-height: 18px;
+  line-height: var(--space-5);
   text-align: center;
   color: var(--on-selection-fill);
   background: var(--selection-fill);
@@ -42,7 +42,7 @@
 .name {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
   white-space: nowrap;
 }
 

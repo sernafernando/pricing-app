@@ -98,7 +98,7 @@ export default function PresenceFilters({ filters, setFilters, labelClassName })
           ))}
           <li>
             <button type="button" className="btn-tesla ghost sm" onClick={() => setFilters(EMPTY_PRESENCE_FILTERS)}>
-              <FilterX size={14} />
+              <FilterX size={14} aria-hidden="true" />
               Limpiar presencia
             </button>
           </li>

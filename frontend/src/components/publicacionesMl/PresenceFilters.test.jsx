@@ -82,7 +82,9 @@ describe('PresenceFilters', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Quitar Web Transferencia: Con Web Transf.' }));
     expect(setFilters).toHaveBeenLastCalledWith({ webtransf: '' });
     expect(screen.getByRole('button', { name: 'Quitar Tienda Nube: Sin Descuento' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Limpiar presencia/ }));
+    const limpiar = screen.getByRole('button', { name: /Limpiar presencia/ });
+    expect(limpiar.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    await userEvent.click(limpiar);
     expect(setFilters).toHaveBeenLastCalledWith(EMPTY_PRESENCE_FILTERS);
   });
 
