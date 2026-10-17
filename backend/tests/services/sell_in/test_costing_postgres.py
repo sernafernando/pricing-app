@@ -20,6 +20,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
+from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.services.sell_in import compras
 from app.services.sell_in import costing as costing_module
 from app.services.sell_in.costing import FifoPurchaseCosting, SellInCosting, get_costing
@@ -197,6 +198,35 @@ class TestFifoPurchaseCosting:
 
         assert w.consumos(engine) == []
         assert (result.inserted, result.deleted) == (0, 0)
+
+    def test_a_voided_purchase_releases_everything_to_the_next_purchase(self, engine: Engine) -> None:
+        [anulada] = w.compra(engine, [(2964, 2, "20.00")], D(2026, 10, 1))
+        [siguiente] = w.compra(engine, [(2964, 5, "500.00")], D(2026, 10, 2))
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        _recompute(engine, 2964)
+        assert [c[0] for c in w.consumos(engine)] == [anulada]
+
+        with sessionmaker(bind=engine)() as db:
+            compra_id = db.query(SellInCompra.id).order_by(SellInCompra.id).first()[0]
+            compras.anular_compra(db, compra_id, usuario_id=7, motivo="error de carga")
+
+        assert w.consumos(engine) == [(siguiente, "fuera", ref, 2964, 2, Decimal("200.00"))]
+
+    def test_loading_a_purchase_allocates_the_sales_already_made(self, engine: Engine) -> None:
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            compra = compras.crear_compra(db, data, usuario_id=7)
+            lineas = [i.id for i in compra_items(db, compra.id)]
+
+        assert w.consumos(engine) == [(lineas[0], "fuera", ref, 2964, 2, Decimal("50.00"))]
 
 
 X, Y, Z = 31748, 202741, 394748  # real fuera customers

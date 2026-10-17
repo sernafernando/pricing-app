@@ -16,6 +16,9 @@ in the body), already in the purchase currency.
 
 A load freezes that cost on every line. A purchase is never edited nor deleted:
 it can only be voided (`anulada`), once; the reason goes to the audit rows.
+Loading and voiding recompute the allocation of the purchase's products in the
+same transaction (`costing.get_costing()`): a load is consumed by the sales
+already made since it counts, a void releases its units to later purchases.
 The list and the detail report each line's consumed units (the sum of its
 `sell_in_consumos`) and the units still left, the supplier's name and whether
 the purchase applies (`aplica_condicion`, the single rule for it). The list and
@@ -39,6 +42,7 @@ from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInPreviewIn
+from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
 
 
@@ -243,6 +247,8 @@ def _guardar(db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_i
     db.add_all(items)
     db.flush()
     _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id)
+    # The sales already made since the purchase counts consume it in the same transaction.
+    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
     db.commit()
     return compra
 
@@ -255,8 +261,13 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     if compra.estado == "anulada":
         raise SellInYaAnulada(f"La compra {compra_id} ya está anulada")
     compra.estado = "anulada"
-    items = db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
-    _audit(db, compra, list(items), TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
+    items = list(
+        db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
+    )
+    _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
+    db.flush()
+    # Its units are released in the same transaction: later purchases take those sales over.
+    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
     db.commit()
     db.refresh(compra)
     return compra
