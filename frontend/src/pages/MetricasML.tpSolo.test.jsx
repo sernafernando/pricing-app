@@ -196,6 +196,32 @@ describe('MetricasML sort once tplink.solo arrives', () => {
     const sorts = api.get.mock.calls.filter(([, config]) => config?.params?.costos_tp).map(([, config]) => config.params.sort);
     expect(sorts).not.toContain('total_gauss');
   });
+
+  it('flips the direction on the first Total TP header click, instead of resetting the sort', async () => {
+    mockPermisos.current = ['ml_metricas.ver', 'ml_metricas.ver_ganancia'];
+    api.get.mockImplementation((url, config) => {
+      if (url !== '/ml-metricas/board') return Promise.resolve({ data: { rows: [], total: 0 } });
+      return Promise.resolve({ data: config.params.costos_tp ? withTpSolo(BOARD_RESPONSE) : BOARD_RESPONSE });
+    });
+    const { rerender } = await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: /Total Gauss/ }));
+    await waitFor(() => expect(lastBoardParams().sort).toBe('total_gauss'));
+    expect(lastBoardParams().sort_dir).toBe('desc');
+
+    mockPermisos.current = ['ml_metricas.ver', 'ml_metricas.ver_ganancia', 'tplink.solo'];
+    rerender(
+      <MemoryRouter>
+        <MetricasML />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(lastBoardParams().costos_tp).toBe(true));
+    expect(screen.getByRole('columnheader', { name: /Total TP/ })).toHaveAttribute('aria-sort', 'descending');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Total TP' }));
+    await waitFor(() => expect(lastBoardParams().sort_dir).toBe('asc'));
+    expect(lastBoardParams().sort).toBe('total_tp');
+    expect(screen.getByRole('columnheader', { name: /Total TP/ })).toHaveAttribute('aria-sort', 'ascending');
+  });
 });
 
 describe('MetricasML without tplink.solo', () => {

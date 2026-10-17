@@ -251,7 +251,11 @@ export default function MetricasML() {
     return true;
   }, [tpSolo]);
 
-  const sortKey = tpSoloSortKey(sort.key, tpSolo);
+  // A Total Gauss sort picked before `tplink.solo` arrived is a Total TP sort from then on: the stored key follows,
+  // so the Total TP header's click flips the direction instead of starting over (set during render, no stale commit).
+  const normalizedSortKey = tpSoloSortKey(sort.key, tpSolo);
+  if (normalizedSortKey !== sort.key) setSort({ ...sort, key: normalizedSortKey });
+  const sortKey = normalizedSortKey;
 
   const cargar = useCallback(async () => {
     if (!puedeVer) return;
