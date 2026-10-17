@@ -59,6 +59,17 @@ describe('activeProductChips', () => {
     expect(chips[1].remove).toEqual({ marcas: ['A'] });
   });
 
+  it('gives a value repeated in the URL one chip, whose removal drops that value', () => {
+    const chips = activeProductChips(filters({ marcas: ['A', 'A', 'B'] }), {});
+    expect(chips.map((chip) => chip.id)).toEqual(['marcas:A', 'marcas:B']);
+    expect(chips[0].remove).toEqual({ marcas: ['B'] });
+  });
+
+  it('names the "none" bucket as the grouped view does, not by its sentinel', () => {
+    const chips = activeProductChips(filters({ marcas: ['__none__'], categorias: ['__none__'], subcategorias: ['__none__'] }), options);
+    expect(chips.map((chip) => chip.label)).toEqual(['Marca: Sin marca', 'Categoría: Sin categoría', 'Subcategoría: Sin subcategoría']);
+  });
+
   it('is empty without product filters', () => {
     expect(activeProductChips(filters(), options)).toEqual([]);
   });

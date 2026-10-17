@@ -1,4 +1,4 @@
-import { decodeKey, encodeKey } from './groupNodes';
+import { decodeKey, encodeKey, NO_GROUP } from './groupNodes';
 
 /**
  * The product filters of Publicaciones ML (marca / categoría / subcategoría / PM) between the URL and the shared
@@ -35,12 +35,20 @@ export function fromPanelValue(value) {
 
 const LABELS = { marcas: 'Marca', categorias: 'Categoría', subcategorias: 'Subcategoría', pms: 'PM' };
 
+// The "none" bucket (`NO_GROUP`) by the name the grouped view gives it (the backend's `NO_LABELS`).
+const NONE_LABELS = { marcas: 'Sin marca', categorias: 'Sin categoría', subcategorias: 'Sin subcategoría' };
+
 function namesOf(options = {}) {
   const subcategorias = new Map(
     (options.subcategorias ?? []).flatMap((group) => (group.subcategorias ?? []).map((sub) => [String(sub.id), sub.nombre])),
   );
   const pms = new Map((options.pms ?? []).map((pm) => [String(pm.id), pm.nombre]));
   return { subcategorias, pms };
+}
+
+function nameOf(key, token, names) {
+  if (token === NO_GROUP && key in NONE_LABELS) return NONE_LABELS[key];
+  return key in names ? names[key].get(token) : decodeKey(token);
 }
 
 /**
@@ -50,8 +58,9 @@ function namesOf(options = {}) {
 export function activeProductChips(filters, options) {
   const names = namesOf(options);
   return PRODUCT_FILTER_KEYS.flatMap((key) =>
-    filters[key].map((token) => {
-      const name = key in names ? names[key].get(token) : decodeKey(token);
+    // A value repeated in the URL is one chip: unique ids, and removing it drops every copy of that value.
+    [...new Set(filters[key])].map((token) => {
+      const name = nameOf(key, token, names);
       return {
         id: `${key}:${token}`,
         label: name ? `${LABELS[key]}: ${name}` : `${LABELS[key]} #${token}`,
