@@ -8,17 +8,19 @@ from datetime import time, timedelta
 from app.workers import registry
 from app.workers.handlers import ml_ads, ml_billing, ml_publications
 from app.workers.handlers.order_metrics import divergence, drain, reconcile
+from app.workers.handlers.sell_drain import drain as sell_drain
 from app.workers.handlers.tp_cost_fill import fill as tp_cost_fill
 
 
 class TestExistingRegistryIsUntouched:
-    def test_default_registry_is_the_order_metrics_handlers_plus_the_tp_cost_fill(self) -> None:
-        assert registry.REGISTRY == [drain, reconcile, divergence, tp_cost_fill]
+    def test_default_registry_is_the_order_metrics_handlers_plus_tp_cost_fill_and_sell_drain(self) -> None:
+        assert registry.REGISTRY == [drain, reconcile, divergence, tp_cost_fill, sell_drain]
         assert [h.name for h in registry.REGISTRY] == [
             "order_metrics.drain",
             "order_metrics.reconcile",
             "order_metrics.divergence",
             "tp_cost.fill",
+            "sell.drain",
         ]
 
     def test_no_ml_publications_handler_leaks_into_the_default_registry(self) -> None:
