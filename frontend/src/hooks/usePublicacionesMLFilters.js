@@ -40,7 +40,27 @@ const CSV_KEYS = [
 // `markup_neg` is '1' or '' (a text key, so an inactive toggle reads as empty);
 // the three markup params only exist for users with `ml_metricas.ver_ganancia`.
 const TEXT_KEYS = ['q', 'familia', 'evento_desde', 'markup_neg', 'markup_min', 'markup_max'];
-export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS];
+/**
+ * Productos' "Filtros de Presencia", with Productos' URL keys and values (`useProductosFilters`): each one is a
+ * single value or '' (no filter). `PRESENCE_PARAMS` is what each value asks the backend, the same params as
+ * `GET /productos` (`construirFiltrosParams`).
+ */
+const PRESENCE_PARAMS = {
+  rebate: { con_rebate: { con_rebate: true }, sin_rebate: { con_rebate: false } },
+  oferta: { con_oferta: { con_oferta: true }, sin_oferta: { con_oferta: false } },
+  webtransf: { con_web_transf: { con_web_transf: true }, sin_web_transf: { con_web_transf: false } },
+  tiendanube: {
+    con_descuento: { tn_con_descuento: true },
+    sin_descuento: { tn_sin_descuento: true },
+    no_publicado: { tn_no_publicado: true },
+  },
+  outofcards: { con_out_of_cards: { out_of_cards: true }, sin_out_of_cards: { out_of_cards: false } },
+};
+export const PRESENCE_VALUES = Object.fromEntries(
+  Object.entries(PRESENCE_PARAMS).map(([key, values]) => [key, Object.keys(values)]),
+);
+const PRESENCE_KEYS = Object.keys(PRESENCE_PARAMS);
+export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS];
 
 // `producto` = one row per product, opening into its publications (`/view/products`).
 const VISTAS = ['publicacion', 'producto', 'agrupado'];
@@ -125,6 +145,10 @@ function readFilters(params) {
   for (const key of TEXT_KEYS) filters[key] = params.get(key) ?? '';
   for (const key of CSV_KEYS) filters[key] = csv(params.get(key));
   filters.stock = currentStockValues(filters.stock);
+  for (const key of PRESENCE_KEYS) {
+    const value = params.get(key);
+    filters[key] = PRESENCE_VALUES[key].includes(value) ? value : '';
+  }
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
@@ -190,6 +214,9 @@ export function buildItemsParams(
     const values = key === 'tiendas' ? filters[key].map((v) => (v === 'sin_tienda' ? 'none' : v)) : filters[key];
     if (values.length > 0) params[key] = values.join(',');
   }
+  for (const key of PRESENCE_KEYS) {
+    if (filters[key]) Object.assign(params, PRESENCE_PARAMS[key][filters[key]]);
+  }
   params.limit = pageSize;
   params.offset = (filters.pagina - 1) * pageSize;
   return params;
@@ -218,6 +245,9 @@ export const hasMarkupFilter = (filters) => MARKUP_KEYS.some((key) => filters[ke
 export function buildKpiParams(filters, periodo) {
   const { orden, dir, limit, offset, ...params } = buildItemsParams(filters, 1, { canSeeMargin: false });
   void orden, dir, limit, offset;
+  // The Producto view's rows ask mejor oferta of the product (any of its publications); its strip asks it the same
+  // way, so the strip counts the publications the rows hold.
+  if (filters.vista === 'producto' && filters.oferta) params.oferta_por_producto = true;
   return { ...params, periodo };
 }
 

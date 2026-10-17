@@ -7,6 +7,7 @@ import SearchInput from '../components/SearchInput';
 import { ColumnPicker, FacetChips, Pagination, SegmentedControl, SplitPanelLayout, SwitchChip, TableShell } from '../components/kit';
 import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
+import PresenceFilters from '../components/publicacionesMl/PresenceFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
@@ -414,6 +415,9 @@ export default function PublicacionesML() {
         </div>
         <div className={styles.filterBand}>
           <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
+              the fold at 1366x768. */}
+          <PresenceFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
         </div>
         {showMarkupFilters && (
           <div className={styles.filterBand}>

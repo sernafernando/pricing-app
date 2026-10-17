@@ -28,7 +28,7 @@ commits and nothing is written. Postgres only (the Board's temp tables); its tes
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
 
@@ -222,7 +222,8 @@ def list_products(
 ) -> ProductsPage:
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names."""
     key = parse_sort(orden)
-    f = resolve_pm_pairs(db, f)
+    # mejor oferta is a product's (any of its publications), as in Productos
+    f = replace(resolve_pm_pairs(db, f), oferta_per_product=True)
     first, last = row_metrics.window(board.today_business())
     board_filter = board.BoardFilter(
         date_from=first, date_to=last, group_by="publication", mla_source=build_base_select(f, T.i.item_id)

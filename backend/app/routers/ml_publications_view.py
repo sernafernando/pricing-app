@@ -80,6 +80,7 @@ from app.services.permisos_service import PermisosService
 
 PERMISO_VER = "ml_ops.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
+OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto row's `params` carry with `con_oferta`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
@@ -649,6 +650,21 @@ def filter_query(
     stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
+    # Productos' "Filtros de Presencia": the same params as `GET /productos`
+    con_rebate: Optional[bool] = Query(
+        None, description="the linked product takes part in rebate (false: it does not)"
+    ),
+    con_oferta: Optional[bool] = Query(None, description="the publication has a current mejor oferta"),
+    con_web_transf: Optional[bool] = Query(None, description="the linked product takes part in web transferencia"),
+    tn_con_descuento: Optional[bool] = Query(
+        None, description="the product is in Tienda Nube with a promotional price"
+    ),
+    tn_sin_descuento: Optional[bool] = Query(None, description="the product is in Tienda Nube without one"),
+    tn_no_publicado: Optional[bool] = Query(None, description="the product has ERP stock and is not in Tienda Nube"),
+    out_of_cards: Optional[bool] = Query(None, description="the linked product is marked out of cards"),
+    oferta_por_producto: Optional[bool] = Query(
+        None, description="ask con_oferta of the product (any of its publications), as the Producto view does"
+    ),
 ) -> PublicationFilter:
     """The filters every read of the screen shares (`/items` and `/groups`): one declaration, so a filter added here
     reaches both. A value outside its vocabulary is a 422 naming the parameter."""
@@ -671,6 +687,14 @@ def filter_query(
             stock=stock,
             evento=evento,
             evento_desde=evento_desde,
+            con_rebate=con_rebate,
+            con_oferta=con_oferta,
+            con_web_transf=con_web_transf,
+            tn_con_descuento=tn_con_descuento,
+            tn_sin_descuento=tn_sin_descuento,
+            tn_no_publicado=tn_no_publicado,
+            out_of_cards=out_of_cards,
+            oferta_por_producto=oferta_por_producto,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
@@ -945,8 +969,13 @@ def get_groups(
     return body
 
 
-def _product_out(row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool) -> dict[str, Any]:
+def _product_out(
+    row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool, offer_filter: bool
+) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
+    params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
+    if offer_filter:  # the rows ask mejor oferta of the product: opening one must ask it the same way
+        params[OFFER_OF_PRODUCT] = "true"
     out: dict[str, Any] = {
         "key": row.key,
         "product_item_id": None if no_product else row.product_item_id,
@@ -955,9 +984,7 @@ def _product_out(row: board.Row, with_metrics: bool, with_margin: bool, has_figu
         "marca": row.marca,
         "publications_count": row.publications_count,
         "stock": row.stock,
-        "params": (
-            {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
-        ),
+        "params": params,
     }
     if with_metrics:
         out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
@@ -1023,7 +1050,8 @@ def get_products(
     timer.emit(rows=len(page.rows), total=page.total)
     return {
         "rows": [
-            _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures) for row in page.rows
+            _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
+            for row in page.rows
         ],
         "total": page.total,
         "mla_count": page.mla_count,

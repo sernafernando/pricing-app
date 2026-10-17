@@ -342,3 +342,36 @@ def add_free_shipping_fix(conn, mla: str, at: datetime, success: bool = True) ->
         "free_shipping_fix_log",
         {"mla_id": mla, "success": success, "item_price": "61660.0", "ml_response_status": 200, "created_at": at},
     )
+
+
+# Productos' "Filtros de Presencia" read three more application tables; these are their columns as the models
+# (`ProductoPricing`, `TiendaNubeProducto`, `OfertaML`) declare them, minus the ones no filter reads.
+PRESENCE_DDL = (
+    "ALTER TABLE productos_pricing ADD COLUMN participa_rebate boolean DEFAULT false, "
+    "ADD COLUMN participa_web_transferencia boolean DEFAULT false, ADD COLUMN out_of_cards boolean DEFAULT false",
+    "CREATE TABLE tienda_nube_productos (id serial PRIMARY KEY, product_id integer NOT NULL, variant_id integer NOT NULL, "
+    "price numeric(18,2), promotional_price numeric(18,2), item_id integer, activo boolean DEFAULT true)",
+    "CREATE TABLE ofertas_ml (id serial PRIMARY KEY, mla varchar(50) NOT NULL, fecha_desde date NOT NULL, "
+    "fecha_hasta date NOT NULL, precio_final double precision, pvp_seller double precision)",
+)
+
+
+def create_presence_tables(conn, *, with_pricing: bool = False) -> None:
+    """The tables the presence toggles read; `with_pricing` also creates `productos_pricing` (absent from `env`)."""
+    if with_pricing:
+        conn.execute(text(PRICING_DDL))
+    for ddl in PRESENCE_DDL:
+        conn.execute(text(ddl))
+
+
+def add_tn_variant(conn, item_id: int, variant_id: int, **columns: Any) -> None:
+    """A Tienda Nube variant of a product (one product can have several: one row per variant)."""
+    _insert(
+        conn,
+        "tienda_nube_productos",
+        {"product_id": 266589695, "variant_id": variant_id, "item_id": item_id, **columns},
+    )
+
+
+def add_oferta(conn, mla: str, fecha_desde, fecha_hasta, **columns: Any) -> None:
+    _insert(conn, "ofertas_ml", {"mla": mla, "fecha_desde": fecha_desde, "fecha_hasta": fecha_hasta, **columns})

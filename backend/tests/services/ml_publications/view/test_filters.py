@@ -233,3 +233,42 @@ class TestEventFilter:
     def test_the_filter_says_whether_it_needs_the_events_flag(self) -> None:
         assert parse_filter(evento="price_changed").needs_events is True
         assert parse_filter(estado="active").needs_events is False
+
+
+class TestPresenceToggles:
+    """Productos' "Filtros de Presencia" (`/productos` params, same names and meaning): rebate, mejor oferta, web
+    transferencia, Tienda Nube and out of cards. Each is tri-state: absent = no filter."""
+
+    def test_absent_toggles_are_no_filter(self) -> None:
+        f = parse_filter()
+        assert (f.rebate, f.oferta, f.web_transf, f.out_of_cards, f.tienda_nube) == (None, None, None, None, None)
+
+    @pytest.mark.parametrize(
+        "param, attr",
+        [
+            ("con_rebate", "rebate"),
+            ("con_oferta", "oferta"),
+            ("con_web_transf", "web_transf"),
+            ("out_of_cards", "out_of_cards"),
+        ],
+    )
+    def test_a_boolean_toggle_keeps_both_sides(self, param: str, attr: str) -> None:
+        assert getattr(parse_filter(**{param: True}), attr) is True
+        assert getattr(parse_filter(**{param: False}), attr) is False
+
+    @pytest.mark.parametrize(
+        "param, value",
+        [
+            ("tn_con_descuento", "con_descuento"),
+            ("tn_sin_descuento", "sin_descuento"),
+            ("tn_no_publicado", "no_publicado"),
+        ],
+    )
+    def test_tienda_nube_is_one_of_three_states(self, param: str, value: str) -> None:
+        assert parse_filter(**{param: True}).tienda_nube == value
+        assert parse_filter(**{param: False}).tienda_nube is None
+
+    def test_tienda_nube_states_resolve_in_productos_order(self) -> None:
+        # Productos reads them as an if/elif chain: con_descuento, then sin_descuento, then no_publicado
+        assert parse_filter(tn_con_descuento=True, tn_no_publicado=True).tienda_nube == "con_descuento"
+        assert parse_filter(tn_sin_descuento=True, tn_no_publicado=True).tienda_nube == "sin_descuento"

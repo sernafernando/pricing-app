@@ -14,6 +14,8 @@ import {
   effectiveSort,
   effectiveProductSort,
   buildProductsParams,
+  buildKpiParams,
+  PRESENCE_VALUES,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
@@ -360,6 +362,73 @@ describe('the Producto view (vista=producto)', () => {
       dir: 'desc',
       limit: 25,
       offset: 25,
+    });
+  });
+});
+
+describe("Productos' presence filters (S5)", () => {
+  const base = setup('/').result.current.hook.filters;
+
+  it("keeps Productos' URL keys and values", () => {
+    expect(PRESENCE_VALUES).toEqual({
+      rebate: ['con_rebate', 'sin_rebate'],
+      oferta: ['con_oferta', 'sin_oferta'],
+      webtransf: ['con_web_transf', 'sin_web_transf'],
+      tiendanube: ['con_descuento', 'sin_descuento', 'no_publicado'],
+      outofcards: ['con_out_of_cards', 'sin_out_of_cards'],
+    });
+    expect(FILTER_KEYS).toEqual(expect.arrayContaining(Object.keys(PRESENCE_VALUES)));
+  });
+
+  it('reads them from the URL and drops a value outside the vocabulary', () => {
+    const f = setup('/?rebate=sin_rebate&tiendanube=no_publicado&outofcards=quizas').result.current.hook.filters;
+    expect([f.rebate, f.tiendanube, f.outofcards, f.oferta, f.webtransf]).toEqual(['sin_rebate', 'no_publicado', '', '', '']);
+  });
+
+  it('a change goes back to page 1 and counts as a change of the filter set; reset clears it', () => {
+    const { result } = setup('/?pagina=3&sel=MLA1');
+    const before = result.current.hook.filterKey;
+    act(() => result.current.hook.setFilters({ webtransf: 'con_web_transf' }));
+    expect(result.current.search).toBe('?webtransf=con_web_transf');
+    expect(result.current.hook.filterKey).not.toBe(before);
+    act(() => result.current.hook.resetFilters());
+    expect(result.current.search).toBe('');
+  });
+
+  it('sends the params GET /productos takes', () => {
+    const filters = {
+      ...base,
+      rebate: 'con_rebate',
+      oferta: 'sin_oferta',
+      webtransf: 'sin_web_transf',
+      tiendanube: 'sin_descuento',
+      outofcards: 'con_out_of_cards',
+    };
+    const presence = {
+      con_rebate: true,
+      con_oferta: false,
+      con_web_transf: false,
+      tn_sin_descuento: true,
+      out_of_cards: true,
+    };
+    expect(buildItemsParams(filters, 50)).toEqual({ ...presence, limit: 50, offset: 0 });
+    expect(buildProductsParams(filters, 50)).toMatchObject(presence);
+    expect(buildKpiParams(filters, '30d')).toEqual({ ...presence, periodo: '30d' });
+    expect(buildItemsParams({ ...base, tiendanube: 'con_descuento' }, 50).tn_con_descuento).toBe(true);
+    expect(buildItemsParams({ ...base, tiendanube: 'no_publicado' }, 50).tn_no_publicado).toBe(true);
+  });
+
+  it('in the Producto view, the KPI strip asks mejor oferta of the product, as the product rows do', () => {
+    const oferta = { ...base, oferta: 'sin_oferta' };
+    expect(buildKpiParams({ ...oferta, vista: 'producto' }, '30d')).toEqual({
+      con_oferta: false,
+      oferta_por_producto: true,
+      periodo: '30d',
+    });
+    expect(buildKpiParams(oferta, '30d')).toEqual({ con_oferta: false, periodo: '30d' });
+    expect(buildKpiParams({ ...base, vista: 'producto', rebate: 'con_rebate' }, '30d')).toEqual({
+      con_rebate: true,
+      periodo: '30d',
     });
   });
 });
