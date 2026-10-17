@@ -60,7 +60,10 @@ def rows(conn) -> None:  # noqa: F811
         conn, "MLA1", TODAY - timedelta(days=5), TODAY + timedelta(days=5), precio_final=83200, pvp_seller=86486
     )
     seed.add_oferta(conn, "MLA2", date(2026, 5, 8), date(2026, 5, 31), precio_final=83200, pvp_seller=86486)  # over
-    seed.add_oferta(conn, "MLA3", TODAY, TODAY, precio_final=83200, pvp_seller=None)  # no seller price: not one
+    # current (wide window, see MLA1) but no seller price: not one
+    seed.add_oferta(
+        conn, "MLA3", TODAY - timedelta(days=5), TODAY + timedelta(days=5), precio_final=83200, pvp_seller=None
+    )
 
 
 class TestProductFlags:

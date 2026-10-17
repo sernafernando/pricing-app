@@ -9,7 +9,7 @@ The predicates are pinned in `view/test_presence_filters_postgres.py`; this file
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -22,6 +22,9 @@ from tests.services.ml_publications.view import seed
 pytestmark = pytest.mark.postgres
 
 PRODUCTS_URL = "/api/ml-publications/view/products"
+# A current offer: wide enough that the process date (Python) and the database's `current_date` agree on it even
+# when they straddle midnight (UTC vs UTC-3).
+CURRENT = (date.today() - timedelta(days=5), date.today() + timedelta(days=5))
 
 
 def fill(conn) -> None:
@@ -83,7 +86,7 @@ def test_the_producto_view_asks_mejor_oferta_of_the_product_like_productos(clien
     def more(conn) -> None:
         seed.add_item(conn, "MLA4", status="active")
         seed.add_link(conn, "MLA4", 77)  # 77's second publication, not on offer
-        seed.add_oferta(conn, "MLA1", date.today(), date.today(), precio_final=83200, pvp_seller=86486)
+        seed.add_oferta(conn, "MLA1", *CURRENT, precio_final=83200, pvp_seller=86486)
 
     seed_rows(pg, more)
     assert products(client, reader, con_oferta="false") == ["0", "78"]  # "0": the publications with no product
