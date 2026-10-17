@@ -106,10 +106,18 @@ export function buildColumns({
       label: 'Publicación',
       width: 360,
       sortable: true,
-      render: (item) =>
+      // `after` (the product checkbox, when selecting) goes after the variations toggle: the toggle leads the
+      // pinned cell at the row's depth, where the variations' sub-rows and state row line up one level in.
+      render: (item, after = null) =>
         onToggleVariations && item.variations_count > 1 ? (
           <div className={styles.withToggle}>
             <VariationsToggle item={item} expanded={expandedIds?.has(item.item_id) ?? false} onToggle={onToggleVariations} />
+            {after}
+            <PublicationCell item={item} />
+          </div>
+        ) : after ? (
+          <div className={styles.withToggle}>
+            {after}
             <PublicationCell item={item} />
           </div>
         ) : (

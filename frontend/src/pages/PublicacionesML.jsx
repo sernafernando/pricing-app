@@ -14,6 +14,8 @@ import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
+import BulkActions from '../components/publicacionesMl/BulkActions';
+import { withProductSelection } from '../components/publicacionesMl/productSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
@@ -174,6 +176,21 @@ export default function PublicacionesML() {
     [],
   );
 
+  // The products checked for the bulk pricing actions (a publication checks its linked product). They belong to
+  // the list they were picked from: another filter or view starts with none.
+  const [checkedIds, setCheckedIds] = useState(() => new Set());
+  const toggleChecked = useCallback(
+    (productId) =>
+      setCheckedIds((current) => {
+        const next = new Set(current);
+        if (!next.delete(productId)) next.add(productId);
+        return next;
+      }),
+    [],
+  );
+  const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
+  useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
+
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
@@ -255,7 +272,12 @@ export default function PublicacionesML() {
     onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
   });
-  const visibleColumns = columns.filter((column) => columnVisibility[column.key] !== false);
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => columnVisibility[column.key] !== false),
+    [columns, columnVisibility],
+  );
+  const selection = useMemo(() => ({ checked: checkedIds, onToggle: toggleChecked }), [checkedIds, toggleChecked]);
+  const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
 
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
@@ -351,6 +373,13 @@ export default function PublicacionesML() {
               onChange={(checked) => setFilters({ familias: checked ? '1' : '' })}
             />
           )}
+          <BulkActions
+            filters={filters}
+            checkedIds={checkedIds}
+            onClearChecked={clearChecked}
+            canSeeMargin={canSeeMargin}
+            onDone={reloadList}
+          />
           <ColumnPicker table={pickerTable} />
         </div>
       </header>
@@ -470,7 +499,8 @@ export default function PublicacionesML() {
             {producto ? (
               <ProductoTable
                 tree={productRows}
-                columns={visibleColumns}
+                columns={selectableColumns}
+                selection={selection}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}
@@ -482,7 +512,7 @@ export default function PublicacionesML() {
               />
             ) : agrupado ? (
               <AgrupadoTable
-                columns={visibleColumns}
+                columns={selectableColumns}
                 filters={filters}
                 familias={filters.familias === '1'}
                 dimension={filters.agrupar}
@@ -495,7 +525,7 @@ export default function PublicacionesML() {
               />
             ) : (
               <TableShell
-                columns={visibleColumns}
+                columns={selectableColumns}
                 rows={items}
                 getRowKey={(item) => item.item_id}
                 renderSubRows={(item) =>

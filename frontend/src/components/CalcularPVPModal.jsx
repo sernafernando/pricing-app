@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react';
+import { Sparkles, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import ModalTesla, { ModalFooterButtons } from './ModalTesla';
 import styles from './CalcularWebModal.module.css'; // Reutilizar el mismo CSS
 
-export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, showToast }) {
+export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, showToast, itemIds, itemIdsNota }) {
+  // An explicit write set (Publicaciones ML): exactly these products, never `filtros` nor "all products".
+  const explicito = Array.isArray(itemIds);
   const [markupPVPClasica, setMarkupPVPClasica] = useState('15.0');
   const [adicionalCuotas, setAdicionalCuotas] = useState('4.0');
   const [calculando, setCalculando] = useState(false);
+  // Pending in-app confirmation message; null while no confirmation is asked.
+  const [confirmacion, setConfirmacion] = useState(null);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
 
   // Auto-focus en primer input al abrir modal
@@ -22,6 +28,9 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
   // Cerrar modal con Escape y capturar Tab para navegación interna
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // The confirmation dialog owns the keyboard while it is open.
+      if (confirmacion) return;
+
       if (e.key === 'Escape' && !calculando) {
         onClose();
         return;
@@ -54,7 +63,7 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, calculando]);
+  }, [onClose, calculando, confirmacion]);
 
   const hayFiltros =
     !!filtrosActivos?.search ||
@@ -116,13 +125,18 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
     </div>
   );
 
-  const calcularMasivo = async () => {
-    const mensaje = aplicarFiltros
+  const pedirConfirmacion = () => {
+    const mensaje = explicito
+      ? `¿Confirmar el cálculo para ${itemIds.length} producto${itemIds.length !== 1 ? 's' : ''}?`
+      : aplicarFiltros
       ? '¿Confirmar cálculo de precios PVP (clásica + cuotas) para los productos FILTRADOS?'
       : '¿Confirmar cálculo masivo de precios PVP para TODOS los productos?';
 
-    if (!confirm(mensaje)) return;
+    setConfirmacion(mensaje);
+  };
 
+  const calcularMasivo = async () => {
+    setConfirmacion(null);
     setCalculando(true);
     try {
       const body = {
@@ -130,7 +144,9 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
         adicional_cuotas: parseFloat(adicionalCuotas.toString().replace(',', '.')) || 0
       };
 
-      if (aplicarFiltros) {
+      if (explicito) {
+        body.item_ids = itemIds;
+      } else if (aplicarFiltros) {
         body.filtros = {
           search: filtrosActivos.search || null,
           con_stock: filtrosActivos.con_stock || null,
@@ -177,12 +193,11 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
 
       const response = await api.post('/productos/calcular-pvp-masivo', body);
 
-      showToast(`✅ Precios PVP calculados: ${response.data.procesados} productos`);
+      showToast(`Precios PVP calculados: ${response.data.procesados} productos`);
       onSuccess();
       onClose();
-    } catch (error) {
-      console.error('Error:', error);
-      showToast('❌ Error al calcular precios PVP masivos', 'error');
+    } catch {
+      showToast('Error al calcular precios PVP masivos', 'error');
     } finally {
       setCalculando(false);
     }
@@ -192,7 +207,10 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
     <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.header}>
-          <h2 className={styles.title}>🔮 Calcular Precios PVP Masivamente</h2>
+          <h2 className={styles.title}>
+            <Sparkles size={20} aria-hidden="true" />
+            Calcular Precios PVP Masivamente
+          </h2>
           <button onClick={onClose} className={styles.closeButton}>×</button>
         </div>
 
@@ -201,7 +219,16 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
             Calcula automáticamente los precios de <strong>PVP Clásica y PVP Cuotas (3/6/9/12)</strong> usando cálculo convergente (goal-seek) para alcanzar los markups objetivo.
           </p>
 
-          {hayFiltros && (
+          {explicito && (
+            <div className={styles.filterCheckbox}>
+              <strong>
+                Se calcula sobre {itemIds.length} producto{itemIds.length !== 1 ? 's' : ''}
+              </strong>
+              {itemIdsNota && <div className={styles.filtrosActivos}>{itemIdsNota}</div>}
+            </div>
+          )}
+
+          {!explicito && hayFiltros && (
             <div className={styles.filterCheckbox}>
               <label>
                 <input
@@ -292,15 +319,45 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
               Cancelar
             </button>
             <button
-              onClick={calcularMasivo}
-              disabled={calculando}
+              onClick={pedirConfirmacion}
+              disabled={calculando || (explicito && itemIds.length === 0)}
               className={`${styles.button} ${styles.buttonPrimary}`}
             >
-              {calculando ? '⏳ Calculando...' : '🔮 Calcular Precios PVP'}
+              {calculando ? (
+                <>
+                  <Loader2 size={16} aria-hidden="true" />
+                  Calculando...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} aria-hidden="true" />
+                  Calcular Precios PVP
+                </>
+              )}
             </button>
           </div>
         </div>
       </div>
+
+      {confirmacion && (
+        <ModalTesla
+          isOpen={true}
+          onClose={() => setConfirmacion(null)}
+          closeOnOverlay={false}
+          title="Confirmar cálculo"
+          size="sm"
+          footer={
+            <ModalFooterButtons
+              onCancel={() => setConfirmacion(null)}
+              cancelText="Cancelar"
+              onConfirm={calcularMasivo}
+              confirmText="Confirmar"
+            />
+          }
+        >
+          <p className={styles.confirmMessage}>{confirmacion}</p>
+        </ModalTesla>
+      )}
     </div>
   );
 }

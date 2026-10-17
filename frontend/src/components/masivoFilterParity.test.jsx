@@ -7,7 +7,7 @@
  * folds; a filter added to the listing and forgotten here fails as a
  * parity gap, not as a silent widening.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { buildFilterQueryString } from './exportFilterParams';
@@ -55,16 +55,21 @@ describe('ExportModal.buildFilterQueryString — cross-DB filters travel', () =>
   });
 });
 
+// The bulk modals confirm in an in-app dialog; the browser's confirm() must never run.
 async function runBulk(element) {
-  vi.stubGlobal('confirm', () => true);
+  const nativeConfirm = vi.fn(() => true);
+  vi.stubGlobal('confirm', nativeConfirm);
   render(element);
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: /calcular/i }));
+  await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+  expect(nativeConfirm).not.toHaveBeenCalled();
   return api.post.mock.calls.at(-1)[1].filtros;
 }
 
 describe('Bulk price calculations narrow by the same cross-DB filters', () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
 
   it('CalcularWebModal sends con_pxq + promo params', async () => {
     const filtros = await runBulk(

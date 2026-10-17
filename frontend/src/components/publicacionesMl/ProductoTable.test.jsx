@@ -55,7 +55,7 @@ const itemsPage = (count, total = count, prefix = 'MLA') => ({
 const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
 const itemCalls = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params);
 
-function Harness({ filters = FILTERS, canSeeSales = true, canSeeMargin = true, onSelectItem = () => {}, onSort = () => {} }) {
+function Harness({ filters = FILTERS, canSeeSales = true, canSeeMargin = true, onSelectItem = () => {}, onSort = () => {}, selection }) {
   const [expandedIds] = useState(() => new Set());
   const tree = useProductRows({ filters, pageSize: 50, canSeeSales, canSeeMargin });
   const columns = buildColumns({ eventsEnabled: false, canSeeMargin, canSeeSales, expandedIds, producto: true });
@@ -71,6 +71,7 @@ function Harness({ filters = FILTERS, canSeeSales = true, canSeeMargin = true, o
         selectedKey={filters.sel || undefined}
         sort={tree.sort}
         onSort={onSort}
+        selection={selection}
       />
     </>
   );
@@ -218,5 +219,16 @@ describe('a new product list', () => {
     const row = rowOf('Router Archer AX55');
     expect(within(row).getByText('12.345')).toBeInTheDocument();
     expect(within(row).queryByText(/18,4/)).not.toBeInTheDocument(); // the fixture's real markup
+  });
+});
+
+describe('the product checkbox', () => {
+  // The tree's indentation is driven by depth alone: the toggle leads the pinned cell, the checkbox follows it,
+  // so a branch's state and sub-rows line up one level under the toggle (pinned in the visual suite).
+  it('follows the product toggle, never precedes it', async () => {
+    render(<Harness selection={{ checked: new Set(), onToggle: () => {} }} />);
+    const toggle = await screen.findByRole('button', { name: /Abrir Router Archer AX55/ });
+    const box = within(rowOf('Router Archer AX55')).getByRole('checkbox');
+    expect(toggle.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

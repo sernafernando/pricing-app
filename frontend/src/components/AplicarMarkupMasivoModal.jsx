@@ -20,6 +20,10 @@ export default function AplicarMarkupMasivoModal({
   /** Already-built listar query from `construirFiltrosParams()` */
   listarParams = {},
   totalProductos = 0,
+  /** An explicit write set (Publicaciones ML): exactly these products, no resolve of `GET /productos`. */
+  itemIds,
+  /** What the caller says about the set (e.g. publications left out for having no product). */
+  itemIdsNota,
   showToast,
   puedeEditarCuotas = false,
 }) {
@@ -40,8 +44,16 @@ export default function AplicarMarkupMasivoModal({
   const [confirmacion, setConfirmacion] = useState(null);
 
   const pricelistId = 4;
-  const total =
-    resolvedItemIds != null ? resolvedItemIds.length : Number(totalProductos) || 0;
+  const explicito = Array.isArray(itemIds);
+  const sinProductosMsg = explicito ? 'No hay productos seleccionados' : 'No hay productos en el conjunto filtrado';
+  // The set a confirmation names: the given products, or the products of the current filter.
+  const conjuntoConfirmado = (n) =>
+    explicito ? `${n} producto${n !== 1 ? 's' : ''} seleccionado${n !== 1 ? 's' : ''}` : `${n} productos del filtro actual`;
+  const total = explicito
+    ? itemIds.length
+    : resolvedItemIds != null
+      ? resolvedItemIds.length
+      : Number(totalProductos) || 0;
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -138,7 +150,7 @@ export default function AplicarMarkupMasivoModal({
 
   const handleAplicar = async () => {
     if (total === 0) {
-      showToast('No hay productos en el conjunto filtrado', 'error');
+      showToast(sinProductosMsg, 'error');
       return;
     }
     if (!aplicarMarkup && !aplicarConfig) {
@@ -188,38 +200,42 @@ export default function AplicarMarkupMasivoModal({
     setResultados(null);
     setProgresoLote(null);
 
-    let itemIds;
-    try {
-      itemIds = await resolveFilteredItemIds({
-        listar: productosAPI.listar,
-        listarParams,
-        totalProductos,
-      });
-      setResolvedItemIds(itemIds);
-    } catch (err) {
+    let ids;
+    if (explicito) {
+      ids = itemIds;
+    } else {
+      try {
+        ids = await resolveFilteredItemIds({
+          listar: productosAPI.listar,
+          listarParams,
+          totalProductos,
+        });
+        setResolvedItemIds(ids);
+      } catch (err) {
+        setAplicando(false);
+        const msg =
+          err instanceof ResolveFilteredIdsError
+            ? err.message
+            : 'No se pudo resolver el conjunto filtrado de productos';
+        showToast(msg, 'error');
+        return;
+      }
+    }
+
+    if (ids.length === 0) {
       setAplicando(false);
-      const msg =
-        err instanceof ResolveFilteredIdsError
-          ? err.message
-          : 'No se pudo resolver el conjunto filtrado de productos';
-      showToast(msg, 'error');
+      showToast(sinProductosMsg, 'error');
       return;
     }
 
-    if (itemIds.length === 0) {
-      setAplicando(false);
-      showToast('No hay productos en el conjunto filtrado', 'error');
-      return;
-    }
-
-    const job = { itemIds, markup, configBodyBase };
+    const job = { itemIds: ids, markup, configBodyBase };
     // Chicho/#1260: zero is also margin-wipe risk — same Tesla pane as negative.
     if (aplicarMarkup && markup <= 0) {
       setAplicando(false);
       setConfirmacion({ ...job, gate: 'negative' });
       return;
     }
-    if (itemIds.length > CONFIRM_THRESHOLD) {
+    if (ids.length > CONFIRM_THRESHOLD) {
       setAplicando(false);
       setConfirmacion({ ...job, gate: 'threshold' });
       return;
@@ -280,8 +296,8 @@ export default function AplicarMarkupMasivoModal({
                     MarkUp Negativo
                   </p>
                   <p className={styles.descripcion}>
-                    Vas a guardar <strong>{confirmacion.itemIds.length} productos</strong> del
-                    filtro actual con un MarkUp Negativo del{' '}
+                    Vas a guardar <strong>{conjuntoConfirmado(confirmacion.itemIds.length)}</strong>{' '}
+                    con un MarkUp Negativo del{' '}
                     <strong>{confirmacion.markup}%</strong>.
                   </p>
                   <div className={styles.infoBox}>
@@ -294,7 +310,7 @@ export default function AplicarMarkupMasivoModal({
                   <p className={styles.confirmacionTitulo}>Confirmar acciones masivas</p>
                   <p className={styles.descripcion}>
                     Vas a aplicar las acciones seleccionadas a{' '}
-                    <strong>{confirmacion.itemIds.length} productos</strong> del filtro actual.
+                    <strong>{conjuntoConfirmado(confirmacion.itemIds.length)}</strong>.
                     Esta operación escribe precios y/o config de cuotas en lote.
                   </p>
                   <div className={styles.infoBox}>
@@ -366,8 +382,11 @@ export default function AplicarMarkupMasivoModal({
                   {aplicarConfig && (
                     <>
                       <p className={styles.descripcion}>
-                        Misma config que el engranaje de cada fila, aplicada a todos los
-                        productos del filtro actual. Si también aplicás markup, se guarda
+                        Misma config que el engranaje de cada fila, aplicada a{' '}
+                        {explicito
+                          ? `los ${total} producto${total !== 1 ? 's' : ''} seleccionado${total !== 1 ? 's' : ''}`
+                          : 'todos los productos del filtro actual'}
+                        . Si también aplicás markup, se guarda
                         primero esta config y después se calculan los precios.
                       </p>
                       <div className={styles.field}>
@@ -420,7 +439,10 @@ export default function AplicarMarkupMasivoModal({
               )}
 
               <div className={styles.infoBox}>
-                Opera sobre todos los productos del filtro actual (Total {total}).
+                {explicito
+                  ? `Opera sobre ${total} producto${total !== 1 ? 's' : ''}.`
+                  : `Opera sobre todos los productos del filtro actual (Total ${total}).`}
+                {explicito && itemIdsNota && <div>{itemIdsNota}</div>}
                 {total > MAX_ITEMS_POR_REQUEST && (
                   <>
                     {' '}

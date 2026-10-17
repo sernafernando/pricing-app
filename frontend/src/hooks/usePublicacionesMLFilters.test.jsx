@@ -15,6 +15,7 @@ import {
   effectiveProductSort,
   buildProductsParams,
   buildKpiParams,
+  buildProductIdsParams,
   PRESENCE_VALUES,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
@@ -430,5 +431,24 @@ describe("Productos' presence filters (S5)", () => {
       con_rebate: true,
       periodo: '30d',
     });
+  });
+});
+
+describe('buildProductIdsParams (the products a bulk action acts on)', () => {
+  const base = setup('/').result.current.hook.filters;
+
+  it('sends the list filters and nothing that pages or sorts', () => {
+    const filters = { ...base, q: 'router', estado: ['active'], marcas: ['TP-LINK'], pagina: 3, orden: 'precio', dir: 'asc' };
+    expect(buildProductIdsParams(filters)).toEqual({ q: 'router', estado: 'active', marcas: 'TP-LINK' });
+  });
+
+  it('leaves the markup filters to the caller, which sends them only where the list applies them', () => {
+    expect(buildProductIdsParams({ ...base, markup_neg: '1', markup_min: '5' })).toEqual({});
+  });
+
+  it('asks mejor oferta of the product in the Producto view only, as its rows do', () => {
+    const oferta = { ...base, oferta: 'sin_oferta' };
+    expect(buildProductIdsParams({ ...oferta, vista: 'producto' })).toEqual({ con_oferta: false, oferta_por_producto: true });
+    expect(buildProductIdsParams(oferta)).toEqual({ con_oferta: false });
   });
 });

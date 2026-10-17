@@ -17,7 +17,7 @@ const KIND_LABELS = {
 const formatCount = (count) => count.toLocaleString('es-AR');
 
 /** Pinned cell of a node: open/close toggle, name, what kind of node it is, and its code. */
-export function NodeTitle({ row, onToggle }) {
+export function NodeTitle({ row, onToggle, after = null }) {
   const { node, expanded } = row;
   const Icon = expanded ? ChevronDown : ChevronRight;
   return (
@@ -31,6 +31,7 @@ export function NodeTitle({ row, onToggle }) {
       >
         <Icon size={14} aria-hidden="true" />
       </button>
+      {after}
       <div className={styles.nodeText}>
         <span className={styles.nodeLabel} data-muted={node.withoutProduct || node.key === '__none__' ? '' : undefined}>
           {node.label}
