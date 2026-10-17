@@ -196,8 +196,7 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
       showToast(`Precios PVP calculados: ${response.data.procesados} productos`);
       onSuccess();
       onClose();
-    } catch (error) {
-      console.error('Error:', error);
+    } catch {
       showToast('Error al calcular precios PVP masivos', 'error');
     } finally {
       setCalculando(false);
