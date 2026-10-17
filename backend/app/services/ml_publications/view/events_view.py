@@ -123,11 +123,52 @@ def status_label_of(event_type: str, new_value: Any, payload: Any, old_value: An
     return None
 
 
-def _event_out(row: Any, verdict: Optional[origin.Verdict] = None) -> dict[str, Any]:
+# The name of each promotion of a page, in one statement. ML gives a promotion's name only inside its entry of the
+# promotions resource, which no event payload carries: first the entry the event's own change-log row added or
+# removed (`[<id>]`, the name as it was then, the only trace of a promotion that left the item), else the entry of
+# the item's current promotions state. An empty name (ML sends "" for some types) is no name and falls through.
+# Within one array the first entry with a name wins, by its position (`WITH ORDINALITY`), never an unordered pick.
+PROMOTION_NAMES_SQL = """
+SELECT w.change_log_id, w.promotion_id,
+  COALESCE(
+    (SELECT NULLIF(COALESCE(c->'new'->>'name', c->'old'->>'name'), '')
+       FROM ml_change_log l CROSS JOIN LATERAL jsonb_array_elements(
+         CASE WHEN jsonb_typeof(l.changes) = 'array' THEN l.changes ELSE '[]'::jsonb END) WITH ORDINALITY AS e(c, n)
+      WHERE l.id = w.change_log_id AND c->>'p' = '[' || w.promotion_id || ']'
+        AND NULLIF(COALESCE(c->'new'->>'name', c->'old'->>'name'), '') IS NOT NULL
+      ORDER BY n
+      LIMIT 1),
+    (SELECT NULLIF(x->>'name', '')
+       FROM ml_item_seller_promotions s CROSS JOIN LATERAL jsonb_array_elements(
+         CASE WHEN jsonb_typeof(s.raw) = 'array' THEN s.raw ELSE '[]'::jsonb END) WITH ORDINALITY AS e(x, n)
+      WHERE s.item_id = :item_id AND x->>'id' = w.promotion_id AND NULLIF(x->>'name', '') IS NOT NULL
+      ORDER BY n
+      LIMIT 1)
+  ) AS name
+FROM unnest(CAST(:log_ids AS bigint[]), CAST(:promotion_ids AS text[])) AS w(change_log_id, promotion_id)
+"""
+
+
+def promotion_names(db: Session, item_id: str, rows: list[Any]) -> dict[tuple[Any, str], Optional[str]]:
+    """`(change_log_id, promotion_id)` -> the promotion's name (`None` when no row has it) for the page's events
+    that name a promotion; no statement when none does."""
+    keys = sorted({(row["change_log_id"], row["promotion_id"]) for row in rows if row["promotion_id"]}, key=str)
+    if not keys:
+        return {}
+    result = db.execute(
+        text(PROMOTION_NAMES_SQL),
+        {"item_id": item_id, "log_ids": [k[0] for k in keys], "promotion_ids": [k[1] for k in keys]},
+    )
+    return {(r.change_log_id, r.promotion_id): r.name for r in result}
+
+
+def _event_out(
+    row: Any, verdict: Optional[origin.Verdict] = None, promotion_name: Optional[str] = None
+) -> dict[str, Any]:
     """The stored fields plus the label; `payload` is the event's typed payload (`events.py`), `promotion_id` the
-    promotion it is about (or the sale price's offer id), `status_label` the promotion state when it has one,
-    `origin` who caused it and `informational` whether it is an ML offer that changed nothing applied (`origin.py`;
-    without a verdict, the one no audit row explains)."""
+    promotion it is about (or the sale price's offer id) and `promotion_name` its name when a stored row has it,
+    `status_label` the promotion state when it has one, `origin` who caused it and `informational` whether it is an
+    ML offer that changed nothing applied (`origin.py`; without a verdict, the one no audit row explains)."""
     verdict = verdict or origin.of_event(row, ())
     return {
         "id": row["id"],
@@ -139,6 +180,7 @@ def _event_out(row: Any, verdict: Optional[origin.Verdict] = None) -> dict[str, 
         "old_value": row["old_value"],
         "new_value": row["new_value"],
         "promotion_id": row["promotion_id"],
+        "promotion_name": promotion_name,
         "payload": row["payload"],
         "status_label": status_label_of(row["event_type"], row["new_value"], row["payload"], row["old_value"]),
         "origin": verdict.origin(),
@@ -171,4 +213,11 @@ def list_events(
     page = rows[:limit]
     more = encode_cursor(page[-1]["observed_at"], page[-1]["id"]) if len(rows) > limit else None
     audits = origin.load_audits(db, item_id, [origin.event_claim(row) for row in page])
-    return EventsPage([_event_out(row, origin.of_event(row, audits)) for row in page], more)
+    names = promotion_names(db, item_id, page)
+    return EventsPage(
+        [
+            _event_out(row, origin.of_event(row, audits), names.get((row["change_log_id"], row["promotion_id"])))
+            for row in page
+        ],
+        more,
+    )

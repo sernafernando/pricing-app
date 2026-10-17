@@ -289,12 +289,13 @@ class TestEvents:
             "old_value",
             "new_value",
             "promotion_id",
+            "promotion_name",
             "payload",
             "status_label",
             "origin",
             "informational",
         }
-        assert newest["promotion_id"] is None and newest["status_label"] is None
+        assert newest["promotion_id"] is None and newest["status_label"] is None and newest["promotion_name"] is None
         assert isinstance(newest["payload"], dict)
 
     def test_a_promotion_event_carries_its_id_payload_and_state(self, client, events_on, pg, reader) -> None:
@@ -428,6 +429,182 @@ class TestEvents:
         listed = ok(events_of(client, reader, limit=100))["events"]
         assert {e["event_type"] for e in listed} == set(EVENT_TYPES)
         assert all(e["label"] != "Evento" for e in listed)
+
+
+NAMES_CAPTURE = "promotion_names_MLA1402898289_20261017.json"
+
+
+def store_with_its_log(conn, captured: dict, log: Optional[dict], at: datetime) -> None:
+    """A captured promotion event stored on ITEM, pointing at its captured change-log row (`None`: a row that
+    carries no change of the promotion, so the name can only come from the current state)."""
+    changes, context = (log["changes"], log["context"]) if log else ([], {})
+    log_id = insert_log(conn, "promotions", ITEM, ITEM, at, "change", changes, context)
+    conn.execute(
+        text(
+            "INSERT INTO ml_item_events (event_type, item_id, promotion_id, promotion_type, price_kind, old_value, "
+            "new_value, payload, observed_at, change_log_id, dedupe_key) VALUES (:t, :i, :pid, :ptype, :kind, "
+            "CAST(:old AS jsonb), CAST(:new AS jsonb), CAST(:payload AS jsonb), :at, :log, :key)"
+        ),
+        {
+            "t": captured["event_type"],
+            "i": ITEM,
+            "pid": captured["promotion_id"],
+            "ptype": captured["promotion_type"],
+            "kind": captured["price_kind"],
+            "old": json.dumps(captured["old_value"]),
+            "new": json.dumps(captured["new_value"]),
+            "payload": json.dumps(captured["payload"]),
+            "at": at,
+            "log": log_id,
+            "key": f"named-{captured['id']}-{log_id}".encode(),
+        },
+    )
+
+
+def store_promotions_state(conn, raw: list) -> None:
+    """The captured current promotions of MLA1402898289, as ITEM's state row."""
+    conn.execute(
+        text(
+            "INSERT INTO ml_item_seller_promotions (item_id, raw, http_status) VALUES (:i, CAST(:raw AS jsonb), 200) "
+            "ON CONFLICT (item_id) DO NOTHING"
+        ),
+        {"i": ITEM, "raw": json.dumps(raw)},
+    )
+
+
+class TestPromotionNames:
+    """`promotion_name`: from the promotion's entry in the event's own change-log row (added or removed there), else
+    from the item's current promotions state; null when neither has it. Real rows of MLA1402898289."""
+
+    @pytest.fixture()
+    def capture(self) -> dict:
+        data = load_fixture(NAMES_CAPTURE)
+        return {
+            "events": {e["id"]: e for e in data["events"]},
+            "logs": {log["id"]: log for log in data["change_log"]},
+            "state": data["seller_promotions"]["raw"],
+        }
+
+    def names(self, client, reader) -> dict:
+        return {e["promotion_id"]: e["promotion_name"] for e in ok(events_of(client, reader))["events"]}
+
+    def test_the_name_comes_from_the_entry_in_the_events_change_log_row(self, client, events_on, pg, reader, capture):
+        """Two coupons that left the item (no longer in the state) and one offered: the row that removed or added
+        each entry carries its name."""
+
+        def stored(conn) -> None:
+            for hours, event_id in ((3, 6376), (2, 6377), (1, 6378)):
+                event_ = capture["events"][event_id]
+                store_with_its_log(conn, event_, capture["logs"][event_["change_log_id"]], seed.hours_ago(hours))
+
+        seed_rows(pg, stored)
+        assert self.names(client, reader) == {
+            "C-MLA1713876": "Cupón de recompra",
+            "C-MLA1713877": "TO TP-LINK REPURCH T",
+            "C-MLA1717457": "Cupón de recompra",
+        }
+
+    def test_without_it_in_the_log_row_the_current_state_names_it(self, client, events_on, pg, reader, capture):
+        def stored(conn) -> None:
+            store_promotions_state(conn, capture["state"])
+            store_with_its_log(conn, capture["events"][57925], None, seed.hours_ago(1))
+
+        seed_rows(pg, stored)
+        (offered,) = ok(events_of(client, reader))["events"]
+        assert (offered["promotion_id"], offered["promotion_type"]) == ("P-MLA18137008", "SMART")
+        assert offered["promotion_name"] == "Tec Week"
+
+    def test_a_name_found_nowhere_is_null(self, client, events_on, pg, reader, capture):
+        """A finished coupon neither in its row nor in the state, and the sale price's offer id: nothing invented."""
+
+        def stored(conn) -> None:
+            store_promotions_state(conn, capture["state"])
+            store_with_its_log(conn, capture["events"][6376], None, seed.hours_ago(2))
+            store_with_its_log(conn, capture["events"][3690], capture["logs"][7673], seed.hours_ago(1))
+
+        seed_rows(pg, stored)
+        assert self.names(client, reader) == {"C-MLA1713876": None, "OFFER-MLA1402898289-11585589657": None}
+
+    def test_an_entry_with_its_id_but_an_empty_name_falls_through_to_the_state(
+        self, client, events_on, pg, reader, capture
+    ):
+        """The row that added Tec Week, with its name blanked: the log has no name for it, the state does."""
+        log = copy.deepcopy(capture["logs"][123143])
+        entry = next(c for c in log["changes"] if c["p"] == "[P-MLA18137008]")
+        entry["new"]["name"] = ""
+
+        def stored(conn) -> None:
+            store_promotions_state(conn, capture["state"])
+            store_with_its_log(conn, capture["events"][57925], log, seed.hours_ago(1))
+
+        seed_rows(pg, stored)
+        assert self.names(client, reader) == {"P-MLA18137008": "Tec Week"}
+
+    def test_an_event_always_has_a_change_log_row(self, pg):
+        """`change_log_id` is NOT NULL, so there is no event the state alone has to name without its log row."""
+        with pg.connect() as conn:
+            nullable = conn.execute(
+                text(
+                    "SELECT is_nullable FROM information_schema.columns WHERE table_schema = current_schema() "
+                    "AND table_name = 'ml_item_events' AND column_name = 'change_log_id'"
+                )
+            ).scalar_one()
+        assert nullable == "NO"
+
+    @pytest.mark.parametrize("where", ["log", "state"])
+    def test_two_entries_for_one_id_name_it_by_the_first_in_array_order(
+        self, client, events_on, pg, reader, capture, where
+    ):
+        """The first entry carrying a name wins, in the order of the stored array, never an unordered pick."""
+        log = copy.deepcopy(capture["logs"][123143])
+        state = copy.deepcopy(capture["state"])
+        if where == "log":
+            at = next(i for i, c in enumerate(log["changes"]) if c["p"] == "[P-MLA18137008]")
+            later = copy.deepcopy(log["changes"][at])
+            later["new"]["name"] = "Segundo nombre"
+            log["changes"].insert(at + 1, later)
+        else:
+            log = None
+            at = next(i for i, x in enumerate(state) if x.get("id") == "P-MLA18137008")
+            state.insert(at + 1, {**state[at], "name": "Segundo nombre"})
+
+        def stored(conn) -> None:
+            store_promotions_state(conn, state)
+            store_with_its_log(conn, capture["events"][57925], log, seed.hours_ago(1))
+
+        seed_rows(pg, stored)
+        assert self.names(client, reader) == {"P-MLA18137008": "Tec Week"}
+
+    def test_the_names_read_their_arrays_in_order(self):
+        """Each lookup takes the first match by its position in the array (`WITH ORDINALITY ... ORDER BY`)."""
+        sql = " ".join(events_view.PROMOTION_NAMES_SQL.split())
+        assert sql.count("WITH ORDINALITY") == 2 and sql.count("ORDER BY") == 2
+
+    def test_the_names_cost_one_statement_per_page_whatever_its_size(self, client, events_on, pg, reader, capture):
+        def stored(event_ids):
+            def run(conn) -> None:
+                store_promotions_state(conn, capture["state"])
+                for n, event_id in enumerate(event_ids):
+                    event_ = capture["events"][event_id]
+                    store_with_its_log(conn, event_, capture["logs"][event_["change_log_id"]], seed.hours_ago(n + 1))
+
+            return run
+
+        seed_rows(pg, lambda conn: seed.add_event(conn, ITEM, "price_changed", seed.hours_ago(1)))
+        without = record(pg, lambda: ok(events_of(client, reader)))
+        seed_rows(pg, stored([6376, 6377]))
+        small = record(pg, lambda: ok(events_of(client, reader)))
+        seed_rows(pg, stored(sorted(capture["events"])))
+        large = record(pg, lambda: ok(events_of(client, reader)))
+        assert len(ok(events_of(client, reader))["events"]) == 1 + 2 + len(capture["events"]) == 16
+        assert len(small) == len(large)  # the page size never adds a statement
+
+        def names_read(statements: list[str]) -> list[str]:
+            return [s for s in statements if "ml_item_seller_promotions" in s]
+
+        # one statement reads the names (log rows and state together); a page without promotions reads none
+        assert len(names_read(large)) == 1 and "ml_change_log" in names_read(large)[0]
+        assert names_read(without) == [] and len(names_read(small)) == 1
 
 
 class TestHistory:
