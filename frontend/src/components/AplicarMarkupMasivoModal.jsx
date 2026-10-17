@@ -45,6 +45,9 @@ export default function AplicarMarkupMasivoModal({
 
   const pricelistId = 4;
   const explicito = Array.isArray(itemIds);
+  // The set a confirmation names: the given products, or the products of the current filter.
+  const conjuntoConfirmado = (n) =>
+    explicito ? `${n} producto${n !== 1 ? 's' : ''} seleccionado${n !== 1 ? 's' : ''}` : `${n} productos del filtro actual`;
   const total = explicito
     ? itemIds.length
     : resolvedItemIds != null
@@ -292,8 +295,8 @@ export default function AplicarMarkupMasivoModal({
                     MarkUp Negativo
                   </p>
                   <p className={styles.descripcion}>
-                    Vas a guardar <strong>{confirmacion.itemIds.length} productos</strong> del
-                    filtro actual con un MarkUp Negativo del{' '}
+                    Vas a guardar <strong>{conjuntoConfirmado(confirmacion.itemIds.length)}</strong>{' '}
+                    con un MarkUp Negativo del{' '}
                     <strong>{confirmacion.markup}%</strong>.
                   </p>
                   <div className={styles.infoBox}>
@@ -306,7 +309,7 @@ export default function AplicarMarkupMasivoModal({
                   <p className={styles.confirmacionTitulo}>Confirmar acciones masivas</p>
                   <p className={styles.descripcion}>
                     Vas a aplicar las acciones seleccionadas a{' '}
-                    <strong>{confirmacion.itemIds.length} productos</strong> del filtro actual.
+                    <strong>{conjuntoConfirmado(confirmacion.itemIds.length)}</strong>.
                     Esta operación escribe precios y/o config de cuotas en lote.
                   </p>
                   <div className={styles.infoBox}>
@@ -378,8 +381,11 @@ export default function AplicarMarkupMasivoModal({
                   {aplicarConfig && (
                     <>
                       <p className={styles.descripcion}>
-                        Misma config que el engranaje de cada fila, aplicada a todos los
-                        productos del filtro actual. Si también aplicás markup, se guarda
+                        Misma config que el engranaje de cada fila, aplicada a{' '}
+                        {explicito
+                          ? `los ${total} producto${total !== 1 ? 's' : ''} seleccionado${total !== 1 ? 's' : ''}`
+                          : 'todos los productos del filtro actual'}
+                        . Si también aplicás markup, se guarda
                         primero esta config y después se calculan los precios.
                       </p>
                       <div className={styles.field}>

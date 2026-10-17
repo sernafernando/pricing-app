@@ -651,6 +651,41 @@ describe('AplicarMarkupMasivoModal with itemIds (Publicaciones ML)', () => {
     expect(markupCalls.flatMap(([, body]) => body.item_ids)).toEqual([11, 12, 13]);
   });
 
+  function renderExplicit(itemIds, props = {}) {
+    return render(
+      <AplicarMarkupMasivoModal onClose={() => {}} onSuccess={() => {}} itemIds={itemIds} showToast={() => {}} {...props} />,
+    );
+  }
+
+  it('the over-threshold confirmation names the given products, never the current filter', async () => {
+    const user = userEvent.setup();
+    renderExplicit(makeIds(60));
+    await user.click(screen.getByRole('button', { name: /Aplicar a 60 productos/i }));
+    expect(await screen.findByText(/Confirmar acciones masivas/i)).toBeInTheDocument();
+    expect(screen.getByText(/60 productos seleccionados/i)).toBeInTheDocument();
+    expect(screen.queryByText(/filtro actual/i)).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('the negative-markup confirmation names the given products, never the current filter', async () => {
+    const user = userEvent.setup();
+    renderExplicit([11, 12, 13]);
+    await setMarkupObjetivo(user, '-3');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 3 productos/i }));
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+    expect(screen.getByText(/3 productos seleccionados/i)).toBeInTheDocument();
+    expect(screen.queryByText(/filtro actual/i)).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('the cuotas config text names the given products, never the current filter', async () => {
+    const user = userEvent.setup();
+    renderExplicit([11, 12, 13], { puedeEditarCuotas: true });
+    await user.click(screen.getByRole('checkbox', { name: /Config de cuotas/i }));
+    expect(screen.getByText(/los 3 productos seleccionados/i)).toBeInTheDocument();
+    expect(screen.queryByText(/filtro actual/i)).not.toBeInTheDocument();
+  });
+
   it('an empty set cannot run', () => {
     render(<AplicarMarkupMasivoModal onClose={() => {}} onSuccess={() => {}} itemIds={[]} showToast={() => {}} />);
     expect(screen.getByRole('button', { name: /Aplicar a 0 productos/i })).toBeDisabled();
