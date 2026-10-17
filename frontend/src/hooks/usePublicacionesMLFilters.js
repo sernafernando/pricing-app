@@ -254,7 +254,8 @@ export function buildKpiParams(filters, periodo) {
 /**
  * The `GET /ml-publications/view/product-ids` query: the products a bulk pricing action acts on are the linked
  * products of the publications these filters select, asked exactly as the KPI strip asks its publications (the
- * list's filters, mejor oferta of the product in the Producto view), with no sort, paging nor markup filters.
+ * list's filters, mejor oferta of the product in the Producto view), with no sort nor paging. The markup filters are
+ * left to the caller: `BulkActions` adds them exactly as `/items` gets them, only where the list applies them.
  */
 export function buildProductIdsParams(filters) {
   const { periodo, ...params } = buildKpiParams(filters);

@@ -442,7 +442,7 @@ describe('buildProductIdsParams (the products a bulk action acts on)', () => {
     expect(buildProductIdsParams(filters)).toEqual({ q: 'router', estado: 'active', marcas: 'TP-LINK' });
   });
 
-  it('never sends the markup filters (the resolver cannot apply them)', () => {
+  it('leaves the markup filters to the caller, which sends them only where the list applies them', () => {
     expect(buildProductIdsParams({ ...base, markup_neg: '1', markup_min: '5' })).toEqual({});
   });
 
