@@ -53,10 +53,10 @@ describe('the events', () => {
     expect(entries()).toHaveLength(18);
   });
 
-  it('a folded line counts the offers and keeps their shared detail and tags', async () => {
+  it('a folded line counts the offers, names them and keeps their tags', async () => {
     renderTab();
     const offers = (await screen.findByText('ML ofreció 3 campañas del vendedor')).closest('li');
-    expect(offers).toHaveTextContent('Precio sugerido $ 77.000 · se puede elegir entre $ 30.416 y $ 84.467,35');
+    expect(offers).toHaveTextContent('A- PVP LYONN, PVP LYONN y A - PVP TP');
     expect(within(offers).getByText('Informativo de ML')).toBeInTheDocument();
     expect(within(offers).getByText('Disponible para activar')).toBeInTheDocument();
     expect(screen.getByText('ML ofreció Campaña co-fondeada y Oferta relámpago co-fondeada')).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe('the tags', () => {
       ]),
     );
     renderTab();
-    const applied = (await screen.findByText('Activamos la promoción Campaña del vendedor a $ 77.000')).closest('li');
+    const applied = (await screen.findByText('Activamos la promoción A PVP TODO (Campaña del vendedor) a $ 77.000')).closest('li');
     expect(within(applied).getByText('Hecho por nosotros · Fernando S.')).toBeInTheDocument();
     expect(within(applied).getByText('Aplicada')).toBeInTheDocument();
     expect(within(entryOf('Publicación reactivada')).getByText('Automático')).toBeInTheDocument();
@@ -136,8 +136,8 @@ describe('the tags', () => {
     renderTab();
     await screen.findByText('Publicación reactivada');
     expect(screen.getAllByText('Disponible para activar')).toHaveLength(3);
-    expect(within(entryOf('Se aplicó la promoción Campaña del vendedor a $ 77.000')).getByText('Aplicada')).toBeInTheDocument();
-    expect(within(entryOf('Terminó la promoción Campaña del vendedor')).getByText('Finalizada')).toBeInTheDocument();
+    expect(within(entryOf('Se aplicó la promoción A PVP TODO (Campaña del vendedor) a $ 77.000')).getByText('Aplicada')).toBeInTheDocument();
+    expect(within(entryOf('Terminó la promoción A PVP TODO (Campaña del vendedor)')).getByText('Finalizada')).toBeInTheDocument();
     expect(screen.getAllByText('Ya no se ofrece')).toHaveLength(2);
   });
 });

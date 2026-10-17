@@ -55,8 +55,16 @@ const priceChange = (label, before, after) => ({ label, before: money(before), a
 /** A plain value as text: a string or a number as it is; anything else (an object, a list) is not shown. */
 const plain = (value) => (typeof value === 'string' || typeof value === 'number' ? String(value) : null);
 
+/** Its own name (`promotion_name`), with its type in parentheses when known: `Tec Week (Campaña co-fondeada)`; `null` without a name. */
+const namedPromotion = (event) => {
+  if (!event.promotion_name) return null;
+  const type = PROMOTION_TYPES[event.promotion_type];
+  return type ? `${event.promotion_name} (${type})` : event.promotion_name;
+};
+
+/** "la promoción" and its name, else its type; "una promoción" when neither is known (never its code). */
 const promotionName = (event) => {
-  const name = PROMOTION_TYPES[event.promotion_type];
+  const name = namedPromotion(event) ?? PROMOTION_TYPES[event.promotion_type];
   return name ? `la promoción ${name}` : 'una promoción';
 };
 
@@ -68,7 +76,7 @@ function promotionOffered(event) {
   const min = money(payload.min_discounted_price);
   const max = money(payload.max_discounted_price);
   const parts = [suggested && `Precio sugerido ${suggested}`, min && max && `se puede elegir entre ${min} y ${max}`].filter(Boolean);
-  return sentence(`ML ofreció ${promotionName(event)}`, { detail: parts.length ? parts.join(' · ') : null });
+  return sentence(`ML ofreció ${namedPromotion(event) ?? promotionName(event)}`, { detail: parts.length ? parts.join(' · ') : null });
 }
 
 function promotionActivated(event) {
@@ -211,7 +219,10 @@ export function foldOffers(events) {
 
 const joinNames = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} y ${names.at(-1)}`);
 
-/** A folded line: the offers counted per type ("3 campañas del vendedor", "Campaña co-fondeada y …"). */
+/**
+ * A folded line: the offers counted per type ("3 campañas del vendedor", "Campaña co-fondeada y …"); the detail
+ * names them ("A PVP TODO, Tec Week y 1 más", the unnamed counted last), or without any name the detail they share.
+ */
 export function describeOffers(events) {
   const counts = new Map();
   for (const event of events) counts.set(event.promotion_type, (counts.get(event.promotion_type) ?? 0) + 1);
@@ -219,6 +230,12 @@ export function describeOffers(events) {
     if (count > 1) return `${count} ${PROMOTION_PLURALS[type] ?? 'promociones'}`;
     return PROMOTION_TYPES[type] ?? 'una promoción';
   });
+  const title = `ML ofreció ${joinNames(names)}`;
+  const named = events.map((event) => event.promotion_name).filter(Boolean);
+  if (named.length) {
+    const unnamed = events.length - named.length;
+    return sentence(title, { detail: joinNames(unnamed ? [...named, `${unnamed} más`] : named) });
+  }
   const details = new Set(events.map((event) => promotionOffered(event).detail));
-  return sentence(`ML ofreció ${joinNames(names)}`, { detail: details.size === 1 ? [...details][0] : null });
+  return sentence(title, { detail: details.size === 1 ? [...details][0] : null });
 }

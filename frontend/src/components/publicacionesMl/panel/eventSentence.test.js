@@ -22,19 +22,19 @@ describe('money', () => {
 describe('promotions', () => {
   it('an offer says ML offered it, with the suggested price and the range it allows', () => {
     expect(describeEvent(event(71200))).toEqual({
-      title: 'ML ofreció la promoción Campaña del vendedor',
+      title: 'ML ofreció A- PVP LYONN (Campaña del vendedor)',
       detail: 'Precio sugerido $ 77.000 · se puede elegir entre $ 30.416 y $ 84.467,35',
       change: null,
     });
   });
 
   it('an offer without prices is just the sentence', () => {
-    expect(describeEvent(event(57924))).toEqual({ title: 'ML ofreció la promoción Oferta relámpago co-fondeada', detail: null, change: null });
+    expect(describeEvent(event(57924))).toEqual({ title: 'ML ofreció Relampago compartidas (Oferta relámpago co-fondeada)', detail: null, change: null });
   });
 
   it('an applied promotion says at which price, and the sale price it replaced', () => {
     expect(describeEvent(event(3689))).toEqual({
-      title: 'Se aplicó la promoción Campaña del vendedor a $ 77.000',
+      title: 'Se aplicó la promoción A PVP TODO (Campaña del vendedor) a $ 77.000',
       detail: null,
       change: { label: 'Precio de venta', before: '$ 91.193', after: '$ 77.000', delta: { text: '−15,6 %', direction: 'down' } },
     });
@@ -42,16 +42,25 @@ describe('promotions', () => {
 
   it('one we applied ourselves says so in first person', () => {
     const ours = { ...event(3689), origin: { kind: 'nosotros', user_name: 'Fernando S.' } };
-    expect(describeEvent(ours).title).toBe('Activamos la promoción Campaña del vendedor a $ 77.000');
+    expect(describeEvent(ours).title).toBe('Activamos la promoción A PVP TODO (Campaña del vendedor) a $ 77.000');
   });
 
   it('a finished promotion reads by its state: applied and over, or no longer offered', () => {
-    expect(describeEvent(event(43804)).title).toBe('Terminó la promoción Campaña del vendedor');
-    expect(describeEvent(event(6377)).title).toBe('ML dejó de ofrecer la promoción Cupón del vendedor');
+    expect(describeEvent(event(43804)).title).toBe('Terminó la promoción A PVP TODO (Campaña del vendedor)');
+    expect(describeEvent(event(6377)).title).toBe('ML dejó de ofrecer la promoción TO TP-LINK REPURCH T (Cupón del vendedor)');
   });
 
-  it('a promotion type nobody named reads as "una promoción", never its code', () => {
-    expect(describeEvent({ ...event(71200), promotion_type: 'BRAND_NEW' }).title).toBe('ML ofreció una promoción');
+  it('a promotion type nobody named reads as "una promoción", never its code; its own name still shows', () => {
+    expect(describeEvent({ ...event(71200), promotion_type: 'BRAND_NEW', promotion_name: null }).title).toBe('ML ofreció una promoción');
+    expect(describeEvent({ ...event(71200), promotion_type: 'BRAND_NEW' }).title).toBe('ML ofreció A- PVP LYONN');
+  });
+
+  it('without its name, a promotion reads by its type as before', () => {
+    const unnamed = (id) => ({ ...event(id), promotion_name: null });
+    expect(describeEvent(unnamed(57925)).title).toBe('ML ofreció la promoción Campaña co-fondeada');
+    expect(describeEvent(unnamed(3689)).title).toBe('Se aplicó la promoción Campaña del vendedor a $ 77.000');
+    expect(describeEvent(unnamed(43804)).title).toBe('Terminó la promoción Campaña del vendedor');
+    expect(describeEvent(unnamed(6377)).title).toBe('ML dejó de ofrecer la promoción Cupón del vendedor');
   });
 });
 
@@ -173,8 +182,23 @@ describe('folding the offers ML made in the same minute', () => {
     expect(foldOffers([a, b])).toHaveLength(1);
   });
 
-  it('a fold of one type counts them, with the detail they share', () => {
+  const unnamed = (id) => ({ ...event(id), promotion_name: null });
+
+  it('a fold of one type counts them, and its detail names each offer', () => {
     expect(describeOffers([event(71200), event(71199), event(71198)])).toEqual({
+      title: 'ML ofreció 3 campañas del vendedor',
+      detail: 'A- PVP LYONN, PVP LYONN y A - PVP TP',
+      change: null,
+    });
+  });
+
+  it('offers without a name are counted after the named ones', () => {
+    expect(describeOffers([event(71200), unnamed(71199), event(71198)]).detail).toBe('A- PVP LYONN, A - PVP TP y 1 más');
+    expect(describeOffers([unnamed(71200), unnamed(71199), event(71198)]).detail).toBe('A - PVP TP y 2 más');
+  });
+
+  it('a fold with no names keeps the detail its offers share', () => {
+    expect(describeOffers([unnamed(71200), unnamed(71199), unnamed(71198)])).toEqual({
       title: 'ML ofreció 3 campañas del vendedor',
       detail: 'Precio sugerido $ 77.000 · se puede elegir entre $ 30.416 y $ 84.467,35',
       change: null,
@@ -184,7 +208,7 @@ describe('folding the offers ML made in the same minute', () => {
   it('a fold of several types names each one', () => {
     expect(describeOffers([event(57925), event(57924)])).toEqual({
       title: 'ML ofreció Campaña co-fondeada y Oferta relámpago co-fondeada',
-      detail: null,
+      detail: 'Tec Week y Relampago compartidas',
       change: null,
     });
     expect(describeOffers([event(71200), event(71199), event(57925)]).title).toBe('ML ofreció 2 campañas del vendedor y Campaña co-fondeada');
