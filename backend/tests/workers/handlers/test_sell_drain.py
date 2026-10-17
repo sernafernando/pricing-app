@@ -1,152 +1,223 @@
-"""`sell.drain` (sell-in-sell-out T4): INERT until T5. It claims queued sale
-lines and acks them without computing any allocation.
+"""`sell.drain` (sell-in-sell-out T5): claims queued sale lines and recomputes
+the sell-in allocation of every product they touch (their queued product and,
+through their stored consumptions, the product they were filed under before),
+then acks them.
 
-Postgres only: the queue is claimed with `FOR UPDATE SKIP LOCKED`. Runs in a
-throwaway schema holding the queue and the sell-in allocation tables.
+Postgres only: the queue is claimed with `FOR UPDATE SKIP LOCKED` and fed by
+the live triggers. Runs in a throwaway schema (`tests.services.sell_in._world`).
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Iterator, List, Tuple
+import threading
+import time as clock
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.models.sell_dirty import SellDirty
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 from app.services.sell import queue
+from app.services.sell_in import costing
 from app.workers.context import WorkerContext
 from app.workers.handlers.sell_drain import drain as handler
 from app.workers.registry import REGISTRY
-from tests.services.sell._schema import throwaway_schema
+from tests.services.sell_in import _world as w
 
-
-# Bare stand-ins for what the sell-in tables reference.
-_STUBS = [
-    "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
-    "CREATE TABLE proveedores (id INTEGER PRIMARY KEY)",
-    "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY)",
-    "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY)",
-    "INSERT INTO usuarios VALUES (7)",
-    "INSERT INTO productos_erp VALUES (2964)",
-]
-# Every allocation table that exists so far (sell out lands in T6).
-_ALLOCATION = [SellInCompra.__table__, SellInCompraItem.__table__, SellInConsumo.__table__]
+D = date
 
 
 @pytest.fixture(scope="module")
-def pg_sell_drain_engine() -> Iterator[Engine]:
-    with throwaway_schema("sell_drain", [*_ALLOCATION, SellDirty.__table__], _STUBS) as engine:
+def engine() -> Iterator[Engine]:
+    with w.world("sell_drain") as engine:
         yield engine
 
 
 @pytest.fixture(autouse=True)
-def _db(monkeypatch: pytest.MonkeyPatch, pg_sell_drain_engine: Engine) -> Iterator[None]:
-    monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=pg_sell_drain_engine))
+def _db(monkeypatch: pytest.MonkeyPatch, engine: Engine) -> Iterator[None]:
+    monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
     yield
-    with pg_sell_drain_engine.begin() as conn:
-        conn.execute(text("DELETE FROM sell_dirty"))
-        conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items and consumptions
-
-
-def _seed_allocation(engine: Engine) -> None:
-    """One purchase, its item and a consumption by a sale that is also queued."""
-    with engine.begin() as conn:
-        compra = conn.execute(
-            text(
-                "INSERT INTO sell_in_compras (fecha_compra, moneda, monto_total, usuario_id) "
-                "VALUES (DATE '2026-10-01', 'ARS', 250000.00, 7) RETURNING id"
-            )
-        ).scalar()
-        item = conn.execute(
-            text(
-                "INSERT INTO sell_in_compra_items (compra_id, item_id, cantidad, costo_base_unit, monto_asignado) "
-                "VALUES (:c, 2964, 10, 41081.895750, 250000.00) RETURNING id"
-            ),
-            {"c": compra},
-        ).scalar()
-        conn.execute(
-            text(
-                "INSERT INTO sell_in_consumos (compra_item_id, canal, venta_ref, item_id, fecha_venta, unidades, "
-                "descuento_ars) VALUES (:i, 'fuera', 590274, 2964, DATE '2026-10-16', 1, 25000.00)"
-            ),
-            {"i": item},
-        )
-
-
-def _allocation_snapshot(engine: Engine) -> List[list]:
-    with engine.connect() as conn:
-        return [
-            [tuple(row) for row in conn.execute(text(f"SELECT * FROM {table.name} ORDER BY id"))]
-            for table in _ALLOCATION
-        ]
-
-
-def _queue(engine: Engine, *lines: Tuple[str, int, int]) -> None:
-    with engine.begin() as conn:
-        for canal, ref, item in lines:
-            conn.execute(
-                text("INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES (:c, :r, :i)"),
-                {"c": canal, "r": ref, "i": item},
-            )
-
-
-def _queued(engine: Engine) -> List[int]:
-    with engine.connect() as conn:
-        return [r[0] for r in conn.execute(text("SELECT venta_ref FROM sell_dirty ORDER BY venta_ref"))]
+    w.clean(engine)
 
 
 def _ctx() -> WorkerContext:
     return WorkerContext(deadline=datetime.now(timezone.utc) + timedelta(seconds=30), worker_name="w")
 
 
+def _drain():
+    result = handler.run(_ctx())
+    assert result.success
+    return result.detail
+
+
 @pytest.mark.postgres
-class TestInertDrain:
+class TestDrain:
     def test_it_is_registered_and_woken_by_its_channel(self) -> None:
         assert handler in REGISTRY
         assert handler.name == "sell.drain"
         assert handler.channels == (queue.CHANNEL,) == ("sell_dirty",)
         assert handler.interval is None and handler.run_at_local is None
 
-    def test_it_acks_every_queued_line_in_batches(self, pg_sell_drain_engine: Engine) -> None:
-        canales = ("ml", "fuera", "tn")
-        _queue(pg_sell_drain_engine, *((canales[n % 3], 590_000 + n, 2964) for n in range(queue.BATCH_SIZE + 3)))
+    def test_a_new_sale_is_allocated_and_leaves_the_queue(self, engine: Engine) -> None:
+        [linea] = w.compra(engine, [(2964, 10, "250000.00")])
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 16))
+        assert w.queued(engine) == [("fuera", ref)]
 
-        result = handler.run(_ctx())
+        detail = _drain()
 
-        assert result.success
-        assert result.detail == {"acked": queue.BATCH_SIZE + 3, "batches": 2}
-        assert _queued(pg_sell_drain_engine) == []
+        assert w.consumos(engine) == [(linea, "fuera", ref, 2964, 2, Decimal("50000.00"))]
+        assert w.queued(engine) == []
+        assert detail == {"lines": 1, "batches": 1, "products": 1, "inserted": 1, "deleted": 0, "failed": 0}
 
-    def test_it_acks_the_queue_and_leaves_every_allocation_table_untouched(self, pg_sell_drain_engine: Engine) -> None:
-        _seed_allocation(pg_sell_drain_engine)
-        _queue(pg_sell_drain_engine, ("fuera", 590274, 2964), ("ml", 81001, 2964), ("tn", 589254, 2270))
-        before = _allocation_snapshot(pg_sell_drain_engine)
+    def test_a_deleted_ml_order_frees_its_units_for_the_next_sale(self, engine: Engine) -> None:
+        [linea] = w.compra(engine, [(2964, 2, "20.00")])
+        primera = w.venta(engine, "ml", 2964, 2, D(2026, 10, 2))
+        segunda = w.venta(engine, "tn", 2964, 2, D(2026, 10, 3))
+        _drain()  # the tn sale is queued by its trigger; the ml line is recomputed with its product
+        costing_now = w.consumos(engine)
+        assert [c[2] for c in costing_now] == [primera]
 
-        result = handler.run(_ctx())
+        w.delete_venta(engine, "ml", primera)  # cascade: queued by the ml_order_items_ops trigger
+        _drain()
 
-        assert result.detail == {"acked": 3, "batches": 1}
-        assert _queued(pg_sell_drain_engine) == []
-        assert _allocation_snapshot(pg_sell_drain_engine) == before
-        assert all(before), "every allocation table was seeded"
+        assert w.consumos(engine) == [(linea, "tn", segunda, 2964, 2, Decimal("20.00"))]
+
+    def test_a_quantity_change_reallocates(self, engine: Engine) -> None:
+        [linea] = w.compra(engine, [(2964, 3, "30.00")])
+        primera = w.venta(engine, "fuera", 2964, 3, D(2026, 10, 2))
+        segunda = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        _drain()
+
+        w.update_venta(engine, "fuera", primera, cantidad=Decimal("2.0000"))
+        _drain()
+
+        assert w.consumos(engine) == [
+            (linea, "fuera", primera, 2964, 2, Decimal("20.00")),
+            (linea, "fuera", segunda, 2964, 1, Decimal("10.00")),
+        ]
+
+    def test_a_product_change_releases_the_old_product_found_through_its_consumptions(self, engine: Engine) -> None:
+        [vieja] = w.compra(engine, [(2964, 1, "10.00")])
+        ref = w.venta(engine, "tn", 2964, 1, D(2026, 10, 2))
+        otra = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 3))
+        _drain()
+        assert [c[2] for c in w.consumos(engine)] == [ref]
+
+        w.update_venta(engine, "tn", ref, item_id=2270)  # queued under its NEW product only
+        assert w.queued(engine) == [("tn", ref)]
+        _drain()
+
+        assert w.consumos(engine) == [(vieja, "fuera", otra, 2964, 1, Decimal("10.00"))]
+
+    def test_a_queued_return_gives_its_units_to_the_next_sale(self, engine: Engine) -> None:
+        [linea] = w.compra(engine, [(2964, 1, "10.00")])
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2), cliente=31748)
+        despues = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 4), cliente=202741)
+        _drain()
+        assert [c[2] for c in w.consumos(engine)] != [despues]
+
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 3), signo=-1, cliente=31748)  # queued by the trigger
+        _drain()
+
+        assert w.consumos(engine) == [(linea, "fuera", despues, 2964, 1, Decimal("10.00"))]
+
+    def test_it_drains_in_batches(self, engine: Engine) -> None:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO sell_dirty (canal, venta_ref, item_id) "
+                    "SELECT 'fuera', g, 950 FROM generate_series(1, :n) AS g"
+                ),
+                {"n": queue.BATCH_SIZE + 3},
+            )
+
+        detail = _drain()
+
+        assert (detail["lines"], detail["batches"]) == (queue.BATCH_SIZE + 3, 2)
+        assert w.queued(engine) == []
 
     def test_an_empty_queue_is_one_cheap_pass(self) -> None:
-        result = handler.run(_ctx())
+        assert _drain() == {"lines": 0, "batches": 0, "products": 0, "inserted": 0, "deleted": 0, "failed": 0}
 
-        assert result.success and result.detail == {"acked": 0, "batches": 0}
 
-    def test_a_line_locked_by_another_drain_is_skipped_not_waited_for(self, pg_sell_drain_engine: Engine) -> None:
-        _queue(pg_sell_drain_engine, ("fuera", 1, 950), ("fuera", 2, 950))
-        with pg_sell_drain_engine.connect() as other:
+@pytest.mark.postgres
+class TestConcurrency:
+    def test_a_line_locked_by_another_drain_is_skipped_not_waited_for(self, engine: Engine) -> None:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES ('fuera', 1, 950)"))
+            conn.execute(text("INSERT INTO sell_dirty (canal, venta_ref, item_id) VALUES ('fuera', 2, 950)"))
+        with engine.connect() as other:
             other.execute(text("SELECT 1 FROM sell_dirty WHERE venta_ref = 1 FOR UPDATE"))
 
-            with sessionmaker(bind=pg_sell_drain_engine)() as s:
-                acked = queue.ack_batch(s, queue.BATCH_SIZE)
-                s.commit()
+            detail = _drain()
 
             other.rollback()
 
-        assert acked == [("fuera", 2, 950)]
-        assert _queued(pg_sell_drain_engine) == [1]
+        assert detail["lines"] == 1
+        assert w.queued(engine) == [("fuera", 1)]
+
+    def test_two_drains_on_one_product_take_turns(self, engine: Engine) -> None:
+        [linea] = w.compra(engine, [(2964, 3, "30.00")])
+        primera = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 2))
+        segunda = w.venta(engine, "tn", 2964, 2, D(2026, 10, 3))
+        # Drain A claims the fuera line and holds the product's lock, uncommitted.
+        a = sessionmaker(bind=engine)()
+        claimed = queue.claim_batch(a, 1)
+        costing.get_costing().recompute(a, [item for _, _, item in claimed])
+        outcome = {}
+        b = threading.Thread(target=lambda: outcome.update(_drain()))
+        b.start()
+        clock.sleep(0.5)
+        assert b.is_alive(), "drain B waits for the product lock instead of interleaving"
+
+        queue.settle(a, [(c, r) for c, r, _ in claimed], {})
+        a.commit()
+        a.close()
+        b.join(timeout=10)
+
+        assert outcome["failed"] == 0
+        assert w.consumos(engine) == [
+            (linea, "fuera", primera, 2964, 2, Decimal("20.00")),
+            (linea, "tn", segunda, 2964, 1, Decimal("10.00")),
+        ]
+        assert w.queued(engine) == []
+
+
+@pytest.mark.postgres
+class TestPoison:
+    def test_a_failing_product_keeps_its_line_queued_and_charged(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        w.compra(engine, [(2964, 3, "30.00"), (2270, 3, "30.00")])
+        mala = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        buena = w.venta(engine, "fuera", 2270, 1, D(2026, 10, 2))
+        escribir = costing.FifoPurchaseCosting._escribir
+
+        def _falla(db, item_id, deseados, guardados):
+            if item_id == 2964:
+                raise RuntimeError("boom")
+            return escribir(db, item_id, deseados, guardados)
+
+        monkeypatch.setattr(costing.FifoPurchaseCosting, "_escribir", staticmethod(_falla))
+
+        detail = _drain()
+
+        assert detail["failed"] == 1
+        assert [c[2] for c in w.consumos(engine)] == [buena]
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT attempts, last_error FROM sell_dirty WHERE venta_ref = :r"), {"r": mala}
+            ).one()
+        assert row[0] == 1 and "boom" in row[1]
+
+    def test_a_line_that_keeps_failing_is_parked(self, engine: Engine) -> None:
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO sell_dirty (canal, venta_ref, item_id, attempts) VALUES ('fuera', 1, 950, :n)"),
+                {"n": queue.MAX_ATTEMPTS},
+            )
+
+        assert _drain()["lines"] == 0
+        assert w.queued(engine) == [("fuera", 1)]

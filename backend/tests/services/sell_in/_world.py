@@ -1,6 +1,6 @@
 """A throwaway Postgres world for the sell-in allocation tests (T5): the
-sell-in tables, the three sale sources and bare stand-ins for what they
-reference.
+sell-in tables, the three sale sources, the `sell_dirty` queue WITH its live
+triggers, and bare stand-ins for what they reference.
 
 Rows are shaped like production (read on prod, 2026-10-17):
 - fuera / TN: `fecha_venta` at midnight UTC, `cantidad` a whole NUMERIC, a
@@ -26,9 +26,11 @@ from app.models.auditoria import Auditoria
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
+from app.models.sell_dirty import SellDirty
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
+from app.services.sell import queue
 from tests.services.sell._schema import throwaway_schema
 
 STUBS = [
@@ -47,6 +49,7 @@ TABLES = [
     VentaTiendaNubeMetrica.__table__,
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
+    SellDirty.__table__,
 ]
 _MODELS = {"fuera": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)
@@ -54,6 +57,8 @@ _refs = itertools.count(600_000)
 
 def _install(engine: Engine) -> None:
     with engine.begin() as conn:
+        for statement in queue.UPGRADE_SQL:
+            conn.execute(text(statement))
         for item_id in (2964, 2270, 950):
             conn.execute(
                 text("INSERT INTO productos_erp (item_id, codigo, descripcion) VALUES (:i, :c, 'Producto')"),
@@ -68,11 +73,12 @@ def world(prefix: str) -> Iterator[Engine]:
 
 
 def clean(engine: Engine) -> None:
-    """Empties every table."""
+    """Empties every table; the queue goes LAST, since deleting sales fires its triggers."""
     with engine.begin() as conn:
         for table in ("ml_order_items_ops", "ventas_fuera_ml_metricas", "ventas_tienda_nube_metricas", "auditoria"):
             conn.execute(text(f"DELETE FROM {table}"))  # ml_sale_lines go with their items
         conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items and consumptions
+        conn.execute(text("DELETE FROM sell_dirty"))
 
 
 def compra(
@@ -197,3 +203,8 @@ def consumos(engine: Engine) -> List[Tuple[int, str, int, int, int, Decimal]]:
 def consumo_ids(engine: Engine) -> List[int]:
     with engine.connect() as conn:
         return [r[0] for r in conn.execute(text("SELECT id FROM sell_in_consumos ORDER BY id"))]
+
+
+def queued(engine: Engine) -> List[Tuple[str, int]]:
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(text("SELECT canal, venta_ref FROM sell_dirty ORDER BY 1, 2"))]
