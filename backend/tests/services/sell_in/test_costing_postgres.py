@@ -268,6 +268,23 @@ class TestDevoluciones:
 
         assert w.consumos(engine) == [(linea, "fuera", suya, 2964, 1, Decimal("10.00"))]
 
+    def test_a_unique_sale_before_the_purchase_falls_back_to_the_most_recent_holder(self, engine: Engine) -> None:
+        """The customer's only earlier sale predates the purchase, so it holds no
+        units: every return still releases units, from the most recent holder."""
+        [linea] = w.compra(engine, [(2964, 2, "20.00")])
+        w.venta(engine, "fuera", 2964, 1, D(2026, 9, 15), cliente=X)  # X's only sale: before the purchase
+        a = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2), cliente=Y)
+        w.venta(engine, "tn", 2964, 1, D(2026, 10, 3), cliente=Z)  # most recent holder: loses it
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 4), signo=-1, cliente=X)
+        despues = w.venta(engine, "ml", 2964, 1, D(2026, 10, 5))
+
+        _recompute(engine, 2964)
+
+        assert w.consumos(engine) == [
+            (linea, "fuera", a, 2964, 1, Decimal("10.00")),
+            (linea, "ml", despues, 2964, 1, Decimal("10.00")),
+        ]
+
     def test_returning_more_than_the_sale_holds_takes_the_excess_from_the_fallback(self, engine: Engine) -> None:
         [linea] = w.compra(engine, [(2964, 3, "30.00")])
         w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2), cliente=X)

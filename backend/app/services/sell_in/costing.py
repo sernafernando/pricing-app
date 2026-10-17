@@ -37,7 +37,10 @@ cantidad`, e.g. a fuera credit note `signo = -1`) gives its units back
 (`fifo.asignar`). The sale that loses them is the customer's ONLY earlier sale
 of the product (same `cust_id` and `item_id`, earlier by `(fecha_venta,
 it_transaction)`); with zero or several candidates, the most recent earlier
-sale still holding units. Measured on prod: 283 of 409 fuera product returns
+sale still holding units. A unique candidate dated before the purchase counts
+held nothing (it is not among the sales passed to `fifo.asignar`), so that
+return falls back to the most recent holder too: every return releases units.
+Measured on prod: 283 of 409 fuera product returns
 have exactly one candidate, 89 several, 37 none. Our sale tables carry no
 reference to the original sale, so a recompute reads the CURRENT rows: a new,
 deleted or changed return or sale re-queues its line through the fuera / TN
@@ -129,7 +132,8 @@ def _objetivos(db: Session, model, devoluciones: List[tuple]) -> Dict[int, int]:
     """`{return ref: the sale it reverses}` for the returns whose customer has EXACTLY ONE
     earlier sale of the product: same `cust_id` and `item_id`, earlier by
     `(fecha_venta, it_transaction)`, over the whole history (a sale before the
-    purchase counts as a candidate too). One query for every return of the batch."""
+    purchase counts as a candidate too; it holds no units, so `fifo.asignar` then
+    falls back to the most recent holder). One query for every return of the batch."""
     con_cliente = [d for d in devoluciones if d[4] is not None]
     if not con_cliente:
         return {}
