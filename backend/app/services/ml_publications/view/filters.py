@@ -34,7 +34,9 @@ from app.models.ml_publications import (
     MlItemVariation,
     MlUserProductStock,
 )
-from app.models.producto import ProductoERP
+from app.models.oferta_ml import OfertaML
+from app.models.producto import ProductoERP, ProductoPricing
+from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.events import EVENT_TYPES as real_event_types
 
@@ -106,6 +108,12 @@ class PublicationFilter:
     stock: tuple[str, ...] = ()
     event_types: tuple[str, ...] = ()
     event_since: Optional[timedelta] = None
+    # Productos' "Filtros de Presencia" (`presence_conditions`): `None` = no filter, else the side asked for.
+    rebate: Optional[bool] = None
+    oferta: Optional[bool] = None
+    web_transf: Optional[bool] = None
+    out_of_cards: Optional[bool] = None
+    tienda_nube: Optional[str] = None  # one of `TIENDA_NUBE_STATES`
 
     @property
     def needs_events(self) -> bool:
@@ -221,6 +229,19 @@ def _event_since(raw: Optional[str], has_events: bool) -> Optional[timedelta]:
     return EVENT_SINCE[token]
 
 
+TIENDA_NUBE_STATES = ("con_descuento", "sin_descuento", "no_publicado")
+
+
+def _tienda_nube(
+    con_descuento: Optional[bool], sin_descuento: Optional[bool], no_publicado: Optional[bool]
+) -> Optional[str]:
+    """Productos' three Tienda Nube flags, read the way Productos reads them: the first one set wins."""
+    for state, on in zip(TIENDA_NUBE_STATES, (con_descuento, sin_descuento, no_publicado)):
+        if on:
+            return state
+    return None
+
+
 def parse_filter(
     *,
     q: Optional[str] = None,
@@ -240,6 +261,13 @@ def parse_filter(
     stock: Optional[str] = None,
     evento: Optional[str] = None,
     evento_desde: Optional[str] = None,
+    con_rebate: Optional[bool] = None,
+    con_oferta: Optional[bool] = None,
+    con_web_transf: Optional[bool] = None,
+    tn_con_descuento: Optional[bool] = None,
+    tn_sin_descuento: Optional[bool] = None,
+    tn_no_publicado: Optional[bool] = None,
+    out_of_cards: Optional[bool] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
@@ -266,6 +294,11 @@ def parse_filter(
         stock=_vocabulary("stock", stock, STOCK_VALUES),
         event_types=event_types,
         event_since=_event_since(evento_desde, bool(event_types)),
+        rebate=con_rebate,
+        oferta=con_oferta,
+        web_transf=con_web_transf,
+        out_of_cards=out_of_cards,
+        tienda_nube=_tienda_nube(tn_con_descuento, tn_sin_descuento, tn_no_publicado),
     )
 
 
@@ -592,6 +625,60 @@ def _event(f: PublicationFilter) -> ColumnElement:
     return exists(select(1).where(*where))
 
 
+# --- Productos' "Filtros de Presencia" ----------------------------------------------------------------------------
+#
+# The params and meaning of `GET /productos` (`productos_listing.listar_productos`), as EXISTS over the row's linked
+# product (`T.p`), so no join is added to the base select and nothing can multiply a row (a product has one
+# `productos_pricing` row but may have several Tienda Nube variants). A product without a `productos_pricing` row
+# reads "sin" like in Productos; a publication without a linked product has no product to ask, so it matches
+# neither side. Mejor oferta is the exception: `ofertas_ml` is keyed by the MLA, so it is asked of the publication
+# itself (Productos asks it of any publication of the product, which is what the Producto view gives back).
+
+
+def _pricing_flag(flag: Any, on: bool) -> ColumnElement:
+    pp = aliased(ProductoPricing, name="pp")
+    flagged = exists(select(1).where(pp.item_id == T.p.item_id, flag(pp).is_(True)))
+    return flagged if on else and_(T.p.item_id.isnot(None), ~flagged)
+
+
+def _oferta(on: bool) -> ColumnElement:
+    o = aliased(OfertaML, name="o")
+    current = exists(
+        select(1).where(
+            o.mla == T.i.item_id,
+            o.fecha_desde <= func.current_date(),
+            o.fecha_hasta >= func.current_date(),
+            o.pvp_seller.isnot(None),
+        )
+    )
+    return current if on else ~current
+
+
+def _tienda_nube_in(state: str) -> ColumnElement:
+    tn = aliased(TiendaNubeProducto, name="tn")
+    active = select(1).where(tn.item_id == T.p.item_id, tn.activo.is_(True))
+    if state == "con_descuento":
+        return exists(active.where(tn.promotional_price > 0))
+    if state == "sin_descuento":
+        return exists(active.where(or_(tn.promotional_price.is_(None), tn.promotional_price == 0)))
+    return and_(T.p.stock > 0, ~exists(active))
+
+
+def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
+    where = []
+    if f.rebate is not None:
+        where.append(_pricing_flag(lambda pp: pp.participa_rebate, f.rebate))
+    if f.web_transf is not None:
+        where.append(_pricing_flag(lambda pp: pp.participa_web_transferencia, f.web_transf))
+    if f.out_of_cards is not None:
+        where.append(_pricing_flag(lambda pp: pp.out_of_cards, f.out_of_cards))
+    if f.tienda_nube is not None:
+        where.append(_tienda_nube_in(f.tienda_nube))
+    if f.oferta is not None:
+        where.append(_oferta(f.oferta))
+    return where
+
+
 def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnElement]:
     """The WHERE of a filter. `skip` names an axis (one of `AXES`) whose own selection is left out: a facet
     counts the rows each of ITS values would give while every other filter still applies. Skipping `status` also
@@ -627,6 +714,7 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
         where.append(_any_of(stock_clauses(), f.stock))
     if f.event_types:
         where.append(_event(f))
+    where.extend(presence_conditions(f))
     return where
 
 

@@ -649,6 +649,18 @@ def filter_query(
     stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
+    # Productos' "Filtros de Presencia": the same params as `GET /productos`
+    con_rebate: Optional[bool] = Query(
+        None, description="the linked product takes part in rebate (false: it does not)"
+    ),
+    con_oferta: Optional[bool] = Query(None, description="the publication has a current mejor oferta"),
+    con_web_transf: Optional[bool] = Query(None, description="the linked product takes part in web transferencia"),
+    tn_con_descuento: Optional[bool] = Query(
+        None, description="the product is in Tienda Nube with a promotional price"
+    ),
+    tn_sin_descuento: Optional[bool] = Query(None, description="the product is in Tienda Nube without one"),
+    tn_no_publicado: Optional[bool] = Query(None, description="the product has ERP stock and is not in Tienda Nube"),
+    out_of_cards: Optional[bool] = Query(None, description="the linked product is marked out of cards"),
 ) -> PublicationFilter:
     """The filters every read of the screen shares (`/items` and `/groups`): one declaration, so a filter added here
     reaches both. A value outside its vocabulary is a 422 naming the parameter."""
@@ -671,6 +683,13 @@ def filter_query(
             stock=stock,
             evento=evento,
             evento_desde=evento_desde,
+            con_rebate=con_rebate,
+            con_oferta=con_oferta,
+            con_web_transf=con_web_transf,
+            tn_con_descuento=tn_con_descuento,
+            tn_sin_descuento=tn_sin_descuento,
+            tn_no_publicado=tn_no_publicado,
+            out_of_cards=out_of_cards,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
