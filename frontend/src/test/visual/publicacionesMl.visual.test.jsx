@@ -909,14 +909,22 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         expect(panel.textContent).not.toMatch(/[{}]/);
         await expect.element(screen.getByText(/^Ocultos 74 cambios técnicos/)).toBeVisible();
 
-        await screen.getByRole('button', { name: 'Promociones' }).click();
+        await screen.getByRole('button', { name: 'Promociones', exact: true }).click();
         const cards = [...panel.querySelectorAll('[data-entry]')];
         expect(cards).toHaveLength(4);
         for (const card of cards) expect(rect(card).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
-        await screen.getByRole('button', { name: 'Todo' }).click();
+        await screen.getByRole('button', { name: 'Todo', exact: true }).click();
 
-        await screen.getByRole('button', { name: 'Mostrar datos técnicos' }).click();
-        await expect.element(screen.getByText('Inicio del período de visitas')).toBeVisible();
+        await screen.getByRole('button', { name: 'Mostrar datos técnicos', exact: true }).click();
+        // With tecnicos the label is on two cards (34965 and 148600, the visits change made only of technical
+        // lines): the one that appears only now is 148600, so the check is on that card.
+        await expect.poll(() => panel.querySelector('[data-entry="148600"]')).not.toBeNull();
+        const technicalOnly = panel.querySelector('[data-entry="148600"]');
+        expect(technicalOnly.textContent).toContain('Inicio del período de visitas');
+        expect(rect(technicalOnly).height).toBeGreaterThan(0);
+        expect(rect(technicalOnly).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        const periodStarts = [...panel.querySelectorAll('[data-line]')].filter((line) => line.textContent.startsWith('Inicio del período de visitas'));
+        expect(periodStarts).toHaveLength(2);
         expect(panel.textContent).not.toContain('Ocultos 74');
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
         screen.unmount();
