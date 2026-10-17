@@ -2,48 +2,11 @@ import { Fragment, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { StatusPill } from '../kit';
 import { formatDateOnly } from '../../utils/dateUtils';
-import { FORMULA_LABELS, formatEntero, formatMonto, formatNumero } from './sellInFormat';
+import SellInLineas from './SellInLineas';
+import { formatEntero, formatMonto, formatNumero } from './sellInFormat';
 import styles from './SellInTable.module.css';
 
 const COLUMNS = 9;
-
-/** The purchase's lines: what each one got and its unit cost before and after the sell in. */
-function Lineas({ compra }) {
-  const { moneda } = compra;
-  return (
-    <div className={styles.lines}>
-      <table className={styles.linesTable}>
-        <thead>
-          <tr>
-            <th>Producto</th>
-            <th className={styles.num}>Unid.</th>
-            <th className={styles.num}>Monto asignado</th>
-            <th className={styles.num}>Costo antes</th>
-            <th className={styles.num}>Costo después</th>
-            <th className={styles.num}>Consumidas</th>
-          </tr>
-        </thead>
-        <tbody>
-          {compra.items.map((linea) => (
-            <tr key={linea.id}>
-              <td>
-                <span>{linea.descripcion}</span> <span className={styles.mono}>{linea.codigo}</span>
-              </td>
-              <td className={styles.num}>{formatEntero(linea.cantidad)}</td>
-              <td className={styles.num}>{formatMonto(linea.monto_asignado, moneda)}</td>
-              <td className={`${styles.num} ${styles.before}`}>{formatMonto(linea.costo_base_unit, moneda)}</td>
-              <td className={`${styles.num} ${styles.after}`}>{formatMonto(linea.costo_con_sell_in_unit, moneda)}</td>
-              <td className={styles.num}>{formatEntero(linea.unidades_consumidas)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className={styles.note}>
-        {FORMULA_LABELS[compra.formula] ?? compra.formula} · al consumirse las unidades el costo vuelve al normal.
-      </p>
-    </div>
-  );
-}
 
 /**
  * The sell-in purchases list. The chevron opens a row into its lines; a click
@@ -128,7 +91,7 @@ export default function SellInTable({ compras, selectedId, onSelect }) {
                 {abierta && (
                   <tr className={styles.subRow}>
                     <td colSpan={COLUMNS}>
-                      <Lineas compra={compra} />
+                      <SellInLineas compra={compra} />
                     </td>
                   </tr>
                 )}

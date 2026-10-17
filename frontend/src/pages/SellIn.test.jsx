@@ -113,6 +113,28 @@ describe('SellIn page — list', () => {
     expect(lastParams(sellInAPI.resumen)).toEqual({ aplica: 'si', moneda: 'USD', estado: 'anulada', marcas: 'TP-Link' });
   });
 
+  it('"Nuevo sell in" opens the create panel beside the list, never a modal', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await user.click(screen.getByRole('button', { name: /Nuevo sell in/ }));
+    const panel = screen.getByRole('complementary', { name: 'Nuevo sell in' });
+    expect(within(panel).getByRole('heading', { name: 'Nuevo sell in · Por compra' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Bonificación Q4 switches')).toBeInTheDocument();
+  });
+
+  it('"Detalle" opens the purchase in the side panel', async () => {
+    const user = userEvent.setup();
+    sellInAPI.detalle.mockResolvedValue({ data: LISTA.items[0] });
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await user.click(screen.getAllByRole('button', { name: 'Detalle' })[0]);
+    const panel = screen.getByRole('complementary', { name: 'Detalle del sell in' });
+    expect(await within(panel).findByRole('heading', { name: 'Bonificación Q4 switches' })).toBeInTheDocument();
+    expect(sellInAPI.detalle).toHaveBeenCalledWith(1);
+  });
+
   it('offers "Nuevo sell in" only with sell_in.gestionar', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo === 'sell_in.ver');
     renderWithRouter(<SellIn />);

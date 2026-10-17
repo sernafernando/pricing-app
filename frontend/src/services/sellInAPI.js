@@ -14,4 +14,6 @@ export const sellInAPI = {
   preview: (body) => api.post(`${BASE}/preview`, body),
   crear: (body) => api.post(BASE, body),
   anular: (id, motivo) => api.post(`${BASE}/${id}/anular`, { motivo: motivo?.trim() || null }),
+  // The supplier picker of the create panel (`GET /administracion/proveedores`, active ones by default).
+  proveedores: (search) => api.get('/administracion/proveedores', { params: { search, page_size: 10 } }),
 };

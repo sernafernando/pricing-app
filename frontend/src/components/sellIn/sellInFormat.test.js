@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSellInParams, formatMonto, sumaManual } from './sellInFormat';
+import { apiMessage, buildSellInParams, formatMonto, sumaManual } from './sellInFormat';
 
 describe('buildSellInParams', () => {
   it('sends only the filters that are set, marcas as CSV', () => {
@@ -44,5 +44,14 @@ describe('sumaManual', () => {
   it('adds the manual amounts in cents so 0.1 + 0.2 is 0.3', () => {
     expect(sumaManual(['0.1', '0.2'])).toBe(0.3);
     expect(sumaManual(['', '5'])).toBe(5);
+  });
+});
+
+describe('apiMessage', () => {
+  it('reads the standard error envelope, then a plain detail, then the fallback', () => {
+    expect(apiMessage({ response: { data: { error: { message: 'Falta el tipo de cambio' } } } }, 'x')).toBe('Falta el tipo de cambio');
+    expect(apiMessage({ response: { data: { detail: 'La compra 9 no existe' } } }, 'x')).toBe('La compra 9 no existe');
+    expect(apiMessage({ response: { data: { detail: [{ msg: 'field' }] } } }, 'x')).toBe('x');
+    expect(apiMessage(new Error('network'), 'x')).toBe('x');
   });
 });

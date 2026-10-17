@@ -43,3 +43,10 @@ export const FORMULA_LABELS = {
   por_unidad: 'Reparto igual por unidad',
   manual: 'Reparto manual',
 };
+
+/** The readable message of an API error (the repo's `{ error: { message } }` envelope, or a plain `detail`). */
+export function apiMessage(err, fallback) {
+  const data = err?.response?.data;
+  const message = data?.error?.message ?? data?.detail;
+  return typeof message === 'string' && message ? message : fallback;
+}

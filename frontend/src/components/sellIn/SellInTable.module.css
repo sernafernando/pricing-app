@@ -8,16 +8,14 @@
   border-radius: var(--radius-md);
 }
 
-.table,
-.linesTable {
+.table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
   color: var(--cf-text-primary);
 }
 
-.table th,
-.linesTable th {
+.table th {
   padding: 10px 12px;
   font-size: 11px;
   font-weight: var(--font-semibold);
@@ -29,8 +27,7 @@
   background: var(--cf-bg-hover);
 }
 
-.table td,
-.linesTable td {
+.table td {
   padding: 10px 12px;
   vertical-align: middle;
   border-top: 1px solid var(--cf-border-default);
@@ -42,8 +39,7 @@
   white-space: nowrap;
 }
 
-.table th.num,
-.linesTable th.num {
+.table th.num {
   text-align: right;
 }
 
@@ -53,12 +49,6 @@
 }
 
 .muted {
-  color: var(--cf-text-tertiary);
-}
-
-.mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
   color: var(--cf-text-tertiary);
 }
 
@@ -96,32 +86,6 @@
 .subRow > td {
   padding: var(--space-3) var(--spacing-md);
   background: var(--cf-bg-app);
-}
-
-.lines {
-  overflow-x: auto;
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-}
-
-.before {
-  text-decoration: line-through;
-  color: var(--cf-text-tertiary);
-}
-
-.after {
-  font-weight: var(--font-semibold);
-  color: var(--money-positive);
-}
-
-.note {
-  margin: 0;
-  padding: var(--space-2) 12px;
-  font-size: var(--font-xs);
-  font-style: italic;
-  color: var(--cf-text-tertiary);
-  border-top: 1px solid var(--cf-border-default);
 }
 
 .empty {
