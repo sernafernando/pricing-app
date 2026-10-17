@@ -19,13 +19,23 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.ml_orders_ops import MlOrderItemOps
+from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_dirty import SellDirty
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
 from tests.services.sell._schema import throwaway_schema
 
-_TABLES = [VentaFueraMLMetrica.__table__, VentaTiendaNubeMetrica.__table__, SellDirty.__table__]
+# Children before parents in the cleanup order: `ml_sale_lines` references
+# `ml_order_items_ops`.
+_TABLES = [
+    VentaFueraMLMetrica.__table__,
+    VentaTiendaNubeMetrica.__table__,
+    MlOrderItemOps.__table__,
+    MlSaleLine.__table__,
+    SellDirty.__table__,
+]
 _CANALES: List[Tuple[str, Type]] = [("fuera", VentaFueraMLMetrica), ("tn", VentaTiendaNubeMetrica)]
 _ids = itertools.count(590_000)
 
@@ -193,6 +203,64 @@ class TestTriggers:
             channels = [n.channel for n in raw.driver_connection.notifies]
         finally:
             # Never hand an autocommit connection back to the pool.
+            raw.invalidate()
+
+        assert queue.CHANNEL in channels
+
+
+def _ml_line(engine: Engine, row_id: int, order_id: int, product: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO ml_order_items_ops (id, order_id, item_id, quantity) VALUES (:id, :o, :mla, 1)"),
+            {"id": row_id, "o": order_id, "mla": f"MLA{row_id}"},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO ml_sale_lines (item_row_id, order_id, group_key, product, mla, group_date, day, qty, "
+                "gross, tg, mtg, mcosto) VALUES (:id, :o, :g, :p, :mla, now(), current_date, 1, 100, 50, 50, 30)"
+            ),
+            {"id": row_id, "o": order_id, "g": f"o:{order_id}", "p": product, "mla": f"MLA{row_id}"},
+        )
+
+
+@pytest.mark.postgres
+class TestMlCascade:
+    """`ml_sale_lines.item_row_id` cascades from `ml_order_items_ops`: a deleted
+    item takes its line with it, bypassing `store_sale_lines`. A BEFORE DELETE
+    trigger on the item queues the line while it still exists."""
+
+    def test_deleting_an_order_queues_its_lines_with_their_product(self, pg_sell_engine: Engine) -> None:
+        _ml_line(pg_sell_engine, 81001, 2000012345, product=2964)
+        _ml_line(pg_sell_engine, 81002, 2000012345, product=950)
+        _ml_line(pg_sell_engine, 81003, 2000099999, product=2267)
+
+        with pg_sell_engine.begin() as conn:
+            conn.execute(text("DELETE FROM ml_order_items_ops WHERE order_id = 2000012345"))
+            lines = conn.execute(text("SELECT count(*) FROM ml_sale_lines WHERE order_id = 2000012345")).scalar()
+
+        assert lines == 0
+        assert _queued(pg_sell_engine) == [("ml", 81001, 2964), ("ml", 81002, 950)]
+
+    def test_deleting_an_item_without_a_line_queues_nothing(self, pg_sell_engine: Engine) -> None:
+        with pg_sell_engine.begin() as conn:
+            conn.execute(text("INSERT INTO ml_order_items_ops (id, order_id, item_id) VALUES (81010, 7, 'MLA7')"))
+            conn.execute(text("DELETE FROM ml_order_items_ops WHERE id = 81010"))
+
+        assert _queued(pg_sell_engine) == []
+
+    def test_the_cascade_trigger_notifies_the_channel(self, pg_sell_engine: Engine) -> None:
+        _ml_line(pg_sell_engine, 81020, 2000054321, product=2964)
+        raw = pg_sell_engine.raw_connection()
+        try:
+            raw.driver_connection.autocommit = True
+            cursor = raw.cursor()
+            cursor.execute(f"LISTEN {queue.CHANNEL}")
+            with pg_sell_engine.begin() as conn:
+                conn.execute(text("DELETE FROM ml_order_items_ops WHERE id = 81020"))
+            select.select([raw.driver_connection], [], [], 5)
+            raw.driver_connection.poll()
+            channels = [n.channel for n in raw.driver_connection.notifies]
+        finally:
             raw.invalidate()
 
         assert queue.CHANNEL in channels

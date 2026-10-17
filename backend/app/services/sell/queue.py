@@ -13,6 +13,13 @@ Three writers, all inside the transaction that changes the sale:
   upsert and one notify per row: no reads, no allocation work.
 - `ml_sale_lines` (`canal = 'ml'`): `enqueue_ml`, called by
   `store_sale_lines` with the lines that appeared, changed or disappeared.
+- `ml_order_items_ops`, BEFORE DELETE: a deleted item takes its line with it
+  through the `ml_sale_lines.item_row_id` cascade, bypassing `store_sale_lines`,
+  so this trigger queues the item's line (with its product) while it still
+  exists. One indexed INSERT ... SELECT per deleted item, a notify only if a
+  line was queued; items are deleted rarely (stale items on re-ingestion). No
+  trigger on `ml_sale_lines` itself: `store_sale_lines` deletes and reinserts
+  every line on each store, and its RETURNING diff already filters that noise.
 
 `UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition of the triggers; the
 migration `20261031_sell_dirty_queue` carries a frozen copy and also owns the
@@ -88,9 +95,30 @@ FOR EACH ROW WHEN (
 )
 EXECUTE FUNCTION sell_dirty_enqueue_venta('tn')
 """,
+    """
+CREATE OR REPLACE FUNCTION sell_dirty_enqueue_ml_item_delete() RETURNS TRIGGER AS $trg$
+BEGIN
+    INSERT INTO sell_dirty (canal, venta_ref, item_id)
+    SELECT 'ml', item_row_id, product FROM ml_sale_lines WHERE item_row_id = OLD.id
+    ON CONFLICT (canal, venta_ref) DO UPDATE
+    SET item_id = EXCLUDED.item_id, enqueued_at = now(), attempts = 0, last_error = NULL;
+    IF FOUND THEN
+        PERFORM pg_notify('sell_dirty', '');
+    END IF;
+    RETURN OLD;
+END;
+$trg$ LANGUAGE plpgsql
+""",
+    """
+CREATE TRIGGER trg_sell_dirty_ml_items_delete
+BEFORE DELETE ON ml_order_items_ops
+FOR EACH ROW EXECUTE FUNCTION sell_dirty_enqueue_ml_item_delete()
+""",
 ]
 
 DOWNGRADE_SQL: List[str] = [
+    "DROP TRIGGER IF EXISTS trg_sell_dirty_ml_items_delete ON ml_order_items_ops",
+    "DROP FUNCTION IF EXISTS sell_dirty_enqueue_ml_item_delete()",
     "DROP TRIGGER IF EXISTS trg_sell_dirty_tn_update ON ventas_tienda_nube_metricas",
     "DROP TRIGGER IF EXISTS trg_sell_dirty_tn_insert_delete ON ventas_tienda_nube_metricas",
     "DROP TRIGGER IF EXISTS trg_sell_dirty_fuera_update ON ventas_fuera_ml_metricas",

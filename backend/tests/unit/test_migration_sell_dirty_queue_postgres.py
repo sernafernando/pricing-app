@@ -15,6 +15,8 @@ from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, inspect, text
 
+from app.models.ml_orders_ops import MlOrderItemOps
+from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_dirty import SellDirty
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
@@ -24,7 +26,13 @@ from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pris
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _REVISION = "20261031_sell_dirty_queue"
 _PATH = os.path.join(_BACKEND_ROOT, "alembic", "versions", f"{_REVISION}.py")
-_SOURCES = [VentaFueraMLMetrica.__table__, VentaTiendaNubeMetrica.__table__]
+# The tables the triggers hang from (parents before children).
+_SOURCES = [
+    VentaFueraMLMetrica.__table__,
+    VentaTiendaNubeMetrica.__table__,
+    MlOrderItemOps.__table__,
+    MlSaleLine.__table__,
+]
 
 
 def _script_directory() -> ScriptDirectory:
@@ -59,7 +67,7 @@ class TestMigrationGraph:
 
 @pytest.fixture()
 def pg_engine() -> Iterator[Engine]:
-    """A throwaway schema (first on `search_path`) holding only the two source
+    """A throwaway schema (first on `search_path`) holding only the source
     tables: whatever other tests left in the shared database (a `sell_dirty`
     table, its triggers or function) is invisible here, so the test never skips
     and always runs the real upgrade and downgrade."""
@@ -111,10 +119,11 @@ class TestMigrationDdl:
         with pg_engine.begin() as conn:
             with Operations.context(MigrationContext.configure(conn)):
                 module.upgrade()
-            assert _functions(conn) == 1
+            assert _functions(conn) == 2
             columns = {c["name"] for c in inspect(conn).get_columns("sell_dirty")}
             assert columns == {c.name for c in SellDirty.__table__.columns}
             assert _triggers(conn) == {
+                "trg_sell_dirty_ml_items_delete",
                 "trg_sell_dirty_fuera_insert_delete",
                 "trg_sell_dirty_fuera_update",
                 "trg_sell_dirty_tn_insert_delete",
