@@ -735,6 +735,19 @@ def test_resumen_with_nothing_matching_is_all_zero(client, gestor, tres_compras)
     assert data["unidades_total"] == 0
 
 
+@pytest.mark.parametrize(
+    "params",
+    [{"aplica": "quizas"}, {"moneda": "EUR"}, {"q": "x" * 201}],
+    ids=["unknown-aplica", "unknown-moneda", "q-too-long"],
+)
+def test_resumen_rejects_invalid_filters(client, gestor, params):
+    assert client.get(f"{BASE}/resumen", params=params, headers=gestor).status_code == 422
+
+
+def test_resumen_accepts_a_q_of_exactly_200_chars(client, gestor):
+    assert client.get(f"{BASE}/resumen", params={"q": "x" * 200}, headers=gestor).status_code == 200
+
+
 def test_resumen_is_set_based(client, gestor, tres_compras, query_counter):
     with query_counter() as counter:
         _resumen(client, gestor)

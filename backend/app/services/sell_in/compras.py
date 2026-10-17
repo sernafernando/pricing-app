@@ -298,27 +298,31 @@ def _items_que_cumplen(db: Session, *condiciones):
     )
 
 
+_LIKE_ESCAPE = "\\"
+
+
+def _contiene(columna, q: str):
+    """`columna` contains `q`, ignoring case, with the folding done by the DATABASE on both sides.
+
+    SQLAlchemy's `ilike` is `ILIKE` on Postgres and `lower(x) LIKE lower(y)` elsewhere, so the query
+    is never lowercased in Python (which folds some letters, like "İ", differently than Postgres).
+    LIKE wildcards in `q` are literal. Not accent-insensitive: that needs the `unaccent` extension,
+    which production does not have installed.
+    """
+    escapado = q.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("%", "\\%").replace("_", "\\_")
+    return func.coalesce(columna, "").ilike(f"%{escapado}%", escape=_LIKE_ESCAPE)
+
+
 def _texto(db: Session, q: str):
     """Case-insensitive substring over supplier name, the lines' product code or description,
     the purchase's own reference text (`descripcion`) and its purchase-order number."""
     return or_(
-        func.lower(func.coalesce(SellInCompra.descripcion, "")).contains(q, autoescape=True),
-        db.query(Proveedor)
-        .filter(Proveedor.id == SellInCompra.proveedor_id, func.lower(Proveedor.nombre).contains(q, autoescape=True))
-        .exists(),
+        _contiene(SellInCompra.descripcion, q),
+        db.query(Proveedor).filter(Proveedor.id == SellInCompra.proveedor_id, _contiene(Proveedor.nombre, q)).exists(),
         db.query(PedidoCompra)
-        .filter(
-            PedidoCompra.id == SellInCompra.pedido_compra_id,
-            func.lower(PedidoCompra.numero).contains(q, autoescape=True),
-        )
+        .filter(PedidoCompra.id == SellInCompra.pedido_compra_id, _contiene(PedidoCompra.numero, q))
         .exists(),
-        _items_que_cumplen(
-            db,
-            or_(
-                func.lower(func.coalesce(ProductoERP.codigo, "")).contains(q, autoescape=True),
-                func.lower(func.coalesce(ProductoERP.descripcion, "")).contains(q, autoescape=True),
-            ),
-        ),
+        _items_que_cumplen(db, or_(_contiene(ProductoERP.codigo, q), _contiene(ProductoERP.descripcion, q))),
     )
 
 
@@ -341,7 +345,7 @@ def _filtrada(db: Session, filtros: FiltrosCompras, *, con_aplica: bool = True):
         query = query.filter(SellInCompra.fecha_compra <= filtros.fecha_hasta)
     if filtros.moneda is not None:
         query = query.filter(SellInCompra.moneda == filtros.moneda)
-    q = (filtros.q or "").strip().lower()
+    q = (filtros.q or "").strip()
     if q:
         query = query.filter(_texto(db, q))
     if filtros.marcas:
