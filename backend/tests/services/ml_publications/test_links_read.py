@@ -9,7 +9,7 @@ from sqlalchemy import text
 from app.core import database
 from app.services.ml_publications import links
 from tests.services.ml_publications.conftest import item_with_variations, sample_item
-from tests.services.ml_publications.test_links_store import ITEM, SKU_A, at, put_link
+from tests.services.ml_publications.test_links_store import ITEM, SKU_A, _with_sku, at, put_link
 from tests.services.ml_publications.test_store_apply_fetch import apply
 
 pytestmark = pytest.mark.postgres
@@ -69,6 +69,28 @@ class TestDescribeItem:
             {"item_id": 5, "codigo": SKU_A, "descripcion": "Router A (suelto)"},
             {"item_id": 9, "codigo": SKU_A, "descripcion": "Router A (caja)"},
         ]
+
+    @pytest.mark.parametrize(
+        ("sku", "codigo", "product", "rule"),
+        [
+            (SKU_A, SKU_A, 41, "codigo"),
+            (" pc 10400 ", "PC-10.400", 41, "codigo_normalized"),
+            ("3075", "OTHER", 3075, "item_id"),
+        ],
+    )
+    def test_the_suggestion_reports_the_rule_that_found_the_product(self, env, sku, codigo, product, rule) -> None:
+        add_described(env, product, codigo, "Producto")
+        evaluated(env, body=_with_sku(sku))
+
+        u = unit(describe())
+
+        assert (u["sku"], u["link"]["producto_item_id"]) == (sku, product)
+        assert (u["suggestion"]["status"], u["suggestion"]["producto_item_id"]) == ("linked", product)
+        assert u["suggestion"]["rule"] == rule
+
+    def test_an_unmatched_suggestion_has_no_rule(self, env) -> None:
+        evaluated(env)
+        assert unit(describe())["suggestion"]["rule"] is None
 
     def test_a_unit_never_evaluated_has_no_link_but_a_live_suggestion(self, env) -> None:
         add_described(env, 41, SKU_A, "Router")

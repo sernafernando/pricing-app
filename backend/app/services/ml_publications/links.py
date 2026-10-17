@@ -1,10 +1,11 @@
 """Product links: publication units <-> our products by SKU (design D20, spec Domain 6).
 
 A link unit is `(item_id, variation_id)`; `variation_id = 0` is the item-level unit of an item
-without variations. The automatic rule matches the unit's SKU key against `ProductoERP.codigo`
-with the same precedence and equality the orders use (SELLER_SKU attribute, else
-`seller_custom_field`; exact string equality, no normalization). A manual decision always wins:
-the automatic path only refreshes its suggestion columns.
+without variations. The unit's SKU key is the SELLER_SKU attribute, else `seller_custom_field` (the
+orders' precedence). The automatic rule tries, in order, stopping at the first that finds anything:
+the exact `ProductoERP.codigo`, the `codigo` equal after `normalize_sku`, and a numeric SKU equal to a
+`ProductoERP.item_id`. One product links, several conflict. A SKU that normalizes to "" or "0" never
+matches. A manual decision always wins: the automatic path only refreshes its suggestion columns.
 
 This is the only module of the package that reads `ProductoERP`, and it writes only the link
 table, the change log (resource `product_link`) and the events derived from it.
@@ -13,12 +14,13 @@ table, the change log (resource `product_link`) and the events derived from it.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timezone
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Collection, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
@@ -45,6 +47,21 @@ STATUS_UNMATCHED = "unmatched"
 STATUS_CONFLICT = "conflict"
 STATUS_NO_PRODUCT = "no_product"
 
+# Which step of the automatic rule found the product(s); written to the change-log context.
+RULE_CODIGO = "codigo"
+RULE_CODIGO_NORMALIZED = "codigo_normalized"
+RULE_ITEM_ID = "item_id"
+
+# Separators a SKU and a `codigo` may differ by. The SQL class mirrors it (the Python check is final).
+# One explicit separator set for Python and SQL: Postgres `[[:space:]]` depends on the server locale (a no-break
+# space may or may not be in it), so neither side uses a character class. "-" goes last in the bracket.
+_SEPARATOR_CHARS = " \t\n\r\f\v\u00a0./-"
+_SEPARATORS = re.compile("[" + re.escape(_SEPARATOR_CHARS[:-1]) + "-]")
+_SQL_SEPARATORS = "[" + _SEPARATOR_CHARS + "]"
+_NEVER_MATCH = frozenset({"", "0"})  # placeholder SKUs: hundreds of unrelated publications carry "0"
+_ITEM_ID = re.compile(r"[1-9][0-9]{0,9}")
+_ITEM_ID_MAX = 2**31 - 1  # `productos_erp.item_id` is an integer
+
 
 @dataclass(frozen=True)
 class LinkUnit:
@@ -64,12 +81,16 @@ class Suggestion:
     producto_item_id: Optional[int]
     matched_sku: Optional[str]
     sku_field: Optional[str]
-    candidates: tuple[int, ...]  # every product holding the key's `codigo` (sorted, distinct)
+    candidates: tuple[int, ...]  # every product the deciding rule found (sorted, distinct)
+    rule: Optional[str] = field(default=None, compare=False)  # RULE_* that found them; None when nothing did
 
 
 def _usable(value: Any) -> Optional[str]:
-    """A SKU as ML sent it, or None when absent (missing, not text or empty string)."""
-    return value if isinstance(value, str) and value != "" else None
+    """A SKU as ML sent it, or None when absent (missing, not text, or empty or blank once stripped).
+
+    A blank SELLER_SKU must not hide a real `seller_custom_field`. A usable value is still returned untrimmed.
+    """
+    return value if isinstance(value, str) and value.strip() != "" else None
 
 
 def sku_key(seller_sku: Any, seller_custom_field: Any) -> tuple[Optional[str], Optional[str]]:
@@ -84,6 +105,32 @@ def sku_key(seller_sku: Any, seller_custom_field: Any) -> tuple[Optional[str], O
     if custom is not None:
         return custom, SKU_FIELD_CUSTOM
     return None, None
+
+
+def _upper_char(char: str) -> str:
+    upper = char.upper()
+    return upper if len(upper) == 1 else char
+
+
+def normalize_sku(value: str) -> str:
+    """Comparable form of a SKU or a `codigo`: upper-cased, without spaces, hyphens, dots or slashes.
+
+    Upper-casing is per character and only when the upper case is one character, as Postgres `upper()` does
+    ("ß" stays "ß", Python alone would make it "SS"): the SQL prefilter in `load_catalog` must compute the
+    same form, or it would miss rows this check accepts.
+    """
+    return "".join(_upper_char(char) for char in _SEPARATORS.sub("", value))
+
+
+def item_id_of(normalized: str) -> Optional[int]:
+    """The product `item_id` a normalized SKU spells, or None (not a canonical positive integer in range).
+
+    A leading zero is refused: such codes are EAN-like, not our ids.
+    """
+    if not _ITEM_ID.fullmatch(normalized):
+        return None
+    number = int(normalized)
+    return number if number <= _ITEM_ID_MAX else None
 
 
 def units_for_item(typed_item: Mapping[str, Any], typed_variations: Sequence[Mapping[str, Any]]) -> list[LinkUnit]:
@@ -117,15 +164,42 @@ def keys_of(units: Sequence[LinkUnit]) -> list[str]:
     return sorted({unit.key for unit in units if unit.key is not None})
 
 
-def resolve(unit: LinkUnit, codigo_index: Mapping[str, Sequence[int]]) -> Suggestion:
-    """Pure rule: one product with that `codigo` links, none is unmatched, several conflict."""
+def resolve(
+    unit: LinkUnit, codigo_index: Mapping[str, Sequence[int]], item_ids: Collection[int] = frozenset()
+) -> Suggestion:
+    """Pure rule: exact `codigo`, then normalized `codigo`, then numeric `item_id`; the first step that finds
+    products decides (one links, several conflict); none is unmatched.
+
+    `codigo_index` maps a catalog `codigo` to its products and may hold codes that do not match this unit;
+    `item_ids` are the catalog ids among the numeric SKUs looked up.
+    """
     if unit.key is None:
         return Suggestion(STATUS_UNMATCHED, None, None, None, ())
-    candidates = tuple(sorted(set(codigo_index.get(unit.key, ()))))
+    normalized = normalize_sku(unit.key)
+    if normalized in _NEVER_MATCH:
+        return Suggestion(STATUS_UNMATCHED, None, unit.key, unit.sku_field, ())
+    exact = set(codigo_index.get(unit.key, ()))
+    if exact:
+        return _decided(unit, exact, RULE_CODIGO)
+    similar = {pid for codigo, ids in codigo_index.items() if normalize_sku(codigo) == normalized for pid in ids}
+    if similar:
+        return _decided(unit, similar, RULE_CODIGO_NORMALIZED)
+    # Policy: a plain number equal to a product's `item_id` links to it, even when the seller meant some other
+    # code that happens to coincide; the rule cannot tell them apart. Evidence (production, read-only,
+    # 2026-10-17): of the 307 unmatched automatic item-level units whose SKU was such a number, the ERP
+    # publication map agreed on 303, disagreed on 0 and did not know 4. Leading-zero and EAN-length numbers
+    # never qualify (`item_id_of`).
+    number = item_id_of(normalized)
+    if number is not None and number in item_ids:
+        return _decided(unit, {number}, RULE_ITEM_ID)
+    return Suggestion(STATUS_UNMATCHED, None, unit.key, unit.sku_field, ())
+
+
+def _decided(unit: LinkUnit, found: set[int], rule: str) -> Suggestion:
+    candidates = tuple(sorted(found))
     if len(candidates) == 1:
-        return Suggestion(STATUS_LINKED, candidates[0], unit.key, unit.sku_field, candidates)
-    status = STATUS_CONFLICT if candidates else STATUS_UNMATCHED
-    return Suggestion(status, None, unit.key, unit.sku_field, candidates)
+        return Suggestion(STATUS_LINKED, candidates[0], unit.key, unit.sku_field, candidates, rule)
+    return Suggestion(STATUS_CONFLICT, None, unit.key, unit.sku_field, candidates, rule)
 
 
 # --- evaluation (writes the link table; shares the caller's transaction) --------------------------
@@ -168,15 +242,49 @@ class LinkState:
 LOGGED_FIELDS = ("producto_item_id", "source", "match_status", "matched_sku")
 
 
-def load_codigo_index(db, keys: Sequence[str]) -> dict[str, list[int]]:
-    """`codigo -> [product item_id]` for the given keys (`codigo` is not unique and is indexed)."""
+@dataclass(frozen=True)
+class Catalog:
+    """What `resolve` needs from the catalog for a set of SKU keys."""
+
+    codigos: dict[str, list[int]]  # catalog `codigo` -> products (exact and normalized matches)
+    item_ids: frozenset[int]  # catalog ids spelled by numeric keys that matched no `codigo`
+
+
+def _codigo_rows(db, column: Any, values: Sequence[str], index: dict[str, list[int]]) -> None:
+    for start in range(0, len(values), INDEX_CHUNK):
+        chunk = list(values[start : start + INDEX_CHUNK])
+        for codigo, producto_item_id in db.query(ProductoERP.codigo, ProductoERP.item_id).filter(column.in_(chunk)):
+            index.setdefault(codigo, []).append(producto_item_id)
+
+
+def load_catalog(db, keys: Sequence[str]) -> Catalog:
+    """The catalog rows the rule can match for the given keys, cheapest lookup first.
+
+    Exact `codigo` uses its index. Only keys with no exact hit pay the normalized comparison, and only numeric
+    keys still unmatched look up `item_id` (the primary key).
+
+    The normalized comparison has no index (adding one needs a migration): it is ONE sequential scan of
+    `productos_erp` per call, every pending key in a single `IN`, never one scan per chunk or per key.
+    Measured in production on 2026-10-17 (read-only EXPLAIN ANALYZE): 4,442 rows, Seq Scan over 163 shared
+    buffers, 5.2 ms. A forced pass pays it once per item with an unmatched key (~1,500 items, ~7.5 s in
+    total, each item in its own transaction), far below the sweep's 30 s statement timeout. Re-measure
+    before the catalog grows by an order of magnitude.
+    """
     index: dict[str, list[int]] = {}
-    for start in range(0, len(keys), INDEX_CHUNK):
-        chunk = list(keys[start : start + INDEX_CHUNK])
-        rows = db.query(ProductoERP.codigo, ProductoERP.item_id).filter(ProductoERP.codigo.in_(chunk)).all()
+    _codigo_rows(db, ProductoERP.codigo, keys, index)
+    pending = {normalize_sku(k) for k in keys if k not in index} - _NEVER_MATCH
+    if pending:
+        comparable = func.upper(func.regexp_replace(ProductoERP.codigo, _SQL_SEPARATORS, "", "g"))
+        rows = db.query(ProductoERP.codigo, ProductoERP.item_id).filter(comparable.in_(sorted(pending)))
         for codigo, producto_item_id in rows:
             index.setdefault(codigo, []).append(producto_item_id)
-    return index
+        pending -= {normalize_sku(codigo) for codigo in index}
+    numbers = sorted({n for n in map(item_id_of, pending) if n is not None})
+    found: set[int] = set()
+    for start in range(0, len(numbers), INDEX_CHUNK):
+        chunk = numbers[start : start + INDEX_CHUNK]
+        found.update(pid for (pid,) in db.query(ProductoERP.item_id).filter(ProductoERP.item_id.in_(chunk)))
+    return Catalog(index, frozenset(found))
 
 
 def evaluate_item(
@@ -208,10 +316,10 @@ def evaluate_item(
         result.skipped = len(units)
         return result
     keys = keys_of(units)
-    index = load_codigo_index(db, keys) if keys else {}
+    catalog = load_catalog(db, keys) if keys else Catalog({}, frozenset())
     for unit in units:
         row = rows.get(unit.variation_id)
-        suggestion = resolve(unit, index)
+        suggestion = resolve(unit, catalog.codigos, catalog.item_ids)
         if row is None:
             row = _insert_first(db, unit, suggestion, now)
             if row is None:  # a concurrent writer created it between our read and insert
@@ -319,7 +427,17 @@ def _apply_existing(
     if touched:
         row.updated_at = now
     if moved:
-        log_link_change(db, unit.item_id, unit.variation_id, before, LinkState.of(row), now, events_enabled, typed_item)
+        log_link_change(
+            db,
+            unit.item_id,
+            unit.variation_id,
+            before,
+            LinkState.of(row),
+            now,
+            events_enabled,
+            typed_item,
+            match_rule=suggestion.rule,
+        )
         result.changed += 1
     else:
         result.unchanged += 1
@@ -335,6 +453,7 @@ def log_link_change(
     events_enabled: bool,
     typed_item: Mapping[str, Any],
     actor: Optional[int] = None,
+    match_rule: Optional[str] = None,
 ) -> MlChangeLog:
     """Change-log row (resource `product_link`) of an effective link change, plus its events.
 
@@ -342,6 +461,8 @@ def log_link_change(
     together or not at all. The context carries everything `product_link_changed` needs, so the
     event can be re-derived from the row alone. `actor` is the operator behind a manual operation; it
     wins over the link's own author in the context (a revert to automatic leaves the link authorless).
+    `match_rule` (RULE_*) says which step of the automatic rule decided an automatic link; it is added to
+    the context only when known.
     """
     changes = [
         {"p": name, "op": "replace", "old": getattr(old, name), "new": getattr(new, name)}
@@ -369,6 +490,7 @@ def log_link_change(
             "linked_by": new.linked_by if actor is None else actor,
             "official_store_id": typed_item.get("official_store_id"),
             "brand": typed_item.get("brand"),
+            **({"match_rule": match_rule} if match_rule is not None else {}),
         },
     )
     db.add(entry)
@@ -953,7 +1075,8 @@ def revert_to_auto(
     target = _lock_target(db, item_id, variation_id, typed, variations, unit, now=now, events_enabled=events_enabled)
     row, unit = target.row, target.unit
     keys = [unit.key] if unit.key is not None else []
-    suggestion = resolve(unit, load_codigo_index(db, keys) if keys else {})
+    catalog = load_catalog(db, keys) if keys else Catalog({}, frozenset())
+    suggestion = resolve(unit, catalog.codigos, catalog.item_ids)
     if row.source == SOURCE_AUTO and (row.producto_item_id, row.match_status) == (
         suggestion.producto_item_id,
         suggestion.status,
@@ -970,7 +1093,9 @@ def revert_to_auto(
     row.note = None
     row.updated_at = now
     after = LinkState.of(row)
-    log_link_change(db, item_id, variation_id, before, after, now, events_enabled, typed, usuario_id)
+    log_link_change(
+        db, item_id, variation_id, before, after, now, events_enabled, typed, usuario_id, match_rule=suggestion.rule
+    )
     _record_audit(db, TipoAccion.ML_VINCULO_AUTOMATICO, usuario_id, item_id, variation_id, before, after, None, now)
     return ManualOutcome(changed=True)
 
@@ -1075,8 +1200,8 @@ def describe_item(db, item_id: str) -> dict[str, Any]:
         for vid in sorted(set(live) | set(rows))
     }
     keys = keys_of(list(units.values()))
-    index = load_codigo_index(db, keys) if keys else {}
-    suggestions = {vid: resolve(unit, index) for vid, unit in units.items()}
+    catalog = load_catalog(db, keys) if keys else Catalog({}, frozenset())
+    suggestions = {vid: resolve(unit, catalog.codigos, catalog.item_ids) for vid, unit in units.items()}
     product_ids: list[int] = []
     for vid, suggestion in suggestions.items():
         product_ids += list(suggestion.candidates)
@@ -1133,6 +1258,7 @@ def _describe_unit(
             if suggestion.status == STATUS_CONFLICT
             else [],
             "candidate_count": len(suggestion.candidates),
+            "rule": suggestion.rule,
             "differs": differs,
         },
     }

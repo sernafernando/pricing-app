@@ -202,6 +202,7 @@ class TestAutomaticChanges:
             "linked_by": None,
             "official_store_id": typed["official_store_id"],
             "brand": typed["brand"],
+            "match_rule": "codigo",
         }
         (event,) = event_rows(events_on)
         assert event["event_type"] == "product_link_changed"
@@ -294,7 +295,7 @@ class TestAutomaticChanges:
         def forbidden(db, keys):
             raise AssertionError("the catalog must not be read for an up-to-date item")
 
-        monkeypatch.setattr(links, "load_codigo_index", forbidden)
+        monkeypatch.setattr(links, "load_catalog", forbidden)
         result = evaluate(sample_item(ITEM), minutes=9)
 
         assert result.skipped == 1 and link(env)["evaluated_at"] == at(1)
@@ -308,6 +309,99 @@ class TestAutomaticChanges:
         assert link(events_on)["producto_item_id"] == 41
         (entry,) = log_rows(events_on)
         assert entry["context"]["match_status_old"] == "unmatched"
+
+
+class TestNormalizedAndItemIdRulesOnTheCatalog:
+    """The catalog lookup finds `codigo` after normalization and numeric SKUs that are a product's `item_id`."""
+
+    def test_a_codigo_that_differs_in_case_and_separators_links(self, env) -> None:
+        add_product(env, 41, "PC-10.400")
+        evaluate(_with_sku(" pc 10400 "))
+        row = link(env)
+        assert (row["match_status"], row["producto_item_id"], row["matched_sku"]) == ("linked", 41, " pc 10400 ")
+
+    def test_a_codigo_with_a_sharp_s_is_found_by_the_sql_prefilter(self, env) -> None:
+        add_product(env, 41, "straße-1")
+        evaluate(_with_sku("STRAßE 1"))
+        assert (link(env)["match_status"], link(env)["producto_item_id"]) == ("linked", 41)
+
+    def test_a_codigo_with_a_no_break_space_links(self, env) -> None:
+        add_product(env, 41, "PC\u00a010400")
+        evaluate(_with_sku("PC10400"))
+        assert (link(env)["match_status"], link(env)["producto_item_id"]) == ("linked", 41)
+
+    def test_two_products_equal_after_normalization_conflict(self, env) -> None:
+        add_product(env, 41, "PC-10400")
+        add_product(env, 42, "pc10400")
+        evaluate(_with_sku("PC 10400"))
+        row = link(env)
+        assert (row["match_status"], row["candidate_ids"]) == ("conflict", [41, 42])
+
+    def test_a_numeric_sku_links_to_the_product_with_that_item_id(self, env) -> None:
+        add_product(env, 3075, "SOMETHING-ELSE")
+        evaluate(_with_sku("3075"))
+        row = link(env)
+        assert (row["match_status"], row["producto_item_id"], row["matched_sku"]) == ("linked", 3075, "3075")
+
+    def test_a_codigo_match_wins_over_the_item_id(self, env) -> None:
+        add_product(env, 3075, "OTHER")
+        add_product(env, 9, "3075")
+        evaluate(_with_sku("3075"))
+        assert link(env)["producto_item_id"] == 9
+
+    def test_sku_zero_never_links_even_to_a_codigo_zero(self, env) -> None:
+        add_product(env, 41, "0")
+        evaluate(_with_sku("0"))
+        assert (link(env)["match_status"], link(env)["producto_item_id"]) == ("unmatched", None)
+
+    def test_the_normalized_comparison_scans_the_catalog_once_per_load(self, env) -> None:
+        add_product(env, 41, "PC-10400")
+        keys = [f"pc {n}" for n in range(links.INDEX_CHUNK + 1)] + ["pc 10400"]  # more than one chunk
+        scans: list[str] = []
+
+        def count(conn, cursor, statement, *_args) -> None:
+            if "regexp_replace" in statement:
+                scans.append(statement)
+
+        event.listen(env, "before_cursor_execute", count)
+        try:
+            with database.get_background_db() as db:
+                catalog = links.load_catalog(db, keys)
+        finally:
+            event.remove(env, "before_cursor_execute", count)
+
+        assert len(scans) == 1
+        assert catalog.codigos == {"PC-10400": [41]}
+
+    def test_an_existing_unmatched_auto_row_relinks_on_the_forced_pass_and_logs_the_rule(self, events_on) -> None:
+        put_link(
+            events_on,
+            ITEM,
+            0,
+            "sku_auto",
+            "unmatched",
+            None,
+            matched_sku="3075",
+            evaluated_sku_key="3075",
+            evaluated_at=at(-60),
+        )
+        add_product(events_on, 3075, "OTHER")
+
+        assert evaluate(_with_sku("3075"), minutes=1).skipped == 1  # ordinary pass: SKU unchanged, nothing read
+        evaluate(_with_sku("3075"), minutes=2, force=True)  # the daily forced pass
+
+        row = link(events_on)
+        assert (row["source"], row["match_status"], row["producto_item_id"]) == ("sku_auto", "linked", 3075)
+        (entry,) = log_rows(events_on)
+        assert entry["context"]["match_rule"] == "item_id"
+
+    def test_a_manual_decision_is_never_moved_by_the_new_rules(self, env) -> None:
+        put_link(env, ITEM, 0, "manual_none", "no_product", None, evaluated_sku_key="x", evaluated_at=at(-60))
+        add_product(env, 3075, "OTHER")
+        evaluate(_with_sku("3075"), force=True)
+        row = link(env)
+        assert (row["source"], row["match_status"], row["producto_item_id"]) == ("manual_none", "no_product", None)
+        assert (row["suggestion_status"], row["suggested_producto_item_id"]) == ("linked", 3075)
 
 
 class TestManualAlwaysWins:

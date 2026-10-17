@@ -331,6 +331,26 @@ class TestRevertToAuto:
         row = link(audited)
         assert (row["source"], row["match_status"], row["producto_item_id"]) == ("sku_auto", "linked", 41)
 
+    @pytest.mark.parametrize(
+        ("sku", "codigo", "product", "rule"),
+        [(" pc 10400 ", "PC-10.400", 41, "codigo_normalized"), ("3075", "OTHER", 3075, "item_id")],
+    )
+    def test_relinks_through_the_normalized_and_item_id_rules_and_logs_the_rule(
+        self, audited, sku, codigo, product, rule
+    ) -> None:
+        add_product(audited, product, codigo)
+        add_product(audited, 42, "MANUAL-PICK")
+        store(audited, _with_sku(sku))
+        manual(42, minutes=10)
+
+        run(links.revert_to_auto, ITEM, 0, USER, minutes=20)
+
+        row = link(audited)
+        assert (row["source"], row["match_status"], row["producto_item_id"]) == ("sku_auto", "linked", product)
+        assert row["matched_sku"] == sku
+        last = max(log_rows(audited), key=lambda entry: entry["id"])
+        assert last["context"]["match_rule"] == rule
+
     def test_a_unit_without_a_matching_product_reverts_to_unmatched(self, audited) -> None:
         add_product(audited, 42, "OTHER")
         store(audited, sample_item(ITEM))

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.services.ml_publications.links import sku_key
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import (
     AXES,
@@ -135,6 +136,8 @@ def row_columns() -> list[Any]:
         i.family_id,
         i.family_name,
         i.user_product_id,
+        i.seller_sku.label("sku_attribute"),
+        i.seller_custom_field.label("sku_custom_field"),
         i.available_quantity,
         i.price.label("item_price"),
         i.last_trigger_received_at,
@@ -181,6 +184,11 @@ def _price(row: Any) -> dict[str, Any]:
     }
 
 
+def _seller_sku(row: Any) -> Optional[str]:
+    """The publication's SKU: the automatic link's own key (`links.sku_key`), so the row shows what the rule reads."""
+    return sku_key(row.sku_attribute, row.sku_custom_field)[0]
+
+
 def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_events: Optional[dict[str, Any]]) -> dict:
     item = {
         "item_id": row.item_id,
@@ -199,6 +207,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
         "family_id": row.family_id,
         "family_name": row.family_name,
         "user_product_id": row.user_product_id,
+        "seller_sku": _seller_sku(row),
         "variations_count": variations.get(row.item_id, 0),
         "gone": row.gone_at is not None,
         "gone_at": row.gone_at,
