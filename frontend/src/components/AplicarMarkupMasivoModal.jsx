@@ -20,6 +20,10 @@ export default function AplicarMarkupMasivoModal({
   /** Already-built listar query from `construirFiltrosParams()` */
   listarParams = {},
   totalProductos = 0,
+  /** An explicit write set (Publicaciones ML): exactly these products, no resolve of `GET /productos`. */
+  itemIds,
+  /** What the caller says about the set (e.g. publications left out for having no product). */
+  itemIdsNota,
   showToast,
   puedeEditarCuotas = false,
 }) {
@@ -40,8 +44,12 @@ export default function AplicarMarkupMasivoModal({
   const [confirmacion, setConfirmacion] = useState(null);
 
   const pricelistId = 4;
-  const total =
-    resolvedItemIds != null ? resolvedItemIds.length : Number(totalProductos) || 0;
+  const explicito = Array.isArray(itemIds);
+  const total = explicito
+    ? itemIds.length
+    : resolvedItemIds != null
+      ? resolvedItemIds.length
+      : Number(totalProductos) || 0;
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -188,38 +196,42 @@ export default function AplicarMarkupMasivoModal({
     setResultados(null);
     setProgresoLote(null);
 
-    let itemIds;
-    try {
-      itemIds = await resolveFilteredItemIds({
-        listar: productosAPI.listar,
-        listarParams,
-        totalProductos,
-      });
-      setResolvedItemIds(itemIds);
-    } catch (err) {
-      setAplicando(false);
-      const msg =
-        err instanceof ResolveFilteredIdsError
-          ? err.message
-          : 'No se pudo resolver el conjunto filtrado de productos';
-      showToast(msg, 'error');
-      return;
+    let ids;
+    if (explicito) {
+      ids = itemIds;
+    } else {
+      try {
+        ids = await resolveFilteredItemIds({
+          listar: productosAPI.listar,
+          listarParams,
+          totalProductos,
+        });
+        setResolvedItemIds(ids);
+      } catch (err) {
+        setAplicando(false);
+        const msg =
+          err instanceof ResolveFilteredIdsError
+            ? err.message
+            : 'No se pudo resolver el conjunto filtrado de productos';
+        showToast(msg, 'error');
+        return;
+      }
     }
 
-    if (itemIds.length === 0) {
+    if (ids.length === 0) {
       setAplicando(false);
       showToast('No hay productos en el conjunto filtrado', 'error');
       return;
     }
 
-    const job = { itemIds, markup, configBodyBase };
+    const job = { itemIds: ids, markup, configBodyBase };
     // Chicho/#1260: zero is also margin-wipe risk — same Tesla pane as negative.
     if (aplicarMarkup && markup <= 0) {
       setAplicando(false);
       setConfirmacion({ ...job, gate: 'negative' });
       return;
     }
-    if (itemIds.length > CONFIRM_THRESHOLD) {
+    if (ids.length > CONFIRM_THRESHOLD) {
       setAplicando(false);
       setConfirmacion({ ...job, gate: 'threshold' });
       return;
@@ -420,7 +432,10 @@ export default function AplicarMarkupMasivoModal({
               )}
 
               <div className={styles.infoBox}>
-                Opera sobre todos los productos del filtro actual (Total {total}).
+                {explicito
+                  ? `Opera sobre ${total} producto${total !== 1 ? 's' : ''}.`
+                  : `Opera sobre todos los productos del filtro actual (Total ${total}).`}
+                {explicito && itemIdsNota && <div>{itemIdsNota}</div>}
                 {total > MAX_ITEMS_POR_REQUEST && (
                   <>
                     {' '}

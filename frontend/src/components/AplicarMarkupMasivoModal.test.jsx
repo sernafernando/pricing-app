@@ -618,3 +618,41 @@ describe('AplicarMarkupMasivoModal markup 0 and negative', () => {
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('AplicarMarkupMasivoModal with itemIds (Publicaciones ML)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.post.mockImplementation(async (url, body) => {
+      if (url.includes('aplicar-markup-masivo')) return markupOkResponse(body.item_ids);
+      return { data: { ok: true } };
+    });
+  });
+
+  it('applies exactly the given products without resolving GET /productos', async () => {
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AplicarMarkupMasivoModal
+        onClose={() => {}}
+        onSuccess={onSuccess}
+        itemIds={[11, 12, 13]}
+        itemIdsNota="1 publicación sin producto queda afuera"
+        showToast={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/Acciones masivas — 3 productos/i)).toBeInTheDocument();
+    expect(screen.getByText('1 publicación sin producto queda afuera')).toBeInTheDocument();
+    expect(screen.queryByText(/filtro actual/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Aplicar a 3 productos/i }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    expect(productosAPI.listar).not.toHaveBeenCalled();
+    const markupCalls = api.post.mock.calls.filter(([url]) => url.includes('aplicar-markup-masivo'));
+    expect(markupCalls.flatMap(([, body]) => body.item_ids)).toEqual([11, 12, 13]);
+  });
+
+  it('an empty set cannot run', () => {
+    render(<AplicarMarkupMasivoModal onClose={() => {}} onSuccess={() => {}} itemIds={[]} showToast={() => {}} />);
+    expect(screen.getByRole('button', { name: /Aplicar a 0 productos/i })).toBeDisabled();
+  });
+});

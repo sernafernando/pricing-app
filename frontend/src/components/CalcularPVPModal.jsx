@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './CalcularWebModal.module.css'; // Reutilizar el mismo CSS
 
-export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, showToast }) {
+export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, showToast, itemIds, itemIdsNota }) {
+  // An explicit write set (Publicaciones ML): exactly these products, never `filtros` nor "all products".
+  const explicito = Array.isArray(itemIds);
   const [markupPVPClasica, setMarkupPVPClasica] = useState('15.0');
   const [adicionalCuotas, setAdicionalCuotas] = useState('4.0');
   const [calculando, setCalculando] = useState(false);
@@ -117,7 +119,9 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
   );
 
   const calcularMasivo = async () => {
-    const mensaje = aplicarFiltros
+    const mensaje = explicito
+      ? `¿Confirmar el cálculo para ${itemIds.length} producto${itemIds.length !== 1 ? 's' : ''}?`
+      : aplicarFiltros
       ? '¿Confirmar cálculo de precios PVP (clásica + cuotas) para los productos FILTRADOS?'
       : '¿Confirmar cálculo masivo de precios PVP para TODOS los productos?';
 
@@ -130,7 +134,9 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
         adicional_cuotas: parseFloat(adicionalCuotas.toString().replace(',', '.')) || 0
       };
 
-      if (aplicarFiltros) {
+      if (explicito) {
+        body.item_ids = itemIds;
+      } else if (aplicarFiltros) {
         body.filtros = {
           search: filtrosActivos.search || null,
           con_stock: filtrosActivos.con_stock || null,
@@ -201,7 +207,16 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
             Calcula automáticamente los precios de <strong>PVP Clásica y PVP Cuotas (3/6/9/12)</strong> usando cálculo convergente (goal-seek) para alcanzar los markups objetivo.
           </p>
 
-          {hayFiltros && (
+          {explicito && (
+            <div className={styles.filterCheckbox}>
+              <strong>
+                Se calcula sobre {itemIds.length} producto{itemIds.length !== 1 ? 's' : ''}
+              </strong>
+              {itemIdsNota && <div className={styles.filtrosActivos}>{itemIdsNota}</div>}
+            </div>
+          )}
+
+          {!explicito && hayFiltros && (
             <div className={styles.filterCheckbox}>
               <label>
                 <input
@@ -293,7 +308,7 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
             </button>
             <button
               onClick={calcularMasivo}
-              disabled={calculando}
+              disabled={calculando || (explicito && itemIds.length === 0)}
               className={`${styles.button} ${styles.buttonPrimary}`}
             >
               {calculando ? '⏳ Calculando...' : '🔮 Calcular Precios PVP'}

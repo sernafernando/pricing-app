@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './CalcularWebModal.module.css';
 
-export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, showToast }) {
+export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, showToast, itemIds, itemIdsNota }) {
+  // An explicit write set (Publicaciones ML): exactly these products, never `filtros` nor "all products".
+  const explicito = Array.isArray(itemIds);
   const [porcentajeConPrecio, setPorcentajeConPrecio] = useState('6.0');
   const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState('10.0');
   const [calculando, setCalculando] = useState(false);
@@ -120,7 +122,9 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
   );
 
   const calcularMasivo = async () => {
-    const mensaje = aplicarFiltros
+    const mensaje = explicito
+      ? `¿Confirmar el cálculo para ${itemIds.length} producto${itemIds.length !== 1 ? 's' : ''}?`
+      : aplicarFiltros
       ? '¿Confirmar cálculo de precios web transferencia para los productos FILTRADOS?'
       : '¿Confirmar cálculo masivo de precios web transferencia para TODOS los productos?';
 
@@ -133,7 +137,9 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
         porcentaje_sin_precio: parseFloat(porcentajeSinPrecio.toString().replace(',', '.')) || 0
       };
 
-      if (aplicarFiltros) {
+      if (explicito) {
+        body.item_ids = itemIds;
+      } else if (aplicarFiltros) {
         body.filtros = {
           search: filtrosActivos.search || null,
           con_stock: filtrosActivos.con_stock || null,
@@ -213,7 +219,16 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
             Calcula automáticamente los precios de Web Transferencia aplicando los porcentajes configurados sobre el precio clásica.
           </p>
 
-          {hayFiltros && (
+          {explicito && (
+            <div className={styles.filterCheckbox}>
+              <strong>
+                Se calcula sobre {itemIds.length} producto{itemIds.length !== 1 ? 's' : ''}
+              </strong>
+              {itemIdsNota && <div className={styles.filtrosActivos}>{itemIdsNota}</div>}
+            </div>
+          )}
+
+          {!explicito && hayFiltros && (
             <div className={styles.filterCheckbox}>
               <label>
                 <input
@@ -301,7 +316,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
             </button>
             <button
               onClick={calcularMasivo}
-              disabled={calculando}
+              disabled={calculando || (explicito && itemIds.length === 0)}
               className={`${styles.button} ${styles.buttonPrimary}`}
             >
               {calculando ? '⏳ Calculando...' : '🧮 Calcular Precios'}
