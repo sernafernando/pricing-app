@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { TableShell } from '../kit';
 import VariationRows from './VariationRows';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
-import { WithProductCheckbox } from './ProductCheckbox';
+import { SelectionCheckbox } from './ProductCheckbox';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
 
 /**
@@ -57,13 +57,11 @@ export default function ProductoTable({
           if (row.type === 'item') return column.render(row.item);
           if (row.type === 'node') {
             if (column.key === 'titulo') {
-              const title = <NodeTitle row={row} onToggle={toggle} />;
-              if (!selection) return title;
-              return (
-                <WithProductCheckbox productId={row.node.productoItemId} label={row.node.label} selection={selection}>
-                  {title}
-                </WithProductCheckbox>
-              );
+              // The checkbox follows the node's toggle, so the toggle stays at the row's depth.
+              const after = selection ? (
+                <SelectionCheckbox productId={row.node.productoItemId} label={row.node.label} selection={selection} />
+              ) : null;
+              return <NodeTitle row={row} onToggle={toggle} after={after} />;
             }
             if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
             if (PRODUCT_FIGURES.has(column.key)) return column.render({ metrics: row.node.metrics });

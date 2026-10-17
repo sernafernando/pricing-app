@@ -24,17 +24,17 @@ export function ProductCheckbox({ productId, checked, onToggle, label }) {
   );
 }
 
-/** `children` (a title cell) led by the checkbox of `productId`; `selection` is `{ checked: Set, onToggle }`. */
-export function WithProductCheckbox({ productId, label, selection, children }) {
+/**
+ * The checkbox of `productId` under `selection` (`{ checked: Set, onToggle }`). A title cell places it after its
+ * own leading toggle, so the tree's indentation stays driven by depth alone.
+ */
+export function SelectionCheckbox({ productId, label, selection }) {
   return (
-    <div className={styles.withCheck}>
-      <ProductCheckbox
-        productId={productId}
-        checked={productId != null && selection.checked.has(productId)}
-        onToggle={selection.onToggle}
-        label={label}
-      />
-      {children}
-    </div>
+    <ProductCheckbox
+      productId={productId}
+      checked={productId != null && selection.checked.has(productId)}
+      onToggle={selection.onToggle}
+      label={label}
+    />
   );
 }

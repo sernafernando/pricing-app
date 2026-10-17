@@ -1,11 +1,4 @@
-/* The product checkbox leading a title cell: it never shrinks, the title takes the rest. */
-.withCheck {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  min-width: 0;
-}
-
+/* The product checkbox of a title cell, after its toggle: it never shrinks, the title takes the rest. */
 .check {
   flex-shrink: 0;
   margin: 0;

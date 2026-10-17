@@ -7,6 +7,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProductCheckbox } from './ProductCheckbox';
 import { withProductSelection } from './productSelection';
+import { buildColumns } from './columns';
 
 describe('ProductCheckbox', () => {
   it('toggles the product it names', async () => {
@@ -26,7 +27,8 @@ describe('ProductCheckbox', () => {
 
 describe('withProductSelection', () => {
   const columns = [
-    { key: 'titulo', header: 'Publicación', render: (item) => <span>{item.title}</span> },
+    // The title render places `after` (the checkbox) after its own leading controls.
+    { key: 'titulo', header: 'Publicación', render: (item, after) => <span>{after}{item.title}</span> },
     { key: 'precio', header: 'Precio', render: () => '$1' },
   ];
 
@@ -40,5 +42,16 @@ describe('withProductSelection', () => {
     expect(onToggle).toHaveBeenCalledWith(4101);
     rerender(wrapped[0].render({ item_id: 'MLA2', title: 'Tinta', link: { producto_item_id: 4102 } }));
     expect(screen.getByRole('checkbox')).toBeChecked();
+  });
+
+  // The variation toggle leads the pinned cell at the row's depth; the checkbox follows it, so the variations'
+  // state row (indented one level past the depth) lines up under the toggle.
+  it('puts the checkbox after the variations toggle of a publication with variations', () => {
+    const [titulo] = buildColumns({ expandedIds: new Set(), onToggleVariations: () => {} });
+    const [wrapped] = withProductSelection([titulo], { checked: new Set(), onToggle: () => {} });
+    render(wrapped.render({ item_id: 'MLA5', title: 'Router', variations_count: 2, link: { producto_item_id: 4101 } }));
+    const toggle = screen.getByRole('button', { name: /variaciones de MLA5/ });
+    const box = screen.getByRole('checkbox');
+    expect(toggle.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
