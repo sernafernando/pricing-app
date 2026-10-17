@@ -1,0 +1,1269 @@
+{
+ "_source": "production pricing_db, read-only SELECT on 2026-10-16. change_log: ml_change_log rows by id (MLA1402898289 and its user product, plus one replenishment row 172543 and one stock row 175494 of other user products, since this item has none). events: every ml_item_events row of MLA1402898289.",
+ "change_log": [
+  {
+   "id": 6989,
+   "resource_type": "item",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-10T11:52:15.181567+00:00",
+   "changes": [
+    {
+     "p": "attributes[ELECTRICAL_SAFETY_CERTIFICATE_NUMBER].value_id",
+     "op": "replace",
+     "new": "1",
+     "old": null
+    },
+    {
+     "p": "attributes[ELECTRICAL_SAFETY_CERTIFICATE_NUMBER].values",
+     "op": "replace",
+     "new": [
+      {
+       "id": "1",
+       "name": "1",
+       "struct": null
+      }
+     ],
+     "old": [
+      {
+       "id": null,
+       "name": "1",
+       "struct": null
+      }
+     ]
+    },
+    {
+     "p": "attributes[SELLER_SKU]",
+     "op": "add",
+     "new": {
+      "id": "SELLER_SKU",
+      "name": "SKU",
+      "values": [
+       {
+        "id": "314",
+        "name": "314",
+        "struct": null
+       }
+      ],
+      "value_id": "314",
+      "value_name": "314",
+      "value_type": "string"
+     }
+    },
+    {
+     "p": "available_quantity",
+     "op": "replace",
+     "new": 5,
+     "old": 0
+    },
+    {
+     "p": "base_price",
+     "op": "replace",
+     "new": 91193.0,
+     "old": 80049.0
+    },
+    {
+     "p": "expiration_time",
+     "op": "replace",
+     "new": "2026-12-29T11:50:09.557Z",
+     "old": "2026-12-20T13:51:33.909Z"
+    },
+    {
+     "p": "initial_quantity",
+     "op": "replace",
+     "new": 465,
+     "old": 460
+    },
+    {
+     "p": "last_updated",
+     "op": "replace",
+     "new": "2026-10-10T11:50:11.514Z",
+     "old": "2026-10-08T06:22:53.878Z"
+    },
+    {
+     "p": "price",
+     "op": "replace",
+     "new": 91193.0,
+     "old": 80049.0
+    },
+    {
+     "p": "status",
+     "op": "replace",
+     "new": "active",
+     "old": "paused"
+    },
+    {
+     "p": "sub_status[=out_of_stock]",
+     "op": "remove",
+     "old": "out_of_stock"
+    }
+   ]
+  },
+  {
+   "id": 7666,
+   "resource_type": "item",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-10T12:41:37.241309+00:00",
+   "changes": [
+    {
+     "p": "expiration_time",
+     "op": "replace",
+     "new": "2026-12-29T12:38:42.351Z",
+     "old": "2026-12-29T11:50:09.557Z"
+    },
+    {
+     "p": "initial_quantity",
+     "op": "replace",
+     "new": 466,
+     "old": 465
+    },
+    {
+     "p": "last_updated",
+     "op": "replace",
+     "new": "2026-10-10T12:40:18.084Z",
+     "old": "2026-10-10T11:55:45.207Z"
+    },
+    {
+     "p": "sold_quantity",
+     "op": "replace",
+     "new": 461,
+     "old": 460
+    }
+   ]
+  },
+  {
+   "id": 7671,
+   "resource_type": "prices",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-10T12:41:42.115215+00:00",
+   "changes": [
+    {
+     "p": "prices[1058]",
+     "op": "add",
+     "new": {
+      "id": "1058",
+      "type": "promotion",
+      "amount": 77000.0,
+      "conditions": {
+       "end_time": "2026-10-11T02:59:59Z",
+       "start_time": "2026-10-10T03:00:00Z",
+       "context_restrictions": [
+        "channel_marketplace"
+       ]
+      },
+      "currency_id": "ARS",
+      "last_updated": "2026-10-10T12:18:00Z",
+      "regular_amount": 91193.0
+     }
+    }
+   ]
+  },
+  {
+   "id": 7672,
+   "resource_type": "promotions",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-10T12:41:42.858042+00:00",
+   "changes": [
+    {
+     "p": "[C-MLA1664342].suggested_discounted_price",
+     "op": "replace",
+     "new": 77000,
+     "old": 76039
+    },
+    {
+     "p": "[C-MLA1669550].suggested_discounted_price",
+     "op": "replace",
+     "new": 77000,
+     "old": 76039
+    },
+    {
+     "p": "[C-MLA1684530].suggested_discounted_price",
+     "op": "replace",
+     "new": 77000,
+     "old": 76039
+    },
+    {
+     "p": "[C-MLA1717163]",
+     "op": "add",
+     "new": {
+      "id": "C-MLA1717163",
+      "name": "A PVP TODO",
+      "type": "SELLER_CAMPAIGN",
+      "price": 77000,
+      "status": "started",
+      "sub_type": "FLEXIBLE_PERCENTAGE",
+      "start_date": "2026-10-10T00:00:00",
+      "finish_date": "2026-10-10T23:59:59",
+      "original_price": 91193
+     }
+    },
+    {
+     "p": "[P-MLA18067012].suggested_discounted_price",
+     "op": "replace",
+     "new": 77000,
+     "old": 76039
+    },
+    {
+     "p": "[P-MLA18119024].suggested_discounted_price",
+     "op": "replace",
+     "new": 77000,
+     "old": 76039
+    },
+    {
+     "p": "[PRICE_DISCOUNT].suggested_discounted_price",
+     "op": "replace",
+     "new": 77000,
+     "old": 76039
+    }
+   ]
+  },
+  {
+   "id": 7673,
+   "resource_type": "sale_price",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-10T12:41:43.098632+00:00",
+   "changes": [
+    {
+     "p": "amount",
+     "op": "replace",
+     "new": 77000.0,
+     "old": 91193.0
+    },
+    {
+     "p": "metadata.campaign_id",
+     "op": "add",
+     "new": "C-MLA1717163"
+    },
+    {
+     "p": "metadata.promotion_id",
+     "op": "add",
+     "new": "OFFER-MLA1402898289-11585589657"
+    },
+    {
+     "p": "metadata.promotion_type",
+     "op": "add",
+     "new": "custom"
+    },
+    {
+     "p": "price_id",
+     "op": "replace",
+     "new": "1058",
+     "old": "1057"
+    },
+    {
+     "p": "regular_amount",
+     "op": "replace",
+     "new": 91193.0,
+     "old": null
+    }
+   ]
+  },
+  {
+   "id": 9282,
+   "resource_type": "promotions",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-10T14:51:38.053348+00:00",
+   "changes": [
+    {
+     "p": "[C-MLA1664342].suggested_discounted_price",
+     "op": "replace",
+     "new": 75379,
+     "old": 77000
+    },
+    {
+     "p": "[C-MLA1669550].suggested_discounted_price",
+     "op": "replace",
+     "new": 75379,
+     "old": 77000
+    },
+    {
+     "p": "[C-MLA1684530].suggested_discounted_price",
+     "op": "replace",
+     "new": 75379,
+     "old": 77000
+    },
+    {
+     "p": "[C-MLA1713876]",
+     "op": "remove",
+     "old": {
+      "id": "C-MLA1713876",
+      "name": "Cupón de recompra",
+      "type": "SELLER_COUPON_CAMPAIGN",
+      "price": 0,
+      "status": "candidate",
+      "sub_type": "FIXED_PERCENTAGE",
+      "start_date": "2026-10-10T00:00:00",
+      "finish_date": "2026-10-31T23:59:59",
+      "original_price": 91193,
+      "fixed_percentage": 10
+     }
+    },
+    {
+     "p": "[C-MLA1713877]",
+     "op": "remove",
+     "old": {
+      "id": "C-MLA1713877",
+      "name": "TO TP-LINK REPURCH T",
+      "type": "SELLER_COUPON_CAMPAIGN",
+      "price": 0,
+      "status": "candidate",
+      "sub_type": "FIXED_PERCENTAGE",
+      "start_date": "2026-10-10T00:00:00",
+      "finish_date": "2026-10-31T23:59:59",
+      "original_price": 91193,
+      "fixed_percentage": 12
+     }
+    },
+    {
+     "p": "[C-MLA1717457]",
+     "op": "add",
+     "new": {
+      "id": "C-MLA1717457",
+      "name": "Cupón de recompra",
+      "type": "SELLER_COUPON_CAMPAIGN",
+      "price": 0,
+      "status": "candidate",
+      "sub_type": "FIXED_PERCENTAGE",
+      "start_date": "2026-10-11T00:00:00",
+      "finish_date": "2026-10-31T23:59:59",
+      "original_price": 91193,
+      "fixed_percentage": 10
+     }
+    },
+    {
+     "p": "[C-MLA1717475]",
+     "op": "add",
+     "new": {
+      "id": "C-MLA1717475",
+      "name": "TO TP-LINK FOLL",
+      "type": "SELLER_COUPON_CAMPAIGN",
+      "price": 0,
+      "status": "candidate",
+      "sub_type": "FIXED_PERCENTAGE",
+      "start_date": "2026-10-11T00:00:00",
+      "finish_date": "2026-10-31T23:59:59",
+      "original_price": 91193,
+      "fixed_percentage": 12
+     }
+    },
+    {
+     "p": "[P-MLA18067012].suggested_discounted_price",
+     "op": "replace",
+     "new": 75379,
+     "old": 77000
+    },
+    {
+     "p": "[P-MLA18119024].suggested_discounted_price",
+     "op": "replace",
+     "new": 75379,
+     "old": 77000
+    },
+    {
+     "p": "[PRICE_DISCOUNT].suggested_discounted_price",
+     "op": "replace",
+     "new": 75379,
+     "old": 77000
+    }
+   ]
+  },
+  {
+   "id": 34965,
+   "resource_type": "visits",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-12T13:51:30.703603+00:00",
+   "changes": [
+    {
+     "p": "date_from",
+     "op": "replace",
+     "new": "2026-09-12T00:00:00Z",
+     "old": "2026-09-10T00:00:00Z"
+    },
+    {
+     "p": "date_to",
+     "op": "replace",
+     "new": "2026-10-12T00:00:00Z",
+     "old": "2026-10-10T00:00:00Z"
+    },
+    {
+     "p": "results[2026-10-10T00:00:00Z].total",
+     "op": "replace",
+     "new": 7,
+     "old": 6
+    },
+    {
+     "p": "results[2026-10-10T00:00:00Z].visits_detail",
+     "op": "replace",
+     "new": [
+      {
+       "company": "mercadolibre",
+       "quantity": 7
+      }
+     ],
+     "old": [
+      {
+       "company": "mercadolibre",
+       "quantity": 6
+      }
+     ]
+    },
+    {
+     "p": "total_visits",
+     "op": "replace",
+     "new": 18,
+     "old": 17
+    }
+   ]
+  },
+  {
+   "id": 70046,
+   "resource_type": "item",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-13T18:37:02.240017+00:00",
+   "changes": [
+    {
+     "p": "base_price",
+     "op": "replace",
+     "new": 88913.0,
+     "old": 91193.0
+    },
+    {
+     "p": "expiration_time",
+     "op": "replace",
+     "new": "2027-01-01T18:35:24.675Z",
+     "old": "2026-12-29T14:50:49.099Z"
+    },
+    {
+     "p": "last_updated",
+     "op": "replace",
+     "new": "2026-10-13T18:35:24.776Z",
+     "old": "2026-10-10T14:52:08.531Z"
+    },
+    {
+     "p": "price",
+     "op": "replace",
+     "new": 88913.0,
+     "old": 91193.0
+    },
+    {
+     "p": "status",
+     "op": "replace",
+     "new": "paused",
+     "old": "active"
+    },
+    {
+     "p": "tags[=moderation_penalty]",
+     "op": "add",
+     "new": "moderation_penalty"
+    }
+   ]
+  },
+  {
+   "id": 71677,
+   "resource_type": "promotions",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-13T19:11:18.698193+00:00",
+   "changes": [
+    {
+     "p": "[C-MLA1664342].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1664342].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[C-MLA1669550].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1669550].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[C-MLA1684530].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1684530].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[C-MLA1713282].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1713319].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1713469].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1713491].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1717163]",
+     "op": "remove",
+     "old": {
+      "id": "C-MLA1717163",
+      "name": "A PVP TODO",
+      "type": "SELLER_CAMPAIGN",
+      "price": 77000,
+      "status": "started",
+      "sub_type": "FLEXIBLE_PERCENTAGE",
+      "start_date": "2026-10-10T00:00:00",
+      "finish_date": "2026-10-10T23:59:59",
+      "original_price": 91193
+     }
+    },
+    {
+     "p": "[C-MLA1717457].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[C-MLA1717475].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[P-MLA18067012].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[P-MLA18067012].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[P-MLA18119024].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[P-MLA18119024].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    },
+    {
+     "p": "[PRICE_DISCOUNT].original_price",
+     "op": "replace",
+     "new": 88913,
+     "old": 91193
+    },
+    {
+     "p": "[PRICE_DISCOUNT].suggested_discounted_price",
+     "op": "replace",
+     "new": 74617,
+     "old": 75379
+    }
+   ]
+  },
+  {
+   "id": 123143,
+   "resource_type": "promotions",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-15T13:49:31.393877+00:00",
+   "changes": [
+    {
+     "p": "[C-MLA1664342].suggested_discounted_price",
+     "op": "replace",
+     "new": 74902,
+     "old": 74617
+    },
+    {
+     "p": "[C-MLA1669550].suggested_discounted_price",
+     "op": "replace",
+     "new": 74902,
+     "old": 74617
+    },
+    {
+     "p": "[C-MLA1684530].suggested_discounted_price",
+     "op": "replace",
+     "new": 74902,
+     "old": 74617
+    },
+    {
+     "p": "[P-MLA18055092]",
+     "op": "add",
+     "new": {
+      "id": "P-MLA18055092",
+      "name": "Relampago compartidas",
+      "type": "SMART_LIGHTNING",
+      "price": 73943.1,
+      "stock": {
+       "max": 5,
+       "min": 5
+      },
+      "ref_id": "CANDIDATE-MLA1402898289-71677427189",
+      "status": "candidate",
+      "original_price": 88913,
+      "meli_percentage": 2.601,
+      "seller_percentage": 14.399
+     }
+    },
+    {
+     "p": "[P-MLA18067012].suggested_discounted_price",
+     "op": "replace",
+     "new": 74902,
+     "old": 74617
+    },
+    {
+     "p": "[P-MLA18119024].suggested_discounted_price",
+     "op": "replace",
+     "new": 74902,
+     "old": 74617
+    },
+    {
+     "p": "[P-MLA18137008]",
+     "op": "add",
+     "new": {
+      "id": "P-MLA18137008",
+      "name": "Tec Week",
+      "type": "SMART",
+      "price": 74690,
+      "ref_id": "CANDIDATE-MLA1402898289-71677348197",
+      "status": "candidate",
+      "original_price": 88913,
+      "meli_percentage": 2.496,
+      "seller_percentage": 13.504
+     }
+    },
+    {
+     "p": "[PRICE_DISCOUNT].suggested_discounted_price",
+     "op": "replace",
+     "new": 74902,
+     "old": 74617
+    }
+   ]
+  },
+  {
+   "id": 140177,
+   "resource_type": "competition",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-15T21:53:37.587399+00:00",
+   "changes": [
+    {
+     "p": "price_to_win",
+     "op": "replace",
+     "new": 77429,
+     "old": 74902
+    },
+    {
+     "p": "winner.item_id",
+     "op": "replace",
+     "new": "MLA3656498644",
+     "old": "MLA2301682748"
+    },
+    {
+     "p": "winner.price",
+     "op": "replace",
+     "new": 81191.59,
+     "old": 76046.55
+    }
+   ]
+  },
+  {
+   "id": 148600,
+   "resource_type": "visits",
+   "kind": "change",
+   "item_id": "MLA1402898289",
+   "entity_id": "MLA1402898289",
+   "observed_at": "2026-10-16T02:25:56.142152+00:00",
+   "changes": [
+    {
+     "p": "date_from",
+     "op": "replace",
+     "new": "2026-09-16T00:00:00Z",
+     "old": "2026-09-14T00:00:00Z"
+    },
+    {
+     "p": "date_to",
+     "op": "replace",
+     "new": "2026-10-16T00:00:00Z",
+     "old": "2026-10-14T00:00:00Z"
+    },
+    {
+     "p": "results[2026-09-15T00:00:00Z]",
+     "op": "remove",
+     "old": {
+      "date": "2026-09-15T00:00:00Z",
+      "total": 2,
+      "visits_detail": [
+       {
+        "company": "mercadolibre",
+        "quantity": 2
+       }
+      ]
+     }
+    },
+    {
+     "p": "results[2026-10-14T00:00:00Z]",
+     "op": "add",
+     "new": {
+      "date": "2026-10-14T00:00:00Z",
+      "total": 2,
+      "visits_detail": [
+       {
+        "company": "mercadolibre",
+        "quantity": 2
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": 172543,
+   "resource_type": "replenishment",
+   "kind": "change",
+   "item_id": null,
+   "entity_id": "MLAU4193138029",
+   "observed_at": "2026-10-16T18:32:44.591304+00:00",
+   "changes": [
+    {
+     "p": "sales.sales_history[2026-09-03]",
+     "op": "remove",
+     "old": {
+      "end_date": "2026-09-09",
+      "campaigns": [],
+      "start_date": "2026-09-03",
+      "units_sold": 3,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-09-04]",
+     "op": "add",
+     "new": {
+      "end_date": "2026-09-10",
+      "campaigns": [],
+      "start_date": "2026-09-04",
+      "units_sold": 0,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-09-10]",
+     "op": "remove",
+     "old": {
+      "end_date": "2026-09-16",
+      "campaigns": [],
+      "start_date": "2026-09-10",
+      "units_sold": 1,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-09-11]",
+     "op": "add",
+     "new": {
+      "end_date": "2026-09-17",
+      "campaigns": [],
+      "start_date": "2026-09-11",
+      "units_sold": 2,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-09-17]",
+     "op": "remove",
+     "old": {
+      "end_date": "2026-09-23",
+      "campaigns": [],
+      "start_date": "2026-09-17",
+      "units_sold": 1,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-09-18]",
+     "op": "add",
+     "new": {
+      "end_date": "2026-09-24",
+      "campaigns": [],
+      "start_date": "2026-09-18",
+      "units_sold": 0,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-09-24]",
+     "op": "remove",
+     "old": {
+      "end_date": "2026-09-30",
+      "campaigns": [],
+      "start_date": "2026-09-24",
+      "units_sold": 0,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-09-25]",
+     "op": "add",
+     "new": {
+      "end_date": "2026-10-01",
+      "campaigns": [],
+      "start_date": "2026-09-25",
+      "units_sold": 0,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-10-01]",
+     "op": "remove",
+     "old": {
+      "end_date": "2026-10-07",
+      "campaigns": [],
+      "start_date": "2026-10-01",
+      "units_sold": 0,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-10-02]",
+     "op": "add",
+     "new": {
+      "end_date": "2026-10-08",
+      "campaigns": [],
+      "start_date": "2026-10-02",
+      "units_sold": 0,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-10-08]",
+     "op": "remove",
+     "old": {
+      "end_date": "2026-10-14",
+      "campaigns": [],
+      "start_date": "2026-10-08",
+      "units_sold": 0,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_history[2026-10-09]",
+     "op": "add",
+     "new": {
+      "end_date": "2026-10-15",
+      "campaigns": [],
+      "start_date": "2026-10-09",
+      "units_sold": 1,
+      "days_out_of_stock": 0
+     }
+    },
+    {
+     "p": "sales.sales_totals.gmv",
+     "op": "replace",
+     "new": [
+      {
+       "full": 129019.0
+      }
+     ],
+     "old": [
+      {
+       "full": 62669.0
+      }
+     ]
+    },
+    {
+     "p": "sales.sales_totals.units_sold",
+     "op": "replace",
+     "new": [
+      {
+       "full": 2
+      }
+     ],
+     "old": [
+      {
+       "full": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 175494,
+   "resource_type": "stock",
+   "kind": "change",
+   "item_id": null,
+   "entity_id": "MLAU4025319447",
+   "observed_at": "2026-10-16T19:27:15.56315+00:00",
+   "changes": [
+    {
+     "p": "last_updated",
+     "op": "replace",
+     "new": "2026-10-16T19:21:37Z",
+     "old": "2026-10-16T14:32:47Z"
+    },
+    {
+     "p": "locations[meli_facility].quantity",
+     "op": "replace",
+     "new": 49,
+     "old": 48
+    }
+   ]
+  }
+ ],
+ "events": [
+  {
+   "id": 3194,
+   "event_type": "status_activated",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": null,
+   "old_value": "paused",
+   "new_value": "active",
+   "payload": {
+    "is_reactivation": false
+   },
+   "observed_at": "2026-10-10T11:52:15.181567+00:00"
+  },
+  {
+   "id": 3195,
+   "event_type": "stock_replenished",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": null,
+   "old_value": 0,
+   "new_value": 5,
+   "payload": {
+    "sold_quantity": null
+   },
+   "observed_at": "2026-10-10T11:52:15.181567+00:00"
+  },
+  {
+   "id": 3687,
+   "event_type": "catalog_competition_won",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": null,
+   "old_value": "not_listed",
+   "new_value": "winning",
+   "payload": {
+    "currency_id": "ARS",
+    "price_to_win": "77000",
+    "current_price": "77000"
+   },
+   "observed_at": "2026-10-10T12:41:41.640586+00:00"
+  },
+  {
+   "id": 3688,
+   "event_type": "price_changed",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": "promotion",
+   "old_value": null,
+   "new_value": "77000.0",
+   "payload": {
+    "price_id": "1058"
+   },
+   "observed_at": "2026-10-10T12:41:42.115215+00:00"
+  },
+  {
+   "id": 3689,
+   "event_type": "promotion_activated",
+   "promotion_id": "C-MLA1717163",
+   "promotion_type": "SELLER_CAMPAIGN",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "77000",
+   "payload": {
+    "original_price": "91193"
+   },
+   "observed_at": "2026-10-10T12:41:42.858042+00:00"
+  },
+  {
+   "id": 3690,
+   "event_type": "price_changed",
+   "promotion_id": "OFFER-MLA1402898289-11585589657",
+   "promotion_type": "custom",
+   "price_kind": "sale",
+   "old_value": "91193.0",
+   "new_value": "77000.0",
+   "payload": {
+    "currency_id": "ARS",
+    "regular_amount": "91193.0"
+   },
+   "observed_at": "2026-10-10T12:41:43.098632+00:00"
+  },
+  {
+   "id": 6376,
+   "event_type": "promotion_finished",
+   "promotion_id": "C-MLA1713876",
+   "promotion_type": "SELLER_COUPON_CAMPAIGN",
+   "price_kind": null,
+   "old_value": "candidate",
+   "new_value": null,
+   "payload": {
+    "reason": "absent"
+   },
+   "observed_at": "2026-10-10T14:51:38.053348+00:00"
+  },
+  {
+   "id": 6377,
+   "event_type": "promotion_finished",
+   "promotion_id": "C-MLA1713877",
+   "promotion_type": "SELLER_COUPON_CAMPAIGN",
+   "price_kind": null,
+   "old_value": "candidate",
+   "new_value": null,
+   "payload": {
+    "reason": "absent"
+   },
+   "observed_at": "2026-10-10T14:51:38.053348+00:00"
+  },
+  {
+   "id": 6378,
+   "event_type": "promotion_offered",
+   "promotion_id": "C-MLA1717457",
+   "promotion_type": "SELLER_COUPON_CAMPAIGN",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "candidate",
+   "payload": {
+    "max_discounted_price": null,
+    "min_discounted_price": null,
+    "suggested_discounted_price": null
+   },
+   "observed_at": "2026-10-10T14:51:38.053348+00:00"
+  },
+  {
+   "id": 6379,
+   "event_type": "promotion_offered",
+   "promotion_id": "C-MLA1717475",
+   "promotion_type": "SELLER_COUPON_CAMPAIGN",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "candidate",
+   "payload": {
+    "max_discounted_price": null,
+    "min_discounted_price": null,
+    "suggested_discounted_price": null
+   },
+   "observed_at": "2026-10-10T14:51:38.053348+00:00"
+  },
+  {
+   "id": 42330,
+   "event_type": "status_paused",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": null,
+   "old_value": "active",
+   "new_value": "paused",
+   "payload": {
+    "new_sub_status": [],
+    "old_sub_status": []
+   },
+   "observed_at": "2026-10-13T18:37:02.240017+00:00"
+  },
+  {
+   "id": 43333,
+   "event_type": "catalog_competition_lost",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": null,
+   "old_value": "winning",
+   "new_value": "not_listed",
+   "payload": {
+    "currency_id": null,
+    "price_to_win": null,
+    "current_price": null
+   },
+   "observed_at": "2026-10-13T18:55:49.494173+00:00"
+  },
+  {
+   "id": 43638,
+   "event_type": "status_activated",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": null,
+   "old_value": "paused",
+   "new_value": "active",
+   "payload": {
+    "is_reactivation": true
+   },
+   "observed_at": "2026-10-13T19:05:49.036777+00:00"
+  },
+  {
+   "id": 43802,
+   "event_type": "price_changed",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": "standard",
+   "old_value": "91193.0",
+   "new_value": "88913.0",
+   "payload": {
+    "price_id": "1063",
+    "currency_id": "ARS"
+   },
+   "observed_at": "2026-10-13T19:11:17.76091+00:00"
+  },
+  {
+   "id": 43803,
+   "event_type": "price_changed",
+   "promotion_id": null,
+   "promotion_type": null,
+   "price_kind": "promotion",
+   "old_value": "77000.0",
+   "new_value": null,
+   "payload": {
+    "price_id": "1058"
+   },
+   "observed_at": "2026-10-13T19:11:17.76091+00:00"
+  },
+  {
+   "id": 43804,
+   "event_type": "promotion_finished",
+   "promotion_id": "C-MLA1717163",
+   "promotion_type": "SELLER_CAMPAIGN",
+   "price_kind": null,
+   "old_value": "started",
+   "new_value": null,
+   "payload": {
+    "reason": "absent"
+   },
+   "observed_at": "2026-10-13T19:11:18.698193+00:00"
+  },
+  {
+   "id": 43805,
+   "event_type": "price_changed",
+   "promotion_id": "OFFER-MLA1402898289-11585589657",
+   "promotion_type": "custom",
+   "price_kind": "sale",
+   "old_value": "77000.0",
+   "new_value": "88913.0",
+   "payload": {
+    "currency_id": "ARS",
+    "regular_amount": null
+   },
+   "observed_at": "2026-10-13T19:11:18.878613+00:00"
+  },
+  {
+   "id": 57924,
+   "event_type": "promotion_offered",
+   "promotion_id": "P-MLA18055092",
+   "promotion_type": "SMART_LIGHTNING",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "candidate",
+   "payload": {
+    "max_discounted_price": null,
+    "min_discounted_price": null,
+    "suggested_discounted_price": null
+   },
+   "observed_at": "2026-10-15T13:49:31.393877+00:00"
+  },
+  {
+   "id": 57925,
+   "event_type": "promotion_offered",
+   "promotion_id": "P-MLA18137008",
+   "promotion_type": "SMART",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "candidate",
+   "payload": {
+    "max_discounted_price": null,
+    "min_discounted_price": null,
+    "suggested_discounted_price": null
+   },
+   "observed_at": "2026-10-15T13:49:31.393877+00:00"
+  },
+  {
+   "id": 71198,
+   "event_type": "promotion_offered",
+   "promotion_id": "C-MLA1741893",
+   "promotion_type": "SELLER_CAMPAIGN",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "candidate",
+   "payload": {
+    "max_discounted_price": "84467.35",
+    "min_discounted_price": "30416",
+    "suggested_discounted_price": "77000"
+   },
+   "observed_at": "2026-10-16T03:11:41.515174+00:00"
+  },
+  {
+   "id": 71199,
+   "event_type": "promotion_offered",
+   "promotion_id": "C-MLA1741895",
+   "promotion_type": "SELLER_CAMPAIGN",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "candidate",
+   "payload": {
+    "max_discounted_price": "84467.35",
+    "min_discounted_price": "30416",
+    "suggested_discounted_price": "77000"
+   },
+   "observed_at": "2026-10-16T03:11:41.515174+00:00"
+  },
+  {
+   "id": 71200,
+   "event_type": "promotion_offered",
+   "promotion_id": "C-MLA1741899",
+   "promotion_type": "SELLER_CAMPAIGN",
+   "price_kind": null,
+   "old_value": null,
+   "new_value": "candidate",
+   "payload": {
+    "max_discounted_price": "84467.35",
+    "min_discounted_price": "30416",
+    "suggested_discounted_price": "77000"
+   },
+   "observed_at": "2026-10-16T03:11:41.515174+00:00"
+  }
+ ]
+}

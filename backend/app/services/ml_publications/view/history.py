@@ -22,7 +22,7 @@ from typing import Any, Mapping, Optional, Sequence
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.ml_publications.view import events_view, listing
+from app.services.ml_publications.view import events_view, history_rows, listing
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
@@ -169,14 +169,22 @@ def page_sql(after: bool = False) -> str:
 class HistoryPage:
     entries: list[dict[str, Any]]
     next_cursor: Optional[str]
+    hidden_technical_count: int = 0  # technical rows left out of the page's `rows` (all 0 with `tecnicos`)
 
 
 def _line_out(line: Change) -> dict[str, Any]:
     return {"path": line.path, "label_key": line.label_key, "label": line.label, "old": line.old, "new": line.new}
 
 
-def _entry_out(row: Any) -> dict[str, Any]:
-    business, technical = split(row["resource_type"], row["changes"] or [])
+def _entry_out(row: Any, *, include_technical: bool = False) -> dict[str, Any]:
+    """The legacy `business`/`technical` lines (raw values, kept for the current panel) plus `rows`: the readable
+    lines (`history_rows`), technical ones only with `include_technical`, the rest counted in
+    `hidden_technical_count`."""
+    changes = row["changes"] or []
+    business, technical = split(row["resource_type"], changes)
+    shown, hidden = history_rows.visible(
+        history_rows.readable(row["resource_type"], changes), include_technical=include_technical
+    )
     return {
         "id": row["id"],
         "observed_at": row["observed_at"],
@@ -184,6 +192,8 @@ def _entry_out(row: Any) -> dict[str, Any]:
         "kind": row["kind"],
         "business": [_line_out(line) for line in business],
         "technical": [_line_out(line) for line in technical],
+        "rows": [line.as_dict() for line in shown],
+        "hidden_technical_count": hidden,
     }
 
 
@@ -193,8 +203,10 @@ def list_history(
     *,
     cursor: Optional[tuple[datetime, int]] = None,
     limit: int = DEFAULT_LIMIT,
+    include_technical: bool = False,
 ) -> Optional[HistoryPage]:
-    """One page of the publication's change log, newest first; `None` when the item is not a publication."""
+    """One page of the publication's change log, newest first; `None` when the item is not a publication.
+    Technical rows are left out of each entry's `rows` (and counted) unless `include_technical`."""
     if not 1 <= limit <= MAX_LIMIT:
         raise ValueError(f"limit must be between 1 and {MAX_LIMIT}")
     listing.bound(db, STATEMENT_TIMEOUT)
@@ -212,4 +224,5 @@ def list_history(
     rows = db.execute(text(page_sql(cursor is not None)), params).mappings().all()
     page = rows[:limit]
     more = events_view.encode_cursor(page[-1]["observed_at"], page[-1]["id"]) if len(rows) > limit else None
-    return HistoryPage([_entry_out(row) for row in page], more)
+    entries = [_entry_out(row, include_technical=include_technical) for row in page]
+    return HistoryPage(entries, more, sum(entry["hidden_technical_count"] for entry in entries))
