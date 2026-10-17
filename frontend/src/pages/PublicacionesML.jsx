@@ -272,7 +272,10 @@ export default function PublicacionesML() {
     onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
   });
-  const visibleColumns = columns.filter((column) => columnVisibility[column.key] !== false);
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => columnVisibility[column.key] !== false),
+    [columns, columnVisibility],
+  );
   const selection = useMemo(() => ({ checked: checkedIds, onToggle: toggleChecked }), [checkedIds, toggleChecked]);
   const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
 
