@@ -95,15 +95,23 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
     }
   };
 
+  // The open modal keeps the set (and its note) the operator reviewed when opening it: a run re-resolves the set
+  // for the next open, and a second run from the same modal acts on the same products.
   const openModal = (key) => {
     setOpen(false);
-    setModal(key);
+    setModal({ key, itemIds, itemIdsNota: nota });
   };
   const done = () => {
     setReloadToken((token) => token + 1);
     onDone?.();
   };
-  const modalProps = { onClose: () => setModal(null), onSuccess: done, showToast, itemIds, itemIdsNota: nota };
+  const modalProps = modal && {
+    onClose: () => setModal(null),
+    onSuccess: done,
+    showToast,
+    itemIds: modal.itemIds,
+    itemIdsNota: modal.itemIdsNota,
+  };
 
   return (
     <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
@@ -143,9 +151,9 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
           )}
         </div>
       )}
-      {modal === 'web' && <CalcularWebModal {...modalProps} />}
-      {modal === 'pvp' && <CalcularPVPModal {...modalProps} />}
-      {modal === 'markup' && (
+      {modal?.key === 'web' && <CalcularWebModal {...modalProps} />}
+      {modal?.key === 'pvp' && <CalcularPVPModal {...modalProps} />}
+      {modal?.key === 'markup' && (
         <AplicarMarkupMasivoModal {...modalProps} puedeEditarCuotas={tienePermiso('productos.editar_precio_cuotas')} />
       )}
       <Toast toast={toast} onClose={hideToast} />

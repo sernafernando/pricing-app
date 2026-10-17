@@ -127,6 +127,31 @@ describe('BulkActions', () => {
     expect(screen.getByText(/2 productos fuera del catálogo quedan afuera/i)).toBeInTheDocument();
   });
 
+  it('an open modal keeps the set it opened with while the set re-resolves after a run', async () => {
+    granted = new Set([...ALL, 'productos.editar_precio_cuotas']);
+    publicacionesMlAPI.productIds
+      .mockResolvedValueOnce({ data: { item_ids: [4101, 4102, 4103], count: 3, sin_producto: 0 } })
+      .mockResolvedValue({ data: { item_ids: [9001, 9002], count: 2, sin_producto: 0 } });
+    // The cuotas config lands and the markup fails: the run counts as done (the set re-resolves) and the form stays open.
+    api.post.mockResolvedValueOnce({ data: {} }).mockRejectedValueOnce(new Error('lote caído'));
+    const user = userEvent.setup();
+    renderBulk();
+    await openMenu(user);
+    await user.click(screen.getByRole('menuitem', { name: /markup y cuotas/i }));
+    await user.click(screen.getByRole('checkbox', { name: /config de cuotas/i }));
+    await user.type(screen.getByPlaceholderText('No cambiar'), '1');
+    await user.click(screen.getByRole('button', { name: /aplicar a 3 productos/i }));
+    await waitFor(() => expect(publicacionesMlAPI.productIds).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('button', { name: /acciones masivas \(2 productos\)/i })).toBeEnabled());
+
+    expect(screen.getByText(/opera sobre 3 productos/i)).toBeInTheDocument();
+    api.post.mockClear();
+    api.post.mockResolvedValue({ data: { total: 3, ok: 3, errores: 0, resultados: [] } });
+    await user.click(screen.getByRole('button', { name: /aplicar a 3 productos/i }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    for (const [, body] of api.post.mock.calls) expect(body.item_ids).toEqual([4101, 4102, 4103]);
+  });
+
   it('offers only the actions the user may run, and nothing without any', async () => {
     resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
     granted = new Set(['productos.calcular_pvp_masivo']);
