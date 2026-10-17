@@ -18,6 +18,7 @@ Moneda = Literal["ARS", "USD"]
 Formula = Literal["proporcional", "por_unidad", "manual"]
 CuentaDesde = Literal["compra", "ingreso"]
 Estado = Literal["activa", "anulada"]
+Aplica = Literal["si", "no", "todas"]
 
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 
@@ -104,6 +105,9 @@ class SellInCompraOut(BaseModel):
     usuario_id: int
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
+    proveedor_nombre: Optional[str] = None
+    # Whether the sell in applies, by `services.sell_in.compras.aplica_condicion` (the one rule).
+    aplica: bool
     unidades_total: int
     unidades_consumidas: int
     unidades_restantes: int
@@ -115,3 +119,26 @@ class SellInCompraListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class SellInConteoAplica(BaseModel):
+    si: int
+    no: int
+    todas: int
+
+
+class SellInMontoPorMoneda(BaseModel):
+    ARS: Decimal
+    USD: Decimal
+
+
+class SellInCompraResumenOut(BaseModel):
+    """Aggregates over every purchase matching the list filters.
+
+    `conteo` ignores the `aplica` filter (all three buckets stay visible); `monto_total`
+    and `unidades_total` honour every filter, `aplica` included.
+    """
+
+    conteo: SellInConteoAplica
+    monto_total: SellInMontoPorMoneda
+    unidades_total: int
