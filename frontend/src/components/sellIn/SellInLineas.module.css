@@ -1,0 +1,68 @@
+/* A purchase's lines (expanded row and detail panel): cost before struck
+   through, cost after in the positive money colour. */
+
+.lines {
+  overflow-x: auto;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.linesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--cf-text-primary);
+}
+
+.linesTable th {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+}
+
+.linesTable td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.linesTable th.num {
+  text-align: right;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--cf-text-tertiary);
+}
+
+.before {
+  text-decoration: line-through;
+  color: var(--cf-text-tertiary);
+}
+
+.after {
+  font-weight: var(--font-semibold);
+  color: var(--money-positive);
+}
+
+.note {
+  margin: 0;
+  padding: var(--space-2) 12px;
+  font-size: var(--font-xs);
+  font-style: italic;
+  color: var(--cf-text-tertiary);
+  border-top: 1px solid var(--cf-border-default);
+}

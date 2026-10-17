@@ -1,0 +1,38 @@
+/* Summary cards (DESIGN.md "KPI strip"): equal cards, uppercase label, bold value. */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--spacing-md);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3) var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.label {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.value {
+  font-size: 18px;
+  font-weight: var(--font-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+}
+
+.sub {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}

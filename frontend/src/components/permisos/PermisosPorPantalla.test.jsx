@@ -117,7 +117,7 @@ describe('PermisosPorPantalla', () => {
   it('groups screens by sidebar section with accessible counts', async () => {
     renderPanel();
     const productos = await screen.findByRole('region', { name: 'Productos' });
-    expect(within(productos).getByText(/de 6 accesibles/)).toBeInTheDocument();
+    expect(within(productos).getByText(/de 7 accesibles/)).toBeInTheDocument();
     expect(within(productos).getByText('/productos', { selector: 'code' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Gestión' })).toBeInTheDocument();
   });
