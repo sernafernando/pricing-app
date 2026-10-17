@@ -8,6 +8,8 @@ throwaway schema (`_world`).
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -471,3 +473,52 @@ class TestSinIngreso:
 
         assert w.consumos(engine) == []
         assert (result.inserted, result.deleted, result.failed) == (0, 0, {})
+
+
+def _waiting_on_advisory_lock(engine: Engine) -> bool:
+    with engine.connect() as conn:
+        return bool(
+            conn.execute(
+                text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = :ns AND NOT granted"),
+                {"ns": costing_module.LOCK_NAMESPACE},
+            ).scalar()
+        )
+
+
+@pytest.mark.postgres
+class TestConcurrency:
+    def test_two_recomputes_of_one_product_serialize(self, engine: Engine) -> None:
+        """The second recompute waits on the product's advisory lock until the first
+        commits, then reads its rows and writes nothing: no duplicate consumptions."""
+        [linea] = w.compra(engine, [(2964, 5, "50.00")])
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 2))
+        Session_ = sessionmaker(bind=engine)
+        primera = Session_()
+        segunda: dict = {}
+
+        def recompute_segunda() -> None:
+            with Session_() as db:
+                try:
+                    segunda["result"] = get_costing().recompute(db, [2964], isolate_failures=False)
+                    db.commit()
+                except Exception as exc:  # noqa: BLE001 - surfaced by the assertion below
+                    segunda["error"] = exc
+
+        try:
+            assert get_costing().recompute(primera, [2964]).inserted == 1  # holds the lock, uncommitted
+            hilo = threading.Thread(target=recompute_segunda)
+            hilo.start()
+            deadline = time.monotonic() + 10
+            while not _waiting_on_advisory_lock(engine):
+                assert time.monotonic() < deadline, "the second recompute never waited on the lock"
+                time.sleep(0.02)
+            assert hilo.is_alive() and segunda == {}
+            primera.commit()
+        finally:
+            primera.close()
+        hilo.join(timeout=10)
+
+        assert not hilo.is_alive()
+        assert "error" not in segunda, segunda.get("error")
+        assert (segunda["result"].inserted, segunda["result"].deleted) == (0, 0)
+        assert w.consumos(engine) == [(linea, "fuera", ref, 2964, 2, Decimal("20.00"))]
