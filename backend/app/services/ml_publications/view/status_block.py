@@ -77,11 +77,23 @@ def _resource_degradations(report: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _stale(report: Mapping[str, Any]) -> list[dict[str, Any]]:
-    age = ((report.get("freshness") or {}).get("items") or {}).get("p95_age_seconds")
+    """Fires on the p95 age; carries the threshold and the share past it so the banner states what it measured."""
+    items = (report.get("freshness") or {}).get("items") or {}
+    age = items.get("p95_age_seconds")
     limit = settings.ML_PUB_STALE_DAYS * DAY_SECONDS
     if age is None or age <= limit:
         return []
-    return [{"code": "stale_data", "resource": "items", "p95_age_seconds": age, "affects": ["all"]}]
+    return [
+        {
+            "code": "stale_data",
+            "resource": "items",
+            "p95_age_seconds": age,
+            "stale_days": settings.ML_PUB_STALE_DAYS,
+            "stale_rows": items.get("stale_rows"),
+            "checked_rows": items.get("checked"),
+            "affects": ["all"],
+        }
+    ]
 
 
 def build_block(report: Mapping[str, Any]) -> dict[str, Any]:

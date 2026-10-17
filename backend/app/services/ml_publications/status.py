@@ -298,15 +298,20 @@ def _items(db: Session) -> Dict[str, Any]:
 
 
 def _freshness(db: Session, resources: Optional[Dict[str, str]] = None) -> Dict[str, Dict[str, Any]]:
+    """Age of `last_checked_at` per state table; `stale_rows` counts the rows past `ML_PUB_STALE_DAYS` (the
+    banner's threshold) in the same scan, so the banner can state the real share instead of guessing it."""
     result = {}
+    stale_seconds = settings.ML_PUB_STALE_DAYS * 86400
     for resource, table in (STATE_TABLES if resources is None else resources).items():
         row = db.execute(
             text(
                 "SELECT count(*) AS total, count(age) AS checked, "
+                "count(*) FILTER (WHERE age > :stale_seconds) AS stale, "
                 "percentile_cont(0.5) WITHIN GROUP (ORDER BY age) AS p50, "
                 "percentile_cont(0.95) WITHIN GROUP (ORDER BY age) AS p95, max(age) AS oldest FROM "
                 f"(SELECT CAST(extract(epoch FROM now() - last_checked_at) AS double precision) AS age FROM {table}) s"
-            )
+            ),
+            {"stale_seconds": stale_seconds},
         ).one()
         result[resource] = {
             "rows": row.total,
@@ -314,6 +319,7 @@ def _freshness(db: Session, resources: Optional[Dict[str, str]] = None) -> Dict[
             "p50_age_seconds": _number(row.p50),
             "p95_age_seconds": _number(row.p95),
             "max_age_seconds": _number(row.oldest),
+            "stale_rows": row.stale,
         }
     return result
 
