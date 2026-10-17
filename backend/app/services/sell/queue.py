@@ -32,6 +32,7 @@ so a change made while the line was being processed is never lost.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import text
@@ -160,10 +161,11 @@ FOR UPDATE SKIP LOCKED
 """
 )
 
-# One given line, as `_CLAIM_SQL` would claim it: the drain's line-by-line retry of a failed batch.
+# One given line, as `_CLAIM_SQL` would claim it, with the version claimed
+# (`enqueued_at`, which every re-queue moves): the drain's line-by-line retry.
 _CLAIM_LINE_SQL = text(
     """
-SELECT canal, venta_ref, item_id FROM sell_dirty
+SELECT canal, venta_ref, item_id, enqueued_at FROM sell_dirty
 WHERE canal = :canal AND venta_ref = :ref AND attempts < :max_attempts
 FOR UPDATE SKIP LOCKED
 """
@@ -186,6 +188,13 @@ DELETE FROM sell_dirty AS d
 USING unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[])) AS l(canal, ref)
 WHERE d.canal = l.canal AND d.venta_ref = l.ref
 """
+)
+
+# Charges a line only while it is still the version that failed: a re-queue
+# that landed after the failed transaction rolled back is a fresh change.
+_CHARGE_SQL = text(
+    "UPDATE sell_dirty SET attempts = attempts + 1, last_error = :error "
+    "WHERE canal = :canal AND venta_ref = :ref AND enqueued_at = :enqueued_at"
 )
 
 _FAILED_SQL = text(
@@ -221,12 +230,21 @@ def claim_batch(db: Session, limit: int, excluded: Iterable[Line] = ()) -> List[
     return [tuple(row) for row in db.execute(_CLAIM_SQL, params)]
 
 
-def claim_line(db: Session, line: Line) -> Optional[Tuple[str, int, Optional[int]]]:
-    """Claims one queued line, locked until the transaction ends; None when it is
-    gone, parked or held by another drain. Does not commit."""
+def claim_line(db: Session, line: Line) -> Optional[Tuple[Tuple[str, int, Optional[int]], datetime]]:
+    """Claims one queued line, locked until the transaction ends, as
+    `((canal, venta_ref, item_id), enqueued_at)`; None when it is gone, parked
+    or held by another drain. Does not commit."""
     canal, ref = line
     row = db.execute(_CLAIM_LINE_SQL, {"canal": canal, "ref": ref, "max_attempts": MAX_ATTEMPTS}).first()
-    return tuple(row) if row is not None else None
+    return ((row[0], row[1], row[2]), row[3]) if row is not None else None
+
+
+def charge(db: Session, line: Line, error: str, enqueued_at: datetime) -> bool:
+    """Charges a failed attempt to `line` if it is still the version claimed at
+    `enqueued_at`; False when it was re-queued (or acked) meanwhile. Does not commit."""
+    canal, ref = line
+    params = {"canal": canal, "ref": ref, "error": error[:1000], "enqueued_at": enqueued_at}
+    return db.execute(_CHARGE_SQL, params).rowcount == 1
 
 
 def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) -> Dict[Line, Set[int]]:

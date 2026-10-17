@@ -19,7 +19,14 @@ isolate it, step 4) rolls the whole batch back, so no line would ever be
 charged and the next wake would claim the same batch again: one bad line would
 stall the queue. Instead the drain retries that batch one line per transaction
 (re-claimed with `SKIP LOCKED`), charging, in its own transaction, only the
-line that still fails. The others drain; the bad one is parked in time.
+line that still fails, and only while it is still the version that failed (a
+re-queue that landed meanwhile is a fresh change). The others drain; the bad
+one is parked in time.
+
+Only a line's own fault is charged. A transient infrastructure error
+(`is_transient`: a lost connection, a deadlock, a serialization failure, a lock
+or statement timeout) charges nothing: the run stops, the lines stay queued as
+they were, and the next wake retries them.
 
 Sell out (T7) will join step 3. Wired like `tp_cost.fill`:
 `channels=("sell_dirty",)` with no `interval`/`run_at_local`, so
@@ -33,6 +40,7 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
@@ -43,6 +51,24 @@ from app.workers.context import JobResult, WorkerContext
 logger = logging.getLogger(__name__)
 
 Claimed = Tuple[str, int, Optional[int]]
+
+# deadlock, serialization failure, lock_not_available, query_canceled; plus class 08 (connection exceptions).
+_TRANSIENT_SQLSTATES = frozenset({"40P01", "40001", "55P03", "57014"})
+
+
+def is_transient(exc: BaseException) -> bool:
+    """True for an infrastructure error that says nothing about the line being
+    processed, so retrying later can succeed: an invalidated connection, a
+    connection-level `OperationalError` without SQLSTATE, a class 08 SQLSTATE,
+    or one of `_TRANSIENT_SQLSTATES`."""
+    if not isinstance(exc, DBAPIError):
+        return False
+    if exc.connection_invalidated:
+        return True
+    pgcode = getattr(exc.orig, "pgcode", None)
+    if pgcode is None:
+        return isinstance(exc, OperationalError)
+    return pgcode in _TRANSIENT_SQLSTATES or pgcode.startswith("08")
 
 
 class SellDrainHandler:
@@ -56,7 +82,8 @@ class SellDrainHandler:
     def run(self, ctx: WorkerContext) -> JobResult:
         detail = {"lines": 0, "batches": 0, "products": 0, "inserted": 0, "deleted": 0, "failed": 0}
         failed_lines: Set[queue.Line] = set()
-        while datetime.now(timezone.utc) < ctx.deadline:
+        stopped = False
+        while not stopped and datetime.now(timezone.utc) < ctx.deadline:
             claimed: List[Claimed] = []
             try:
                 with get_background_db() as db:
@@ -67,11 +94,14 @@ class SellDrainHandler:
                     if not claimed:
                         break
                     result, failed = _recompute_and_settle(db, claimed)
-            except Exception:
+            except Exception as exc:
+                if is_transient(exc):
+                    logger.warning("sell.drain: transient error, nothing charged; the next wake retries: %s", exc)
+                    break
                 if not claimed:
                     raise  # nothing was claimed: not a line's fault
                 logger.exception("sell.drain: batch of %s line(s) failed; retrying it line by line", len(claimed))
-                result, failed = _line_by_line(claimed, ctx.deadline)
+                result, failed, stopped = _line_by_line(claimed, ctx.deadline)
             failed_lines.update(failed)
             detail["lines"] += len(claimed)
             detail["batches"] += 1
@@ -100,35 +130,46 @@ def _recompute_and_settle(db: Session, claimed: Sequence[Claimed]) -> Tuple[Reco
     return result, failed
 
 
-def _line_by_line(claimed: Sequence[Claimed], deadline: datetime) -> Tuple[RecomputeResult, Dict[queue.Line, str]]:
+def _line_by_line(
+    claimed: Sequence[Claimed], deadline: datetime
+) -> Tuple[RecomputeResult, Dict[queue.Line, str], bool]:
     """Retries a batch that failed as a whole, one line per transaction. A line
-    that fails on its own is charged in a separate transaction, so its attempt
-    counts even though its own transaction rolled back. A line another drain
-    took, or that was acked or parked meanwhile, is skipped. Lines left when
-    the deadline passes stay queued, untouched, for the next wake."""
+    that fails on its own is charged in a separate transaction (its own rolled
+    back), only if it is still the version claimed. A line another drain took,
+    or that was acked or parked meanwhile, is skipped. Lines left when the
+    deadline passes, or after a transient error (third value True: stop the
+    run), stay queued, untouched, for the next wake."""
     total = RecomputeResult()
     failed: Dict[queue.Line, str] = {}
     for canal, ref, _ in claimed:
         if datetime.now(timezone.utc) >= deadline:
             break
         line = (canal, ref)
+        version: Optional[datetime] = None
         try:
             with get_background_db() as db:
                 again = queue.claim_line(db, line)
                 if again is None:
                     continue
-                result, line_failed = _recompute_and_settle(db, [again])
+                row, version = again
+                result, line_failed = _recompute_and_settle(db, [row])
         except Exception as exc:
+            if is_transient(exc):
+                logger.warning("sell.drain: transient error on line %s, nothing charged; stopping: %s", line, exc)
+                return total, failed, True
+            if version is None:
+                raise  # failed before the line was claimed: not the line's fault
             logger.exception("sell.drain: line %s failed", line)
             line_failed = {line: f"{type(exc).__name__}: {exc}"}
             with get_background_db() as db:
-                queue.settle(db, [], line_failed)
+                if not queue.charge(db, line, line_failed[line], version):
+                    logger.info("sell.drain: line %s was re-queued meanwhile; not charged", line)
             result = RecomputeResult()
         failed.update(line_failed)
         total.products += result.products
         total.inserted += result.inserted
         total.deleted += result.deleted
-    return total, failed
+    return total, failed, False
 
 
 drain = SellDrainHandler()
