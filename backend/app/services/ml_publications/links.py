@@ -168,6 +168,11 @@ def resolve(
     similar = {pid for codigo, ids in codigo_index.items() if normalize_sku(codigo) == normalized for pid in ids}
     if similar:
         return _decided(unit, similar, RULE_CODIGO_NORMALIZED)
+    # Policy: a plain number equal to a product's `item_id` links to it, even when the seller meant some other
+    # code that happens to coincide; the rule cannot tell them apart. Evidence (production, read-only,
+    # 2026-10-17): of the 307 unmatched automatic item-level units whose SKU was such a number, the ERP
+    # publication map agreed on 303, disagreed on 0 and did not know 4. Leading-zero and EAN-length numbers
+    # never qualify (`item_id_of`).
     number = item_id_of(normalized)
     if number is not None and number in item_ids:
         return _decided(unit, {number}, RULE_ITEM_ID)

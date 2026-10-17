@@ -197,6 +197,19 @@ class TestNormalizedAndItemIdRules:
             suggestion = links.resolve(unit, {sku: [3], "0": [4]}, frozenset({0}))
             assert (suggestion.status, suggestion.producto_item_id, suggestion.candidates) == ("unmatched", None, ())
 
+    def test_policy_a_plain_number_equal_to_an_item_id_links_whatever_the_seller_meant(self) -> None:
+        """The rule cannot tell a seller who typed our id from one whose own code happens to equal it; it links.
+        Measured 2026-10-17: of 307 such units the ERP publication map agreed on 303, disagreed on 0."""
+        unit = only_unit(with_sku(bulk_item("MLA935110613"), "126"))
+        suggestion = links.resolve(unit, {}, frozenset({126}))
+        assert (suggestion.status, suggestion.producto_item_id, suggestion.rule) == ("linked", 126, "item_id")
+
+    def test_policy_a_leading_zero_or_ean_length_number_never_links_by_item_id(self) -> None:
+        for sku in ("0126", "7798123456789"):  # EAN-like codes: never our ids, whatever the catalog holds
+            unit = only_unit(with_sku(bulk_item("MLA935110613"), sku))
+            suggestion = links.resolve(unit, {}, frozenset({126, 7798123456789}))
+            assert (suggestion.status, suggestion.producto_item_id) == ("unmatched", None), sku
+
     def test_only_a_canonical_number_is_an_item_id(self) -> None:
         assert links.item_id_of("126") == 126
         assert links.item_id_of("0126") is None  # leading zero: an EAN-like code, not our id
