@@ -1067,6 +1067,7 @@ class ProductIdsResponse(BaseModel):
     item_ids: list[int]
     count: int
     sin_producto: int  # matching publications with no linked product: no bulk action reaches them
+    fuera_de_catalogo: int  # linked products gone from the ERP catalog: left out, no bulk write can price them
 
 
 PRODUCT_IDS_OVER_CAP = "demasiados_productos"
@@ -1076,15 +1077,31 @@ PRODUCT_IDS_OVER_CAP = "demasiados_productos"
 def get_product_ids(
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
+    markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia), as in /items"),
+    markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
+    markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
     db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission check and the pricing tables (see `get_items`)
 ) -> dict[str, Any]:
-    """The linked products of the publications the filters select: the set a bulk pricing action acts on. Over
-    `products.MAX_PRODUCT_IDS` it is a 422 naming the count, never a truncated list."""
+    """The linked products of the publications the filters select -- the markup filters included, applied as
+    `/items` applies them: the set a bulk pricing action acts on. Over `products.MAX_PRODUCT_IDS` it is a 422
+    naming the count, never a truncated list."""
+    asks_for_margin = bool(markup_neg or (markup_min or "").strip() or (markup_max or "").strip())
+    if asks_for_margin and not PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA):
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
+        )
     try:
+        markup = None
+        if asks_for_margin:
+            markup_filter = parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
+            markup = MarkupQuery(auth_db, markup_filter)
         if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
-        found = products.product_ids(db, f)
+        found = products.product_ids(db, f, markup)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except products.TooManyProducts as exc:
@@ -1102,7 +1119,12 @@ def get_product_ids(
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
-    return {"item_ids": found.item_ids, "count": len(found.item_ids), "sin_producto": found.sin_producto}
+    return {
+        "item_ids": found.item_ids,
+        "count": len(found.item_ids),
+        "sin_producto": found.sin_producto,
+        "fuera_de_catalogo": found.fuera_de_catalogo,
+    }
 
 
 @router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)

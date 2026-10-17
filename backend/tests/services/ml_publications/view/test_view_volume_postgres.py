@@ -25,7 +25,7 @@ from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.comision_config import SubcategoriaGrupo
-from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service
+from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service, products
 from app.services.ml_publications.view.filters import MarkupFilter, build_base_select, parse_filter
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed as view_seed
@@ -352,6 +352,13 @@ class TestMarkupVolume:
             "orden=markup + estado=active + tienda 2645",
             lambda: markup_page(session, orden="markup", estado="active", tiendas="2645"),
         )
+        timed(
+            "product-ids markup_neg=true (bulk resolver, set-wide)",
+            lambda: products.product_ids(
+                session, parse_filter(), markup_service.MarkupQuery(session, MarkupFilter(negative=True))
+            ),
+        )
+        timed("product-ids, no markup filter", lambda: products.product_ids(session, parse_filter()))
         f = parse_filter()
         timed("  stage: inputs of the whole set (3 statements)", lambda: markup_inputs.fetch_inputs(session, f=f))
         inputs = markup_inputs.fetch_inputs(session, f=f)

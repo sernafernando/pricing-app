@@ -53,19 +53,24 @@ class TestProducts:
     def test_the_linked_products_of_the_matching_publications(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER)
         # MLA1 -> 77, MLA2 no product, MLA3 (paused) -> 77, MLA4 -> 78
-        assert body(client, admin_auth_headers) == {"item_ids": [77, 78], "count": 2, "sin_producto": 1}
+        assert body(client, admin_auth_headers) == {
+            "item_ids": [77, 78],
+            "count": 2,
+            "sin_producto": 1,
+            "fuera_de_catalogo": 0,
+        }
 
     def test_the_filters_narrow_the_set(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER)
         got = body(client, admin_auth_headers, estado="paused")
-        assert got == {"item_ids": [77], "count": 1, "sin_producto": 0}
+        assert got == {"item_ids": [77], "count": 1, "sin_producto": 0, "fuera_de_catalogo": 0}
 
     def test_a_product_counts_once_however_many_publications_match(
         self, client, sold, db, rol_admin, admin_auth_headers
     ):
         grant(db, rol_admin, VER)
         got = body(client, admin_auth_headers, estado="active,paused", marcas="TP-Link")
-        assert got == {"item_ids": [77], "count": 1, "sin_producto": 0}
+        assert got == {"item_ids": [77], "count": 1, "sin_producto": 0, "fuera_de_catalogo": 0}
 
     def test_an_empty_selection_is_empty(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER)
@@ -73,6 +78,7 @@ class TestProducts:
             "item_ids": [],
             "count": 0,
             "sin_producto": 0,
+            "fuera_de_catalogo": 0,
         }
 
     @pytest.mark.parametrize(
@@ -107,12 +113,22 @@ class TestPresenceToggles:
 
     def test_in_the_publication_view_the_offer_is_the_publications(self, client, mixed):
         """ "Sin oferta" there lists MLA2, MLA3 and MLA4: their products are 77 (by MLA4) and 78."""
-        assert body(client, mixed, con_oferta="false") == {"item_ids": [77, 78], "count": 2, "sin_producto": 1}
-        assert body(client, mixed, con_oferta="true") == {"item_ids": [77], "count": 1, "sin_producto": 0}
+        assert body(client, mixed, con_oferta="false") == {
+            "item_ids": [77, 78],
+            "count": 2,
+            "sin_producto": 1,
+            "fuera_de_catalogo": 0,
+        }
+        assert body(client, mixed, con_oferta="true") == {
+            "item_ids": [77],
+            "count": 1,
+            "sin_producto": 0,
+            "fuera_de_catalogo": 0,
+        }
 
     def test_in_the_producto_view_the_offer_is_the_products(self, client, mixed):
         got = body(client, mixed, con_oferta="false", oferta_por_producto="true")
-        assert got == {"item_ids": [78], "count": 1, "sin_producto": 1}
+        assert got == {"item_ids": [78], "count": 1, "sin_producto": 1, "fuera_de_catalogo": 0}
 
 
 class TestFailClosed:

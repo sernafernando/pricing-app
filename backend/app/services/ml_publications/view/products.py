@@ -30,9 +30,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
-from sqlalchemy import Date, String, and_, case, cast, func, literal, select
+from sqlalchemy import ARRAY, Date, String, Text, and_, any_, case, cast, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -46,7 +46,8 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     erp_stock,
 )
-from app.services.ml_publications.view.listing import resolve_pm_pairs
+from app.services.ml_publications.view.listing import markup_accepted, resolve_pm_pairs
+from app.services.ml_publications.view.markup_service import MarkupQuery
 
 # `orden` -> (the summed row's column, whether it is a margin figure: `ml_metricas.ver_ganancia` only, whether it is a
 # Métricas figure: `ml_metricas.ver` only). The figure names are the ones `/items` sorts by.
@@ -258,25 +259,39 @@ class TooManyProducts(Exception):
 
 @dataclass(frozen=True)
 class ProductIds:
-    item_ids: list[int]  # the distinct linked products, ascending
+    item_ids: list[int]  # the distinct linked products in the ERP catalog, ascending
     sin_producto: int  # the matching publications with no linked product (left out of `item_ids`)
+    fuera_de_catalogo: int  # the linked products no longer in the ERP catalog (left out: no bulk write can price them)
 
 
-def product_ids(db: Session, f: PublicationFilter) -> ProductIds:
+def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery] = None) -> ProductIds:
     """The linked products of the MLAs `f` selects -- the very grouping `list_products` makes (the base select's
     item-level link), so their count is its product rows. Unlike `list_products`, mejor oferta is asked the way the
     caller asks it (`oferta_por_producto`): in the publication view a product is in the set when one of ITS matching
-    publications is, which is what the operator sees. Raises `TooManyProducts` over `MAX_PRODUCT_IDS`."""
+    publications is, which is what the operator sees.
+
+    `markup` (its filter active) narrows the MLAs as `/items` does, with the same post-query step
+    (`listing.markup_accepted`) over the whole filtered set. A linked product the ERP catalog no longer has is left
+    out and counted (`fuera_de_catalogo`): the bulk endpoints cannot price it. Raises `TooManyProducts` over
+    `MAX_PRODUCT_IDS`."""
     f = resolve_pm_pairs(db, f)
-    members = build_base_select(f, T.i.item_id.label("mla"), T.l.producto_item_id.label("product")).subquery("m")
+    base = build_base_select(
+        f, T.i.item_id.label("mla"), T.l.producto_item_id.label("product"), T.p.item_id.label("in_catalog")
+    )
+    if markup is not None and markup.filter.active:
+        _, kept = markup_accepted(db, f, markup)
+        base = base.where(T.i.item_id == any_(literal(sorted(kept), ARRAY(Text))))
+    members = base.subquery("m")
     linked = members.c.product.isnot(None) & (members.c.product != NO_PRODUCT)
-    count, sin_producto = db.execute(
+    priceable = linked & members.c.in_catalog.isnot(None)
+    count, sin_producto, gone = db.execute(
         select(
-            func.count(func.distinct(case((linked, members.c.product), else_=None))),
+            func.count(func.distinct(case((priceable, members.c.product), else_=None))),
             func.count(func.distinct(case((linked, None), else_=members.c.mla))),
+            func.count(func.distinct(case((linked & members.c.in_catalog.is_(None), members.c.product), else_=None))),
         ).select_from(members)
     ).one()
     if count > MAX_PRODUCT_IDS:
         raise TooManyProducts(int(count), MAX_PRODUCT_IDS)
-    ids = db.execute(select(members.c.product).where(linked).distinct().order_by(members.c.product)).scalars()
-    return ProductIds([int(i) for i in ids], int(sin_producto))
+    ids = db.execute(select(members.c.product).where(priceable).distinct().order_by(members.c.product)).scalars()
+    return ProductIds([int(i) for i in ids], int(sin_producto), int(gone))
