@@ -103,6 +103,48 @@ describe('the changes', () => {
   });
 });
 
+describe('the resource chips', () => {
+  const chip = (name) => screen.getByRole('button', { name });
+  const shownIds = () => cards().map((card) => Number(card.getAttribute('data-entry')));
+
+  it('start on "Todo", with every card', async () => {
+    renderTab();
+    await screen.findAllByText('Visitas');
+    expect(chip('Todo')).toHaveAttribute('aria-pressed', 'true');
+    expect(cards()).toHaveLength(13);
+  });
+
+  it('narrow the cards by resource, and "Todo" brings them back', async () => {
+    renderTab();
+    await screen.findAllByText('Visitas');
+
+    await userEvent.click(chip('Precio'));
+    expect(chip('Precio')).toHaveAttribute('aria-pressed', 'true');
+    expect(shownIds()).toEqual([140177, 70046, 7673, 7671, 7666, 6989]);
+
+    await userEvent.click(chip('Stock'));
+    expect(shownIds()).toEqual([175494, 70046, 7666, 6989]);
+
+    await userEvent.click(chip('Promociones'));
+    expect(shownIds()).toEqual([123143, 71677, 9282, 7672]);
+
+    await userEvent.click(chip('Visitas y ventas'));
+    expect(shownIds()).toEqual([172543, 34965]);
+
+    await userEvent.click(chip('Todo'));
+    expect(cards()).toHaveLength(13);
+  });
+
+  it('say so when a chip leaves nothing on the loaded page', async () => {
+    publicacionesMlAPI.history.mockResolvedValue(page([entry(175494)]));
+    renderTab();
+    await screen.findByText('Stock disponible');
+    await userEvent.click(chip('Promociones'));
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+    expect(screen.getByText('Ningún cambio de los cargados coincide con este filtro.')).toBeInTheDocument();
+  });
+});
+
 describe('the technical lines', () => {
   it('are hidden and counted in the footer', async () => {
     renderTab();

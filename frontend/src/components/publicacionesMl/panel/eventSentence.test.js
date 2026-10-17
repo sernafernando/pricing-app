@@ -5,7 +5,7 @@
  * through the merged backend), so the payload shapes are the store's.
  */
 import { describe, it, expect } from 'vitest';
-import { describeEvent, money, originTag, stateTone } from './eventSentence';
+import { describeEvent, describeOffers, eventIcon, foldOffers, money, originTag, stateTone } from './eventSentence';
 import capture from './fixtures/eventsHistory_MLA1402898289_20261016.json';
 
 const event = (id) => capture.events.events.find((found) => found.id === id);
@@ -136,5 +136,57 @@ describe('the state tone', () => {
     expect(stateTone('Pendiente')).toBe('info');
     expect(stateTone('Finalizada')).toBe('neutral');
     expect(stateTone('Ya no se ofrece')).toBe('neutral');
+  });
+});
+
+describe('the icon family', () => {
+  it('price, promotion, play/pause, catalog star and stock, each with its tone', () => {
+    expect(eventIcon(event(43805))).toEqual({ family: 'price', tone: 'warning' });
+    expect(eventIcon(event(71200))).toEqual({ family: 'promotion', tone: 'neutral' });
+    expect(eventIcon(event(3689))).toEqual({ family: 'promotion', tone: 'info' });
+    expect(eventIcon(event(43638))).toEqual({ family: 'play', tone: 'success' });
+    expect(eventIcon(event(42330))).toEqual({ family: 'pause', tone: 'warning' });
+    expect(eventIcon(event(3687))).toEqual({ family: 'star', tone: 'success' });
+    expect(eventIcon(event(43333))).toEqual({ family: 'star', tone: 'danger' });
+    expect(eventIcon(event(3195))).toEqual({ family: 'stock', tone: 'info' });
+    expect(eventIcon({ ...event(42330), event_type: 'title_changed' })).toEqual({ family: 'other', tone: 'neutral' });
+  });
+});
+
+describe('folding the offers ML made in the same minute', () => {
+  const ids = (lines) => lines.map((line) => line.events.map((found) => found.id));
+
+  it('folds consecutive informative ML offers of the same minute, and nothing else', () => {
+    const lines = foldOffers(capture.events.events);
+    expect(lines).toHaveLength(18);
+    expect(ids(lines).slice(0, 3)).toEqual([[71200, 71199, 71198], [57925, 57924], [43805]]);
+    expect(ids(lines).find((group) => group.includes(6379))).toEqual([6379, 6378]);
+    // the offers that went away right after are not offers: they stay alone
+    expect(ids(lines).find((group) => group.includes(6377))).toEqual([6377]);
+  });
+
+  it('never folds an offer we made, an applied one, or offers of different minutes', () => {
+    const [a, b] = [event(71200), event(71199)];
+    expect(foldOffers([a, { ...b, origin: { kind: 'nosotros', user_name: 'Fernando S.' } }])).toHaveLength(2);
+    expect(foldOffers([a, { ...b, informational: false }])).toHaveLength(2);
+    expect(foldOffers([a, { ...b, observed_at: '2026-10-16T03:12:01.000000Z' }])).toHaveLength(2);
+    expect(foldOffers([a, b])).toHaveLength(1);
+  });
+
+  it('a fold of one type counts them, with the detail they share', () => {
+    expect(describeOffers([event(71200), event(71199), event(71198)])).toEqual({
+      title: 'ML ofreció 3 campañas del vendedor',
+      detail: 'Precio sugerido $ 77.000 · se puede elegir entre $ 30.416 y $ 84.467,35',
+      change: null,
+    });
+  });
+
+  it('a fold of several types names each one', () => {
+    expect(describeOffers([event(57925), event(57924)])).toEqual({
+      title: 'ML ofreció Campaña co-fondeada y Oferta relámpago co-fondeada',
+      detail: null,
+      change: null,
+    });
+    expect(describeOffers([event(71200), event(71199), event(57925)]).title).toBe('ML ofreció 2 campañas del vendedor y Campaña co-fondeada');
   });
 });

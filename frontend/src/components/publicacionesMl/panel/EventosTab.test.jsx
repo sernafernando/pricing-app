@@ -45,11 +45,34 @@ afterEach(() => {
 });
 
 describe('the events', () => {
-  it('asks for the events of the selected publication and lists every one, newest first', async () => {
+  it('asks for the events of the selected publication and lists them, newest first, ML offers of one minute folded', async () => {
     renderTab();
     await screen.findByText('Publicación reactivada');
     expect(publicacionesMlAPI.events).toHaveBeenCalledWith('MLA1402898289', {});
-    expect(entries()).toHaveLength(EVENTS.length);
+    // 22 events; 3 + 2 + 2 same-minute offers fold into 3 lines
+    expect(entries()).toHaveLength(18);
+  });
+
+  it('a folded line counts the offers and keeps their shared detail and tags', async () => {
+    renderTab();
+    const offers = (await screen.findByText('ML ofreció 3 campañas del vendedor')).closest('li');
+    expect(offers).toHaveTextContent('Precio sugerido $ 77.000 · se puede elegir entre $ 30.416 y $ 84.467,35');
+    expect(within(offers).getByText('Informativo de ML')).toBeInTheDocument();
+    expect(within(offers).getByText('Disponible para activar')).toBeInTheDocument();
+    expect(screen.getByText('ML ofreció Campaña co-fondeada y Oferta relámpago co-fondeada')).toBeInTheDocument();
+    expect(screen.getByText('ML ofreció 2 cupones del vendedor')).toBeInTheDocument();
+  });
+
+  it('each line has the icon of its family', async () => {
+    renderTab();
+    await screen.findByText('Publicación reactivada');
+    const icon = (text) => entryOf(text).querySelector('[data-icon]').getAttribute('data-icon');
+    expect(icon('ML ofreció 3 campañas del vendedor')).toBe('promotion');
+    expect(icon('Publicación reactivada')).toBe('play');
+    expect(icon('Publicación pausada')).toBe('pause');
+    expect(icon('Dejó de competir en el catálogo')).toBe('star');
+    expect(icon('Volvió a tener stock')).toBe('stock');
+    expect(icon('Cambió el precio de lista')).toBe('price');
   });
 
   it('groups them by day: Hoy, Ayer, then the weekday and the date', async () => {
@@ -58,14 +81,15 @@ describe('the events', () => {
     const days = screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent);
     expect(days).toEqual(['Hoy', 'Ayer', 'Martes 13/10', 'Sábado 10/10']);
     const today = screen.getByRole('heading', { name: 'Hoy' }).closest('section');
-    expect(within(today).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(today).getAllByRole('listitem')).toHaveLength(1);
   });
 
   it('each event is a sentence with its detail and its time of day', async () => {
     renderTab();
-    const offer = (await screen.findAllByText('ML ofreció la promoción Campaña del vendedor'))[0].closest('li');
-    expect(offer).toHaveTextContent('Precio sugerido $ 77.000 · se puede elegir entre $ 30.416 y $ 84.467,35');
+    const offer = (await screen.findByText('ML ofreció 3 campañas del vendedor')).closest('li');
     expect(within(offer).getByText('00:11')).toHaveAttribute('dateTime', byId(71200).observed_at);
+    const paused = entryOf('Publicación pausada');
+    expect(within(paused).getByText('15:37')).toHaveAttribute('dateTime', byId(42330).observed_at);
   });
 
   it('a price change shows both prices and the percentage', async () => {
@@ -88,7 +112,7 @@ describe('the events', () => {
 describe('the tags', () => {
   it('say who caused each event: ML (informative or a change) or unknown', async () => {
     renderTab();
-    const offer = (await screen.findAllByText('ML ofreció la promoción Campaña del vendedor'))[0].closest('li');
+    const offer = (await screen.findByText('ML ofreció 3 campañas del vendedor')).closest('li');
     expect(within(offer).getByText('Informativo de ML')).toBeInTheDocument();
     expect(within(entryOf('Dejó de competir en el catálogo')).getByText('Cambio de ML')).toBeInTheDocument();
     expect(within(entryOf('Publicación pausada')).getByText('Origen sin registrar')).toBeInTheDocument();
@@ -111,7 +135,7 @@ describe('the tags', () => {
   it('show the promotion state: offered, applied, finished, no longer offered', async () => {
     renderTab();
     await screen.findByText('Publicación reactivada');
-    expect(screen.getAllByText('Disponible para activar')).toHaveLength(7);
+    expect(screen.getAllByText('Disponible para activar')).toHaveLength(3);
     expect(within(entryOf('Se aplicó la promoción Campaña del vendedor a $ 77.000')).getByText('Aplicada')).toBeInTheDocument();
     expect(within(entryOf('Terminó la promoción Campaña del vendedor')).getByText('Finalizada')).toBeInTheDocument();
     expect(screen.getAllByText('Ya no se ofrece')).toHaveLength(2);
@@ -119,13 +143,13 @@ describe('the tags', () => {
 });
 
 describe('the filter chips', () => {
-  it('count the events of each filter', async () => {
+  it('count the lines each filter shows', async () => {
     publicacionesMlAPI.events.mockResolvedValue(page([{ ...byId(3689), origin: { kind: 'nosotros', user_name: 'Fernando S.' } }, ...EVENTS.filter((e) => e.id !== 3689)]));
     renderTab();
     await screen.findByText('Publicación reactivada');
-    expect(chip('Todos')).toHaveTextContent('Todos22');
+    expect(chip('Todos')).toHaveTextContent('Todos18');
     expect(chip('Hechos por nosotros')).toHaveTextContent('1');
-    expect(chip('Cambios de ML')).toHaveTextContent('11');
+    expect(chip('Cambios de ML')).toHaveTextContent('7');
     expect(chip('Solo importantes')).toHaveTextContent('13');
     expect(chip('Todos')).toHaveAttribute('aria-pressed', 'true');
   });
@@ -140,11 +164,11 @@ describe('the filter chips', () => {
     expect(chip('Solo importantes')).toHaveAttribute('aria-pressed', 'true');
 
     await userEvent.click(chip('Cambios de ML'));
-    expect(entries()).toHaveLength(11);
+    expect(entries()).toHaveLength(7);
     expect(screen.queryByText('Origen sin registrar')).not.toBeInTheDocument();
 
     await userEvent.click(chip('Todos'));
-    expect(entries()).toHaveLength(22);
+    expect(entries()).toHaveLength(18);
   });
 
   it('say so when a filter leaves nothing', async () => {
@@ -161,14 +185,16 @@ describe('paging', () => {
     const cursor = '2026-10-13T18:37:02.240017Z|42330';
     publicacionesMlAPI.events.mockResolvedValueOnce(page(EVENTS.slice(0, 2), cursor)).mockResolvedValueOnce(page(EVENTS.slice(2)));
     renderTab();
-    await screen.findAllByText('ML ofreció la promoción Campaña del vendedor');
-    expect(entries()).toHaveLength(2);
+    await screen.findByText('ML ofreció 2 campañas del vendedor');
+    expect(entries()).toHaveLength(1);
 
     await userEvent.click(screen.getByRole('button', { name: 'Ver más' }));
 
     await screen.findByText('Publicación reactivada');
     expect(publicacionesMlAPI.events).toHaveBeenLastCalledWith('MLA1402898289', { cursor });
-    expect(entries()).toHaveLength(22);
+    // the third offer of the same minute, on the next page, joins the fold
+    expect(screen.getByText('ML ofreció 3 campañas del vendedor')).toBeInTheDocument();
+    expect(entries()).toHaveLength(18);
     expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
   });
 
@@ -178,11 +204,11 @@ describe('paging', () => {
       .mockRejectedValueOnce(httpError(500))
       .mockResolvedValueOnce(page(EVENTS.slice(2)));
     renderTab();
-    await screen.findAllByText('ML ofreció la promoción Campaña del vendedor');
+    await screen.findByText('ML ofreció 2 campañas del vendedor');
     await userEvent.click(screen.getByRole('button', { name: 'Ver más' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar más eventos.');
-    expect(entries()).toHaveLength(2);
+    expect(entries()).toHaveLength(1);
 
     await userEvent.click(screen.getByRole('button', { name: 'Ver más' }));
     await screen.findByText('Publicación reactivada');

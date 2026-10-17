@@ -28,6 +28,18 @@ const RESOURCE_LABELS = {
 
 const GENERIC_RESOURCE_LABEL = 'Otro recurso';
 
+/**
+ * The chips over the cards and the resources each one keeps. A publication change (`item`) carries both its price
+ * and its stock, so it is under both.
+ */
+const CHIPS = [
+  { key: 'todo', label: 'Todo', resources: null },
+  { key: 'precio', label: 'Precio', resources: new Set(['item', 'prices', 'sale_price', 'competition']) },
+  { key: 'stock', label: 'Stock', resources: new Set(['item', 'stock', 'user_product']) },
+  { key: 'promociones', label: 'Promociones', resources: new Set(['promotions']) },
+  { key: 'visitas', label: 'Visitas y ventas', resources: new Set(['visits', 'replenishment']) },
+];
+
 /** Entries that are not a plain change say so. */
 const KIND_LABELS = { gone: 'Eliminada de Mercado Libre', restored: 'Restaurada en Mercado Libre' };
 
@@ -95,7 +107,8 @@ const hiddenNote = (count) =>
 /**
  * Historial: what changed in the publication, from `ml_change_log`, newest
  * first: one card per change, named by its resource, each line a Spanish label
- * with the value before and after as the backend formatted them (`rows`).
+ * with the value before and after as the backend formatted them (`rows`). The
+ * chips narrow the loaded cards by resource.
  * Technical lines are left out by the backend and counted in the footer until
  * "Mostrar datos técnicos" asks for them (`tecnicos=true`).
  */
@@ -104,12 +117,25 @@ export default function HistorialTab({ itemId }) {
   const [technical, setTechnical] = useState({ itemId, on: false });
   const showTechnical = technical.itemId === itemId && technical.on;
   const feed = usePagedFeed(fetchHistory, itemId, 'entries', showTechnical ? TECHNICAL : undefined);
+  const [chip, setChip] = useState('todo');
+  const active = CHIPS.find((candidate) => candidate.key === chip) ?? CHIPS[0];
 
   const toggle = (
     <div className={styles.chips}>
+      {CHIPS.map((candidate) => (
+        <button
+          key={candidate.key}
+          type="button"
+          className={styles.chip}
+          aria-pressed={candidate.key === active.key}
+          onClick={() => setChip(candidate.key)}
+        >
+          {candidate.label}
+        </button>
+      ))}
       <button
         type="button"
-        className={styles.chip}
+        className={`${styles.chip} ${styles.technicalToggle}`}
         aria-pressed={showTechnical}
         onClick={() => setTechnical({ itemId, on: !showTechnical })}
       >
@@ -127,12 +153,16 @@ export default function HistorialTab({ itemId }) {
   }
   if (feed.items.length === 0) return <p className={styles.note}>No hay cambios registrados para esta publicación.</p>;
 
-  const visible = feed.items.filter(hasRows);
+  const withRows = feed.items.filter(hasRows);
+  const visible = active.resources ? withRows.filter((entry) => active.resources.has(entry.resource_type)) : withRows;
   const hidden = feed.items.reduce((total, entry) => total + (entry.hidden_technical_count ?? 0), 0);
   return (
     <div className={styles.feed}>
       {toggle}
-      {visible.length === 0 && <p className={styles.note}>En esta página solo hay cambios técnicos.</p>}
+      {withRows.length === 0 && <p className={styles.note}>En esta página solo hay cambios técnicos.</p>}
+      {withRows.length > 0 && visible.length === 0 && (
+        <p className={styles.note}>Ningún cambio de los cargados coincide con este filtro.</p>
+      )}
       {visible.length > 0 && (
         <ul className={styles.entries}>
           {visible.map((entry) => (

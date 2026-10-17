@@ -150,3 +150,75 @@ const STATE_TONES = { 'Disponible para activar': 'warning', Aplicada: 'success',
 
 /** A promotion state's color: offered amber, applied green, pending blue, finished or gone neutral. */
 export const stateTone = (label) => STATE_TONES[label] ?? 'neutral';
+
+// ── Icons ────────────────────────────────────────────────────────────────────────────────────────────
+
+const PLAY_TYPES = new Set(['status_activated', 'item_restored']);
+const PAUSE_TYPES = new Set(['status_paused', 'status_closed', 'status_under_review', 'item_gone']);
+
+/** The icon family of an event (`$` price, `%` promotion, play/pause, catalog star, stock) and its tone. */
+export function eventIcon(event) {
+  const type = event.event_type;
+  if (type === 'price_changed' || type === 'promotion_price_changed') return { family: 'price', tone: 'warning' };
+  if (type === 'promotion_activated') return { family: 'promotion', tone: 'info' };
+  if (type.startsWith('promotion_')) return { family: 'promotion', tone: 'neutral' };
+  if (PLAY_TYPES.has(type)) return { family: 'play', tone: 'success' };
+  if (PAUSE_TYPES.has(type)) return { family: 'pause', tone: 'warning' };
+  if (type === 'catalog_competition_won') return { family: 'star', tone: 'success' };
+  if (type === 'catalog_competition_lost') return { family: 'star', tone: 'danger' };
+  if (type.startsWith('stock_')) return { family: 'stock', tone: 'info' };
+  return { family: 'other', tone: 'neutral' };
+}
+
+// ── Folding the offers ML made at once ───────────────────────────────────────────────────────────────
+
+const PROMOTION_PLURALS = {
+  DEAL: 'campañas tradicionales',
+  MARKETPLACE_CAMPAIGN: 'campañas de Mercado Libre',
+  SELLER_CAMPAIGN: 'campañas del vendedor',
+  SELLER_COUPON_CAMPAIGN: 'cupones del vendedor',
+  SMART: 'campañas co-fondeadas',
+  SMART_LIGHTNING: 'ofertas relámpago co-fondeadas',
+  LIGHTNING: 'ofertas relámpago',
+  DOD: 'ofertas del día',
+  PRICE_DISCOUNT: 'descuentos de precio',
+  VOLUME: 'descuentos por volumen',
+  PRE_NEGOTIATED: 'descuentos pre-acordados',
+  UNHEALTHY_STOCK: 'liquidaciones de stock',
+};
+
+/** Only ML's informative offers fold: never one of ours, never one that applied anything. */
+const foldable = (event) => event.event_type === 'promotion_offered' && event.informational === true && event.origin?.kind === 'ml';
+const minute = (value) => Math.floor(Date.parse(value) / 60000);
+
+/**
+ * The lines of the list: consecutive foldable offers of the same minute share one line; every other event is a
+ * line of its own. Each line is `{ events }`, in the order received.
+ */
+export function foldOffers(events) {
+  const lines = [];
+  for (const event of events) {
+    const last = lines.at(-1);
+    const head = last?.events[0];
+    if (head && foldable(head) && foldable(event) && minute(head.observed_at) === minute(event.observed_at)) {
+      last.events.push(event);
+    } else {
+      lines.push({ events: [event] });
+    }
+  }
+  return lines;
+}
+
+const joinNames = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} y ${names.at(-1)}`);
+
+/** A folded line: the offers counted per type ("3 campañas del vendedor", "Campaña co-fondeada y …"). */
+export function describeOffers(events) {
+  const counts = new Map();
+  for (const event of events) counts.set(event.promotion_type, (counts.get(event.promotion_type) ?? 0) + 1);
+  const names = [...counts].map(([type, count]) => {
+    if (count > 1) return `${count} ${PROMOTION_PLURALS[type] ?? 'promociones'}`;
+    return PROMOTION_TYPES[type] ?? 'una promoción';
+  });
+  const details = new Set(events.map((event) => promotionOffered(event).detail));
+  return sentence(`ML ofreció ${joinNames(names)}`, { detail: details.size === 1 ? [...details][0] : null });
+}

@@ -417,10 +417,59 @@
 
 .event {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
+  align-items: flex-start;
+  gap: var(--spacing-sm);
   padding: var(--spacing-sm) 0;
   border-top: 1px solid var(--cf-border-default);
+}
+
+.eventBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.eventIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.iconSuccess {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
+}
+
+.iconWarning {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.iconDanger {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.iconInfo {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+}
+
+.iconNeutral {
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  border-color: var(--tone-neutral-border);
 }
 
 .detailLine {
@@ -505,4 +554,9 @@
   font-size: var(--font-xs);
   color: var(--cf-text-secondary);
   border-top: 1px solid var(--cf-border-default);
+}
+
+/* The "Mostrar datos técnicos" switch sits apart from the resource chips. */
+.technicalToggle {
+  margin-left: auto;
 }
