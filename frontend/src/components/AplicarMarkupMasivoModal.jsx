@@ -45,6 +45,7 @@ export default function AplicarMarkupMasivoModal({
 
   const pricelistId = 4;
   const explicito = Array.isArray(itemIds);
+  const sinProductosMsg = explicito ? 'No hay productos seleccionados' : 'No hay productos en el conjunto filtrado';
   // The set a confirmation names: the given products, or the products of the current filter.
   const conjuntoConfirmado = (n) =>
     explicito ? `${n} producto${n !== 1 ? 's' : ''} seleccionado${n !== 1 ? 's' : ''}` : `${n} productos del filtro actual`;
@@ -149,7 +150,7 @@ export default function AplicarMarkupMasivoModal({
 
   const handleAplicar = async () => {
     if (total === 0) {
-      showToast('No hay productos en el conjunto filtrado', 'error');
+      showToast(sinProductosMsg, 'error');
       return;
     }
     if (!aplicarMarkup && !aplicarConfig) {
@@ -223,7 +224,7 @@ export default function AplicarMarkupMasivoModal({
 
     if (ids.length === 0) {
       setAplicando(false);
-      showToast('No hay productos en el conjunto filtrado', 'error');
+      showToast(sinProductosMsg, 'error');
       return;
     }
 
