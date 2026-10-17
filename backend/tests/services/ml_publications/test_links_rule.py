@@ -30,6 +30,12 @@ def drop_seller_sku(body: dict) -> dict:
     return body
 
 
+def with_sku(body: dict, sku: str) -> dict:
+    """Real payload with its SELLER_SKU value changed (one field)."""
+    body["attributes"] = [{**a, "value_name": sku} if a["id"] == "SELLER_SKU" else a for a in body["attributes"]]
+    return body
+
+
 class TestSkuKey:
     def test_seller_sku_wins_over_seller_custom_field(self) -> None:
         assert links.sku_key("6932391923412", "355") == ("6932391923412", SKU_ATTR)
@@ -108,14 +114,10 @@ class TestResolve:
         assert (suggestion.status, suggestion.producto_item_id, suggestion.sku_field) == ("linked", 7, CUSTOM)
         assert suggestion.matched_sku == "126"
 
-    def test_exact_match_only(self) -> None:
-        body = bulk_item("MLA935110613")
-        body["attributes"] = [
-            {**a, "value_name": "pc-10400"} if a["id"] == "SELLER_SKU" else a for a in body["attributes"]
-        ]  # real payload, one value changed
-        suggestion = links.resolve(only_unit(body), {"PC-10400": [3], "pc-10400 ": [4]})
-        assert suggestion.status == "unmatched"
-        assert suggestion.producto_item_id is None
+    def test_an_exact_codigo_wins_over_codigos_that_only_match_after_normalization(self) -> None:
+        unit = only_unit(with_sku(bulk_item("MLA935110613"), "pc-10400"))
+        suggestion = links.resolve(unit, {"pc-10400": [2], "PC-10400": [3], "pc-10400 ": [4]})
+        assert (suggestion.status, suggestion.producto_item_id, suggestion.rule) == ("linked", 2, "codigo")
         assert suggestion.matched_sku == "pc-10400"
 
     def test_unmatched_with_a_key_keeps_the_key_that_was_not_found(self) -> None:
@@ -147,6 +149,60 @@ class TestResolve:
     def test_the_same_product_listed_twice_is_not_a_conflict(self) -> None:
         suggestion = links.resolve(only_unit(sample_item("MLA882393030")), {"6932391923412": [41, 41]})
         assert (suggestion.status, suggestion.producto_item_id) == ("linked", 41)
+
+
+class TestNormalizedAndItemIdRules:
+    """Real SKU shapes measured in production: case, spaces and separators differ from `codigo`, and many
+    SKUs carry the product's own `item_id` (a short number) instead of its `codigo`."""
+
+    def test_normalize_trims_upper_cases_and_strips_spaces_hyphens_dots_and_slashes(self) -> None:
+        assert links.normalize_sku(" pc-10.400/b x ") == "PC10400BX"
+        assert links.normalize_sku("\tab\n") == "AB"
+
+    def test_case_and_separators_do_not_prevent_a_codigo_match(self) -> None:
+        unit = only_unit(with_sku(bulk_item("MLA935110613"), " pc 10400 "))
+        suggestion = links.resolve(unit, {"PC-10400": [3]})
+        assert (suggestion.status, suggestion.producto_item_id, suggestion.rule) == ("linked", 3, "codigo_normalized")
+        assert suggestion.matched_sku == " pc 10400 "  # the SKU is stored as ML sent it
+
+    def test_several_products_matching_after_normalization_is_a_conflict(self) -> None:
+        unit = only_unit(with_sku(bulk_item("MLA935110613"), "pc-10400"))
+        suggestion = links.resolve(unit, {"PC-10400": [3], "pc-10400 ": [4]})
+        assert (suggestion.status, suggestion.producto_item_id, suggestion.candidates) == ("conflict", None, (3, 4))
+
+    def test_a_numeric_sku_equal_to_a_product_item_id_links_when_no_codigo_matches(self) -> None:
+        unit = only_unit(drop_seller_sku(bulk_item("MLA934406852")))  # seller_custom_field "126"
+        suggestion = links.resolve(unit, {}, frozenset({126}))
+        assert (suggestion.status, suggestion.producto_item_id, suggestion.rule) == ("linked", 126, "item_id")
+        assert (suggestion.matched_sku, suggestion.sku_field, suggestion.candidates) == ("126", CUSTOM, (126,))
+
+    def test_a_codigo_match_always_wins_over_the_item_id(self) -> None:
+        unit = only_unit(drop_seller_sku(bulk_item("MLA934406852")))
+        suggestion = links.resolve(unit, {"126": [7]}, frozenset({126}))
+        assert (suggestion.status, suggestion.producto_item_id, suggestion.rule) == ("linked", 7, "codigo")
+
+    def test_a_codigo_conflict_is_never_settled_by_the_item_id(self) -> None:
+        unit = only_unit(drop_seller_sku(bulk_item("MLA934406852")))
+        suggestion = links.resolve(unit, {"126": [7, 8]}, frozenset({126}))
+        assert (suggestion.status, suggestion.producto_item_id) == ("conflict", None)
+
+    def test_a_numeric_sku_with_no_such_product_is_unmatched(self) -> None:
+        unit = only_unit(drop_seller_sku(bulk_item("MLA934406852")))
+        suggestion = links.resolve(unit, {}, frozenset({127}))
+        assert (suggestion.status, suggestion.matched_sku) == ("unmatched", "126")
+
+    def test_sku_zero_or_blank_after_normalization_never_matches(self) -> None:
+        for sku in ("0", " 0 ", "-", " / "):
+            unit = only_unit(with_sku(bulk_item("MLA935110613"), sku))
+            suggestion = links.resolve(unit, {sku: [3], "0": [4]}, frozenset({0}))
+            assert (suggestion.status, suggestion.producto_item_id, suggestion.candidates) == ("unmatched", None, ())
+
+    def test_only_a_canonical_number_is_an_item_id(self) -> None:
+        assert links.item_id_of("126") == 126
+        assert links.item_id_of("0126") is None  # leading zero: an EAN-like code, not our id
+        assert links.item_id_of("0") is None
+        assert links.item_id_of("12A") is None
+        assert links.item_id_of("99999999999") is None  # beyond `productos_erp.item_id` (integer)
 
 
 class TestCodigosNeeded:
