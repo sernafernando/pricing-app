@@ -98,13 +98,33 @@ describe('BulkActions', () => {
     await waitFor(() => expect(button).toBeDisabled());
   });
 
-  it('is disabled with a reason while a markup filter narrows the list, and asks nothing', async () => {
-    resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
-    renderBulk({ filters: { ...FILTERS, markup_neg: '1' }, canSeeMargin: true });
-    const button = await screen.findByRole('button', { name: /acciones masivas/i });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', expect.stringMatching(/markup/i));
-    expect(publicacionesMlAPI.productIds).not.toHaveBeenCalled();
+  it('a markup filter of the publication list reaches the resolver: the set is the products of what the list shows', async () => {
+    resolved({ item_ids: [4101], count: 1, sin_producto: 0, fuera_de_catalogo: 0 });
+    renderBulk({ filters: { ...FILTERS, markup_neg: '1', markup_min: '-5,5' }, canSeeMargin: true });
+    expect(await screen.findByRole('button', { name: /acciones masivas \(1 producto\)/i })).toBeEnabled();
+    expect(publicacionesMlAPI.productIds).toHaveBeenCalledWith(
+      { estado: 'active', markup_neg: true, markup_min: '-5.5' },
+      expect.anything(),
+    );
+  });
+
+  it('the markup filters are not sent where the list does not apply them (Producto view, no permission)', async () => {
+    resolved({ item_ids: [4101], count: 1, sin_producto: 0, fuera_de_catalogo: 0 });
+    const markup = { ...FILTERS, markup_neg: '1' };
+    const { unmount } = renderBulk({ filters: { ...markup, vista: 'producto' }, canSeeMargin: true });
+    await screen.findByRole('button', { name: /acciones masivas \(1 producto\)/i });
+    expect(publicacionesMlAPI.productIds).toHaveBeenLastCalledWith({ estado: 'active' }, expect.anything());
+    unmount();
+    renderBulk({ filters: markup, canSeeMargin: false });
+    await screen.findByRole('button', { name: /acciones masivas \(1 producto\)/i });
+    expect(publicacionesMlAPI.productIds).toHaveBeenLastCalledWith({ estado: 'active' }, expect.anything());
+  });
+
+  it('says how many linked products are gone from the catalog and left out', async () => {
+    resolved({ item_ids: [4101], count: 1, sin_producto: 0, fuera_de_catalogo: 2 });
+    renderBulk();
+    await openMenu(userEvent.setup());
+    expect(screen.getByText(/2 productos fuera del catálogo quedan afuera/i)).toBeInTheDocument();
   });
 
   it('offers only the actions the user may run, and nothing without any', async () => {

@@ -6,7 +6,7 @@ import Toast from '../Toast';
 import AplicarMarkupMasivoModal from '../AplicarMarkupMasivoModal';
 import CalcularWebModal from '../CalcularWebModal';
 import CalcularPVPModal from '../CalcularPVPModal';
-import { buildProductIdsParams, hasMarkupFilter } from '../../hooks/usePublicacionesMLFilters';
+import { buildItemsParams, buildProductIdsParams } from '../../hooks/usePublicacionesMLFilters';
 import useBulkProductSet from './useBulkProductSet';
 import styles from './BulkActions.module.css';
 
@@ -18,6 +18,20 @@ const ACTIONS = [
 ];
 
 const plural = (n, one, many) => (n === 1 ? one : many);
+const MARKUP_KEYS = ['markup_neg', 'markup_min', 'markup_max'];
+
+/**
+ * What the resolver is asked: the list's filters and, where the list applies them (the publication list, with
+ * `ml_metricas.ver_ganancia`), its markup filters exactly as `/items` gets them -- the resolver applies them the
+ * same way, so the set is the products of the publications the operator sees.
+ */
+function resolverParams(filters, canSeeMargin) {
+  const params = buildProductIdsParams(filters);
+  if (!canSeeMargin || filters.vista === 'producto' || filters.vista === 'agrupado') return params;
+  const listed = buildItemsParams(filters, 1, { canSeeMargin: true });
+  for (const key of MARKUP_KEYS) if (key in listed) params[key] = listed[key];
+  return params;
+}
 
 /**
  * Productos' bulk pricing actions (web transferencia, PVP, markup + cuotas) over Publicaciones ML. Pricing is per
@@ -25,8 +39,8 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  * publication the filters select (`useBulkProductSet`), sent to Productos' own modals as an explicit `itemIds` set.
  *
  * Fail closed, with the reason on the button: no set while it is resolving, when the resolver refuses (over its
- * cap) or fails, or when it is empty; and none while a markup filter narrows the publication list, because the list
- * applies it after the query and the resolver cannot -- the set would be wider than what the operator sees.
+ * cap) or fails, or when it is empty. Publications without a product and linked products gone from the ERP catalog
+ * are left out by the resolver, and the menu says how many.
  */
 export default function BulkActions({ filters, checkedIds, onClearChecked, canSeeMargin, onDone }) {
   const { tienePermiso } = usePermisos();
@@ -37,9 +51,7 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
   const [reloadToken, setReloadToken] = useState(0);
   const containerRef = useRef(null);
 
-  const publicationList = filters.vista !== 'producto' && filters.vista !== 'agrupado';
-  const markupBlocked = publicationList && canSeeMargin && hasMarkupFilter(filters);
-  const resolved = useBulkProductSet(buildProductIdsParams(filters), actions.length > 0 && !markupBlocked, reloadToken);
+  const resolved = useBulkProductSet(resolverParams(filters, canSeeMargin), actions.length > 0, reloadToken);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -56,8 +68,7 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
   const itemIds = checked ? [...checkedIds] : resolved.itemIds;
   let reason = null;
   if (!checked) {
-    if (markupBlocked) reason = 'El filtro de markup se aplica sobre la lista, no sobre los productos: quitalo para usar acciones masivas.';
-    else if (resolved.status === 'error') reason = resolved.error;
+    if (resolved.status === 'error') reason = resolved.error;
     else if (resolved.status !== 'ready') reason = 'Calculando los productos del filtro…';
     else if (itemIds.length === 0) reason = 'El filtro no selecciona ningún producto vinculado.';
   }
@@ -67,10 +78,15 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
     : reason
       ? null
       : `${n} ${plural(n, 'producto', 'productos')}`;
-  const nota =
-    !checked && resolved.sinProducto > 0
-      ? `${resolved.sinProducto} ${plural(resolved.sinProducto, 'publicación sin producto queda afuera', 'publicaciones sin producto quedan afuera')}`
-      : null;
+  const notas = checked
+    ? []
+    : [
+        resolved.sinProducto > 0 &&
+          `${resolved.sinProducto} ${plural(resolved.sinProducto, 'publicación sin producto queda afuera', 'publicaciones sin producto quedan afuera')}`,
+        resolved.fueraDeCatalogo > 0 &&
+          `${resolved.fueraDeCatalogo} ${plural(resolved.fueraDeCatalogo, 'producto fuera del catálogo queda afuera', 'productos fuera del catálogo quedan afuera')}`,
+      ].filter(Boolean);
+  const nota = notas.length > 0 ? notas.join('. ') : null;
 
   const closeOnEscape = (event) => {
     if (event.key === 'Escape' && open) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { publicacionesMlAPI } from '../../services/api';
 
-const IDLE = { status: 'idle', itemIds: [], sinProducto: 0, error: null };
+const IDLE = { status: 'idle', itemIds: [], sinProducto: 0, fueraDeCatalogo: 0, error: null };
 
 /** The operator-facing reason the resolver gave no set (its own message for a 422 over the cap). */
 function describeResolveError(error) {
@@ -31,7 +31,13 @@ export default function useBulkProductSet(params, enabled, reloadToken = 0) {
       .productIds(JSON.parse(key), { signal: controller.signal })
       .then((response) => {
         if (controller.signal.aborted) return;
-        setState({ status: 'ready', itemIds: response.data.item_ids, sinProducto: response.data.sin_producto, error: null });
+        setState({
+          status: 'ready',
+          itemIds: response.data.item_ids,
+          sinProducto: response.data.sin_producto,
+          fueraDeCatalogo: response.data.fuera_de_catalogo ?? 0,
+          error: null,
+        });
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
