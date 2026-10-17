@@ -35,6 +35,12 @@ vi.mock('../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn() },
+  productosAPI: {
+    marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
+    categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
+    subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
+    pms: vi.fn(() => Promise.resolve({ data: [{ id: 7, nombre: 'Ana' }] })),
+  },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -1163,5 +1169,63 @@ describe('the Producto view', () => {
     await products('/ml-publicaciones?vista=producto&markup_neg=1');
     expect(screen.queryByText('Markup:')).not.toBeInTheDocument();
     expect(productCalls()[0]).not.toHaveProperty('markup_neg');
+  });
+});
+
+describe('the product filters (Marca, Categoría, Subcategoría, PM)', () => {
+  const URL_FILTERS = 'marcas=TP%252CLINK&categorias=REDES&subcategorias=12&pms=7';
+  const SENT = { marcas: 'TP%2CLINK', categorias: 'REDES', subcategorias: '12', pms: '7' };
+
+  beforeEach(() => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
+  });
+
+  it.each([
+    ['Publicaciones', '/ml-publicaciones', 'MLA1100000001'],
+    ['Producto', '/ml-publicaciones?vista=producto', 'Router Archer AX55'],
+    ['Agrupado', '/ml-publicaciones?vista=agrupado', 'EPSON'],
+  ])('are offered under "Producto:" in the %s view', async (_view, entry, ready) => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    await screen.findByText(ready);
+    const card = screen.getByRole('region', { name: 'Filtros' });
+    expect(within(card).getByText('Producto:')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Subcategoría' })).toBeInTheDocument();
+  });
+
+  it('reach /items from the URL', async () => {
+    await page(`/ml-publicaciones?${URL_FILTERS}`);
+    expect(lastParams()).toMatchObject(SENT);
+  });
+
+  it('reach /products in the Producto view', async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [`/ml-publicaciones?vista=producto&${URL_FILTERS}`] });
+    await screen.findByText('Router Archer AX55');
+    expect(publicacionesMlAPI.products.mock.calls[0][0]).toMatchObject(SENT);
+  });
+
+  it('reach /groups in the Agrupado view', async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [`/ml-publicaciones?vista=agrupado&${URL_FILTERS}`] });
+    await screen.findByText('EPSON');
+    expect(publicacionesMlAPI.groups.mock.calls[0][0]).toMatchObject(SENT);
+  });
+
+  it('a picked brand filters the list and goes back to page 1', async () => {
+    const user = userEvent.setup();
+    await page('/ml-publicaciones?pagina=2');
+    await user.click(screen.getByRole('button', { name: 'Marca' }));
+    await user.click(await screen.findByLabelText('TP,LINK'));
+    await waitFor(() => expect(lastParams().marcas).toBe('TP%2CLINK'));
+    expect(lastParams().offset).toBe(0);
+  });
+
+  it('show a chip per active value, and "Limpiar filtros" clears them too', async () => {
+    const user = userEvent.setup();
+    await page(`/ml-publicaciones?${URL_FILTERS}`);
+    expect(screen.getByRole('button', { name: 'Quitar Marca: TP,LINK' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Quitar PM: Ana' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('marcas'));
+    expect(lastParams()).not.toHaveProperty('pms');
   });
 });

@@ -67,6 +67,12 @@ vi.mock('../../services/api', () => ({
   },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
+  productosAPI: {
+    marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
+    categorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
+    subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
+    pms: vi.fn(() => Promise.resolve({ data: [] })),
+  },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
     tipoCambioActual: vi.fn(() => new Promise(() => {})),

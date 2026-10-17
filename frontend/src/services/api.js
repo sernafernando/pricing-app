@@ -252,6 +252,8 @@ export const productosAPI = {
   marcas: (params) => api.get('/marcas', { params }),
   subcategorias: (params) => api.get('/subcategorias', { params }),
   categorias: () => api.get('/categorias'),
+  // The PMs a product filter offers: only users that hold a brand, like Productos.
+  pms: () => api.get('/usuarios/pms', { params: { solo_con_marcas: true } }),
   obtenerMarcasPorPMs: (pm_ids) => api.get(`/pms/marcas?pm_ids=${pm_ids}`),
   obtenerSubcategoriasPorPMs: (pm_ids) => api.get(`/pms/subcategorias?pm_ids=${pm_ids}`),
   // Nested MLA/promotions expand (productos-promociones-ui, FE-A: read-only).

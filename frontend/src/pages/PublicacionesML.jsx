@@ -7,6 +7,7 @@ import SearchInput from '../components/SearchInput';
 import { ColumnPicker, FacetChips, Pagination, SegmentedControl, SplitPanelLayout, SwitchChip, TableShell } from '../components/kit';
 import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
+import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
@@ -410,6 +411,9 @@ export default function PublicacionesML() {
               onChange={csvChange('tiendas')}
             />
           </div>
+        </div>
+        <div className={styles.filterBand}>
+          <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
         </div>
         {showMarkupFilters && (
           <div className={styles.filterBand}>

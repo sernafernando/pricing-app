@@ -21,7 +21,9 @@ export const NO_GROUP = '__none__';
 
 const KEY_ESCAPES = /%(25|2C)/g;
 /** Inverse of the backend's `encode_key`: one pass, `%252C` is the text `%2C`. */
-const decodeKey = (key) => key.replace(KEY_ESCAPES, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
+export const decodeKey = (key) => key.replace(KEY_ESCAPES, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
+/** The backend's `encode_key`: a brand or category with `%` or `,` stays ONE value of a csv param. */
+export const encodeKey = (text) => text.replace(/[%,]/g, (char) => (char === '%' ? '%25' : '%2C'));
 
 const numberOrNull = (value) => (typeof value === 'number' ? value : null);
 
