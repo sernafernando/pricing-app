@@ -132,6 +132,20 @@ class TestEvents:
         assert origin.of_event(event(3689), [enroll("C-MLA1717163", edge)]).kind == NOSOTROS
         assert origin.of_event(event(3689), [enroll("C-MLA1717163", 0)]).kind == NOSOTROS
 
+    def test_a_write_a_moment_after_the_observation_still_counts(self) -> None:
+        """Same-transaction writes and clock skew can stamp our row a little after the change it caused."""
+        assert origin.of_event(event(3689), [enroll("C-MLA1717163", -1 / 60)]) == verdict(NOSOTROS, "Ana Pérez")
+
+    def test_a_write_beyond_the_forward_tolerance_does_not_count(self) -> None:
+        later = -(origin.FORWARD_TOLERANCE.total_seconds() + 1) / 60
+        assert origin.of_event(event(3689), [enroll("C-MLA1717163", later)]) == verdict(SIN_REGISTRAR)
+
+    @pytest.mark.parametrize("event_id", [3689, 43804])  # activated, finished (it had been started)
+    def test_a_promotion_event_without_its_promotion_id_is_never_credited(self, event_id: int) -> None:
+        anonymous = {**event(event_id), "promotion_id": None}
+        audits = [enroll("C-MLA1717163", 2), enroll("C-MLA1717163", 2, action="remove")]
+        assert origin.of_event(anonymous, audits) == verdict(SIN_REGISTRAR)
+
     def test_a_write_without_user_is_automatic(self) -> None:
         assert origin.of_event(event(3689), [enroll("C-MLA1717163", 5, user=None)]) == verdict(AUTOMATICO)
 
@@ -222,6 +236,11 @@ class TestEntries:
     def test_a_promotions_row_of_suggested_prices_and_new_candidates_is_ml_and_informational(self) -> None:
         assert origin.of_entry(entry(9282), []) == verdict(ML, informational=True)
 
+    def test_a_row_of_only_suggestions_and_candidates_is_ml_even_next_to_our_write_of_one_of_them(self) -> None:
+        """9282 adds candidate C-MLA1717457 and drops two candidates: ML's offers, whatever we wrote nearby."""
+        audits = [enroll("C-MLA1717457", 2), enroll("C-MLA1713876", 2, action="remove")]
+        assert origin.of_entry(entry(9282), audits) == verdict(ML, informational=True)
+
     def test_a_promotions_row_where_a_promotion_started_follows_our_enroll_of_it(self) -> None:
         started = entry(7672)  # adds [C-MLA1717163], started
         assert origin.of_entry(started, [enroll("C-MLA1717163", 6)]) == verdict(NOSOTROS, "Ana Pérez")
@@ -301,4 +320,4 @@ class TestClaims:
     def test_the_span_covers_every_claim_and_its_window(self) -> None:
         early, late = AT - timedelta(days=2), AT
         claims = [origin.event_claim(event(3689, early)), origin.event_claim(event(43804, late))]
-        assert origin.span(claims) == (early - origin.ORIGIN_WINDOW, late)
+        assert origin.span(claims) == (early - origin.ORIGIN_WINDOW, late + origin.FORWARD_TOLERANCE)

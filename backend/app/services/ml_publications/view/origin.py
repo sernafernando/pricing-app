@@ -3,7 +3,7 @@
 `kind` is one of:
 
 - `nosotros`: one of OUR audit rows explains it (same MLA, same target when there is one, written within
-  `ORIGIN_WINDOW` before ML's change was observed) and the row names a user: `user_name` is that user's name.
+  `ORIGIN_WINDOW` before ML's change was observed, up to `FORWARD_TOLERANCE` after) and the row names a user: `user_name` is that user's name.
 - `automatico`: the matching audit row has no user (a system or worker write), or the change is to our own link
   table and the SKU rule made it (see `_link_fallback`).
 - `ml`: ML makes this change by nature (an offer, the catalog competition, a moderation, the visits).
@@ -40,6 +40,11 @@ from app.models.ml_write_log import ACTION_ENROLL, ACTION_REMOVE, RESOURCE_PROMO
 # `/missed_feeds` or a sweep, hours later) is left `sin_registrar`: a wider window would start crediting us with
 # ML's own changes, and an honest "unregistered" is better than a wrong "ours".
 ORIGIN_WINDOW = timedelta(minutes=30)
+# How far AFTER the observation an audit row of ours may be stamped and still count. Some writes stamp the audit row
+# and the change in one transaction from different clocks (`links._record_audit` writes a Python `now`, the change
+# log's `observed_at` comes from the response), and the app and database hosts' clocks can drift by a second or two.
+# A few seconds absorbs both; a real later write of ours is minutes away, not seconds.
+FORWARD_TOLERANCE = timedelta(seconds=5)
 
 NOSOTROS, AUTOMATICO, ML, SIN_REGISTRAR = "nosotros", "automatico", "ml", "sin_registrar"
 KINDS = (NOSOTROS, AUTOMATICO, ML, SIN_REGISTRAR)
@@ -167,7 +172,9 @@ def event_claim(event: Mapping[str, Any]) -> Optional[Claim]:
             return None  # the standard price: no write of ours is audited for it
         return Claim(event["observed_at"], rule.sources)  # the sale price's id is the offer's, not the campaign's
     targets = None
-    if rule.by_promotion and event.get("promotion_id"):
+    if rule.by_promotion:
+        if not event.get("promotion_id"):
+            return None  # nothing to compare: never credit a promotion event to a write of another promotion
         targets = frozenset({event["promotion_id"]})
     elif SOURCE_LINK in rule.sources:
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
@@ -235,6 +242,8 @@ def _only_our_free_shipping_fix(changes: Sequence[Mapping[str, Any]]) -> bool:
 def entry_claim(entry: Mapping[str, Any]) -> Optional[Claim]:
     resource, changes, at = entry["resource_type"], entry.get("changes") or [], entry["observed_at"]
     if resource == "promotions":
+        if not _touches_applied_promotion(changes):
+            return None  # only ML's suggestions and candidates: ML's, whatever we wrote nearby
         targets = {m.group(1) for c in changes if (m := _PROMOTION_KEY.match(str(c.get("p", ""))))}
         return Claim(at, _PROMOTION, targets=frozenset(targets)) if targets else None
     if resource in PRICE_RESOURCES:
@@ -274,7 +283,7 @@ def _resolve(claim: Optional[Claim], audits: Sequence[Audit]) -> Optional[Verdic
     for audit in audits:
         if (
             audit.source in claim.sources
-            and earliest <= audit.created_at <= claim.at
+            and earliest <= audit.created_at <= claim.at + FORWARD_TOLERANCE
             and (claim.actions is None or audit.action in claim.actions)
             and (claim.targets is None or audit.target_id in claim.targets)
             and (best is None or audit.created_at > best.created_at)
@@ -290,7 +299,7 @@ def span(claims: Iterable[Optional[Claim]]) -> Optional[tuple[datetime, datetime
     moments = [claim.at for claim in claims if claim is not None]
     if not moments:
         return None
-    return min(moments) - ORIGIN_WINDOW, max(moments)
+    return min(moments) - ORIGIN_WINDOW, max(moments) + FORWARD_TOLERANCE
 
 
 _AUDITS_SQL = text(
