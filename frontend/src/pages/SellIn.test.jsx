@@ -46,7 +46,8 @@ describe('SellIn page — list', () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);
     const chips = await screen.findByRole('group', { name: 'Aplicación' });
-    expect(within(chips).getByRole('button', { name: 'Aplican · 3' })).toHaveAttribute('aria-pressed', 'true');
+    // The chips render with 0 before resumen answers: wait for its counts.
+    expect(await within(chips).findByRole('button', { name: 'Aplican · 3' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(chips).getByRole('button', { name: 'No aplican · 1' })).toBeInTheDocument();
     await user.click(within(chips).getByRole('button', { name: 'Todas · 4' }));
     await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'todas', page: 1, page_size: 50 }));
