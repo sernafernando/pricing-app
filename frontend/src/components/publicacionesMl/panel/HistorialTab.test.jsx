@@ -1,14 +1,18 @@
 /**
- * Historial tab (publicaciones-ml-vista P13b.T2, S58.x): what changed in the
- * publication, from `ml_change_log`. Business fields first; the technical ones
- * only behind "Ver todo".
+ * Historial tab: what changed in the publication, from `ml_change_log`, one
+ * card per change named by its resource (Visitas, Promociones, ...), each line
+ * a Spanish label with the value before and after, already formatted by the
+ * backend. Technical lines stay hidden, counted in a footer, until "Mostrar
+ * datos técnicos" asks the backend for them (`tecnicos=true`).
+ *
+ * The bodies are real API responses (`fixtures/eventsHistory_MLA1402898289_20261016.json`).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import HistorialTab from './HistorialTab';
 import { publicacionesMlAPI } from '../../../services/api';
-import { HISTORY_ENTRIES, HISTORY_RESPONSE } from '../../../test/visual/publicacionesMlFixtures';
+import capture from './fixtures/eventsHistory_MLA1402898289_20261016.json';
 
 vi.mock('../../../services/api', () => ({
   default: {
@@ -19,133 +23,194 @@ vi.mock('../../../services/api', () => ({
   registerAuthFailureHandler: vi.fn(),
 }));
 
+const RESPONSE = capture.history;
+const TECNICOS = capture.history_tecnicos;
+const entry = (id, body = RESPONSE) => body.entries.find((found) => found.id === id);
+const page = (entries, nextCursor = null) => ({ data: { entries, next_cursor: nextCursor, hidden_technical_count: entries.reduce((n, e) => n + e.hidden_technical_count, 0) } });
 const httpError = (status) => Object.assign(new Error(`HTTP ${status}`), { response: { status } });
-const renderTab = () => render(<HistorialTab itemId="MLA1100000001" />);
-const verTodo = () => screen.getByRole('button', { name: 'Ver todo' });
+const renderTab = (itemId = 'MLA1402898289') => render(<HistorialTab itemId={itemId} />);
+const cards = () => screen.getAllByRole('listitem');
+const cardOf = (id) => document.querySelector(`[data-entry="${id}"]`);
+const toggle = () => screen.getByRole('button', { name: 'Mostrar datos técnicos' });
 
 beforeEach(() => {
   publicacionesMlAPI.history.mockReset();
-  publicacionesMlAPI.history.mockResolvedValue({ data: HISTORY_RESPONSE });
+  publicacionesMlAPI.history.mockImplementation((itemId, params) => Promise.resolve({ data: params?.tecnicos ? TECNICOS : RESPONSE }));
 });
 
-describe('the business fields', () => {
-  it('asks for the history of the selected publication', async () => {
+describe('the changes', () => {
+  it('asks for the history of the selected publication, without the technical lines', async () => {
     renderTab();
-    await screen.findByText('Precio');
-    expect(publicacionesMlAPI.history).toHaveBeenCalledWith('MLA1100000001', {});
+    await screen.findAllByText('Visitas');
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(1);
+    expect(publicacionesMlAPI.history).toHaveBeenCalledWith('MLA1402898289', {});
   });
 
-  it('shows one line per changed field, with the previous and the new value (S58.3)', async () => {
+  it('one card per change, named by its resource, leaving out the changes with nothing to show', async () => {
     renderTab();
-    const entry = (await screen.findByText('Precio')).closest('li');
-    const price = within(entry).getByText('Precio').closest('[data-line]');
-    expect(price).toHaveTextContent(/55\.882/);
-    expect(price).toHaveTextContent(/56\.382/);
-    const status = within(entry).getByText('Estado').closest('[data-line]');
-    expect(status).toHaveTextContent('active');
-    expect(status).toHaveTextContent('paused');
-    expect(within(entry).getAllByText(/→/)).toHaveLength(2);
+    await screen.findAllByText('Visitas');
+    // 148600 (visits) holds only technical lines: hidden.
+    expect(cards()).toHaveLength(RESPONSE.entries.length - 1);
+    expect(cardOf(148600)).toBeNull();
+    expect(within(cardOf(34965)).getByText('Visitas')).toBeInTheDocument();
+    expect(within(cardOf(172543)).getByText('Ventas semanales (Full)')).toBeInTheDocument();
+    expect(within(cardOf(6989)).getByText('Publicación y stock')).toBeInTheDocument();
+    expect(within(cardOf(7672)).getByText('Promociones')).toBeInTheDocument();
+    expect(screen.queryByText('Otro recurso')).not.toBeInTheDocument();
   });
 
-  it('says which resource changed and when', async () => {
+  it('each line is its label with the value before and after, as the backend wrote them', async () => {
     renderTab();
-    const stock = (await screen.findByText('Stock por ubicación')).closest('li');
-    expect(within(stock).getByText('Stock ML')).toBeInTheDocument();
-    expect(within(stock).getByText(/\d{2}\/\d{2}\/\d{4}/)).toBeInTheDocument();
-    expect(stock).toHaveTextContent('24');
-    expect(stock).toHaveTextContent('20');
+    await screen.findAllByText('Visitas');
+    const price = within(cardOf(6989)).getByText('Precio').closest('[data-line]');
+    expect(price).toHaveTextContent('Precio$ 80.049→$ 91.193');
+    const visits = within(cardOf(34965)).getByText('Visitas de los últimos 30 días').closest('[data-line]');
+    expect(visits).toHaveTextContent('17→18');
   });
 
-  it('shows "—" on the side of a field that did not exist', async () => {
-    publicacionesMlAPI.history.mockResolvedValue({
-      data: {
-        entries: [{ ...HISTORY_ENTRIES[1], business: [{ path: 'title', label_key: 'title', label: 'Título', old: null, new: 'Router nuevo' }] }],
-        next_cursor: null,
-      },
-    });
+  it('a value that appears shows only the new one; one that goes away shows the dash after the arrow', async () => {
     renderTab();
-    const line = (await screen.findByText('Título')).closest('[data-line]');
-    expect(line).toHaveTextContent('—');
-    expect(line).toHaveTextContent('Router nuevo');
+    await screen.findAllByText('Visitas');
+    const added = within(cardOf(7671)).getByText('Precio de promoción').closest('[data-line]');
+    expect(added.textContent).toBe('Precio de promoción$ 77.000');
+    const removed = within(cardOf(6989)).getByText('Subestado').closest('[data-line]');
+    expect(removed.textContent).toBe('SubestadoSin stock→—');
+  });
+
+  it('groups the lines of one promotion under its name and shows its state as a tag', async () => {
+    renderTab();
+    await screen.findAllByText('Visitas');
+    const promos = cardOf(123143);
+    expect(within(promos).getAllByText('Tec Week').length).toBeGreaterThan(0);
+    expect(within(promos).getAllByText('Disponible para activar')).toHaveLength(2);
+    expect(within(cardOf(71677)).getByText('Finalizada')).toBeInTheDocument();
+  });
+
+  it('says who caused each change', async () => {
+    renderTab();
+    await screen.findAllByText('Visitas');
+    expect(within(cardOf(34965)).getByText('Informativo de ML')).toBeInTheDocument();
+    expect(within(cardOf(140177)).getByText('Cambio de ML')).toBeInTheDocument();
+    expect(within(cardOf(6989)).getByText('Origen sin registrar')).toBeInTheDocument();
+  });
+
+  it('never shows raw JSON or a field path', async () => {
+    renderTab();
+    await screen.findAllByText('Visitas');
+    const text = document.body.textContent;
+    expect(text).not.toMatch(/[{}[\]]/);
+    expect(text).not.toMatch(/available_quantity|sub_status|last_updated/);
   });
 });
 
-describe('the technical fields (S58.1)', () => {
-  it('are hidden until "Ver todo", and the price is visible from the start', async () => {
+describe('the resource chips', () => {
+  const chip = (name) => screen.getByRole('button', { name });
+  const shownIds = () => cards().map((card) => Number(card.getAttribute('data-entry')));
+
+  it('start on "Todo", with every card', async () => {
     renderTab();
-    await screen.findByText('Precio');
-    expect(screen.queryByText('last_updated')).not.toBeInTheDocument();
-    expect(screen.queryByText('units_30d')).not.toBeInTheDocument();
-    expect(verTodo()).toHaveAttribute('aria-pressed', 'false');
+    await screen.findAllByText('Visitas');
+    expect(chip('Todo')).toHaveAttribute('aria-pressed', 'true');
+    expect(cards()).toHaveLength(13);
   });
 
-  it('appear under the business ones with "Ver todo", and go away again', async () => {
+  it('narrow the cards by resource, and "Todo" brings them back', async () => {
     renderTab();
-    await screen.findByText('Precio');
+    await screen.findAllByText('Visitas');
 
-    await userEvent.click(verTodo());
+    await userEvent.click(chip('Precio'));
+    expect(chip('Precio')).toHaveAttribute('aria-pressed', 'true');
+    expect(shownIds()).toEqual([140177, 70046, 7673, 7671, 7666, 6989]);
 
-    const mixed = screen.getByText('last_updated').closest('li');
-    expect(within(mixed).getByText('Precio')).toBeInTheDocument();
-    expect(verTodo()).toHaveAttribute('aria-pressed', 'true');
-    // An entry with only technical fields exists now.
-    expect(screen.getByText('units_30d').closest('li')).toHaveTextContent('Reposición');
+    await userEvent.click(chip('Stock'));
+    expect(shownIds()).toEqual([175494, 70046, 7666, 6989]);
 
-    await userEvent.click(verTodo());
-    expect(screen.queryByText('last_updated')).not.toBeInTheDocument();
+    await userEvent.click(chip('Promociones'));
+    expect(shownIds()).toEqual([123143, 71677, 9282, 7672]);
+
+    await userEvent.click(chip('Visitas y ventas'));
+    expect(shownIds()).toEqual([172543, 34965]);
+
+    await userEvent.click(chip('Todo'));
+    expect(cards()).toHaveLength(13);
   });
 
-  it('collapse again when the selection moves to another publication, whatever the panel does around the tab', async () => {
-    const { rerender } = renderTab();
-    await screen.findByText('Precio');
-    await userEvent.click(verTodo());
-    expect(screen.getByText('last_updated')).toBeInTheDocument();
+  it('say so when a chip leaves nothing on the loaded page', async () => {
+    publicacionesMlAPI.history.mockResolvedValue(page([entry(175494)]));
+    renderTab();
+    await screen.findByText('Stock disponible');
+    await userEvent.click(chip('Promociones'));
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+    expect(screen.getByText('Ningún cambio de los cargados coincide con este filtro.')).toBeInTheDocument();
+  });
+});
 
-    rerender(<HistorialTab itemId="MLA1100000002" />);
-
-    await screen.findByText('Precio');
-    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1100000002', {});
-    expect(verTodo()).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.queryByText('last_updated')).not.toBeInTheDocument();
+describe('the technical lines', () => {
+  it('are hidden and counted in the footer', async () => {
+    renderTab();
+    await screen.findAllByText('Visitas');
+    expect(screen.getByText(/^Ocultos 74 cambios técnicos/)).toBeInTheDocument();
+    expect(screen.queryByText('Última actualización')).not.toBeInTheDocument();
   });
 
-  it('an entry with only technical fields stays out of the first view', async () => {
+  it('"Mostrar datos técnicos" asks the backend for them and shows them; off again hides them', async () => {
     renderTab();
-    await screen.findByText('Precio');
-    expect(screen.getAllByRole('listitem')).toHaveLength(2);
-    await userEvent.click(verTodo());
-    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    await screen.findAllByText('Visitas');
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+
+    await userEvent.click(toggle());
+
+    expect(await screen.findAllByText('Última actualización')).not.toHaveLength(0);
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1402898289', { tecnicos: true });
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    expect(cardOf(148600)).not.toBeNull();
+    expect(screen.queryByText(/^Ocultos/)).not.toBeInTheDocument();
+
+    await userEvent.click(toggle());
+
+    await screen.findByText(/^Ocultos 74 cambios técnicos/);
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1402898289', {});
+    expect(screen.queryByText('Última actualización')).not.toBeInTheDocument();
+  });
+
+  it('the footer says one in singular, and is absent when nothing is hidden', async () => {
+    publicacionesMlAPI.history.mockResolvedValue(page([entry(175494)]));
+    const { unmount } = renderTab();
+    expect(await screen.findByText(/^Oculto 1 cambio técnico/)).toBeInTheDocument();
+    unmount();
+
+    publicacionesMlAPI.history.mockResolvedValue(page([{ ...entry(175494), hidden_technical_count: 0 }]));
+    renderTab();
+    await screen.findByText('Stock disponible');
+    expect(screen.queryByText(/^Oculto/)).not.toBeInTheDocument();
+  });
+
+  it('turn off again when the selection moves to another publication', async () => {
+    const { rerender } = renderTab('MLA1');
+    await screen.findAllByText('Visitas');
+    await userEvent.click(toggle());
+    await screen.findAllByText('Última actualización');
+
+    rerender(<HistorialTab itemId="MLA2" />);
+
+    await screen.findAllByText('Visitas');
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA2', {});
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('says so when the page holds only technical changes', async () => {
-    publicacionesMlAPI.history.mockResolvedValue({ data: { entries: [HISTORY_ENTRIES[2]], next_cursor: null } });
+    publicacionesMlAPI.history.mockResolvedValue(page([entry(148600)]));
     renderTab();
-    expect(await screen.findByText(/solo cambios técnicos/i)).toBeInTheDocument();
-    await userEvent.click(verTodo());
-    expect(screen.getByText('units_30d')).toBeInTheDocument();
-  });
-});
-
-describe('an unknown resource', () => {
-  it('gets a generic label, never its code', async () => {
-    publicacionesMlAPI.history.mockResolvedValue({ data: { entries: [{ ...HISTORY_ENTRIES[1], resource_type: 'brand_new_resource' }], next_cursor: null } });
-    renderTab();
-    expect(await screen.findByText('Otro recurso')).toBeInTheDocument();
-    expect(screen.queryByText('brand_new_resource')).not.toBeInTheDocument();
+    expect(await screen.findByText('En esta página solo hay cambios técnicos.')).toBeInTheDocument();
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
   });
 });
 
 describe('restored and gone entries', () => {
-  it('marks a publication that disappeared from or came back to Mercado Libre', async () => {
-    publicacionesMlAPI.history.mockResolvedValue({
-      data: {
-        entries: [
-          { ...HISTORY_ENTRIES[0], id: 1, kind: 'gone', business: [], technical: [] },
-          { ...HISTORY_ENTRIES[0], id: 2, kind: 'restored', business: [], technical: [] },
-        ],
-        next_cursor: null,
-      },
-    });
+  it('marks a publication that disappeared from or came back to Mercado Libre, even without lines', async () => {
+    const base = entry(6989);
+    const empty = { business: [], technical: [], rows: [], hidden_technical_count: 0 };
+    publicacionesMlAPI.history.mockResolvedValue(page([{ ...base, ...empty, id: 1, kind: 'gone' }, { ...base, ...empty, id: 2, kind: 'restored' }]));
     renderTab();
     expect(await screen.findByText('Eliminada de Mercado Libre')).toBeInTheDocument();
     expect(screen.getByText('Restaurada en Mercado Libre')).toBeInTheDocument();
@@ -153,37 +218,77 @@ describe('restored and gone entries', () => {
 });
 
 describe('paging and honest states', () => {
-  it('"Ver más" loads the next page with the cursor and appends it', async () => {
-    const cursor = '2026-10-07T18:00:00.000000Z|7002';
-    publicacionesMlAPI.history
-      .mockResolvedValueOnce({ data: { entries: HISTORY_ENTRIES.slice(0, 1), next_cursor: cursor } })
-      .mockResolvedValueOnce({ data: { entries: HISTORY_ENTRIES.slice(1, 2), next_cursor: null } });
+  it('"Ver más" loads the next page with the cursor, keeping the technical choice', async () => {
+    const cursor = '2026-10-15T13:49:31.393877Z|123143';
+    const first = TECNICOS.entries.slice(0, 4);
+    publicacionesMlAPI.history.mockImplementation((itemId, params) =>
+      Promise.resolve(params.cursor ? page(TECNICOS.entries.slice(4)) : page(params.tecnicos ? first : RESPONSE.entries.slice(0, 4), cursor)),
+    );
     renderTab();
-    await screen.findByText('Precio');
+    await screen.findByText('Ventas semanales (Full)');
+    await userEvent.click(toggle());
+    await screen.findAllByText('Última actualización');
 
     await userEvent.click(screen.getByRole('button', { name: 'Ver más' }));
 
-    await screen.findByText('Stock por ubicación');
-    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1100000001', { cursor });
-    expect(screen.getByText('Precio')).toBeInTheDocument();
+    expect(await screen.findAllByText('Publicación y stock')).not.toHaveLength(0);
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1402898289', { tecnicos: true, cursor });
     expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
   });
 
-  it('shows the empty state when there are no changes (S58.2)', async () => {
-    publicacionesMlAPI.history.mockResolvedValue({ data: { entries: [], next_cursor: null } });
+  it('a double click on "Ver más" asks for the next page once', async () => {
+    const cursor = '2026-10-15T13:49:31.393877Z|123143';
+    let resolveNext;
+    publicacionesMlAPI.history
+      .mockResolvedValueOnce(page(RESPONSE.entries.slice(0, 4), cursor))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveNext = resolve)));
+    renderTab();
+    await screen.findByText('Ventas semanales (Full)');
+
+    await userEvent.dblClick(screen.getByRole('button', { name: 'Ver más' }));
+
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(2);
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1402898289', { cursor });
+    resolveNext(page(RESPONSE.entries.slice(4)));
+    expect(await screen.findAllByText('Publicación y stock')).not.toHaveLength(0);
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(2);
+  });
+
+  it('with the technical lines on, a double click on "Ver más" asks once, and with tecnicos', async () => {
+    const cursor = '2026-10-15T13:49:31.393877Z|123143';
+    let resolveNext;
+    publicacionesMlAPI.history
+      .mockResolvedValueOnce(page(RESPONSE.entries.slice(0, 4), cursor))
+      .mockResolvedValueOnce(page(TECNICOS.entries.slice(0, 4), cursor))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveNext = resolve)));
+    renderTab();
+    await screen.findByText('Ventas semanales (Full)');
+    await userEvent.click(toggle());
+    await screen.findAllByText('Última actualización');
+
+    await userEvent.dblClick(screen.getByRole('button', { name: 'Ver más' }));
+
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(3);
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1402898289', { tecnicos: true, cursor });
+    resolveNext(page(TECNICOS.entries.slice(4)));
+    expect(await screen.findAllByText('Publicación y stock')).not.toHaveLength(0);
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows the empty state when there are no changes', async () => {
+    publicacionesMlAPI.history.mockResolvedValue(page([]));
     renderTab();
     expect(await screen.findByText(/no hay cambios registrados/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Ver todo' })).not.toBeInTheDocument();
   });
 
   it('shows an error with a retry that asks again', async () => {
-    publicacionesMlAPI.history.mockRejectedValueOnce(httpError(500)).mockResolvedValueOnce({ data: HISTORY_RESPONSE });
+    publicacionesMlAPI.history.mockRejectedValueOnce(httpError(500)).mockResolvedValueOnce({ data: RESPONSE });
     renderTab();
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar el historial.');
 
     await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
 
-    expect(await screen.findByText('Precio')).toBeInTheDocument();
+    expect(await screen.findAllByText('Visitas')).not.toHaveLength(0);
     expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(2);
   });
 });

@@ -15,8 +15,13 @@ const LOADING = { status: 'loading', items: [], meta: null, nextCursor: null, er
  * Every request starts from "loading" for its publication, and an answer that
  * arrives after the selection moved on, or after a newer request, is dropped.
  * `meta` is the rest of the first page (`enabled`, ...); `reload` re-asks.
+ *
+ * `query` (optional, e.g. `{ tecnicos: true }`) goes with every request; a
+ * different query starts the feed over from its first page.
  */
-export function usePagedFeed(fetchPage, itemId, listKey) {
+export function usePagedFeed(fetchPage, itemId, listKey, query) {
+  // Compared by value, so a literal object from the caller does not refetch on every render.
+  const queryKey = JSON.stringify(query ?? {});
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(LOADING);
   const [owner, setOwner] = useState(null);
@@ -31,9 +36,9 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
   useEffect(() => {
     const mine = ++generation.current;
     setState(LOADING);
-    setOwner(itemId);
+    setOwner(`${itemId}|${queryKey}`);
     fetchRef
-      .current(itemId, {})
+      .current(itemId, JSON.parse(queryKey))
       .then((response) => {
         if (generation.current !== mine) return;
         const { [listKey]: items = [], next_cursor: nextCursor = null, ...meta } = response.data ?? {};
@@ -45,7 +50,7 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
     return () => {
       generation.current += 1;
     };
-  }, [itemId, listKey, attempt]);
+  }, [itemId, listKey, queryKey, attempt]);
 
   // The latest state, readable from `loadMore` without running a request inside a state updater.
   const stateRef = useRef(state);
@@ -61,7 +66,7 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
     // A second click before the re-render must not ask for the same page twice.
     stateRef.current = { ...current, more: 'loading' };
     fetchRef
-      .current(itemId, { cursor: current.nextCursor })
+      .current(itemId, { ...JSON.parse(queryKey), cursor: current.nextCursor })
       .then((response) => {
         if (generation.current !== mine) return;
         const { [listKey]: items = [], next_cursor: nextCursor = null } = response.data ?? {};
@@ -70,10 +75,10 @@ export function usePagedFeed(fetchPage, itemId, listKey) {
       .catch(() => {
         if (generation.current === mine) setState((now) => ({ ...now, more: 'error' }));
       });
-  }, [itemId, listKey]);
+  }, [itemId, listKey, queryKey]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
-  // The first render for a new publication still holds the old one's state.
-  if (owner !== itemId) return { ...LOADING, loadMore, reload };
+  // The first render for a new publication (or query) still holds the old one's state.
+  if (owner !== `${itemId}|${queryKey}`) return { ...LOADING, loadMore, reload };
   return { ...state, loadMore, reload };
 }

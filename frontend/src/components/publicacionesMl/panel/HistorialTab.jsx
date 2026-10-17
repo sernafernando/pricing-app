@@ -1,57 +1,77 @@
 import { useState } from 'react';
 import { publicacionesMlAPI } from '../../../services/api';
 import { date } from './format';
-import { FeedStatus, LoadMore } from './FeedParts';
-import { describeFeedError, formatFeedValue } from './feedFormat';
+import { Change, FeedStatus, LoadMore, Tag } from './FeedParts';
+import { describeFeedError } from './feedFormat';
+import { originTag, stateTone } from './eventSentence';
 import { usePagedFeed } from './usePagedFeed';
-import { Section } from './PanelParts';
-import cellStyles from '../cells.module.css';
 import styles from './panel.module.css';
 
 const ERRORS = { forbidden: 'No tenés permiso para ver el historial.', fallback: 'No se pudo cargar el historial.' };
 const fetchHistory = (itemId, params) => publicacionesMlAPI.history(itemId, params);
+const TECHNICAL = { tecnicos: true };
 
 /** The resources the change log keeps (`ml_change_log.resource_type`). An unknown one gets a generic label, never its code. */
 const RESOURCE_LABELS = {
-  item: 'Publicación',
+  item: 'Publicación y stock',
   prices: 'Precios',
   sale_price: 'Precio de venta',
   promotions: 'Promociones',
-  stock: 'Stock ML',
+  stock: 'Stock por depósito',
+  visits: 'Visitas',
   product_link: 'Producto vinculado',
   competition: 'Competencia de catálogo',
   user_product: 'Producto de usuario',
-  replenishment: 'Reposición',
+  replenishment: 'Ventas semanales (Full)',
   family: 'Familia',
 };
 
 const GENERIC_RESOURCE_LABEL = 'Otro recurso';
 
+/**
+ * The chips over the cards and the resources each one keeps. A publication change (`item`) carries both its price
+ * and its stock, so it is under both.
+ */
+const CHIPS = [
+  { key: 'todo', label: 'Todo', resources: null },
+  { key: 'precio', label: 'Precio', resources: new Set(['item', 'prices', 'sale_price', 'competition']) },
+  { key: 'stock', label: 'Stock', resources: new Set(['item', 'stock', 'user_product']) },
+  { key: 'promociones', label: 'Promociones', resources: new Set(['promotions']) },
+  { key: 'visitas', label: 'Visitas y ventas', resources: new Set(['visits', 'replenishment']) },
+];
+
 /** Entries that are not a plain change say so. */
 const KIND_LABELS = { gone: 'Eliminada de Mercado Libre', restored: 'Restaurada en Mercado Libre' };
 
-/** Business lines whose values are money. */
-const MONEY_KEYS = new Set(['price', 'base_price', 'original_price', 'price_channel', 'sale_price', 'regular_price', 'promotion_price', 'price_to_win']);
-
-function Line({ line }) {
-  const money = MONEY_KEYS.has(line.label_key);
-  // A business line reads as its Spanish label; a technical one is the raw field path.
+function Line({ row }) {
   return (
     <div className={styles.line} data-line="">
-      {line.label ? <span className={styles.lineLabel}>{line.label}</span> : <code className={cellStyles.code}>{line.path}</code>}
-      <span className={styles.change}>
-        <span>{formatFeedValue(line.old, { money })}</span>
-        <span aria-hidden="true">→</span>
-        <span>{formatFeedValue(line.new, { money })}</span>
-      </span>
+      <span className={styles.lineLabel}>{row.label}</span>
+      {row.status_label ? (
+        <span className={styles.change}>
+          <Tag tone={stateTone(row.status_label)}>{row.status_label}</Tag>
+        </span>
+      ) : (
+        <Change before={row.before} after={row.after} />
+      )}
     </div>
   );
 }
 
-function Entry({ entry, showAll }) {
-  const lines = showAll ? [...entry.business, ...entry.technical] : entry.business;
+/** Consecutive rows about the same thing (one promotion, one day) go under its name, once. */
+function bySubject(rows) {
+  const groups = [];
+  for (const row of rows) {
+    if (groups.length === 0 || groups.at(-1).subject !== row.subject) groups.push({ subject: row.subject, rows: [] });
+    groups.at(-1).rows.push(row);
+  }
+  return groups;
+}
+
+function Entry({ entry }) {
+  const origin = originTag(entry.origin, entry.informational);
   return (
-    <li className={styles.entry}>
+    <li className={styles.entry} data-entry={entry.id}>
       <div className={styles.entryHead}>
         <span className={styles.entryTitle}>{RESOURCE_LABELS[entry.resource_type] ?? GENERIC_RESOURCE_LABEL}</span>
         <time className={styles.entryWhen} dateTime={entry.observed_at}>
@@ -59,48 +79,99 @@ function Entry({ entry, showAll }) {
         </time>
       </div>
       {KIND_LABELS[entry.kind] && <span className={styles.note}>{KIND_LABELS[entry.kind]}</span>}
-      {lines.map((line) => (
-        <Line key={line.path} line={line} />
+      {bySubject(entry.rows).map((group, index) => (
+        <div key={index} className={styles.lines}>
+          {group.subject && <span className={styles.subject}>{group.subject}</span>}
+          {group.rows.map((row, rowIndex) => (
+            <Line key={`${row.path}-${row.label}-${rowIndex}`} row={row} />
+          ))}
+        </div>
       ))}
+      {origin && (
+        <div className={styles.tags}>
+          <Tag tone={origin.tone}>{origin.text}</Tag>
+        </div>
+      )}
     </li>
   );
 }
 
-/** An entry is worth showing at first sight if a person would look at it. */
-const hasBusiness = (entry) => entry.business.length > 0 || entry.kind !== 'change';
+/** An entry is worth a card when it has a line to read, or it says the publication went or came back. */
+const hasRows = (entry) => entry.rows.length > 0 || entry.kind !== 'change';
+
+const hiddenNote = (count) =>
+  count === 1
+    ? 'Oculto 1 cambio técnico (fechas de actualización, identificadores o períodos de medición).'
+    : `Ocultos ${count} cambios técnicos (fechas de actualización, identificadores y períodos de medición).`;
 
 /**
  * Historial: what changed in the publication, from `ml_change_log`, newest
- * first. Each entry lists one line per changed field with the previous and the
- * new value. Business fields (price, status, stock, title, promotions, the
- * product link) come first; the technical ones, and the entries made only of
- * them, wait behind "Ver todo".
+ * first: one card per change, named by its resource, each line a Spanish label
+ * with the value before and after as the backend formatted them (`rows`). The
+ * chips narrow the loaded cards by resource.
+ * Technical lines are left out by the backend and counted in the footer until
+ * "Mostrar datos técnicos" asks for them (`tecnicos=true`).
  */
 export default function HistorialTab({ itemId }) {
-  const feed = usePagedFeed(fetchHistory, itemId, 'entries');
-  // "Ver todo" belongs to one publication: it is off for any other, whatever remounts around the tab.
-  const [expanded, setExpanded] = useState({ itemId, on: false });
-  const showAll = expanded.itemId === itemId && expanded.on;
+  // The toggle belongs to one publication: it is off for any other, whatever remounts around the tab.
+  const [technical, setTechnical] = useState({ itemId, on: false });
+  const showTechnical = technical.itemId === itemId && technical.on;
+  const feed = usePagedFeed(fetchHistory, itemId, 'entries', showTechnical ? TECHNICAL : undefined);
+  const [chip, setChip] = useState('todo');
+  const active = CHIPS.find((candidate) => candidate.key === chip) ?? CHIPS[0];
+
+  const toggle = (
+    <div className={styles.chips}>
+      {CHIPS.map((candidate) => (
+        <button
+          key={candidate.key}
+          type="button"
+          className={styles.chip}
+          aria-pressed={candidate.key === active.key}
+          onClick={() => setChip(candidate.key)}
+        >
+          {candidate.label}
+        </button>
+      ))}
+      <button
+        type="button"
+        className={`${styles.chip} ${styles.technicalToggle}`}
+        aria-pressed={showTechnical}
+        onClick={() => setTechnical({ itemId, on: !showTechnical })}
+      >
+        Mostrar datos técnicos
+      </button>
+    </div>
+  );
   if (feed.status !== 'ready') {
-    return <FeedStatus feed={feed} loadingText="Cargando historial…" errorText={(error) => describeFeedError(error, ERRORS)} />;
+    return (
+      <div className={styles.feed}>
+        {toggle}
+        <FeedStatus feed={feed} loadingText="Cargando historial…" errorText={(error) => describeFeedError(error, ERRORS)} />
+      </div>
+    );
   }
   if (feed.items.length === 0) return <p className={styles.note}>No hay cambios registrados para esta publicación.</p>;
 
-  const visible = showAll ? feed.items : feed.items.filter(hasBusiness);
+  const withRows = feed.items.filter(hasRows);
+  const visible = active.resources ? withRows.filter((entry) => active.resources.has(entry.resource_type)) : withRows;
+  const hidden = feed.items.reduce((total, entry) => total + (entry.hidden_technical_count ?? 0), 0);
   return (
-    <Section title="Historial">
-      <div>
-        <button type="button" className="btn-tesla outline sm" aria-pressed={showAll} onClick={() => setExpanded({ itemId, on: !showAll })}>
-          Ver todo
-        </button>
-      </div>
-      {visible.length === 0 && <p className={styles.note}>Solo cambios técnicos en esta página. Usá «Ver todo» para verlos.</p>}
-      <ul className={styles.entries}>
-        {visible.map((entry) => (
-          <Entry key={entry.id} entry={entry} showAll={showAll} />
-        ))}
-      </ul>
+    <div className={styles.feed}>
+      {toggle}
+      {withRows.length === 0 && <p className={styles.note}>En esta página solo hay cambios técnicos.</p>}
+      {withRows.length > 0 && visible.length === 0 && (
+        <p className={styles.note}>Ningún cambio de los cargados coincide con este filtro.</p>
+      )}
+      {visible.length > 0 && (
+        <ul className={styles.entries}>
+          {visible.map((entry) => (
+            <Entry key={entry.id} entry={entry} />
+          ))}
+        </ul>
+      )}
       <LoadMore feed={feed} failedText="No se pudieron cargar más cambios." />
-    </Section>
+      {!showTechnical && hidden > 0 && <p className={styles.footnote}>{hiddenNote(hidden)}</p>}
+    </div>
   );
 }

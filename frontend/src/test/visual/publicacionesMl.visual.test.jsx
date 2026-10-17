@@ -30,6 +30,7 @@ import {
   DETAIL_RESPONSE_MARGIN,
   EVENTS_RESPONSE,
   HISTORY_RESPONSE,
+  HISTORY_TECNICOS_RESPONSE,
   FACETS,
   ITEMS,
   KPIS_RESPONSE,
@@ -762,7 +763,9 @@ const renderWithPanel = async ({ width, height, theme, margin = false, tab = '',
   const detail = linked ? (margin ? DETAIL_LINKED_MARGIN : DETAIL_LINKED) : margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE;
   publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, row: base } });
   publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
-  publicacionesMlAPI.history.mockResolvedValue({ data: HISTORY_RESPONSE });
+  publicacionesMlAPI.history.mockImplementation((itemId, params) =>
+    Promise.resolve({ data: params?.tecnicos ? HISTORY_TECNICOS_RESPONSE : HISTORY_RESPONSE }),
+  );
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
   promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
@@ -876,28 +879,54 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
 
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Eventos tab lists the events inside the panel, the figures on one line`, async () => {
+      it(`${width}x${height} ${theme}: the Eventos tab lists the events inside the panel, with icons, chips and tags`, async () => {
         const screen = await renderWithPanel({ width, height, theme, tab: 'eventos' });
-        await expect.element(screen.getByText('Precio de promoción modificado')).toBeVisible();
+        await expect.element(screen.getByText('Publicación reactivada')).toBeVisible();
         const panel = panelOf();
         const entries = [...panel.querySelectorAll('[role="tabpanel"] li')];
-        expect(entries).toHaveLength(3);
+        // 22 captured events; ML's offers of the same minute fold into one line each
+        expect(entries).toHaveLength(18);
         for (const entry of entries) expect(rect(entry).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
         expect(getComputedStyle(entries[0]).borderTopColor).toBe(tokenColor('--cf-border-default'));
         expect(getComputedStyle(entries[0].querySelector('time')).color).toBe(tokenColor('--cf-text-secondary'));
+        const icon = entries[0].querySelector('[data-icon]');
+        expect(icon.getAttribute('data-icon')).toBe('promotion');
+        expect(rect(icon).width).toBeGreaterThan(0);
+        const [offered] = [...panel.querySelectorAll('span')].filter((el) => el.textContent === 'Disponible para activar');
+        expect(getComputedStyle(offered).color).toBe(tokenColor('--tone-warning-fg'));
+        const chips = [...panel.querySelector('[role="tabpanel"]').querySelectorAll('button[aria-pressed]')];
+        expect(chips.map((chip) => chip.textContent.replace(/\d+$/, ''))).toEqual(['Todos', 'Hechos por nosotros', 'Cambios de ML', 'Solo importantes']);
+        for (const chip of chips) expect(rect(chip).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
         screen.unmount();
       });
 
-      it(`${width}x${height} ${theme}: the Historial tab shows the business fields first and the technical ones after "Ver todo"`, async () => {
+      it(`${width}x${height} ${theme}: the Historial tab shows readable cards, the technical lines only after "Mostrar datos técnicos"`, async () => {
         const screen = await renderWithPanel({ width, height, theme, tab: 'historial' });
-        await expect.element(screen.getByText('Stock por ubicación')).toBeVisible();
+        await expect.element(screen.getByText('Visitas de los últimos 30 días')).toBeVisible();
         const panel = panelOf();
-        expect(panel.textContent).not.toContain('last_updated');
-        await screen.getByRole('button', { name: 'Ver todo' }).click();
-        await expect.element(screen.getByText('last_updated')).toBeVisible();
+        expect(panel.textContent).not.toContain('Inicio del período de visitas');
+        expect(panel.textContent).not.toMatch(/[{}]/);
+        await expect.element(screen.getByText(/^Ocultos 74 cambios técnicos/)).toBeVisible();
+
+        await screen.getByRole('button', { name: 'Promociones', exact: true }).click();
+        const cards = [...panel.querySelectorAll('[data-entry]')];
+        expect(cards).toHaveLength(4);
+        for (const card of cards) expect(rect(card).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        await screen.getByRole('button', { name: 'Todo', exact: true }).click();
+
+        await screen.getByRole('button', { name: 'Mostrar datos técnicos', exact: true }).click();
+        // With tecnicos the label is on two cards (34965 and 148600, the visits change made only of technical
+        // lines): the one that appears only now is 148600, so the check is on that card.
+        await expect.poll(() => panel.querySelector('[data-entry="148600"]')).not.toBeNull();
+        const technicalOnly = panel.querySelector('[data-entry="148600"]');
+        expect(technicalOnly.textContent).toContain('Inicio del período de visitas');
+        expect(rect(technicalOnly).height).toBeGreaterThan(0);
+        expect(rect(technicalOnly).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        const periodStarts = [...panel.querySelectorAll('[data-line]')].filter((line) => line.textContent.startsWith('Inicio del período de visitas'));
+        expect(periodStarts).toHaveLength(2);
+        expect(panel.textContent).not.toContain('Ocultos 74');
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-        for (const code of panel.querySelectorAll('code')) expect(rect(code).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
         screen.unmount();
       });
 

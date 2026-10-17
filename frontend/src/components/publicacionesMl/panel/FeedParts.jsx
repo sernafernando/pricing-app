@@ -1,3 +1,4 @@
+import { EMPTY_VALUE } from './feedFormat';
 import styles from './panel.module.css';
 
 /** The loading note, the error with its retry, or nothing once the feed is ready. */
@@ -36,5 +37,35 @@ export function LoadMore({ feed, failedText }) {
         {feed.more === 'loading' ? 'Cargando…' : 'Ver más'}
       </button>
     </div>
+  );
+}
+
+const TAG_TONES = {
+  ours: styles.tagOurs,
+  auto: styles.tagAuto,
+  warning: styles.tagWarning,
+  success: styles.tagSuccess,
+  info: styles.tagInfo,
+  neutral: styles.tagNeutral,
+};
+
+/** A small label: who caused a change (`originTag`) or a promotion's state (`stateTone`). */
+export function Tag({ tone = 'neutral', children }) {
+  return <span className={`${styles.tag} ${TAG_TONES[tone] ?? styles.tagNeutral}`}>{children}</span>;
+}
+
+/** A before → after pair; a side that does not exist is left out before the arrow, or is the dash after it. */
+export function Change({ before, after, delta }) {
+  return (
+    <span className={styles.change}>
+      {before != null && (
+        <>
+          <span className={styles.before}>{before}</span>
+          <span aria-hidden="true">→</span>
+        </>
+      )}
+      <span className={styles.after}>{after ?? EMPTY_VALUE}</span>
+      {delta && <span className={delta.direction === 'up' ? styles.deltaUp : styles.deltaDown}>{delta.text}</span>}
+    </span>
   );
 }
