@@ -468,6 +468,7 @@ class EventOut(BaseModel):
     old_value: Any = None
     new_value: Any = None
     promotion_id: Optional[str] = None
+    promotion_name: Optional[str] = None  # the promotion's name as ML gave it, when a stored row has it (events_view)
     payload: Optional[dict[str, Any]] = None  # the typed payload of the event type (events.py)
     status_label: Optional[str] = None  # promotion events: "Disponible para activar", "Aplicada", ...
     origin: OriginOut
