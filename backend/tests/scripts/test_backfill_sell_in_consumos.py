@@ -15,7 +15,8 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.scripts.backfill_sell_in_consumos import run_backfill
+from app.scripts.backfill_sell_in_consumos import _build_parser, run_backfill
+from app.services.sell_in import costing
 from tests.services.sell_in import _world as w
 
 D = date
@@ -89,3 +90,45 @@ class TestBackfill:
 
         assert summary["deleted"] == 2
         assert w.consumos(engine) == []
+
+    def test_a_failed_product_is_listed_in_the_summary_and_can_be_rerun_alone(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        a, b, va, vb = _seed(engine)
+        escribir = costing.FifoPurchaseCosting._escribir
+
+        def _falla(db, item_id, deseados, guardados):
+            if item_id == 2270:
+                raise RuntimeError("boom")
+            return escribir(db, item_id, deseados, guardados)
+
+        monkeypatch.setattr(costing.FifoPurchaseCosting, "_escribir", staticmethod(_falla))
+        first = _run(engine, limit=None, dry_run=False)
+        assert (first["failed"], first["failed_items"], first["last_item_id"]) == (1, [2270], 2964)
+        assert w.consumos(engine) == [(a, "fuera", va, 2964, 1, Decimal("10.00"))]
+        monkeypatch.undo()
+
+        retry = _run(engine, limit=None, dry_run=False, items=first["failed_items"])
+
+        assert (retry["products"], retry["inserted"], retry["failed"], retry["failed_items"]) == (1, 1, 0, [])
+        assert w.consumos(engine) == [
+            (a, "fuera", va, 2964, 1, Decimal("10.00")),
+            (b, "ml", vb, 2270, 2, Decimal("40.00")),
+        ]
+
+    def test_items_runs_exactly_the_given_products_in_batches(self, engine: Engine) -> None:
+        a, b, va, vb = _seed(engine)
+
+        summary = _run(engine, limit=None, dry_run=False, batch_size=1, items=[2964, 2964])
+
+        assert (summary["products"], summary["batches"], summary["inserted"]) == (1, 1, 1)
+        assert w.consumos(engine) == [(a, "fuera", va, 2964, 1, Decimal("10.00"))]
+
+
+class TestParser:
+    def test_items_takes_a_csv_of_item_ids(self) -> None:
+        assert _build_parser().parse_args(["--items", "2964, 2270"]).items == [2270, 2964]
+
+    def test_items_rejects_a_non_numeric_id(self) -> None:
+        with pytest.raises(SystemExit):
+            _build_parser().parse_args(["--items", "2964,abc"])
