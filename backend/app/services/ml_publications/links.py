@@ -83,8 +83,11 @@ class Suggestion:
 
 
 def _usable(value: Any) -> Optional[str]:
-    """A SKU as ML sent it, or None when absent (missing, not text or empty string)."""
-    return value if isinstance(value, str) and value != "" else None
+    """A SKU as ML sent it, or None when absent (missing, not text, or empty or blank once stripped).
+
+    A blank SELLER_SKU must not hide a real `seller_custom_field`. A usable value is still returned untrimmed.
+    """
+    return value if isinstance(value, str) and value.strip() != "" else None
 
 
 def sku_key(seller_sku: Any, seller_custom_field: Any) -> tuple[Optional[str], Optional[str]]:

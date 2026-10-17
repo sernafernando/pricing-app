@@ -48,6 +48,10 @@ class TestSkuKey:
         assert links.sku_key("", "") == (None, None)
         assert links.sku_key(None, None) == (None, None)
 
+    def test_a_blank_value_counts_as_absent(self) -> None:
+        assert links.sku_key("   ", "126") == ("126", CUSTOM)
+        assert links.sku_key("\t", " ") == (None, None)
+
     def test_a_value_that_is_not_text_is_absent(self) -> None:
         assert links.sku_key(None, 126) == (None, None)
 
@@ -221,6 +225,23 @@ class TestNormalizedAndItemIdRules:
         assert links.item_id_of("0") is None
         assert links.item_id_of("12A") is None
         assert links.item_id_of("99999999999") is None  # beyond `productos_erp.item_id` (integer)
+
+
+class TestBlankSellerSku:
+    def test_a_blank_seller_sku_falls_back_to_the_custom_field_and_links_by_it(self) -> None:
+        body = with_sku(bulk_item("MLA934406852"), "   ")  # real payload; its seller_custom_field is "126"
+        unit = only_unit(body)
+        assert (unit.key, unit.sku_field) == ("126", CUSTOM)
+        suggestion = links.resolve(unit, {"126": [7]})
+        assert (suggestion.status, suggestion.producto_item_id, suggestion.sku_field) == ("linked", 7, CUSTOM)
+        assert suggestion.matched_sku == "126"
+
+    def test_a_variation_with_a_blank_seller_sku_uses_its_custom_field(self) -> None:
+        body = item_with_variations()
+        body["variations"][0]["attributes"] = [{"id": "SELLER_SKU", "value_id": None, "value_name": "  "}]
+        body["variations"][0]["seller_custom_field"] = "355"
+        units = {u.variation_id: u for u in units_of(body)}
+        assert (units[175550253195].key, units[175550253195].sku_field) == ("355", CUSTOM)
 
 
 class TestCodigosNeeded:
