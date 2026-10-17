@@ -117,7 +117,9 @@ def normalize_sku(value: str) -> str:
 
     Upper-casing is per character and only when the upper case is one character, as Postgres `upper()` does
     ("ß" stays "ß", Python alone would make it "SS"): the SQL prefilter in `load_catalog` must compute the
-    same form, or it would miss rows this check accepts.
+    same form, or it would miss rows this check accepts. That holds under a UTF-8 ctype: production's database is
+    `es_AR.UTF-8` (checked 2026-10-17, `upper('pc-ñ')` = 'PC-Ñ'); under a `C` ctype Postgres would upper-case ASCII
+    only and a non-ASCII `codigo` would stay unmatched (never mislinked).
     """
     return "".join(_upper_char(char) for char in _SEPARATORS.sub("", value))
 

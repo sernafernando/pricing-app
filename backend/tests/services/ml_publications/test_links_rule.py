@@ -168,8 +168,8 @@ class TestNormalizedAndItemIdRules:
         assert links.normalize_sku("straße-1") == "STRAßE1"
         assert links.normalize_sku("ǆ") == "Ǆ"  # a one-character upper case is still applied
 
-    def test_unicode_spaces_are_separators_like_postgres_space_class(self) -> None:
-        # Postgres [[:space:]] also strips a no-break space; the Python check must agree.
+    def test_a_no_break_space_is_a_separator(self) -> None:
+        # The explicit separator set (shared with the SQL prefilter) includes the no-break space.
         assert links.normalize_sku("PC\u00a010400") == "PC10400"
 
     def test_case_and_separators_do_not_prevent_a_codigo_match(self) -> None:
