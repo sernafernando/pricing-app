@@ -1063,6 +1063,48 @@ def get_products(
     }
 
 
+class ProductIdsResponse(BaseModel):
+    item_ids: list[int]
+    count: int
+    sin_producto: int  # matching publications with no linked product: no bulk action reaches them
+
+
+PRODUCT_IDS_OVER_CAP = "demasiados_productos"
+
+
+@router.get("/product-ids", response_model=ProductIdsResponse)
+def get_product_ids(
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The linked products of the publications the filters select: the set a bulk pricing action acts on. Over
+    `products.MAX_PRODUCT_IDS` it is a 422 naming the count, never a truncated list."""
+    try:
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        found = products.product_ids(db, f)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except products.TooManyProducts as exc:
+        error = api_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            PRODUCT_IDS_OVER_CAP,
+            f"El filtro selecciona {exc.count} productos; una acción masiva admite hasta {exc.cap}. Acotá el filtro.",
+        )
+        error.detail["count"] = exc.count
+        error.detail["max"] = exc.cap
+        raise error from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "sin_producto": found.sin_producto}
+
+
 @router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)
 def get_item_variations(
     response: Response,
