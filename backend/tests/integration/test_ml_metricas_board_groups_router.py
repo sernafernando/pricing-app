@@ -448,17 +448,22 @@ class TestGroupedStatementBudget:
 
 
 class TestGroupedViewReview:
-    def test_every_sort_of_the_board_works_on_the_grouped_view(self, client, admin_auth_headers, board_data):
+    def test_every_sort_of_the_board_works_on_the_grouped_view(self, db, client, admin_auth_headers, board_data):
+        # `sort=total_tp` needs "Costos TP" on (422 without it), and "Costos TP" needs a `tplink` store (503
+        # without one): one minimal TP store row lets it run here like every other sort.
+        db.add(MlTiendaOficial(store_id=144, nombre="TP-Link", clave="tplink", orden=3, activa=True))
+        db.commit()
         for sort in board.SORTS:
+            flags = {"costos_tp": "true"} if sort == "total_tp" else {}
             for direction in ("asc", "desc"):
                 resp = client.get(
-                    URL, params={"sort": sort, "sort_dir": direction, **GROUP}, headers=admin_auth_headers
+                    URL, params={"sort": sort, "sort_dir": direction, **GROUP, **flags}, headers=admin_auth_headers
                 )
                 assert resp.status_code == 200, (sort, direction, resp.text)
                 for path in (["EPSON"], ["EPSON", "CAT", "1"]):
                     below = client.get(
                         NODES,
-                        params={"path": _path(*path), "sort": sort, "sort_dir": direction, **GROUP},
+                        params={"path": _path(*path), "sort": sort, "sort_dir": direction, **GROUP, **flags},
                         headers=admin_auth_headers,
                     )
                     assert below.status_code == 200, (sort, direction, path, below.text)

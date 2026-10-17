@@ -5,6 +5,14 @@
 
 export const TP_MARKUP_HINT = 'Usa el costo TP en las operaciones de la tienda TP-Link';
 
+/** The one "Agrupado" dimension a `tplink.solo` user's board takes (backend P5b). */
+export const TP_SOLO_DIMENSION = 'tienda';
+
+/** A `tplink.solo` board refuses a Total Gauss sort (422): Total TP, which replaces it, takes its place. */
+export function tpSoloSortKey(key, tpSolo) {
+  return tpSolo && key === 'total_gauss' ? 'total_tp' : key;
+}
+
 /** The board's query for the toggle: absent while off, so the request is exactly the one made without it. */
 export function tpRequestParams(on) {
   return on ? { costos_tp: true } : {};

@@ -135,6 +135,38 @@ describe('MetricasML Costos TP toggle', () => {
     expect(lastBoardParams().costos_tp).toBe(true);
   });
 
+  it('on: sorts by Total TP from its column header', async () => {
+    await renderWithRouter(<MetricasML />);
+    await turnOn();
+    await userEvent.click(await screen.findByRole('button', { name: 'Total TP' }));
+    await waitFor(() => expect(lastBoardParams().sort).toBe('total_tp'));
+    expect(lastBoardParams().costos_tp).toBe(true);
+  });
+
+  it('turning it off while sorted by Total TP falls back to Facturado', async () => {
+    await renderWithRouter(<MetricasML />);
+    await turnOn();
+    await userEvent.click(await screen.findByRole('button', { name: 'Total TP' }));
+    await waitFor(() => expect(lastBoardParams().sort).toBe('total_tp'));
+    await userEvent.click(await toggle());
+    await waitFor(() => expect(lastBoardParams()).not.toHaveProperty('costos_tp'));
+    expect(lastBoardParams().sort).toBe('gross');
+    expect(boardCalls().filter(([, config]) => !config.params.costos_tp).map(([, c]) => c.params.sort)).not.toContain('total_tp');
+  });
+
+  it('a TP refusal while sorted by Total TP also falls back to Facturado', async () => {
+    await renderWithRouter(<MetricasML />);
+    await turnOn();
+    await userEvent.click(await screen.findByRole('button', { name: 'Total TP' }));
+    await waitFor(() => expect(lastBoardParams().sort).toBe('total_tp'));
+    tpFailure = 503;
+    // The next TP request (the other sort direction) is refused.
+    await userEvent.click(screen.getByRole('button', { name: 'Total TP' }));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Costos TP' })).toHaveAttribute('aria-checked', 'false'));
+    await waitFor(() => expect(lastBoardParams()).not.toHaveProperty('costos_tp'));
+    expect(lastBoardParams().sort).toBe('gross');
+  });
+
   it('exports the CSV with TP costs while the toggle is on', async () => {
     await renderWithRouter(<MetricasML />);
     await turnOn();

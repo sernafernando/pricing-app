@@ -188,3 +188,18 @@ def test_the_csv_combines_the_publicidad_position_and_costos_tp(client, admin_au
     assert board_row["ads"]["cost"] > 0
     assert router[gauss : gauss + 4] == [*money, f"{board_row['total_tp']:.2f}".replace(".", ","), "0"]
     assert board_row["total_tp"] == 70 - board_row["ads"]["cost"]
+
+
+def test_sort_by_total_tp_with_costos_tp(client, admin_auth_headers, tp_data) -> None:
+    body = _get(client, admin_auth_headers, sort="total_tp", sort_dir="asc", **ON)
+
+    # 11 has a Total TP (70); 12 has none: last even ascending.
+    assert [row["key"] for row in body["rows"]] == ["11", "12"]
+
+
+@pytest.mark.parametrize("path", ["", "/products/11/publications", "/export"])
+def test_sort_by_total_tp_without_costos_tp_is_refused(client, admin_auth_headers, tp_data, path) -> None:
+    resp = client.get(URL + path, params={"sort": "total_tp"}, headers=admin_auth_headers)
+
+    assert resp.status_code == 422
+    assert "costos_tp" in resp.text

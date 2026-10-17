@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TP_MARKUP_HINT, tpCellState, tpErrorMessage, tpRequestParams } from './metricasMlTp';
+import { TP_MARKUP_HINT, tpCellState, tpErrorMessage, tpRequestParams, tpSoloSortKey } from './metricasMlTp';
 
 describe('tpRequestParams', () => {
   it('asks for costos_tp only while the toggle is on', () => {
@@ -40,4 +40,15 @@ describe('tpCellState', () => {
 
 it('the markup hint names the TP cost', () => {
   expect(TP_MARKUP_HINT).toBe('Usa el costo TP en las operaciones de la tienda TP-Link');
+});
+
+describe('tpSoloSortKey', () => {
+  it('never sorts a tplink.solo board by Total Gauss: Total TP takes its place', () => {
+    expect(tpSoloSortKey('total_gauss', true)).toBe('total_tp');
+    expect(tpSoloSortKey('gross', true)).toBe('gross');
+  });
+
+  it('leaves everyone else alone', () => {
+    expect(tpSoloSortKey('total_gauss', false)).toBe('total_gauss');
+  });
 });

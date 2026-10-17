@@ -91,7 +91,8 @@ function TotalTpCard({ tp }) {
   );
 }
 
-export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading }) {
+/** `tpSolo`: a `tplink.solo` user's board, which has no Total Gauss (the key is absent) and carries Markup TP. */
+export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading, tpSolo = false }) {
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
   const noun = { publication: 'Publicaciones', group: 'Grupos' }[groupBy] ?? 'Productos';
   // The ageing buckets count PRODUCTS (or publications) even in the grouped view.
@@ -122,30 +123,32 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
         <Sparkline values={gross.series} width={200} height={22} tone={deltaTone(gross.delta_pct)} className={styles.spark} label="Facturado por día" />
       </Card>
 
-      <Card label="Total Gauss" icon={Wallet}>
-        {canSeeMargin ? (
-          <>
-            <div className={styles.valueRow}>
-              <span className={`${styles.value} ${styles[`money_${moneyTone(tg.value)}`] || ''}`} data-money data-kpi-value>
-                {formatSignedMoney(tg.value)}
-              </span>
-              <DeltaChip value={tg.delta_pct} format={formatDeltaPct} />
-            </div>
-            {ads && (
-              <div className={styles.adjustedRow}>
-                <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
+      {!tpSolo && (
+        <Card label="Total Gauss" icon={Wallet}>
+          {canSeeMargin ? (
+            <>
+              <div className={styles.valueRow}>
+                <span className={`${styles.value} ${styles[`money_${moneyTone(tg.value)}`] || ''}`} data-money data-kpi-value>
+                  {formatSignedMoney(tg.value)}
+                </span>
+                <DeltaChip value={tg.delta_pct} format={formatDeltaPct} />
               </div>
-            )}
-            <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
-          </>
-        ) : (
-          <span className={styles.locked}>Sin permiso para ver ganancia</span>
-        )}
-      </Card>
+              {ads && (
+                <div className={styles.adjustedRow}>
+                  <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
+                </div>
+              )}
+              <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
+            </>
+          ) : (
+            <span className={styles.locked}>Sin permiso para ver ganancia</span>
+          )}
+        </Card>
+      )}
 
       {tp && <TotalTpCard tp={tp} />}
 
-      <Card label="Markup promedio" icon={PieChart}>
+      <Card label={tpSolo ? 'Markup TP' : 'Markup promedio'} icon={PieChart}>
         {canSeeMargin ? (
           <>
             <div className={styles.valueRow}>

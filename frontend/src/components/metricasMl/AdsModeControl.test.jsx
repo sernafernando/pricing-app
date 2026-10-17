@@ -35,3 +35,19 @@ describe('AdsModeControl', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('AdsModeControl for a tplink.solo user', () => {
+  it('describes each position in terms of Total TP', () => {
+    const { rerender } = render(<AdsModeControl value="off" onChange={() => {}} tpSolo />);
+    expect(screen.getByText('No se resta publicidad de Total TP ni del markup.')).toBeInTheDocument();
+    rerender(<AdsModeControl value="mla" onChange={() => {}} tpSolo />);
+    expect(screen.getByText('Resta del Total TP y del markup solo los Ads atribuidos a cada publicación.')).toBeInTheDocument();
+    rerender(<AdsModeControl value="todo" onChange={() => {}} tpSolo />);
+    expect(
+      screen.getByText(
+        'Resta del Total TP y del markup los Ads de cada publicación y además Display, Brand Ads y Ads sin producto.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Total Gauss/)).not.toBeInTheDocument();
+  });
+});

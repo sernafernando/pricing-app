@@ -95,3 +95,17 @@ describe('buildMetricasMLParams: the grouped view', () => {
     expect(buildMetricasMLParams({ ...BASE, groupBy: 'group' }).dimension).toBe('marca');
   });
 });
+
+describe('buildMetricasMLParams for a tplink.solo user', () => {
+  it('never sends PMs, and groups "Agrupado" only by tienda', () => {
+    const productFilters = { marcas: ['TP-LINK'], categorias: [], subcategorias: [], pms: [7] };
+    const params = buildMetricasMLParams({ ...BASE, groupBy: 'group', dimension: 'pm', productFilters, tpSolo: true });
+    expect(params).not.toHaveProperty('pms');
+    expect(params.dimension).toBe('tienda');
+    expect(params.marcas).toBe('TP-LINK');
+  });
+
+  it('sends no dimension outside "Agrupado"', () => {
+    expect(buildMetricasMLParams({ ...BASE, dimension: 'marca', tpSolo: true })).not.toHaveProperty('dimension');
+  });
+});

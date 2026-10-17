@@ -72,3 +72,26 @@ describe('MetricasKpiStrip with Costos TP', () => {
   });
 });
 
+
+describe('MetricasKpiStrip for a tplink.solo user', () => {
+  // The board drops `total_gauss` for this user: the key is absent, not null.
+  const { total_gauss: _gauss, ...withoutGauss } = OFF;
+  const soloStrip = (tp = TP_KPIS) =>
+    render(<MetricasKpiStrip kpis={{ ...withoutGauss, total_tp: tp }} canSeeMargin groupBy="product" tpSolo />);
+
+  it('has no Total Gauss card, and shows Total TP and Markup TP', () => {
+    soloStrip();
+    expect(screen.queryByText('Total Gauss')).not.toBeInTheDocument();
+    expect(within(cardOf('Total TP')).getByText('$ 3.125.400,50')).toBeInTheDocument();
+    expect(cardOf('Markup TP')).not.toBeNull();
+    expect(screen.queryByText('Markup promedio')).not.toBeInTheDocument();
+  });
+
+  it('keeps the incomplete dash and the warning count', () => {
+    soloStrip({ value: null, incompletos: 4 });
+    const card = within(cardOf('Total TP'));
+    expect(card.getByText('—')).toBeInTheDocument();
+    expect(card.getByText('incompleto')).toBeInTheDocument();
+    expect(card.getByTitle('4 ventas de la tienda TP-Link sin costo TP: el Total TP está incompleto')).toBeInTheDocument();
+  });
+});

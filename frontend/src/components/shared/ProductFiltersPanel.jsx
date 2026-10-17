@@ -30,8 +30,9 @@ import styles from './ProductFiltersPanel.module.css';
  * @param {(next: {marcas: string[], categorias: string[], subcategorias: number[], pms: number[]}) => void} props.onChange
  * @param {{marcas: string[], categorias: string[], subcategorias: object[], pms: object[]}} [props.options]
  *   The cross-filtered lists; empty until the screen's first response.
+ * @param {boolean} [props.hidePm] Hides the PM button and its panel (a screen that takes no PM filter).
  */
-export default function ProductFiltersPanel({ value, onChange, options }) {
+export default function ProductFiltersPanel({ value, onChange, options, hidePm = false }) {
   const [panelAbierto, setPanelAbierto] = useState(null); // 'marcas' | 'categorias' | 'subcategorias' | 'pms' | null
   const containerRef = useRef(null);
 
@@ -138,14 +139,16 @@ export default function ProductFiltersPanel({ value, onChange, options }) {
           )}
         </button>
 
-        <button
-          type="button"
-          className={`${styles.filterButton} ${selectedPms.length > 0 ? styles.filterButtonActive : ''}`}
-          onClick={() => togglePanel('pms')}
-        >
-          PM
-          {selectedPms.length > 0 && <span className={styles.filterBadge}>{selectedPms.length}</span>}
-        </button>
+        {!hidePm && (
+          <button
+            type="button"
+            className={`${styles.filterButton} ${selectedPms.length > 0 ? styles.filterButtonActive : ''}`}
+            onClick={() => togglePanel('pms')}
+          >
+            PM
+            {selectedPms.length > 0 && <span className={styles.filterBadge}>{selectedPms.length}</span>}
+          </button>
+        )}
       </div>
 
       {panelAbierto && (
@@ -277,7 +280,7 @@ export default function ProductFiltersPanel({ value, onChange, options }) {
             </>
           )}
 
-          {panelAbierto === 'pms' && (
+          {!hidePm && panelAbierto === 'pms' && (
             <>
               <div className={styles.dropdownHeaderRow}>
                 <h3>Product Managers</h3>

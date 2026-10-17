@@ -47,3 +47,25 @@ describe('buildBoardColumns: Costos TP', () => {
     expect(ids({ canSeeMargin: false, tpOn: true })).not.toContain('total_tp');
   });
 });
+
+describe('buildBoardColumns for a tplink.solo user', () => {
+  const tpSolo = (options) =>
+    buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product', tpOn: true, tpSolo: true, ...options });
+
+  it('has Total TP and no Total Gauss column at all', () => {
+    const order = tpSolo().map((col) => col.id);
+    expect(order).not.toContain('total_gauss');
+    expect(order.indexOf('total_tp')).toBe(order.indexOf('gross') + 1);
+  });
+
+  it('shows Total TP even before the first answer says TP is on', () => {
+    expect(tpSolo({ tpOn: false }).map((col) => col.id)).toContain('total_tp');
+  });
+
+  it('labels the markup as Markup TP', () => {
+    expect(tpSolo().find((col) => col.id === 'markup')).toMatchObject({
+      header: 'Markup TP',
+      title: 'Usa el costo TP en las operaciones de la tienda TP-Link',
+    });
+  });
+});

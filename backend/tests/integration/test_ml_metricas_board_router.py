@@ -13,6 +13,7 @@ at 2026-09-30 (Buenos Aires) so every window is deterministic:
 
 from __future__ import annotations
 
+import importlib
 import csv
 import io
 from contextlib import contextmanager
@@ -1119,6 +1120,13 @@ SORT_FIELDS = {
 }
 
 
+# Sorts valid only with a flag: `sort=total_tp` needs `costos_tp=true` (422 without it), so the flag-free
+# `TestSortByColumn` cannot send it. Each one names the test that sends it WITH its flag.
+FLAG_DEPENDENT_SORTS = {
+    "total_tp": ("test_ml_metricas_board_costos_tp_router", "test_sort_by_total_tp_with_costos_tp"),
+}
+
+
 def _expected_order(rows, value_of, descending):
     """The board's contract: by the value (nulls LAST either way), ties by
     the unique row key ascending."""
@@ -1135,7 +1143,10 @@ class TestSortByColumn:
     row key, so ties can never repeat or skip a row between pages."""
 
     def test_every_sort_key_is_covered(self):
-        assert set(SORT_FIELDS) == set(board.SORTS)
+        assert not set(SORT_FIELDS) & set(FLAG_DEPENDENT_SORTS)
+        assert set(SORT_FIELDS) | set(FLAG_DEPENDENT_SORTS) == set(board.SORTS)
+        for module, test in FLAG_DEPENDENT_SORTS.values():
+            assert callable(getattr(importlib.import_module(f"tests.integration.{module}"), test, None)), test
 
     @pytest.mark.parametrize("sort", sorted(SORT_FIELDS))
     @pytest.mark.parametrize("sort_dir", ["asc", "desc"])

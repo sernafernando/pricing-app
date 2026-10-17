@@ -1,3 +1,5 @@
+import { TP_SOLO_DIMENSION } from './metricasMlTp';
+
 /**
  * The ONE place the Métricas ML board turns its filter state into request
  * params (ODD `metricas-ml-tablero` T4) -- the board, the nested
@@ -23,6 +25,7 @@ export function buildMetricasMLParams({
   ageing,
   ageingExclude,
   soloConVentas = true,
+  tpSolo = false,
 }) {
   const params = {
     date_from: fechaDesde,
@@ -34,12 +37,13 @@ export function buildMetricasMLParams({
     solo_con_ventas: soloConVentas,
   };
   // What the "Agrupado" view sums by; the other views have no dimension.
-  if (groupBy === 'group') params.dimension = dimension;
+  // A `tplink.solo` user's board takes "Agrupado" by tienda only, and no PM (the backend answers 422).
+  if (groupBy === 'group') params.dimension = tpSolo ? TP_SOLO_DIMENSION : dimension;
   if (searchQuery) params.q = searchQuery;
   if (productFilters?.marcas?.length > 0) params.marcas = productFilters.marcas.join(',');
   if (productFilters?.categorias?.length > 0) params.categorias = productFilters.categorias.join(',');
   if (productFilters?.subcategorias?.length > 0) params.subcategorias = productFilters.subcategorias.join(',');
-  if (productFilters?.pms?.length > 0) params.pms = productFilters.pms.join(',');
+  if (!tpSolo && productFilters?.pms?.length > 0) params.pms = productFilters.pms.join(',');
   if (storeFilter) params.stores = storeFilter;
   if (pubStatus?.length > 0) params.pub_status = pubStatus.join(',');
   if (pubType?.length > 0) params.pub_type = pubType.join(',');

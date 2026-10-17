@@ -390,6 +390,8 @@ def board_filter_tp(
     if _tp_solo_of(tp_solo, db, current_user):
         return _tp_solo_filter(db, f)
     if not costos_tp:
+        if f.sort == "total_tp":
+            raise HTTPException(status_code=422, detail="sort=total_tp requiere costos_tp=true")
         return f
     if not _can_see_margin(db, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Costos TP requiere {PERMISO_GANANCIA}")
