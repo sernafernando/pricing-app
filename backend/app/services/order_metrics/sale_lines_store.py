@@ -11,6 +11,14 @@ by hashing every order: the drain stores ~25 orders a second).
 
 NEVER commits. PostgreSQL only, like the queue it hangs from.
 
+Every line that appears, changes what the sell-in / sell-out allocators read
+(`SELL_COLUMNS`) or disappears is queued in `sell_dirty` in the same
+transaction (`app.services.sell.queue.enqueue_ml`, sell-in-sell-out T4). The
+old lines come back from the DELETE and the new ones from the INSERT (both
+`RETURNING`), so a rewrite that changes nothing queues nothing and costs no
+extra query. A line deleted by the foreign-key cascade (its order deleted) is
+NOT seen here.
+
 The OLD group of an order that moved packs is not rewritten here: the capture
 trigger (`order_metrics_enqueue_orders_ops`, PR20) already enqueues every
 surviving member of the pack the order left, and each of them rewrites its group
@@ -45,6 +53,7 @@ from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.ml_sale_line import MlSaleLine
 from app.services.ml_daily_metrics.sales import sale_lines
+from app.services.sell.queue import enqueue_ml
 
 COLUMNS = (
     "item_row_id",
@@ -72,6 +81,10 @@ TP_FORMULA_VERSION = 7
 
 # Everything a stored line carries.
 STORED_COLUMNS = COLUMNS + TP_COLUMNS
+
+# What the sell-in / sell-out allocators read from a line (product first): a
+# line whose values here change is queued in `sell_dirty`.
+SELL_COLUMNS = ("product", "qty", "day", "group_date", "gross", "tg", "mcosto")
 
 
 def derive_sale_lines(group_keys: Sequence[str]):
@@ -124,10 +137,11 @@ def _insert_statement(seller: Optional[str]):
     )
     # A sibling that JOINS the group is derived with it while its own lines are
     # still stored under its previous group: the line moves instead of colliding.
+    table = MlSaleLine.__table__
     return statement.on_conflict_do_update(
         index_elements=["item_row_id"],
         set_={name: statement.excluded[name] for name in STORED_COLUMNS if name != "item_row_id"},
-    )
+    ).returning(table.c.item_row_id, *(table.c[name] for name in SELL_COLUMNS))
 
 
 def store_sale_lines(db, order_ids: Iterable[int], group_keys: Sequence[str]) -> None:
@@ -155,6 +169,20 @@ def store_sale_lines(db, order_ids: Iterable[int], group_keys: Sequence[str]) ->
         ),
         {"keys": group_keys, "orders": order_ids},
     )
-    db.execute(delete(table).where(or_(table.c.group_key.in_(group_keys), table.c.order_id.in_(order_ids))))
+    sell_values = (table.c.item_row_id, *(table.c[name] for name in SELL_COLUMNS))
+    deleted = db.execute(
+        delete(table)
+        .where(or_(table.c.group_key.in_(group_keys), table.c.order_id.in_(order_ids)))
+        .returning(*sell_values)
+    )
+    old = {row[0]: tuple(row[1:]) for row in deleted}
+    new = {}
     if group_keys:
-        db.execute(_insert_statement(settings.ML_USER_ID), {"keys": group_keys})
+        new = {
+            row[0]: tuple(row[1:]) for row in db.execute(_insert_statement(settings.ML_USER_ID), {"keys": group_keys})
+        }
+    # `values[0]` is the product: a line that disappeared is queued under its
+    # old product, any other under its new one.
+    changed = {ref: values[0] for ref, values in old.items() if new.get(ref) != values}
+    changed.update((ref, values[0]) for ref, values in new.items() if old.get(ref) != values)
+    enqueue_ml(db, list(changed.items()))

@@ -18,6 +18,7 @@ from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
 from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
+from app.workers.handlers.sell_drain import drain as _sell_drain
 from app.workers.handlers.tp_cost_fill import fill as _tp_cost_fill
 
 
@@ -50,11 +51,13 @@ class JobHandler(Protocol):
 # `order_metrics.drain`; PR6 appends `order_metrics.reconcile` and
 # `order_metrics.divergence`.
 # metricas-ml-tplink-mode P2 appends `tp_cost.fill` (notify-driven, like the drain).
+# sell-in-sell-out T4 appends `sell.drain` (notify-driven; inert until T5).
 REGISTRY: List[JobHandler] = [
     _order_metrics_drain,
     _order_metrics_reconcile,
     _order_metrics_divergence,
     _tp_cost_fill,
+    _sell_drain,
 ]
 
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,

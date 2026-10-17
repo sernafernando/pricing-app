@@ -195,6 +195,7 @@ from app.models.ml_publications import (
     MlUserProductStock,
 )
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_dirty import SellDirty
 
 # Compras v2 — NCs locales
 from app.models.nota_credito_local import NotaCreditoLocal
@@ -456,4 +457,5 @@ __all__ = [
     "SellInCompra",
     "SellInCompraItem",
     "SellInConsumo",
+    "SellDirty",
 ]
