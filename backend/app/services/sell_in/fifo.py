@@ -11,7 +11,11 @@ scratch is idempotent and a released sale's units go to the next sales in line.
 
 Ordering (deterministic):
 - purchase lines by (`fecha`, `compra_id`, `compra_item_id`);
-- sales by (`fecha`, `canal`, `venta_ref`).
+- sales by (`fecha`, `canal`, `venta_ref`), a day's returns after its sales:
+  dates carry no time, so a same-day return must find its sale already done.
+
+Inputs are checked, never repaired: a sale key `(canal, venta_ref)` appears
+once and a purchase line has units; anything else raises `ValueError`.
 
 Money: a purchase line's discount (`descuento_ars`, unrounded) is spread over
 its units by cumulative rounding: units [a, b) get
@@ -130,10 +134,23 @@ def _unidades(lotes: List[Lote], ventas: List[Venta]) -> Dict[Clave, List[List[i
     return tenencia
 
 
+def _validar(lotes: List[Lote], ventas: List[Venta]) -> None:
+    for lote in lotes:
+        if lote.cantidad <= 0:
+            raise ValueError(f"purchase line {lote.compra_item_id} has cantidad {lote.cantidad}")
+    vistas = set()
+    for venta in ventas:
+        clave = (venta.canal, venta.venta_ref)
+        if clave in vistas:
+            raise ValueError(f"sale {clave} appears more than once")
+        vistas.add(clave)
+
+
 def asignar(lotes: Iterable[Lote], ventas: Iterable[Venta]) -> List[Consumo]:
     """The consumptions of ONE product: its active purchase lines against its sales and returns."""
     lotes = sorted(lotes, key=lambda lote: (lote.fecha, lote.compra_id, lote.compra_item_id))
-    ventas = sorted(ventas, key=lambda v: (v.fecha, v.canal, v.venta_ref))
+    ventas = sorted(ventas, key=lambda v: (v.fecha, v.unidades < 0, v.canal, v.venta_ref))
+    _validar(lotes, ventas)
     if not lotes:
         return []
     fechas = {(v.canal, v.venta_ref): v.fecha for v in ventas}

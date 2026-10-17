@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.services.sell_in.fifo import Consumo, Lote, Venta, asignar
 
 
@@ -86,7 +88,8 @@ class TestAsignar:
         assert [(c.canal, c.venta_ref) for c in consumos] == [("fuera", 3), ("fuera", 9), ("ml", 4)]
 
     def test_returns_and_negative_lines_consume_nothing(self) -> None:
-        consumos = asignar([_lote(10, 5, "50.00")], [_venta(1, -1), _venta(2, 0), _venta(3, 1)])
+        # A return with no sale before it frees nothing (a same-day return goes after the day's sales).
+        consumos = asignar([_lote(10, 5, "50.00")], [_venta(1, -1, date(2026, 10, 15)), _venta(2, 0), _venta(3, 1)])
 
         assert [c.venta_ref for c in consumos] == [3]
 
@@ -214,3 +217,27 @@ class TestDevoluciones:
         lotes = [_lote(10, 3, "30.00"), _lote(20, 2, "40.00", compra=2)]
 
         assert asignar(lotes, ventas) == asignar(list(reversed(lotes)), list(reversed(ventas)))
+
+
+class TestEntradasInvalidas:
+    def test_two_sales_with_the_same_key_are_refused_instead_of_leaking_units(self) -> None:
+        with pytest.raises(ValueError, match="fuera"):
+            asignar([_lote(10, 5, "50.00")], [_venta(7, 2), _venta(7, 1)])
+
+    def test_a_purchase_line_without_units_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="cantidad"):
+            asignar([_lote(10, 0, "50.00")], [_venta(7, 1)])
+
+
+class TestDevolucionMismoDia:
+    def test_a_same_day_return_listed_before_its_sale_still_reverses_that_sale(self) -> None:
+        # Same day, the return sorts first by channel ("fuera" < "tn"): it must
+        # still free its target, never an earlier sale's units.
+        dia = date(2026, 10, 16)
+        anterior = _venta(1, 2, date(2026, 10, 10))
+        venta = _venta(5, 1, dia, canal="tn")
+        devolucion = Venta(canal="fuera", venta_ref=3, fecha=dia, unidades=-1, objetivo=("tn", 5))
+
+        consumos = asignar([_lote(10, 3, "30.00")], [anterior, venta, devolucion])
+
+        assert [(c.venta_ref, c.unidades) for c in consumos] == [(1, 2)]
