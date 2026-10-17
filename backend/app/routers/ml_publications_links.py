@@ -90,6 +90,7 @@ class SuggestionOut(BaseModel):
     producto: Optional[ProductRef] = None
     candidates: list[ProductRef]
     candidate_count: int
+    rule: Optional[str] = None  # codigo | codigo_normalized | item_id: the step that found the product(s)
     differs: bool
 
 

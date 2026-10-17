@@ -1252,6 +1252,7 @@ def _describe_unit(
             if suggestion.status == STATUS_CONFLICT
             else [],
             "candidate_count": len(suggestion.candidates),
+            "rule": suggestion.rule,
             "differs": differs,
         },
     }
