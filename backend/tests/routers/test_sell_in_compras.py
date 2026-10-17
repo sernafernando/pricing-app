@@ -41,12 +41,29 @@ def _message(resp) -> str:
 def productos(db):
     rows = [
         ProductoERP(
-            item_id=4512, codigo="SW-8", descripcion="Switch 8 bocas", costo=100.0, moneda_costo=TipoMoneda.ARS
+            item_id=4512,
+            codigo="SW-8",
+            descripcion="Switch 8 bocas",
+            marca="TP-Link",
+            costo=100.0,
+            moneda_costo=TipoMoneda.ARS,
         ),
         ProductoERP(
-            item_id=4513, codigo="SW-16", descripcion="Switch 16 bocas", costo=300.0, moneda_costo=TipoMoneda.ARS
+            item_id=4513,
+            codigo="SW-16",
+            descripcion="Switch 16 bocas",
+            marca="Mercusys",
+            costo=300.0,
+            moneda_costo=TipoMoneda.ARS,
         ),
-        ProductoERP(item_id=4514, codigo="AP-1", descripcion="Access point", costo=10.0, moneda_costo=TipoMoneda.USD),
+        ProductoERP(
+            item_id=4514,
+            codigo="AP-1",
+            descripcion="Access point",
+            marca="Ubiquiti",
+            costo=10.0,
+            moneda_costo=TipoMoneda.USD,
+        ),
         ProductoERP(item_id=4515, codigo="SC-0", descripcion="Sin costo", costo=None, moneda_costo=TipoMoneda.ARS),
     ]
     db.add_all(rows)
@@ -97,6 +114,7 @@ ENDPOINTS = [
     ("post", f"{BASE}/preview", _preview_body()),
     ("post", BASE, _create_body()),
     ("get", BASE, None),
+    ("get", f"{BASE}/resumen", None),
     ("get", f"{BASE}/1", None),
     ("post", f"{BASE}/1/anular", {}),
 ]
@@ -465,7 +483,13 @@ def tres_compras(client, gestor, productos, db):
     db.flush()
     a = _crear(client, gestor, fecha_compra="2026-09-01", proveedor_id=proveedor.id)
     b = _crear(client, gestor, fecha_compra="2026-10-01", lineas=[{"item_id": 4513, "cantidad": 5}])
-    c = _crear(client, gestor, fecha_compra="2026-10-10", lineas=[{"item_id": 4512, "cantidad": 4}])
+    c = _crear(
+        client,
+        gestor,
+        fecha_compra="2026-10-10",
+        lineas=[{"item_id": 4512, "cantidad": 4}],
+        descripcion="Rebate octubre",
+    )
     anulada = client.post(f"{BASE}/{c['id']}/anular", json={}, headers=gestor)
     assert anulada.status_code == 200, anulada.text
     return {"a": a, "b": b, "c": c, "proveedor_id": proveedor.id}
@@ -539,6 +563,195 @@ def test_list_rows_carry_totals_and_consumed_units(client, gestor, tres_compras,
 
 def test_list_rejects_an_unknown_estado(client, gestor):
     assert client.get(BASE, params={"estado": "borrada"}, headers=gestor).status_code == 422
+
+
+# ── List: aplica, supplier name, text/brand/currency filters ───────
+
+
+@pytest.mark.parametrize(
+    "params,expected",
+    [
+        ({"aplica": "si"}, ["b", "a"]),
+        ({"aplica": "no"}, ["c"]),
+        ({"aplica": "todas"}, ["c", "b", "a"]),
+        ({}, ["c", "b", "a"]),
+    ],
+)
+def test_list_filters_by_aplica(client, gestor, tres_compras, params, expected):
+    resp = client.get(BASE, params=params, headers=gestor)
+    assert _ids(resp) == [tres_compras[k]["id"] for k in expected]
+
+
+def test_list_rejects_an_unknown_aplica(client, gestor):
+    assert client.get(BASE, params={"aplica": "quizas"}, headers=gestor).status_code == 422
+
+
+def test_list_rows_carry_aplica_and_supplier_name(client, gestor, tres_compras):
+    rows = {row["id"]: row for row in client.get(BASE, headers=gestor).json()["items"]}
+    a, b, c = (rows[tres_compras[k]["id"]] for k in ("a", "b", "c"))
+    assert (a["aplica"], b["aplica"], c["aplica"]) == (True, True, False)
+    assert a["proveedor_nombre"] == "TP-Link"
+    assert b["proveedor_nombre"] is None
+
+
+def test_detail_carries_aplica_and_supplier_name(client, gestor, tres_compras):
+    a = client.get(f"{BASE}/{tres_compras['a']['id']}", headers=gestor).json()
+    assert a["aplica"] is True
+    assert a["proveedor_nombre"] == "TP-Link"
+    c = client.get(f"{BASE}/{tres_compras['c']['id']}", headers=gestor).json()
+    assert c["aplica"] is False
+
+
+@pytest.mark.parametrize(
+    "q,expected",
+    [
+        ("tp-link", ["a"]),  # supplier name, case-insensitive
+        ("sw-16", ["b", "a"]),  # an item's product code
+        ("16 BOCAS", ["b", "a"]),  # an item's product description
+        ("bocas", ["c", "b", "a"]),
+        ("rebate", ["c"]),  # the purchase's own reference text
+        ("  rebate  ", ["c"]),  # surrounding blanks are ignored
+        ("%", []),  # LIKE wildcards are literal
+        ("nada que ver", []),
+    ],
+)
+def test_list_free_text_search(client, gestor, tres_compras, q, expected):
+    resp = client.get(BASE, params={"q": q}, headers=gestor)
+    assert _ids(resp) == [tres_compras[k]["id"] for k in expected]
+
+
+def test_list_free_text_matches_the_purchase_order_number(client, gestor, productos, pedido):
+    con = _crear(client, gestor, pedido_compra_id=pedido.id, descripcion=None)
+    _crear(client, gestor, descripcion=None)
+    resp = client.get(BASE, params={"q": "p-si-0000"}, headers=gestor)
+    assert _ids(resp) == [con["id"]]
+
+
+@pytest.mark.parametrize(
+    "marcas,expected",
+    [
+        ("TP-Link", ["c", "a"]),
+        ("Mercusys", ["b", "a"]),
+        ("TP-Link,Mercusys", ["c", "b", "a"]),
+        (" TP-Link , Ubiquiti ", ["c", "a"]),
+        ("tp-link", []),  # exact match, like the other brand filters
+        ("TP", []),
+        ("Ubiquiti", []),
+    ],
+)
+def test_list_filters_by_item_brand(client, gestor, tres_compras, marcas, expected):
+    resp = client.get(BASE, params={"marcas": marcas}, headers=gestor)
+    assert _ids(resp) == [tres_compras[k]["id"] for k in expected]
+
+
+def test_list_blank_marcas_does_not_filter(client, gestor, tres_compras):
+    assert len(_ids(client.get(BASE, params={"marcas": " , "}, headers=gestor))) == 3
+
+
+def _crear_usd(client, gestor, **overrides) -> dict:
+    body = {
+        "moneda": "USD",
+        "tipo_cambio": "1000",
+        "monto_total": "5.50",
+        "fecha_compra": "2026-10-05",
+        "lineas": [{"item_id": 4514, "cantidad": 3}],
+    }
+    body.update(overrides)
+    return _crear(client, gestor, **body)
+
+
+def test_list_filters_by_moneda(client, gestor, tres_compras):
+    usd = _crear_usd(client, gestor)
+    assert _ids(client.get(BASE, params={"moneda": "USD"}, headers=gestor)) == [usd["id"]]
+    t = tres_compras
+    assert _ids(client.get(BASE, params={"moneda": "ARS"}, headers=gestor)) == [t[k]["id"] for k in ("c", "b", "a")]
+    assert client.get(BASE, params={"moneda": "EUR"}, headers=gestor).status_code == 422
+
+
+def test_list_page_cost_does_not_grow_with_rows(client, gestor, tres_compras, query_counter):
+    with query_counter() as uno:
+        assert len(_ids(client.get(BASE, params={"q": "rebate"}, headers=gestor))) == 1
+    with query_counter() as tres:
+        assert len(_ids(client.get(BASE, params={"q": "bocas"}, headers=gestor))) == 3
+    assert tres.total == uno.total
+
+
+# ── Resumen ─────────────────────────────────────────────────────────
+
+
+def _resumen(client, headers, **params) -> dict:
+    resp = client.get(f"{BASE}/resumen", params=params, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_resumen_aggregates_every_matching_row(client, gestor, tres_compras):
+    _crear_usd(client, gestor)
+    data = _resumen(client, gestor)
+
+    assert data["conteo"] == {"si": 3, "no": 1, "todas": 4}
+    # a 1000 + b 1000 + c 1000 (voided, still matches `todas`) in ARS; the USD one apart.
+    assert D(data["monto_total"]["ARS"]) == D("3000.00")
+    assert D(data["monto_total"]["USD"]) == D("5.50")
+    # a 10+10, b 5, c 4, usd 3
+    assert data["unidades_total"] == 32
+
+
+def test_resumen_is_not_paginated(client, gestor, tres_compras):
+    data = _resumen(client, gestor, page_size=1)
+    assert data["conteo"]["todas"] == 3
+
+
+def test_resumen_aplica_narrows_totals_but_not_bucket_counts(client, gestor, tres_compras):
+    si = _resumen(client, gestor, aplica="si")
+    assert si["conteo"] == {"si": 2, "no": 1, "todas": 3}
+    assert D(si["monto_total"]["ARS"]) == D("2000.00")
+    assert si["unidades_total"] == 25
+
+    no = _resumen(client, gestor, aplica="no")
+    assert no["conteo"] == {"si": 2, "no": 1, "todas": 3}
+    assert D(no["monto_total"]["ARS"]) == D("1000.00")
+    assert no["unidades_total"] == 4
+
+
+def test_resumen_honours_the_list_filters(client, gestor, tres_compras):
+    _crear_usd(client, gestor)
+    data = _resumen(client, gestor, marcas="Mercusys", fecha_desde="2026-09-15")
+    assert data["conteo"] == {"si": 1, "no": 0, "todas": 1}
+    assert D(data["monto_total"]["ARS"]) == D("1000.00")
+    assert D(data["monto_total"]["USD"]) == D("0")
+    assert data["unidades_total"] == 5
+
+    usd = _resumen(client, gestor, moneda="USD", q="access")
+    assert usd["conteo"] == {"si": 1, "no": 0, "todas": 1}
+    assert usd["unidades_total"] == 3
+
+
+def test_resumen_with_nothing_matching_is_all_zero(client, gestor, tres_compras):
+    data = _resumen(client, gestor, q="nada que ver")
+    assert data["conteo"] == {"si": 0, "no": 0, "todas": 0}
+    assert D(data["monto_total"]["ARS"]) == D("0")
+    assert D(data["monto_total"]["USD"]) == D("0")
+    assert data["unidades_total"] == 0
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"aplica": "quizas"}, {"moneda": "EUR"}, {"q": "x" * 201}],
+    ids=["unknown-aplica", "unknown-moneda", "q-too-long"],
+)
+def test_resumen_rejects_invalid_filters(client, gestor, params):
+    assert client.get(f"{BASE}/resumen", params=params, headers=gestor).status_code == 422
+
+
+def test_resumen_accepts_a_q_of_exactly_200_chars(client, gestor):
+    assert client.get(f"{BASE}/resumen", params={"q": "x" * 200}, headers=gestor).status_code == 200
+
+
+def test_resumen_is_set_based(client, gestor, tres_compras, query_counter):
+    with query_counter() as counter:
+        _resumen(client, gestor)
+    assert counter.matching("sell_in_compras") <= 2
 
 
 # ── Detail ──────────────────────────────────────────────────────────

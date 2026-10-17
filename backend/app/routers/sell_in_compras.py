@@ -10,8 +10,12 @@ lowers the cost of THAT purchase's units only. The math lives in
   server-side, freezes each line's base cost and records the author from the
   token, never from the body.
 - `GET ""` is paginated, newest purchase date first, filtered by item,
-  supplier, estado and an inclusive purchase-date range. Every purchase carries
-  its lines with consumed and remaining units (from `sell_in_consumos`).
+  supplier, estado, an inclusive purchase-date range, `aplica`, free text
+  (`q`), item brands (`marcas`, CSV, exact) and currency. Every purchase carries
+  its supplier name, its `aplica` flag and its lines with consumed and remaining
+  units (from `sell_in_consumos`).
+- `GET /resumen` takes the same filters and returns exact aggregates over every
+  matching purchase (bucket counts, amount per currency, units covered).
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
   purchase is a 404.
 - There is no delete and no edit: a wrong purchase is voided (`POST /{id}/anular`,
@@ -33,11 +37,14 @@ from app.core.database import get_db
 from app.models.sell_in import SellInCompra
 from app.models.usuario import Usuario
 from app.schemas.sell_in import (
+    Aplica,
     Estado,
+    Moneda,
     SellInAnularIn,
     SellInCompraCreate,
     SellInCompraListOut,
     SellInCompraOut,
+    SellInCompraResumenOut,
     SellInPreviewIn,
     SellInPreviewOut,
 )
@@ -94,29 +101,56 @@ def crear_compra(
     return service.serializar(db, [compra])[0]
 
 
-@router.get("", response_model=SellInCompraListOut)
-def listar_compras(
+def filtros_compras(
     item_id: Optional[int] = Query(None),
     proveedor_id: Optional[int] = Query(None),
     estado: Optional[Estado] = Query(None),
     fecha_desde: Optional[date] = Query(None, description="Purchase date, inclusive"),
     fecha_hasta: Optional[date] = Query(None, description="Purchase date, inclusive"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    _user: Usuario = Depends(requiere_ver),
-    db: Session = Depends(get_db),
-) -> dict:
-    compras, total = service.listar_compras(
-        db,
+    aplica: Optional[Aplica] = Query(None, description="si | no | todas (default: todas)"),
+    q: Optional[str] = Query(
+        None,
+        max_length=200,
+        description="Free text: supplier name, items' code or description, purchase reference or order number",
+    ),
+    marcas: Optional[str] = Query(None, description="CSV of item brands, exact match"),
+    moneda: Optional[Moneda] = Query(None),
+) -> service.FiltrosCompras:
+    """The filters shared by the list and its summary."""
+    lista_marcas = [m.strip() for m in (marcas or "").split(",") if m.strip()]
+    return service.FiltrosCompras(
         item_id=item_id,
         proveedor_id=proveedor_id,
         estado=estado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
-        page=page,
-        page_size=page_size,
+        aplica=aplica,
+        q=q,
+        marcas=lista_marcas or None,
+        moneda=moneda,
     )
+
+
+@router.get("", response_model=SellInCompraListOut)
+def listar_compras(
+    filtros: service.FiltrosCompras = Depends(filtros_compras),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _user: Usuario = Depends(requiere_ver),
+    db: Session = Depends(get_db),
+) -> dict:
+    compras, total = service.listar_compras(db, filtros, page=page, page_size=page_size)
     return {"items": service.serializar(db, compras), "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/resumen", response_model=SellInCompraResumenOut)
+def resumir_compras(
+    filtros: service.FiltrosCompras = Depends(filtros_compras),
+    _user: Usuario = Depends(requiere_ver),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Totals for the summary cards over EVERY purchase matching the list filters (not a page)."""
+    return service.resumir_compras(db, filtros)
 
 
 @router.get("/{compra_id}", response_model=SellInCompraOut)

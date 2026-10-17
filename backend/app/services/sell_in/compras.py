@@ -17,7 +17,9 @@ in the body), already in the purchase currency.
 A load freezes that cost on every line. A purchase is never edited nor deleted:
 it can only be voided (`anulada`), once; the reason goes to the audit rows.
 The list and the detail report each line's consumed units (the sum of its
-`sell_in_consumos`) and the units still left.
+`sell_in_consumos`) and the units still left, the supplier's name and whether
+the purchase applies (`aplica_condicion`, the single rule for it). The list and
+its summary (`resumir_compras`) share the same filters (`FiltrosCompras`).
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import case, func, literal, not_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -260,33 +262,106 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     return compra
 
 
-def listar_compras(
-    db: Session,
-    *,
-    item_id: Optional[int] = None,
-    proveedor_id: Optional[int] = None,
-    estado: Optional[str] = None,
-    fecha_desde: Optional[date] = None,
-    fecha_hasta: Optional[date] = None,
-    page: int = 1,
-    page_size: int = 50,
-) -> tuple[list[SellInCompra], int]:
-    """One page of purchases, newest purchase date first; the date range is inclusive on `fecha_compra`."""
+def aplica_condicion():
+    """THE rule for "this sell in applies", as a SQL boolean over `SellInCompra`.
+
+    Today a purchase applies while it is not voided (`estado = 'activa'`). When
+    consumption lands (T5), "and it still has units left" joins here, so the
+    `aplica` filter, the per-row `aplica` flag and the summary buckets all keep
+    following one rule. Never restate this condition elsewhere.
+    """
+    return SellInCompra.estado == "activa"
+
+
+@dataclass(frozen=True)
+class FiltrosCompras:
+    """The filters shared by the list and its summary. Every field is optional (None = no filter)."""
+
+    item_id: Optional[int] = None
+    proveedor_id: Optional[int] = None
+    estado: Optional[str] = None
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None
+    aplica: Optional[str] = None  # "si" | "no" | "todas"
+    q: Optional[str] = None
+    marcas: Optional[list[str]] = None
+    moneda: Optional[str] = None
+
+
+def _items_que_cumplen(db: Session, *condiciones):
+    """EXISTS a line of this purchase whose product meets `condiciones`."""
+    return (
+        db.query(SellInCompraItem)
+        .join(ProductoERP, ProductoERP.item_id == SellInCompraItem.item_id)
+        .filter(SellInCompraItem.compra_id == SellInCompra.id, *condiciones)
+        .exists()
+    )
+
+
+_LIKE_ESCAPE = "\\"
+
+
+def _contiene(columna, q: str):
+    """`columna` contains `q`, ignoring case, with the folding done by the DATABASE on both sides.
+
+    SQLAlchemy's `ilike` is `ILIKE` on Postgres and `lower(x) LIKE lower(y)` elsewhere, so the query
+    is never lowercased in Python (which folds some letters, like "İ", differently than Postgres).
+    LIKE wildcards in `q` are literal. Not accent-insensitive: that needs the `unaccent` extension,
+    which production does not have installed.
+    """
+    escapado = q.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("%", "\\%").replace("_", "\\_")
+    return func.coalesce(columna, "").ilike(f"%{escapado}%", escape=_LIKE_ESCAPE)
+
+
+def _texto(db: Session, q: str):
+    """Case-insensitive substring over supplier name, the lines' product code or description,
+    the purchase's own reference text (`descripcion`) and its purchase-order number."""
+    return or_(
+        _contiene(SellInCompra.descripcion, q),
+        db.query(Proveedor).filter(Proveedor.id == SellInCompra.proveedor_id, _contiene(Proveedor.nombre, q)).exists(),
+        db.query(PedidoCompra)
+        .filter(PedidoCompra.id == SellInCompra.pedido_compra_id, _contiene(PedidoCompra.numero, q))
+        .exists(),
+        _items_que_cumplen(db, or_(_contiene(ProductoERP.codigo, q), _contiene(ProductoERP.descripcion, q))),
+    )
+
+
+def _filtrada(db: Session, filtros: FiltrosCompras, *, con_aplica: bool = True):
+    """The purchases matching `filtros`; `con_aplica=False` leaves the `aplica` filter out (summary buckets)."""
     query = db.query(SellInCompra)
-    if item_id is not None:
+    if filtros.item_id is not None:
         query = query.filter(
             db.query(SellInCompraItem)
-            .filter(SellInCompraItem.compra_id == SellInCompra.id, SellInCompraItem.item_id == item_id)
+            .filter(SellInCompraItem.compra_id == SellInCompra.id, SellInCompraItem.item_id == filtros.item_id)
             .exists()
         )
-    if proveedor_id is not None:
-        query = query.filter(SellInCompra.proveedor_id == proveedor_id)
-    if estado is not None:
-        query = query.filter(SellInCompra.estado == estado)
-    if fecha_desde is not None:
-        query = query.filter(SellInCompra.fecha_compra >= fecha_desde)
-    if fecha_hasta is not None:
-        query = query.filter(SellInCompra.fecha_compra <= fecha_hasta)
+    if filtros.proveedor_id is not None:
+        query = query.filter(SellInCompra.proveedor_id == filtros.proveedor_id)
+    if filtros.estado is not None:
+        query = query.filter(SellInCompra.estado == filtros.estado)
+    if filtros.fecha_desde is not None:
+        query = query.filter(SellInCompra.fecha_compra >= filtros.fecha_desde)
+    if filtros.fecha_hasta is not None:
+        query = query.filter(SellInCompra.fecha_compra <= filtros.fecha_hasta)
+    if filtros.moneda is not None:
+        query = query.filter(SellInCompra.moneda == filtros.moneda)
+    q = (filtros.q or "").strip()
+    if q:
+        query = query.filter(_texto(db, q))
+    if filtros.marcas:
+        query = query.filter(_items_que_cumplen(db, ProductoERP.marca.in_(filtros.marcas)))
+    if con_aplica and filtros.aplica == "si":
+        query = query.filter(aplica_condicion())
+    elif con_aplica and filtros.aplica == "no":
+        query = query.filter(not_(aplica_condicion()))
+    return query
+
+
+def listar_compras(
+    db: Session, filtros: FiltrosCompras, *, page: int = 1, page_size: int = 50
+) -> tuple[list[SellInCompra], int]:
+    """One page of purchases, newest purchase date first; the date range is inclusive on `fecha_compra`."""
+    query = _filtrada(db, filtros)
     total = query.count()
     compras = (
         query.order_by(SellInCompra.fecha_compra.desc(), SellInCompra.id.desc())
@@ -297,11 +372,65 @@ def listar_compras(
     return compras, total
 
 
+def resumir_compras(db: Session, filtros: FiltrosCompras) -> dict:
+    """Exact aggregates over EVERY matching purchase (not a page), in two set-based queries.
+
+    - `conteo`: purchases per `aplica` bucket. It ignores the `aplica` filter itself, so
+      the three buckets stay visible whichever one is selected (`si + no = todas`).
+    - `monto_total`: the sell-in amount per currency (ARS, USD) of the matching purchases.
+    - `unidades_total`: units covered by the lines of the matching purchases.
+    """
+    aplica = aplica_condicion()
+    if filtros.aplica == "si":
+        elegida = aplica
+    elif filtros.aplica == "no":
+        elegida = not_(aplica)
+    else:
+        elegida = literal(True)
+    base = (
+        _filtrada(db, filtros, con_aplica=False)
+        .with_entities(
+            SellInCompra.id.label("id"),
+            SellInCompra.moneda.label("moneda"),
+            SellInCompra.monto_total.label("monto_total"),
+            case((aplica, 1), else_=0).label("aplica"),
+            case((elegida, 1), else_=0).label("elegida"),
+        )
+        .subquery()
+    )
+
+    def _monto(moneda: str):
+        return func.coalesce(
+            func.sum(case(((base.c.elegida == 1) & (base.c.moneda == moneda), base.c.monto_total), else_=0)), 0
+        )
+
+    todas, si, ars, usd = db.query(
+        func.count(base.c.id), func.coalesce(func.sum(base.c.aplica), 0), _monto("ARS"), _monto("USD")
+    ).one()
+    unidades = (
+        db.query(func.coalesce(func.sum(SellInCompraItem.cantidad), 0))
+        .join(base, base.c.id == SellInCompraItem.compra_id)
+        .filter(base.c.elegida == 1)
+        .scalar()
+    )
+    return {
+        "conteo": {"si": int(si), "no": int(todas) - int(si), "todas": int(todas)},
+        "monto_total": {"ARS": Decimal(str(ars)), "USD": Decimal(str(usd))},
+        "unidades_total": int(unidades),
+    }
+
+
 def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
-    """Purchases with their lines, products and consumed units (3 queries for the whole page)."""
+    """Purchases with their lines, products, consumed units, supplier name and `aplica` (4 queries per page)."""
     if not compras:
         return []
     ids = [c.id for c in compras]
+    cabeceras = {
+        compra_id: (bool(aplica), nombre)
+        for compra_id, aplica, nombre in db.query(SellInCompra.id, aplica_condicion(), Proveedor.nombre)
+        .outerjoin(Proveedor, Proveedor.id == SellInCompra.proveedor_id)
+        .filter(SellInCompra.id.in_(ids))
+    }
     items = (
         db.query(SellInCompraItem)
         .filter(SellInCompraItem.compra_id.in_(ids))
@@ -353,6 +482,8 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
         filas.append(
             {
                 **{col: getattr(compra, col) for col in _COLUMNAS_COMPRA},
+                "aplica": cabeceras[compra.id][0],
+                "proveedor_nombre": cabeceras[compra.id][1],
                 "unidades_total": total,
                 "unidades_consumidas": usadas,
                 "unidades_restantes": total - usadas,
