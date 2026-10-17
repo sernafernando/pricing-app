@@ -160,6 +160,15 @@ FOR UPDATE SKIP LOCKED
 """
 )
 
+# One given line, as `_CLAIM_SQL` would claim it: the drain's line-by-line retry of a failed batch.
+_CLAIM_LINE_SQL = text(
+    """
+SELECT canal, venta_ref, item_id FROM sell_dirty
+WHERE canal = :canal AND venta_ref = :ref AND attempts < :max_attempts
+FOR UPDATE SKIP LOCKED
+"""
+)
+
 # The products a line's stored consumptions are filed under: a line that moved
 # to another product is queued under the NEW one and found here under the OLD.
 # Served by the unique index (canal, venta_ref, compra_item_id).
@@ -210,6 +219,14 @@ def claim_batch(db: Session, limit: int, excluded: Iterable[Line] = ()) -> List[
     x = _arrays(excluded)
     params = {"max_attempts": MAX_ATTEMPTS, "x_canales": x["canales"], "x_refs": x["refs"], "limit": limit}
     return [tuple(row) for row in db.execute(_CLAIM_SQL, params)]
+
+
+def claim_line(db: Session, line: Line) -> Optional[Tuple[str, int, Optional[int]]]:
+    """Claims one queued line, locked until the transaction ends; None when it is
+    gone, parked or held by another drain. Does not commit."""
+    canal, ref = line
+    row = db.execute(_CLAIM_LINE_SQL, {"canal": canal, "ref": ref, "max_attempts": MAX_ATTEMPTS}).first()
+    return tuple(row) if row is not None else None
 
 
 def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) -> Dict[Line, Set[int]]:
