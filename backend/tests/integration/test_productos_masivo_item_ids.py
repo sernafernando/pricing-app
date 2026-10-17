@@ -8,10 +8,19 @@ is refused (422), so no request can mean two sets at once. Without `item_ids` no
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.api.endpoints.productos_pricing import calcular_pvp_masivo, calcular_web_masivo
-from app.api.endpoints.productos_shared import CalculoPVPMasivoRequest, CalculoWebMasivoRequest
+from app.api.endpoints.productos_pricing import (
+    actualizar_config_cuotas_masivo,
+    calcular_pvp_masivo,
+    calcular_web_masivo,
+)
+from app.api.endpoints.productos_shared import (
+    CalculoPVPMasivoRequest,
+    CalculoWebMasivoRequest,
+    ConfigCuotasMasivoRequest,
+)
 from app.models.producto import ProductoPricing
 from tests.integration.test_productos_masivo_cross_db_filters import _seed
 
@@ -60,3 +69,36 @@ class TestItemIds:
 
         assert (everything["procesados"], filtered["procesados"]) == (2, 1)
         assert "item_ids" not in model(**base).model_dump(exclude_unset=True)
+
+
+GONE = 999  # linked from a publication, no longer in productos_erp
+
+
+@pytest.mark.parametrize("endpoint, model, base", _ENDPOINTS)
+def test_an_id_not_in_the_catalog_refuses_the_whole_run(db, endpoint, model, base) -> None:
+    """Never a silent partial run: an explicit set with an unknown product writes nothing and names it."""
+    user = _seed(db)
+    before = _touched(db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        endpoint(request=model(**base, item_ids=[2, GONE]), db=db, current_user=user)
+
+    assert exc_info.value.status_code == 422
+    assert str(GONE) in str(exc_info.value.detail)
+    assert _touched(db) == before
+
+
+def test_config_cuotas_with_an_id_not_in_the_catalog_writes_nothing(db, monkeypatch) -> None:
+    """It used to create a pricing row for it (a foreign key error, a 500, on Postgres)."""
+    monkeypatch.setattr("app.services.permisos_service.verificar_permiso", lambda *a, **k: True)
+    user = _seed(db)
+    before = _touched(db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        actualizar_config_cuotas_masivo(
+            body=ConfigCuotasMasivoRequest(item_ids=[2, GONE], recalcular_cuotas_auto=True), db=db, current_user=user
+        )
+
+    assert exc_info.value.status_code == 422
+    assert str(GONE) in str(exc_info.value.detail)
+    assert _touched(db) == before

@@ -26,6 +26,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     join_color_layer,
     resolver_layer_activo,
     coerce_equipo_id,
+    rechazar_fuera_de_catalogo,
 )
 
 logger = logging.getLogger(__name__)
@@ -305,6 +306,7 @@ def calcular_web_masivo(
     )
     query = join_color_layer(query, layer_activo)
     if request.item_ids is not None:  # an explicit write set (Publicaciones ML): exactly these, `filtros` is None
+        rechazar_fuera_de_catalogo(db, request.item_ids)
         query = query.filter(ProductoERP.item_id.in_(request.item_ids))
 
     # Aplicar filtros si existen
@@ -631,6 +633,7 @@ def calcular_pvp_masivo(
     )
     query = join_color_layer(query, layer_activo)
     if request.item_ids is not None:  # an explicit write set (Publicaciones ML): exactly these, `filtros` is None
+        rechazar_fuera_de_catalogo(db, request.item_ids)
         query = query.filter(ProductoERP.item_id.in_(request.item_ids))
 
     # Aplicar filtros si existen (misma lógica que web masivo)
@@ -1339,6 +1342,7 @@ def actualizar_config_cuotas_masivo(
         if data["markup_adicional_cuotas_pvp_custom"] < 0 or data["markup_adicional_cuotas_pvp_custom"] > 100:
             raise HTTPException(status_code=400, detail="Markup PVP debe estar entre 0 y 100")
 
+    rechazar_fuera_de_catalogo(db, item_ids)
     actualizados = 0
     for item_id in item_ids:
         pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()

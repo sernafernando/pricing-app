@@ -190,6 +190,9 @@ def test_config_cuotas_masivo_no_pisa_markup_pvp_omitido():
     with (
         patch("app.services.permisos_service.verificar_permiso", return_value=True),
         patch("app.services.auditoria_service.registrar_auditoria"),
+        # the mocked session has no catalog to check item 7 against (the guard is pinned in
+        # tests/integration/test_productos_masivo_item_ids.py)
+        patch("app.api.endpoints.productos_pricing.rechazar_fuera_de_catalogo"),
     ):
         result = actualizar_config_cuotas_masivo(body, db, user)
 
