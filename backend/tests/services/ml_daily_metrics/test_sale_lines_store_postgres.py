@@ -223,6 +223,7 @@ class TestSaleLinesStore:
                             )
                         )
                     )
+                conn.execute(text("DELETE FROM sell_dirty WHERE canal = 'ml' AND venta_ref = 8100"))
                 conn.commit()
 
     def test_the_writer_ignores_the_recompute_queue(self, board_pg):
@@ -240,3 +241,79 @@ class TestSaleLinesStore:
         queued = sale_lines(sqlite=False, keyed=True)
         live = board_pg.execute(select(queued.c.tg).where(queued.c.order_id == 3)).scalars().all()
         assert live == [0]
+
+
+def _queued_ml(db):
+    rows = db.execute(text("SELECT venta_ref, item_id FROM sell_dirty WHERE canal = 'ml' ORDER BY venta_ref"))
+    return [tuple(row) for row in rows]
+
+
+def _lines_of(db, order_id):
+    table = MlSaleLine.__table__
+    rows = db.execute(
+        select(table.c.item_row_id, table.c.product).where(table.c.order_id == order_id).order_by(table.c.item_row_id)
+    )
+    return [tuple(row) for row in rows]
+
+
+@pytest.mark.postgres
+class TestSellDirtyHook:
+    """sell-in-sell-out T4: the writer queues, in `sell_dirty`, the lines whose
+    sell-in / sell-out allocation may have changed (keyed by `item_row_id`,
+    with their product), in the same transaction."""
+
+    def test_new_lines_are_queued_with_their_product(self, board_pg):
+        _seed_world(board_pg)
+
+        stored = board_pg.execute(
+            select(MlSaleLine.item_row_id, MlSaleLine.product).order_by(MlSaleLine.item_row_id)
+        ).all()
+        assert _queued_ml(board_pg) == [tuple(row) for row in stored]
+
+    def test_rewriting_unchanged_lines_queues_nothing(self, board_pg):
+        _seed_world(board_pg)
+        board_pg.execute(text("DELETE FROM sell_dirty"))
+
+        store_order_metrics(board_pg, {oid: _metrics(oid) for oid in range(1, 7)})
+
+        assert _queued_ml(board_pg) == []
+
+    def test_a_changed_line_is_queued(self, board_pg):
+        _seed_world(board_pg)
+        board_pg.execute(text("DELETE FROM sell_dirty"))
+        board_pg.execute(text("UPDATE ml_order_items_ops SET quantity = 9 WHERE order_id = 3"))
+
+        store_order_metrics(board_pg, {3: _metrics(3)})
+
+        assert _queued_ml(board_pg) == _lines_of(board_pg, 3)
+
+    def test_a_line_that_stops_being_a_sale_is_queued_to_release_it(self, board_pg):
+        _seed_world(board_pg)
+        before = _lines_of(board_pg, 3)
+        board_pg.execute(text("DELETE FROM sell_dirty"))
+        board_pg.execute(text("UPDATE ml_orders_ops SET status = 'cancelled' WHERE order_id = 3"))
+
+        store_order_metrics(board_pg, {3: _metrics(3)})
+
+        assert _lines_of(board_pg, 3) == []
+        assert _queued_ml(board_pg) == before
+
+    def test_queueing_notifies_the_sell_channel_and_no_change_does_not(self, board_pg):
+        from sqlalchemy import event
+
+        statements = []
+
+        def spy(conn, cursor, statement, *args):
+            statements.append(statement)
+
+        bind = board_pg.connection()
+        event.listen(bind, "before_cursor_execute", spy)
+        try:
+            _seed_world(board_pg)
+            assert any("pg_notify('sell_dirty'" in s for s in statements)
+
+            statements.clear()
+            store_order_metrics(board_pg, {3: _metrics(3)})
+            assert not any("sell_dirty" in s for s in statements)
+        finally:
+            event.remove(bind, "before_cursor_execute", spy)

@@ -65,6 +65,7 @@ def board_pg_engine():
     from app.models.ml_sale_line import MlSaleLine
     from app.models.ml_tienda_oficial import MlTiendaOficial
     from app.models.ml_venta_deduccion import MlVentaDeduccion
+    from app.models.sell_dirty import SellDirty
 
     tables = [
         MlOrdersOps.__table__,
@@ -74,6 +75,8 @@ def board_pg_engine():
         MlOrderMetricsDirty.__table__,
         MlGroupMetrics.__table__,
         MlSaleLine.__table__,
+        # sell-in-sell-out T4: the sale-lines writer queues changed lines here.
+        SellDirty.__table__,
         MercadoLibreItemPublicado.__table__,
         MlOpsSyncCursor.__table__,
         # Ventas ML's KPI aggregate (the parity checks) reads these too.
