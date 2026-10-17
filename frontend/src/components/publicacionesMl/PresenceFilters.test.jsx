@@ -28,7 +28,7 @@ describe('PresenceFilters', () => {
     expect(options('Rebate')).toEqual(['Todos', 'Con Rebate', 'Sin Rebate']);
     expect(options('Mejor Oferta')).toEqual(['Todos', 'Con Oferta', 'Sin Oferta']);
     expect(options('Web Transferencia')).toEqual(['Todos', 'Con Web Transf.', 'Sin Web Transf.']);
-    expect(options('Tienda Nube')).toEqual(['Todos', 'Con Descuento', '💵 Sin Descuento', '📦 No Publicado']);
+    expect(options('Tienda Nube')).toEqual(['Todos', 'Con Descuento', 'Sin Descuento', 'No Publicado']);
     expect(options('Out of Cards')).toEqual(['Todos', 'Marcados', 'No Marcados']);
   });
 
@@ -47,9 +47,19 @@ describe('PresenceFilters', () => {
     render(<PresenceFilters filters={filters({ webtransf: 'con_web_transf', tiendanube: 'sin_descuento' })} setFilters={setFilters} />);
     await userEvent.click(screen.getByRole('button', { name: 'Quitar Web Transferencia: Con Web Transf.' }));
     expect(setFilters).toHaveBeenLastCalledWith({ webtransf: '' });
-    expect(screen.getByRole('button', { name: 'Quitar Tienda Nube: 💵 Sin Descuento' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Quitar Tienda Nube: Sin Descuento' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Limpiar presencia/ }));
     expect(setFilters).toHaveBeenLastCalledWith(EMPTY_PRESENCE_FILTERS);
+  });
+
+  it('uses no emoji: the toggles that carry an icon draw a lucide one, hidden from assistive tech', () => {
+    const { container } = render(
+      <PresenceFilters filters={filters({ tiendanube: 'no_publicado', rebate: 'con_rebate' })} setFilters={vi.fn()} />,
+    );
+    expect(container.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+    const icons = container.querySelectorAll('label svg');
+    expect(icons).toHaveLength(3); // Rebate, Web Transferencia, Tienda Nube, as in Productos
+    icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
   });
 
   it('shows no chips while no toggle is active', () => {

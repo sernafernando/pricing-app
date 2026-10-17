@@ -1,22 +1,25 @@
+import { CreditCard, Gift, ShoppingCart } from 'lucide-react';
+
 /**
  * Productos' "Filtros de Presencia" on Publicaciones ML: the same five toggles, URL keys, values and labels as the
  * Productos advanced filters panel. The URL keys and what each value asks the backend live in
- * `usePublicacionesMLFilters` (`PRESENCE_VALUES`); this module is their labels.
+ * `usePublicacionesMLFilters` (`PRESENCE_VALUES`); this module is their labels. Productos' emoji are not carried
+ * over: the toggles that have an icon there get a lucide one, and the option labels are plain text.
  */
 export const PRESENCE_FILTERS = [
-  { key: 'rebate', icon: '🎁', name: 'Rebate', options: [['con_rebate', 'Con Rebate'], ['sin_rebate', 'Sin Rebate']] },
+  { key: 'rebate', icon: Gift, name: 'Rebate', options: [['con_rebate', 'Con Rebate'], ['sin_rebate', 'Sin Rebate']] },
   { key: 'oferta', name: 'Mejor Oferta', options: [['con_oferta', 'Con Oferta'], ['sin_oferta', 'Sin Oferta']] },
   {
     key: 'webtransf',
-    icon: '💳',
+    icon: CreditCard,
     name: 'Web Transferencia',
     options: [['con_web_transf', 'Con Web Transf.'], ['sin_web_transf', 'Sin Web Transf.']],
   },
   {
     key: 'tiendanube',
-    icon: '🛒',
+    icon: ShoppingCart,
     name: 'Tienda Nube',
-    options: [['con_descuento', 'Con Descuento'], ['sin_descuento', '💵 Sin Descuento'], ['no_publicado', '📦 No Publicado']],
+    options: [['con_descuento', 'Con Descuento'], ['sin_descuento', 'Sin Descuento'], ['no_publicado', 'No Publicado']],
   },
   {
     key: 'outofcards',

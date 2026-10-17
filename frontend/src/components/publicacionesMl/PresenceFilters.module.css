@@ -7,6 +7,12 @@
   white-space: nowrap;
 }
 
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .select {
   height: 28px;
   padding: 0 8px;

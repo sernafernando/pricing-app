@@ -17,9 +17,12 @@ export default function PresenceFilters({ filters, setFilters, labelClassName })
   return (
     <div className={chipStyles.group}>
       <span className={labelClassName}>Presencia:</span>
-      {PRESENCE_FILTERS.map(({ key, icon, name, options }) => (
+      {PRESENCE_FILTERS.map(({ key, icon: Icon, name, options }) => (
         <label key={key} className={styles.item}>
-          <span aria-hidden="true">{icon ? `${icon} ${name}` : name}</span>
+          <span aria-hidden="true" className={styles.name}>
+            {Icon && <Icon size={12} aria-hidden="true" />}
+            {name}
+          </span>
           <select
             aria-label={name}
             className={styles.select}
