@@ -325,6 +325,11 @@ class TestNormalizedAndItemIdRulesOnTheCatalog:
         evaluate(_with_sku("STRAßE 1"))
         assert (link(env)["match_status"], link(env)["producto_item_id"]) == ("linked", 41)
 
+    def test_a_codigo_with_a_no_break_space_links(self, env) -> None:
+        add_product(env, 41, "PC\u00a010400")
+        evaluate(_with_sku("PC10400"))
+        assert (link(env)["match_status"], link(env)["producto_item_id"]) == ("linked", 41)
+
     def test_two_products_equal_after_normalization_conflict(self, env) -> None:
         add_product(env, 41, "PC-10400")
         add_product(env, 42, "pc10400")

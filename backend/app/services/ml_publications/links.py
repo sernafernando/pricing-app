@@ -53,8 +53,11 @@ RULE_CODIGO_NORMALIZED = "codigo_normalized"
 RULE_ITEM_ID = "item_id"
 
 # Separators a SKU and a `codigo` may differ by. The SQL class mirrors it (the Python check is final).
-_SEPARATORS = re.compile(r"[ \t\n\r\f\v./-]")
-_SQL_SEPARATORS = "[[:space:]./-]"
+# One explicit separator set for Python and SQL: Postgres `[[:space:]]` depends on the server locale (a no-break
+# space may or may not be in it), so neither side uses a character class. "-" goes last in the bracket.
+_SEPARATOR_CHARS = " \t\n\r\f\v\u00a0./-"
+_SEPARATORS = re.compile("[" + re.escape(_SEPARATOR_CHARS[:-1]) + "-]")
+_SQL_SEPARATORS = "[" + _SEPARATOR_CHARS + "]"
 _NEVER_MATCH = frozenset({"", "0"})  # placeholder SKUs: hundreds of unrelated publications carry "0"
 _ITEM_ID = re.compile(r"[1-9][0-9]{0,9}")
 _ITEM_ID_MAX = 2**31 - 1  # `productos_erp.item_id` is an integer

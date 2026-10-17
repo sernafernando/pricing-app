@@ -168,6 +168,10 @@ class TestNormalizedAndItemIdRules:
         assert links.normalize_sku("straße-1") == "STRAßE1"
         assert links.normalize_sku("ǆ") == "Ǆ"  # a one-character upper case is still applied
 
+    def test_unicode_spaces_are_separators_like_postgres_space_class(self) -> None:
+        # Postgres [[:space:]] also strips a no-break space; the Python check must agree.
+        assert links.normalize_sku("PC\u00a010400") == "PC10400"
+
     def test_case_and_separators_do_not_prevent_a_codigo_match(self) -> None:
         unit = only_unit(with_sku(bulk_item("MLA935110613"), " pc 10400 "))
         suggestion = links.resolve(unit, {"PC-10400": [3]})
