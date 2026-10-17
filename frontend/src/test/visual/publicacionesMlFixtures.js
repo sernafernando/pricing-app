@@ -502,7 +502,7 @@ export const DETAIL_RESPONSE_MARGIN = makeDetail({
 /**
  * `GET /ml-publications/view/items/{id}/events` and `/history` (router `EventsResponse`/`EventOut`,
  * `HistoryResponse`/`HistoryEntryOut`): real bodies, the production rows of MLA1402898289 run through the
- * backend (see the capture's `_source`). Every event carries `origin`, `informational`, `payload` and
+ * backend (see the capture's `_source`). Every event carries `origin`, `informational`, `payload`, `promotion_name` and
  * `status_label`; every history entry its readable `rows` and `hidden_technical_count`.
  */
 export const EVENTS_RESPONSE = capture.events;
