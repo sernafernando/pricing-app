@@ -10,6 +10,8 @@ vi.mock('../../services/sellInAPI', () => ({
 }));
 
 const ANULADA = { ...COMPRA_ARS, estado: 'anulada', aplica: false };
+const OTRA = { ...COMPRA_ARS, id: 3, descripcion: 'Otra compra' };
+const porId = (id) => Promise.resolve({ data: id === 3 ? OTRA : COMPRA_ARS });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -19,8 +21,10 @@ beforeEach(() => {
 
 const renderPanel = (props = {}) => {
   const onChanged = vi.fn();
-  render(<SellInDetailPanel compraId={1} puedeGestionar onChanged={onChanged} onClose={vi.fn()} {...props} />);
-  return { onChanged };
+  const view = render(<SellInDetailPanel compraId={1} puedeGestionar onChanged={onChanged} onClose={vi.fn()} {...props} />);
+  const cambiarA = (compraId) =>
+    view.rerender(<SellInDetailPanel compraId={compraId} puedeGestionar onChanged={onChanged} onClose={vi.fn()} {...props} />);
+  return { onChanged, cambiarA };
 };
 
 describe('SellInDetailPanel', () => {
@@ -83,5 +87,55 @@ describe('SellInDetailPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Anular' }));
     await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('La compra 1 ya está anulada');
+  });
+
+  it('a void that answers after switching purchases never shows on the new one', async () => {
+    const user = userEvent.setup();
+    sellInAPI.detalle.mockImplementation(porId);
+    let responder;
+    sellInAPI.anular.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    const { onChanged, cambiarA } = renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'Anular' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
+    cambiarA(3);
+    expect(await screen.findByRole('heading', { name: 'Otra compra' })).toBeInTheDocument();
+    responder({ data: ANULADA });
+    // The void did happen, so the list reloads; the panel keeps showing purchase 3 as it is.
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(ANULADA));
+    expect(screen.getByRole('heading', { name: 'Otra compra' })).toBeInTheDocument();
+    expect(screen.getByText('Activa')).toBeInTheDocument();
+    expect(screen.queryByText('Anulada')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Anular' })).toBeEnabled();
+  });
+
+  it('a void refused after switching purchases shows no stale error', async () => {
+    const user = userEvent.setup();
+    sellInAPI.detalle.mockImplementation(porId);
+    let rechazar;
+    sellInAPI.anular.mockReturnValue(new Promise((_, reject) => (rechazar = reject)));
+    const { cambiarA } = renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'Anular' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
+    cambiarA(3);
+    await screen.findByRole('heading', { name: 'Otra compra' });
+    rechazar({ response: { status: 409, data: { error: { message: 'La compra 1 ya está anulada' } } } });
+    await waitFor(() => expect(sellInAPI.anular).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('the reason typed for one purchase is not carried to the next one', async () => {
+    const user = userEvent.setup();
+    sellInAPI.detalle.mockImplementation(porId);
+    const { cambiarA } = renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'Anular' }));
+    await user.type(screen.getByLabelText('Motivo (opcional)'), 'Cargada dos veces');
+    cambiarA(3);
+    await screen.findByRole('heading', { name: 'Otra compra' });
+    expect(screen.queryByLabelText('Motivo (opcional)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Anular' }));
+    expect(screen.getByLabelText('Motivo (opcional)')).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
+    expect(sellInAPI.anular).toHaveBeenCalledWith(3, '');
   });
 });

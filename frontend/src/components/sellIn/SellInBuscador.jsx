@@ -16,6 +16,7 @@ export default function SellInBuscador({ label, placeholder, buscar, onPick, err
     const query = texto.trim();
     if (!query) {
       setResultados([]);
+      setError(false);
       return undefined;
     }
     let active = true;

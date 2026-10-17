@@ -143,7 +143,7 @@ export default function SellIn() {
               }}
             />
           ) : panel ? (
-            <SellInDetailPanel compraId={panel.id} puedeGestionar={puedeGestionar} onChanged={cargar} onClose={cerrarPanel} />
+            <SellInDetailPanel key={panel.id} compraId={panel.id} puedeGestionar={puedeGestionar} onChanged={cargar} onClose={cerrarPanel} />
           ) : null
         }
       >

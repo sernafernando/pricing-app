@@ -70,7 +70,7 @@ describe('SellInCreatePanel', () => {
     expect(within(previa).getByText('$ 3.000,00')).toBeInTheDocument();
   });
 
-  it('requires the FX rate for USD and shows what the total is worth in pesos', async () => {
+  it('shows what a USD total is worth in pesos at the FX rate typed', async () => {
     const user = userEvent.setup();
     renderPanel();
     await user.click(screen.getByRole('button', { name: 'USD' }));
@@ -154,6 +154,44 @@ describe('SellInCreatePanel', () => {
     await user.type(screen.getByLabelText('Monto total'), '0');
     expect(screen.queryByRole('table', { name: 'Vista previa por ítem' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Guardar sell in' })).toBeDisabled();
+  });
+
+  it('blocks the preview of a USD purchase without FX rate, as the backend would refuse it', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await fillCompra(user);
+    await user.click(screen.getByRole('button', { name: 'USD' }));
+    await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Una compra en USD necesita el tipo de cambio.');
+    expect(sellInAPI.preview).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Guardar sell in' })).toBeDisabled();
+  });
+
+  it('a preview that answers after an edit is dropped: save stays off and saves nothing stale', async () => {
+    const user = userEvent.setup();
+    let responder;
+    sellInAPI.preview.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    renderPanel();
+    await fillCompra(user);
+    await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+    await user.type(screen.getByLabelText('Monto total'), '0');
+    responder({ data: PREVIEW });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Calcular vista previa' })).toBeEnabled());
+    expect(screen.queryByRole('table', { name: 'Vista previa por ítem' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar sell in' })).toBeDisabled();
+  });
+
+  it('a rejected preview that answers after an edit shows no stale error', async () => {
+    const user = userEvent.setup();
+    let rechazar;
+    sellInAPI.preview.mockReturnValue(new Promise((_, reject) => (rechazar = reject)));
+    renderPanel();
+    await fillCompra(user);
+    await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+    await user.type(screen.getByLabelText('Monto total'), '0');
+    rechazar({ response: { status: 422, data: { error: { message: 'Monto viejo inválido' } } } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Calcular vista previa' })).toBeEnabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('shows the readable message of a rejected preview', async () => {

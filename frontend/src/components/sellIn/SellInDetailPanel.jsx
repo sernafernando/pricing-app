@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { sellInAPI } from '../../services/sellInAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
@@ -22,12 +22,17 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [busy, setBusy] = useState(false);
+  // The purchase on screen: a void answer for any other one is dropped (the panel is reused across rows).
+  const actualRef = useRef(compraId);
 
   useEffect(() => {
     let active = true;
+    actualRef.current = compraId;
     setCompra(null);
     setError(null);
     setConfirmando(false);
+    setMotivo('');
+    setBusy(false);
     sellInAPI
       .detalle(compraId)
       .then(({ data }) => active && setCompra(data))
@@ -38,17 +43,21 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
   }, [compraId]);
 
   const anular = async () => {
+    const pedidaPara = compraId;
+    const vigente = () => actualRef.current === pedidaPara;
     setBusy(true);
     setError(null);
     try {
-      const { data } = await sellInAPI.anular(compraId, motivo);
+      const { data } = await sellInAPI.anular(pedidaPara, motivo);
+      // The void happened whatever is on screen now: the list reloads either way.
+      onChanged(data);
+      if (!vigente()) return;
       setCompra(data);
       setConfirmando(false);
-      onChanged(data);
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo anular el sell in.'));
+      if (vigente()) setError(apiMessage(err, 'No se pudo anular el sell in.'));
     } finally {
-      setBusy(false);
+      if (vigente()) setBusy(false);
     }
   };
 

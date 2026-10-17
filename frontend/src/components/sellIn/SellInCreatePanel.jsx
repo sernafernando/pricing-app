@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { productosAPI } from '../../services/api';
 import { sellInAPI } from '../../services/sellInAPI';
@@ -44,9 +44,13 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Bumped on every change the split depends on: a preview answer carries the
+  // version it was asked for, and one that arrives after an edit is dropped.
+  const versionRef = useRef(0);
 
   const setDato = (patch) => setDatos((prev) => ({ ...prev, ...patch }));
   const invalidar = () => {
+    versionRef.current += 1;
     setPreview(null);
     setError(null);
   };
@@ -90,29 +94,38 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
       setError('Agregá al menos un producto.');
       return;
     }
+    // The backend refuses it too (`compras.py`: "Una compra en USD necesita el tipo de cambio").
+    if (moneda === 'USD' && !(Number(tipoCambio) > 0)) {
+      setError('Una compra en USD necesita el tipo de cambio.');
+      return;
+    }
     const suma = sumaManual(lineas.map((l) => l.montoManual));
     if (manual && suma !== sumaManual([montoTotal])) {
       setError(`Los montos manuales suman ${formatMonto(suma, moneda)} y el total es ${formatMonto(montoTotal || 0, moneda)}.`);
       return;
     }
+    const version = versionRef.current;
+    const pedido = body;
     setBusy(true);
     setError(null);
     try {
-      const { data } = await sellInAPI.preview(body);
-      setPreview(data);
+      const { data } = await sellInAPI.preview(pedido);
+      // Saved with the exact body that was previewed, never the inputs as they are by then.
+      if (version === versionRef.current) setPreview({ data, body: pedido });
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo calcular la vista previa.'));
+      if (version === versionRef.current) setError(apiMessage(err, 'No se pudo calcular la vista previa.'));
     } finally {
       setBusy(false);
     }
   };
 
   const guardar = async () => {
+    if (!preview) return;
     setBusy(true);
     setError(null);
     try {
       const { data } = await sellInAPI.crear({
-        ...body,
+        ...preview.body,
         fecha_compra: datos.fechaCompra,
         fecha_ingreso: datos.fechaIngreso || null,
         cuenta_desde: datos.cuentaDesde,
@@ -250,7 +263,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
               {error}
             </p>
           )}
-          {preview && <SellInPreview preview={preview} />}
+          {preview && <SellInPreview preview={preview.data} />}
         </section>
       </div>
 
