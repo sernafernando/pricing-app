@@ -15,13 +15,15 @@ import pytest
 
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import VER, seed_rows
-from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
+from tests.routers.test_ml_publications_view_kpis import METRICAS, pg, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
 pytestmark = pytest.mark.postgres
 
 PRODUCTS_URL = "/api/ml-publications/view/products"
+ITEMS_URL = "/api/ml-publications/view/items"
+KPIS_URL = "/api/ml-publications/view/kpis"
 # A current offer: wide enough that the process date (Python) and the database's `current_date` agree on it even
 # when they straddle midnight (UTC vs UTC-3).
 CURRENT = (date.today() - timedelta(days=5), date.today() + timedelta(days=5))
@@ -78,19 +80,59 @@ def test_a_toggle_that_is_not_a_boolean_is_a_422(client, reader) -> None:
     assert response.status_code == 422
 
 
-def test_the_producto_view_asks_mejor_oferta_of_the_product_like_productos(client, pg, reader) -> None:
+def more(conn) -> None:
+    seed.add_item(conn, "MLA4", status="active")
+    seed.add_link(conn, "MLA4", 77)  # 77's second publication, not on offer
+    seed.add_oferta(conn, "MLA1", *CURRENT, precio_final=83200, pvp_seller=86486)
+
+
+@pytest.fixture()
+def mixed(client, pg, reader):
+    """77 has one publication on offer (MLA1) and one without (MLA4); 78 has MLA2; MLA3 has no product."""
+    seed_rows(pg, more)
+    return reader
+
+
+def test_the_producto_view_asks_mejor_oferta_of_the_product_like_productos(client, mixed) -> None:
     """Productos: "con oferta" = ANY publication of the product has a current offer, "sin" = NONE has. A product with
     one MLA on offer and one without is "con" (with both publications) and never "sin"; the publication list stays
     per publication."""
-
-    def more(conn) -> None:
-        seed.add_item(conn, "MLA4", status="active")
-        seed.add_link(conn, "MLA4", 77)  # 77's second publication, not on offer
-        seed.add_oferta(conn, "MLA1", *CURRENT, precio_final=83200, pvp_seller=86486)
-
-    seed_rows(pg, more)
-    assert products(client, reader, con_oferta="false") == ["0", "78"]  # "0": the publications with no product
-    con = client.get(PRODUCTS_URL, headers=reader, params={"con_oferta": "true"}).json()["rows"]
+    assert products(client, mixed, con_oferta="false") == ["0", "78"]  # "0": the publications with no product
+    con = client.get(PRODUCTS_URL, headers=mixed, params={"con_oferta": "true"}).json()["rows"]
     assert [(row["key"], row["publications_count"]) for row in con] == [("77", 2)]
-    assert items(client, reader, con_oferta="true") == ["MLA1"]
-    assert items(client, reader, con_oferta="false") == ["MLA2", "MLA3", "MLA4"]
+    assert items(client, mixed, con_oferta="true") == ["MLA1"]
+    assert items(client, mixed, con_oferta="false") == ["MLA2", "MLA3", "MLA4"]
+
+
+TOGGLES = [
+    {"con_rebate": "true"},
+    {"con_rebate": "false"},
+    {"con_web_transf": "true"},
+    {"con_web_transf": "false"},
+    {"out_of_cards": "true"},
+    {"out_of_cards": "false"},
+    {"con_oferta": "true"},
+    {"con_oferta": "false"},
+    {"tn_con_descuento": "true"},
+    {"tn_sin_descuento": "true"},
+    {"tn_no_publicado": "true"},
+]
+
+
+@pytest.mark.parametrize("toggle", TOGGLES, ids=lambda t: "=".join(*t.items()))
+def test_a_product_row_opens_into_exactly_its_publications_under_every_toggle(client, mixed, db, rol_admin, toggle):
+    """`ProductRowOut`: a row's `params`, over the same filters, select exactly its `publications_count` publications
+    in `/items`; and the KPI strip the Producto view asks counts the publications the product rows hold."""
+    grant(db, rol_admin, METRICAS)
+    response = client.get(PRODUCTS_URL, headers=mixed, params=toggle)
+    assert response.status_code == 200, response.text
+    page = response.json()
+    for row in page["rows"]:
+        opened = client.get(ITEMS_URL, headers=mixed, params={**toggle, **row["params"]})
+        assert opened.status_code == 200, opened.text
+        assert opened.json()["total"] == row["publications_count"], row["key"]
+    # what the page asks in the Producto view (`buildKpiParams`): the offer of the product, as the rows ask it
+    kpi_params = {**toggle, "oferta_por_producto": "true"} if "con_oferta" in toggle else toggle
+    kpis = client.get(KPIS_URL, headers=mixed, params=kpi_params)
+    assert kpis.status_code == 200, kpis.text
+    assert kpis.json()["mla_count"] == page["mla_count"]

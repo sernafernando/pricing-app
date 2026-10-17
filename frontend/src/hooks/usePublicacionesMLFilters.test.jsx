@@ -417,4 +417,18 @@ describe("Productos' presence filters (S5)", () => {
     expect(buildItemsParams({ ...base, tiendanube: 'con_descuento' }, 50).tn_con_descuento).toBe(true);
     expect(buildItemsParams({ ...base, tiendanube: 'no_publicado' }, 50).tn_no_publicado).toBe(true);
   });
+
+  it('in the Producto view, the KPI strip asks mejor oferta of the product, as the product rows do', () => {
+    const oferta = { ...base, oferta: 'sin_oferta' };
+    expect(buildKpiParams({ ...oferta, vista: 'producto' }, '30d')).toEqual({
+      con_oferta: false,
+      oferta_por_producto: true,
+      periodo: '30d',
+    });
+    expect(buildKpiParams(oferta, '30d')).toEqual({ con_oferta: false, periodo: '30d' });
+    expect(buildKpiParams({ ...base, vista: 'producto', rebate: 'con_rebate' }, '30d')).toEqual({
+      con_rebate: true,
+      periodo: '30d',
+    });
+  });
 });

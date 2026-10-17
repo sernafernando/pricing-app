@@ -245,6 +245,9 @@ export const hasMarkupFilter = (filters) => MARKUP_KEYS.some((key) => filters[ke
 export function buildKpiParams(filters, periodo) {
   const { orden, dir, limit, offset, ...params } = buildItemsParams(filters, 1, { canSeeMargin: false });
   void orden, dir, limit, offset;
+  // The Producto view's rows ask mejor oferta of the product (any of its publications); its strip asks it the same
+  // way, so the strip counts the publications the rows hold.
+  if (filters.vista === 'producto' && filters.oferta) params.oferta_por_producto = true;
   return { ...params, periodo };
 }
 

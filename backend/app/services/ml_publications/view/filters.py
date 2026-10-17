@@ -115,7 +115,8 @@ class PublicationFilter:
     out_of_cards: Optional[bool] = None
     tienda_nube: Optional[str] = None  # one of `TIENDA_NUBE_STATES`
     # The Producto view asks mejor oferta of the PRODUCT (any of its publications, as Productos does); the
-    # publication list asks it of each publication.
+    # publication list asks it of each publication. `oferta_por_producto` asks it of the product elsewhere too: the
+    # Producto view's rows carry it in their `params` and its KPI strip sends it, so both agree with the rows.
     oferta_per_product: bool = False
 
     @property
@@ -271,6 +272,7 @@ def parse_filter(
     tn_sin_descuento: Optional[bool] = None,
     tn_no_publicado: Optional[bool] = None,
     out_of_cards: Optional[bool] = None,
+    oferta_por_producto: Optional[bool] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
@@ -302,6 +304,7 @@ def parse_filter(
         web_transf=con_web_transf,
         out_of_cards=out_of_cards,
         tienda_nube=_tienda_nube(tn_con_descuento, tn_sin_descuento, tn_no_publicado),
+        oferta_per_product=bool(oferta_por_producto),
     )
 
 

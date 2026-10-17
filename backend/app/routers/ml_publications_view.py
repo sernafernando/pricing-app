@@ -80,6 +80,7 @@ from app.services.permisos_service import PermisosService
 
 PERMISO_VER = "ml_ops.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
+OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto row's `params` carry with `con_oferta`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
@@ -661,6 +662,9 @@ def filter_query(
     tn_sin_descuento: Optional[bool] = Query(None, description="the product is in Tienda Nube without one"),
     tn_no_publicado: Optional[bool] = Query(None, description="the product has ERP stock and is not in Tienda Nube"),
     out_of_cards: Optional[bool] = Query(None, description="the linked product is marked out of cards"),
+    oferta_por_producto: Optional[bool] = Query(
+        None, description="ask con_oferta of the product (any of its publications), as the Producto view does"
+    ),
 ) -> PublicationFilter:
     """The filters every read of the screen shares (`/items` and `/groups`): one declaration, so a filter added here
     reaches both. A value outside its vocabulary is a 422 naming the parameter."""
@@ -690,6 +694,7 @@ def filter_query(
             tn_sin_descuento=tn_sin_descuento,
             tn_no_publicado=tn_no_publicado,
             out_of_cards=out_of_cards,
+            oferta_por_producto=oferta_por_producto,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
@@ -964,8 +969,13 @@ def get_groups(
     return body
 
 
-def _product_out(row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool) -> dict[str, Any]:
+def _product_out(
+    row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool, offer_filter: bool
+) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
+    params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
+    if offer_filter:  # the rows ask mejor oferta of the product: opening one must ask it the same way
+        params[OFFER_OF_PRODUCT] = "true"
     out: dict[str, Any] = {
         "key": row.key,
         "product_item_id": None if no_product else row.product_item_id,
@@ -974,9 +984,7 @@ def _product_out(row: board.Row, with_metrics: bool, with_margin: bool, has_figu
         "marca": row.marca,
         "publications_count": row.publications_count,
         "stock": row.stock,
-        "params": (
-            {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
-        ),
+        "params": params,
     }
     if with_metrics:
         out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
@@ -1042,7 +1050,8 @@ def get_products(
     timer.emit(rows=len(page.rows), total=page.total)
     return {
         "rows": [
-            _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures) for row in page.rows
+            _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
+            for row in page.rows
         ],
         "total": page.total,
         "mla_count": page.mla_count,
