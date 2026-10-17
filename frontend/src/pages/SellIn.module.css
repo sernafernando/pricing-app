@@ -1,0 +1,117 @@
+/* Sell in — page layout (Stitch `01-sellin-lista-aplican`). Same visual
+   language as Métricas ML: tokens only, one filter card in bands. */
+
+.container {
+  padding: var(--spacing-lg);
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.headerLeft {
+  display: flex;
+  flex: 1 1 360px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.headerLeft h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: var(--font-bold);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--cf-text-primary);
+}
+
+.description {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cf-text-tertiary);
+}
+
+.headerActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+}
+
+.filterCard {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.filterBand {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--spacing-lg);
+  padding: var(--space-3) var(--spacing-md);
+}
+
+.filterBand + .filterBand {
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.searchSlot {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.selectField {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.select {
+  composes: select selectSm from '../styles/forms-tesla.css';
+}
+
+.filterLabel {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.facetRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--spacing-md);
+}
+
+.loading {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+}

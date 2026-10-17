@@ -1,0 +1,131 @@
+/* Sell-in list (DESIGN.md "Dense table"): uppercase header, hairline rows,
+   right-aligned tabular numbers, expanded row on a tinted background. */
+
+.scroller {
+  overflow-x: auto;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.table,
+.linesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--cf-text-primary);
+}
+
+.table th,
+.linesTable th {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+}
+
+.table td,
+.linesTable td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table th.num,
+.linesTable th.num {
+  text-align: right;
+}
+
+.sub {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.muted {
+  color: var(--cf-text-tertiary);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--cf-text-tertiary);
+}
+
+.expander {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--cf-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.expander:hover {
+  background: var(--cf-bg-hover);
+}
+
+.expander:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.rowOpen {
+  background: var(--cf-accent-blue-light);
+}
+
+.rowSelected {
+  box-shadow: inset 3px 0 0 var(--cf-accent-blue);
+}
+
+.subRow > td {
+  padding: var(--space-3) var(--spacing-md);
+  background: var(--cf-bg-app);
+}
+
+.lines {
+  overflow-x: auto;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.before {
+  text-decoration: line-through;
+  color: var(--cf-text-tertiary);
+}
+
+.after {
+  font-weight: var(--font-semibold);
+  color: var(--money-positive);
+}
+
+.note {
+  margin: 0;
+  padding: var(--space-2) 12px;
+  font-size: var(--font-xs);
+  font-style: italic;
+  color: var(--cf-text-tertiary);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--cf-text-tertiary);
+}
