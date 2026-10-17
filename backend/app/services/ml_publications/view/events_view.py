@@ -126,20 +126,23 @@ def status_label_of(event_type: str, new_value: Any, payload: Any, old_value: An
 # The name of each promotion of a page, in one statement. ML gives a promotion's name only inside its entry of the
 # promotions resource, which no event payload carries: first the entry the event's own change-log row added or
 # removed (`[<id>]`, the name as it was then, the only trace of a promotion that left the item), else the entry of
-# the item's current promotions state. An empty name (ML sends "" for some types) is no name.
+# the item's current promotions state. An empty name (ML sends "" for some types) is no name and falls through.
+# Within one array the first entry with a name wins, by its position (`WITH ORDINALITY`), never an unordered pick.
 PROMOTION_NAMES_SQL = """
 SELECT w.change_log_id, w.promotion_id,
   COALESCE(
     (SELECT NULLIF(COALESCE(c->'new'->>'name', c->'old'->>'name'), '')
        FROM ml_change_log l CROSS JOIN LATERAL jsonb_array_elements(
-         CASE WHEN jsonb_typeof(l.changes) = 'array' THEN l.changes ELSE '[]'::jsonb END) c
+         CASE WHEN jsonb_typeof(l.changes) = 'array' THEN l.changes ELSE '[]'::jsonb END) WITH ORDINALITY AS e(c, n)
       WHERE l.id = w.change_log_id AND c->>'p' = '[' || w.promotion_id || ']'
         AND NULLIF(COALESCE(c->'new'->>'name', c->'old'->>'name'), '') IS NOT NULL
+      ORDER BY n
       LIMIT 1),
     (SELECT NULLIF(x->>'name', '')
        FROM ml_item_seller_promotions s CROSS JOIN LATERAL jsonb_array_elements(
-         CASE WHEN jsonb_typeof(s.raw) = 'array' THEN s.raw ELSE '[]'::jsonb END) x
+         CASE WHEN jsonb_typeof(s.raw) = 'array' THEN s.raw ELSE '[]'::jsonb END) WITH ORDINALITY AS e(x, n)
       WHERE s.item_id = :item_id AND x->>'id' = w.promotion_id AND NULLIF(x->>'name', '') IS NOT NULL
+      ORDER BY n
       LIMIT 1)
   ) AS name
 FROM unnest(CAST(:log_ids AS bigint[]), CAST(:promotion_ids AS text[])) AS w(change_log_id, promotion_id)

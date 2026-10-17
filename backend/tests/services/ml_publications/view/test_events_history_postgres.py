@@ -525,6 +525,61 @@ class TestPromotionNames:
         seed_rows(pg, stored)
         assert self.names(client, reader) == {"C-MLA1713876": None, "OFFER-MLA1402898289-11585589657": None}
 
+    def test_an_entry_with_its_id_but_an_empty_name_falls_through_to_the_state(
+        self, client, events_on, pg, reader, capture
+    ):
+        """The row that added Tec Week, with its name blanked: the log has no name for it, the state does."""
+        log = copy.deepcopy(capture["logs"][123143])
+        entry = next(c for c in log["changes"] if c["p"] == "[P-MLA18137008]")
+        entry["new"]["name"] = ""
+
+        def stored(conn) -> None:
+            store_promotions_state(conn, capture["state"])
+            store_with_its_log(conn, capture["events"][57925], log, seed.hours_ago(1))
+
+        seed_rows(pg, stored)
+        assert self.names(client, reader) == {"P-MLA18137008": "Tec Week"}
+
+    def test_an_event_always_has_a_change_log_row(self, pg):
+        """`change_log_id` is NOT NULL, so there is no event the state alone has to name without its log row."""
+        with pg.connect() as conn:
+            nullable = conn.execute(
+                text(
+                    "SELECT is_nullable FROM information_schema.columns WHERE table_schema = current_schema() "
+                    "AND table_name = 'ml_item_events' AND column_name = 'change_log_id'"
+                )
+            ).scalar_one()
+        assert nullable == "NO"
+
+    @pytest.mark.parametrize("where", ["log", "state"])
+    def test_two_entries_for_one_id_name_it_by_the_first_in_array_order(
+        self, client, events_on, pg, reader, capture, where
+    ):
+        """The first entry carrying a name wins, in the order of the stored array, never an unordered pick."""
+        log = copy.deepcopy(capture["logs"][123143])
+        state = copy.deepcopy(capture["state"])
+        if where == "log":
+            at = next(i for i, c in enumerate(log["changes"]) if c["p"] == "[P-MLA18137008]")
+            later = copy.deepcopy(log["changes"][at])
+            later["new"]["name"] = "Segundo nombre"
+            log["changes"].insert(at + 1, later)
+        else:
+            log = None
+            at = next(i for i, x in enumerate(state) if x.get("id") == "P-MLA18137008")
+            state.insert(at + 1, {**state[at], "name": "Segundo nombre"})
+
+        def stored(conn) -> None:
+            store_promotions_state(conn, state)
+            store_with_its_log(conn, capture["events"][57925], log, seed.hours_ago(1))
+
+        seed_rows(pg, stored)
+        assert self.names(client, reader) == {"P-MLA18137008": "Tec Week"}
+
+    def test_the_names_read_their_arrays_in_order(self):
+        """Each lookup takes the first match by its position in the array (`WITH ORDINALITY ... ORDER BY`)."""
+        sql = " ".join(events_view.PROMOTION_NAMES_SQL.split())
+        assert sql.count("WITH ORDINALITY") == 2 and sql.count("ORDER BY") == 2
+
     def test_the_names_cost_one_statement_per_page_whatever_its_size(self, client, events_on, pg, reader, capture):
         def stored(event_ids):
             def run(conn) -> None:
