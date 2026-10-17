@@ -2,8 +2,8 @@
 
 The same params and meaning as `GET /productos`: rebate, web transferencia and out of cards are flags of the
 LINKED product's `productos_pricing` row (no row reads "sin"); Tienda Nube is the product's active variants; mejor
-oferta is a current `ofertas_ml` row of the publication itself (Productos asks it of any MLA of the product, which is
-what the Producto view gives back). A publication without a linked product matches neither side of a product flag.
+oferta is a current `ofertas_ml` row of the publication itself (the Producto view asks it of the product, as
+Productos does: `test_ml_publications_view_presence.py`). A publication without a linked product matches neither side of a product flag.
 Row shapes follow production rows (product 3163's flags, product 1123 / 983's Tienda Nube variants, the latest
 `ofertas_ml` row).
 """

@@ -114,6 +114,9 @@ class PublicationFilter:
     web_transf: Optional[bool] = None
     out_of_cards: Optional[bool] = None
     tienda_nube: Optional[str] = None  # one of `TIENDA_NUBE_STATES`
+    # The Producto view asks mejor oferta of the PRODUCT (any of its publications, as Productos does); the
+    # publication list asks it of each publication.
+    oferta_per_product: bool = False
 
     @property
     def needs_events(self) -> bool:
@@ -631,8 +634,8 @@ def _event(f: PublicationFilter) -> ColumnElement:
 # product (`T.p`), so no join is added to the base select and nothing can multiply a row (a product has one
 # `productos_pricing` row but may have several Tienda Nube variants). A product without a `productos_pricing` row
 # reads "sin" like in Productos; a publication without a linked product has no product to ask, so it matches
-# neither side. Mejor oferta is the exception: `ofertas_ml` is keyed by the MLA, so it is asked of the publication
-# itself (Productos asks it of any publication of the product, which is what the Producto view gives back).
+# neither side. Mejor oferta is keyed by the MLA (`ofertas_ml`): the publication list asks it of each publication,
+# the Producto view (`oferta_per_product`) of the product, any of its publications, as Productos does.
 
 
 def _pricing_flag(flag: Any, on: bool) -> ColumnElement:
@@ -641,17 +644,29 @@ def _pricing_flag(flag: Any, on: bool) -> ColumnElement:
     return flagged if on else and_(T.p.item_id.isnot(None), ~flagged)
 
 
-def _oferta(on: bool) -> ColumnElement:
+def _current_offer(o: Any) -> list[ColumnElement]:
+    return [o.fecha_desde <= func.current_date(), o.fecha_hasta >= func.current_date(), o.pvp_seller.isnot(None)]
+
+
+def _oferta(on: bool, per_product: bool) -> ColumnElement:
     o = aliased(OfertaML, name="o")
-    current = exists(
-        select(1).where(
-            o.mla == T.i.item_id,
-            o.fecha_desde <= func.current_date(),
-            o.fecha_hasta >= func.current_date(),
-            o.pvp_seller.isnot(None),
+    own = exists(select(1).where(o.mla == T.i.item_id, *_current_offer(o)))
+    if per_product:
+        # any publication linked (item level) to the row's product; a row with no product has only itself
+        sibling = aliased(MlItemProductLink, name="l_oferta")
+        of_product = exists(
+            select(1)
+            .select_from(sibling)
+            .join(o, o.mla == sibling.item_id)
+            .where(
+                sibling.variation_id == LINK_ITEM_LEVEL,
+                sibling.producto_item_id == T.l.producto_item_id,
+                *_current_offer(o),
+            )
         )
-    )
-    return current if on else ~current
+        has_product = T.l.producto_item_id.isnot(None)
+        return or_(and_(has_product, of_product if on else ~of_product), and_(~has_product, own if on else ~own))
+    return own if on else ~own
 
 
 def _tienda_nube_in(state: str) -> ColumnElement:
@@ -675,7 +690,7 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.tienda_nube is not None:
         where.append(_tienda_nube_in(f.tienda_nube))
     if f.oferta is not None:
-        where.append(_oferta(f.oferta))
+        where.append(_oferta(f.oferta, f.oferta_per_product))
     return where
 
 

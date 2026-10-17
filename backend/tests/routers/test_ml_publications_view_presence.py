@@ -9,6 +9,8 @@ The predicates are pinned in `view/test_presence_filters_postgres.py`; this file
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from tests.routers.test_ml_publications_links import grant
@@ -18,6 +20,8 @@ from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
 pytestmark = pytest.mark.postgres
+
+PRODUCTS_URL = "/api/ml-publications/view/products"
 
 
 def fill(conn) -> None:
@@ -46,7 +50,7 @@ def items(client, headers, **params) -> list[str]:
 
 
 def products(client, headers, **params) -> list[str]:
-    response = client.get("/api/ml-publications/view/products", headers=headers, params=params)
+    response = client.get(PRODUCTS_URL, headers=headers, params=params)
     assert response.status_code == 200, response.text
     return sorted(row["key"] for row in response.json()["rows"])
 
@@ -69,3 +73,21 @@ def test_tienda_nube_and_mejor_oferta(client, reader) -> None:
 def test_a_toggle_that_is_not_a_boolean_is_a_422(client, reader) -> None:
     response = client.get("/api/ml-publications/view/items", headers=reader, params={"con_rebate": "quizas"})
     assert response.status_code == 422
+
+
+def test_the_producto_view_asks_mejor_oferta_of_the_product_like_productos(client, pg, reader) -> None:
+    """Productos: "con oferta" = ANY publication of the product has a current offer, "sin" = NONE has. A product with
+    one MLA on offer and one without is "con" (with both publications) and never "sin"; the publication list stays
+    per publication."""
+
+    def more(conn) -> None:
+        seed.add_item(conn, "MLA4", status="active")
+        seed.add_link(conn, "MLA4", 77)  # 77's second publication, not on offer
+        seed.add_oferta(conn, "MLA1", date.today(), date.today(), precio_final=83200, pvp_seller=86486)
+
+    seed_rows(pg, more)
+    assert products(client, reader, con_oferta="false") == ["0", "78"]  # "0": the publications with no product
+    con = client.get(PRODUCTS_URL, headers=reader, params={"con_oferta": "true"}).json()["rows"]
+    assert [(row["key"], row["publications_count"]) for row in con] == [("77", 2)]
+    assert items(client, reader, con_oferta="true") == ["MLA1"]
+    assert items(client, reader, con_oferta="false") == ["MLA2", "MLA3", "MLA4"]
