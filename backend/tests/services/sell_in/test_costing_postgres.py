@@ -420,6 +420,57 @@ class TestFailures:
         assert w.consumos(engine) == []
 
 
+def _always_failing(lotes, ventas):
+    raise ValueError("bad data")
+
+
+def _rows(engine: Engine, table: str) -> int:
+    with engine.connect() as conn:
+        return conn.execute(text(f"SELECT count(*) FROM {table}")).scalar()
+
+
+@pytest.mark.postgres
+class TestPurchaseRecomputeFailure:
+    """Loading and voiding recompute with `isolate_failures=False`: a failed
+    recompute takes the whole purchase change down with it."""
+
+    def test_a_failed_recompute_on_load_writes_no_purchase_items_or_audit(self, engine: Engine, monkeypatch) -> None:
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        monkeypatch.setattr(costing_module, "asignar", _always_failing)
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(ValueError, match="bad data"):
+                compras.crear_compra(db, data, usuario_id=7)
+
+        assert [_rows(engine, t) for t in ("sell_in_compras", "sell_in_compra_items", "auditoria")] == [0, 0, 0]
+        assert w.consumos(engine) == []
+
+    def test_a_failed_recompute_on_void_keeps_the_purchase_active_and_unaudited(
+        self, engine: Engine, monkeypatch
+    ) -> None:
+        [linea] = w.compra(engine, [(2964, 4, "40.00")])
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        _recompute(engine, 2964)
+        monkeypatch.setattr(costing_module, "asignar", _always_failing)
+
+        with sessionmaker(bind=engine)() as db:
+            compra_id = db.query(SellInCompra.id).one()[0]
+            with pytest.raises(ValueError, match="bad data"):
+                compras.anular_compra(db, compra_id, usuario_id=7, motivo="error de carga")
+
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT estado FROM sell_in_compras")).scalar() == "activa"
+        assert _rows(engine, "auditoria") == 0
+        assert w.consumos(engine) == [(linea, "fuera", ref, 2964, 2, Decimal("20.00"))]
+
+
 @pytest.mark.postgres
 class TestPrecision:
     """Stored amounts have the column's scale (cents): a re-run compares and writes at that scale."""
