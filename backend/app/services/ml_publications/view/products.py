@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications.view import row_metrics
+from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
 from app.services.ml_publications.view.filters import (
     LINK_ITEM_LEVEL,
     FilterError,
@@ -245,9 +246,9 @@ def list_products(
     return ProductsPage(out, int(total), int(mla_count), without)
 
 
-# The most products one bulk action may name: Productos' own resolver pages `GET /productos` at most up to 10000 rows
-# (`page_size` cap). Over it the request is refused, never truncated (a bulk write over part of the set is the bug).
-MAX_PRODUCT_IDS = 10000
+# The most products one bulk action may name, shared with the bulk endpoints (`caps`). Over it the request is refused,
+# never truncated (a bulk write over part of the set is the bug).
+MAX_PRODUCT_IDS = MAX_EXPLICIT_PRODUCT_IDS
 
 
 class TooManyProducts(Exception):
@@ -284,14 +285,22 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
     members = base.subquery("m")
     linked = members.c.product.isnot(None) & (members.c.product != NO_PRODUCT)
     priceable = linked & members.c.in_catalog.isnot(None)
-    count, sin_producto, gone = db.execute(
+    # The ids and their total come from ONE statement (a window over the distinct ids, evaluated before the LIMIT):
+    # the cap checks the very snapshot the list is read from, so a product linked meanwhile never slips a list past
+    # it. LIMIT cap+1 keeps an over-cap answer small while the window still reports the true total.
+    distinct_ids = select(members.c.product).where(priceable).distinct().subquery("ids")
+    found = db.execute(
+        select(distinct_ids.c.product, func.count().over().label("total"))
+        .order_by(distinct_ids.c.product)
+        .limit(MAX_PRODUCT_IDS + 1)
+    ).all()
+    count = found[0].total if found else 0
+    if count > MAX_PRODUCT_IDS:
+        raise TooManyProducts(int(count), MAX_PRODUCT_IDS)
+    sin_producto, gone = db.execute(
         select(
-            func.count(func.distinct(case((priceable, members.c.product), else_=None))),
             func.count(func.distinct(case((linked, None), else_=members.c.mla))),
             func.count(func.distinct(case((linked & members.c.in_catalog.is_(None), members.c.product), else_=None))),
         ).select_from(members)
     ).one()
-    if count > MAX_PRODUCT_IDS:
-        raise TooManyProducts(int(count), MAX_PRODUCT_IDS)
-    ids = db.execute(select(members.c.product).where(priceable).distinct().order_by(members.c.product)).scalars()
-    return ProductIds([int(i) for i in ids], int(sin_producto), int(gone))
+    return ProductIds([int(row.product) for row in found], int(sin_producto), int(gone))

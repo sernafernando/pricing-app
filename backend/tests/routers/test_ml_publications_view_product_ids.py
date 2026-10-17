@@ -14,6 +14,8 @@ Same harness as `/products` (`test_ml_publications_view_products.py`): the store
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 from app.services.ml_publications.view import products as products_service
 from tests.routers.test_ml_publications_links import grant
@@ -22,6 +24,7 @@ from tests.routers.test_ml_publications_view_kpis import METRICAS, _seller, pg, 
 from tests.routers.test_ml_publications_view_presence import TOGGLES, mixed, reader  # noqa: F401
 from tests.routers.test_ml_publications_view_products import sold  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.services.ml_publications.view import seed
 
 pytestmark = pytest.mark.postgres
 
@@ -141,6 +144,38 @@ class TestFailClosed:
         assert response.status_code == 422, response.text
         error = response.json()["error"]
         assert error["code"] == "demasiados_productos" and error["count"] == 2 and error["max"] == 1
+
+    def test_the_cap_check_and_the_list_read_one_snapshot(
+        self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
+    ):
+        """A product linked while the request runs must never slip a list past the cap: the count the cap checks
+        and the ids returned come from ONE statement. Right after the request's first read of the links, another
+        session commits a third linked product (79 on MLA2); with the cap at the 2 products seen, the answer is the
+        2 products seen or a 422, never 3 ids returned under a check that saw 2."""
+        grant(db, rol_admin, VER)
+        monkeypatch.setattr(products_service, "MAX_PRODUCT_IDS", 2)
+        fired = []
+
+        def link_a_third_product(conn, cursor, statement, parameters, context, executemany):
+            if fired or "ml_item_product_links" not in statement:
+                return
+            fired.append(statement)
+            with sold.begin() as other:
+                seed.add_product(other, 79, "R79", "Switch", marca="TP-Link")
+                seed.add_link(other, "MLA2", 79)
+
+        event.listen(Engine, "after_cursor_execute", link_a_third_product)
+        try:
+            response = get(client, admin_auth_headers)
+        finally:
+            event.remove(Engine, "after_cursor_execute", link_a_third_product)
+
+        assert fired, "the request never read the links"
+        if response.status_code == 422:
+            assert response.json()["error"]["max"] == 2
+        else:
+            got = response.json()
+            assert got["count"] == len(got["item_ids"]) <= 2, got
 
     @pytest.mark.parametrize(
         "params, field",

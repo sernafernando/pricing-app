@@ -17,11 +17,14 @@ from app.api.endpoints.productos_pricing import (
     calcular_web_masivo,
 )
 from app.api.endpoints.productos_shared import (
+    MAX_EXPLICIT_PRODUCT_IDS,
     CalculoPVPMasivoRequest,
     CalculoWebMasivoRequest,
     ConfigCuotasMasivoRequest,
 )
+from app.models.auditoria import Auditoria
 from app.models.producto import ProductoPricing
+from app.services.ml_publications.view import products as products_service
 from tests.integration.test_productos_masivo_cross_db_filters import _seed
 
 WEB = {"porcentaje_con_precio": 6.0, "porcentaje_sin_precio": 6.0}
@@ -69,6 +72,34 @@ class TestItemIds:
 
         assert (everything["procesados"], filtered["procesados"]) == (2, 1)
         assert "item_ids" not in model(**base).model_dump(exclude_unset=True)
+
+    def test_duplicate_ids_collapse_in_first_seen_order(self, db, endpoint, model, base) -> None:
+        assert model(**base, item_ids=[2, 1, 2, 1, 2]).item_ids == [2, 1]
+
+    def test_the_audit_counts_the_unique_ids(self, db, endpoint, model, base) -> None:
+        user = _seed(db)
+
+        endpoint(request=model(**base, item_ids=[2, 2, 2]), db=db, current_user=user)
+
+        audit = db.query(Auditoria).order_by(Auditoria.id.desc()).first()
+        assert audit.valores_nuevos["item_ids_explicitos"] == 1
+
+    def test_duplicates_do_not_use_up_the_cap(self, db, endpoint, model, base) -> None:
+        many = list(range(1, MAX_EXPLICIT_PRODUCT_IDS + 1))
+        assert len(model(**base, item_ids=many + many).item_ids) == MAX_EXPLICIT_PRODUCT_IDS
+
+    def test_exactly_the_cap_is_accepted(self, db, endpoint, model, base) -> None:
+        many = list(range(1, MAX_EXPLICIT_PRODUCT_IDS + 1))
+        assert model(**base, item_ids=many).item_ids == many
+
+    def test_one_over_the_cap_is_refused(self, db, endpoint, model, base) -> None:
+        with pytest.raises(ValidationError):
+            model(**base, item_ids=list(range(1, MAX_EXPLICIT_PRODUCT_IDS + 2)))
+
+
+def test_the_bulk_cap_is_the_resolvers_cap() -> None:
+    """One constant, so the resolver can never hand the bulk endpoints a set they refuse."""
+    assert MAX_EXPLICIT_PRODUCT_IDS == products_service.MAX_PRODUCT_IDS == 10000
 
 
 GONE = 999  # linked from a publication, no longer in productos_erp
