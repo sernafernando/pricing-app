@@ -1102,6 +1102,61 @@ def revert_to_auto(
     return ManualOutcome(changed=True)
 
 
+SEED_RELINKED_AUTO = "relinked_auto"
+SEED_CHANGED = "changed"
+SEED_PRODUCT_MISSING = "product_missing"
+SEED_LINKED = "linked"
+
+
+def seed_manual_link(
+    db,
+    item_id: str,
+    producto_item_id: int,
+    *,
+    note: str,
+    match_rule: str,
+    now: datetime,
+    events_enabled: bool,
+) -> str:
+    """Link an item-level unit that is still automatic and unlinked to a product, as a manual decision.
+
+    For a one-time seed from an outside map (no operator: no author, no audit row; `note` marks the rows).
+    The item is first re-evaluated with the current rule: a unit it now links stays automatic
+    (`SEED_RELINKED_AUTO`). A unit that is manual, automatically linked or gone is never touched
+    (`SEED_CHANGED`), nor one whose product is not in the catalog (`SEED_PRODUCT_MISSING`). The caller commits.
+    """
+    evaluate_for_item(db, item_id, now=now, events_enabled=events_enabled, force=True)
+    db.flush()
+    row = (
+        db.query(MlItemProductLink)
+        .filter(MlItemProductLink.item_id == item_id, MlItemProductLink.variation_id == ITEM_LEVEL)
+        .with_for_update()
+        .first()
+    )
+    if row is None or row.source != SOURCE_AUTO:
+        return SEED_CHANGED
+    if row.match_status == STATUS_LINKED:
+        return SEED_RELINKED_AUTO
+    if row.match_status not in (STATUS_UNMATCHED, STATUS_CONFLICT):
+        return SEED_CHANGED
+    if not _product_exists(db, producto_item_id):
+        return SEED_PRODUCT_MISSING
+    before = LinkState.of(row)
+    row.source = SOURCE_MANUAL
+    row.match_status = STATUS_LINKED
+    row.producto_item_id = producto_item_id
+    row.candidate_ids = None
+    row.note = note
+    row.linked_by = None
+    row.linked_at = now
+    row.updated_at = now
+    typed, _ = _load_typed(db, item_id)
+    log_link_change(
+        db, item_id, ITEM_LEVEL, before, LinkState.of(row), now, events_enabled, typed, match_rule=match_rule
+    )
+    return SEED_LINKED
+
+
 # --- read side: one item's units, and the lists by class (read-only) ---------------------------------
 
 LIST_MAX = 200  # largest page the lists serve
