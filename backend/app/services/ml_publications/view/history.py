@@ -22,7 +22,7 @@ from typing import Any, Mapping, Optional, Sequence
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.services.ml_publications.view import events_view, history_rows, listing
+from app.services.ml_publications.view import events_view, history_rows, listing, origin
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
@@ -134,14 +134,16 @@ def split(resource_type: str, changes: Sequence[Mapping[str, Any]]) -> tuple[lis
 
 # ── The page ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-_COLUMNS = "id, resource_type, kind, observed_at, changes"
+_COLUMNS = "id, resource_type, kind, observed_at, changes, entity_id, link_source"
+# A branch reads the link row's source (`origin.py`: the SKU rule's changes are automatic) and no other context.
+_BRANCH_COLUMNS = "id, resource_type, kind, observed_at, changes, entity_id, context ->> 'source_new' AS link_source"
 _AFTER = "AND (observed_at, id) < (:cursor_at, :cursor_id)"
 
 
 def _page_sql(after: str) -> str:
     def branch(where: str) -> str:
         return (
-            f"(SELECT {_COLUMNS} FROM ml_change_log WHERE {where} {after} "
+            f"(SELECT {_BRANCH_COLUMNS} FROM ml_change_log WHERE {where} {after} "
             "ORDER BY observed_at DESC, id DESC LIMIT :row_limit)"
         )
 
@@ -176,10 +178,14 @@ def _line_out(line: Change) -> dict[str, Any]:
     return {"path": line.path, "label_key": line.label_key, "label": line.label, "old": line.old, "new": line.new}
 
 
-def _entry_out(row: Any, *, include_technical: bool = False) -> dict[str, Any]:
+def _entry_out(
+    row: Any, verdict: Optional[origin.Verdict] = None, *, include_technical: bool = False
+) -> dict[str, Any]:
     """The legacy `business`/`technical` lines (raw values, kept for the current panel) plus `rows`: the readable
     lines (`history_rows`), technical ones only with `include_technical`, the rest counted in
-    `hidden_technical_count`."""
+    `hidden_technical_count`; `origin`/`informational` say who caused the change (`origin.py`; without a verdict, the
+    one no audit row explains)."""
+    verdict = verdict or origin.of_entry(row, ())
     changes = row["changes"] or []
     business, technical = split(row["resource_type"], changes)
     shown, hidden = history_rows.visible(
@@ -194,6 +200,8 @@ def _entry_out(row: Any, *, include_technical: bool = False) -> dict[str, Any]:
         "technical": [_line_out(line) for line in technical],
         "rows": [line.as_dict() for line in shown],
         "hidden_technical_count": hidden,
+        "origin": verdict.origin(),
+        "informational": verdict.informational,
     }
 
 
@@ -224,5 +232,6 @@ def list_history(
     rows = db.execute(text(page_sql(cursor is not None)), params).mappings().all()
     page = rows[:limit]
     more = events_view.encode_cursor(page[-1]["observed_at"], page[-1]["id"]) if len(rows) > limit else None
-    entries = [_entry_out(row, include_technical=include_technical) for row in page]
+    audits = origin.load_audits(db, item_id, [origin.entry_claim(row) for row in page])
+    entries = [_entry_out(row, origin.of_entry(row, audits), include_technical=include_technical) for row in page]
     return HistoryPage(entries, more, sum(entry["hidden_technical_count"] for entry in entries))
