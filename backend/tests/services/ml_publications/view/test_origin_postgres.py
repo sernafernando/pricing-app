@@ -102,8 +102,12 @@ class TestEventsOrigin:
         small = record(pg, lambda: ok(events_of(client, reader)))
         seed_rows(pg, n_activations(30))
         large = record(pg, lambda: ok(events_of(client, reader)))
-        assert len(small) == len(large) <= 5  # the flag, the time bound, the item, its events, then the audit read
-        assert sum("FROM ml_write_log" in s for s in large) == 1
+        # the flag, the time bound, the item, its events, the audit read, and (these are promotion events) the
+        # promotion-name lookup of `events_view.promotion_names`, which only runs on a page with promotion events
+        assert len(small) == len(large) <= 6
+        for statements in (small, large):
+            assert sum("FROM ml_write_log" in s for s in statements) == 1
+            assert sum("ml_item_seller_promotions" in s for s in statements) == 1
 
     def test_events_that_cannot_be_ours_read_no_audit(self, client, audited, pg, reader) -> None:
         seed_rows(pg, lambda conn: store_captured_event(conn, EVENTS[6378], AT))
