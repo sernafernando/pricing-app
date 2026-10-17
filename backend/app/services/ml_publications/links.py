@@ -101,9 +101,19 @@ def sku_key(seller_sku: Any, seller_custom_field: Any) -> tuple[Optional[str], O
     return None, None
 
 
+def _upper_char(char: str) -> str:
+    upper = char.upper()
+    return upper if len(upper) == 1 else char
+
+
 def normalize_sku(value: str) -> str:
-    """Comparable form of a SKU or a `codigo`: upper-cased, without spaces, hyphens, dots or slashes."""
-    return _SEPARATORS.sub("", value).upper()
+    """Comparable form of a SKU or a `codigo`: upper-cased, without spaces, hyphens, dots or slashes.
+
+    Upper-casing is per character and only when the upper case is one character, as Postgres `upper()` does
+    ("ß" stays "ß", Python alone would make it "SS"): the SQL prefilter in `load_catalog` must compute the
+    same form, or it would miss rows this check accepts.
+    """
+    return "".join(_upper_char(char) for char in _SEPARATORS.sub("", value))
 
 
 def item_id_of(normalized: str) -> Optional[int]:

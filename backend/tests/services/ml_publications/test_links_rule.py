@@ -159,6 +159,11 @@ class TestNormalizedAndItemIdRules:
         assert links.normalize_sku(" pc-10.400/b x ") == "PC10400BX"
         assert links.normalize_sku("\tab\n") == "AB"
 
+    def test_upper_casing_never_expands_a_character_like_postgres_upper(self) -> None:
+        # Python upper-cases "ß" to "SS"; Postgres upper() keeps "ß". The SQL prefilter must see the same form.
+        assert links.normalize_sku("straße-1") == "STRAßE1"
+        assert links.normalize_sku("ǆ") == "Ǆ"  # a one-character upper case is still applied
+
     def test_case_and_separators_do_not_prevent_a_codigo_match(self) -> None:
         unit = only_unit(with_sku(bulk_item("MLA935110613"), " pc 10400 "))
         suggestion = links.resolve(unit, {"PC-10400": [3]})

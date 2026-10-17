@@ -320,6 +320,11 @@ class TestNormalizedAndItemIdRulesOnTheCatalog:
         row = link(env)
         assert (row["match_status"], row["producto_item_id"], row["matched_sku"]) == ("linked", 41, " pc 10400 ")
 
+    def test_a_codigo_with_a_sharp_s_is_found_by_the_sql_prefilter(self, env) -> None:
+        add_product(env, 41, "straße-1")
+        evaluate(_with_sku("STRAßE 1"))
+        assert (link(env)["match_status"], link(env)["producto_item_id"]) == ("linked", 41)
+
     def test_two_products_equal_after_normalization_conflict(self, env) -> None:
         add_product(env, 41, "PC-10400")
         add_product(env, 42, "pc10400")
