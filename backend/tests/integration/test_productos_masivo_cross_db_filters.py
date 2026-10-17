@@ -71,6 +71,7 @@ def _seed(db) -> Usuario:
 def _request(filtros):
     return SimpleNamespace(
         filtros=filtros,
+        item_ids=None,  # the request models default it: no explicit write set
         markup_pvp_clasica=10.0,
         adicional_cuotas=0.0,
         porcentaje_con_precio=6.0,

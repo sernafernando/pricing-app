@@ -26,6 +26,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     join_color_layer,
     resolver_layer_activo,
     coerce_equipo_id,
+    rechazar_fuera_de_catalogo,
 )
 
 logger = logging.getLogger(__name__)
@@ -304,6 +305,9 @@ def calcular_web_masivo(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
     query = join_color_layer(query, layer_activo)
+    if request.item_ids is not None:  # an explicit write set (Publicaciones ML): exactly these, `filtros` is None
+        rechazar_fuera_de_catalogo(db, request.item_ids)
+        query = query.filter(ProductoERP.item_id.in_(request.item_ids))
 
     # Aplicar filtros si existen
     if request.filtros:
@@ -602,6 +606,8 @@ def calcular_web_masivo(
             "porcentaje_con_precio": request.porcentaje_con_precio,
             "porcentaje_sin_precio": request.porcentaje_sin_precio,
             "filtros": request.filtros,
+            # only on an explicit run, so the audit of a filtered one stays as it was
+            **({"item_ids_explicitos": len(request.item_ids)} if request.item_ids is not None else {}),
         },
         comentario="Cálculo masivo de precios web transferencia",
     )
@@ -626,6 +632,9 @@ def calcular_pvp_masivo(
         ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
     )
     query = join_color_layer(query, layer_activo)
+    if request.item_ids is not None:  # an explicit write set (Publicaciones ML): exactly these, `filtros` is None
+        rechazar_fuera_de_catalogo(db, request.item_ids)
+        query = query.filter(ProductoERP.item_id.in_(request.item_ids))
 
     # Aplicar filtros si existen (misma lógica que web masivo)
     if request.filtros:
@@ -862,6 +871,8 @@ def calcular_pvp_masivo(
             "markup_pvp_clasica": request.markup_pvp_clasica,
             "adicional_cuotas": request.adicional_cuotas,
             "filtros": request.filtros,
+            # only on an explicit run, so the audit of a filtered one stays as it was
+            **({"item_ids_explicitos": len(request.item_ids)} if request.item_ids is not None else {}),
         },
         comentario="Cálculo masivo de precios PVP",
     )
@@ -1331,6 +1342,7 @@ def actualizar_config_cuotas_masivo(
         if data["markup_adicional_cuotas_pvp_custom"] < 0 or data["markup_adicional_cuotas_pvp_custom"] > 100:
             raise HTTPException(status_code=400, detail="Markup PVP debe estar entre 0 y 100")
 
+    rechazar_fuera_de_catalogo(db, item_ids)
     actualizados = 0
     for item_id in item_ids:
         pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()

@@ -38,7 +38,13 @@ from app.services.ml_publications.view.filters import (
     status_value,
     stock_clauses,
 )
-from app.services.ml_publications.view.markup_service import ItemMarkup, MarkupQuery, MarkupStats, compute_markups
+from app.services.ml_publications.view.markup_service import (
+    ItemMarkup,
+    MarkupQuery,
+    MarkupResult,
+    MarkupStats,
+    compute_markups,
+)
 from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin, ranked_page
 
 STATEMENT_TIMEOUT = "8s"
@@ -312,6 +318,19 @@ def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[s
     return priced + unpriced
 
 
+def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> tuple[MarkupResult, frozenset[str]]:
+    """The markup filter, applied after the query: the WHOLE filtered set priced once (design §4.4) and the ids of
+    the publications `markup.filter` accepts. The one definition of "what the markup filter keeps": the list
+    (`_list_by_markup`) and the bulk actions' product resolver (`products.product_ids`) both call it."""
+    result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
+    accepted = frozenset(
+        item_id
+        for item_id, item in result.items.items()
+        if markup.filter.accepts(item.markup.worst, item.markup.any_negative)
+    )
+    return result, accepted
+
+
 def _list_by_markup(
     db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, events: bool, markup: MarkupQuery
 ) -> ItemsPage:
@@ -319,23 +338,15 @@ def _list_by_markup(
     filter it in Python. The markup order is applied in Python too; a column order is applied by the database over
     the accepted ids only, which also cuts the page. Then read only the page's rows (by id). A fixed number of
     statements."""
-    result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
+    result, kept = markup_accepted(db, f, markup)
     if sort.key == SORT_MARKUP:
-        wanted = [
-            item_id
-            for item_id in _worst_first(result.items, sort.descending)
-            if markup.filter.accepts(result.items[item_id].markup.worst, result.items[item_id].markup.any_negative)
-        ]
+        wanted = [item_id for item_id in _worst_first(result.items, sort.descending) if item_id in kept]
         total = len(wanted)
         page_ids = wanted[offset : offset + limit]
     else:
         # The database orders only the publications the markup filter accepted and cuts the page: it used to order
         # the whole filtered set and ship every id back just to keep fifty.
-        accepted = [
-            item_id
-            for item_id, item in result.items.items()
-            if markup.filter.accepts(item.markup.worst, item.markup.any_negative)
-        ]
+        accepted = [item_id for item_id in result.items if item_id in kept]  # the computed order, as before
         total = len(accepted)
         if sort.key in METRIC_SORTS:
             only_accepted = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))

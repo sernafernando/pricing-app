@@ -5,7 +5,7 @@ All schemas used across productos sub-modules live here.
 """
 
 from typing import Optional, List, Literal, Tuple
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from datetime import datetime, date
 import logging
 
@@ -22,6 +22,7 @@ from app.services.ml_promotions_service import (
     fetch_mlas_with_candidate_only_for_types,
     fetch_mlas_with_started,
 )
+from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.schemas.costo_ppp import PppPayload
@@ -288,16 +289,58 @@ class ExportRebateRequest(BaseModel):
     )
 
 
-class CalculoWebMasivoRequest(BaseModel):
+class ExplicitItemIdsRequest(BaseModel):
+    """An optional explicit write set. With `item_ids` the run touches exactly those products; `filtros` alongside
+    would name a second set, so it is refused (422). An empty list is refused too: it must never read as "all".
+    Duplicates collapse (first-seen order) before the cap is checked, so the cap and the audit count distinct
+    products. The cap is the Publicaciones ML resolver's own (`caps.MAX_EXPLICIT_PRODUCT_IDS`)."""
+
+    filtros: dict = None
+    item_ids: Optional[List[int]] = Field(default=None, min_length=1)
+
+    @field_validator("item_ids")
+    @classmethod
+    def _distinct_within_cap(cls, item_ids: Optional[List[int]]) -> Optional[List[int]]:
+        if item_ids is None:
+            return None
+        unique = list(dict.fromkeys(item_ids))
+        if len(unique) > MAX_EXPLICIT_PRODUCT_IDS:
+            raise ValueError(
+                f"{len(unique)} productos superan el máximo de {MAX_EXPLICIT_PRODUCT_IDS} por acción masiva"
+            )
+        return unique
+
+    @model_validator(mode="after")
+    def _one_write_set(self):
+        if self.item_ids is not None and self.filtros:
+            raise ValueError("item_ids y filtros son excluyentes: mandá uno solo")
+        return self
+
+
+def rechazar_fuera_de_catalogo(db: Session, item_ids: List[int]) -> None:
+    """An explicit write set must name products the ERP catalog has: an unknown id (a product gone from the
+    catalog, linked from an old publication) refuses the WHOLE run with a 422 naming it. The run never skips it
+    silently (a partial run reported as done) and never reaches a foreign key error (a 500)."""
+    from app.models.producto import ProductoERP
+
+    known = {item_id for (item_id,) in db.query(ProductoERP.item_id).filter(ProductoERP.item_id.in_(item_ids))}
+    missing = sorted(set(item_ids) - known)
+    if missing:
+        shown = ", ".join(str(item_id) for item_id in missing[:20]) + ("…" if len(missing) > 20 else "")
+        raise HTTPException(
+            status_code=422,
+            detail=f"{len(missing)} producto(s) fuera del catálogo ERP ({shown}); no se aplicó nada",
+        )
+
+
+class CalculoWebMasivoRequest(ExplicitItemIdsRequest):
     porcentaje_con_precio: float
     porcentaje_sin_precio: float
-    filtros: dict = None
 
 
-class CalculoPVPMasivoRequest(BaseModel):
+class CalculoPVPMasivoRequest(ExplicitItemIdsRequest):
     markup_pvp_clasica: float
     adicional_cuotas: float
-    filtros: dict = None
 
 
 class RecalcularCuotasMasivoRequest(BaseModel):
