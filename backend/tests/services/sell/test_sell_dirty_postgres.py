@@ -16,48 +16,37 @@ from decimal import Decimal
 from typing import Iterator, List, Tuple, Type
 
 import pytest
-from sqlalchemy import Engine, create_engine, inspect, text
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_dirty import SellDirty
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
-from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
+from tests.services.sell._schema import throwaway_schema
 
 _TABLES = [VentaFueraMLMetrica.__table__, VentaTiendaNubeMetrica.__table__, SellDirty.__table__]
 _CANALES: List[Tuple[str, Type]] = [("fuera", VentaFueraMLMetrica), ("tn", VentaTiendaNubeMetrica)]
 _ids = itertools.count(590_000)
 
 
+def _install_triggers(engine: Engine) -> None:
+    with engine.begin() as conn:
+        for statement in queue.UPGRADE_SQL:
+            conn.execute(text(statement))
+
+
 @pytest.fixture(scope="module")
 def pg_sell_engine() -> Iterator[Engine]:
-    if not _postgres_reachable():
-        pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
-    _restore_pristine_pg_types(_TABLES)
-    engine = create_engine(POSTGRES_TEST_URL)
-    existing = set(inspect(engine).get_table_names())
-    created = [t for t in _TABLES if t.name not in existing]
-    for table in created:
-        table.create(bind=engine)
-    with engine.begin() as conn:
-        installed = conn.execute(text("SELECT 1 FROM pg_proc WHERE proname = 'sell_dirty_enqueue_venta'")).first()
-        if installed is None:
-            for statement in queue.UPGRADE_SQL:
-                conn.execute(text(statement))
-    yield engine
-    if installed is None:
-        with engine.begin() as conn:
-            for statement in queue.DOWNGRADE_SQL:
-                conn.execute(text(statement))
-    for table in reversed(created):
-        table.drop(bind=engine)
-    engine.dispose()
+    """Every table, the function and the triggers live in a throwaway schema:
+    always installed from `queue.UPGRADE_SQL`, never inherited from (or skipped
+    because of) what other tests left in the shared database."""
+    with throwaway_schema("sell_dirty_trg", _TABLES, after=_install_triggers) as engine:
+        yield engine
 
 
 @pytest.fixture(autouse=True)
-def _db(monkeypatch: pytest.MonkeyPatch, pg_sell_engine: Engine) -> Iterator[None]:
-    monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=pg_sell_engine))
+def _clean(pg_sell_engine: Engine) -> Iterator[None]:
     yield
     with pg_sell_engine.begin() as conn:
         for table in _TABLES:
@@ -103,12 +92,13 @@ def _venta(engine: Engine, model: Type, item_id: int = 2964, cantidad: str = "1.
     return it_transaction
 
 
-def _update(engine: Engine, model: Type, it_transaction: int, **values) -> None:
+def _update(engine: Engine, model: Type, ref: int, **values) -> None:
+    """Updates the sale `ref` (its `it_transaction`); `values` may change the key itself."""
     sets = ", ".join(f"{column} = :{column}" for column in values)
     with engine.begin() as conn:
         conn.execute(
-            text(f"UPDATE {model.__tablename__} SET {sets} WHERE it_transaction = :it"),
-            {"it": it_transaction, **values},
+            text(f"UPDATE {model.__tablename__} SET {sets} WHERE it_transaction = :_ref"),
+            {"_ref": ref, **values},
         )
 
 
@@ -155,6 +145,17 @@ class TestTriggers:
         _update(pg_sell_engine, model, ref, cantidad=Decimal("1.0000"), cliente="Otro", vendedor="V")
 
         assert _queued(pg_sell_engine) == []
+
+    def test_a_key_change_queues_the_old_line_and_the_new_one(
+        self, pg_sell_engine: Engine, canal: str, model: Type
+    ) -> None:
+        old = _venta(pg_sell_engine, model, item_id=2964)
+        _clear_queue(pg_sell_engine)
+        new = next(_ids)
+
+        _update(pg_sell_engine, model, old, it_transaction=new, item_id=950)
+
+        assert _queued(pg_sell_engine) == [(canal, old, 2964), (canal, new, 950)]
 
     def test_a_deleted_sale_queues_its_line_to_release_it(
         self, pg_sell_engine: Engine, canal: str, model: Type
