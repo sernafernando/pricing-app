@@ -38,7 +38,7 @@ joins it).
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from pydantic import BaseModel
@@ -447,6 +447,14 @@ class ItemDetailResponse(BaseModel):
     can_resync: bool
 
 
+class OriginOut(BaseModel):
+    """Who caused a change (`view/origin.py`): `nosotros` (one of our audit rows, `user_name` its user), `automatico`
+    (ours, by no user), `ml` (ML's by nature) or `sin_registrar` (could be either; no audit row of ours)."""
+
+    kind: Literal["nosotros", "automatico", "ml", "sin_registrar"]
+    user_name: Optional[str] = None
+
+
 class EventOut(BaseModel):
     """One business event of the publication; `label` is its Spanish name (a generic one for a type without its
     own), `old_value`/`new_value` what the rule that derived it recorded."""
@@ -462,6 +470,8 @@ class EventOut(BaseModel):
     promotion_id: Optional[str] = None
     payload: Optional[dict[str, Any]] = None  # the typed payload of the event type (events.py)
     status_label: Optional[str] = None  # promotion events: "Disponible para activar", "Aplicada", ...
+    origin: OriginOut
+    informational: bool  # an ML offer or suggestion that changed nothing applied
 
 
 class EventsResponse(BaseModel):
@@ -509,6 +519,8 @@ class HistoryEntryOut(BaseModel):
     technical: list[HistoryChangeOut]
     rows: list[HistoryRowOut]
     hidden_technical_count: int
+    origin: OriginOut
+    informational: bool  # ML's offers, suggestions and metrics: nothing applied changed
 
 
 class HistoryResponse(BaseModel):

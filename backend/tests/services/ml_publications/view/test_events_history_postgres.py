@@ -198,7 +198,13 @@ def fill(conn) -> None:
 
 @pytest.fixture()
 def rows(pg):
-    seed_rows(pg, fill)
+    """The items, and the audit tables the origin of each event and entry is read from (`view/origin.py`)."""
+
+    def build(conn) -> None:
+        fill(conn)
+        seed.create_audit_tables(conn)
+
+    seed_rows(pg, build)
 
 
 @pytest.fixture()
@@ -285,6 +291,8 @@ class TestEvents:
             "promotion_id",
             "payload",
             "status_label",
+            "origin",
+            "informational",
         }
         assert newest["promotion_id"] is None and newest["status_label"] is None
         assert isinstance(newest["payload"], dict)

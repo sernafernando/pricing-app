@@ -261,3 +261,84 @@ def create_board_tables(engine) -> None:
     _restore_pristine_pg_types(tables)
     for table in tables:
         table.create(bind=engine, checkfirst=True)
+
+
+# The audit trails the Eventos/Historial origin reads, with production's column types (`\d` on pricing_db,
+# 2026-10-17): `auditoria.fecha` is naive UTC and `tipo_accion` the enum NAME; `ml_write_log` as its migration.
+AUDIT_DDL = (
+    "CREATE TABLE usuarios (id serial PRIMARY KEY, nombre varchar(255) NOT NULL, username varchar(100) NOT NULL)",
+    "CREATE TABLE ml_write_log (id serial PRIMARY KEY, mla varchar(32) NOT NULL, resource varchar(40) NOT NULL, "
+    "action varchar(40) NOT NULL, target_id varchar(100), promotion_type varchar(40), payload jsonb, "
+    "usuario_id integer REFERENCES usuarios(id), created_at timestamptz NOT NULL DEFAULT now())",
+    "CREATE TABLE auditoria (id serial PRIMARY KEY, item_id integer, usuario_id integer NOT NULL REFERENCES "
+    "usuarios(id), tipo_accion varchar(50) NOT NULL, valores_anteriores jsonb, valores_nuevos jsonb, "
+    "es_masivo boolean DEFAULT false, productos_afectados integer, comentario varchar(500), "
+    "fecha timestamp without time zone NOT NULL DEFAULT now())",
+    "CREATE TABLE free_shipping_fix_log (id serial PRIMARY KEY, mla_id varchar(30) NOT NULL, success boolean NOT NULL, "
+    "skipped boolean NOT NULL DEFAULT false, skip_reason varchar(100), item_price varchar(30), "
+    "mandatory_free_shipping boolean NOT NULL DEFAULT false, ml_response_status integer, ml_response_body text, "
+    "created_at timestamptz NOT NULL DEFAULT now())",
+)
+
+
+def create_audit_tables(conn) -> None:
+    for ddl in AUDIT_DDL:
+        conn.execute(text(ddl))
+
+
+def add_user(conn, nombre: str, username: str) -> int:
+    return conn.execute(
+        text("INSERT INTO usuarios (nombre, username) VALUES (:n, :u) RETURNING id"), {"n": nombre, "u": username}
+    ).scalar_one()
+
+
+def add_write_log(
+    conn,
+    mla: str,
+    action: str,
+    target_id: Optional[str],
+    at: datetime,
+    usuario_id: Optional[int],
+    promotion_type: Optional[str] = None,
+) -> None:
+    """One `ml_write_log` row as `ml_promotions_write_service._record_write_log` writes it (resource `promotion`)."""
+    conn.execute(
+        text(
+            "INSERT INTO ml_write_log (mla, resource, action, target_id, promotion_type, payload, usuario_id, "
+            "created_at) VALUES (:mla, 'promotion', :action, :target, :ptype, CAST(:payload AS jsonb), :user, :at)"
+        ),
+        {
+            "mla": mla,
+            "action": action,
+            "target": target_id,
+            "ptype": promotion_type,
+            "payload": json.dumps({"promotion_type": promotion_type, "outcome": "submitted"}),
+            "user": usuario_id,
+            "at": at,
+        },
+    )
+
+
+def add_auditoria(conn, tipo_accion: str, valores_nuevos: dict, at: datetime, usuario_id: int) -> None:
+    """One `auditoria` row; `fecha` naive UTC like `registrar_auditoria` and `links._record_audit` leave it."""
+    conn.execute(
+        text(
+            "INSERT INTO auditoria (usuario_id, tipo_accion, valores_nuevos, fecha) "
+            "VALUES (:user, :tipo, CAST(:nuevos AS jsonb), :fecha)"
+        ),
+        {
+            "user": usuario_id,
+            "tipo": tipo_accion,
+            "nuevos": json.dumps(valores_nuevos),
+            "fecha": at.astimezone(timezone.utc).replace(tzinfo=None),
+        },
+    )
+
+
+def add_free_shipping_fix(conn, mla: str, at: datetime, success: bool = True) -> None:
+    """One `free_shipping_fix_log` row as `free_shipping_auto_fix._log_attempt` writes a confirmed fix."""
+    _insert(
+        conn,
+        "free_shipping_fix_log",
+        {"mla_id": mla, "success": success, "item_price": "61660.0", "ml_response_status": 200, "created_at": at},
+    )

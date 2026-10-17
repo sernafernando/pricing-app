@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.ml_publications import events_query
-from app.services.ml_publications.view import history_rows, listing
+from app.services.ml_publications.view import history_rows, listing, origin
 from app.services.ml_publications.view.filters import FilterError
 
 DEFAULT_LIMIT = 50
@@ -123,9 +123,12 @@ def status_label_of(event_type: str, new_value: Any, payload: Any, old_value: An
     return None
 
 
-def _event_out(row: Any) -> dict[str, Any]:
+def _event_out(row: Any, verdict: Optional[origin.Verdict] = None) -> dict[str, Any]:
     """The stored fields plus the label; `payload` is the event's typed payload (`events.py`), `promotion_id` the
-    promotion it is about (or the sale price's offer id), `status_label` the promotion state when it has one."""
+    promotion it is about (or the sale price's offer id), `status_label` the promotion state when it has one,
+    `origin` who caused it and `informational` whether it is an ML offer that changed nothing applied (`origin.py`;
+    without a verdict, the one no audit row explains)."""
+    verdict = verdict or origin.of_event(row, ())
     return {
         "id": row["id"],
         "event_type": row["event_type"],
@@ -138,6 +141,8 @@ def _event_out(row: Any) -> dict[str, Any]:
         "promotion_id": row["promotion_id"],
         "payload": row["payload"],
         "status_label": status_label_of(row["event_type"], row["new_value"], row["payload"], row["old_value"]),
+        "origin": verdict.origin(),
+        "informational": verdict.informational,
     }
 
 
@@ -165,4 +170,5 @@ def list_events(
     rows = db.execute(text(statement.sql), statement.params).mappings().all()
     page = rows[:limit]
     more = encode_cursor(page[-1]["observed_at"], page[-1]["id"]) if len(rows) > limit else None
-    return EventsPage([_event_out(row) for row in page], more)
+    audits = origin.load_audits(db, item_id, [origin.event_claim(row) for row in page])
+    return EventsPage([_event_out(row, origin.of_event(row, audits)) for row in page], more)
