@@ -3,7 +3,7 @@
  * selects (`GET /ml-publications/view/product-ids`), or on the products the operator checked. Fail closed: no
  * resolved set, no action.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BulkActions from './BulkActions';
@@ -39,12 +39,18 @@ function renderBulk(props = {}) {
 const openMenu = async (user) => user.click(await screen.findByRole('button', { name: /acciones masivas/i }));
 
 describe('BulkActions', () => {
+  // The bulk modals confirm in an in-app dialog; the browser's confirm() must never run.
+  let nativeConfirm;
+
   beforeEach(() => {
     vi.clearAllMocks();
     granted = new Set(ALL);
-    vi.stubGlobal('confirm', () => true);
+    nativeConfirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', nativeConfirm);
     api.post.mockResolvedValue({ data: { procesados: 2 } });
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   it('shows how many products the filter selects, and the publications left out', async () => {
     resolved({ item_ids: [4101, 4102], count: 2, sin_producto: 3 });
@@ -62,11 +68,13 @@ describe('BulkActions', () => {
     await openMenu(user);
     await user.click(screen.getByRole('menuitem', { name: /calcular web transf/i }));
     await user.click(screen.getByRole('button', { name: /calcular precios/i }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     const [url, body] = api.post.mock.calls[0];
     expect(url).toBe('/productos/calcular-web-masivo');
     expect(body.item_ids).toEqual([4101, 4102]);
     expect(body).not.toHaveProperty('filtros');
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 
   it('acts on the checked products when there are any', async () => {
@@ -77,8 +85,10 @@ describe('BulkActions', () => {
     await openMenu(user);
     await user.click(screen.getByRole('menuitem', { name: /calcular pvp/i }));
     await user.click(screen.getByRole('button', { name: /calcular precios pvp/i }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     expect(api.post.mock.calls[0][1].item_ids).toEqual([4103]);
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 
   it('fails closed when the resolver refuses (over the cap)', async () => {

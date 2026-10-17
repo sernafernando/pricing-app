@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Calculator, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import ModalTesla, { ModalFooterButtons } from './ModalTesla';
 import styles from './CalcularWebModal.module.css';
 
 export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, showToast, itemIds, itemIdsNota }) {
@@ -8,6 +10,8 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
   const [porcentajeConPrecio, setPorcentajeConPrecio] = useState('6.0');
   const [porcentajeSinPrecio, setPorcentajeSinPrecio] = useState('10.0');
   const [calculando, setCalculando] = useState(false);
+  // Pending in-app confirmation message; null while no confirmation is asked.
+  const [confirmacion, setConfirmacion] = useState(null);
   const [aplicarFiltros, setAplicarFiltros] = useState(true);
 
   // Auto-focus en primer input al abrir modal
@@ -25,6 +29,9 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
   // Cerrar modal con Escape y capturar Tab para navegación interna
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // The confirmation dialog owns the keyboard while it is open.
+      if (confirmacion) return;
+
       if (e.key === 'Escape' && !calculando) {
         onClose();
         return;
@@ -59,7 +66,7 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, calculando]);
+  }, [onClose, calculando, confirmacion]);
 
   const hayFiltros =
     !!filtrosActivos?.search ||
@@ -121,15 +128,18 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
     </div>
   );
 
-  const calcularMasivo = async () => {
+  const pedirConfirmacion = () => {
     const mensaje = explicito
       ? `¿Confirmar el cálculo para ${itemIds.length} producto${itemIds.length !== 1 ? 's' : ''}?`
       : aplicarFiltros
       ? '¿Confirmar cálculo de precios web transferencia para los productos FILTRADOS?'
       : '¿Confirmar cálculo masivo de precios web transferencia para TODOS los productos?';
 
-    if (!confirm(mensaje)) return;
+    setConfirmacion(mensaje);
+  };
 
+  const calcularMasivo = async () => {
+    setConfirmacion(null);
     setCalculando(true);
     try {
       const body = {
@@ -195,12 +205,12 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
 
       const response = await api.post('/productos/calcular-web-masivo', body);
 
-      showToast(`✅ Precios calculados: ${response.data.procesados} productos`);
+      showToast(`Precios calculados: ${response.data.procesados} productos`);
       onSuccess();
       onClose();
     } catch (error) {
       console.error('Error:', error);
-      showToast('❌ Error al calcular precios masivos', 'error');
+      showToast('Error al calcular precios masivos', 'error');
     } finally {
       setCalculando(false);
     }
@@ -210,7 +220,10 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
     <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.header}>
-          <h2 className={styles.title}>🧮 Calcular Precios Web Transferencia</h2>
+          <h2 className={styles.title}>
+            <Calculator size={20} aria-hidden="true" />
+            Calcular Precios Web Transferencia
+          </h2>
           <button onClick={onClose} className={styles.closeButton}>×</button>
         </div>
 
@@ -315,15 +328,45 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
               Cancelar
             </button>
             <button
-              onClick={calcularMasivo}
+              onClick={pedirConfirmacion}
               disabled={calculando || (explicito && itemIds.length === 0)}
               className={`${styles.button} ${styles.buttonPrimary}`}
             >
-              {calculando ? '⏳ Calculando...' : '🧮 Calcular Precios'}
+              {calculando ? (
+                <>
+                  <Loader2 size={16} aria-hidden="true" />
+                  Calculando...
+                </>
+              ) : (
+                <>
+                  <Calculator size={16} aria-hidden="true" />
+                  Calcular Precios
+                </>
+              )}
             </button>
           </div>
         </div>
       </div>
+
+      {confirmacion && (
+        <ModalTesla
+          isOpen={true}
+          onClose={() => setConfirmacion(null)}
+          closeOnOverlay={false}
+          title="Confirmar cálculo"
+          size="sm"
+          footer={
+            <ModalFooterButtons
+              onCancel={() => setConfirmacion(null)}
+              cancelText="Cancelar"
+              onConfirm={calcularMasivo}
+              confirmText="Confirmar"
+            />
+          }
+        >
+          <p className={styles.confirmMessage}>{confirmacion}</p>
+        </ModalTesla>
+      )}
     </div>
   );
 }

@@ -31,6 +31,9 @@
 
 .title {
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
@@ -140,6 +143,10 @@
 
 .button {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
   padding: 14px;
   border-radius: 6px;
   font-weight: 600;
@@ -199,4 +206,9 @@
   margin-bottom: 16px;
   color: var(--error);
   font-weight: 500;
+}
+
+.confirmMessage {
+  margin: 0;
+  color: var(--text-primary);
 }
