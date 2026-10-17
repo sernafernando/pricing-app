@@ -29,7 +29,7 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import case, func, literal, not_, or_
+from sqlalchemy import and_, case, func, literal, not_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -265,12 +265,24 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
 def aplica_condicion():
     """THE rule for "this sell in applies", as a SQL boolean over `SellInCompra`.
 
-    Today a purchase applies while it is not voided (`estado = 'activa'`). When
-    consumption lands (T5), "and it still has units left" joins here, so the
-    `aplica` filter, the per-row `aplica` flag and the summary buckets all keep
-    following one rule. Never restate this condition elsewhere.
+    A purchase applies while it is not voided (`estado = 'activa'`) AND it
+    still has units left: some line whose `sell_in_consumos` add up to less
+    than its `cantidad`. The `aplica` filter, the per-row `aplica` flag and the
+    summary buckets all follow it. Never restate this condition elsewhere.
     """
-    return SellInCompra.estado == "activa"
+    consumidas = (
+        select(func.coalesce(func.sum(SellInConsumo.unidades), 0))
+        .where(SellInConsumo.compra_item_id == SellInCompraItem.id)
+        .correlate(SellInCompraItem)
+        .scalar_subquery()
+    )
+    con_unidades = (
+        select(SellInCompraItem.id)
+        .where(SellInCompraItem.compra_id == SellInCompra.id, SellInCompraItem.cantidad > consumidas)
+        .correlate(SellInCompra)
+        .exists()
+    )
+    return and_(SellInCompra.estado == "activa", con_unidades)
 
 
 @dataclass(frozen=True)
