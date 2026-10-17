@@ -236,6 +236,45 @@ describe('paging and honest states', () => {
     expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
   });
 
+  it('a double click on "Ver más" asks for the next page once', async () => {
+    const cursor = '2026-10-15T13:49:31.393877Z|123143';
+    let resolveNext;
+    publicacionesMlAPI.history
+      .mockResolvedValueOnce(page(RESPONSE.entries.slice(0, 4), cursor))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveNext = resolve)));
+    renderTab();
+    await screen.findByText('Ventas semanales (Full)');
+
+    await userEvent.dblClick(screen.getByRole('button', { name: 'Ver más' }));
+
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(2);
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1402898289', { cursor });
+    resolveNext(page(RESPONSE.entries.slice(4)));
+    expect(await screen.findAllByText('Publicación y stock')).not.toHaveLength(0);
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(2);
+  });
+
+  it('with the technical lines on, a double click on "Ver más" asks once, and with tecnicos', async () => {
+    const cursor = '2026-10-15T13:49:31.393877Z|123143';
+    let resolveNext;
+    publicacionesMlAPI.history
+      .mockResolvedValueOnce(page(RESPONSE.entries.slice(0, 4), cursor))
+      .mockResolvedValueOnce(page(TECNICOS.entries.slice(0, 4), cursor))
+      .mockReturnValueOnce(new Promise((resolve) => (resolveNext = resolve)));
+    renderTab();
+    await screen.findByText('Ventas semanales (Full)');
+    await userEvent.click(toggle());
+    await screen.findAllByText('Última actualización');
+
+    await userEvent.dblClick(screen.getByRole('button', { name: 'Ver más' }));
+
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(3);
+    expect(publicacionesMlAPI.history).toHaveBeenLastCalledWith('MLA1402898289', { tecnicos: true, cursor });
+    resolveNext(page(TECNICOS.entries.slice(4)));
+    expect(await screen.findAllByText('Publicación y stock')).not.toHaveLength(0);
+    expect(publicacionesMlAPI.history).toHaveBeenCalledTimes(3);
+  });
+
   it('shows the empty state when there are no changes', async () => {
     publicacionesMlAPI.history.mockResolvedValue(page([]));
     renderTab();
