@@ -344,6 +344,25 @@ class TestNormalizedAndItemIdRulesOnTheCatalog:
         evaluate(_with_sku("0"))
         assert (link(env)["match_status"], link(env)["producto_item_id"]) == ("unmatched", None)
 
+    def test_the_normalized_comparison_scans_the_catalog_once_per_load(self, env) -> None:
+        add_product(env, 41, "PC-10400")
+        keys = [f"pc {n}" for n in range(links.INDEX_CHUNK + 1)] + ["pc 10400"]  # more than one chunk
+        scans: list[str] = []
+
+        def count(conn, cursor, statement, *_args) -> None:
+            if "regexp_replace" in statement:
+                scans.append(statement)
+
+        event.listen(env, "before_cursor_execute", count)
+        try:
+            with database.get_background_db() as db:
+                catalog = links.load_catalog(db, keys)
+        finally:
+            event.remove(env, "before_cursor_execute", count)
+
+        assert len(scans) == 1
+        assert catalog.codigos == {"PC-10400": [41]}
+
     def test_an_existing_unmatched_auto_row_relinks_on_the_forced_pass_and_logs_the_rule(self, events_on) -> None:
         put_link(
             events_on,

@@ -239,15 +239,24 @@ def _codigo_rows(db, column: Any, values: Sequence[str], index: dict[str, list[i
 def load_catalog(db, keys: Sequence[str]) -> Catalog:
     """The catalog rows the rule can match for the given keys, cheapest lookup first.
 
-    Exact `codigo` uses its index. Only keys with no exact hit pay the normalized comparison (a scan of
-    `productos_erp`), and only numeric keys still unmatched look up `item_id` (the primary key).
+    Exact `codigo` uses its index. Only keys with no exact hit pay the normalized comparison, and only numeric
+    keys still unmatched look up `item_id` (the primary key).
+
+    The normalized comparison has no index (adding one needs a migration): it is ONE sequential scan of
+    `productos_erp` per call, every pending key in a single `IN`, never one scan per chunk or per key.
+    Measured in production on 2026-10-17 (read-only EXPLAIN ANALYZE): 4,442 rows, Seq Scan over 163 shared
+    buffers, 5.2 ms. A forced pass pays it once per item with an unmatched key (~1,500 items, ~7.5 s in
+    total, each item in its own transaction), far below the sweep's 30 s statement timeout. Re-measure
+    before the catalog grows by an order of magnitude.
     """
     index: dict[str, list[int]] = {}
     _codigo_rows(db, ProductoERP.codigo, keys, index)
     pending = {normalize_sku(k) for k in keys if k not in index} - _NEVER_MATCH
     if pending:
         comparable = func.upper(func.regexp_replace(ProductoERP.codigo, _SQL_SEPARATORS, "", "g"))
-        _codigo_rows(db, comparable, sorted(pending), index)
+        rows = db.query(ProductoERP.codigo, ProductoERP.item_id).filter(comparable.in_(sorted(pending)))
+        for codigo, producto_item_id in rows:
+            index.setdefault(codigo, []).append(producto_item_id)
         pending -= {normalize_sku(codigo) for codigo in index}
     numbers = sorted({n for n in map(item_id_of, pending) if n is not None})
     found: set[int] = set()
