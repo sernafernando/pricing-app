@@ -17,7 +17,13 @@ difference against the stored consumptions, so:
   product frees its units and the next sales in line take them, as long as the
   caller recomputes every product the line touched (old and new);
 - a voided purchase (`estado = 'anulada'`) is not a source any more, so its
-  consumptions go away and later purchases take over.
+  consumptions go away and later purchases take over;
+- a line counting from the goods receipt (`cuenta_desde = 'ingreso'`) with no
+  `fecha_ingreso` has not started: its units are not available yet (fail-safe;
+  the table's check forbids such a row anyway).
+
+Amounts are compared and written at `sell_in_consumos.descuento_ars`'s scale,
+so a re-run never rewrites a row only because of precision the column drops.
 
 Sources per channel (one `venta_ref` keyspace each, like `sell_dirty`):
 
@@ -64,7 +70,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Protocol, Tuple, runtime_checkable
 
 from sqlalchemy import delete, insert, text
@@ -99,8 +105,11 @@ class RecomputeResult:
 class SellInCosting(Protocol):
     def recompute(self, db: Session, item_ids: Iterable[int], *, isolate_failures: bool = True) -> RecomputeResult:
         """Bring the stored consumptions of `item_ids` in line with the strategy.
-        Does not commit. With `isolate_failures`, a product that fails is rolled
-        back on its own and reported in `failed`; otherwise the error propagates."""
+        Does not commit. With `isolate_failures`, a product whose allocation or
+        write fails is rolled back on its own (a savepoint) and reported in
+        `failed` while the others are written; otherwise the error propagates and
+        the caller rolls back. The batch reads shared by every product (purchase
+        lines, sales, stored consumptions) run before that and always propagate."""
         ...
 
 
@@ -142,6 +151,14 @@ def _objetivos(db: Session, model, devoluciones: List[tuple]) -> Dict[int, int]:
     return objetivos
 
 
+_DESCUENTO_SCALE = Decimal(1).scaleb(-SellInConsumo.__table__.c.descuento_ars.type.scale)
+
+
+def _a_columna(monto: Decimal) -> Decimal:
+    """`monto` at the scale `sell_in_consumos.descuento_ars` stores, rounded half up like Postgres."""
+    return Decimal(monto).quantize(_DESCUENTO_SCALE, rounding=ROUND_HALF_UP)
+
+
 _Key = Tuple[str, int, int]  # (canal, venta_ref, compra_item_id)
 
 
@@ -161,19 +178,27 @@ class FifoPurchaseCosting:
         guardados = self._guardados(db, ids)
 
         for item_id in ids:
-            deseados = asignar(lotes.get(item_id, []), ventas.get(item_id, []))
+            # The whole per-product work (allocation AND write) runs inside the
+            # isolation, so one product's bad data never aborts the batch.
+            args = (db, item_id, lotes.get(item_id, []), ventas.get(item_id, []), guardados.get(item_id, {}))
             if isolate_failures:
                 try:
                     with db.begin_nested():
-                        borrados, insertados = self._escribir(db, item_id, deseados, guardados.get(item_id, {}))
+                        borrados, insertados = self._producto(*args)
                 except Exception as exc:  # noqa: BLE001 - one product must not block the rest
                     result.failed[item_id] = f"{type(exc).__name__}: {exc}"[:500]
                     continue
             else:
-                borrados, insertados = self._escribir(db, item_id, deseados, guardados.get(item_id, {}))
+                borrados, insertados = self._producto(*args)
             result.deleted += borrados
             result.inserted += insertados
         return result
+
+    @classmethod
+    def _producto(
+        cls, db: Session, item_id: int, lotes: List[Lote], ventas: List[Venta], guardados: Dict[_Key, tuple]
+    ) -> Tuple[int, int]:
+        return cls._escribir(db, item_id, asignar(lotes, ventas), guardados)
 
     @staticmethod
     def _lotes(db: Session, ids: List[int]) -> Dict[int, List[Lote]]:
@@ -195,12 +220,18 @@ class FifoPurchaseCosting:
         )
         lotes: Dict[int, List[Lote]] = defaultdict(list)
         for linea_id, item_id, cantidad, monto, compra_id, f_compra, f_ingreso, desde, moneda, tc in rows:
+            fecha = f_ingreso if desde == "ingreso" else f_compra
+            if fecha is None:
+                # Counting from a goods receipt that has not happened: the purchase
+                # has not started, so its units are not available yet (fail-safe; the
+                # `ck_sell_in_compras_ingreso_con_fecha` check forbids it anyway).
+                continue
             factor = Decimal(tc) if moneda == "USD" else Decimal(1)
             lotes[item_id].append(
                 Lote(
                     compra_item_id=linea_id,
                     compra_id=compra_id,
-                    fecha=f_ingreso if desde == "ingreso" else f_compra,
+                    fecha=fecha,
                     cantidad=cantidad,
                     descuento_ars=Decimal(monto) * factor,
                 )
@@ -257,8 +288,11 @@ class FifoPurchaseCosting:
 
     @staticmethod
     def _escribir(db: Session, item_id: int, deseados: List[Consumo], guardados: Dict[_Key, tuple]) -> Tuple[int, int]:
+        # Compared and written at the column's scale: an amount finer than what the
+        # column stores would otherwise differ from its stored self on every re-run.
         nuevos = {
-            (c.canal, c.venta_ref, c.compra_item_id): (c.fecha_venta, c.unidades, c.descuento_ars) for c in deseados
+            (c.canal, c.venta_ref, c.compra_item_id): (c.fecha_venta, c.unidades, _a_columna(c.descuento_ars))
+            for c in deseados
         }
         borrar = [cid for key, (cid, valores) in guardados.items() if nuevos.get(key) != valores]
         insertar = [

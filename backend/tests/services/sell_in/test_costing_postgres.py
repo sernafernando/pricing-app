@@ -8,16 +8,18 @@ throwaway schema (`_world`).
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from typing import Iterator
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
 from app.services.sell_in import compras
+from app.services.sell_in import costing as costing_module
 from app.services.sell_in.costing import FifoPurchaseCosting, SellInCosting, get_costing
 from tests.services.sell_in import _world as w
 
@@ -316,3 +318,139 @@ class TestAplica:
         w.compra(engine, [(2964, 3, "30.00")], estado="anulada")
 
         assert self._aplica(engine) == [False]
+
+
+def _failing_for(line_id: int):
+    """`asignar` that raises for the product owning purchase line `line_id`, as bad data would."""
+    real = costing_module.asignar
+
+    def fake(lotes, ventas):
+        lotes = list(lotes)
+        if any(lote.compra_item_id == line_id for lote in lotes):
+            raise ValueError(f"bad data on line {line_id}")
+        return real(lotes, ventas)
+
+    return fake
+
+
+@pytest.mark.postgres
+class TestFailures:
+    """A product whose allocation fails is rolled back alone (isolate_failures=True)
+    or stops the whole call (isolate_failures=False)."""
+
+    def test_an_isolated_failure_rolls_back_only_that_product(self, engine: Engine, monkeypatch) -> None:
+        [mala] = w.compra(engine, [(2964, 5, "50.00")])
+        [buena] = w.compra(engine, [(950, 5, "50.00")])
+        guardada = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        _recompute(engine, 2964)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 3))
+        otra = w.venta(engine, "tn", 950, 2, D(2026, 10, 3))
+        monkeypatch.setattr(costing_module, "asignar", _failing_for(mala))
+
+        result = _recompute(engine, 950, 2964)
+
+        assert w.consumos(engine) == [
+            (mala, "fuera", guardada, 2964, 1, Decimal("10.00")),  # untouched: rolled back alone
+            (buena, "tn", otra, 950, 2, Decimal("20.00")),
+        ]
+        assert result.failed == {2964: f"ValueError: bad data on line {mala}"}
+        assert (result.products, result.inserted, result.deleted) == (2, 1, 0)
+
+    def test_without_isolation_a_failure_propagates_and_nothing_is_written(self, engine: Engine, monkeypatch) -> None:
+        [mala] = w.compra(engine, [(2964, 5, "50.00")])
+        w.compra(engine, [(950, 5, "50.00")])
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        w.venta(engine, "tn", 950, 2, D(2026, 10, 3))  # 950 goes first and is written in the session
+        monkeypatch.setattr(costing_module, "asignar", _failing_for(mala))
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(ValueError, match="bad data"):
+                get_costing().recompute(db, [950, 2964], isolate_failures=False)
+            db.rollback()
+
+        assert w.consumos(engine) == []
+
+
+@pytest.mark.postgres
+class TestPrecision:
+    """Stored amounts have the column's scale (cents): a re-run compares and writes at that scale."""
+
+    def test_a_rerun_with_amounts_needing_rounding_writes_nothing(self, engine: Engine) -> None:
+        w.compra(engine, [(2964, 3, "100.00")])
+        w.compra(engine, [(2964, 7, "99.99")], D(2026, 10, 2), moneda="USD", tipo_cambio="1453.123457")
+        for dia in range(2, 8):
+            w.venta(engine, "fuera", 2964, 1, D(2026, 10, dia))
+        _recompute(engine, 2964)
+        before = (w.consumos(engine), w.consumo_ids(engine))
+
+        again = _recompute(engine, 2964)
+
+        assert (w.consumos(engine), w.consumo_ids(engine)) == before
+        assert (again.inserted, again.deleted) == (0, 0)
+
+    def test_amounts_finer_than_the_column_are_rounded_once_and_never_rewritten(
+        self, engine: Engine, monkeypatch
+    ) -> None:
+        """Whatever precision the allocation returns, it is stored at the column's
+        scale and a re-run compares at that scale."""
+        real = costing_module.asignar
+
+        def fine(lotes, ventas):
+            return [replace(c, descuento_ars=c.descuento_ars / 7) for c in real(lotes, ventas)]
+
+        monkeypatch.setattr(costing_module, "asignar", fine)
+        [linea] = w.compra(engine, [(2964, 3, "100.00")])
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        _recompute(engine, 2964)
+        before = w.consumo_ids(engine)
+
+        again = _recompute(engine, 2964)
+
+        assert w.consumos(engine) == [(linea, "fuera", ref, 2964, 1, Decimal("4.76"))]
+        assert w.consumo_ids(engine) == before
+        assert (again.inserted, again.deleted) == (0, 0)
+
+
+@pytest.fixture
+def ingreso_sin_fecha(engine: Engine) -> Iterator[None]:
+    """Drops the check that forbids `cuenta_desde = 'ingreso'` without `fecha_ingreso`,
+    so the recompute's own guard can be exercised; restores it afterwards."""
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE sell_in_compras DROP CONSTRAINT ck_sell_in_compras_ingreso_con_fecha"))
+    yield
+    w.clean(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE sell_in_compras ADD CONSTRAINT ck_sell_in_compras_ingreso_con_fecha "
+                "CHECK (cuenta_desde <> 'ingreso' OR fecha_ingreso IS NOT NULL)"
+            )
+        )
+
+
+@pytest.mark.postgres
+class TestSinIngreso:
+    def test_a_line_counting_from_a_missing_goods_receipt_does_not_count_yet(
+        self, engine: Engine, ingreso_sin_fecha: None
+    ) -> None:
+        """Fail-safe: counting from the goods receipt with no receipt yet means the
+        purchase has not started, so its units are not available to any sale."""
+        w.compra(engine, [(2964, 5, "50.00")], D(2026, 10, 1), cuenta_desde="ingreso", fecha_ingreso=None)
+        [por_compra] = w.compra(engine, [(2964, 1, "30.00")], D(2026, 10, 1))
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+
+        result = _recompute(engine, 2964)
+
+        assert w.consumos(engine) == [(por_compra, "fuera", ref, 2964, 1, Decimal("30.00"))]
+        assert result.failed == {}
+
+    def test_a_product_whose_only_line_lacks_its_receipt_writes_nothing(
+        self, engine: Engine, ingreso_sin_fecha: None
+    ) -> None:
+        w.compra(engine, [(2964, 5, "50.00")], D(2026, 10, 1), cuenta_desde="ingreso", fecha_ingreso=None)
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+
+        result = _recompute(engine, 2964)
+
+        assert w.consumos(engine) == []
+        assert (result.inserted, result.deleted, result.failed) == (0, 0, {})
