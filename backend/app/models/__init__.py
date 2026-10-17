@@ -12,6 +12,7 @@ from app.models.auditoria import Auditoria
 from app.models.marca_pm import MarcaPM
 from app.models.marca_sub_pm import MarcaSubPM
 from app.models.ml_pxq_tier import MlPxqTier
+from app.models.ml_write_log import MlWriteLog
 from app.models.mla_banlist import MLABanlist
 from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
@@ -432,6 +433,7 @@ __all__ = [
     "MlItemRelation",
     "MLCatalogCompetition",
     "MlPxqTier",
+    "MlWriteLog",
     "TnImageNormalizationRun",
     "TnImageArtifact",
     "TnImageNormalizationItem",

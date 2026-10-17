@@ -53,6 +53,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
 from app.core.database import get_background_db
+from app.models.ml_write_log import ACTION_ENROLL, ACTION_REMOVE, RESOURCE_PROMOTION, MlWriteLog
 from app.models.promo_refresh_pending import PromoRefreshPending
 from app.models.publicacion_ml import PublicacionML
 from app.services.ml_promotions_pricing import precio_de_oferta
@@ -308,6 +309,60 @@ def _enqueue_refresh_retry(mla_id: str) -> None:
         db.commit()
 
 
+# Outcomes where ML confirmed the write happened: a 2xx, or an ambiguous write
+# that reading the source of truth showed applied. Only these leave an
+# `ml_write_log` row; rejected/ambiguous outcomes changed nothing we know of.
+_WRITE_LOG_STATUSES = {"submitted", "reconciled_applied"}
+
+
+def _record_write_log(
+    mla_id: str,
+    action: str,
+    promotion_id: str,
+    promotion_type: str,
+    outcome: Dict[str, Any],
+    usuario_id: Optional[int],
+    sent: Dict[str, Any],
+) -> None:
+    """Records who made a confirmed enroll/remove in `ml_write_log`
+    (eventos-historial-legibles T2).
+
+    Runs right after ML confirmed the write and BEFORE the refresh/recompute
+    hooks, in its own short-lived `get_background_db()` session. It is not
+    tied to the recompute's session on purpose: that recompute is itself
+    best-effort and may fail or be skipped (unmapped MLA), and the log must
+    not be lost with it, nor make it roll back. The write already happened at
+    ML, so a failure here is logged and NEVER raised: losing an audit row is
+    better than reporting a write that happened as failed.
+    """
+    if outcome.get("status") not in _WRITE_LOG_STATUSES:
+        return
+    payload = {key: value for key, value in sent.items() if value is not None}
+    payload["outcome"] = outcome["status"]
+    try:
+        with get_background_db() as db:
+            db.add(
+                MlWriteLog(
+                    mla=mla_id,
+                    resource=RESOURCE_PROMOTION,
+                    action=action,
+                    target_id=promotion_id,
+                    promotion_type=promotion_type,
+                    payload=payload,
+                    usuario_id=usuario_id,
+                )
+            )
+    except Exception as e:
+        logger.error(
+            "ml_write_log insert failed for mla=%s action=%s promotion_id=%s (the write at ML is unaffected): %s",
+            mla_id,
+            action,
+            promotion_id,
+            e,
+            exc_info=True,
+        )
+
+
 def _maybe_refresh_after_write(mla_id: str, outcome: Dict[str, Any]) -> None:
     """Best-effort post-write hook: triggers a server-side point-refresh of
     the `ml_item_promotions` mirror for this `mla_id`, AFTER the
@@ -400,12 +455,14 @@ def enroll_one_item(
     top_deal_price: Optional[float] = None,
     precio_visto: Optional[float] = None,
     markup_visto: Optional[float] = None,
+    usuario_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Enrolls a single item in a promotion, then triggers the point-refresh
-    hook (`_maybe_refresh_after_write`) BEFORE the promo price recompute
-    hook (`_maybe_recompute_after_write`) — see each function's docstring
-    for its failure-isolation contract. See `_enroll_one_item` for the
-    enroll orchestration itself."""
+    """Enrolls a single item in a promotion, records who did it
+    (`_record_write_log`, `usuario_id` None for system writes), then triggers
+    the point-refresh hook (`_maybe_refresh_after_write`) BEFORE the promo
+    price recompute hook (`_maybe_recompute_after_write`) — see each
+    function's docstring for its failure-isolation contract. See
+    `_enroll_one_item` for the enroll orchestration itself."""
     outcome = _enroll_one_item(
         mla_id,
         promotion_id,
@@ -414,6 +471,24 @@ def enroll_one_item(
         top_deal_price=top_deal_price,
         precio_visto=precio_visto,
         markup_visto=markup_visto,
+    )
+    _record_write_log(
+        mla_id,
+        ACTION_ENROLL,
+        promotion_id,
+        promotion_type,
+        outcome,
+        usuario_id,
+        sent={
+            # The price we submitted (`price` echoes it on a 2xx); the
+            # requested one when ML's answer was ambiguous.
+            "deal_price": outcome.get("price", deal_price),
+            "top_deal_price": top_deal_price,
+            "precio_visto": precio_visto,
+            "markup_visto": markup_visto,
+            "precio_aplicado": outcome.get("precio_aplicado"),
+            "offer_id": outcome.get("offer_id"),
+        },
     )
     _maybe_refresh_after_write(mla_id, outcome)
     _maybe_recompute_after_write(mla_id, outcome)
@@ -712,12 +787,15 @@ def _post_apply_price_check(
     }
 
 
-def remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict[str, Any]:
-    """Removes a single item from a promotion, then triggers the
-    point-refresh hook (`_maybe_refresh_after_write`) BEFORE the promo
+def remove_one_item(
+    mla_id: str, promotion_type: str, promotion_id: str, usuario_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """Removes a single item from a promotion, records who did it
+    (`_record_write_log`), then triggers the point-refresh hook (`_maybe_refresh_after_write`) BEFORE the promo
     price recompute hook (`_maybe_recompute_after_write`). See
     `_remove_one_item` for the remove orchestration itself."""
     outcome = _remove_one_item(mla_id, promotion_type, promotion_id)
+    _record_write_log(mla_id, ACTION_REMOVE, promotion_id, promotion_type, outcome, usuario_id, sent={})
     _maybe_refresh_after_write(mla_id, outcome)
     _maybe_recompute_after_write(mla_id, outcome)
     return outcome
