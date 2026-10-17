@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.scripts import seed_vinculos_ml_desde_erp as seed
+from app.services.ml_publications import links
 from tests.services.ml_publications.conftest import item_with_variations, sample_item
 from tests.services.ml_publications.test_links_store import (
     ITEM,
@@ -174,3 +176,77 @@ class TestCli:
 
         assert "DRY-RUN" in capsys.readouterr().out
         assert link(erp)["source"] == "sku_auto"
+
+
+class _PgError(Exception):
+    """Stand-in for a driver error: the seed only reads its SQLSTATE (`pgcode`)."""
+
+    def __init__(self, pgcode: str) -> None:
+        super().__init__(pgcode)
+        self.pgcode = pgcode
+
+
+def two_mapped_candidates(engine) -> None:
+    """OTHER sorts before ITEM, so OTHER is processed first."""
+    apply(sample_item(ITEM), ITEM)
+    apply(sample_item(OTHER), OTHER)
+    unmatched(engine)
+    unmatched(engine, OTHER)
+    add_product(engine, 41, "X")
+    add_product(engine, 42, "Y")
+    erp_map(engine, ITEM, 41, 1)
+    erp_map(engine, OTHER, 42, 2)
+
+
+def failing_on(monkeypatch, item_id: str, error: Exception):
+    """Make the seed fail on one item; returns the real function to put back."""
+    real = links.seed_manual_link
+
+    def seed_or_fail(db, target, *args, **kwargs):
+        if target == item_id:
+            raise error
+        return real(db, target, *args, **kwargs)
+
+    monkeypatch.setattr(links, "seed_manual_link", seed_or_fail)
+    return real
+
+
+class TestFailurePaths:
+    def test_an_item_gone_meanwhile_is_counted_as_changed_and_the_batch_continues(self, erp, monkeypatch) -> None:
+        two_mapped_candidates(erp)
+        failing_on(monkeypatch, OTHER, links.UnknownItem(OTHER))
+
+        counts = run(True)
+
+        assert (counts.candidates, counts.changed, counts.seeded) == (2, 1, 1)
+        assert link(erp, OTHER)["source"] == "sku_auto"
+        assert (link(erp)["source"], link(erp)["producto_item_id"]) == ("manual", 41)
+
+    def test_a_locked_unit_is_counted_as_busy_and_the_batch_continues(self, erp, monkeypatch) -> None:
+        two_mapped_candidates(erp)
+        monkeypatch.setattr(seed, "LOCK_TIMEOUT", "100ms")
+        with erp.connect() as holder:  # another writer holds OTHER's link row: a real lock_timeout (55P03)
+            holder.execute(text("SELECT 1 FROM ml_item_product_links WHERE item_id = :i FOR UPDATE"), {"i": OTHER})
+            counts = run(True)
+            holder.rollback()
+
+        assert (counts.candidates, counts.busy, counts.seeded) == (2, 1, 1)
+        assert link(erp, OTHER)["source"] == "sku_auto"
+        assert link(erp)["source"] == "manual"
+
+    def test_any_other_database_error_stops_the_run_and_a_rerun_resumes(self, erp, monkeypatch) -> None:
+        two_mapped_candidates(erp)
+        real = failing_on(monkeypatch, ITEM, OperationalError("SELECT 1", {}, _PgError("57014")))  # statement_timeout
+
+        with pytest.raises(OperationalError):
+            run(True)
+
+        assert (link(erp, OTHER)["source"], link(erp, OTHER)["producto_item_id"]) == ("manual", 42)  # committed
+        assert link(erp)["source"] == "sku_auto"
+
+        monkeypatch.setattr(links, "seed_manual_link", real)  # the timeout is gone
+        counts = run(True)
+
+        assert (counts.candidates, counts.seeded) == (1, 1)  # OTHER is no longer a candidate
+        assert (link(erp)["source"], link(erp)["producto_item_id"]) == ("manual", 41)
+        assert len(log_rows(erp)) == 2
