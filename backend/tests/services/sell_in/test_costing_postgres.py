@@ -17,7 +17,7 @@ from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
@@ -511,6 +511,36 @@ class TestPurchaseRecomputeDatabaseFailure:
             assert db.execute(text("SELECT estado FROM sell_in_compras")).scalar() == "activa"
 
         assert _rows(engine, "auditoria") == 0
+
+
+def _integrity_failing_escribir(db, item_id, deseados, guardados):
+    raise IntegrityError("INSERT INTO sell_in_consumos ...", {}, Exception("duplicate key"))
+
+
+@pytest.mark.postgres
+class TestPurchaseRecomputeIntegrityError:
+    def test_a_recompute_integrity_error_is_not_reported_as_a_missing_reference(
+        self, engine: Engine, monkeypatch
+    ) -> None:
+        """The "proveedor / pedido / item dejó de existir" message belongs to the
+        purchase write; an IntegrityError from the recompute surfaces as itself."""
+        monkeypatch.setattr(FifoPurchaseCosting, "_escribir", staticmethod(_integrity_failing_escribir))
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(IntegrityError) as raised:
+                compras.crear_compra(db, data, usuario_id=7)
+            assert not isinstance(raised.value, compras.SellInError)
+            assert db.execute(text("SELECT count(*) FROM sell_in_compras")).scalar() == 0  # rolled back, usable
+
+        assert [_rows(engine, t) for t in ("sell_in_compras", "sell_in_compra_items", "auditoria")] == [0, 0, 0]
 
 
 @pytest.mark.postgres

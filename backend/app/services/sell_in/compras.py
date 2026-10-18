@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from sqlalchemy import and_, case, func, literal, not_, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -196,7 +196,9 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     """Recompute the split, freeze each line's cost and save the purchase with its audit rows (one transaction).
 
     A reference that disappears between the checks and the write (a concurrent delete) surfaces as a
-    foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too.
+    foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too. Any
+    failure of the recompute that follows (an `IntegrityError` included) is rolled back and raised
+    as itself: it says nothing about the purchase's references.
     """
     if data.cuenta_desde == "ingreso" and data.fecha_ingreso is None:
         raise SellInError("Para contar desde el ingreso hace falta la fecha de ingreso")
@@ -207,20 +209,31 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
         raise SellInError(str(exc)) from exc
 
     try:
-        compra = _guardar(db, data, calculo, usuario_id)
+        compra, items = _guardar(db, data, calculo, usuario_id)
     except IntegrityError as exc:
         db.rollback()
         raise SellInError(
             "No se pudo guardar la compra: el proveedor, el pedido de compra o algún item dejó de existir"
         ) from exc
     except Exception:
-        db.rollback()  # e.g. a failed recompute: never leave the caller's session aborted
+        db.rollback()  # never leave the caller's session aborted
+        raise
+    try:
+        # The sales already made since the purchase counts consume it in the same transaction.
+        get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
+        db.commit()
+    except Exception:
+        db.rollback()  # a failed recompute takes the purchase with it; never leave the session aborted
         raise
     db.refresh(compra)
     return compra
 
 
-def _guardar(db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_id: int) -> SellInCompra:
+def _guardar(
+    db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_id: int
+) -> Tuple[SellInCompra, List[SellInCompraItem]]:
+    """Writes the purchase, its lines and audit rows (flushed, not committed): every
+    `IntegrityError` it raises is about the purchase's own references."""
     compra = SellInCompra(
         proveedor_id=data.proveedor_id,
         pedido_compra_id=data.pedido_compra_id,
@@ -250,10 +263,8 @@ def _guardar(db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_i
     db.add_all(items)
     db.flush()
     _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id)
-    # The sales already made since the purchase counts consume it in the same transaction.
-    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-    db.commit()
-    return compra
+    db.flush()  # the audit rows too, so their errors are raised here and not by the recompute's autoflush
+    return compra, items
 
 
 def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
