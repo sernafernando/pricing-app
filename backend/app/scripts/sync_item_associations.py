@@ -16,6 +16,8 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
+import json
+import time
 import requests
 from decimal import Decimal
 from sqlalchemy.orm import Session
@@ -30,8 +32,49 @@ logger = logging.getLogger(__name__)
 WORKER_URL = "http://localhost:8002/api/gbp-parser"
 
 
+# Monotonic clock of the wall-clock fetch bound (a module global so tests can fake it).
+_clock = time.monotonic
+
+_CHUNK_BYTES = 64 * 1024
+
+
+class ErpFetchTimeout(requests.exceptions.Timeout):
+    """The ERP response did not finish within the total wall-clock bound."""
+
+
+def _get_json_within(url: str, params: dict, read_timeout: float, total_timeout: float):
+    """GET `url` and parse its JSON body, aborting once `total_timeout` seconds
+    of wall-clock time have passed.
+
+    `requests`' own timeout only bounds the connect and each gap between bytes,
+    so a server dripping bytes could hold the caller for ever. The body is
+    streamed and the monotonic deadline is checked after the headers and after
+    every chunk; each wait is itself bounded by `read_timeout`, so the call
+    returns or raises within `total_timeout + read_timeout` seconds."""
+    deadline = _clock() + total_timeout
+    response = requests.get(url, params=params, timeout=read_timeout, stream=True)
+    try:
+        response.raise_for_status()
+        chunks = []
+        if _clock() > deadline:
+            raise ErpFetchTimeout(f"ERP response exceeded {total_timeout}s before the body")
+        for chunk in response.iter_content(chunk_size=_CHUNK_BYTES):
+            if _clock() > deadline:
+                raise ErpFetchTimeout(f"ERP response exceeded {total_timeout}s")
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return json.loads(b"".join(chunks))
+
+
 def fetch_item_associations_from_erp(
-    itema_id: int = None, itema_id_4update: int = None, item_id: int = None, item1_id: int = None
+    itema_id: int = None,
+    itema_id_4update: int = None,
+    item_id: int = None,
+    item1_id: int = None,
+    timeout: float = 120,
+    total_timeout: float | None = None,
+    strict: bool = False,
 ):
     """
     Obtiene asociaciones de items desde el ERP vía gbp-parser.
@@ -41,9 +84,24 @@ def fetch_item_associations_from_erp(
         itema_id_4update: ID desde (para paginación incremental)
         item_id: ID de item principal
         item1_id: ID de item asociado
+        timeout: `requests` timeout: bounds the connect and each wait for
+            bytes, not the whole download (120 by default).
+        total_timeout: opt-in total wall-clock bound in seconds; past it the
+            call raises `ErpFetchTimeout`, ending within
+            `total_timeout + timeout`. None (the cron script) keeps the old
+            plain GET with no total bound, so a slow but healthy full download
+            still completes. `app.services.combos.fuente_erp.fetch_snapshot` sets it.
+        strict: raise `ValueError` when the response is not a JSON list. The
+            cron script keeps the old lenient behavior (logs and returns []);
+            `fetch_snapshot` passes True, because an empty list there
+            would read as "the ERP has no combos".
 
     Returns:
         Lista de registros
+
+    Raises:
+        requests.exceptions.RequestException on a connection error, a non-2xx
+        status or the total bound; ValueError on a body that is not JSON.
     """
     params = {"strScriptLabel": "scriptItemAssociation"}
 
@@ -59,20 +117,22 @@ def fetch_item_associations_from_erp(
     logger.info(f"Consultando ERP con params: {params}")
 
     try:
-        response = requests.get(WORKER_URL, params=params, timeout=120)
-        response.raise_for_status()
-
-        data = response.json()
-
-        if isinstance(data, list):
-            return data
+        if total_timeout is None:
+            response = requests.get(WORKER_URL, params=params, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
         else:
-            logger.error(f"Respuesta inesperada del worker: {type(data)}")
-            return []
-
+            data = _get_json_within(WORKER_URL, params, timeout, total_timeout)
     except requests.exceptions.RequestException as e:
         logger.error(f"Error al consultar el worker: {e}")
         raise
+
+    if isinstance(data, list):
+        return data
+    if strict:
+        raise ValueError(f"unexpected ERP response: {type(data).__name__}, expected a list")
+    logger.error(f"Respuesta inesperada del worker: {type(data)}")
+    return []
 
 
 def parse_bool(value):
