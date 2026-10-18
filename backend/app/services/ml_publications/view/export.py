@@ -170,15 +170,17 @@ ADS_NOTE = (
 
 
 class PrefetchedAds:
-    """The Ads cost of the export's keys, read ONCE through the request's provider (bound to the request session,
-    which is closed before the file streams); every page prices its markup from it. A provider that failed reads
+    """The Ads cost of the period, read ONCE through the request's provider (bound to the request session, which is
+    closed before the file streams), BEFORE the keys are fixed: the markup sort and filter that fix them and every
+    page that prices its rows read this one source, so a failure applies to the whole file alike. A provider that failed reads
     as failing on every page, so the markup degrades to the plain one exactly as the list's does."""
 
-    def __init__(self, provider: AdsCostProvider, keys: Sequence[str], date_from: date, date_to: date) -> None:
+    def __init__(self, provider: AdsCostProvider, date_from: date, date_to: date) -> None:
         self._failed = False
         self._amounts: dict[str, float] = {}
         try:
-            self._amounts = dict(provider.amounts(list(keys), date_from, date_to))
+            # Every MLA with cost in the period (the set-wide sort's own read): the keys are not fixed yet.
+            self._amounts = dict(provider.amounts(None, date_from, date_to))
         except Exception:  # noqa: BLE001 -- the provider is an external source allowed to fail softly
             logger.warning("ads provider failed; the export's markup goes without Ads", exc_info=True)
             self._failed = True

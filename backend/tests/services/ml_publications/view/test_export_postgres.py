@@ -131,7 +131,7 @@ class TestPrefetchedAds:
             self.fail = fail
 
         def amounts(self, mla_ids, date_from, date_to):
-            self.calls.append(list(mla_ids))
+            self.calls.append(mla_ids)
             if self.fail:
                 raise RuntimeError("down")
             return {"MLA1": 10.0, "MLA2": 20.0}
@@ -142,16 +142,36 @@ class TestPrefetchedAds:
         from app.services.ml_publications.view.export import PrefetchedAds
 
         provider = self.Provider()
-        ads = PrefetchedAds(provider, ["MLA1", "MLA2", "MLA3"], date(2026, 9, 1), date(2026, 9, 30))
+        ads = PrefetchedAds(provider, date(2026, 9, 1), date(2026, 9, 30))
         assert ads.amounts(["MLA2", "MLA3"], date(2026, 9, 1), date(2026, 9, 30)) == {"MLA2": 20.0}
         assert ads.amounts(None, date(2026, 9, 1), date(2026, 9, 30)) == {"MLA1": 10.0, "MLA2": 20.0}
-        assert provider.calls == [["MLA1", "MLA2", "MLA3"]]
+        assert provider.calls == [None]  # one read, of the whole period: the keys are not fixed yet
 
     def test_a_failed_read_fails_every_page(self) -> None:
         from datetime import date
 
         from app.services.ml_publications.view.export import PrefetchedAds
 
-        ads = PrefetchedAds(self.Provider(fail=True), ["MLA1"], date(2026, 9, 1), date(2026, 9, 30))
+        ads = PrefetchedAds(self.Provider(fail=True), date(2026, 9, 1), date(2026, 9, 30))
         with pytest.raises(RuntimeError):
             ads.amounts(["MLA1"], date(2026, 9, 1), date(2026, 9, 30))
+
+
+class TestCsvMoney:
+    @pytest.mark.parametrize(
+        ("value", "cell"),
+        [
+            (float("nan"), ""),
+            (float("inf"), ""),
+            (float("-inf"), ""),
+            (-0.001, "0,00"),
+            (-0.0, "0,00"),
+            (None, ""),
+            (-12.345, "-12,35"),
+            (1000, "1000,00"),
+        ],
+    )
+    def test_cells(self, value, cell) -> None:
+        from app.utils.csv_cells import csv_money
+
+        assert csv_money(value) == cell

@@ -252,6 +252,48 @@ class TestItemsAds:
         assert lines[-1].startswith(self.NOTE)
         assert len(lines) == 1 + 6 + 1  # header, every row, the note: nothing was dropped
 
+    class FlakyAds:
+        """Fails (or answers) the first `amounts` read and does the opposite afterwards; counts the reads."""
+
+        def __init__(self, fail_first: bool) -> None:
+            self.fail_first = fail_first
+            self.reads = 0
+
+        def availability(self):
+            return FakeAds({}).availability()
+
+        def amounts(self, mla_ids, date_from, date_to):
+            self.reads += 1
+            if (self.reads == 1) == self.fail_first:
+                raise RuntimeError("billing is down")
+            return {"MLA1": 100.0}  # no units sold: MLA1 has no markup net of Ads, so the order moves
+
+    @pytest.mark.parametrize("params", [{"orden": "markup"}, {"markup_min": "0", "orden": "titulo"}])
+    def test_ads_are_read_once_and_a_failure_orders_and_prices_by_the_plain_markup(
+        self, client, priced, provide, params
+    ) -> None:
+        plain = listed(client, priced, ITEMS, "item_id", **params)
+        flaky = self.FlakyAds(fail_first=True)
+        provide(flaky)
+        response = client.get(ITEMS_CSV, headers=priced, params={"restar_publicidad": "true", **PERIOD, **params})
+        lines = response.content.decode("utf-8").rstrip("\n").splitlines()
+        assert flaky.reads == 1
+        assert lines[-1].startswith(self.NOTE)
+        header, rows = read_csv(response)
+        assert column(header, rows[:-1], "Publicación") == plain
+
+    @pytest.mark.parametrize("params", [{"orden": "markup"}, {"markup_min": "0", "orden": "titulo"}])
+    def test_ads_read_once_order_and_price_the_file_together(self, client, priced, provide, params) -> None:
+        params = {"restar_publicidad": "true", **PERIOD, **params}
+        provide(FakeAds({"MLA1": 100.0}))
+        expected = listed(client, priced, ITEMS, "item_id", **params)
+        flaky = self.FlakyAds(fail_first=False)  # a second read would fail: there must be none
+        provide(flaky)
+        header, rows = read_csv(client.get(ITEMS_CSV, headers=priced, params=params))
+        assert flaky.reads == 1
+        assert not any(row[0].startswith("#") for row in rows)
+        assert column(header, rows, "Publicación") == expected
+
     def test_applied_ads_add_no_note(self, client, priced, provide) -> None:
         provide(FakeAds({"MLA1": 100.0}))
         response = client.get(ITEMS_CSV, headers=priced, params={"restar_publicidad": "true", **PERIOD})

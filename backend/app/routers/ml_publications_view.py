@@ -1247,16 +1247,15 @@ def export_items(
         events = settings_store.get_setting("events.enabled").value is True
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)  # once: every page gets the resolved pairs
-        markup = ask.markup(auth_db)
+        plan, ads_failed = ask.ads_plan, False
+        if plan is not None:  # read ONCE, before the keys: the order, the selection and every row share it
+            prefetched = export.PrefetchedAds(plan.provider, plan.date_from, plan.date_to)
+            plan, ads_failed = replace(plan, provider=prefetched), prefetched.failed
         keys = listing.ordered_keys(
-            db, f, ask.sort, cap + 1, events=events, markup=markup, can_see_margin=ask.can_see_margin
+            db, f, ask.sort, cap + 1, events=events, markup=ask.markup(auth_db, plan), can_see_margin=ask.can_see_margin
         )
         if len(keys) > cap:
             raise _over_cap()
-        plan, ads_failed = ask.ads_plan, False
-        if plan is not None:  # the provider rides on the request session: its figures are read now, once
-            prefetched = export.PrefetchedAds(plan.provider, keys, plan.date_from, plan.date_to)
-            plan, ads_failed = replace(plan, provider=prefetched), prefetched.failed
 
         def read(session: Session, pricing: Session, page_keys: Sequence[str]) -> list[list[Any]]:
             nonlocal ads_failed
