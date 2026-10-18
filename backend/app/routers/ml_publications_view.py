@@ -658,7 +658,7 @@ def filter_query(
     producto: Optional[str] = Query(None, description="one product id (the publications of a tree node)"),
     sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
     tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
-    vinculo: str | None = Query(
+    vinculo: Optional[str] = Query(
         None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado,sku_divergente"
     ),
     stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),

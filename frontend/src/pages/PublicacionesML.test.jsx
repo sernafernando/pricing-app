@@ -431,10 +431,10 @@ describe('SKU divergence', () => {
         total: 1,
         items: [
           makeItem({
-          item_id: 'MLA1100000001',
-          seller_sku: 'SKU-71',
-          link: { state: 'auto', producto_item_id: 70, codigo: 'MAP-70', descripcion: 'Router del mapa', marca: null },
-          sku_divergence: { kind: 'otro_producto', producto_item_id: 71, codigo: 'SKU-71', descripcion: 'Switch del SKU' },
+            item_id: 'MLA1100000001',
+            seller_sku: 'SKU-71',
+            link: { state: 'auto', producto_item_id: 70, codigo: 'MAP-70', descripcion: 'Router del mapa', marca: null },
+            sku_divergence: { kind: 'otro_producto', producto_item_id: 71, codigo: 'SKU-71', descripcion: 'Switch del SKU' },
           }),
         ],
       }),
