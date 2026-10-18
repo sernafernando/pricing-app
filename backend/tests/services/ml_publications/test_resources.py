@@ -29,6 +29,10 @@ ERP_ALLOW_LIST: frozenset[str] = frozenset(
 )
 CATALOG_NAMES = ("productos_erp", "ProductoERP")
 CATALOG_IMPORT_TOKEN = "producto"
+# The ERP publication map is opened to the linking module only (links map first, SKU as fallback).
+MAP_ALLOW_LIST: frozenset[str] = frozenset({"links.py"})
+MAP_NAMES = ("publicaciones_ml",)
+MAP_IMPORT_MODULE = "app.models.publicacion_ml"
 
 FORBIDDEN_NAMES = ("tb_mercadolibre_items_publicados", "publicaciones_ml", "productos_erp", "ProductoERP")
 FORBIDDEN_IMPORT_TOKENS = ("gbp", "producto", "publicacion")
@@ -150,15 +154,22 @@ def test_package_never_imports_gbp_or_names_erp_mirror_tables():
             elif isinstance(node, ast.ImportFrom):
                 modules = [node.module or ""] + [alias.name for alias in node.names]
             for module in modules:
+                map_import = name in MAP_ALLOW_LIST and module in (MAP_IMPORT_MODULE, "PublicacionML")
                 for token in FORBIDDEN_IMPORT_TOKENS:
-                    if token in module.lower() and not (allowed and token == CATALOG_IMPORT_TOKEN):
+                    if token in module.lower() and not (allowed and token == CATALOG_IMPORT_TOKEN) and not map_import:
                         offenders.append((name, module))
         offenders += [
             (name, n)
             for n in FORBIDDEN_NAMES
-            if re.search(rf"\b{n}\b", source) and not (allowed and n in CATALOG_NAMES)
+            if re.search(rf"\b{n}\b", source)
+            and not (allowed and n in CATALOG_NAMES)
+            and not (name in MAP_ALLOW_LIST and n in MAP_NAMES)
         ]
     assert offenders == []
+
+
+def test_the_publication_map_is_allowed_only_in_the_linking_module():
+    assert MAP_ALLOW_LIST == frozenset({"links.py"})
 
 
 def test_allow_list_is_exactly_the_linking_module_and_the_view_extraction_modules():

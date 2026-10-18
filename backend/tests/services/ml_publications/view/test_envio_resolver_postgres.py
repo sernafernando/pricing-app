@@ -23,8 +23,7 @@ COSTS = {"MLA1": 1000.0, "MLA2": 3000.0, "MLA3": 9999.0, "MLA5": 700.0, "MLA6": 
 
 
 @pytest.fixture()
-def conn(env):  # noqa: F811
-    PublicacionML.__table__.create(bind=env)
+def conn(env):  # noqa: F811  (`env` builds `publicaciones_ml` beside `productos_erp`)
     with env.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
         connection.execute(text(seed.PRICING_DDL))
         yield connection

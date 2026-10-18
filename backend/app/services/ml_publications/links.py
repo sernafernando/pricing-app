@@ -1,14 +1,21 @@
-"""Product links: publication units <-> our products by SKU (design D20, spec Domain 6).
+"""Product links: publication units <-> our products, map first, SKU as fallback (design D20, spec Domain 6).
 
 A link unit is `(item_id, variation_id)`; `variation_id = 0` is the item-level unit of an item
-without variations. The unit's SKU key is the SELLER_SKU attribute, else `seller_custom_field` (the
-orders' precedence). The automatic rule tries, in order, stopping at the first that finds anything:
-the exact `ProductoERP.codigo`, the `codigo` equal after `normalize_sku`, and a numeric SKU equal to a
-`ProductoERP.item_id`. One product links, several conflict. A SKU that normalizes to "" or "0" never
-matches. A manual decision always wins: the automatic path only refreshes its suggestion columns.
+without variations. An automatic unit links first to the product the ERP publication map names for its
+publication (`publicaciones_ml`, the MLA -> product map the Productos screen uses: an active row whose product is
+in the catalog), match rule `erp_map`. The map is per publication, as Productos treats it, so every unit of the
+publication (item-level or variation) follows it. A publication the map does not know is decided by the SKU rule.
 
-This is the only module of the package that reads `ProductoERP`, and it writes only the link
-table, the change log (resource `product_link`) and the events derived from it.
+The unit's SKU key is the SELLER_SKU attribute, else `seller_custom_field` (the orders' precedence). The SKU rule
+tries, in order, stopping at the first that finds anything: the exact `ProductoERP.codigo`, the `codigo` equal after
+`normalize_sku`, and a numeric SKU equal to a `ProductoERP.item_id`. One product links, several conflict. A SKU that
+normalizes to "" or "0" never matches. The SKU rule's answer is always stored as the unit's suggestion, whichever
+rule linked it, so a SKU that disagrees with the map stays visible. A manual decision always wins: the automatic path
+only refreshes its suggestion columns.
+
+This is the only module of the package that reads `ProductoERP` for ingestion and the only one that reads
+`publicaciones_ml`, and it writes only the link table, the change log (resource `product_link`) and the events
+derived from it.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from app.core import database
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.ml_publications import MlChangeLog, MlItem, MlItemProductLink, MlItemVariation, MlPubSetting
 from app.models.producto import ProductoERP
+from app.models.publicacion_ml import PublicacionML
 from app.services.ml_publications import events_store, settings_store
 
 logger = logging.getLogger(__name__)
@@ -51,6 +59,7 @@ STATUS_NO_PRODUCT = "no_product"
 RULE_CODIGO = "codigo"
 RULE_CODIGO_NORMALIZED = "codigo_normalized"
 RULE_ITEM_ID = "item_id"
+RULE_ERP_MAP = "erp_map"  # the ERP publication map named the product (wins over the SKU steps)
 
 # Separators a SKU and a `codigo` may differ by. The SQL class mirrors it (the Python check is final).
 # One explicit separator set for Python and SQL: Postgres `[[:space:]]` depends on the server locale (a no-break
@@ -197,6 +206,17 @@ def resolve(
     return Suggestion(STATUS_UNMATCHED, None, unit.key, unit.sku_field, ())
 
 
+def automatic(unit: LinkUnit, sku: Suggestion, map_product: int | None) -> Suggestion:
+    """Pure rule of an automatic link: the map's product when the map names one, else the SKU rule's answer.
+
+    `map_product` is the catalog product an active map row names for the unit's publication (None when there is
+    none). The SKU key the unit carries is still recorded as its `matched_sku`, whatever it says.
+    """
+    if map_product is None:
+        return sku
+    return Suggestion(STATUS_LINKED, map_product, unit.key, unit.sku_field, (map_product,), RULE_ERP_MAP)
+
+
 def _decided(unit: LinkUnit, found: set[int], rule: str) -> Suggestion:
     candidates = tuple(sorted(found))
     if len(candidates) == 1:
@@ -289,6 +309,26 @@ def load_catalog(db, keys: Sequence[str]) -> Catalog:
     return Catalog(index, frozenset(found))
 
 
+def load_map(db, item_ids: Sequence[str]) -> dict[str, int]:
+    """`{ml item_id: product}` of the ERP publication map, for the given publications.
+
+    Only active rows (`activo`, as Productos' tree reads them) whose product is still in the catalog: a map row
+    naming a product the catalog lost is ignored and the SKU rule decides. `mla` is unique, so a publication maps
+    to at most one product. One indexed lookup per `INDEX_CHUNK` publications.
+    """
+    wanted = sorted(set(item_ids))
+    found: dict[str, int] = {}
+    for start in range(0, len(wanted), INDEX_CHUNK):
+        chunk = wanted[start : start + INDEX_CHUNK]
+        rows = (
+            db.query(PublicacionML.mla, PublicacionML.item_id)
+            .join(ProductoERP, ProductoERP.item_id == PublicacionML.item_id)
+            .filter(PublicacionML.mla.in_(chunk), PublicacionML.activo.is_(True))
+        )
+        found.update({mla: producto_item_id for mla, producto_item_id in rows})
+    return found
+
+
 def evaluate_item(
     db,
     item_id: str,
@@ -298,11 +338,14 @@ def evaluate_item(
     now: datetime,
     events_enabled: bool,
     force: bool = False,
+    erp_map: Mapping[str, int] | None = None,
 ) -> EvaluationResult:
     """Evaluate every link unit of one item inside the caller's transaction.
 
     Without `force`, an item whose units were all evaluated with their current SKU key is skipped
-    before the product catalog is read. `force` (catalog changed, daily pass) re-evaluates anyway.
+    before the product catalog is read. `force` (catalog or map changed, daily pass) re-evaluates anyway.
+    `erp_map` is the publication map already read for a batch that includes this item (`load_map`); None
+    reads this item's row here.
     """
     units = units_for_item(typed_item, typed_variations)
     rows = {
@@ -319,17 +362,19 @@ def evaluate_item(
         return result
     keys = keys_of(units)
     catalog = load_catalog(db, keys) if keys else Catalog({}, frozenset())
+    map_product = (load_map(db, [item_id]) if erp_map is None else erp_map).get(item_id)
     for unit in units:
         row = rows.get(unit.variation_id)
         suggestion = resolve(unit, catalog.codigos, catalog.item_ids)
+        decided = automatic(unit, suggestion, map_product)
         if row is None:
-            row = _insert_first(db, unit, suggestion, now)
+            row = _insert_first(db, unit, decided, suggestion, now)
             if row is None:  # a concurrent writer created it between our read and insert
                 row = _lock(db, unit)
             else:
                 result.created += 1
                 continue
-        _apply_existing(db, row, unit, suggestion, typed_item, now, events_enabled, result)
+        _apply_existing(db, row, unit, decided, suggestion, typed_item, now, events_enabled, result)
     return result
 
 
@@ -364,13 +409,18 @@ def _link_columns(suggestion: Suggestion) -> dict[str, Any]:
     }
 
 
-def _insert_first(db, unit: LinkUnit, suggestion: Suggestion, now: datetime) -> Optional[MlItemProductLink]:
-    """First evaluation of a unit: the row only (first sighting: no change-log row, no event)."""
+def _insert_first(
+    db, unit: LinkUnit, decided: Suggestion, suggestion: Suggestion, now: datetime
+) -> Optional[MlItemProductLink]:
+    """First evaluation of a unit: the row only (first sighting: no change-log row, no event).
+
+    `decided` is the automatic link (`automatic`), `suggestion` the SKU rule's answer.
+    """
     values = {
         "item_id": unit.item_id,
         "variation_id": unit.variation_id,
         "source": SOURCE_AUTO,
-        **_link_columns(suggestion),
+        **_link_columns(decided),
         **_suggestion_columns(suggestion),
         "evaluated_sku_key": unit.key,
         "evaluated_at": now,
@@ -401,13 +451,16 @@ def _apply_existing(
     db,
     row: MlItemProductLink,
     unit: LinkUnit,
+    decided: Suggestion,
     suggestion: Suggestion,
     typed_item: Mapping[str, Any],
     now: datetime,
     events_enabled: bool,
     result: EvaluationResult,
 ) -> None:
-    """Store the suggestion; move the link only when it is automatic (manual always wins).
+    """Store the SKU suggestion; move the link to `decided` only when it is automatic (manual always wins).
+
+    `manual_differs` stays measured against the SKU suggestion, as the stored suggestion columns are.
 
     History (change-log row and event) is written only when `producto_item_id` or `match_status`
     changes (spec "Link history and events"). A new SKU that leaves both alone (still unmatched under
@@ -418,7 +471,7 @@ def _apply_existing(
     moved = False
     touched = _assign(row, _suggestion_columns(suggestion))
     if row.source == SOURCE_AUTO:
-        touched |= _assign(row, _link_columns(suggestion))
+        touched |= _assign(row, _link_columns(decided))
         moved = (row.producto_item_id, row.match_status) != (before.producto_item_id, before.match_status)
     elif suggestion.status == STATUS_LINKED and suggestion.producto_item_id != row.producto_item_id:
         result.manual_differs += 1
@@ -438,7 +491,7 @@ def _apply_existing(
             now,
             events_enabled,
             typed_item,
-            match_rule=suggestion.rule,
+            match_rule=decided.rule,
         )
         result.changed += 1
     else:
@@ -515,9 +568,14 @@ SWEEP_STATE_KEY = "links.sweep_state"
 FINGERPRINT_KEY = "links.catalog_fingerprint"
 LAST_FULL_PASS_KEY = "links.last_full_pass_at"
 
+# The catalog (`item_id`, `codigo`) and the ERP publication map (`mla`, product, `activo`): a change in either
+# forces a full lap. Inactive map rows count too, so an activation or deactivation is a change.
 FINGERPRINT_SQL = (
-    "SELECT md5(coalesce(string_agg(item_id::text || ':' || coalesce(codigo, ''), ',' ORDER BY item_id), '')) "
-    "FROM productos_erp"
+    "SELECT md5("
+    "(SELECT coalesce(string_agg(item_id::text || ':' || coalesce(codigo, ''), ',' ORDER BY item_id), '') "
+    "FROM productos_erp) || '|' || "
+    "(SELECT coalesce(string_agg(mla || ':' || item_id::text || ':' || activo::text, ',' ORDER BY mla), '') "
+    "FROM publicaciones_ml))"
 )
 
 STOPPED_DEADLINE = "deadline"
@@ -586,9 +644,10 @@ def _write_setting(db, key: str, value: Any, now: datetime) -> None:
 
 
 def catalog_fingerprint(db) -> str:
-    """Fingerprint of the product catalog (`item_id`, `codigo`): any added, removed or edited code changes it.
+    """Fingerprint of the product catalog (`item_id`, `codigo`) and the ERP publication map (`mla`, product,
+    `activo`): any added, removed or edited code or map row changes it.
 
-    One aggregate over two narrow columns, run at the start of every lap that is not already in
+    One aggregate over each table's narrow columns, run at the start of every lap that is not already in
     progress (every 15 minutes) under the sweep's statement timeout; no cache until measured.
     """
     return db.execute(text(FINGERPRINT_SQL)).scalar()
@@ -685,7 +744,7 @@ def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _
     """Evaluate the links of the stored items in keyset batches until the lap ends or the deadline hits.
 
     An ordinary lap evaluates only units never evaluated or whose SKU key changed; a forced lap
-    (the product catalog fingerprint changed, or the daily 04:30 safety net) re-evaluates every
+    (the catalog or ERP publication map fingerprint changed, or the daily 04:30 safety net) re-evaluates every
     unit, which also refreshes the suggestion of manual units. Each item is evaluated in its own short
     transaction on its current state (`_evaluate_one`); the keyset cursor is committed after every batch
     (and when the deadline stops a batch), so a stopped run resumes where it ended. Re-evaluating an
@@ -711,10 +770,11 @@ def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _
             _set_timeouts(db)
             batch = _typed_batch(db, state.cursor, SWEEP_BATCH)
             evaluated = _evaluated_keys(db, [typed["item_id"] for typed, _ in batch])
+            erp_map = load_map(db, [typed["item_id"] for typed, _ in batch]) if batch else {}
         result.batches += 1 if batch else 0
         out_of_time = False
         for typed, variations in batch:
-            _sweep_item(typed, variations, evaluated, state, batch_now, events_enabled, result)
+            _sweep_item(typed, variations, evaluated, erp_map, state, batch_now, events_enabled, result)
             state.cursor = typed["item_id"]
             if now() >= deadline:  # a batch of 500 items must not run past the worker's deadline
                 out_of_time = True
@@ -743,6 +803,7 @@ def _sweep_item(
     typed: Mapping[str, Any],
     variations: Sequence[Mapping[str, Any]],
     evaluated: Mapping[tuple[str, int], Any],
+    erp_map: Mapping[str, int],
     state: _SweepState,
     now: datetime,
     events_enabled: bool,
@@ -754,7 +815,9 @@ def _sweep_item(
         result.units.skipped += len(units)
         return
     try:
-        outcome = _evaluate_one(typed["item_id"], force=state.force, now=now, events_enabled=events_enabled)
+        outcome = _evaluate_one(
+            typed["item_id"], force=state.force, now=now, events_enabled=events_enabled, erp_map=erp_map
+        )
     except Exception:  # noqa: BLE001 -- one item must not stop the lap; the next lap retries it
         result.errors += 1
         state.retry = state.retry or state.force
@@ -767,8 +830,13 @@ def _sweep_item(
     result.units.add(outcome)
 
 
-def _evaluate_one(item_id: str, *, force: bool, now: datetime, events_enabled: bool) -> Optional[EvaluationResult]:
+def _evaluate_one(
+    item_id: str, *, force: bool, now: datetime, events_enabled: bool, erp_map: Mapping[str, int]
+) -> Optional[EvaluationResult]:
     """Evaluate one item in its own short transaction, on its CURRENT state.
+
+    `erp_map` is the publication map read once for the whole batch; a map row edited after that read changes the
+    fingerprint, so the next lap is forced and converges on it.
 
     The item row is share-locked (`SKIP LOCKED`) and its SKU fields re-read under that lock, so a fetch
     that committed after the sweep's snapshot is never evaluated against stale data, and a fetch in
@@ -787,7 +855,14 @@ def _evaluate_one(item_id: str, *, force: bool, now: datetime, events_enabled: b
             return None
         variations = _variations_by_item(db, [item_id])[item_id]
         return evaluate_item(
-            db, item_id, dict(row._mapping), variations, now=now, events_enabled=events_enabled, force=force
+            db,
+            item_id,
+            dict(row._mapping),
+            variations,
+            now=now,
+            events_enabled=events_enabled,
+            force=force,
+            erp_map=erp_map,
         )
 
 
@@ -1069,7 +1144,7 @@ def revert_to_auto(
     now: datetime,
     events_enabled: bool,
 ) -> ManualOutcome:
-    """Hand a unit back to the automatic rule, resolved right now with its current SKU and the current catalog.
+    """Hand a unit back to the automatic rule, resolved right now with the current map, SKU and catalog.
 
     An automatic unit that already holds what the rule says changes nothing (no history, no audit).
     """
@@ -1079,14 +1154,15 @@ def revert_to_auto(
     keys = [unit.key] if unit.key is not None else []
     catalog = load_catalog(db, keys) if keys else Catalog({}, frozenset())
     suggestion = resolve(unit, catalog.codigos, catalog.item_ids)
+    decided = automatic(unit, suggestion, load_map(db, [item_id]).get(item_id))
     if row.source == SOURCE_AUTO and (row.producto_item_id, row.match_status) == (
-        suggestion.producto_item_id,
-        suggestion.status,
+        decided.producto_item_id,
+        decided.status,
     ):
         return ManualOutcome(changed=False)
     before = LinkState.of(row)
     row.source = SOURCE_AUTO
-    for column, value in {**_link_columns(suggestion), **_suggestion_columns(suggestion)}.items():
+    for column, value in {**_link_columns(decided), **_suggestion_columns(suggestion)}.items():
         setattr(row, column, value)
     row.evaluated_sku_key = unit.key
     row.evaluated_at = now
@@ -1096,7 +1172,7 @@ def revert_to_auto(
     row.updated_at = now
     after = LinkState.of(row)
     log_link_change(
-        db, item_id, variation_id, before, after, now, events_enabled, typed, usuario_id, match_rule=suggestion.rule
+        db, item_id, variation_id, before, after, now, events_enabled, typed, usuario_id, match_rule=decided.rule
     )
     _record_audit(db, TipoAccion.ML_VINCULO_AUTOMATICO, usuario_id, item_id, variation_id, before, after, None, now)
     return ManualOutcome(changed=True)

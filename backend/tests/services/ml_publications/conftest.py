@@ -66,6 +66,13 @@ def keyed_sample(name: str) -> Any:
 # --- Postgres schema for the infrastructure tests (settings store, queue) -----------------
 
 
+def _create_publication_map(target, connection, **kwargs) -> None:
+    """`publicaciones_ml` from its real model, right after `productos_erp` (its foreign key target)."""
+    from app.models.publicacion_ml import PublicacionML
+
+    PublicacionML.__table__.create(bind=connection)
+
+
 @pytest.fixture()
 def mlpub_pg(monkeypatch):
     """Throwaway Postgres schema holding the REAL core, sub-resource and product-link migrations' tables, with
@@ -80,10 +87,11 @@ def mlpub_pg(monkeypatch):
 
     from alembic.operations import Operations
     from alembic.runtime.migration import MigrationContext
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import create_engine, event, text
     from sqlalchemy.orm import sessionmaker
 
     from app.models import ml_publications as models
+    from app.models.producto import ProductoERP
     from app.models.promo_refresh_reactivation import PromoRefreshReactivation
     from tests.conftest import (
         POSTGRES_TEST_URL,
@@ -135,9 +143,13 @@ def mlpub_pg(monkeypatch):
     # The reactivation queue (its own migration, 20261018) that `events_store.write_events` feeds.
     PromoRefreshReactivation.__table__.create(bind=eng)
     monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=eng, autocommit=False, autoflush=False))
+    # The linking module reads the ERP publication map beside the catalog (links first from the map), so wherever
+    # a test builds `productos_erp` in this schema the map table is built with it, as both exist in production.
+    event.listen(ProductoERP.__table__, "after_create", _create_publication_map)
     try:
         yield eng
     finally:
+        event.remove(ProductoERP.__table__, "after_create", _create_publication_map)
         _patch_pg_types_for_sqlite()  # leave the shared columns as the SQLite fixture expects them
         eng.dispose()
         with admin.connect() as conn:
