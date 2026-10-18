@@ -345,11 +345,63 @@ class TestRealWallClockBound:
         assert time.monotonic() - start < self.BOUND + self.SLACK
 
         # While the abandoned fetch is still stuck, a new one refuses instead of piling up threads.
-        with pytest.raises(script.ErpFetchTimeout, match="still running"):
+        with pytest.raises(script.ErpFetchTimeout, match="past its deadline"):
             script.fetch_item_associations_from_erp(timeout=60, total_timeout=self.BOUND, strict=True)
 
         connecting.set()
         _wait_for_fetch_thread(script)
+
+    def test_a_response_that_arrives_just_after_the_deadline_is_closed_unread(
+        self, monkeypatch: pytest.MonkeyPatch, script
+    ) -> None:
+        # The deadline fires while `requests.get` is still returning: the caller has nothing to close yet,
+        # so the fetch thread itself must close the late response without reading any of the body.
+        release_get = threading.Event()
+        response = _Response(_json_chunks(b"[" + b" " * 64 + b"]"))
+
+        def late_get(url, params, timeout, stream=False):
+            release_get.wait(5)
+            return response
+
+        monkeypatch.setattr(script.requests, "get", late_get)
+
+        with pytest.raises(script.ErpFetchTimeout):
+            script.fetch_item_associations_from_erp(timeout=60, total_timeout=self.BOUND, strict=True)
+
+        release_get.set()
+        _wait_for_fetch_thread(script)
+        assert response.closed
+        assert response.read == 0
+
+    def test_a_second_fetch_while_one_is_inside_its_deadline_is_refused_as_concurrent(
+        self, monkeypatch: pytest.MonkeyPatch, script
+    ) -> None:
+        release_get = threading.Event()
+
+        def slow_get(url, params, timeout, stream=False):
+            release_get.wait(5)
+            return _Response(_json_chunks(b"[]"))
+
+        monkeypatch.setattr(script.requests, "get", slow_get)
+        first: dict = {}
+
+        def run_first() -> None:
+            first["result"] = script.fetch_item_associations_from_erp(timeout=60, total_timeout=5, strict=True)
+
+        caller = threading.Thread(target=run_first)
+        caller.start()
+        try:
+            for _ in range(200):  # wait until the first fetch has started its thread
+                if script._fetch_done is not None and not script._fetch_done.is_set():
+                    break
+                time.sleep(0.005)
+            with pytest.raises(script.ErpFetchTimeout, match="already running") as refused:
+                script.fetch_item_associations_from_erp(timeout=60, total_timeout=self.BOUND, strict=True)
+            assert "past its deadline" not in str(refused.value)
+        finally:
+            release_get.set()
+            caller.join(5)
+        assert first["result"] == []  # the first fetch was not disturbed
 
     def test_a_real_socket_dripping_bytes_is_cut_at_the_deadline(self, script) -> None:
         # A real local HTTP server sends the headers, then one body byte every 20ms, each well under the read

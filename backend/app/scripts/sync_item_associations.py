@@ -19,6 +19,7 @@ sys.path.insert(0, str(backend_dir))
 import json
 import socket
 import threading
+import time
 import requests
 from decimal import Decimal
 from sqlalchemy.orm import Session
@@ -40,6 +41,7 @@ _CHUNK_BYTES = 64 * 1024
 # so a hung ERP cannot pile up threads and connections.
 _fetch_thread: threading.Thread | None = None
 _fetch_done: threading.Event | None = None  # set by that thread as its last step
+_fetch_deadline = 0.0  # monotonic deadline of that fetch
 _fetch_lock = threading.Lock()
 
 
@@ -73,10 +75,13 @@ def _get_json_within(url: str, params: dict, read_timeout: float, total_timeout:
     the caller waits on it for at most `total_timeout`; at the deadline it
     shuts the socket down (unblocking the read) and raises `ErpFetchTimeout`.
     A thread still stuck where nothing can be closed (DNS, connect) ends on its
-    own `read_timeout`; until it does, new bounded fetches refuse to start."""
-    global _fetch_thread, _fetch_done
+    own `read_timeout`; until it does, new bounded fetches refuse to start (as
+    they do while another bounded fetch is still inside its own deadline)."""
+    global _fetch_thread, _fetch_done, _fetch_deadline
     with _fetch_lock:
         if _fetch_done is not None and not _fetch_done.is_set():
+            if time.monotonic() < _fetch_deadline:
+                raise ErpFetchTimeout("another ERP fetch is already running, inside its deadline")
             raise ErpFetchTimeout("a previous ERP fetch is still running past its deadline")
         state: dict = {}
         done = threading.Event()
@@ -86,6 +91,9 @@ def _get_json_within(url: str, params: dict, read_timeout: float, total_timeout:
             try:
                 response = requests.get(url, params=params, timeout=read_timeout, stream=True)
                 state["response"] = response
+                if abort.is_set():  # the deadline passed while `get` returned: the caller had nothing to close
+                    response.close()
+                    return
                 try:
                     response.raise_for_status()
                     chunks = []
@@ -96,12 +104,13 @@ def _get_json_within(url: str, params: dict, read_timeout: float, total_timeout:
                     state["body"] = b"".join(chunks)
                 finally:
                     response.close()
-            except BaseException as exc:  # handed to the caller, which re-raises it
+            except Exception as exc:  # handed to the caller, which re-raises it
                 state["error"] = exc
             finally:
                 done.set()
 
         _fetch_done = done
+        _fetch_deadline = time.monotonic() + total_timeout
         _fetch_thread = threading.Thread(target=fetch, name="erp-fetch", daemon=True)
         _fetch_thread.start()
 
@@ -113,6 +122,8 @@ def _get_json_within(url: str, params: dict, read_timeout: float, total_timeout:
         raise ErpFetchTimeout(f"ERP response exceeded {total_timeout}s")
     if "error" in state:
         raise state["error"]
+    if "body" not in state:  # the thread died on a BaseException it does not catch
+        raise ErpFetchTimeout("ERP fetch ended without a response")
     return json.loads(state["body"])
 
 
