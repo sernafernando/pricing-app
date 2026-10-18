@@ -278,6 +278,20 @@ class TestStoppingErrors:
         assert "STOPPED" in err and "candidates: 2" in err and "seeded: 1" in err
         assert link(erp, OTHER)["source"] == "manual"  # committed before the failure
 
+    def test_an_error_that_is_not_from_the_database_also_reports_the_partial_counts(
+        self, erp, monkeypatch, capsys
+    ) -> None:
+        two_mapped_candidates(erp)
+        failing_on(monkeypatch, ITEM, KeyError("an outcome the script does not know"))
+
+        with pytest.raises(KeyError):
+            run(True)
+
+        err = capsys.readouterr().err
+        assert "STOPPED" in err and "candidates: 2" in err and "seeded: 1" in err
+        assert link(erp, OTHER)["source"] == "manual"  # committed before the failure
+        assert link(erp)["source"] == "sku_auto"
+
 
 class TestItemRowLock:
     def test_a_fetch_holding_the_item_row_makes_the_unit_busy_and_nothing_is_written(self, erp, monkeypatch) -> None:

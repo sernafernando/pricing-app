@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from typing import Callable, Optional, Sequence
 
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.exc import OperationalError
 
 from app.core import database
 from app.services.ml_publications import links
@@ -141,13 +141,13 @@ def run(*, apply: bool, now: Callable[[], datetime] = _utcnow, batch: int = BATC
             except links.UnknownItem:
                 db.rollback()
                 counts.changed += 1
-            except SQLAlchemyError as exc:
+            except Exception as exc:  # noqa: BLE001 -- reported, then re-raised: nothing is swallowed
                 db.rollback()
                 if isinstance(exc, OperationalError) and getattr(exc.orig, "pgcode", None) == LOCK_NOT_AVAILABLE:
                     counts.busy += 1  # another writer holds the item; a later run picks it up
                     continue
                 # Items before this one are already committed (with --apply): say how far the run got.
-                print(f"STOPPED at {item_id} by a database error; partial counts:", file=sys.stderr)
+                print(f"STOPPED at {item_id} by {type(exc).__name__}; partial counts:", file=sys.stderr)
                 print(_tally(counts), file=sys.stderr)
                 raise
             finally:
