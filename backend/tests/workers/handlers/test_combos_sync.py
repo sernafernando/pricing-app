@@ -185,10 +185,18 @@ class TestRealHelperFailure:
         monkeypatch.setattr(script.requests, "get", fake_get)
 
     @pytest.mark.parametrize(
-        "case",
-        ["connection", "http_500", "bad_json", "unexpected_shape", "row_without_component"],
+        ("case", "expected_error"),
+        [
+            ("connection", "ConnectionError: refused"),
+            ("http_500", "HTTPError: 500 Server Error"),
+            ("bad_json", "JSONDecodeError"),
+            ("unexpected_shape", "ValueError: unexpected ERP response: dict"),
+            ("row_without_component", "SnapshotIncompleto: association without item_id/item_id_1"),
+        ],
     )
-    def test_nothing_is_written(self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch, case: str) -> None:
+    def test_nothing_is_written(
+        self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch, case: str, expected_error: str
+    ) -> None:
         import requests
 
         _seed(pg_engine, (100, 500, 1), (200, 500, 1))
@@ -206,7 +214,7 @@ class TestRealHelperFailure:
         result = handler.run(_ctx())
 
         assert result.success is False
-        assert result.error
+        assert expected_error in result.error  # this case's own failure, not a harness fault
         assert _rows(pg_engine) == [(100, 500, D("1")), (200, 500, D("1"))]
 
     def test_an_empty_erp_list_deletes_nothing_and_fails(
@@ -218,6 +226,8 @@ class TestRealHelperFailure:
         result = handler.run(_ctx())
 
         assert result.success is False
+        assert "deletions skipped" in result.error  # the reconcile floor, not a failed fetch
+        assert result.detail["deletions_skipped"] is True
         assert _rows(pg_engine) == [(100, 500, D("1")), (200, 500, D("1"))]
 
 
@@ -237,12 +247,14 @@ class TestBoundedFetch:
         self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         timeouts = self._capture(monkeypatch)
-        handler.run(_ctx(seconds=600))
+        result = handler.run(_ctx(seconds=600))
+        assert result.success is True
         assert timeouts == [combos_sync.FETCH_TIMEOUT_SECONDS] == [30]
 
     def test_the_fetch_never_outlives_the_deadline(self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
         timeouts = self._capture(monkeypatch)
-        handler.run(_ctx(seconds=12))
+        result = handler.run(_ctx(seconds=12))
+        assert result.success is True
         assert len(timeouts) == 1
         assert combos_sync.MIN_FETCH_SECONDS <= timeouts[0] <= 12
 
