@@ -40,7 +40,7 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInPreviewIn
 from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
@@ -250,6 +250,7 @@ def _guardar(
     )
     db.add(compra)
     db.flush()
+    _sincronizar_pedidos(db, compra)
     items = [
         SellInCompraItem(
             compra_id=compra.id,
@@ -265,6 +266,18 @@ def _guardar(
     _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id)
     db.flush()  # the audit rows too, so their errors are raised here and not by the recompute's autoflush
     return compra, items
+
+
+def _sincronizar_pedidos(db: Session, compra: SellInCompra) -> None:
+    """Makes the purchase's link rows (`SellInCompraPedido`) match `pedido_compra_id`:
+    one row when it is set, none when it is not. Not flushed."""
+    deseado = compra.pedido_compra_id
+    existentes = db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == compra.id).all()
+    for link in existentes:
+        if link.pedido_compra_id != deseado:
+            db.delete(link)
+    if deseado is not None and all(link.pedido_compra_id != deseado for link in existentes):
+        db.add(SellInCompraPedido(compra_id=compra.id, pedido_compra_id=deseado))
 
 
 def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
@@ -356,12 +369,14 @@ def _contiene(columna, q: str):
 
 def _texto(db: Session, q: str):
     """Case-insensitive substring over supplier name, the lines' product code or description,
-    the purchase's own reference text (`descripcion`) and its purchase-order number."""
+    the purchase's own reference text (`descripcion`) and its linked purchase orders' numbers
+    (through `SellInCompraPedido`)."""
     return or_(
         _contiene(SellInCompra.descripcion, q),
         db.query(Proveedor).filter(Proveedor.id == SellInCompra.proveedor_id, _contiene(Proveedor.nombre, q)).exists(),
-        db.query(PedidoCompra)
-        .filter(PedidoCompra.id == SellInCompra.pedido_compra_id, _contiene(PedidoCompra.numero, q))
+        db.query(SellInCompraPedido)
+        .join(PedidoCompra, PedidoCompra.id == SellInCompraPedido.pedido_compra_id)
+        .filter(SellInCompraPedido.compra_id == SellInCompra.id, _contiene(PedidoCompra.numero, q))
         .exists(),
         _items_que_cumplen(db, or_(_contiene(ProductoERP.codigo, q), _contiene(ProductoERP.descripcion, q))),
     )

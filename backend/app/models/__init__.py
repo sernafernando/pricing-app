@@ -194,7 +194,7 @@ from app.models.ml_publications import (
     MlUserProductFamily,
     MlUserProductStock,
 )
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.models.sell_dirty import SellDirty
 from app.models.combo_componente import ComboComponente
 
@@ -457,6 +457,7 @@ __all__ = [
     "MlUserProductFamily",
     "SellInCompra",
     "SellInCompraItem",
+    "SellInCompraPedido",
     "SellInConsumo",
     "SellDirty",
     "ComboComponente",

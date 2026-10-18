@@ -63,6 +63,27 @@ class SellInCompra(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class SellInCompraPedido(Base):
+    """Links a sell-in purchase to one Compras operation (`pedidos_compra`).
+
+    For now it mirrors `SellInCompra.pedido_compra_id` (at most one row per
+    purchase, kept in step by the service); one operation can still serve
+    several purchases, so there is no unique on `pedido_compra_id` alone.
+    Deleting the operation removes the link, as it clears the old column.
+    """
+
+    __tablename__ = "sell_in_compra_pedidos"
+    __table_args__ = (
+        UniqueConstraint("compra_id", "pedido_compra_id", name="uq_sell_in_compra_pedidos_compra_pedido"),
+        Index("ix_sell_in_compra_pedidos_pedido_compra_id", "pedido_compra_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    compra_id = Column(BigInteger, ForeignKey("sell_in_compras.id", ondelete="CASCADE"), nullable=False)
+    pedido_compra_id = Column(BigInteger, ForeignKey("pedidos_compra.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class SellInCompraItem(Base):
     __tablename__ = "sell_in_compra_items"
     __table_args__ = (
