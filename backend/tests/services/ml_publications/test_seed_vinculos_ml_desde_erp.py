@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from app.core import database
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.scripts import seed_vinculos_ml_desde_erp as seed
 from app.services.ml_publications import links
@@ -250,3 +251,81 @@ class TestFailurePaths:
         assert (counts.candidates, counts.seeded) == (1, 1)  # OTHER is no longer a candidate
         assert (link(erp)["source"], link(erp)["producto_item_id"]) == ("manual", 41)
         assert len(log_rows(erp)) == 2
+
+
+class TestUnitsThatChangedMeanwhile:
+    """`seed_manual_link` re-reads the unit under its lock; one no longer automatic and unlinked is left alone."""
+
+    def test_a_manual_decision_written_meanwhile_is_left_untouched(self, erp, monkeypatch) -> None:
+        apply(sample_item(ITEM), ITEM)
+        unmatched(erp)
+        add_product(erp, 41, "X")
+        add_product(erp, 50, "OPERATOR-PICK")
+        erp_map(erp, ITEM, 41, 1)
+        real = links.evaluate_for_item
+
+        def operator_decides_first(db, item_id, **kwargs):
+            # An operator's manual link commits after the candidate list was read, before this item is seeded.
+            with erp.begin() as conn:
+                conn.execute(
+                    text(
+                        "UPDATE ml_item_product_links SET source = 'manual', match_status = 'linked', "
+                        "producto_item_id = 50, linked_by = 17 WHERE item_id = :i AND variation_id = 0"
+                    ),
+                    {"i": item_id},
+                )
+            return real(db, item_id, **kwargs)
+
+        monkeypatch.setattr(links, "evaluate_for_item", operator_decides_first)
+
+        counts = run(True)
+
+        assert (counts.candidates, counts.changed, counts.seeded) == (1, 1, 0)
+        row = link(erp)
+        assert (row["source"], row["producto_item_id"], row["linked_by"], row["note"]) == ("manual", 50, 17, None)
+        assert log_rows(erp) == []
+
+    def test_an_automatic_unit_in_another_status_is_left_untouched(self, erp, monkeypatch) -> None:
+        # The re-evaluation never leaves an automatic unit in `no_product` (the schema allows it): this pins the
+        # guard for a row it did not rewrite, so the evaluation is skipped here.
+        apply(sample_item(ITEM), ITEM)
+        put_link(erp, ITEM, 0, "sku_auto", "no_product", None, evaluated_sku_key=SKU_A, evaluated_at=at(-60))
+        add_product(erp, 41, "X")
+        monkeypatch.setattr(links, "evaluate_for_item", lambda db, item_id, **kwargs: None)
+
+        with database.get_background_db() as db:
+            outcome = links.seed_manual_link(
+                db, ITEM, 41, note=seed.SEED_NOTE, match_rule=seed.MATCH_RULE, now=at(10), events_enabled=False
+            )
+
+        assert outcome == links.SEED_CHANGED
+        row = link(erp)
+        assert (row["source"], row["match_status"], row["producto_item_id"]) == ("sku_auto", "no_product", None)
+        assert log_rows(erp) == []
+
+
+class TestErpMapRows:
+    def test_two_map_rows_to_the_same_product_seed_it(self, erp) -> None:
+        apply(sample_item(ITEM), ITEM)
+        unmatched(erp)
+        add_product(erp, 41, "X")
+        erp_map(erp, ITEM, 41, 1)
+        erp_map(erp, ITEM, 41, 2)
+
+        counts = run(True)
+
+        assert (counts.seeded, counts.ambiguous) == (1, 0)
+        assert link(erp)["producto_item_id"] == 41
+
+    def test_two_map_rows_to_different_products_are_ambiguous(self, erp) -> None:
+        apply(sample_item(ITEM), ITEM)
+        unmatched(erp)
+        add_product(erp, 41, "X")
+        add_product(erp, 42, "Y")
+        erp_map(erp, ITEM, 41, 1)
+        erp_map(erp, ITEM, 42, 2)
+
+        counts = run(True)
+
+        assert (counts.seeded, counts.ambiguous) == (0, 1)
+        assert link(erp)["source"] == "sku_auto"
