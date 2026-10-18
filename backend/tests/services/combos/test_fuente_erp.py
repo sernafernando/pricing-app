@@ -8,6 +8,7 @@ as `app.scripts.sync_item_associations` reads it: `comp_id`, `itema_id`,
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
@@ -148,8 +149,6 @@ class _Response:
 
     def raise_for_status(self) -> None:
         if self.status >= 400:
-            import requests
-
             raise requests.exceptions.HTTPError(f"{self.status} Server Error")
 
     def iter_content(self, chunk_size=None):
@@ -160,7 +159,6 @@ class _Response:
             yield chunk
 
     def json(self):  # the unstreamed read: consumes every chunk, however slowly it drips
-        import json
 
         return json.loads(b"".join(self.iter_content()))
 
@@ -230,14 +228,12 @@ class TestFetchSnapshot:
         assert script.fetch_item_associations_from_erp() == []
 
     def test_a_connection_error_raises(self, monkeypatch: pytest.MonkeyPatch, script) -> None:
-        import requests
 
         _serve(monkeypatch, script, error=requests.exceptions.ConnectionError("refused"))
         with pytest.raises(requests.exceptions.ConnectionError):
             fuente_erp.fetch_snapshot(timeout=10)
 
     def test_a_server_error_raises(self, monkeypatch: pytest.MonkeyPatch, script) -> None:
-        import requests
 
         response = _Response(_json_chunks(b"[]"), status=500)
         _serve(monkeypatch, script, response)
@@ -259,7 +255,6 @@ class TestFetchSnapshot:
             fuente_erp.fetch_snapshot(timeout=10)
 
     def test_a_valid_streamed_list_is_parsed(self, monkeypatch: pytest.MonkeyPatch, script) -> None:
-        import json
 
         payload = json.dumps([_record(1, 100, 500, 2)]).encode()
         _serve(monkeypatch, script, _Response(_json_chunks(payload, delay=0.01), clock=script.fake_clock))
