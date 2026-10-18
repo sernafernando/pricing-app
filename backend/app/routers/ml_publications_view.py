@@ -27,6 +27,10 @@ joins it).
 - `GET /ml-publications/view/kpis` (`ml_ops.ver` AND `ml_metricas.ver`): Métricas ML's KPI strip over the MLAs the same
   filters select, for its own period (`periodo` 7/15/30/60/90 or `desde`/`hasta`, default the last 30 days) and
   `comparar_con`. The profit figures only with `ml_metricas.ver_ganancia` (omitted otherwise). No PM scoping.
+- `GET /ml-publications/view/items/export` (`ml_ops.ver`): the current view (same filters, sort, markup filters and
+  permission checks as `/items`, through the same dependency) as a CSV
+  streamed page by page, its keys fixed first and each later page read by key on its own session
+  (`view/export.py`); over `export.EXPORT_MAX_ROWS` rows it answers 422. The Agrupado view has no export.
 - `/items` also sorts by Métricas ML's figures (`orden` facturado_30d, unidades_7d, unidades_30d, with
   `ml_metricas.ver`; markup_30d and total_gauss_30d also with `ml_metricas.ver_ganancia`; 403 otherwise): the WHOLE
   filtered set ranked by the Board over the last 30 business days, then paged; no sales (or no cost) last.
@@ -37,16 +41,18 @@ joins it).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_permiso
-from app.core.database import get_db
+from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
 from app.services.ml_daily_metrics import board, kpi_strip
@@ -55,6 +61,7 @@ from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
     detail,
     events_view,
+    export,
     groups,
     history,
     kpis,
@@ -776,11 +783,27 @@ def _ads_out(status_: AdsStatus) -> dict[str, Any]:
     return out
 
 
-@router.get("/items", response_model=ItemsResponse, response_model_exclude_unset=True)
-def get_items(
-    response: Response,
+@dataclass(frozen=True)
+class ItemsAsk:
+    """What a publications request asks (`/items` and its export read it from the same dependency, so the two can
+    never drift): what the caller may see, the sort, the markup filter and the Ads to apply."""
+
+    can_see_margin: bool
+    can_see_sales: bool
+    sort: listing.Sort
+    markup_filter: Optional[MarkupFilter] = None  # set only when the caller may see margins
+    ads_status: Optional[AdsStatus] = None
+    ads_plan: Optional[AdsPlan] = None
+
+    def markup(self, pricing_db: Session, ads: Optional[AdsPlan] = None) -> Optional[MarkupQuery]:
+        """The markup query over `pricing_db` (None for a caller who may not see margins); `ads` replaces the plan."""
+        if self.markup_filter is None:
+            return None
+        return MarkupQuery(pricing_db, self.markup_filter, ads if ads is not None else self.ads_plan)
+
+
+def items_ask(
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
-    f: PublicationFilter = Depends(filter_query),
     orden: Optional[str] = Query(
         None,
         description=(
@@ -800,19 +823,11 @@ def get_items(
     ads_hasta: Optional[str] = Query(
         None, description="last day of the Ads period, YYYY-MM-DD (ver_ganancia; ignored without it)"
     ),
-    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
-    offset: int = Query(0, ge=0),
-    facets: bool = False,
-    db: Session = Depends(get_view_db),
-    # The application session, for the permission check. In production it IS `db` (FastAPI caches `get_db`
-    # within a request); it is its own parameter so the permission never rides on the store-tables test seam,
-    # and it works after the `rollback()` below because a new transaction begins on first use.
+    # The application session, for the permission check (see `get_items`).
     auth_db: Session = Depends(get_db),
-    status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
     ads_provider: AdsCostProvider = Depends(get_ads_provider),
-) -> dict[str, Any]:
-    """One page of publications (one row per MLA) with the honest-state block."""
-    timer = Timer("items")
+) -> ItemsAsk:
+    """The permission checks (403) and the parsing (422) of a publications request's sort, markup and Ads."""
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
@@ -839,11 +854,37 @@ def get_items(
         )
     try:
         sort = listing.parse_sort(orden, direction)
-        markup, ads_status = None, None
-        if can_see_margin:
-            markup_filter = parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
-            ads_status = _ads_status(ads_provider, bool(restar_publicidad), *parse_ads_period(ads_desde, ads_hasta))
-            markup = MarkupQuery(auth_db, markup_filter, _ads_plan(ads_provider, ads_status))
+        if not can_see_margin:
+            return ItemsAsk(can_see_margin, can_see_sales, sort)
+        markup_filter = parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
+        ads_status = _ads_status(ads_provider, bool(restar_publicidad), *parse_ads_period(ads_desde, ads_hasta))
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    return ItemsAsk(can_see_margin, can_see_sales, sort, markup_filter, ads_status, _ads_plan(ads_provider, ads_status))
+
+
+@router.get("/items", response_model=ItemsResponse, response_model_exclude_unset=True)
+def get_items(
+    response: Response,
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    ask: ItemsAsk = Depends(items_ask),
+    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    facets: bool = False,
+    db: Session = Depends(get_view_db),
+    # The application session, for the permission check. In production it IS `db` (FastAPI caches `get_db`
+    # within a request); it is its own parameter so the permission never rides on the store-tables test seam,
+    # and it works after the `rollback()` below because a new transaction begins on first use.
+    auth_db: Session = Depends(get_db),
+    status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
+) -> dict[str, Any]:
+    """One page of publications (one row per MLA) with the honest-state block."""
+    timer = Timer("items")
+    can_see_margin, can_see_sales, sort = ask.can_see_margin, ask.can_see_sales, ask.sort
+    ads_status = ask.ads_status
+    try:
+        markup = ask.markup(auth_db)
         with timer.stage("flags"):
             events_enabled = settings_store.get_setting("events.enabled").value is True
         listing.bound(db)
@@ -1005,11 +1046,19 @@ def _product_out(
     return out
 
 
-@router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)
-def get_products(
-    response: Response,
+@dataclass(frozen=True)
+class ProductsAsk:
+    """What a Producto-view request asks (`/products` and its export share it): what the caller may see and the
+    sort, already checked and parsed."""
+
+    can_see_margin: bool
+    can_see_sales: bool
+    sort_name: str
+    sort_dir: str
+
+
+def products_ask(
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
-    f: PublicationFilter = Depends(filter_query),
     orden: Optional[str] = Query(
         None,
         description=(
@@ -1018,13 +1067,9 @@ def get_products(
         ),
     ),
     direction: Optional[str] = Query(None, alias="dir", description="asc or desc (default desc; asc by titulo)"),
-    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_view_db),
     auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
-) -> dict[str, Any]:
-    """The Producto view: one page of product rows over the MLAs the filters select, with Métricas ML's figures."""
-    timer = Timer("products")
+) -> ProductsAsk:
+    """The permission checks (403) and the parsing (422) of a Producto-view request's sort."""
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
@@ -1044,9 +1089,30 @@ def get_products(
         )
     default_dir = "asc" if sort_name == products.NEUTRAL_SORT else "desc"
     sort_dir = (direction or default_dir).strip().lower()
+    if sort_dir not in ("asc", "desc"):
+        raise _unprocessable(FilterError("dir", "must be asc or desc"))
+    return ProductsAsk(can_see_margin, can_see_sales, sort_name, sort_dir)
+
+
+@router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)
+def get_products(
+    response: Response,
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    ask: ProductsAsk = Depends(products_ask),
+    limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The Producto view: one page of product rows over the MLAs the filters select, with Métricas ML's figures."""
+    timer = Timer("products")
+    can_see_margin, can_see_sales, sort_name, sort_dir = (
+        ask.can_see_margin,
+        ask.can_see_sales,
+        ask.sort_name,
+        ask.sort_dir,
+    )
     try:
-        if sort_dir not in ("asc", "desc"):
-            raise FilterError("dir", "must be asc or desc")
         if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
@@ -1139,6 +1205,99 @@ def get_product_ids(
         "sin_producto": found.sin_producto,
         "fuera_de_catalogo": found.fuera_de_catalogo,
     }
+
+
+# ── CSV export of the current view ───────────────────────────────
+
+
+def _over_cap() -> Exception:
+    return api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, ErrorCode.VALIDATION_ERROR, export.over_cap_message())
+
+
+def _csv_response(body: Any, name: str) -> StreamingResponse:
+    filename = f"publicaciones-ml-{name}-{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/items/export")
+def export_items(
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    ask: ItemsAsk = Depends(items_ask),  # the list's own checks and parsing: the file cannot show what it cannot
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission checks and the pricing tables of the keys (see `get_items`)
+) -> StreamingResponse:
+    """Every publication of the current view as a CSV, in the list's order (the markup sort and filter included),
+    STREAMED page by page with the list's own columns; the Métricas ML columns with `ml_metricas.ver`, the margin
+    ones with `ml_metricas.ver_ganancia`.
+
+    The request's short transaction fixes the ORDERED keys (at most `export.EXPORT_MAX_ROWS`, else 422) and reads
+    page 1, before the 200, so a bad state fails as a normal HTTP error. Each later page of `export.EXPORT_PAGE_SIZE`
+    keys runs on its OWN short session (`get_background_db`) and reads its rows BY KEY: a change between pages can
+    never repeat or drop a row (a row that stopped matching the filters is skipped). The request sessions are closed
+    before the first byte: a session held for the whole download pins a pooled connection while the client reads
+    (QueuePool incident, PR #811). A page failing mid-stream ends the file with an explicit error line."""
+    columns = export.visible(export.ITEM_COLUMNS, sales=ask.can_see_sales, margin=ask.can_see_margin)
+    page_size, cap = export.EXPORT_PAGE_SIZE, export.EXPORT_MAX_ROWS
+    try:
+        events = settings_store.get_setting("events.enabled").value is True
+        listing.bound(db)
+        f = listing.resolve_pm_pairs(db, f)  # once: every page gets the resolved pairs
+        markup = ask.markup(auth_db)
+        keys = listing.ordered_keys(
+            db, f, ask.sort, cap + 1, events=events, markup=markup, can_see_margin=ask.can_see_margin
+        )
+        if len(keys) > cap:
+            raise _over_cap()
+        plan, ads_failed = ask.ads_plan, False
+        if plan is not None:  # the provider rides on the request session: its figures are read now, once
+            prefetched = export.PrefetchedAds(plan.provider, keys, plan.date_from, plan.date_to)
+            plan, ads_failed = replace(plan, provider=prefetched), prefetched.failed
+
+        def read(session: Session, pricing: Session, page_keys: Sequence[str]) -> list[list[Any]]:
+            nonlocal ads_failed
+            page = listing.items_for_keys(session, f, list(page_keys), events=False, markup=ask.markup(pricing, plan))
+            ads_failed = ads_failed or page.ads_failed
+            by_mla = (
+                row_metrics.metrics_by_mla(session, [i["item_id"] for i in page.items]) if ask.can_see_sales else {}
+            )
+            return export.lines(columns, [(item, by_mla.get(item["item_id"])) for item in page.items])
+
+        first = read(db, auth_db, keys[:page_size])
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+
+    def fetch(page_keys: Sequence[str]) -> list[list[Any]]:
+        with get_background_db() as page_db:
+            listing.bound(page_db)
+            try:
+                return read(page_db, page_db, page_keys)
+            finally:
+                page_db.rollback()
+
+    # CLOSE the request sessions: nothing may stay tied to the response's lifetime.
+    db.close()
+    auth_db.close()
+
+    def notes() -> list[str]:
+        """The Ads asked and not applied -- unavailable, or failed while pricing -- as the list's `ads` block says."""
+        status_ = ask.ads_status
+        if status_ is None or not status_.requested or (status_.applied and not ads_failed):
+            return []
+        return [export.ADS_NOTE.format(reason=status_.degraded().reason if ads_failed else status_.reason)]
+
+    stream = export.stream(columns, keys, first, fetch, page_size, "items", notes)
+    return _csv_response(stream, "publicaciones")
 
 
 @router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)

@@ -17,3 +17,9 @@ def csv_text(value: Optional[str]) -> str:
     if value is None:
         return ""
     return "'" + value if value[:1] in _FORMULA_TRIGGERS else value
+
+
+def csv_money(value: Optional[float]) -> str:
+    """An amount or a percentage with two decimals and a decimal comma (the Spanish locale's spreadsheet reads it
+    as a number); empty when there is none."""
+    return "" if value is None else f"{value:.2f}".replace(".", ",")
