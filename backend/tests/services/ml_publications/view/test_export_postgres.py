@@ -1,5 +1,6 @@
-"""The keys-then-pages reads behind the CSV export (`listing.ordered_keys` / `items_for_keys`) on Postgres, and the
-Ads cost an export reads once (`export.PrefetchedAds`).
+"""The keys-then-pages reads behind the CSV export (`listing.ordered_keys` / `items_for_keys`,
+`products.ordered_product_keys` / `products_for_keys`) on Postgres, and the Ads cost an export reads once
+(`export.PrefetchedAds`).
 
 What matters: the keys are the list's own order over the WHOLE filtered set (the markup sort and filter included,
 computed in Python), capped; a page read by keys keeps the keys' order, uses the list's row builder, and skips a key
@@ -17,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.comision_config import SubcategoriaGrupo
-from app.services.ml_publications.view import listing, markup_service
+from app.services.ml_publications.view import listing, markup_service, products
 from app.services.ml_publications.view.filters import parse_filter, parse_markup_filter
 from app.services.ml_publications.view.export import PrefetchedAds
 from app.services.ml_publications.view.markup_service import MarkupQuery
@@ -123,6 +124,41 @@ class TestItemKeysByMarkup:
         page = listing.items_for_keys(priced, parse_filter(), ["MLA2", "MLA1"], events=False, markup=markup)
         assert [row["item_id"] for row in page.items] == ["MLA2", "MLA1"]
         assert all("markup" in row for row in page.items)
+
+
+class TestProductKeys:
+    @pytest.fixture()
+    def linked(self, env, conn):
+        seed.create_board_tables(env)
+        seed.add_product(conn, 77, "R77", "Router AX", marca="TP-Link")
+        seed.add_product(conn, 78, "R78", "Antena")
+        seed.add_item(conn, "MLA1", status="active")
+        seed.add_item(conn, "MLA2", status="active")
+        seed.add_item(conn, "MLA3", status="paused")
+        seed.add_link(conn, "MLA1", 77)
+        seed.add_link(conn, "MLA3", 77)
+        seed.add_link(conn, "MLA2", 78)
+        seed.add_item(conn, "MLA4", status="active")  # no link: "Sin producto"
+        return conn
+
+    @pytest.mark.parametrize("descending", [False, True])
+    def test_the_keys_are_the_list_order(self, linked, db, descending) -> None:
+        f = parse_filter()
+        listed = products.list_products(db, f, "titulo", descending, 100, 0)
+        keys = products.ordered_product_keys(db, f, "titulo", descending, 100)
+        assert keys == [row.product_item_id for row in listed.rows]
+        assert products.ordered_product_keys(db, f, "titulo", descending, 1) == keys[:1]
+
+    def test_a_page_by_keys_keeps_their_order_and_the_whole_count_of_each_product(self, linked, db) -> None:
+        page = products.products_for_keys(db, parse_filter(), [0, 77])
+        assert [(row.product_item_id, row.title, row.publications_count) for row in page.rows] == [
+            (0, "Sin producto", 1),
+            (77, "Router AX", 2),
+        ]
+
+    def test_a_product_that_stopped_matching_is_skipped(self, linked, db) -> None:
+        page = products.products_for_keys(db, parse_filter(estado="paused"), [78, 77])
+        assert [(row.product_item_id, row.publications_count) for row in page.rows] == [(77, 1)]
 
 
 class TestPrefetchedAds:

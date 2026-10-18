@@ -1,10 +1,10 @@
-"""The CSV export of the Publicaciones screen's current view (`/items/export`).
+"""The CSV export of the Publicaciones screen's current view (`/items/export`, `/products/export`).
 
 The same discipline as Métricas ML's board export (`routers/ml_metricas.export_board`): the first short transaction
-fixes the ORDERED keys of every row (`listing.ordered_keys`: the list's own order, the markup sort and filter
-included) and reads page 1; every later page of `EXPORT_PAGE_SIZE` keys is read BY KEY on
-its own short session, so a change between pages can never repeat or drop a row. This module holds what an export
-endpoint needs: the caps, the columns (the list's own, by the screen's labels), the stream and the Ads cost read
+fixes the ORDERED keys of every row (`listing.ordered_keys`, `products.ordered_product_keys`: the list's own order,
+the markup sort and filter included) and reads page 1; every later page of `EXPORT_PAGE_SIZE` keys is read BY KEY on
+its own short session, so a change between pages can never repeat or drop a row. This module holds what the two
+endpoints share: the caps, the columns (the list's own, by the screen's labels), the stream and the Ads cost read
 once for the whole file. `;` delimiter and a UTF-8 BOM, so a spreadsheet in the Spanish locale opens it as is;
 every free-text cell goes through `csv_text`.
 """
@@ -115,6 +115,22 @@ ITEM_COLUMNS: tuple[Column, ...] = (
     Column("Stock Full", lambda i, m: _blank(i["stock"]["full"])),
     Column("Stock ERP", lambda i, m: _blank(i["erp_stock"]["quantity"])),
     Column("Última actividad", lambda i, m: _iso(i["last_activity_at"])),
+)
+
+# A Producto-view row (`products._row`) and whether it has figures (some publication of it has a Board row).
+PRODUCT_COLUMNS: tuple[Column, ...] = (
+    Column("Código", lambda r, _: csv_text(r.sku)),
+    Column("Producto", lambda r, _: csv_text(r.title)),
+    Column("Marca", lambda r, _: csv_text(r.marca)),
+    Column("Publicaciones", lambda r, _: r.publications_count),
+    Column("Stock ERP", lambda r, _: _blank(r.stock)),
+    Column("Ventas 7D", lambda r, has: r.windows["7d"] if has else "", sales=True),
+    Column("Ventas 30D", lambda r, has: r.windows["30d"] if has else "", sales=True),
+    Column("Markup real 30D", lambda r, has: _money(round_pp(r.markup)) if has else "", sales=True, margin=True),
+    Column("Facturado 30D", lambda r, has: _money(round_money(r.gross)) if has else "", sales=True),
+    Column("Total Gauss 30D", lambda r, has: _money(round_money(r.tg)) if has else "", sales=True, margin=True),
+    Column("Última venta", lambda r, has: _iso(r.last_sale_at) if has else "", sales=True),
+    Column("Ageing (días)", lambda r, has: _blank(r.ageing_days) if has else "", sales=True),
 )
 
 

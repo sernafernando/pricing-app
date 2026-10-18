@@ -28,11 +28,12 @@ commits and nothing is written. Postgres only (the Board's temp tables); its tes
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Iterator, Optional, Sequence
 
-from sqlalchemy import ARRAY, Date, String, Text, and_, any_, case, cast, func, literal, select
+from sqlalchemy import ARRAY, Date, Integer, String, Text, and_, any_, case, cast, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -219,20 +220,30 @@ def _series(b: board.Board, members: Any, by_key: dict[str, board.Row]) -> None:
     b.read_series(by_key, series)
 
 
+@contextmanager
+def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int]] = None) -> Iterator[tuple]:
+    """The Board over the MLAs `f` selects and the summed product rows over it: `(board, members, rows)`. `only`
+    narrows the MLA set to the publications linked to those products (`NO_PRODUCT`: no link) -- every one of them
+    `f` selects, so each product's count and figures are the very ones of the whole set."""
+    # mejor oferta is a product's (any of its publications), as in Productos
+    f = replace(resolve_pm_pairs(db, f), oferta_per_product=True)
+    first, last = row_metrics.window(board.today_business())
+    mla_source = build_base_select(f, T.i.item_id)
+    if only is not None:
+        product = func.coalesce(T.l.producto_item_id, NO_PRODUCT)
+        mla_source = mla_source.where(product == any_(literal(list(only), ARRAY(Integer))))
+    board_filter = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
+    with board.Board(db, board_filter, scope_pairs=None) as b:
+        members = _members(b.mla_set)
+        yield b, members, _summed(members, b.rows())
+
+
 def list_products(
     db: Session, f: PublicationFilter, orden: str, descending: bool, limit: int, offset: int
 ) -> ProductsPage:
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names."""
     key = parse_sort(orden)
-    # mejor oferta is a product's (any of its publications), as in Productos
-    f = replace(resolve_pm_pairs(db, f), oferta_per_product=True)
-    first, last = row_metrics.window(board.today_business())
-    board_filter = board.BoardFilter(
-        date_from=first, date_to=last, group_by="publication", mla_source=build_base_select(f, T.i.item_id)
-    )
-    with board.Board(db, board_filter, scope_pairs=None) as b:
-        members = _members(b.mla_set)
-        rows = _summed(members, b.rows())
+    with _product_rows(db, f) as (b, members, rows):
         total, mla_count = db.execute(
             select(func.count(), func.coalesce(func.sum(rows.c.pubs), 0)).select_from(rows)
         ).one()
@@ -244,6 +255,27 @@ def list_products(
         _series(b, members, {row.key: row for row in out})
     without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
     return ProductsPage(out, int(total), int(mla_count), without)
+
+
+def ordered_product_keys(db: Session, f: PublicationFilter, orden: str, descending: bool, cap: int) -> list[int]:
+    """The product ids (`NO_PRODUCT` for "Sin producto") of every row of the Producto view, at most `cap`, in the
+    very order `list_products` pages them: the keys an export fixes before reading its pages."""
+    key = parse_sort(orden)
+    with _product_rows(db, f) as (_, _, rows):
+        query = select(rows.c.product).order_by(*_ordered(rows, key, descending)).limit(cap)
+        return [int(product) for product in db.execute(query).scalars()]
+
+
+def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int]) -> ProductsPage:
+    """The product rows of `keys` in their order, built as `list_products` builds them (no series: the export does
+    not draw them). A product with no publication left under `f` is skipped."""
+    if not keys:
+        return ProductsPage([], 0, 0)
+    with _product_rows(db, f, only=keys) as (b, _, rows):
+        by_product = {int(r["product"]): r for r in db.execute(select(rows)).mappings()}
+    found = [by_product[k] for k in keys if k in by_product]
+    without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
+    return ProductsPage([_row(r, b.today) for r in found], len(found), sum(int(r["pubs"]) for r in found), without)
 
 
 # The most products one bulk action may name, shared with the bulk endpoints (`caps`). Over it the request is refused,

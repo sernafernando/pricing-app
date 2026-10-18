@@ -27,8 +27,8 @@ joins it).
 - `GET /ml-publications/view/kpis` (`ml_ops.ver` AND `ml_metricas.ver`): Métricas ML's KPI strip over the MLAs the same
   filters select, for its own period (`periodo` 7/15/30/60/90 or `desde`/`hasta`, default the last 30 days) and
   `comparar_con`. The profit figures only with `ml_metricas.ver_ganancia` (omitted otherwise). No PM scoping.
-- `GET /ml-publications/view/items/export` (`ml_ops.ver`): the current view (same filters, sort, markup filters and
-  permission checks as `/items`, through the same dependency) as a CSV
+- `GET /ml-publications/view/items/export` and `/products/export` (`ml_ops.ver`): the current view (same filters,
+  sort, markup filters and permission checks as `/items` and `/products`, through the same dependencies) as a CSV
   streamed page by page, its keys fixed first and each later page read by key on its own session
   (`view/export.py`); over `export.EXPORT_MAX_ROWS` rows it answers 422. The Agrupado view has no export.
 - `/items` also sorts by Métricas ML's figures (`orden` facturado_30d, unidades_7d, unidades_30d, with
@@ -1297,6 +1297,56 @@ def export_items(
 
     stream = export.stream(columns, keys, first, fetch, page_size, "items", notes)
     return _csv_response(stream, "publicaciones")
+
+
+@router.get("/products/export")
+def export_products(
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    ask: ProductsAsk = Depends(products_ask),  # the Producto view's own checks and parsing
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Every row of the Producto view as a CSV, in its order, streamed page by page exactly as `export_items` is
+    (keys first, each later page by key on its own session, the request sessions closed before the first byte, an
+    error line if a page fails); the figures with `ml_metricas.ver`, the margin with `ml_metricas.ver_ganancia`."""
+    columns = export.visible(export.PRODUCT_COLUMNS, sales=ask.can_see_sales, margin=ask.can_see_margin)
+    page_size, cap = export.EXPORT_PAGE_SIZE, export.EXPORT_MAX_ROWS
+    descending = ask.sort_dir == "desc"
+    try:
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        f = listing.resolve_pm_pairs(db, f)
+        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, cap + 1)
+        if len(keys) > cap:
+            raise _over_cap()
+
+        def read(session: Session, page_keys: Sequence[int]) -> list[list[Any]]:
+            page = products.products_for_keys(session, f, list(page_keys))
+            return export.lines(columns, [(row, row.key not in page.without_figures) for row in page.rows])
+
+        first = read(db, keys[:page_size])
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+
+    def fetch(page_keys: Sequence[int]) -> list[list[Any]]:
+        with get_background_db() as page_db:
+            listing.bound(page_db)
+            try:
+                return read(page_db, page_keys)
+            finally:
+                page_db.rollback()
+
+    db.close()
+    auth_db.close()
+    return _csv_response(export.stream(columns, keys, first, fetch, page_size, "productos"), "productos")
 
 
 @router.get("/items/{item_id}/variations", response_model=VariationsResponse, response_model_exclude_unset=True)

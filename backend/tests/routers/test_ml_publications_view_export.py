@@ -1,4 +1,4 @@
-"""`GET /api/ml-publications/view/items/export`: the current Publicaciones view as a CSV.
+"""`GET /api/ml-publications/view/items/export` and `/products/export`: the current Publicaciones view as a CSV.
 
 Same harness as the KPI strip's (`test_ml_publications_view_kpis.py`): permissions in the SQLite test database, the
 store and the Board's tables in one throwaway Postgres schema that `get_background_db()` (each later page) also
@@ -19,7 +19,7 @@ import io
 
 import pytest
 
-from app.services.ml_publications.view import export, listing
+from app.services.ml_publications.view import export, listing, products as products_service
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import GANANCIA, VER, seed_rows
 from tests.routers.test_ml_publications_view_ads import PERIOD, Exploding, FakeAds, provide  # noqa: F401
@@ -32,6 +32,8 @@ pytestmark = pytest.mark.postgres
 
 ITEMS = "/api/ml-publications/view/items"
 ITEMS_CSV = "/api/ml-publications/view/items/export"
+PRODUCTS = "/api/ml-publications/view/products"
+PRODUCTS_CSV = "/api/ml-publications/view/products/export"
 MARGIN_ITEM_COLUMNS = {"Markup actual", "Markup real 30D", "Total Gauss 30D"}
 METRIC_COLUMNS = {"Ventas 7D", "Ventas 30D", "Facturado 30D", "Última venta", "Ageing (días)"}
 
@@ -306,3 +308,82 @@ class TestItemsAds:
         provide(Exploding("amounts"))
         _, rows = read_csv(client.get(ITEMS_CSV, headers=priced))
         assert len(rows) == 6 and not any(row[0].startswith("#") for row in rows)
+
+
+class TestProducts:
+    def test_a_user_without_ml_ops_ver_gets_403(self, client, pg, db, rol_ventas, auth_headers) -> None:
+        grant(db, rol_ventas, METRICAS, GANANCIA)
+        assert client.get(PRODUCTS_CSV, headers=auth_headers).status_code == 403
+
+    def test_a_metric_sort_needs_ml_metricas_ver(self, client, pg, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER, GANANCIA)
+        response = client.get(PRODUCTS_CSV, headers=admin_auth_headers, params={"orden": "facturado_30d"})
+        assert response.status_code == 403 and METRICAS in response.json()["error"]["message"]
+
+    def test_a_margin_sort_needs_ver_ganancia(self, client, pg, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER, METRICAS)
+        response = client.get(PRODUCTS_CSV, headers=admin_auth_headers, params={"orden": "markup_30d"})
+        assert response.status_code == 403 and GANANCIA in response.json()["error"]["message"]
+
+    def test_the_rows_and_columns_without_metricas(self, client, sold, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER)
+        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
+        assert header[:4] == ["Código", "Producto", "Marca", "Publicaciones"]
+        assert not (METRIC_COLUMNS | MARGIN_ITEM_COLUMNS) & set(header)
+        # the default sort without ml_metricas.ver is the name, "Sin producto" last
+        assert [row[:4] for row in rows] == [
+            ["R78", "Antena", "Ubiquiti", "1"],
+            ["R77", "Router AX", "TP-Link", "2"],
+            ["", "Sin producto", "", "2"],
+        ]
+
+    def test_metricas_and_margin_columns_are_gated(self, client, sold, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER, METRICAS)
+        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
+        assert METRIC_COLUMNS <= set(header) and not {"Markup real 30D", "Total Gauss 30D"} & set(header)
+        assert column(header, rows, "Ventas 30D")[0] == "2"  # the default sort: facturado_30d, Router AX first
+
+    def test_ver_ganancia_adds_the_margin(self, client, sold, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
+        assert {"Markup real 30D", "Total Gauss 30D"} <= set(header)
+        assert column(header, rows, "Markup real 30D")[0] == "100,00"
+
+    @pytest.mark.parametrize(
+        "params",
+        [{}, {"orden": "titulo", "dir": "desc"}, {"orden": "unidades_30d", "dir": "asc"}, {"estado": "active"}],
+    )
+    def test_the_order_and_filters_follow_the_list_across_pages(
+        self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch, params
+    ) -> None:
+        grant(db, rol_admin, VER, METRICAS)
+        monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 1)
+        expected = listed(client, admin_auth_headers, PRODUCTS, "descripcion", **params)
+        names = [name or "Sin producto" for name in expected]
+        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers, params=params))
+        assert len(names) >= 2 and column(header, rows, "Producto") == names
+
+    def test_over_the_cap_is_a_422(self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch) -> None:
+        grant(db, rol_admin, VER)
+        monkeypatch.setattr(export, "EXPORT_MAX_ROWS", 2)
+        response = client.get(PRODUCTS_CSV, headers=admin_auth_headers)
+        assert response.status_code == 422 and "filtros" in response.json()["error"]["message"]
+
+    def test_a_page_failing_mid_stream_ends_the_file_with_an_error_line(
+        self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
+    ) -> None:
+        grant(db, rol_admin, VER)
+        monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 1)
+        real, calls = products_service.products_for_keys, []
+
+        def flaky(*args, **kwargs):
+            calls.append(1)
+            if len(calls) > 2:
+                raise RuntimeError("boom")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(products_service, "products_for_keys", flaky)
+        text = client.get(PRODUCTS_CSV, headers=admin_auth_headers).content.decode("utf-8")
+        lines = text.rstrip("\n").splitlines()
+        assert len(lines) == 4  # header, two rows, the error
+        assert lines[-1].startswith("# ERROR: exportación incompleta — 2 de 3 filas")
