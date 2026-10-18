@@ -573,7 +573,7 @@ FINGERPRINT_SQL = (
     "SELECT md5("
     "(SELECT coalesce(string_agg(item_id::text || ':' || coalesce(codigo, ''), ',' ORDER BY item_id), '') "
     "FROM productos_erp) || '|' || "
-    "(SELECT coalesce(string_agg(mla || ':' || item_id::text || ':' || activo::text, ',' ORDER BY mla), '') "
+    "(SELECT coalesce(string_agg(mla || ':' || coalesce(item_id::text, '') || ':' || coalesce(activo::text, ''), ',' ORDER BY mla), '') "
     "FROM publicaciones_ml))"
 )
 
