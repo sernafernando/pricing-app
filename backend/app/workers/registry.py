@@ -51,7 +51,7 @@ class JobHandler(Protocol):
 # `order_metrics.drain`; PR6 appends `order_metrics.reconcile` and
 # `order_metrics.divergence`.
 # metricas-ml-tplink-mode P2 appends `tp_cost.fill` (notify-driven, like the drain).
-# sell-in-sell-out T4 appends `sell.drain` (notify-driven; inert until T5).
+# sell-in-sell-out T4 appends `sell.drain` (notify-driven); since T5 it recomputes the sell-in allocation.
 REGISTRY: List[JobHandler] = [
     _order_metrics_drain,
     _order_metrics_reconcile,

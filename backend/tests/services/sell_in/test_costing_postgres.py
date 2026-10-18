@@ -17,9 +17,11 @@ from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
+from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.services.sell_in import compras
 from app.services.sell_in import costing as costing_module
 from app.services.sell_in.costing import FifoPurchaseCosting, SellInCosting, get_costing
@@ -197,6 +199,35 @@ class TestFifoPurchaseCosting:
 
         assert w.consumos(engine) == []
         assert (result.inserted, result.deleted) == (0, 0)
+
+    def test_a_voided_purchase_releases_everything_to_the_next_purchase(self, engine: Engine) -> None:
+        [anulada] = w.compra(engine, [(2964, 2, "20.00")], D(2026, 10, 1))
+        [siguiente] = w.compra(engine, [(2964, 5, "500.00")], D(2026, 10, 2))
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        _recompute(engine, 2964)
+        assert [c[0] for c in w.consumos(engine)] == [anulada]
+
+        with sessionmaker(bind=engine)() as db:
+            compra_id = db.query(SellInCompra.id).order_by(SellInCompra.id).first()[0]
+            compras.anular_compra(db, compra_id, usuario_id=7, motivo="error de carga")
+
+        assert w.consumos(engine) == [(siguiente, "fuera", ref, 2964, 2, Decimal("200.00"))]
+
+    def test_loading_a_purchase_allocates_the_sales_already_made(self, engine: Engine) -> None:
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            compra = compras.crear_compra(db, data, usuario_id=7)
+            lineas = [i.id for i in compra_items(db, compra.id)]
+
+        assert w.consumos(engine) == [(lineas[0], "fuera", ref, 2964, 2, Decimal("50.00"))]
 
 
 X, Y, Z = 31748, 202741, 394748  # real fuera customers
@@ -388,6 +419,128 @@ class TestFailures:
             db.rollback()
 
         assert w.consumos(engine) == []
+
+
+def _always_failing(lotes, ventas):
+    raise ValueError("bad data")
+
+
+def _rows(engine: Engine, table: str) -> int:
+    with engine.connect() as conn:
+        return conn.execute(text(f"SELECT count(*) FROM {table}")).scalar()
+
+
+@pytest.mark.postgres
+class TestPurchaseRecomputeFailure:
+    """Loading and voiding recompute with `isolate_failures=False`: a failed
+    recompute takes the whole purchase change down with it."""
+
+    def test_a_failed_recompute_on_load_writes_no_purchase_items_or_audit(self, engine: Engine, monkeypatch) -> None:
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        monkeypatch.setattr(costing_module, "asignar", _always_failing)
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(ValueError, match="bad data"):
+                compras.crear_compra(db, data, usuario_id=7)
+
+        assert [_rows(engine, t) for t in ("sell_in_compras", "sell_in_compra_items", "auditoria")] == [0, 0, 0]
+        assert w.consumos(engine) == []
+
+    def test_a_failed_recompute_on_void_keeps_the_purchase_active_and_unaudited(
+        self, engine: Engine, monkeypatch
+    ) -> None:
+        [linea] = w.compra(engine, [(2964, 4, "40.00")])
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        _recompute(engine, 2964)
+        monkeypatch.setattr(costing_module, "asignar", _always_failing)
+
+        with sessionmaker(bind=engine)() as db:
+            compra_id = db.query(SellInCompra.id).one()[0]
+            with pytest.raises(ValueError, match="bad data"):
+                compras.anular_compra(db, compra_id, usuario_id=7, motivo="error de carga")
+
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT estado FROM sell_in_compras")).scalar() == "activa"
+        assert _rows(engine, "auditoria") == 0
+        assert w.consumos(engine) == [(linea, "fuera", ref, 2964, 2, Decimal("20.00"))]
+
+
+def _db_failing_escribir(db, item_id, deseados, guardados):
+    db.execute(text("SELECT 1 / 0"))  # a database error: the transaction is aborted
+
+
+@pytest.mark.postgres
+class TestPurchaseRecomputeDatabaseFailure:
+    """A recompute that fails in the database leaves the caller's session rolled
+    back and usable, never aborted, on load and on void."""
+
+    def test_a_database_error_on_load_rolls_the_session_back(self, engine: Engine, monkeypatch) -> None:
+        monkeypatch.setattr(FifoPurchaseCosting, "_escribir", staticmethod(_db_failing_escribir))
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(DBAPIError):
+                compras.crear_compra(db, data, usuario_id=7)
+            assert db.execute(text("SELECT count(*) FROM sell_in_compras")).scalar() == 0
+
+        assert [_rows(engine, t) for t in ("sell_in_compras", "sell_in_compra_items", "auditoria")] == [0, 0, 0]
+
+    def test_a_database_error_on_void_rolls_the_session_back(self, engine: Engine, monkeypatch) -> None:
+        w.compra(engine, [(2964, 4, "40.00")])
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        monkeypatch.setattr(FifoPurchaseCosting, "_escribir", staticmethod(_db_failing_escribir))
+
+        with sessionmaker(bind=engine)() as db:
+            compra_id = db.query(SellInCompra.id).one()[0]
+            with pytest.raises(DBAPIError):
+                compras.anular_compra(db, compra_id, usuario_id=7, motivo="error de carga")
+            assert db.execute(text("SELECT estado FROM sell_in_compras")).scalar() == "activa"
+
+        assert _rows(engine, "auditoria") == 0
+
+
+def _integrity_failing_escribir(db, item_id, deseados, guardados):
+    raise IntegrityError("INSERT INTO sell_in_consumos ...", {}, Exception("duplicate key"))
+
+
+@pytest.mark.postgres
+class TestPurchaseRecomputeIntegrityError:
+    def test_a_recompute_integrity_error_is_not_reported_as_a_missing_reference(
+        self, engine: Engine, monkeypatch
+    ) -> None:
+        """The "proveedor / pedido / item dejó de existir" message belongs to the
+        purchase write; an IntegrityError from the recompute surfaces as itself."""
+        monkeypatch.setattr(FifoPurchaseCosting, "_escribir", staticmethod(_integrity_failing_escribir))
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(IntegrityError) as raised:
+                compras.crear_compra(db, data, usuario_id=7)
+            assert not isinstance(raised.value, compras.SellInError)
+            assert db.execute(text("SELECT count(*) FROM sell_in_compras")).scalar() == 0  # rolled back, usable
+
+        assert [_rows(engine, t) for t in ("sell_in_compras", "sell_in_compra_items", "auditoria")] == [0, 0, 0]
 
 
 @pytest.mark.postgres

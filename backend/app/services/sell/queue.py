@@ -32,7 +32,8 @@ so a change made while the line was being processed is never lost.
 
 from __future__ import annotations
 
-from typing import List, Sequence, Tuple
+from datetime import datetime
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -141,21 +142,82 @@ SELECT pg_notify('sell_dirty', '')
 """
 )
 
-# Claim and ack in one statement: the INERT drain (T4) computes nothing, so
-# there is nothing to settle between the claim and the delete. T5 splits it.
-_ACK_SQL = text(
+# A batch: the oldest queued lines, fresh ones (`attempts = 0`) first, skipping
+# what another drain holds, parked lines (`attempts >= MAX_ATTEMPTS`) and lines
+# that already failed in this run. The rows stay locked until the batch's
+# transaction ends, so a trigger re-queueing one of them waits and then lands
+# as a fresh row: a change made while the line is being processed is never lost.
+_CLAIM_SQL = text(
     """
-DELETE FROM sell_dirty AS d
-USING (
-    SELECT canal, venta_ref FROM sell_dirty
-    ORDER BY enqueued_at, canal, venta_ref
-    LIMIT :limit
-    FOR UPDATE SKIP LOCKED
-) AS claimed
-WHERE d.canal = claimed.canal AND d.venta_ref = claimed.venta_ref
-RETURNING d.canal, d.venta_ref, d.item_id
+SELECT canal, venta_ref, item_id FROM sell_dirty AS d
+WHERE attempts < :max_attempts
+  AND NOT EXISTS (
+    SELECT 1 FROM unnest(CAST(:x_canales AS text[]), CAST(:x_refs AS bigint[])) AS x(canal, ref)
+    WHERE x.canal = d.canal AND x.ref = d.venta_ref
+  )
+ORDER BY attempts, enqueued_at, canal, venta_ref
+LIMIT :limit
+FOR UPDATE SKIP LOCKED
 """
 )
+
+# One given line, as `_CLAIM_SQL` would claim it, with the version claimed
+# (`enqueued_at`, which every re-queue moves): the drain's line-by-line retry.
+_CLAIM_LINE_SQL = text(
+    """
+SELECT canal, venta_ref, item_id, enqueued_at FROM sell_dirty
+WHERE canal = :canal AND venta_ref = :ref AND attempts < :max_attempts
+FOR UPDATE SKIP LOCKED
+"""
+)
+
+# The products a line's stored consumptions are filed under: a line that moved
+# to another product is queued under the NEW one and found here under the OLD.
+# Served by the unique index (canal, venta_ref, compra_item_id).
+_FILED_UNDER_SQL = text(
+    """
+SELECT DISTINCT c.canal, c.venta_ref, c.item_id
+FROM unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[])) AS l(canal, ref)
+JOIN sell_in_consumos AS c ON c.canal = l.canal AND c.venta_ref = l.ref
+"""
+)
+
+_DONE_SQL = text(
+    """
+DELETE FROM sell_dirty AS d
+USING unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[])) AS l(canal, ref)
+WHERE d.canal = l.canal AND d.venta_ref = l.ref
+"""
+)
+
+# Charges a line only while it is still the version that failed: a re-queue
+# that landed after the failed transaction rolled back is a fresh change.
+_CHARGE_SQL = text(
+    "UPDATE sell_dirty SET attempts = attempts + 1, last_error = :error "
+    "WHERE canal = :canal AND venta_ref = :ref AND enqueued_at = :enqueued_at RETURNING attempts"
+)
+
+# One statement for every failed line of a batch. `settle` runs in the
+# transaction that claimed the lines and still holds their row locks, so the
+# rows are the claimed version: no re-queue can land in between.
+_FAILED_SQL = text(
+    """
+UPDATE sell_dirty AS d SET attempts = d.attempts + 1, last_error = f.error
+FROM unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[]), CAST(:errors AS text[])) AS f(canal, ref, error)
+WHERE d.canal = f.canal AND d.venta_ref = f.ref
+RETURNING d.canal, d.venta_ref, d.attempts
+"""
+)
+
+# A line is retried on later wakes until it fails this many times; a new change re-queues it with attempts = 0.
+MAX_ATTEMPTS = 5
+
+Line = Tuple[str, int]
+
+
+def _arrays(lines: Iterable[Line]) -> Dict[str, list]:
+    lines = sorted(set(lines))
+    return {"canales": [c for c, _ in lines], "refs": [r for _, r in lines]}
 
 
 def enqueue_ml(db: Session, lines: Sequence[Tuple[int, int]]) -> None:
@@ -168,7 +230,60 @@ def enqueue_ml(db: Session, lines: Sequence[Tuple[int, int]]) -> None:
     db.execute(_ENQUEUE_ML_SQL, {"refs": [ref for ref, _ in ordered], "items": [item for _, item in ordered]})
 
 
-def ack_batch(db: Session, limit: int) -> List[Tuple[str, int, int]]:
-    """Claims up to `limit` queued lines (skipping the ones another drain holds)
-    and removes them. Returns `(canal, venta_ref, item_id)`. Does not commit."""
-    return [tuple(row) for row in db.execute(_ACK_SQL, {"limit": limit})]
+def claim_batch(db: Session, limit: int, excluded: Iterable[Line] = ()) -> List[Tuple[str, int, Optional[int]]]:
+    """Claims up to `limit` queued lines (`(canal, venta_ref, item_id)`), locked
+    until the transaction ends. Does not commit."""
+    x = _arrays(excluded)
+    params = {"max_attempts": MAX_ATTEMPTS, "x_canales": x["canales"], "x_refs": x["refs"], "limit": limit}
+    return [tuple(row) for row in db.execute(_CLAIM_SQL, params)]
+
+
+def claim_line(db: Session, line: Line) -> Optional[Tuple[Tuple[str, int, Optional[int]], datetime]]:
+    """Claims one queued line, locked until the transaction ends, as
+    `((canal, venta_ref, item_id), enqueued_at)`; None when it is gone, parked
+    or held by another drain. Does not commit."""
+    canal, ref = line
+    row = db.execute(_CLAIM_LINE_SQL, {"canal": canal, "ref": ref, "max_attempts": MAX_ATTEMPTS}).first()
+    return ((row[0], row[1], row[2]), row[3]) if row is not None else None
+
+
+def charge(db: Session, line: Line, error: str, enqueued_at: datetime) -> Optional[int]:
+    """Charges a failed attempt to `line` if it is still the version claimed at
+    `enqueued_at` and returns its attempts; None when it was re-queued (or
+    acked) meanwhile. Does not commit."""
+    canal, ref = line
+    params = {"canal": canal, "ref": ref, "error": error[:1000], "enqueued_at": enqueued_at}
+    return db.execute(_CHARGE_SQL, params).scalar()
+
+
+def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) -> Dict[Line, Set[int]]:
+    """Every product each claimed line touches: its queued product plus the ones its consumptions are filed under."""
+    products: Dict[Line, Set[int]] = {
+        (canal, ref): ({item} if item is not None else set()) for canal, ref, item in claimed
+    }
+    if products:
+        for canal, ref, item in db.execute(_FILED_UNDER_SQL, _arrays(products)):
+            products[(canal, ref)].add(item)
+    return products
+
+
+def settle(db: Session, done: Iterable[Line], failed: Dict[Line, str]) -> List[Line]:
+    """Removes the lines that were recomputed and charges the ones that failed,
+    one statement each, and returns the charged lines that are now parked
+    (`attempts >= MAX_ATTEMPTS`). Call it in the transaction that claimed the
+    lines (it holds their locks). Does not commit."""
+    done = list(done)
+    if done:
+        db.execute(_DONE_SQL, _arrays(done))
+    if not failed:
+        return []
+    ordered = sorted(failed.items())
+    rows = db.execute(
+        _FAILED_SQL,
+        {
+            "canales": [canal for (canal, _), _ in ordered],
+            "refs": [ref for (_, ref), _ in ordered],
+            "errors": [error[:1000] for _, error in ordered],
+        },
+    )
+    return sorted((canal, ref) for canal, ref, attempts in rows if attempts >= MAX_ATTEMPTS)
