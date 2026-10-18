@@ -96,7 +96,8 @@ class SellDrainHandler:
                     claimed = queue.claim_batch(db, queue.BATCH_SIZE, excluded=failed_lines)
                     if not claimed:
                         break
-                    result, failed = _recompute_and_settle(db, claimed)
+                    result, failed, parked = _recompute_and_settle(db, claimed)
+                _log_parked(parked, failed)  # only once the charges are committed
             except Exception as exc:
                 if is_transient(exc):
                     logger.warning("sell.drain: transient error, nothing charged; the next wake retries: %s", exc)
@@ -123,9 +124,13 @@ class SellDrainHandler:
         return JobResult(success=True, detail=detail)
 
 
-def _recompute_and_settle(db: Session, claimed: Sequence[Claimed]) -> Tuple[RecomputeResult, Dict[queue.Line, str]]:
+def _recompute_and_settle(
+    db: Session, claimed: Sequence[Claimed]
+) -> Tuple[RecomputeResult, Dict[queue.Line, str], List[queue.Line]]:
     """Recomputes every product the claimed lines touch, acks the lines whose
-    products all succeeded and charges the rest. Does not commit."""
+    products all succeeded and charges the rest; the third value lists the
+    charged lines that park. Does not commit, so it does not log the parks:
+    the caller does, once its transaction committed."""
     products = queue.products_of(db, claimed)
     result = get_costing().recompute(db, set().union(*products.values()))
     failed: Dict[queue.Line, str] = {
@@ -134,22 +139,20 @@ def _recompute_and_settle(db: Session, claimed: Sequence[Claimed]) -> Tuple[Reco
         if items & result.failed.keys()
     }
     parked = queue.settle(db, [line for line in products if line not in failed], failed)
-    for line in parked:
-        _log_parked(line, failed[line])
-    return result, failed
+    return result, failed, parked
 
 
-def _log_parked(line: queue.Line, error: str) -> None:
-    """An ERROR, so it reaches alerting: a parked line is no longer retried
-    until its sale changes, and many of them at once mean a systemic bug."""
-    canal, ref = line
-    logger.error(
-        "sell.drain: line %s/%s parked after %s attempts; retried only when its sale changes again: %s",
-        canal,
-        ref,
-        queue.MAX_ATTEMPTS,
-        error,
-    )
+def _log_parked(parked: Sequence[queue.Line], errors: Dict[queue.Line, str]) -> None:
+    """An ERROR per committed park, so it reaches alerting: a parked line is no
+    longer retried until its sale changes, and many at once mean a systemic bug."""
+    for canal, ref in parked:
+        logger.error(
+            "sell.drain: line %s/%s parked after %s attempts; retried only when its sale changes again: %s",
+            canal,
+            ref,
+            queue.MAX_ATTEMPTS,
+            errors[(canal, ref)],
+        )
 
 
 def _line_by_line(
@@ -176,7 +179,8 @@ def _line_by_line(
                 if again is None:
                     continue
                 row, version = again
-                result, line_failed = _recompute_and_settle(db, [row])
+                result, line_failed, parked = _recompute_and_settle(db, [row])
+            _log_parked(parked, line_failed)  # committed
         except Exception as exc:
             if is_transient(exc):
                 logger.warning("sell.drain: transient error on line %s, nothing charged; stopping: %s", line, exc)
@@ -191,7 +195,7 @@ def _line_by_line(
                 if attempts is None:
                     logger.info("sell.drain: line %s was re-queued meanwhile; not charged", line)
                 elif attempts >= queue.MAX_ATTEMPTS:
-                    _log_parked(line, line_failed[line])
+                    _log_parked([line], line_failed)  # committed: logged after the charge's block
             except Exception as charge_exc:
                 if not is_transient(charge_exc):
                     raise

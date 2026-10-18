@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 import time as clock
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterator
@@ -336,6 +337,63 @@ class TestObservability:
         assert _attempts(engine, ref) == queue.MAX_ATTEMPTS
         [error] = _errors(caplog)
         assert f"line fuera/{ref} parked after {queue.MAX_ATTEMPTS} attempts" in error
+
+    def test_no_park_error_when_the_batch_commit_fails(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        w.compra(engine, [(2964, 3, "30.00")])
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        _set_attempts(engine, ref, queue.MAX_ATTEMPTS - 1)
+        _fails_2964(monkeypatch)
+        _commit_fails_on(monkeypatch, {1})
+
+        with caplog.at_level(logging.WARNING, logger=sell_drain.__name__):
+            _drain()
+
+        assert _attempts(engine, ref) == queue.MAX_ATTEMPTS - 1  # the charge was rolled back
+        assert _errors(caplog) == []
+
+    def test_no_park_error_when_the_line_retry_commit_fails(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        w.compra(engine, [(2964, 3, "30.00")])
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        _set_attempts(engine, ref, queue.MAX_ATTEMPTS - 1)
+        _fails_2964(monkeypatch)
+        calls = []
+
+        def _batch_fails_once(db, claimed):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("batch boom")
+            return _PRODUCTS_OF(db, claimed)
+
+        monkeypatch.setattr(queue, "products_of", _batch_fails_once)
+        _commit_fails_on(monkeypatch, {2})  # 1: the batch, 2: the line's own retry
+
+        with caplog.at_level(logging.WARNING, logger=sell_drain.__name__):
+            _drain()
+
+        assert _attempts(engine, ref) == queue.MAX_ATTEMPTS - 1
+        assert _errors(caplog) == []
+
+
+def _commit_fails_on(monkeypatch: pytest.MonkeyPatch, which: set) -> None:
+    """The n-th `get_background_db()` block (1-based, in `which`) fails at commit
+    with a lost connection, after its body ran: everything it wrote rolls back."""
+    real = sell_drain.get_background_db
+    opened = []
+
+    @contextmanager
+    def _db():
+        opened.append(1)
+        n = len(opened)
+        with real() as db:
+            yield db
+            if n in which:
+                raise _db_error(None, cls=OperationalError)
+
+    monkeypatch.setattr(sell_drain, "get_background_db", _db)
 
 
 def _attempts(engine: Engine, ref: int):
