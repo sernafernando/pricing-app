@@ -8,11 +8,12 @@ Candidates are item-level units (`variation_id = 0`) of stored items without liv
 automatic and still unlinked (`unmatched` or `conflict`). The ERP map has one product per publication, so it
 cannot say which variation is which product: variation units are left to the operator.
 
-Per candidate, in its own short transaction:
-1. re-evaluate the item with the current automatic rule; a unit it now links is left automatic;
-2. skip a publication the map does not know, one it maps to several products, or a product gone from
+Per candidate, in its own short transaction, under a share lock on the item row:
+1. skip an item that gained live variations since the candidate list was read;
+2. re-evaluate the item with the current automatic rule; a unit it now links is left automatic;
+3. skip a publication the map does not know, one it maps to several products, or a product gone from
    `productos_erp`;
-3. write a manual link (`note` = SEED_NOTE, no author) with its change-log row, under the row lock, only if
+4. write a manual link (`note` = SEED_NOTE, no author) with its change-log row, under the row lock, only if
    the unit is still automatic and unlinked. Manual decisions and automatic links are never touched.
 
 Dry-run by default: every transaction is rolled back, so the counts are what `--apply` would do.
@@ -100,20 +101,20 @@ _OUTCOME_FIELD = {
     links.SEED_RELINKED_AUTO: "relinked_auto",
     links.SEED_PRODUCT_MISSING: "product_missing",
     links.SEED_CHANGED: "changed",
+    links.SEED_NO_SOURCE: "not_in_erp",
+    links.SEED_AMBIGUOUS: "ambiguous",
 }
 
 
 def _seed_one(db, item_id: str, now: datetime, events_enabled: bool, counts: SeedCounts) -> None:
-    """Decide and (maybe) write one candidate inside the caller's transaction."""
-    products = [p for (p,) in db.execute(text(_ERP_MAP_SQL), {"publication": item_id})]
-    if not products:
-        counts.not_in_erp += 1
-        return
-    if len(products) > 1:
-        counts.ambiguous += 1
-        return
+    """Decide and (maybe) write one candidate inside the caller's transaction; the map is read only once the
+    re-evaluated unit is still automatic and unlinked."""
+
+    def mapped_products() -> list[int]:
+        return [p for (p,) in db.execute(text(_ERP_MAP_SQL), {"publication": item_id})]
+
     outcome = links.seed_manual_link(
-        db, item_id, products[0], note=SEED_NOTE, match_rule=MATCH_RULE, now=now, events_enabled=events_enabled
+        db, item_id, mapped_products, note=SEED_NOTE, match_rule=MATCH_RULE, now=now, events_enabled=events_enabled
     )
     name = _OUTCOME_FIELD[outcome]
     setattr(counts, name, getattr(counts, name) + 1)

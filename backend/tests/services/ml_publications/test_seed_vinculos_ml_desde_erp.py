@@ -352,13 +352,58 @@ class TestUnitsThatChangedMeanwhile:
 
         with database.get_background_db() as db:
             outcome = links.seed_manual_link(
-                db, ITEM, 41, note=seed.SEED_NOTE, match_rule=seed.MATCH_RULE, now=at(10), events_enabled=False
+                db,
+                ITEM,
+                lambda: [41],
+                note=seed.SEED_NOTE,
+                match_rule=seed.MATCH_RULE,
+                now=at(10),
+                events_enabled=False,
             )
 
         assert outcome == links.SEED_CHANGED
         row = link(erp)
         assert (row["source"], row["match_status"], row["producto_item_id"]) == ("sku_auto", "no_product", None)
         assert log_rows(erp) == []
+
+
+class TestRaceAndOrder:
+    def test_variations_added_after_the_batch_read_leave_the_item_level_unit_alone(self, erp, monkeypatch) -> None:
+        apply(sample_item(ITEM), ITEM)
+        unmatched(erp)
+        add_product(erp, 41, "X")
+        erp_map(erp, ITEM, 41, 1)
+        real = seed._candidate_batch
+
+        def batch_then_fetch_adds_a_variation(after, size):
+            ids = real(after, size)
+            if ITEM in ids:  # a fetch commits the item's first live variation after the candidate list was read
+                with erp.begin() as conn:
+                    conn.execute(
+                        text(
+                            "INSERT INTO ml_item_variations (item_id, variation_id, raw, raw_hash, fetched_at) "
+                            "VALUES (:i, 175550253195, CAST('{}' AS jsonb), :h, :t)"
+                        ),
+                        {"i": ITEM, "h": b"\x00", "t": at(0)},
+                    )
+            return ids
+
+        monkeypatch.setattr(seed, "_candidate_batch", batch_then_fetch_adds_a_variation)
+
+        counts = run(True)
+
+        assert (counts.candidates, counts.changed, counts.seeded) == (1, 1, 0)
+        assert (link(erp)["source"], link(erp)["match_status"]) == ("sku_auto", "unmatched")
+        assert log_rows(erp) == []
+
+    def test_an_item_the_rule_now_links_counts_as_relinked_even_when_the_map_does_not_know_it(self, erp) -> None:
+        apply(_with_sku("3075"), ITEM)
+        unmatched(erp, sku="3075")
+        add_product(erp, 3075, "OTHER")  # no ERP map row for ITEM
+
+        counts = run(False)
+
+        assert (counts.relinked_auto, counts.not_in_erp, counts.seeded) == (1, 0, 0)
 
 
 class TestErpMapRows:

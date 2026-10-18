@@ -1106,12 +1106,14 @@ SEED_RELINKED_AUTO = "relinked_auto"
 SEED_CHANGED = "changed"
 SEED_PRODUCT_MISSING = "product_missing"
 SEED_LINKED = "linked"
+SEED_NO_SOURCE = "no_source"  # the outside map has no product for the publication
+SEED_AMBIGUOUS = "ambiguous"  # the outside map has several products for it
 
 
 def seed_manual_link(
     db,
     item_id: str,
-    producto_item_id: int,
+    products: Callable[[], Sequence[int]],
     *,
     note: str,
     match_rule: str,
@@ -1121,9 +1123,11 @@ def seed_manual_link(
     """Link an item-level unit that is still automatic and unlinked to a product, as a manual decision.
 
     For a one-time seed from an outside map (no operator: no author, no audit row; `note` marks the rows).
-    The item is first re-evaluated with the current rule: a unit it now links stays automatic
-    (`SEED_RELINKED_AUTO`). A unit that is manual, automatically linked or gone is never touched
-    (`SEED_CHANGED`), nor one whose product is not in the catalog (`SEED_PRODUCT_MISSING`). The caller commits.
+    In order: an item that has live variations now is left alone (`SEED_CHANGED`: the map cannot tell
+    variations apart); the item is re-evaluated with the current rule and a unit it now links stays automatic
+    (`SEED_RELINKED_AUTO`); a unit that is manual, automatically linked or gone is never touched (`SEED_CHANGED`).
+    Only then is the map consulted (`products()`, the distinct products it names): none is `SEED_NO_SOURCE`,
+    several `SEED_AMBIGUOUS`, one not in the catalog `SEED_PRODUCT_MISSING`. The caller commits.
 
     The item row is share-locked first (as the sweep's `_evaluate_one` does) and held until the caller's
     commit, so a fetch cannot change the SKU between the re-evaluation and the write; the fetch waits, or this
@@ -1139,6 +1143,8 @@ def seed_manual_link(
         raise UnknownItem(item_id)
     typed = dict(item._mapping)
     variations = _variations_by_item(db, [item_id])[item_id]
+    if variations:  # the candidate list said none; a fetch added them since
+        return SEED_CHANGED
     evaluate_item(db, item_id, typed, variations, now=now, events_enabled=events_enabled, force=True)
     db.flush()
     row = (
@@ -1153,6 +1159,12 @@ def seed_manual_link(
         return SEED_RELINKED_AUTO
     if row.match_status not in (STATUS_UNMATCHED, STATUS_CONFLICT):
         return SEED_CHANGED
+    found = sorted(set(products()))
+    if not found:
+        return SEED_NO_SOURCE
+    if len(found) > 1:
+        return SEED_AMBIGUOUS
+    producto_item_id = found[0]
     if not _product_exists(db, producto_item_id):
         return SEED_PRODUCT_MISSING
     before = LinkState.of(row)
