@@ -197,8 +197,15 @@ _CHARGE_SQL = text(
     "WHERE canal = :canal AND venta_ref = :ref AND enqueued_at = :enqueued_at"
 )
 
+# One statement for every failed line of a batch. `settle` runs in the
+# transaction that claimed the lines and still holds their row locks, so the
+# rows are the claimed version: no re-queue can land in between.
 _FAILED_SQL = text(
-    "UPDATE sell_dirty SET attempts = attempts + 1, last_error = :error WHERE canal = :canal AND venta_ref = :ref"
+    """
+UPDATE sell_dirty AS d SET attempts = d.attempts + 1, last_error = f.error
+FROM unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[]), CAST(:errors AS text[])) AS f(canal, ref, error)
+WHERE d.canal = f.canal AND d.venta_ref = f.ref
+"""
 )
 
 # A line is retried on later wakes until it fails this many times; a new change re-queues it with attempts = 0.
@@ -259,9 +266,19 @@ def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) 
 
 
 def settle(db: Session, done: Iterable[Line], failed: Dict[Line, str]) -> None:
-    """Removes the lines that were recomputed and charges the ones that failed. Does not commit."""
+    """Removes the lines that were recomputed and charges the ones that failed,
+    one statement each. Call it in the transaction that claimed the lines (it
+    holds their locks). Does not commit."""
     done = list(done)
     if done:
         db.execute(_DONE_SQL, _arrays(done))
-    for (canal, ref), error in sorted(failed.items()):
-        db.execute(_FAILED_SQL, {"canal": canal, "ref": ref, "error": error[:1000]})
+    if failed:
+        ordered = sorted(failed.items())
+        db.execute(
+            _FAILED_SQL,
+            {
+                "canales": [canal for (canal, _), _ in ordered],
+                "refs": [ref for (_, ref), _ in ordered],
+                "errors": [error[:1000] for _, error in ordered],
+            },
+        )

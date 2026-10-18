@@ -336,7 +336,7 @@ class TestBatchFailure:
 
         detail = handler.run(WorkerContext(deadline=deadline, worker_name="w")).detail
 
-        assert (detail["lines"], detail["failed"]) == (2, 1)
+        assert (detail["lines"], detail["failed"]) == (1, 1)  # buena was left untouched, not processed
         assert (_attempts(engine, mala), _attempts(engine, buena)) == (1, 0)
         assert w.consumos(engine) == []
         monkeypatch.setattr(queue, "products_of", _PRODUCTS_OF)  # mala is fixed
@@ -344,6 +344,19 @@ class TestBatchFailure:
         assert _drain()["lines"] == 2
         assert [c[2] for c in w.consumos(engine)] == [mala, buena]
         assert w.queued(engine) == []
+
+    def test_a_transient_error_while_charging_stops_the_run_and_leaves_the_line_uncharged(
+        self, engine: Engine, mala: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _charge_loses_the_connection(db, line, error, enqueued_at):
+            raise _db_error(None, cls=OperationalError)
+
+        monkeypatch.setattr(queue, "charge", _charge_loses_the_connection)
+
+        detail = _drain()
+
+        assert detail["failed"] == 0
+        assert (w.queued(engine), _attempts(engine, mala)) == ([("fuera", mala)], 0)
 
     def test_a_requeue_between_the_failure_and_its_charge_is_not_charged(
         self, engine: Engine, mala: int, monkeypatch: pytest.MonkeyPatch
