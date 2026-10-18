@@ -24,9 +24,11 @@ re-queue that landed meanwhile is a fresh change). The others drain; the bad
 one is parked in time.
 
 Only a line's own fault is charged. A transient infrastructure error
-(`is_transient`: a lost connection, a deadlock, a serialization failure, a lock
-or statement timeout) charges nothing: the run stops, the lines stay queued as
-they were, and the next wake retries them.
+(`is_transient`: a lost connection, a deadlock, a serialization failure, a
+lock_not_available) charges nothing: the run stops, the lines stay queued as
+they were, and the next wake retries them. A statement timeout (57014) is NOT
+transient: a product whose recompute always times out would otherwise stop the
+drain on every wake forever, so it is charged and parks like any bad line.
 
 Sell out (T7) will join step 3. Wired like `tp_cost.fill`:
 `channels=("sell_dirty",)` with no `interval`/`run_at_local`, so
@@ -52,8 +54,9 @@ logger = logging.getLogger(__name__)
 
 Claimed = Tuple[str, int, Optional[int]]
 
-# deadlock, serialization failure, lock_not_available, query_canceled; plus class 08 (connection exceptions).
-_TRANSIENT_SQLSTATES = frozenset({"40P01", "40001", "55P03", "57014"})
+# deadlock, serialization failure, lock_not_available; plus class 08 (connection exceptions).
+# Not 57014 (query_canceled / statement_timeout): it can be a product's own, permanent fault.
+_TRANSIENT_SQLSTATES = frozenset({"40P01", "40001", "55P03"})
 
 
 def is_transient(exc: BaseException) -> bool:

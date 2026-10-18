@@ -377,16 +377,16 @@ def _db_error(pgcode, cls=DBAPIError, invalidated=False):
 
 
 class TestTransientClassification:
-    @pytest.mark.parametrize("pgcode", ["40P01", "40001", "55P03", "57014", "08006", "08003"])
-    def test_lock_serialization_cancel_and_connection_sqlstates_are_transient(self, pgcode: str) -> None:
+    @pytest.mark.parametrize("pgcode", ["40P01", "40001", "55P03", "08006", "08003"])
+    def test_deadlock_serialization_lock_and_connection_sqlstates_are_transient(self, pgcode: str) -> None:
         assert sell_drain.is_transient(_db_error(pgcode))
 
     def test_an_invalidated_connection_and_a_codeless_operational_error_are_transient(self) -> None:
         assert sell_drain.is_transient(_db_error(None, invalidated=True))
         assert sell_drain.is_transient(_db_error(None, cls=OperationalError))
 
-    @pytest.mark.parametrize("pgcode", ["23505", "22P02", "54001", None])
-    def test_data_errors_are_not_transient(self, pgcode) -> None:
+    @pytest.mark.parametrize("pgcode", ["23505", "22P02", "54001", "57014", None])
+    def test_data_errors_and_statement_timeouts_are_not_transient(self, pgcode) -> None:
         assert not sell_drain.is_transient(_db_error(pgcode))
 
     def test_a_python_error_is_not_transient(self) -> None:
@@ -441,6 +441,24 @@ class TestTransientFailure:
 
         assert detail["failed"] == 0
         assert (_attempts(engine, primera), _attempts(engine, segunda)) == (0, 0)
+
+    def test_a_line_whose_recompute_always_times_out_is_parked_and_the_queue_moves_on(
+        self, engine: Engine, falla: dict
+    ) -> None:
+        lenta = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        falla["error"] = _db_error("57014")  # statement_timeout: the line's own fault, every time
+
+        for _ in range(queue.MAX_ATTEMPTS):
+            assert _drain()["failed"] == 1
+
+        assert _attempts(engine, lenta) == queue.MAX_ATTEMPTS
+        despues = w.venta(engine, "fuera", 2270, 1, D(2026, 10, 3))
+        falla["error"] = None
+        detail = _drain()
+
+        assert (detail["lines"], detail["failed"]) == (1, 0)
+        assert [c[2] for c in w.consumos(engine)] == [despues]
+        assert w.queued(engine) == [("fuera", lenta)]
 
     def test_a_data_error_is_still_charged(self, engine: Engine, falla: dict) -> None:
         ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
