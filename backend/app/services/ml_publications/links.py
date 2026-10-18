@@ -1124,8 +1124,22 @@ def seed_manual_link(
     The item is first re-evaluated with the current rule: a unit it now links stays automatic
     (`SEED_RELINKED_AUTO`). A unit that is manual, automatically linked or gone is never touched
     (`SEED_CHANGED`), nor one whose product is not in the catalog (`SEED_PRODUCT_MISSING`). The caller commits.
+
+    The item row is share-locked first (as the sweep's `_evaluate_one` does) and held until the caller's
+    commit, so a fetch cannot change the SKU between the re-evaluation and the write; the fetch waits, or this
+    call fails on the caller's `lock_timeout`. Raises `UnknownItem` when the item is not stored.
     """
-    evaluate_for_item(db, item_id, now=now, events_enabled=events_enabled, force=True)
+    item = (
+        db.query(*_ITEM_COLUMNS)
+        .filter(MlItem.item_id == item_id, MlItem.raw.isnot(None))
+        .with_for_update(read=True, of=MlItem)
+        .first()
+    )
+    if item is None:
+        raise UnknownItem(item_id)
+    typed = dict(item._mapping)
+    variations = _variations_by_item(db, [item_id])[item_id]
+    evaluate_item(db, item_id, typed, variations, now=now, events_enabled=events_enabled, force=True)
     db.flush()
     row = (
         db.query(MlItemProductLink)
@@ -1150,7 +1164,6 @@ def seed_manual_link(
     row.linked_by = None
     row.linked_at = now
     row.updated_at = now
-    typed, _ = _load_typed(db, item_id)
     log_link_change(
         db, item_id, ITEM_LEVEL, before, LinkState.of(row), now, events_enabled, typed, match_rule=match_rule
     )

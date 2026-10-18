@@ -25,19 +25,16 @@ Dry-run by default: every transaction is rolled back, so the counts are what `--
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional, Sequence
 
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from app.core import database
 from app.services.ml_publications import links
-
-logger = logging.getLogger(__name__)
 
 SEED_NOTE = "seed-erp: tb_mercadolibre_items_publicados"
 MATCH_RULE = "erp_seed"
@@ -144,14 +141,15 @@ def run(*, apply: bool, now: Callable[[], datetime] = _utcnow, batch: int = BATC
             except links.UnknownItem:
                 db.rollback()
                 counts.changed += 1
-            except OperationalError as exc:
+            except SQLAlchemyError as exc:
                 db.rollback()
-                if getattr(exc.orig, "pgcode", None) != LOCK_NOT_AVAILABLE:
-                    # Items before this one are already committed (with --apply): say how far the run got.
-                    print(f"STOPPED at {item_id} by a database error; partial counts:", file=sys.stderr)
-                    print(_tally(counts), file=sys.stderr)
-                    raise
-                counts.busy += 1  # another writer holds the item; a later run picks it up
+                if isinstance(exc, OperationalError) and getattr(exc.orig, "pgcode", None) == LOCK_NOT_AVAILABLE:
+                    counts.busy += 1  # another writer holds the item; a later run picks it up
+                    continue
+                # Items before this one are already committed (with --apply): say how far the run got.
+                print(f"STOPPED at {item_id} by a database error; partial counts:", file=sys.stderr)
+                print(_tally(counts), file=sys.stderr)
+                raise
             finally:
                 db.close()
         after = ids[-1]

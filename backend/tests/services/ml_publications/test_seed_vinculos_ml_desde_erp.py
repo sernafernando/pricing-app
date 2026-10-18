@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.core import database
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
@@ -264,6 +264,38 @@ class TestFailurePaths:
         assert "candidates: 2" in err and "seeded: 1" in err  # OTHER was committed before ITEM failed
 
 
+class TestStoppingErrors:
+    def test_a_database_error_that_is_not_operational_also_reports_the_partial_counts(
+        self, erp, monkeypatch, capsys
+    ) -> None:
+        two_mapped_candidates(erp)
+        failing_on(monkeypatch, ITEM, IntegrityError("INSERT ...", {}, _PgError("23505")))
+
+        with pytest.raises(IntegrityError):
+            run(True)
+
+        err = capsys.readouterr().err
+        assert "STOPPED" in err and "candidates: 2" in err and "seeded: 1" in err
+        assert link(erp, OTHER)["source"] == "manual"  # committed before the failure
+
+
+class TestItemRowLock:
+    def test_a_fetch_holding_the_item_row_makes_the_unit_busy_and_nothing_is_written(self, erp, monkeypatch) -> None:
+        apply(sample_item(ITEM), ITEM)
+        unmatched(erp)
+        add_product(erp, 41, "X")
+        erp_map(erp, ITEM, 41, 1)
+        monkeypatch.setattr(seed, "LOCK_TIMEOUT", "100ms")
+        with erp.connect() as fetch:  # a fetch rewriting the item (and maybe its SKU) holds its row
+            fetch.execute(text("SELECT 1 FROM ml_items WHERE item_id = :i FOR UPDATE"), {"i": ITEM})
+            counts = run(True)
+            fetch.rollback()
+
+        assert (counts.candidates, counts.busy, counts.seeded) == (1, 1, 0)
+        assert link(erp)["source"] == "sku_auto"
+        assert log_rows(erp) == []
+
+
 class TestUnitsThatChangedMeanwhile:
     """`seed_manual_link` re-reads the unit under its lock; one no longer automatic and unlinked is left alone."""
 
@@ -273,9 +305,9 @@ class TestUnitsThatChangedMeanwhile:
         add_product(erp, 41, "X")
         add_product(erp, 50, "OPERATOR-PICK")
         erp_map(erp, ITEM, 41, 1)
-        real = links.evaluate_for_item
+        real = links.evaluate_item
 
-        def operator_decides_first(db, item_id, **kwargs):
+        def operator_decides_first(db, item_id, *args, **kwargs):
             # An operator's manual link commits after the candidate list was read, before this item is seeded.
             with erp.begin() as conn:
                 conn.execute(
@@ -285,9 +317,9 @@ class TestUnitsThatChangedMeanwhile:
                     ),
                     {"i": item_id},
                 )
-            return real(db, item_id, **kwargs)
+            return real(db, item_id, *args, **kwargs)
 
-        monkeypatch.setattr(links, "evaluate_for_item", operator_decides_first)
+        monkeypatch.setattr(links, "evaluate_item", operator_decides_first)
 
         counts = run(True)
 
@@ -302,7 +334,7 @@ class TestUnitsThatChangedMeanwhile:
         apply(sample_item(ITEM), ITEM)
         put_link(erp, ITEM, 0, "sku_auto", "no_product", None, evaluated_sku_key=SKU_A, evaluated_at=at(-60))
         add_product(erp, 41, "X")
-        monkeypatch.setattr(links, "evaluate_for_item", lambda db, item_id, **kwargs: None)
+        monkeypatch.setattr(links, "evaluate_item", lambda db, item_id, *args, **kwargs: None)
 
         with database.get_background_db() as db:
             outcome = links.seed_manual_link(
