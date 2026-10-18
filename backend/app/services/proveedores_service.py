@@ -44,6 +44,7 @@ SUPPLIER_FIELD_MAP = {
 #   84_217_001 → app/scripts/drain_promo_refresh.py
 #   84_217_002 → app/scripts/sync_publication_links.py
 #   84_217_003 → app/services/ml_publication_link_service.py
+#   84_217_005 → app/services/combos/store.py
 SYNC_PROVEEDORES_LOCK_KEY = 84_217_004
 
 
