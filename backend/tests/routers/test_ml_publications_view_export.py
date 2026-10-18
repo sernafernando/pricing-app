@@ -132,7 +132,9 @@ class TestItems:
         params = {"estado": "active", "orden": "titulo", "dir": "desc"}
         expected = listed(client, admin_auth_headers, ITEMS, "item_id", **params)
         header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers, params=params))
-        assert expected == ["MLA1", "MLA4", "MLA5", "MLA2"]  # the paused one is filtered out; 2 pages of 2
+        # the paused one is filtered out; 2 pages of 2. The exact title order depends on the server collation
+        # (the '=HYPERLINK' title sorts apart under C vs ICU), so pin the set and that the export follows the list.
+        assert sorted(expected) == ["MLA1", "MLA2", "MLA4", "MLA5"]
         assert column(header, rows, "Publicación") == expected
 
     def test_a_metric_sort_follows_the_list(self, client, sold, db, rol_admin, admin_auth_headers, small_pages):
