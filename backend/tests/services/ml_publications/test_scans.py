@@ -79,6 +79,20 @@ class TestRefreshDays:
         for stale_days in range(1, 61):
             assert 0 < scans.refresh_days(stale_days) < stale_days
 
+    def test_an_item_checked_just_inside_the_cutoff_is_not_refreshed(self):
+        # stale_days=7 puts the cutoff at 5 days; NOW is fixed, so the boundary is deterministic
+        item = stored(checked_ago_days=4.99)
+        assert scans.lane_for(scans.MODE_RESCAN, "active", item, now=NOW, stale_days=7) is None
+
+    def test_an_item_checked_just_past_the_cutoff_is_refreshed(self):
+        item = stored(checked_ago_days=5.01)
+        assert scans.lane_for(scans.MODE_RESCAN, "active", item, now=NOW, stale_days=7) == queue.LANE_RECONCILE
+
+    def test_an_item_checked_exactly_at_the_cutoff_is_not_refreshed(self):
+        # the comparison is strict: an item exactly refresh_days old is still kept
+        item = scans.StoredItem(status="active", last_checked_at=scans.refresh_before(NOW, 7), gone_at=None)
+        assert scans.lane_for(scans.MODE_RESCAN, "active", item, now=NOW, stale_days=7) is None
+
     def test_an_item_never_checked_is_stale(self):
         item = scans.StoredItem(status="active", last_checked_at=None, gone_at=None)
         assert scans.lane_for(scans.MODE_RESCAN, "active", item, now=NOW, stale_days=7) == queue.LANE_RECONCILE
