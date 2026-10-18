@@ -137,6 +137,16 @@ class LinkOut(BaseModel):
     marca: Optional[str] = None
 
 
+class SkuDivergenceOut(BaseModel):
+    """The publication's seller SKU disagrees with its linked product: it names another product (`otro_producto`,
+    that product here) or no single product (`sin_coincidencia`, no product)."""
+
+    kind: str
+    producto_item_id: int | None = None
+    codigo: str | None = None
+    descripcion: str | None = None
+
+
 class AdsRowOut(BaseModel):
     """Ads of one publication over the request's period: `state` is `ok`, `sin_costo` (nothing to subtract) or
     `ads_sin_ventas` (cost but no units sold: the amount is shown, there is no per-unit cost to apply)."""
@@ -240,6 +250,7 @@ class ItemRowOut(BaseModel):
     stock: StockOut
     erp_stock: ErpStockOut
     link: LinkOut
+    sku_divergence: SkuDivergenceOut | None = None  # only when the SKU disagrees with the linked product
     last_activity_at: Optional[datetime] = None
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
     markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
@@ -647,7 +658,9 @@ def filter_query(
     producto: Optional[str] = Query(None, description="one product id (the publications of a tree node)"),
     sin_producto: Optional[bool] = Query(None, description="publications with no linked product (a tree node)"),
     tipo: Optional[str] = Query(None, description="csv of clasica,premium,catalogo,full"),
-    vinculo: Optional[str] = Query(None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado"),
+    vinculo: Optional[str] = Query(
+        None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado,sku_divergente"
+    ),
     stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),

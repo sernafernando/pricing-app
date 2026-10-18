@@ -193,6 +193,98 @@ class TestLinkedProduct:
         assert page.items[0]["link"]["codigo"] is None
 
 
+class TestSkuDivergence:
+    """`vinculo=sku_divergente` (publicaciones-ml-vinculo-mapa V2): automatic links whose seller SKU names another
+    product than the linked one (`otro_producto`) or no single product (`sin_coincidencia`)."""
+
+    @pytest.fixture()
+    def rows(self, conn):
+        seed.add_product(conn, 70, "MAP-70", "Router del mapa")
+        seed.add_product(conn, 71, "SKU-71", "Switch del SKU")
+        for item_id in ("MLA1", "MLA2", "MLA3", "MLA4", "MLA5", "MLA6", "MLA7"):
+            seed.add_item(conn, item_id, seller_sku=f"SKU-{item_id}")
+        linked = {"suggestion_status": "linked"}
+        seed.add_link(conn, "MLA1", 70, **linked, suggested_producto_item_id=71)  # other product
+        seed.add_link(conn, "MLA2", 70, suggestion_status="unmatched")  # SKU matches nothing
+        seed.add_link(conn, "MLA3", 70, suggestion_status="conflict")  # SKU matches several
+        seed.add_link(conn, "MLA4", 70, **linked, suggested_producto_item_id=70)  # agrees
+        seed.add_link(conn, "MLA5", None, match_status="unmatched", suggestion_status="unmatched")  # not linked
+        seed.add_link(conn, "MLA6", 70, source="manual", **linked, suggested_producto_item_id=71)  # manual
+        seed.add_link(conn, "MLA7", 70)  # never evaluated against the SKU: no suggestion
+        return conn
+
+    def test_the_filter_lists_both_kinds_and_nothing_else(self, rows, db) -> None:
+        assert sorted(ids(run(db, vinculo="sku_divergente"))) == ["MLA1", "MLA2", "MLA3"]
+
+    def test_values_of_the_link_filter_are_ored(self, rows, db) -> None:
+        assert sorted(ids(run(db, vinculo="sku_divergente,manual"))) == ["MLA1", "MLA2", "MLA3", "MLA6"]
+
+    def test_a_divergent_row_carries_the_kind_and_the_product_its_sku_names(self, rows, db) -> None:
+        by_id = {row["item_id"]: row for row in run(db).items}
+        assert by_id["MLA1"]["sku_divergence"] == {
+            "kind": "otro_producto",
+            "producto_item_id": 71,
+            "codigo": "SKU-71",
+            "descripcion": "Switch del SKU",
+        }
+        assert by_id["MLA1"]["link"]["codigo"] == "MAP-70" and by_id["MLA1"]["seller_sku"] == "SKU-MLA1"
+        for item_id in ("MLA2", "MLA3"):
+            assert by_id[item_id]["sku_divergence"] == {
+                "kind": "sin_coincidencia",
+                "producto_item_id": None,
+                "codigo": None,
+                "descripcion": None,
+            }
+
+    def test_any_other_row_has_no_divergence(self, rows, db) -> None:
+        by_id = {row["item_id"]: row for row in run(db).items}
+        assert {i: by_id[i]["sku_divergence"] for i in ("MLA4", "MLA5", "MLA6", "MLA7")} == dict.fromkeys(
+            ("MLA4", "MLA5", "MLA6", "MLA7")
+        )
+
+    def test_the_response_schema_keeps_the_divergence(self, rows, db) -> None:
+        from app.routers.ml_publications_view import ItemRowOut
+
+        by_id = {row["item_id"]: row for row in run(db).items}
+        assert ItemRowOut.model_validate(by_id["MLA1"]).model_dump()["sku_divergence"]["kind"] == "otro_producto"
+        assert ItemRowOut.model_validate(by_id["MLA4"]).model_dump()["sku_divergence"] is None
+
+    def test_the_facet_counts_the_divergent_rows_beside_the_link_states(self, rows, db) -> None:
+        link = listing.facets(db, parse_filter())["link"]
+        assert link == {"auto": 5, "manual": 1, "sin_producto": 1, "sku_divergente": 3}
+        assert link["sku_divergente"] == run(db, vinculo="sku_divergente").total
+
+    def test_a_sku_that_matches_nothing_names_no_product_even_with_a_stale_suggestion(self, conn, db) -> None:
+        seed.add_product(conn, 70, "MAP-70", "Router del mapa")
+        seed.add_product(conn, 71, "SKU-71", "Switch del SKU")
+        seed.add_item(conn, "MLA1", seller_sku="SKU-MLA1")
+        # a suggestion that once matched product 71, then stopped matching: the stored id is stale
+        seed.add_link(conn, "MLA1", 70, suggestion_status="unmatched", suggested_producto_item_id=71)
+        (row,) = run(db).items
+        assert row["sku_divergence"] == {
+            "kind": "sin_coincidencia",
+            "producto_item_id": None,
+            "codigo": None,
+            "descripcion": None,
+        }
+
+    def test_with_the_links_flag_off_nothing_is_evaluated_so_link_and_divergence_read_empty(self, conn, db) -> None:
+        """`links.enabled` off: the store writes no link row (`store._evaluate_links`), and the divergence reads
+        only the stored link row, exactly like `link` (status_block.FLAG_EFFECTS["links"])."""
+        seed.add_product(conn, 71, "SKU-71", "Switch del SKU")
+        seed.add_item(conn, "MLA1", seller_sku="SKU-71")
+        (row,) = run(db).items
+        assert row["link"]["state"] == "no_evaluado" and row["link"]["producto_item_id"] is None
+        assert row["sku_divergence"] is None
+        assert run(db, vinculo="sku_divergente").total == 0
+        assert "sku_divergente" not in listing.facets(db, parse_filter())["link"]
+
+    def test_the_facet_offers_no_divergence_when_there_is_none(self, conn, db) -> None:
+        seed.add_item(conn, "MLA1")
+        seed.add_link(conn, "MLA1", None, match_status="unmatched")
+        assert listing.facets(db, parse_filter())["link"] == {"sin_producto": 1}
+
+
 class TestErpStock:
     """The ERP stock of the linked product (depósito 1, as Productos shows it), apart from the ML stock block."""
 

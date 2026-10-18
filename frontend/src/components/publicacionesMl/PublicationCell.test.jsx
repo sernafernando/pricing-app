@@ -126,3 +126,19 @@ describe('PublicationCell seller SKU', () => {
     expect(screen.queryByLabelText(/SKU del vendedor/)).not.toBeInTheDocument();
   });
 });
+
+describe('PublicationCell SKU divergence', () => {
+  it('flags a publication whose SKU disagrees with its linked product', () => {
+    render(
+      <PublicationCell
+        item={makeItem({ sku_divergence: { kind: 'otro_producto', producto_item_id: 71, codigo: 'SKU-71', descripcion: 'Switch' } })}
+      />,
+    );
+    expect(screen.getByLabelText('SKU distinto del producto vinculado: Otro producto')).toBeInTheDocument();
+  });
+
+  it('flags nothing when the SKU agrees', () => {
+    render(<PublicationCell item={makeItem({ sku_divergence: null })} />);
+    expect(screen.queryByLabelText(/SKU distinto/)).not.toBeInTheDocument();
+  });
+});

@@ -7,6 +7,7 @@ import { render, screen } from '@testing-library/react';
 import PriceCell from './PriceCell';
 import ErpStockCell from './ErpStockCell';
 import LinkBadge from './LinkBadge';
+import SkuDivergenceCell from './SkuDivergenceCell';
 import LastEventCell from './LastEventCell';
 import PublicationStatusPill from './PublicationStatusPill';
 import { eventLabel } from './eventLabels';
@@ -129,6 +130,50 @@ describe('PublicationStatusPill', () => {
 
   it('renders "—" without a status', () => {
     render(<PublicationStatusPill status={null} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+});
+
+describe('SkuDivergenceCell', () => {
+  const LINKED = { state: 'auto', producto_item_id: 70, codigo: 'MAP-70', descripcion: 'Router del mapa', marca: null };
+  const divergent = (overrides) =>
+    makeItem({
+      seller_sku: 'SKU-71',
+      link: LINKED,
+      sku_divergence: { kind: 'otro_producto', producto_item_id: 71, codigo: 'SKU-71', descripcion: 'Switch del SKU' },
+      ...overrides,
+    });
+
+  it('names the kind, the SKU in Mercado Libre, the product the SKU names and the linked product', () => {
+    render(<SkuDivergenceCell item={divergent()} />);
+    expect(screen.getByText('Otro producto')).toBeInTheDocument();
+    expect(screen.getByLabelText('SKU en Mercado Libre: SKU-71')).toBeInTheDocument();
+    expect(screen.getByLabelText('Producto por SKU: SKU-71 Switch del SKU')).toBeInTheDocument();
+    expect(screen.getByLabelText('Producto vinculado: MAP-70 Router del mapa')).toBeInTheDocument();
+  });
+
+  it('a SKU that names no single product says so, and has no product by SKU', () => {
+    render(
+      <SkuDivergenceCell
+        item={divergent({ sku_divergence: { kind: 'sin_coincidencia', producto_item_id: null, codigo: null, descripcion: null } })}
+      />,
+    );
+    expect(screen.getByText('SKU sin coincidencia')).toBeInTheDocument();
+    expect(screen.getByLabelText('Producto por SKU: ninguno')).toBeInTheDocument();
+    expect(screen.getByLabelText('Producto vinculado: MAP-70 Router del mapa')).toBeInTheDocument();
+  });
+
+  it('a publication without a SKU in Mercado Libre reads "Sin SKU"', () => {
+    render(
+      <SkuDivergenceCell
+        item={divergent({ seller_sku: null, sku_divergence: { kind: 'sin_coincidencia', producto_item_id: null, codigo: null, descripcion: null } })}
+      />,
+    );
+    expect(screen.getByLabelText('SKU en Mercado Libre: Sin SKU')).toBeInTheDocument();
+  });
+
+  it('renders "—" when the SKU agrees with the linked product', () => {
+    render(<SkuDivergenceCell item={divergent({ sku_divergence: null })} />);
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 });

@@ -245,7 +245,7 @@ def get_item_links(
 
 @router.get("/product-links", response_model=ListOut)
 def list_links(
-    cls: Literal["unmatched", "conflict", "manual_differs", "dangling"] = Query(alias="class"),
+    cls: Literal["unmatched", "conflict", "manual_differs", "dangling", "sku_divergent"] = Query(alias="class"),
     cursor: Optional[str] = Query(default=None, description="`next_cursor` of the previous page"),
     limit: int = Query(default=links.LIST_DEFAULT, ge=1, le=links.LIST_MAX),
     _user: Usuario = Depends(require_permission(PERMISO_VER)),

@@ -425,6 +425,26 @@ class TestLists:
         ).json()
         assert [i["item_id"] for i in last["items"]] == ["MLA0004"] and last["next_cursor"] is None
 
+    def test_lists_the_sku_divergent_units_with_their_link_and_suggestion(self, client, pg, reader) -> None:
+        from datetime import UTC, datetime
+
+        with pg.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO ml_item_product_links (item_id, variation_id, source, match_status, producto_item_id, "
+                    "suggestion_status, suggested_producto_item_id, evaluated_at, linked_at) VALUES "
+                    "('MLA1', 0, 'sku_auto', 'linked', 70, 'linked', 71, :t, :t), "
+                    "('MLA2', 0, 'sku_auto', 'linked', 70, 'linked', 70, :t, :t)"
+                ),
+                {"t": datetime(2026, 10, 6, tzinfo=UTC)},
+            )
+
+        response = client.get(f"{BASE}/product-links?class=sku_divergent", headers=reader)
+
+        assert response.status_code == 200
+        (item,) = response.json()["items"]
+        assert (item["item_id"], item["producto_item_id"], item["suggested_producto_item_id"]) == ("MLA1", 70, 71)
+
     @pytest.mark.parametrize("cls", ["conflict", "manual_differs", "dangling"])
     def test_the_other_classes_answer_even_when_empty(self, client, pg, reader, cls) -> None:
         response = client.get(f"{BASE}/product-links?class={cls}", headers=reader)

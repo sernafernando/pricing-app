@@ -322,3 +322,85 @@ class TestFingerprint:
 
         assert result.forced and result.units.changed == 1
         assert link(env)["producto_item_id"] == 42
+
+
+def divergent() -> list[tuple[str, int]]:
+    with database.get_background_db() as db:
+        page = links.list_units(db, "sku_divergent")
+    return [(i["item_id"], i["variation_id"]) for i in page["items"]]
+
+
+class TestSkuDivergence:
+    """The units whose seller SKU disagrees with the product the map links them to (V2).
+
+    Evaluated through the real rule: an automatic unit the SKU links by itself always stores the same product as
+    link and suggestion, so only a map-linked unit can diverge.
+    """
+
+    def test_a_sku_naming_another_product_than_the_map_diverges(self, env) -> None:
+        add_product(env, 41, SKU_A)
+        add_product(env, 42, "MAP-PRODUCT")
+        add_map(env, ITEM, 42)
+
+        evaluate(sample_item(ITEM), minutes=1)
+
+        assert divergent() == [(ITEM, 0)]
+
+    def test_a_sku_matching_nothing_while_the_map_links_diverges(self, env) -> None:
+        add_product(env, 42, "MAP-PRODUCT")
+        add_map(env, ITEM, 42)
+
+        evaluate(_with_sku("NOT-A-PRODUCT"), minutes=1)
+
+        assert divergent() == [(ITEM, 0)]
+
+    def test_a_sku_conflict_while_the_map_links_diverges(self, env) -> None:
+        add_product(env, 41, SKU_A)
+        add_product(env, 43, SKU_A)
+        add_map(env, ITEM, 43)
+
+        evaluate(sample_item(ITEM), minutes=1)
+
+        assert divergent() == [(ITEM, 0)]
+
+    def test_a_sku_agreeing_with_the_map_does_not_diverge(self, env) -> None:
+        add_product(env, 41, SKU_A)
+        add_map(env, ITEM, 41)
+
+        evaluate(sample_item(ITEM), minutes=1)
+
+        assert divergent() == []
+
+    @pytest.mark.parametrize("sku", [SKU_A, "NOT-A-PRODUCT"])
+    def test_a_unit_the_map_does_not_know_never_diverges(self, env, sku) -> None:
+        add_product(env, 41, SKU_A)
+
+        evaluate(_with_sku(sku), minutes=1)
+
+        assert divergent() == []
+
+    def test_manual_links_are_out_of_the_divergence(self, env) -> None:
+        add_product(env, 41, SKU_A)
+        put_link(
+            env,
+            ITEM,
+            0,
+            "manual",
+            "linked",
+            41,
+            suggestion_status="unmatched",
+            evaluated_at=at(1),
+        )
+        put_link(
+            env,
+            OTHER_ITEM,
+            0,
+            "manual",
+            "linked",
+            41,
+            suggestion_status="linked",
+            suggested_producto_item_id=5,
+            evaluated_at=at(1),
+        )
+
+        assert divergent() == []

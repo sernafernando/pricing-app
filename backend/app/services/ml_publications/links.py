@@ -27,8 +27,11 @@ from datetime import datetime, time, timezone
 from typing import Any, Callable, Collection, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, text
+from sqlalchemy import and_, case, func, literal, or_, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import aliased
+from sqlalchemy.sql import ColumnElement
 
 from app.core import database
 from app.models.auditoria import Auditoria, TipoAccion
@@ -1173,7 +1176,46 @@ LIST_MAX = 200  # largest page the lists serve
 LIST_DEFAULT = 50
 LIST_STATEMENT_TIMEOUT = "5s"
 
-# The class of a link, by its stored state; same classification the coverage report counts.
+# The kinds of SKU divergence (publicaciones-ml-vinculo-mapa V2): an automatic unit linked to a product whose seller
+# SKU names ANOTHER product, or no single product (it matches nothing, or several).
+DIVERGENCE_OTHER_PRODUCT = "otro_producto"
+DIVERGENCE_NO_MATCH = "sin_coincidencia"
+
+
+def sku_divergence(link: Any) -> ColumnElement:
+    """The SKU divergence kind of a stored link (`link` is `MlItemProductLink` or an alias of it), else NULL.
+
+    Read-time, from the stored suggestion. Only automatic linked units qualify (a manual decision is measured by
+    `manual_differs`). An automatic unit the SKU links by itself stores the same answer as link and suggestion
+    (`automatic`), so either kind implies the ERP map decided the link: no separate map test is needed.
+    """
+    auto_linked = and_(link.source == SOURCE_AUTO, link.match_status == STATUS_LINKED)
+    return case(
+        (
+            and_(
+                auto_linked,
+                link.suggestion_status == STATUS_LINKED,
+                link.suggested_producto_item_id.is_distinct_from(link.producto_item_id),
+            ),
+            literal(DIVERGENCE_OTHER_PRODUCT),
+        ),
+        (
+            # an OR, not IN: an expanding IN does not survive `compile()` into the raw SQL the plan probes run
+            and_(
+                auto_linked,
+                or_(link.suggestion_status == STATUS_UNMATCHED, link.suggestion_status == STATUS_CONFLICT),
+            ),
+            literal(DIVERGENCE_NO_MATCH),
+        ),
+    )
+
+
+def _sql(clause: ColumnElement) -> str:
+    return str(clause.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+
+
+# The class of a link, by its stored state; same classification the coverage report counts (`sku_divergent`
+# excepted: it is a view over linked units, which coverage counts as linked).
 _LIST_PREDICATES = {
     "unmatched": "l.source = 'sku_auto' AND l.match_status = 'unmatched' AND l.evaluated_at IS NOT NULL",
     "conflict": "l.source = 'sku_auto' AND l.match_status = 'conflict' AND l.evaluated_at IS NOT NULL",
@@ -1185,6 +1227,8 @@ _LIST_PREDICATES = {
         "l.producto_item_id IS NOT NULL AND l.evaluated_at IS NOT NULL "
         "AND NOT EXISTS (SELECT 1 FROM productos_erp p WHERE p.item_id = l.producto_item_id)"
     ),
+    # the same expression the Publicaciones ML view filters by, rendered once for the `l` alias of `_LIST_SQL`
+    "sku_divergent": _sql(sku_divergence(aliased(MlItemProductLink, name="l")).isnot(None)),
 }
 LIST_CLASSES = tuple(_LIST_PREDICATES)
 

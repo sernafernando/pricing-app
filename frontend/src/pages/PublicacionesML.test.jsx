@@ -417,6 +417,42 @@ describe('columns', () => {
   });
 });
 
+describe('SKU divergence', () => {
+  it('the "SKU distinto del producto" chip filters by vinculo=sku_divergente', async () => {
+    await page();
+    const vinculo = screen.getByRole('group', { name: 'Filtrar por vínculo' });
+    await userEvent.click(within(vinculo).getByRole('button', { name: /SKU distinto del producto/ }));
+    await waitFor(() => expect(lastParams().vinculo).toBe('sku_divergente'));
+  });
+
+  it('with the filter on, each row shows its SKU, the product by SKU and the linked product', async () => {
+    respond({
+      ...itemsResponse({
+        total: 1,
+        items: [
+          makeItem({
+            item_id: 'MLA1100000001',
+            seller_sku: 'SKU-71',
+            link: { state: 'auto', producto_item_id: 70, codigo: 'MAP-70', descripcion: 'Router del mapa', marca: null },
+            sku_divergence: { kind: 'otro_producto', producto_item_id: 71, codigo: 'SKU-71', descripcion: 'Switch del SKU' },
+          }),
+        ],
+      }),
+      facets: FACETS,
+    });
+    await page('/ml-publicaciones?vinculo=sku_divergente');
+    expect(screen.getByRole('columnheader', { name: 'SKU distinto' })).toBeInTheDocument();
+    const row = screen.getByText('MLA1100000001').closest('tr');
+    expect(within(row).getByLabelText('Producto por SKU: SKU-71 Switch del SKU')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Producto vinculado: MAP-70 Router del mapa')).toBeInTheDocument();
+  });
+
+  it('without the filter there is no divergence column', async () => {
+    await page();
+    expect(screen.queryByRole('columnheader', { name: 'SKU distinto' })).not.toBeInTheDocument();
+  });
+});
+
 describe('banner', () => {
   it('S67.1: an empty store is named, with a matching empty message', async () => {
     respond({ ...itemsResponse({ items: [], total: 0 }), data_state: { ...DATA_STATE_OK, store_empty: true } });

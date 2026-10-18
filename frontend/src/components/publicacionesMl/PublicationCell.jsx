@@ -1,6 +1,7 @@
 import { Barcode, CircleDashed, Link2, Store, TriangleAlert, Unlink } from 'lucide-react';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../../utils/mlSellerPanel';
 import MlSellerLinks from './MlSellerLinks';
+import { SKU_DIVERGENCE_KINDS } from './skuDivergence';
 import styles from './PublicationCell.module.css';
 
 const MLA_SHORTCUTS = 'Alt+clic: ver en el panel de ML · Mayús+clic: ver promociones en ML';
@@ -80,6 +81,18 @@ function LinkTag({ link }) {
   );
 }
 
+/** A warning when the publication's SKU disagrees with its linked product (the kind in the accessible name). */
+function DivergenceTag({ divergence }) {
+  const kind = SKU_DIVERGENCE_KINDS[divergence?.kind];
+  if (!kind) return null;
+  const label = `SKU distinto del producto vinculado: ${kind.label}`;
+  return (
+    <span className={styles.divergence} aria-label={label} title={label}>
+      <TriangleAlert size={11} aria-hidden="true" />
+    </span>
+  );
+}
+
 /**
  * First (pinned) column: thumbnail, title and the facts that identify the
  * publication -- MLA, Full, catalogue, how many variations -- plus links to
@@ -114,6 +127,7 @@ export default function PublicationCell({ item }) {
           </span>
           <MlSellerLinks itemId={item.item_id} />
           <SkuTag sku={item.seller_sku} />
+          <DivergenceTag divergence={item.sku_divergence} />
           <LinkTag link={item.link} />
           <StoreTag item={item} />
           {tags.map((tag) => (

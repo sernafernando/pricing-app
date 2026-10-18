@@ -30,10 +30,13 @@ REPORT_TTL_SECONDS = 60.0
 FAILURE_TTL_SECONDS = 10.0
 DAY_SECONDS = 86400
 
-# flag -> the response fields (or filters) that read null or empty while it is off
+# flag -> the response fields (or filters) that the flag keeps current. While it is off they are not computed
+# (`last_event`, `evento`) or not maintained: the links flag stops the store from evaluating links, so `link` and
+# `sku_divergence`, which both read only the stored link row, are empty for a unit never evaluated and frozen at
+# the last evaluation otherwise.
 FLAG_EFFECTS: dict[str, list[str]] = {
     "events": ["last_event", "evento"],
-    "links": ["link"],
+    "links": ["link", "sku_divergence"],
     "refresh": ["all"],
 }
 # resource -> the same, for a resource that the store does not collect (not in `bundle_resources`)
