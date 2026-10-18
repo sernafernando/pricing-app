@@ -33,7 +33,7 @@ DAY_SECONDS = 86400
 # flag -> the response fields (or filters) that read null or empty while it is off
 FLAG_EFFECTS: dict[str, list[str]] = {
     "events": ["last_event", "evento"],
-    "links": ["link"],
+    "links": ["link", "sku_divergence"],
     "refresh": ["all"],
 }
 # resource -> the same, for a resource that the store does not collect (not in `bundle_resources`)

@@ -110,7 +110,9 @@ def add_link(
     source: str = "sku_auto",
     match_status: str = "linked",
     variation_id: int = 0,
+    **extra: Any,
 ) -> None:
+    """`extra`: further link columns (the SKU suggestion: `suggestion_status`, `suggested_producto_item_id`)."""
     _insert(
         conn,
         "ml_item_product_links",
@@ -121,6 +123,7 @@ def add_link(
             "match_status": match_status,
             "producto_item_id": producto_item_id,
             "linked_at": NOW,
+            **extra,
         },
     )
 

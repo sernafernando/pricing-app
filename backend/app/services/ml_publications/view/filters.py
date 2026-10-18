@@ -39,6 +39,7 @@ from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.events import EVENT_TYPES as real_event_types
+from app.services.ml_publications.links import sku_divergence
 
 MAX_Q_LENGTH = 100
 MIN_ID, MAX_ID = -(2**63), 2**63 - 1  # what the database can hold (bigint): anything beyond is a mistake, not a miss
@@ -47,7 +48,11 @@ MAX_CSV_VALUES = 50  # a screen selects a handful; a huge IN (...) list is a mis
 STATUS_VALUES = ("active", "paused", "closed", "under_review", "inactive")
 STATUS_GONE = "gone"  # not an ML status: the item vanished from ML (`gone_at` set)
 LISTING_VALUES = ("clasica", "premium", "catalogo", "full")
-LINK_VALUES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
+# `sku_divergente` is not a link state: it selects the automatic links whose seller SKU disagrees with the linked
+# product (`links.sku_divergence`), a subset of `auto`.
+LINK_SKU_DIVERGENT = "sku_divergente"
+LINK_STATES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
+LINK_VALUES = (*LINK_STATES, LINK_SKU_DIVERGENT)
 STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock", "propio_sin_stock")
 NO_STORE = "none"
 NO_STATUS = "sin_estado"
@@ -381,7 +386,8 @@ def parse_ads_period(ads_desde: Optional[str], ads_hasta: Optional[str]) -> tupl
 # --- the base select ----------------------------------------------------------------------------------------
 #
 # One SELECT over `ml_items` with LEFT JOINs that are each unique on their join key (so none can multiply a row):
-# the current sale price, the ITEM-LEVEL link (variation 0), the linked product and the per-user-product stock.
+# the current sale price, the ITEM-LEVEL link (variation 0), the linked product, the product the link's SKU suggests
+# (`ps`, read only by the SKU divergence) and the per-user-product stock.
 # This is the only view module that names the product catalog: see the exception in `test_static_guards.py`.
 
 LINK_ITEM_LEVEL = 0
@@ -402,33 +408,27 @@ class T:
     sp = aliased(MlItemSalePrice, name="sp")
     l = aliased(MlItemProductLink, name="l")  # noqa: E741 -- the design names the link table `l`
     p = aliased(ProductoERP, name="p")
+    ps = aliased(ProductoERP, name="ps")  # the product the link's seller SKU names (the stored suggestion)
     st = aliased(MlUserProductStock, name="st")
     v = aliased(MlItemVariation, name="v")
     e = aliased(MlItemEvent, name="e")
 
 
 def joined() -> Any:
-    return orm_join(
-        orm_join(
-            orm_join(
-                orm_join(
-                    T.i,
-                    T.sp,
-                    and_(T.sp.item_id == T.i.item_id, T.sp.gone_at.is_(None), T.sp.http_status.between(200, 299)),
-                    isouter=True,
-                ),
-                T.l,
-                and_(T.l.item_id == T.i.item_id, T.l.variation_id == LINK_ITEM_LEVEL),
-                isouter=True,
-            ),
-            T.p,
-            T.p.item_id == T.l.producto_item_id,
-            isouter=True,
-        ),
-        T.st,
-        T.st.user_product_id == T.i.user_product_id,
+    priced = orm_join(
+        T.i,
+        T.sp,
+        and_(T.sp.item_id == T.i.item_id, T.sp.gone_at.is_(None), T.sp.http_status.between(200, 299)),
         isouter=True,
     )
+    linked = orm_join(priced, T.l, and_(T.l.item_id == T.i.item_id, T.l.variation_id == LINK_ITEM_LEVEL), isouter=True)
+    products = orm_join(
+        orm_join(linked, T.p, T.p.item_id == T.l.producto_item_id, isouter=True),
+        T.ps,
+        T.ps.item_id == T.l.suggested_producto_item_id,
+        isouter=True,
+    )
+    return orm_join(products, T.st, T.st.user_product_id == T.i.user_product_id, isouter=True)
 
 
 def price_amount() -> ColumnElement:
@@ -451,6 +451,20 @@ def link_state() -> ColumnElement:
         (T.l.match_status == LINK_LINKED, literal("auto")),
         else_=literal("sin_producto"),
     )
+
+
+def link_divergence() -> ColumnElement:
+    """The SKU divergence kind of the row's item-level link (`links.sku_divergence`), else NULL."""
+    return sku_divergence(T.l)
+
+
+def _link(f: PublicationFilter) -> ColumnElement:
+    """`vinculo`: the link states asked for, OR the SKU-divergent links when `sku_divergente` is among them."""
+    states = [value for value in f.link if value != LINK_SKU_DIVERGENT]
+    parts = [link_state().in_(states)] if states else []
+    if LINK_SKU_DIVERGENT in f.link:
+        parts.append(link_divergence().isnot(None))
+    return or_(*parts)
 
 
 def _status(f: PublicationFilter) -> ColumnElement:
@@ -727,7 +741,7 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if f.listing and skip != "listing":
         where.append(_any_of(listing_clauses(), f.listing))
     if f.link and skip != "link":
-        where.append(link_state().in_(f.link))
+        where.append(_link(f))
     if f.stock and skip != "stock":
         where.append(_any_of(stock_clauses(), f.stock))
     if f.event_types:

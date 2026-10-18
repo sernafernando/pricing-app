@@ -25,6 +25,7 @@ from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
+    LINK_SKU_DIVERGENT,
     NO_STORE,
     FilterError,
     PublicationFilter,
@@ -32,6 +33,7 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     encode_key,
     erp_stock,
+    link_divergence,
     link_state,
     listing_clauses,
     normalized_text,
@@ -151,6 +153,10 @@ def row_columns() -> list[Any]:
         p.codigo,
         p.descripcion,
         p.marca,
+        link_divergence().label("sku_divergence_kind"),
+        l.suggested_producto_item_id,
+        T.ps.codigo.label("suggested_codigo"),
+        T.ps.descripcion.label("suggested_descripcion"),
         st.full_quantity,
         st.own_quantity,
         st.ml_last_updated.label("stock_as_of"),
@@ -187,6 +193,19 @@ def _price(row: Any) -> dict[str, Any]:
 def _seller_sku(row: Any) -> Optional[str]:
     """The publication's SKU: the automatic link's own key (`links.sku_key`), so the row shows what the rule reads."""
     return sku_key(row.sku_attribute, row.sku_custom_field)[0]
+
+
+def _sku_divergence(row: Any) -> dict[str, Any] | None:
+    """The product the publication's SKU names when it disagrees with the linked one (`links.sku_divergence`):
+    none for `sin_coincidencia`, which names no single product; the whole block is None when the SKU agrees."""
+    if row.sku_divergence_kind is None:
+        return None
+    return {
+        "kind": row.sku_divergence_kind,
+        "producto_item_id": row.suggested_producto_item_id,
+        "codigo": row.suggested_codigo,
+        "descripcion": row.suggested_descripcion,
+    }
 
 
 def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_events: Optional[dict[str, Any]]) -> dict:
@@ -226,6 +245,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
             "descripcion": row.descripcion,
             "marca": row.marca,
         },
+        "sku_divergence": _sku_divergence(row),
         "last_activity_at": row.last_trigger_received_at,
     }
     if last_events is not None:
@@ -451,6 +471,18 @@ def _flags(db: Session, f: PublicationFilter, axis: str, clauses: dict) -> dict[
     return dict(db.execute(build_base_select(f, *counts, skip=axis)).one()._mapping)
 
 
+def _link_counts(db: Session, f: PublicationFilter) -> dict[str, int]:
+    """The link axis: one count per link state, plus `sku_divergente` (a subset of `auto`, counted in the same
+    statement) when any row diverges. Like the states, a value with no rows is not offered."""
+    state, count = link_state(), func.count()
+    divergent = func.count().filter(link_divergence().isnot(None))
+    query = build_base_select(f, state, count.label("n"), divergent.label("d"), skip="link")
+    rows = db.execute(query.group_by(state).order_by(count.desc(), state)).all()
+    counts = {name: n for name, n, _ in rows}
+    divergent_total = sum(d for _, _, d in rows)
+    return {**counts, LINK_SKU_DIVERGENT: divergent_total} if divergent_total else counts
+
+
 def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
     """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
     own selection left out (so choosing a value never makes its siblings read zero). The brand values are keys as
@@ -465,6 +497,6 @@ def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
         "stores": by_store,
         "marcas": {encode_key(name): count for name, count in by_brand.items()},
         "listing": _flags(db, f, "listing", listing_clauses()),
-        "link": _grouped(db, f, "link", link_state()),
+        "link": _link_counts(db, f),
         "stock": _flags(db, f, "stock", stock_clauses()),
     }

@@ -168,7 +168,7 @@ class TestCsvParams:
         "param, attr, good",
         [
             ("tipo", "listing", "clasica,premium,catalogo,full"),
-            ("vinculo", "link", "auto,manual,sin_producto,conflicto,no_evaluado"),
+            ("vinculo", "link", "auto,manual,sin_producto,conflicto,no_evaluado,sku_divergente"),
             ("stock", "stock", "sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
         ],
     )

@@ -206,6 +206,31 @@ class TestContract:
         assert line.startswith("pubml.view endpoint=items total_ms=") and "rows=2" in line and "total=2" in line
 
 
+class TestSkuDivergence:
+    def test_the_divergence_filter_lists_the_row_with_the_product_its_sku_names(self, client, pg, reader) -> None:
+        def fill(conn) -> None:
+            seed.add_product(conn, 70, "MAP-70", "Router del mapa")
+            seed.add_product(conn, 71, "SKU-71", "Switch del SKU")
+            seed.add_item(conn, "MLA1", seller_sku="SKU-71")
+            seed.add_item(conn, "MLA2", seller_sku="MAP-70")
+            seed.add_link(conn, "MLA1", 70, suggestion_status="linked", suggested_producto_item_id=71)
+            seed.add_link(conn, "MLA2", 70, suggestion_status="linked", suggested_producto_item_id=70)
+
+        seed_rows(pg, fill)
+        response = get(client, reader, vinculo="sku_divergente", facets="true")
+        assert response.status_code == 200
+        body = response.json()
+        (item,) = body["items"]
+        assert item["item_id"] == "MLA1" and item["link"]["codigo"] == "MAP-70"
+        assert item["sku_divergence"] == {
+            "kind": "otro_producto",
+            "producto_item_id": 71,
+            "codigo": "SKU-71",
+            "descripcion": "Switch del SKU",
+        }
+        assert body["facets"]["link"]["sku_divergente"] == 1
+
+
 class TestInvalidParams:
     @pytest.mark.parametrize(
         "params, field",
