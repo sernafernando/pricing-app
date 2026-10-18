@@ -7,12 +7,11 @@ Postgres only (the recompute takes advisory locks). Throwaway schema.
 
 from __future__ import annotations
 
+import importlib
+import sys
 from datetime import date
 from decimal import Decimal
 from typing import Iterator
-
-import importlib
-import sys
 
 import pytest
 from sqlalchemy import Engine, text
@@ -139,6 +138,32 @@ class TestBackfill:
         assert summary["last_item_id"] == 2964
         assert w.consumos(engine) == [(a, "fuera", va, 2964, 1, Decimal("10.00"))]
 
+    def test_a_failed_candidate_read_stops_the_run_and_keeps_the_committed_summary(self, engine: Engine) -> None:
+        a, b, va, vb = _seed(engine)
+        factory = sessionmaker(bind=engine)
+        sessions = []
+
+        def _second_read_fails():
+            db = factory()
+            sessions.append(db)
+            if len(sessions) == 2:
+                original = db.execute
+
+                def _execute(statement, *args, **kwargs):
+                    if statement is script._CANDIDATES_SQL:
+                        raise RuntimeError("connection lost")
+                    return original(statement, *args, **kwargs)
+
+                db.execute = _execute
+            return db
+
+        summary = run_backfill(limit=None, dry_run=False, batch_size=1, session_factory=_second_read_fails)
+
+        assert (summary["products"], summary["inserted"], summary["last_item_id"]) == (1, 1, 2270)
+        assert summary["stopped_at_after_item"] == 2270
+        assert "connection lost" in summary["stop_error"]
+        assert w.consumos(engine) == [(b, "ml", vb, 2270, 2, Decimal("40.00"))]
+
     def test_items_runs_exactly_the_given_products_in_batches(self, engine: Engine) -> None:
         a, b, va, vb = _seed(engine)
 
@@ -193,6 +218,16 @@ class TestMain:
 
         assert script.main([]) == 1
         assert "--items 2270,2964" in caplog.text
+
+    def test_it_exits_one_and_prints_how_to_resume_when_the_run_stopped(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        stopped = {**self._summary([]), "stopped_at_after_item": 2270, "stop_error": "RuntimeError: connection lost"}
+        monkeypatch.setattr(script, "run_backfill", lambda **_: stopped)
+
+        assert script.main([]) == 1
+        assert "stopped at after_item=2270" in caplog.text
+        assert "--after-item 2270" in caplog.text
 
 
 class TestImport:

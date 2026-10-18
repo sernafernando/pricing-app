@@ -19,7 +19,12 @@ summary's `failed_items`; a batch that fails outside the per-product savepoint
 are listed; `--after-item` would skip them, so `--items` (a CSV of
 item ids) reruns exactly those products and nothing else.
 
-Exits 1 when any product failed (after printing the `--items` rerun line), 0
+If reading the next candidates fails, the run stops there: the summary keeps
+what was committed and sets `stopped_at_after_item` (resume with
+`--after-item`) and `stop_error`.
+
+Exits 1 when any product failed (after printing the `--items` rerun line) or
+the run stopped early (after printing the `--after-item` resume line), 0
 otherwise. Run from `backend/` with `-m`: the settings read `backend/.env`
 from there, so the module does no import-time bootstrap.
 
@@ -82,6 +87,8 @@ def run_backfill(
         "failed": 0,
         "failed_items": [],
         "last_item_id": after_item,
+        "stopped_at_after_item": None,
+        "stop_error": None,
     }
     while limit is None or summary["products"] < limit:
         take = batch_size if limit is None else min(batch_size, limit - summary["products"])
@@ -89,7 +96,15 @@ def run_backfill(
         try:
             if wanted is None:
                 params = {"after": summary["last_item_id"], "take": take}
-                batch = [row[0] for row in db.execute(_CANDIDATES_SQL, params)]
+                try:
+                    batch = [row[0] for row in db.execute(_CANDIDATES_SQL, params)]
+                except Exception as exc:  # noqa: BLE001 - keep the summary of the committed batches
+                    logger.exception(
+                        "backfill_sell_in_consumos: reading candidates after %s failed", summary["last_item_id"]
+                    )
+                    summary["stopped_at_after_item"] = summary["last_item_id"]
+                    summary["stop_error"] = f"{type(exc).__name__}: {exc}"[:500]
+                    break
             else:
                 batch = [item for item in wanted if item > summary["last_item_id"]][:take]
             if not batch:
@@ -174,15 +189,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         after_item=args.after_item,
         items=args.items,
     )
-    logger.info("backfill_sell_in_consumos: complete %s", summary)
+    stopped = summary.get("stopped_at_after_item")
+    logger.info("backfill_sell_in_consumos: %s %s", "stopped" if stopped is not None else "complete", summary)
+    if stopped is not None:
+        logger.error(
+            "backfill_sell_in_consumos: stopped at after_item=%s (%s); resume with --after-item %s",
+            stopped,
+            summary.get("stop_error"),
+            stopped,
+        )
     if summary["failed_items"]:
         logger.warning(
             "backfill_sell_in_consumos: %s product(s) failed; rerun them with --items %s",
             len(summary["failed_items"]),
             ",".join(str(item) for item in summary["failed_items"]),
         )
-        return 1
-    return 0
+    return 1 if summary["failed_items"] or stopped is not None else 0
 
 
 if __name__ == "__main__":  # pragma: no cover
