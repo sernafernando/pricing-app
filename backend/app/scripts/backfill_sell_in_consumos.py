@@ -14,7 +14,9 @@ back under `--dry-run`, which still reports what would change); `--after-item`
 (the `last_item_id` of a previous summary) skips what is done.
 
 A product whose recompute fails is rolled back alone and listed in the
-summary's `failed_items`; `--after-item` would skip it, so `--items` (a CSV of
+summary's `failed_items`; a batch that fails outside the per-product savepoint
+(shared reads, the lock, the commit) is rolled back whole and all its products
+are listed; `--after-item` would skip them, so `--items` (a CSV of
 item ids) reruns exactly those products and nothing else.
 
 Run:
@@ -42,7 +44,7 @@ from sqlalchemy import text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.core.database import SessionLocal  # noqa: E402
-from app.services.sell_in.costing import get_costing  # noqa: E402
+from app.services.sell_in.costing import RecomputeResult, get_costing  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +96,19 @@ def run_backfill(
                 batch = [item for item in wanted if item > summary["last_item_id"]][:take]
             if not batch:
                 break
-            result = get_costing().recompute(db, batch)
-            if dry_run:
+            try:
+                result = get_costing().recompute(db, batch)
+                if dry_run:
+                    db.rollback()
+                else:
+                    db.commit()
+            except Exception as exc:  # noqa: BLE001 - one bad batch must not lose the run's summary
+                # Outside the per-product savepoint (shared reads, the lock, the
+                # commit): the whole batch rolls back and is listed for --items.
                 db.rollback()
-            else:
-                db.commit()
+                logger.exception("backfill_sell_in_consumos: batch %s..%s failed", batch[0], batch[-1])
+                error = f"{type(exc).__name__}: {exc}"[:500]
+                result = RecomputeResult(products=len(batch), failed={item: error for item in batch})
         finally:
             db.close()
         if result.failed:

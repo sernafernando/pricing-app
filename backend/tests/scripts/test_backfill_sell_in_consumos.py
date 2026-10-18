@@ -116,6 +116,25 @@ class TestBackfill:
             (b, "ml", vb, 2270, 2, Decimal("40.00")),
         ]
 
+    def test_a_failed_batch_lists_its_products_and_the_run_goes_on(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        a, b, va, vb = _seed(engine)
+        guardados = costing.FifoPurchaseCosting._guardados
+
+        def _falla(db, ids):
+            # A shared batch read fails outside the per-product savepoint.
+            if 2270 in ids:
+                raise RuntimeError("statement timeout")
+            return guardados(db, ids)
+
+        monkeypatch.setattr(costing.FifoPurchaseCosting, "_guardados", staticmethod(_falla))
+        summary = _run(engine, limit=None, dry_run=False, batch_size=1)
+
+        assert (summary["products"], summary["failed"], summary["failed_items"]) == (2, 1, [2270])
+        assert summary["last_item_id"] == 2964
+        assert w.consumos(engine) == [(a, "fuera", va, 2964, 1, Decimal("10.00"))]
+
     def test_items_runs_exactly_the_given_products_in_batches(self, engine: Engine) -> None:
         a, b, va, vb = _seed(engine)
 
