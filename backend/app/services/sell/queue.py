@@ -194,7 +194,7 @@ WHERE d.canal = l.canal AND d.venta_ref = l.ref
 # that landed after the failed transaction rolled back is a fresh change.
 _CHARGE_SQL = text(
     "UPDATE sell_dirty SET attempts = attempts + 1, last_error = :error "
-    "WHERE canal = :canal AND venta_ref = :ref AND enqueued_at = :enqueued_at"
+    "WHERE canal = :canal AND venta_ref = :ref AND enqueued_at = :enqueued_at RETURNING attempts"
 )
 
 # One statement for every failed line of a batch. `settle` runs in the
@@ -205,6 +205,7 @@ _FAILED_SQL = text(
 UPDATE sell_dirty AS d SET attempts = d.attempts + 1, last_error = f.error
 FROM unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[]), CAST(:errors AS text[])) AS f(canal, ref, error)
 WHERE d.canal = f.canal AND d.venta_ref = f.ref
+RETURNING d.canal, d.venta_ref, d.attempts
 """
 )
 
@@ -246,12 +247,13 @@ def claim_line(db: Session, line: Line) -> Optional[Tuple[Tuple[str, int, Option
     return ((row[0], row[1], row[2]), row[3]) if row is not None else None
 
 
-def charge(db: Session, line: Line, error: str, enqueued_at: datetime) -> bool:
+def charge(db: Session, line: Line, error: str, enqueued_at: datetime) -> Optional[int]:
     """Charges a failed attempt to `line` if it is still the version claimed at
-    `enqueued_at`; False when it was re-queued (or acked) meanwhile. Does not commit."""
+    `enqueued_at` and returns its attempts; None when it was re-queued (or
+    acked) meanwhile. Does not commit."""
     canal, ref = line
     params = {"canal": canal, "ref": ref, "error": error[:1000], "enqueued_at": enqueued_at}
-    return db.execute(_CHARGE_SQL, params).rowcount == 1
+    return db.execute(_CHARGE_SQL, params).scalar()
 
 
 def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) -> Dict[Line, Set[int]]:
@@ -265,20 +267,23 @@ def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) 
     return products
 
 
-def settle(db: Session, done: Iterable[Line], failed: Dict[Line, str]) -> None:
+def settle(db: Session, done: Iterable[Line], failed: Dict[Line, str]) -> List[Line]:
     """Removes the lines that were recomputed and charges the ones that failed,
-    one statement each. Call it in the transaction that claimed the lines (it
-    holds their locks). Does not commit."""
+    one statement each, and returns the charged lines that are now parked
+    (`attempts >= MAX_ATTEMPTS`). Call it in the transaction that claimed the
+    lines (it holds their locks). Does not commit."""
     done = list(done)
     if done:
         db.execute(_DONE_SQL, _arrays(done))
-    if failed:
-        ordered = sorted(failed.items())
-        db.execute(
-            _FAILED_SQL,
-            {
-                "canales": [canal for (canal, _), _ in ordered],
-                "refs": [ref for (_, ref), _ in ordered],
-                "errors": [error[:1000] for _, error in ordered],
-            },
-        )
+    if not failed:
+        return []
+    ordered = sorted(failed.items())
+    rows = db.execute(
+        _FAILED_SQL,
+        {
+            "canales": [canal for (canal, _), _ in ordered],
+            "refs": [ref for (_, ref), _ in ordered],
+            "errors": [error[:1000] for _, error in ordered],
+        },
+    )
+    return sorted((canal, ref) for canal, ref, attempts in rows if attempts >= MAX_ATTEMPTS)

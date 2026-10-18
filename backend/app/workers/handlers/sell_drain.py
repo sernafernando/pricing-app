@@ -118,6 +118,8 @@ class SellDrainHandler:
                 logger.warning("sell.drain: %s line(s) failed: %s", len(failed), failed)
             if len(claimed) < queue.BATCH_SIZE:
                 break
+        if detail["failed"]:
+            logger.warning("sell.drain: run charged %s failed line(s)", detail["failed"])
         return JobResult(success=True, detail=detail)
 
 
@@ -131,8 +133,23 @@ def _recompute_and_settle(db: Session, claimed: Sequence[Claimed]) -> Tuple[Reco
         for line, items in products.items()
         if items & result.failed.keys()
     }
-    queue.settle(db, [line for line in products if line not in failed], failed)
+    parked = queue.settle(db, [line for line in products if line not in failed], failed)
+    for line in parked:
+        _log_parked(line, failed[line])
     return result, failed
+
+
+def _log_parked(line: queue.Line, error: str) -> None:
+    """An ERROR, so it reaches alerting: a parked line is no longer retried
+    until its sale changes, and many of them at once mean a systemic bug."""
+    canal, ref = line
+    logger.error(
+        "sell.drain: line %s/%s parked after %s attempts; retried only when its sale changes again: %s",
+        canal,
+        ref,
+        queue.MAX_ATTEMPTS,
+        error,
+    )
 
 
 def _line_by_line(
@@ -170,8 +187,11 @@ def _line_by_line(
             line_failed = {line: f"{type(exc).__name__}: {exc}"}
             try:
                 with get_background_db() as db:
-                    if not queue.charge(db, line, line_failed[line], version):
-                        logger.info("sell.drain: line %s was re-queued meanwhile; not charged", line)
+                    attempts = queue.charge(db, line, line_failed[line], version)
+                if attempts is None:
+                    logger.info("sell.drain: line %s was re-queued meanwhile; not charged", line)
+                elif attempts >= queue.MAX_ATTEMPTS:
+                    _log_parked(line, line_failed[line])
             except Exception as charge_exc:
                 if not is_transient(charge_exc):
                     raise

@@ -9,6 +9,7 @@ the live triggers. Runs in a throwaway schema (`tests.services.sell_in._world`).
 
 from __future__ import annotations
 
+import logging
 import threading
 import time as clock
 from datetime import date, datetime, timedelta, timezone
@@ -258,6 +259,83 @@ class TestPoison:
         assert (detail["lines"], detail["batches"], detail["failed"]) == (2, 2, 1)
         assert [c[2] for c in w.consumos(engine)] == [buena]
         assert _attempts(engine, mala) == 1
+
+
+def _set_attempts(engine: Engine, ref: int, attempts: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE sell_dirty SET attempts = :n WHERE venta_ref = :r"), {"n": attempts, "r": ref})
+
+
+def _errors(caplog: pytest.LogCaptureFixture):
+    """The park alerts (ERROR); `logger.exception` tracebacks are ERROR too and are left out."""
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == sell_drain.__name__ and r.levelno == logging.ERROR and "parked" in r.getMessage()
+    ]
+
+
+def _fails_2964(monkeypatch: pytest.MonkeyPatch) -> None:
+    escribir = costing.FifoPurchaseCosting._escribir
+
+    def _falla(db, item_id, deseados, guardados):
+        if item_id == 2964:
+            raise RuntimeError("boom")
+        return escribir(db, item_id, deseados, guardados)
+
+    monkeypatch.setattr(costing.FifoPurchaseCosting, "_escribir", staticmethod(_falla))
+
+
+@pytest.mark.postgres
+class TestObservability:
+    """A systemic bug would charge every line and park the whole queue: a run
+    that charges says how many, and a line that parks is an ERROR (alerting)."""
+
+    def test_a_run_that_charges_lines_warns_with_the_count(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        w.compra(engine, [(2964, 3, "30.00")])
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        _fails_2964(monkeypatch)
+
+        with caplog.at_level(logging.WARNING, logger=sell_drain.__name__):
+            _drain()
+
+        assert "sell.drain: run charged 1 failed line(s)" in caplog.messages
+        assert _errors(caplog) == []  # charged once, not parked
+
+    def test_a_line_that_parks_in_its_batch_logs_an_error(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        w.compra(engine, [(2964, 3, "30.00")])
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        _set_attempts(engine, ref, queue.MAX_ATTEMPTS - 1)
+        _fails_2964(monkeypatch)
+
+        with caplog.at_level(logging.WARNING, logger=sell_drain.__name__):
+            _drain()
+
+        assert _attempts(engine, ref) == queue.MAX_ATTEMPTS
+        [error] = _errors(caplog)
+        assert f"line fuera/{ref} parked after {queue.MAX_ATTEMPTS} attempts" in error and "boom" in error
+
+    def test_a_line_that_parks_in_the_line_by_line_retry_logs_an_error(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 2))
+        _set_attempts(engine, ref, queue.MAX_ATTEMPTS - 1)
+
+        def _falla(db, claimed):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(queue, "products_of", _falla)
+
+        with caplog.at_level(logging.WARNING, logger=sell_drain.__name__):
+            _drain()
+
+        assert _attempts(engine, ref) == queue.MAX_ATTEMPTS
+        [error] = _errors(caplog)
+        assert f"line fuera/{ref} parked after {queue.MAX_ATTEMPTS} attempts" in error
 
 
 def _attempts(engine: Engine, ref: int):
