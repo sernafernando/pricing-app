@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional, Sequence
@@ -146,11 +147,18 @@ def run(*, apply: bool, now: Callable[[], datetime] = _utcnow, batch: int = BATC
             except OperationalError as exc:
                 db.rollback()
                 if getattr(exc.orig, "pgcode", None) != LOCK_NOT_AVAILABLE:
+                    # Items before this one are already committed (with --apply): say how far the run got.
+                    print(f"STOPPED at {item_id} by a database error; partial counts:", file=sys.stderr)
+                    print(_tally(counts), file=sys.stderr)
                     raise
                 counts.busy += 1  # another writer holds the item; a later run picks it up
             finally:
                 db.close()
         after = ids[-1]
+
+
+def _tally(counts: SeedCounts) -> str:
+    return "\n".join(f"  {name}: {value}" for name, value in asdict(counts).items())
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -159,8 +167,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     counts = run(apply=args.apply)
     print("APPLY" if args.apply else "DRY-RUN (nothing written; --apply to write)")
-    for name, value in asdict(counts).items():
-        print(f"  {name}: {value}")
+    print(_tally(counts))
     return 0
 
 

@@ -252,6 +252,17 @@ class TestFailurePaths:
         assert (link(erp)["source"], link(erp)["producto_item_id"]) == ("manual", 41)
         assert len(log_rows(erp)) == 2
 
+    def test_a_stopping_error_reports_the_partial_counts_first(self, erp, monkeypatch, capsys) -> None:
+        two_mapped_candidates(erp)
+        failing_on(monkeypatch, ITEM, OperationalError("SELECT 1", {}, _PgError("57014")))
+
+        with pytest.raises(OperationalError):
+            run(True)
+
+        err = capsys.readouterr().err
+        assert "STOPPED" in err
+        assert "candidates: 2" in err and "seeded: 1" in err  # OTHER was committed before ITEM failed
+
 
 class TestUnitsThatChangedMeanwhile:
     """`seed_manual_link` re-reads the unit under its lock; one no longer automatic and unlinked is left alone."""
