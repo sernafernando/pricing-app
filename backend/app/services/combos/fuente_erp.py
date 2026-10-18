@@ -14,9 +14,10 @@ rules as the migration's initial fill).
 
 Fail closed: the reconcile deletes by absence, so a snapshot that silently
 dropped a row would delete a valid pair. A record that is not an object, a row
-without its combo or component, a non-integer combo or component id, an
-unreadable quantity, or rows from more than one ERP company (`comp_id`, a
-missing one counting as its own: the app-owned table has no company) raise
+without its combo or component, a combo or component id that is not a
+positive integer, an unreadable quantity, or rows from more than one ERP
+company (`comp_id`; an absent key is an unknown company of its own, so it
+never merges with company 1 or a null: the app-owned table has no company) raise
 `SnapshotIncompleto` and nothing is written. The fetch itself raises on a
 connection error, a non-2xx status, a body that is not JSON or not a list, and
 past its wall-clock bound.
@@ -24,6 +25,7 @@ past its wall-clock bound.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -50,14 +52,26 @@ def _cantidad(registro: Mapping[str, Any]) -> Decimal | None:
     return cantidad
 
 
+_ID_ASCII = re.compile(r"[0-9]+")
+
+# Stands for a record with no `comp_id` key: an unknown company of its own,
+# never assumed to be company 1 nor equal to an explicit null.
+_SIN_COMPANIA = "<comp_id absent>"
+
+
 def _item_id(registro: Mapping[str, Any], campo: str) -> int:
-    """An ERP item id: an int or a string of digits, nothing that `int()` would
-    coerce silently (a bool, a float) or reject."""
+    """An ERP item id: a positive int, or a string of ASCII digits only (no
+    sign, spaces or non-ASCII digits). Nothing `int()` would coerce silently (a
+    bool, a float) and no zero or negative id."""
     value = registro.get(campo)
     if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
-        return int(value)
+        item_id = value
+    elif isinstance(value, str) and _ID_ASCII.fullmatch(value):
+        item_id = int(value)
+    else:
+        item_id = 0
+    if item_id > 0:
+        return item_id
     raise SnapshotIncompleto(f"non-integer {campo} {value!r} in itema_id={registro.get('itema_id')}")
 
 
@@ -71,14 +85,14 @@ def snapshot_desde_registros(registros: Iterable[Mapping[str, Any]]) -> Snapshot
         if registro.get("item_id") is None or registro.get("item_id_1") is None:
             raise SnapshotIncompleto(f"association without item_id/item_id_1: itema_id={registro.get('itema_id')}")
         combo, componente = _item_id(registro, "item_id"), _item_id(registro, "item_id_1")
-        companias.add(registro.get("comp_id", 1))
+        companias.add(registro.get("comp_id", _SIN_COMPANIA))
         cantidad = _cantidad(registro)
         if cantidad is None or cantidad <= 0:
             continue
         componentes = snapshot.setdefault(combo, {})
         componentes[componente] = componentes.get(componente, Decimal(0)) + cantidad
     if len(companias) > 1:
-        # repr-sorted: a missing (None) company and a numeric one cannot be compared.
+        # repr-sorted: an absent, a null and a numeric company cannot be compared.
         listado = ", ".join(sorted(repr(c) for c in companias))
         raise SnapshotIncompleto(f"associations from more than one ERP company: {listado}")
     return snapshot
@@ -88,8 +102,9 @@ def fetch_snapshot(timeout: float) -> Snapshot:
     """Fetch every association from the ERP (unfiltered) as a neutral snapshot,
     returning or raising within `timeout` seconds of wall-clock time.
 
-    Half the budget bounds the whole response and half each wait for bytes, so
-    a slow-dripping server cannot hold the caller past `timeout`. Strict: a
-    response that is not a list raises instead of reading as "no combos"."""
-    mitad = timeout / 2
-    return snapshot_desde_registros(fetch_item_associations_from_erp(timeout=mitad, total_timeout=mitad, strict=True))
+    The whole budget is the helper's total bound, which holds whatever the
+    network does (DNS, connect, a server dripping bytes). Strict: a response
+    that is not a list raises instead of reading as "no combos"."""
+    return snapshot_desde_registros(
+        fetch_item_associations_from_erp(timeout=timeout, total_timeout=timeout, strict=True)
+    )
