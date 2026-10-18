@@ -9,19 +9,22 @@ Removal is by absence: sources have no deleted flag or timestamp, so a pair
 missing from a full snapshot is deleted, and a combo missing from it loses all
 its rows. A truncated or failed fetch would therefore wipe valid rows, so
 deletions are skipped (inserts and updates still apply) when the snapshot is
-empty or brings fewer than `PISO_SNAPSHOT_COMPLETO` of the stored combos.
+empty or brings fewer than `PISO_SNAPSHOT_COMPLETO` of the stored combos. Only
+stored combos count: combos new to the table do not make up for stored ones
+the snapshot lost.
 
-A source row whose quantity is missing or not positive is not a component: it
-is never stored, and a stored pair the source now reports that way is deleted
-like an absent one.
+A source row whose quantity is missing, not a finite number, not positive at
+the stored scale or beyond the stored precision is not a component: it is never
+stored, and a stored pair the source now reports that way is deleted like an
+absent one. One bad row never aborts the reconcile.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Mapping, Optional, Tuple, Union
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
@@ -31,22 +34,23 @@ logger = logging.getLogger(__name__)
 # reasoning as `RECONCILIACION_GLOBAL_PISO` in `sync_item_associations`.
 PISO_SNAPSHOT_COMPLETO = 0.5
 
-# `combo_componentes.cantidad` is Numeric(18, 4).
+# `combo_componentes.cantidad` is Numeric(18, 4): 4 decimals, under 10**14.
 _ESCALA = Decimal("0.0001")
+_MAXIMO = Decimal(10) ** 14
 
-Cantidad = Union[Decimal, int, float, str, None]
-Componentes = Dict[int, Decimal]
-Bom = Dict[int, Componentes]
-Fila = Tuple[int, int, Decimal]
+Cantidad = Decimal | int | float | str | None
+Componentes = dict[int, Decimal]
+Bom = dict[int, Componentes]
+Fila = tuple[int, int, Decimal]
 
 
 @dataclass(frozen=True)
 class Plan:
     """What to write so the stored rows match the desired snapshot."""
 
-    inserts: Tuple[Fila, ...] = ()
-    updates: Tuple[Fila, ...] = ()
-    deletes: Tuple[Tuple[int, int], ...] = ()
+    inserts: tuple[Fila, ...] = ()
+    updates: tuple[Fila, ...] = ()
+    deletes: tuple[tuple[int, int], ...] = ()
     deletions_skipped: bool = False
 
     @property
@@ -54,10 +58,16 @@ class Plan:
         return not (self.inserts or self.updates or self.deletes)
 
 
-def _cantidad(value: Cantidad) -> Optional[Decimal]:
-    if value is None:
+def _cantidad(value: Cantidad) -> Decimal | None:
+    if value is None or isinstance(value, bool):
         return None
-    cantidad = Decimal(str(value)).quantize(_ESCALA, rounding=ROUND_HALF_UP)
+    try:
+        cantidad = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    if not cantidad.is_finite() or cantidad >= _MAXIMO:
+        return None
+    cantidad = cantidad.quantize(_ESCALA, rounding=ROUND_HALF_UP)
     return cantidad if cantidad > 0 else None
 
 
@@ -81,7 +91,7 @@ def normalize(snapshot: Mapping[int, Mapping[int, Cantidad]]) -> Bom:
     return out
 
 
-def _diff(combo: int, desired: Componentes, current: Mapping[int, Decimal], *, delete: bool) -> Tuple[list, list, list]:
+def _diff(combo: int, desired: Componentes, current: Mapping[int, Decimal], *, delete: bool) -> tuple[list, list, list]:
     inserts, updates, deletes = [], [], []
     for componente, cantidad in sorted(desired.items()):
         stored = current.get(componente)
@@ -106,11 +116,11 @@ def plan_full(snapshot: Mapping[int, Mapping[int, Cantidad]], current: Mapping[i
                 len(current),
             )
             delete = False
-    elif current and len(desired) < len(current) * PISO_SNAPSHOT_COMPLETO:
+    elif current and len(desired.keys() & current.keys()) < len(current) * PISO_SNAPSHOT_COMPLETO:
         logger.warning(
-            "combos reconcile: the snapshot brings %d combos against %d stored, under the %.0f%% floor -- "
+            "combos reconcile: the snapshot brings %d of %d stored combos, under the %.0f%% floor -- "
             "deletions skipped (possible truncated fetch)",
-            len(desired),
+            len(desired.keys() & current.keys()),
             len(current),
             PISO_SNAPSHOT_COMPLETO * 100,
         )

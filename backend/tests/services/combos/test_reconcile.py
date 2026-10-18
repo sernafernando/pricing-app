@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
+import pytest
+
 from app.services.combos.reconcile import PISO_SNAPSHOT_COMPLETO, Plan, normalize, plan_combo, plan_full
 
 D = Decimal
@@ -28,7 +30,24 @@ class TestNormalize:
         assert normalize({100: {500: D("1.00004")}}) == {100: {500: D("1.0000")}}
 
     def test_a_quantity_that_rounds_to_zero_is_not_a_component(self) -> None:
+        # The CHECK (cantidad > 0) would reject the stored 0.0000.
         assert normalize({100: {500: D("0.00004")}}) == {}
+        assert normalize({100: {500: D("0.00001")}}) == {}
+        assert normalize({100: {500: 0.00001}}) == {}
+
+    @pytest.mark.parametrize(
+        "value",
+        ["abc", "", "NaN", "inf", "-Infinity", float("nan"), float("inf"), D("NaN"), D("sNaN"), D("Infinity"), True],
+    )
+    def test_a_quantity_that_is_not_a_finite_number_is_not_a_component(self, value) -> None:
+        # One bad source row must not abort the whole reconcile.
+        assert normalize({100: {500: value, 501: D("1")}}) == {100: {501: D("1")}}
+
+    def test_a_quantity_over_the_stored_precision_is_not_a_component(self) -> None:
+        # Numeric(18, 4) holds under 10**14: a bigger value would abort the write.
+        assert normalize({100: {500: D("1e14"), 501: D("1e30"), 502: D("99999999999999.9999")}}) == {
+            100: {502: D("99999999999999.9999")}
+        }
 
 
 class TestPlanFull:
@@ -91,6 +110,31 @@ class TestPlanFull:
         plan = plan_full({100: {500: D("1")}, 200: {500: D("1")}}, current)
         assert plan.deletions_skipped is False
         assert plan.deletes == ((300, 500), (400, 500))
+
+    def test_a_snapshot_of_only_new_combos_deletes_nothing(self, caplog) -> None:
+        # It brings as many combos as are stored, but none of them: the stored ones look lost.
+        current = {c: {500: D("1")} for c in (100, 200, 300, 400)}
+        with caplog.at_level(logging.WARNING):
+            plan = plan_full({c: {500: D("1")} for c in (900, 901, 902, 903)}, current)
+        assert plan.deletions_skipped is True
+        assert plan.deletes == ()
+        assert plan.inserts == tuple((c, 500, D("1")) for c in (900, 901, 902, 903))
+        assert "floor" in caplog.text
+
+    def test_the_floor_counts_stored_combos_the_snapshot_brings_not_new_ones(self) -> None:
+        # 1 of 4 stored (25%) plus 3 new ones: under the floor however many new ones come.
+        current = {c: {500: D("1")} for c in (100, 200, 300, 400)}
+        plan = plan_full({c: {500: D("1")} for c in (100, 900, 901, 902)}, current)
+        assert plan.deletions_skipped is True
+        assert plan.deletes == ()
+
+    def test_new_combos_do_not_stop_deletions_at_the_floor(self) -> None:
+        # 2 of 4 stored (50%) plus new ones: at the floor, absences are trusted.
+        current = {c: {500: D("1")} for c in (100, 200, 300, 400)}
+        plan = plan_full({c: {500: D("1")} for c in (100, 200, 900)}, current)
+        assert plan.deletions_skipped is False
+        assert plan.deletes == ((300, 500), (400, 500))
+        assert plan.inserts == ((900, 500, D("1")),)
 
     def test_first_fill_into_an_empty_table(self) -> None:
         plan = plan_full({100: {500: D("1")}}, {})
