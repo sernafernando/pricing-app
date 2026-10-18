@@ -2,5 +2,5 @@
 
 - `reconcile`: pure, source-agnostic diff of a desired snapshot against the stored rows.
 - `store`: reads and writes `combo_componentes`.
-- `fuente_erp`: the only ERP-aware piece, builds the snapshot from the current ERP.
+- The source adapter that builds the snapshot (today from the ERP) comes in a following change.
 """
