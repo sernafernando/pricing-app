@@ -255,3 +255,29 @@ class TestCodigosNeeded:
         body["variations"][0]["seller_custom_field"] = "355"
         assert links.keys_of(units_of(body)) == ["126", "355"]
         assert links.keys_of(units_of(item_with_variations())) == []
+
+
+class TestMapFirst:
+    """`automatic`: the ERP publication map's product first, the SKU rule's answer otherwise."""
+
+    UNIT = links.LinkUnit("MLA1", 0, "ABC-1", SKU_ATTR)
+
+    def test_a_mapped_publication_links_to_the_map_product_whatever_the_sku_says(self) -> None:
+        sku = links.resolve(self.UNIT, {"ABC-1": [41]})
+
+        decided = links.automatic(self.UNIT, sku, 42)
+
+        assert decided == links.Suggestion("linked", 42, "ABC-1", SKU_ATTR, (42,))
+        assert decided.rule == links.RULE_ERP_MAP == "erp_map"
+
+    def test_an_unmapped_publication_keeps_the_sku_answer_unchanged(self) -> None:
+        sku = links.resolve(self.UNIT, {"ABC-1": [41, 43]})
+
+        assert links.automatic(self.UNIT, sku, None) is sku
+
+    def test_the_map_links_a_unit_without_a_usable_sku(self) -> None:
+        unit = links.LinkUnit("MLA1", 0, None, None)
+
+        decided = links.automatic(unit, links.resolve(unit, {}), 42)
+
+        assert (decided.status, decided.producto_item_id, decided.matched_sku) == ("linked", 42, None)
