@@ -3,6 +3,7 @@ import PublicationStatusPill from './PublicationStatusPill';
 import PriceCell from './PriceCell';
 import ErpStockCell from './ErpStockCell';
 import LinkBadge from './LinkBadge';
+import SkuDivergenceCell from './SkuDivergenceCell';
 import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
@@ -80,6 +81,9 @@ export function columnChoicesOver(visibility, defaults) {
  * Its first column names the chain of levels of `dimension`, like Métricas ML.
  * `producto` (the Producto view) adds the products' publication count and
  * names the first column "Producto › Publicación".
+ * `skuDivergence` (the `sku_divergente` link filter is on) adds, right after
+ * Publicación, the publication's SKU next to the product it names and the
+ * linked product (`SkuDivergenceCell`).
  */
 export function buildColumns({
   eventsEnabled,
@@ -91,6 +95,7 @@ export function buildColumns({
   dimension = 'marca',
   familias = false,
   producto = false,
+  skuDivergence = false,
 }) {
   const withSales = (columns) => (canSeeSales ? columns : []);
   const withMargin = (columns) => (canSeeMargin ? columns : []);
@@ -124,6 +129,9 @@ export function buildColumns({
           <PublicationCell item={item} />
         ),
     },
+    ...(skuDivergence
+      ? [{ key: 'sku_divergencia', header: 'SKU distinto', width: 260, render: (item) => <SkuDivergenceCell item={item} /> }]
+      : []),
     ...(agrupado || producto
       ? [{ key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'right', render: () => null }]
       : []),

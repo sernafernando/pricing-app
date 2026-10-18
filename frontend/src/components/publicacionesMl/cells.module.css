@@ -127,3 +127,13 @@
   outline: 2px solid var(--cf-accent-blue);
   outline-offset: 1px;
 }
+
+.divergenceLine {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.divergenceName {
+  color: var(--cf-text-tertiary);
+}

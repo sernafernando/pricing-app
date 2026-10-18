@@ -118,3 +118,9 @@
 .code {
   font-family: var(--font-mono);
 }
+
+.divergence {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tone-warning-fg);
+}

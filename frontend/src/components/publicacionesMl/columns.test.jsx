@@ -97,6 +97,15 @@ describe('layout', () => {
   });
 });
 
+describe('SKU divergence', () => {
+  it('the "SKU distinto" column exists only while the divergence filter is on, right after Publicación', () => {
+    expect(keys({})).not.toContain('sku_divergencia');
+    const got = keys({ skuDivergence: true });
+    expect(got.slice(0, 2)).toEqual(['titulo', 'sku_divergencia']);
+    expect(byKey({ skuDivergence: true }).sku_divergencia.header).toBe('SKU distinto');
+  });
+});
+
 describe('permissions', () => {
   it('without ml_metricas.ver there are no Métricas figures; the current markup needs only ver_ganancia', () => {
     expect(keys({ canSeeMargin: true })).toEqual(['titulo', 'estado', 'precio', 'markup', 'stock_propio', 'stock_full', 'stock_erp', 'vinculo', 'tienda', 'actividad']);

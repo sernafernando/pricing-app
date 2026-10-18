@@ -73,13 +73,15 @@ const STATUS_LABELS = {
 };
 const TIPO_OPTIONS = ['clasica', 'premium', 'catalogo', 'full'];
 const TIPO_LABELS = { clasica: 'Clásica', premium: 'Premium', catalogo: 'Catálogo', full: 'Full' };
-const VINCULO_OPTIONS = ['auto', 'manual', 'sin_producto', 'conflicto', 'no_evaluado'];
+const VINCULO_OPTIONS = ['auto', 'manual', 'sin_producto', 'conflicto', 'no_evaluado', 'sku_divergente'];
 const VINCULO_LABELS = {
   auto: 'Automático',
   manual: 'Manual',
   sin_producto: 'Sin producto',
   conflicto: 'Conflicto',
   no_evaluado: 'Sin evaluar',
+  // Not a link state: the automatic links whose ML seller SKU names another product (or none), to fix in ML.
+  sku_divergente: 'SKU distinto del producto',
 };
 // One chip per stock column, each filtering its own source: our own stock at ML, Full and the ERP's -- never a sum.
 const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock'];
@@ -243,6 +245,8 @@ export default function PublicacionesML() {
   const productRows = useProductRows({ filters, pageSize, canSeeSales, canSeeMargin, enabled: producto });
 
   const eventsEnabled = data?.events_enabled ?? false;
+  // The divergence filter brings its own column: the SKU next to the product it names and the linked one.
+  const skuDivergence = filters.vinculo.includes('sku_divergente');
   const columns = useMemo(
     () =>
       buildColumns({
@@ -255,8 +259,9 @@ export default function PublicacionesML() {
         producto,
         dimension: filters.agrupar,
         familias: filters.familias === '1',
+        skuDivergence,
       }),
-    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, producto, filters.agrupar, filters.familias],
+    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, producto, filters.agrupar, filters.familias, skuDivergence],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
