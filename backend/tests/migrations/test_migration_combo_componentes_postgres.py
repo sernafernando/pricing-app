@@ -172,9 +172,9 @@ class TestInitialFill:
         ]
         assert filled is True
 
-    # The fill mirrors `combos.sync` (`fuente_erp.snapshot_desde_registros`), which
-    # refuses the whole snapshot (writes nothing) on any of these: the table must
-    # come out empty, never a partial or cross-company BOM.
+    # All or nothing: any of these makes the mirror untrustworthy as the complete
+    # set of combos, so the table must come out empty, never a partial or
+    # cross-company BOM.
     def test_the_same_pair_under_two_companies_fills_nothing(self, pg_engine: Engine) -> None:
         with pg_engine.begin() as conn:
             _association(conn, 1, combo=100, componente=500, qty=2, comp_id=1)

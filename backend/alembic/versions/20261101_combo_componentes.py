@@ -9,20 +9,17 @@ holds combo -> component + quantity, owned by the app. No foreign key to the
 ERP mirror tables.
 
 The upgrade fills it once from `tb_item_association` so it is usable right
-after deploy, before the `combos.sync` worker handler first runs. From then on
-only `combos.sync` writes it. This is the only place outside the ERP adapter
-that reads the mirror.
-
-The fill produces exactly what `combos.sync`
-(`app.services.combos.fuente_erp.snapshot_desde_registros`) would produce for
-the same rows:
+after deploy. A sync handler that keeps it up to date from the ERP comes in a
+following change and applies these same rules, so the first sync run finds
+nothing to change:
 
 - only rows with a positive `iasso_qty` are components (anything else is not a
   composition); a pair that appears twice holds the sum of both quantities;
 - fail closed, all or nothing: if any row lacks `item_id` or `item_id_1`, has
-  an unreadable quantity (NaN or infinity), or the rows span more than one
-  `comp_id` (the app-owned table has no company), the sync refuses the whole
-  snapshot, so the fill copies nothing and the table starts empty;
+  an unreadable quantity (NaN; `Numeric(18, 4)` cannot hold infinity), or the
+  rows span more than one `comp_id` (the app-owned table has no company), the
+  source cannot be trusted as the complete set of combos, so the fill copies
+  nothing and the table starts empty;
 - if the mirror table does not exist (it is created by the alembic chain, but
   a database bootstrapped another way may lack it), the fill is skipped.
 
@@ -48,7 +45,7 @@ WHERE iasso_qty > 0
     SELECT 1 FROM tb_item_association
     WHERE item_id IS NULL
        OR item_id_1 IS NULL
-       OR iasso_qty::text IN ('NaN', 'Infinity', '-Infinity')
+       OR iasso_qty = 'NaN'
   )
   AND (SELECT COUNT(DISTINCT comp_id) FROM tb_item_association) <= 1
 GROUP BY item_id, item_id_1

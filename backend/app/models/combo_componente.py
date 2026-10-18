@@ -4,12 +4,12 @@ One row per (combo, component) pair: the combo item `combo_item_id` is made of
 `cantidad` units of `componente_item_id`. Readers use this table instead of an
 ERP mirror, so the ERP can be replaced without changing what a combo is.
 
-It knows nothing about where the data comes from: the `combos.sync` worker
-handler fills it from a source adapter (today `app.services.combos.fuente_erp`)
-through the neutral reconcile in `app.services.combos.reconcile`. There is no
-foreign key to the ERP mirror tables on purpose. A pair is stored once and its
-quantity is always positive; a source row with no positive quantity is not a
-component and is never stored.
+It knows nothing about where the data comes from: the migration that creates it
+fills it once from the ERP mirror, and a sync handler that keeps it up to date
+from a source adapter comes in a following change. There is no foreign key to
+the ERP mirror tables on purpose. A pair is stored once and its quantity is
+always positive; a source row with no positive quantity is not a component and
+is never stored.
 """
 
 from sqlalchemy import CheckConstraint, Column, DateTime, Index, Integer, Numeric
