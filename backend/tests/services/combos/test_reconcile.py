@@ -37,7 +37,21 @@ class TestNormalize:
 
     @pytest.mark.parametrize(
         "value",
-        ["abc", "", "NaN", "inf", "-Infinity", float("nan"), float("inf"), D("NaN"), D("sNaN"), D("Infinity"), True],
+        [
+            "abc",
+            "",
+            "NaN",
+            "inf",
+            "-Infinity",
+            float("nan"),
+            float("inf"),
+            D("NaN"),
+            D("sNaN"),
+            D("Infinity"),
+            True,
+            D("-1e30"),
+            -1e30,
+        ],
     )
     def test_a_quantity_that_is_not_a_finite_number_is_not_a_component(self, value) -> None:
         # One bad source row must not abort the whole reconcile.

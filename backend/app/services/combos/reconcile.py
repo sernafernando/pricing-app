@@ -65,7 +65,7 @@ def _cantidad(value: Cantidad) -> Decimal | None:
         cantidad = Decimal(str(value))
     except InvalidOperation:
         return None
-    if not cantidad.is_finite() or cantidad >= _MAXIMO:
+    if not cantidad.is_finite() or cantidad <= 0 or cantidad >= _MAXIMO:
         return None
     cantidad = cantidad.quantize(_ESCALA, rounding=ROUND_HALF_UP)
     return cantidad if cantidad > 0 else None
