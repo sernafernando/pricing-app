@@ -338,14 +338,13 @@ def evaluate_item(
     now: datetime,
     events_enabled: bool,
     force: bool = False,
-    erp_map: Mapping[str, int] | None = None,
 ) -> EvaluationResult:
     """Evaluate every link unit of one item inside the caller's transaction.
 
     Without `force`, an item whose units were all evaluated with their current SKU key is skipped
     before the product catalog is read. `force` (catalog or map changed, daily pass) re-evaluates anyway.
-    `erp_map` is the publication map already read for a batch that includes this item (`load_map`); None
-    reads this item's row here.
+    The item's map row is read here, in the caller's transaction (after its item lock), never taken from an
+    earlier snapshot: a stale map would move a unit back to a product the map no longer names.
     """
     units = units_for_item(typed_item, typed_variations)
     rows = {
@@ -362,7 +361,7 @@ def evaluate_item(
         return result
     keys = keys_of(units)
     catalog = load_catalog(db, keys) if keys else Catalog({}, frozenset())
-    map_product = (load_map(db, [item_id]) if erp_map is None else erp_map).get(item_id)
+    map_product = load_map(db, [item_id]).get(item_id)
     for unit in units:
         row = rows.get(unit.variation_id)
         suggestion = resolve(unit, catalog.codigos, catalog.item_ids)
@@ -770,11 +769,10 @@ def run_sweep(*, deadline: datetime, gate: Gate, now: Callable[[], datetime] = _
             _set_timeouts(db)
             batch = _typed_batch(db, state.cursor, SWEEP_BATCH)
             evaluated = _evaluated_keys(db, [typed["item_id"] for typed, _ in batch])
-            erp_map = load_map(db, [typed["item_id"] for typed, _ in batch]) if batch else {}
         result.batches += 1 if batch else 0
         out_of_time = False
         for typed, variations in batch:
-            _sweep_item(typed, variations, evaluated, erp_map, state, batch_now, events_enabled, result)
+            _sweep_item(typed, variations, evaluated, state, batch_now, events_enabled, result)
             state.cursor = typed["item_id"]
             if now() >= deadline:  # a batch of 500 items must not run past the worker's deadline
                 out_of_time = True
@@ -803,7 +801,6 @@ def _sweep_item(
     typed: Mapping[str, Any],
     variations: Sequence[Mapping[str, Any]],
     evaluated: Mapping[tuple[str, int], Any],
-    erp_map: Mapping[str, int],
     state: _SweepState,
     now: datetime,
     events_enabled: bool,
@@ -815,9 +812,7 @@ def _sweep_item(
         result.units.skipped += len(units)
         return
     try:
-        outcome = _evaluate_one(
-            typed["item_id"], force=state.force, now=now, events_enabled=events_enabled, erp_map=erp_map
-        )
+        outcome = _evaluate_one(typed["item_id"], force=state.force, now=now, events_enabled=events_enabled)
     except Exception:  # noqa: BLE001 -- one item must not stop the lap; the next lap retries it
         result.errors += 1
         state.retry = state.retry or state.force
@@ -830,15 +825,10 @@ def _sweep_item(
     result.units.add(outcome)
 
 
-def _evaluate_one(
-    item_id: str, *, force: bool, now: datetime, events_enabled: bool, erp_map: Mapping[str, int]
-) -> Optional[EvaluationResult]:
+def _evaluate_one(item_id: str, *, force: bool, now: datetime, events_enabled: bool) -> Optional[EvaluationResult]:
     """Evaluate one item in its own short transaction, on its CURRENT state.
 
-    `erp_map` is the publication map read once for the whole batch; a map row edited after that read changes the
-    fingerprint, so the next lap is forced and converges on it.
-
-    The item row is share-locked (`SKIP LOCKED`) and its SKU fields re-read under that lock, so a fetch
+    The item row is share-locked (`SKIP LOCKED`) and its SKU fields and map row re-read under that lock, so a fetch
     that committed after the sweep's snapshot is never evaluated against stale data, and a fetch in
     flight is neither waited for nor blocked for longer than this one item (it evaluates the item itself).
     Returns None when the row is busy. The transaction ends here, so no link-row lock outlives the item.
@@ -862,7 +852,6 @@ def _evaluate_one(
             now=now,
             events_enabled=events_enabled,
             force=force,
-            erp_map=erp_map,
         )
 
 

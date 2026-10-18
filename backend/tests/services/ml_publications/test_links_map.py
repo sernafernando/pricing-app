@@ -240,12 +240,14 @@ class TestSingleItemPaths:
 
 
 class TestSweep:
-    def test_the_sweep_reads_the_map_once_per_batch_and_links_by_it(self, events_on) -> None:
+    def test_the_sweep_reads_the_map_once_per_evaluated_item_never_per_unit(self, events_on) -> None:
         add_product(events_on, 41, SKU_A)
         add_product(events_on, 42, "MAP-PRODUCT")
         add_map(events_on, ITEM, 42)
+        add_map(events_on, VARIATIONS_ITEM, 42)
         apply(sample_item(ITEM), ITEM, minutes=1)  # links off: the sweep links them
         apply(sample_item(OTHER_ITEM), OTHER_ITEM, minutes=1)
+        apply(item_with_variations(), VARIATIONS_ITEM, minutes=1)  # 4 variation units, one map read
         statements: list[str] = []
 
         def capture(conn, cursor, statement, *args) -> None:
@@ -258,10 +260,33 @@ class TestSweep:
         finally:
             event.remove(events_on, "before_cursor_execute", capture)
 
-        assert result.complete and result.units.created == 2
-        assert len(statements) == 1
+        assert result.complete and result.units.created == 6
+        assert len(statements) == 3
         assert link(events_on, ITEM)["producto_item_id"] == 42
         assert link(events_on, OTHER_ITEM)["producto_item_id"] == 41
+
+    def test_a_map_change_after_the_batch_snapshot_is_read_under_the_item_lock(self, events_on, monkeypatch) -> None:
+        add_product(events_on, 41, SKU_A)
+        add_product(events_on, 42, "MAP-A")
+        add_product(events_on, 43, "MAP-B")
+        add_map(events_on, ITEM, 42)
+        apply(sample_item(ITEM), ITEM, minutes=1)
+        links.run_sweep(deadline=T0 + timedelta(hours=1), gate=lambda: False, now=lambda: T0)
+        assert link(events_on)["producto_item_id"] == 42
+        add_product(events_on, 44, "UNRELATED")  # a catalog change: the next lap is forced
+        evaluate_one = links._evaluate_one
+
+        def map_moves_to_b_after_the_snapshot(item_id, **kwargs):
+            update_map(events_on, ITEM, item_id=43)  # committed between the batch snapshot and the item's lock
+            return evaluate_one(item_id, **kwargs)
+
+        monkeypatch.setattr(links, "_evaluate_one", map_moves_to_b_after_the_snapshot)
+
+        result = links.run_sweep(deadline=T0 + timedelta(hours=1), gate=lambda: False, now=lambda: T0)
+
+        assert result.forced
+        assert link(events_on)["producto_item_id"] == 43
+        assert [e["context"]["producto_item_id_new"] for e in log_rows(events_on)] == [43]  # no flap back to A
 
 
 class TestFingerprint:
