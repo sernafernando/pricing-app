@@ -68,7 +68,7 @@ def _cantidad(value: Cantidad) -> Decimal | None:
     if not cantidad.is_finite() or cantidad <= 0 or cantidad >= _MAXIMO:
         return None
     cantidad = cantidad.quantize(_ESCALA, rounding=ROUND_HALF_UP)
-    return cantidad if cantidad > 0 else None
+    return cantidad if 0 < cantidad < _MAXIMO else None
 
 
 def _componentes(componentes: Mapping[int, Cantidad]) -> Componentes:

@@ -59,9 +59,9 @@ class TestNormalize:
 
     def test_a_quantity_over_the_stored_precision_is_not_a_component(self) -> None:
         # Numeric(18, 4) holds under 10**14: a bigger value would abort the write.
-        assert normalize({100: {500: D("1e14"), 501: D("1e30"), 502: D("99999999999999.9999")}}) == {
-            100: {502: D("99999999999999.9999")}
-        }
+        assert normalize(
+            {100: {500: D("1e14"), 501: D("1e30"), 502: D("99999999999999.9999"), 503: D("99999999999999.99995")}}
+        ) == {100: {502: D("99999999999999.9999")}}
 
 
 class TestPlanFull:
