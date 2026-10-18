@@ -213,6 +213,9 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
         raise SellInError(
             "No se pudo guardar la compra: el proveedor, el pedido de compra o algún item dejó de existir"
         ) from exc
+    except Exception:
+        db.rollback()  # e.g. a failed recompute: never leave the caller's session aborted
+        raise
     db.refresh(compra)
     return compra
 
@@ -267,8 +270,12 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
     db.flush()
     # Its units are released in the same transaction: later purchases take those sales over.
-    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-    db.commit()
+    try:
+        get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
+        db.commit()
+    except Exception:
+        db.rollback()  # the purchase stays activa and unaudited; never leave the session aborted
+        raise
     db.refresh(compra)
     return compra
 

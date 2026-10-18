@@ -17,6 +17,7 @@ from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
@@ -469,6 +470,47 @@ class TestPurchaseRecomputeFailure:
             assert conn.execute(text("SELECT estado FROM sell_in_compras")).scalar() == "activa"
         assert _rows(engine, "auditoria") == 0
         assert w.consumos(engine) == [(linea, "fuera", ref, 2964, 2, Decimal("20.00"))]
+
+
+def _db_failing_escribir(db, item_id, deseados, guardados):
+    db.execute(text("SELECT 1 / 0"))  # a database error: the transaction is aborted
+
+
+@pytest.mark.postgres
+class TestPurchaseRecomputeDatabaseFailure:
+    """A recompute that fails in the database leaves the caller's session rolled
+    back and usable, never aborted, on load and on void."""
+
+    def test_a_database_error_on_load_rolls_the_session_back(self, engine: Engine, monkeypatch) -> None:
+        monkeypatch.setattr(FifoPurchaseCosting, "_escribir", staticmethod(_db_failing_escribir))
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        data = SellInCompraCreate(
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            formula="por_unidad",
+            fecha_compra=D(2026, 10, 1),
+            lineas=[SellInLineaIn(item_id=2964, cantidad=4, costo_base_unit=Decimal("1000"))],
+        )
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(DBAPIError):
+                compras.crear_compra(db, data, usuario_id=7)
+            assert db.execute(text("SELECT count(*) FROM sell_in_compras")).scalar() == 0
+
+        assert [_rows(engine, t) for t in ("sell_in_compras", "sell_in_compra_items", "auditoria")] == [0, 0, 0]
+
+    def test_a_database_error_on_void_rolls_the_session_back(self, engine: Engine, monkeypatch) -> None:
+        w.compra(engine, [(2964, 4, "40.00")])
+        w.venta(engine, "fuera", 2964, 2, D(2026, 10, 3))
+        monkeypatch.setattr(FifoPurchaseCosting, "_escribir", staticmethod(_db_failing_escribir))
+
+        with sessionmaker(bind=engine)() as db:
+            compra_id = db.query(SellInCompra.id).one()[0]
+            with pytest.raises(DBAPIError):
+                compras.anular_compra(db, compra_id, usuario_id=7, motivo="error de carga")
+            assert db.execute(text("SELECT estado FROM sell_in_compras")).scalar() == "activa"
+
+        assert _rows(engine, "auditoria") == 0
 
 
 @pytest.mark.postgres
