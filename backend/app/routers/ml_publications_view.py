@@ -1048,7 +1048,7 @@ def _product_out(
 
 @dataclass(frozen=True)
 class ProductsAsk:
-    """What a Producto-view request asks (`/products` and its export share it): what the caller may see and the
+    """What a Producto-view request asks (`/products` reads it; kept as one dependency so a future export shares it): what the caller may see and the
     sort, already checked and parsed."""
 
     can_see_margin: bool

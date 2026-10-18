@@ -10,6 +10,8 @@ whose row stopped matching the filters meanwhile.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
@@ -17,7 +19,9 @@ from sqlalchemy.orm import sessionmaker
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view import listing, markup_service
 from app.services.ml_publications.view.filters import parse_filter, parse_markup_filter
+from app.services.ml_publications.view.export import PrefetchedAds
 from app.services.ml_publications.view.markup_service import MarkupQuery
+from app.utils.csv_cells import csv_money
 from tests.routers.test_ml_publications_view_markup import fill as markup_fill
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
@@ -137,9 +141,6 @@ class TestPrefetchedAds:
             return {"MLA1": 10.0, "MLA2": 20.0}
 
     def test_one_read_then_each_page_gets_its_own_amounts(self) -> None:
-        from datetime import date
-
-        from app.services.ml_publications.view.export import PrefetchedAds
 
         provider = self.Provider()
         ads = PrefetchedAds(provider, date(2026, 9, 1), date(2026, 9, 30))
@@ -148,9 +149,6 @@ class TestPrefetchedAds:
         assert provider.calls == [None]  # one read, of the whole period: the keys are not fixed yet
 
     def test_a_failed_read_fails_every_page(self) -> None:
-        from datetime import date
-
-        from app.services.ml_publications.view.export import PrefetchedAds
 
         ads = PrefetchedAds(self.Provider(fail=True), date(2026, 9, 1), date(2026, 9, 30))
         with pytest.raises(RuntimeError):
@@ -172,6 +170,5 @@ class TestCsvMoney:
         ],
     )
     def test_cells(self, value, cell) -> None:
-        from app.utils.csv_cells import csv_money
 
         assert csv_money(value) == cell
