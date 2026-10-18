@@ -19,6 +19,10 @@ summary's `failed_items`; a batch that fails outside the per-product savepoint
 are listed; `--after-item` would skip them, so `--items` (a CSV of
 item ids) reruns exactly those products and nothing else.
 
+Exits 1 when any product failed (after printing the `--items` rerun line), 0
+otherwise. Run from `backend/` with `-m`: the settings read `backend/.env`
+from there, so the module does no import-time bootstrap.
+
 Run:
     cd /var/www/html/pricing-app/backend && venv/bin/python -m app.scripts.backfill_sell_in_consumos --dry-run
     cd /var/www/html/pricing-app/backend && venv/bin/python -m app.scripts.backfill_sell_in_consumos
@@ -30,21 +34,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
-backend_path = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(backend_path))
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-from dotenv import load_dotenv  # noqa: E402
-
-load_dotenv(dotenv_path=backend_path / ".env")
-
-from sqlalchemy import text  # noqa: E402
-from sqlalchemy.orm import Session  # noqa: E402
-
-from app.core.database import SessionLocal  # noqa: E402
-from app.services.sell_in.costing import RecomputeResult, get_costing  # noqa: E402
+from app.core.database import SessionLocal
+from app.services.sell_in.costing import RecomputeResult, get_costing
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +70,8 @@ def run_backfill(
 ) -> dict:
     """Recomputes every candidate product after `after_item`, or, with `items`,
     exactly those products, `batch_size` per transaction."""
+    if batch_size < 1 or (limit is not None and limit < 1):
+        raise ValueError(f"batch_size and limit must be >= 1 (got batch_size={batch_size}, limit={limit})")
     wanted = sorted(set(items)) if items is not None else None
     summary = {
         "dry_run": dry_run,
@@ -125,19 +123,34 @@ def run_backfill(
     return summary
 
 
+def _positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {value!r}") from None
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be >= 1: {value!r}")
+    return number
+
+
 def _item_ids(value: str) -> List[int]:
     try:
-        return sorted({int(part) for part in value.split(",") if part.strip()})
+        ids = sorted({int(part) for part in value.split(",") if part.strip()})
     except ValueError:
         raise argparse.ArgumentTypeError(f"not a CSV of item ids: {value!r}") from None
+    if not ids:
+        raise argparse.ArgumentTypeError(f"no item ids in {value!r}")
+    return ids
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Recompute the sell-in allocation (sell_in_consumos) of every product with sell in."
     )
-    parser.add_argument("--limit", type=int, default=None, help="Stop after this many products.")
-    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Products per batch and commit.")
+    parser.add_argument("--limit", type=_positive_int, default=None, help="Stop after this many products.")
+    parser.add_argument(
+        "--batch-size", type=_positive_int, default=DEFAULT_BATCH_SIZE, help="Products per batch and commit."
+    )
     parser.add_argument(
         "--after-item", type=int, default=0, help="Resume after this item_id (the last_item_id of a previous summary)."
     )
@@ -151,7 +164,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def main(argv: Optional[List[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args(argv)
     summary = run_backfill(
@@ -168,7 +181,9 @@ def main(argv: Optional[List[str]] = None) -> None:
             len(summary["failed_items"]),
             ",".join(str(item) for item in summary["failed_items"]),
         )
+        return 1
+    return 0
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

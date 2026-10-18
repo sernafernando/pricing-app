@@ -11,10 +11,14 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterator
 
+import importlib
+import sys
+
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
+from app.scripts import backfill_sell_in_consumos as script
 from app.scripts.backfill_sell_in_consumos import _build_parser, run_backfill
 from app.services.sell_in import costing
 from tests.services.sell_in import _world as w
@@ -151,3 +155,56 @@ class TestParser:
     def test_items_rejects_a_non_numeric_id(self) -> None:
         with pytest.raises(SystemExit):
             _build_parser().parse_args(["--items", "2964,abc"])
+
+    @pytest.mark.parametrize("flag", ["--batch-size", "--limit"])
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_batch_size_and_limit_reject_values_below_one(self, flag: str, value: str) -> None:
+        with pytest.raises(SystemExit):
+            _build_parser().parse_args([flag, value])
+
+    def test_items_rejects_an_empty_list(self) -> None:
+        with pytest.raises(SystemExit):
+            _build_parser().parse_args(["--items", " , "])
+
+
+class TestRunBackfillArguments:
+    @pytest.mark.parametrize("kwargs", [{"batch_size": 0}, {"batch_size": -1}, {"limit": 0}, {"limit": -1}])
+    def test_it_rejects_a_batch_size_or_limit_below_one_before_touching_the_db(self, kwargs: dict) -> None:
+        def _no_db():
+            raise AssertionError("opened a session")
+
+        with pytest.raises(ValueError):
+            run_backfill(**{"limit": None, "dry_run": True, "session_factory": _no_db, **kwargs})
+
+
+class TestMain:
+    def _summary(self, failed_items: list) -> dict:
+        return {"dry_run": False, "products": 2, "failed": len(failed_items), "failed_items": failed_items}
+
+    def test_it_exits_zero_when_nothing_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(script, "run_backfill", lambda **_: self._summary([]))
+
+        assert script.main([]) == 0
+
+    def test_it_exits_one_and_prints_the_rerun_line_when_a_product_failed(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(script, "run_backfill", lambda **_: self._summary([2270, 2964]))
+
+        assert script.main([]) == 1
+        assert "--items 2270,2964" in caplog.text
+
+
+class TestImport:
+    def test_importing_the_module_neither_loads_a_dotenv_nor_touches_sys_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import dotenv
+
+        calls = []
+        monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: calls.append((a, k)))
+        before = list(sys.path)
+
+        importlib.reload(script)
+
+        assert calls == [] and sys.path == before
