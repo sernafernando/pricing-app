@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import importlib
 import sys
+from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
-from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
@@ -162,6 +162,52 @@ class TestBackfill:
         assert (summary["products"], summary["inserted"], summary["last_item_id"]) == (1, 1, 2270)
         assert summary["stopped_at_after_item"] == 2270
         assert "connection lost" in summary["stop_error"]
+        assert w.consumos(engine) == [(b, "ml", vb, 2270, 2, Decimal("40.00"))]
+
+    def test_a_session_that_cannot_be_opened_stops_the_run_and_keeps_the_committed_summary(
+        self, engine: Engine
+    ) -> None:
+        a, b, va, vb = _seed(engine)
+        factory = sessionmaker(bind=engine)
+        opened = []
+
+        def _second_open_fails():
+            opened.append(1)
+            if len(opened) == 2:
+                raise RuntimeError("pool exhausted")
+            return factory()
+
+        summary = run_backfill(limit=None, dry_run=False, batch_size=1, session_factory=_second_open_fails)
+
+        assert (summary["products"], summary["last_item_id"], summary["stopped_at_after_item"]) == (1, 2270, 2270)
+        assert "pool exhausted" in summary["stop_error"]
+        assert w.consumos(engine) == [(b, "ml", vb, 2270, 2, Decimal("40.00"))]
+
+    def test_a_batch_whose_rollback_fails_stops_the_run_before_that_batch(self, engine: Engine) -> None:
+        a, b, va, vb = _seed(engine)
+        factory = sessionmaker(bind=engine)
+        sessions = []
+
+        def _second_connection_dies():
+            db = factory()
+            sessions.append(db)
+            if len(sessions) == 2:
+
+                def _commit():
+                    raise RuntimeError("server closed the connection")
+
+                def _rollback():
+                    raise RuntimeError("rollback on a dead connection")
+
+                db.commit = _commit
+                db.rollback = _rollback
+            return db
+
+        summary = run_backfill(limit=None, dry_run=False, batch_size=1, session_factory=_second_connection_dies)
+
+        # The 2964 batch never committed: it is not counted, and resuming reruns it.
+        assert (summary["products"], summary["failed_items"], summary["stopped_at_after_item"]) == (1, [], 2270)
+        assert "rollback on a dead connection" in summary["stop_error"]
         assert w.consumos(engine) == [(b, "ml", vb, 2270, 2, Decimal("40.00"))]
 
     def test_items_runs_exactly_the_given_products_in_batches(self, engine: Engine) -> None:

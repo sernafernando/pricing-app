@@ -19,7 +19,8 @@ summary's `failed_items`; a batch that fails outside the per-product savepoint
 are listed; `--after-item` would skip them, so `--items` (a CSV of
 item ids) reruns exactly those products and nothing else.
 
-If reading the next candidates fails, the run stops there: the summary keeps
+If a session cannot be opened, reading the next candidates fails, or a failed
+batch cannot even be rolled back (a dead connection), the run stops there: the summary keeps
 what was committed and sets `stopped_at_after_item` (resume with
 `--after-item`) and `stop_error`.
 
@@ -39,7 +40,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from typing import Callable, Iterable, List, Optional
+from collections.abc import Callable, Iterable
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -65,13 +66,27 @@ LIMIT :take
 )
 
 
+def _stop(summary: dict, exc: BaseException, what: str) -> None:
+    """Ends the run at the last committed product, keeping the summary so far."""
+    logger.exception("backfill_sell_in_consumos: %s after item %s failed", what, summary["last_item_id"])
+    summary["stopped_at_after_item"] = summary["last_item_id"]
+    summary["stop_error"] = f"{type(exc).__name__}: {exc}"[:500]
+
+
+def _close(db: Session) -> None:
+    try:
+        db.close()
+    except Exception:  # noqa: BLE001 - the batch outcome is already decided
+        logger.warning("backfill_sell_in_consumos: closing the session failed", exc_info=True)
+
+
 def run_backfill(
-    limit: Optional[int],
+    limit: int | None,
     dry_run: bool,
     batch_size: int = DEFAULT_BATCH_SIZE,
     after_item: int = 0,
     session_factory: Callable[[], Session] = SessionLocal,
-    items: Optional[Iterable[int]] = None,
+    items: Iterable[int] | None = None,
 ) -> dict:
     """Recomputes every candidate product after `after_item`, or, with `items`,
     exactly those products, `batch_size` per transaction."""
@@ -92,18 +107,18 @@ def run_backfill(
     }
     while limit is None or summary["products"] < limit:
         take = batch_size if limit is None else min(batch_size, limit - summary["products"])
-        db = session_factory()
+        try:
+            db = session_factory()
+        except Exception as exc:  # noqa: BLE001 - keep the summary of the committed batches
+            _stop(summary, exc, "opening a session")
+            break
         try:
             if wanted is None:
                 params = {"after": summary["last_item_id"], "take": take}
                 try:
                     batch = [row[0] for row in db.execute(_CANDIDATES_SQL, params)]
                 except Exception as exc:  # noqa: BLE001 - keep the summary of the committed batches
-                    logger.exception(
-                        "backfill_sell_in_consumos: reading candidates after %s failed", summary["last_item_id"]
-                    )
-                    summary["stopped_at_after_item"] = summary["last_item_id"]
-                    summary["stop_error"] = f"{type(exc).__name__}: {exc}"[:500]
+                    _stop(summary, exc, "reading candidates")
                     break
             else:
                 batch = [item for item in wanted if item > summary["last_item_id"]][:take]
@@ -118,12 +133,17 @@ def run_backfill(
             except Exception as exc:  # noqa: BLE001 - one bad batch must not lose the run's summary
                 # Outside the per-product savepoint (shared reads, the lock, the
                 # commit): the whole batch rolls back and is listed for --items.
-                db.rollback()
+                try:
+                    db.rollback()
+                except Exception as rollback_exc:  # noqa: BLE001 - dead connection: stop before this batch
+                    logger.error("backfill_sell_in_consumos: batch %s..%s failed: %s", batch[0], batch[-1], exc)
+                    _stop(summary, rollback_exc, "rolling back a failed batch")
+                    break
                 logger.exception("backfill_sell_in_consumos: batch %s..%s failed", batch[0], batch[-1])
                 error = f"{type(exc).__name__}: {exc}"[:500]
                 result = RecomputeResult(products=len(batch), failed={item: error for item in batch})
         finally:
-            db.close()
+            _close(db)
         if result.failed:
             logger.warning("backfill_sell_in_consumos: failed products %s", result.failed)
         summary["products"] += len(batch)
@@ -148,7 +168,7 @@ def _positive_int(value: str) -> int:
     return number
 
 
-def _item_ids(value: str) -> List[int]:
+def _item_ids(value: str) -> list[int]:
     try:
         ids = sorted({int(part) for part in value.split(",") if part.strip()})
     except ValueError:
@@ -179,7 +199,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args(argv)
     summary = run_backfill(
