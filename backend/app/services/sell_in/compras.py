@@ -270,7 +270,8 @@ def _guardar(
 
 def _sincronizar_pedidos(db: Session, compra: SellInCompra) -> None:
     """Makes the purchase's link rows (`SellInCompraPedido`) match `pedido_compra_id`:
-    one row when it is set, none when it is not. Not flushed."""
+    one row when it is set, none when it is not. Flushes, so a repeat call sees its own rows
+    even with autoflush off."""
     deseado = compra.pedido_compra_id
     existentes = db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == compra.id).all()
     for link in existentes:
@@ -278,6 +279,7 @@ def _sincronizar_pedidos(db: Session, compra: SellInCompra) -> None:
             db.delete(link)
     if deseado is not None and all(link.pedido_compra_id != deseado for link in existentes):
         db.add(SellInCompraPedido(compra_id=compra.id, pedido_compra_id=deseado))
+    db.flush()
 
 
 def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
@@ -369,14 +371,17 @@ def _contiene(columna, q: str):
 
 def _texto(db: Session, q: str):
     """Case-insensitive substring over supplier name, the lines' product code or description,
-    the purchase's own reference text (`descripcion`) and its linked purchase orders' numbers
-    (through `SellInCompraPedido`)."""
+    the purchase's own reference text (`descripcion`) and its purchase orders' numbers, through
+    `SellInCompraPedido` or the `pedido_compra_id` column (a writer that skips the link sync still matches)."""
     return or_(
         _contiene(SellInCompra.descripcion, q),
         db.query(Proveedor).filter(Proveedor.id == SellInCompra.proveedor_id, _contiene(Proveedor.nombre, q)).exists(),
         db.query(SellInCompraPedido)
         .join(PedidoCompra, PedidoCompra.id == SellInCompraPedido.pedido_compra_id)
         .filter(SellInCompraPedido.compra_id == SellInCompra.id, _contiene(PedidoCompra.numero, q))
+        .exists(),
+        db.query(PedidoCompra)
+        .filter(PedidoCompra.id == SellInCompra.pedido_compra_id, _contiene(PedidoCompra.numero, q))
         .exists(),
         _items_que_cumplen(db, or_(_contiene(ProductoERP.codigo, q), _contiene(ProductoERP.descripcion, q))),
     )

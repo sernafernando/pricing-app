@@ -396,6 +396,22 @@ def test_syncing_the_links_follows_the_column(client, gestor, productos, pedido,
     assert _links(db, compra.id) == [pedido.id]
 
 
+def test_syncing_twice_without_autoflush_adds_one_link(client, gestor, productos, pedido, db):
+    """Idempotent on its own, not by relying on the session's autoflush."""
+    data = _crear(client, gestor, pedido_compra_id=pedido.id)
+    compra = db.get(SellInCompra, data["id"])
+    compra.pedido_compra_id = None
+    compras_service._sincronizar_pedidos(db, compra)
+    db.flush()
+
+    compra.pedido_compra_id = pedido.id
+    with db.no_autoflush:
+        compras_service._sincronizar_pedidos(db, compra)
+        compras_service._sincronizar_pedidos(db, compra)
+    db.flush()
+    assert _links(db, compra.id) == [pedido.id]
+
+
 @pytest.mark.parametrize(
     "overrides,fragment",
     [({"proveedor_id": 987654}, "proveedor 987654"), ({"pedido_compra_id": 987654}, "pedido de compra 987654")],
@@ -662,8 +678,9 @@ def test_list_free_text_matches_the_purchase_order_number(client, gestor, produc
     assert _ids(resp) == [con["id"]]
 
 
-def test_list_free_text_finds_the_purchase_order_through_the_link(client, gestor, productos, pedido, db):
-    """The number is matched over the link rows, not the old column."""
+def test_list_free_text_finds_the_purchase_order_through_the_link_or_the_column(client, gestor, productos, pedido, db):
+    """The number is matched over the link rows AND the old column, so a write path that sets the column
+    without syncing the links never drops the purchase from the search."""
     solo_link = _crear(client, gestor, descripcion=None)
     db.add(SellInCompraPedido(compra_id=solo_link["id"], pedido_compra_id=pedido.id))
     solo_columna = _crear(client, gestor, pedido_compra_id=pedido.id, descripcion=None)
@@ -671,7 +688,7 @@ def test_list_free_text_finds_the_purchase_order_through_the_link(client, gestor
     db.flush()
 
     resp = client.get(BASE, params={"q": "p-si-0000"}, headers=gestor)
-    assert _ids(resp) == [solo_link["id"]]
+    assert sorted(_ids(resp)) == sorted([solo_link["id"], solo_columna["id"]])
 
 
 @pytest.mark.parametrize(
