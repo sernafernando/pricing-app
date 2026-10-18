@@ -41,8 +41,12 @@ def _module():
 
 
 class TestMigrationGraph:
-    def test_single_head_is_this_revision(self) -> None:
-        assert _script_directory().get_heads() == [_REVISION]
+    def test_single_head_descends_from_this_revision(self) -> None:
+        scripts = _script_directory()
+        heads = scripts.get_heads()
+        assert len(heads) == 1
+        lineage = {rev.revision for rev in scripts.iterate_revisions(heads[0], "base")}
+        assert _REVISION in lineage
 
     def test_chains_on_the_previous_head(self) -> None:
         assert _script_directory().get_revision(_REVISION).down_revision == "20261031_sell_dirty_queue"
@@ -73,14 +77,25 @@ def pg_engine() -> Iterator[Engine]:
         admin.dispose()
 
 
-def _association(conn, itema_id: int, combo: int, componente: int, qty) -> None:
+def _association(conn, itema_id: int, combo: int | None, componente: int | None, qty, comp_id: int = 1) -> None:
     conn.execute(
         text(
             "INSERT INTO tb_item_association (comp_id, itema_id, item_id, item_id_1, iasso_qty) "
-            "VALUES (1, :itema_id, :combo, :componente, :qty)"
+            "VALUES (:comp_id, :itema_id, :combo, :componente, :qty)"
         ),
-        {"itema_id": itema_id, "combo": combo, "componente": componente, "qty": qty},
+        {"comp_id": comp_id, "itema_id": itema_id, "combo": combo, "componente": componente, "qty": qty},
     )
+
+
+def _filled(engine: Engine) -> list[tuple]:
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT combo_item_id, componente_item_id, cantidad FROM combo_componentes "
+                "ORDER BY combo_item_id, componente_item_id"
+            )
+        ).all()
+    return [tuple(r) for r in rows]
 
 
 def _upgrade(engine: Engine) -> None:
@@ -156,3 +171,46 @@ class TestInitialFill:
             (200, 500, Decimal("1.5000")),
         ]
         assert filled is True
+
+    # The fill mirrors `combos.sync` (`fuente_erp.snapshot_desde_registros`), which
+    # refuses the whole snapshot (writes nothing) on any of these: the table must
+    # come out empty, never a partial or cross-company BOM.
+    def test_the_same_pair_under_two_companies_fills_nothing(self, pg_engine: Engine) -> None:
+        with pg_engine.begin() as conn:
+            _association(conn, 1, combo=100, componente=500, qty=2, comp_id=1)
+            _association(conn, 1, combo=100, componente=500, qty=3, comp_id=2)
+
+        _upgrade(pg_engine)
+
+        assert _filled(pg_engine) == []
+
+    @pytest.mark.parametrize(
+        ("combo", "componente"), [(None, 500), (100, None)], ids=["null_item_id", "null_item_id_1"]
+    )
+    def test_a_row_without_combo_or_component_fills_nothing(self, pg_engine: Engine, combo, componente) -> None:
+        with pg_engine.begin() as conn:
+            _association(conn, 1, combo=200, componente=600, qty=1)
+            _association(conn, 2, combo=combo, componente=componente, qty=1)
+
+        _upgrade(pg_engine)
+
+        assert _filled(pg_engine) == []
+
+    def test_an_unreadable_quantity_fills_nothing(self, pg_engine: Engine) -> None:
+        with pg_engine.begin() as conn:
+            _association(conn, 1, combo=200, componente=600, qty=1)
+            _association(conn, 2, combo=200, componente=601, qty=Decimal("NaN"))
+
+        _upgrade(pg_engine)
+
+        assert _filled(pg_engine) == []
+
+    def test_upgrade_without_the_mirror_creates_an_empty_table(self, pg_engine: Engine) -> None:
+        with pg_engine.begin() as conn:
+            conn.execute(text("DROP TABLE tb_item_association"))
+
+        _upgrade(pg_engine)
+
+        with pg_engine.begin() as conn:
+            assert inspect(conn).has_table("combo_componentes")
+        assert _filled(pg_engine) == []

@@ -9,10 +9,22 @@ holds combo -> component + quantity, owned by the app. No foreign key to the
 ERP mirror tables.
 
 The upgrade fills it once from `tb_item_association` so it is usable right
-after deploy, before the `combos.sync` worker handler first runs: rows with a
-positive `iasso_qty` (anything else is not a composition), a pair that appears
-twice holds the sum of both quantities. From then on only `combos.sync` writes
-it. This is the only place outside the ERP adapter that reads the mirror.
+after deploy, before the `combos.sync` worker handler first runs. From then on
+only `combos.sync` writes it. This is the only place outside the ERP adapter
+that reads the mirror.
+
+The fill produces exactly what `combos.sync`
+(`app.services.combos.fuente_erp.snapshot_desde_registros`) would produce for
+the same rows:
+
+- only rows with a positive `iasso_qty` are components (anything else is not a
+  composition); a pair that appears twice holds the sum of both quantities;
+- fail closed, all or nothing: if any row lacks `item_id` or `item_id_1`, has
+  an unreadable quantity (NaN or infinity), or the rows span more than one
+  `comp_id` (the app-owned table has no company), the sync refuses the whole
+  snapshot, so the fill copies nothing and the table starts empty;
+- if the mirror table does not exist (it is created by the alembic chain, but
+  a database bootstrapped another way may lack it), the fill is skipped.
 
 The downgrade drops the table.
 """
@@ -31,7 +43,14 @@ _INITIAL_FILL = """
 INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad)
 SELECT item_id, item_id_1, SUM(iasso_qty)
 FROM tb_item_association
-WHERE iasso_qty > 0 AND item_id IS NOT NULL AND item_id_1 IS NOT NULL
+WHERE iasso_qty > 0
+  AND NOT EXISTS (
+    SELECT 1 FROM tb_item_association
+    WHERE item_id IS NULL
+       OR item_id_1 IS NULL
+       OR iasso_qty::text IN ('NaN', 'Infinity', '-Infinity')
+  )
+  AND (SELECT COUNT(DISTINCT comp_id) FROM tb_item_association) <= 1
 GROUP BY item_id, item_id_1
 """
 
@@ -48,7 +67,8 @@ def upgrade() -> None:
         sa.CheckConstraint("cantidad > 0", name="ck_combo_componentes_cantidad_positiva"),
     )
     op.create_index("ix_combo_componentes_componente_item_id", "combo_componentes", ["componente_item_id"])
-    op.execute(_INITIAL_FILL)
+    if op.get_bind().execute(sa.text("SELECT to_regclass('tb_item_association')")).scalar() is not None:
+        op.execute(_INITIAL_FILL)
 
 
 def downgrade() -> None:
