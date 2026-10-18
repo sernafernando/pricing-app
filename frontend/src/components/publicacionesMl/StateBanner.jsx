@@ -22,6 +22,21 @@ const RESOURCE_NAMES = {
   stock: 'stock Full y Propio',
 };
 
+/**
+ * The block fires when the p95 age passes the threshold, so at least the oldest
+ * 5% is stale. It says the real share when the status counted it, and the
+ * percentile it measured otherwise: never "most of the data".
+ */
+function staleMessage(degradation) {
+  const days = degradation.stale_days ?? Math.floor((degradation.p95_age_seconds ?? 0) / SECONDS_PER_DAY);
+  const { stale_rows: staleRows, checked_rows: checkedRows } = degradation;
+  const share =
+    Number.isFinite(staleRows) && Number.isFinite(checkedRows) && checkedRows > 0
+      ? `el ${Math.max(1, Math.round((100 * staleRows) / checkedRows))}% de las publicaciones`
+      : 'el 5% más antiguo';
+  return `Parte de los datos está desactualizada: ${share} se actualizó hace más de ${days} días.`;
+}
+
 function lines(dataState) {
   if (dataState.available === false) {
     return {
@@ -37,10 +52,7 @@ function lines(dataState) {
     if (degradation.code === 'flag_disabled' && FLAG_MESSAGES[degradation.flag]) {
       messages.push(FLAG_MESSAGES[degradation.flag]);
     }
-    if (degradation.code === 'stale_data') {
-      const days = Math.floor((degradation.p95_age_seconds ?? 0) / SECONDS_PER_DAY);
-      messages.push(`Los datos están desactualizados: la mayoría se actualizó hace más de ${days} días.`);
-    }
+    if (degradation.code === 'stale_data') messages.push(staleMessage(degradation));
   }
   const missing = degradations
     .filter((d) => d.code === 'resource_not_collected' && RESOURCE_NAMES[d.resource])

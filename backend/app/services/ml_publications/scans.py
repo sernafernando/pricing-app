@@ -96,6 +96,21 @@ class StoredItem:
     gone_at: Optional[datetime]
 
 
+# A lap takes up to a day; one more day of slack keeps scan-only items clear of the stale threshold.
+REFRESH_MARGIN_DAYS = 2
+
+
+def refresh_days(stale_days: int) -> float:
+    """Age past which a lap re-enqueues an unchanged item: strictly below `stale_days`, the threshold the
+    status banner reads (p95 of the age). With the cutoff AT the threshold, scan-only items came back a lap
+    after crossing it and the p95 hovered just above it. Tiny thresholds fall back to half of it."""
+    return max(stale_days - REFRESH_MARGIN_DAYS, stale_days / 2)
+
+
+def refresh_before(now: datetime, stale_days: int) -> datetime:
+    return now - timedelta(days=refresh_days(stale_days))
+
+
 def lane_for(
     mode: str, scan_status: str, stored: Optional[StoredItem], *, now: datetime, stale_days: int
 ) -> Optional[int]:
@@ -104,7 +119,7 @@ def lane_for(
         return queue.LANE_BACKFILL
     if stored is None or stored.gone_at is not None:
         return queue.LANE_RECONCILE
-    if stored.last_checked_at is None or stored.last_checked_at < now - timedelta(days=stale_days):
+    if stored.last_checked_at is None or stored.last_checked_at < refresh_before(now, stale_days):
         return queue.LANE_RECONCILE
     if stored.status not in body_statuses(scan_status):
         return queue.LANE_RECONCILE
@@ -505,14 +520,14 @@ def _enqueue_unseen(
 ) -> Optional[int]:
     """Stored, non-gone items of fully covered statuses that no scan returned during the lap.
 
-    A `closed` item is refreshed only once stale: closed items drop out of the scans while ML keeps
-    answering 200 for them, so refreshing them on every lap would never end.
+    A `closed` item is refreshed only past the scan cutoff (`refresh_days`): closed items drop out of
+    the scans while ML keeps answering 200 for them, so refreshing them on every lap would never end.
 
     Only the item `core` is requested on purpose: the question is whether ML still answers (200 or
     404). When `bundle_resources` grows, notifications and the sub-resource policy fill the rest.
     Returns None when the flag was turned off between batches; the lap stays open and the next run
     repeats the step (the query is state-derived, so it is idempotent)."""
-    stale_before = now - timedelta(days=stale_days)
+    refresh_cutoff = refresh_before(now, stale_days)
     rows = _states(statuses)
     completed = [s for s, r in rows.items() if r is not None and r.completed_at is not None and not r.last_error]
     covered = sorted(covered_body_statuses(completed))
@@ -535,7 +550,7 @@ def _enqueue_unseen(
                         (MlItem.last_checked_at.is_(None)) | (MlItem.last_checked_at < lap.started_at),
                         (MlItem.status != "closed")
                         | (MlItem.last_checked_at.is_(None))
-                        | (MlItem.last_checked_at < stale_before),
+                        | (MlItem.last_checked_at < refresh_cutoff),
                     )
                     .order_by(MlItem.item_id)
                     .limit(UNSEEN_BATCH)

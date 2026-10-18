@@ -21,7 +21,7 @@ sweep tick that fails still returns success to the runtime, so its `last_success
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -298,15 +298,20 @@ def _items(db: Session) -> Dict[str, Any]:
 
 
 def _freshness(db: Session, resources: Optional[Dict[str, str]] = None) -> Dict[str, Dict[str, Any]]:
+    """Age of `last_checked_at` per state table; `stale_rows` counts the rows past `ML_PUB_STALE_DAYS` (the
+    banner's threshold) in the same scan, so the banner can state the real share instead of guessing it."""
     result = {}
+    stale_seconds = timedelta(days=settings.ML_PUB_STALE_DAYS).total_seconds()
     for resource, table in (STATE_TABLES if resources is None else resources).items():
         row = db.execute(
             text(
                 "SELECT count(*) AS total, count(age) AS checked, "
+                "count(*) FILTER (WHERE age > :stale_seconds) AS stale, "
                 "percentile_cont(0.5) WITHIN GROUP (ORDER BY age) AS p50, "
                 "percentile_cont(0.95) WITHIN GROUP (ORDER BY age) AS p95, max(age) AS oldest FROM "
                 f"(SELECT CAST(extract(epoch FROM now() - last_checked_at) AS double precision) AS age FROM {table}) s"
-            )
+            ),
+            {"stale_seconds": stale_seconds},
         ).one()
         result[resource] = {
             "rows": row.total,
@@ -314,6 +319,7 @@ def _freshness(db: Session, resources: Optional[Dict[str, str]] = None) -> Dict[
             "p50_age_seconds": _number(row.p50),
             "p95_age_seconds": _number(row.p95),
             "max_age_seconds": _number(row.oldest),
+            "stale_rows": row.stale,
         }
     return result
 

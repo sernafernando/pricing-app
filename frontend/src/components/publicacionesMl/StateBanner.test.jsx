@@ -97,6 +97,92 @@ describe('StateBanner', () => {
     const banner = screen.getByRole('status');
     expect(banner).toHaveTextContent('La sincronización está pausada');
     expect(banner).toHaveTextContent('hace más de 3 días');
+    expect(banner).not.toHaveTextContent('la mayoría');
+  });
+
+  it('states the real share of publications past the stale threshold', () => {
+    render(
+      <StateBanner
+        dataState={state({
+          degraded: true,
+          degradations: [
+            {
+              code: 'stale_data',
+              resource: 'items',
+              p95_age_seconds: 7.4 * 86400,
+              stale_days: 7,
+              stale_rows: 1650,
+              checked_rows: 25000,
+              affects: ['all'],
+            },
+          ],
+        })}
+      />,
+    );
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent(
+      'Parte de los datos está desactualizada: el 7% de las publicaciones se actualizó hace más de 7 días.',
+    );
+    expect(banner).not.toHaveTextContent('la mayoría');
+  });
+
+  it('falls back to the measured percentile when the share is not known', () => {
+    render(
+      <StateBanner
+        dataState={state({
+          degraded: true,
+          degradations: [
+            { code: 'stale_data', resource: 'items', p95_age_seconds: 7.4 * 86400, stale_days: 7, affects: ['all'] },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Parte de los datos está desactualizada: el 5% más antiguo se actualizó hace más de 7 días.',
+    );
+  });
+
+  function renderStale(counts) {
+    render(
+      <StateBanner
+        dataState={state({
+          degraded: true,
+          degradations: [
+            {
+              code: 'stale_data',
+              resource: 'items',
+              p95_age_seconds: 7.4 * 86400,
+              stale_days: 7,
+              affects: ['all'],
+              ...counts,
+            },
+          ],
+        })}
+      />,
+    );
+    return screen.getByRole('status');
+  }
+
+  it('never rounds a non-zero stale share down to 0%', () => {
+    expect(renderStale({ stale_rows: 1, checked_rows: 25000 })).toHaveTextContent(
+      'Parte de los datos está desactualizada: el 1% de las publicaciones se actualizó hace más de 7 días.',
+    );
+  });
+
+  it('falls back to the measured percentile when nothing was checked', () => {
+    const banner = renderStale({ stale_rows: 0, checked_rows: 0 });
+    expect(banner).toHaveTextContent('el 5% más antiguo se actualizó hace más de 7 días.');
+    expect(banner).not.toHaveTextContent('NaN');
+  });
+
+  it.each([
+    ['the checked count is missing', { stale_rows: 1650 }],
+    ['the stale count is missing', { checked_rows: 25000 }],
+    ['a count is null', { stale_rows: null, checked_rows: 25000 }],
+  ])('falls back to the measured percentile when %s', (_label, counts) => {
+    const banner = renderStale(counts);
+    expect(banner).toHaveTextContent('el 5% más antiguo se actualizó hace más de 7 días.');
+    expect(banner).not.toHaveTextContent('de las publicaciones');
   });
 
   it('mentions sections of the report that failed', () => {

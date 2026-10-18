@@ -8,6 +8,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 
+from app.core.config import settings
 from app.services.ml_publications.view import status_block
 from app.services.ml_publications.view.status_block import ReportCache, build_block
 
@@ -89,6 +90,12 @@ class TestBuildBlock:
         stale = build_block(healthy(freshness={"items": {"rows": 5, "checked": 5, "p95_age_seconds": 8 * DAY}}))
         assert fresh["degradations"] == []
         assert codes(stale) == [("stale_data", "items")]
+
+    def test_the_stale_degradation_says_how_many_rows_are_past_the_threshold(self) -> None:
+        freshness = {"items": {"rows": 100, "checked": 90, "p95_age_seconds": 8 * DAY, "stale_rows": 9}}
+        [degradation] = build_block(healthy(freshness=freshness))["degradations"]
+        assert degradation["stale_days"] == settings.ML_PUB_STALE_DAYS
+        assert (degradation["stale_rows"], degradation["checked_rows"]) == (9, 90)
 
     def test_a_failed_section_is_reported_not_hidden(self) -> None:
         report = healthy(items=None, completeness=None, freshness=None, sections_failed=["items", "completeness"])

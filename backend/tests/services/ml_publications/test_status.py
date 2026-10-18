@@ -116,6 +116,7 @@ class TestEmptyStore:
             "p50_age_seconds": None,
             "p95_age_seconds": None,
             "max_age_seconds": None,
+            "stale_rows": 0,
         }
         assert result["lag_p95_seconds_24h"] is None and result["lag_samples_24h"] == 0
         assert result["completeness"]["description"]["missing"] == 0
@@ -405,6 +406,17 @@ class TestFreshnessAndCompleteness:
         assert 29 < fresh["p50_age_seconds"] < 32
         assert 800 < fresh["p95_age_seconds"] <= 1001
         assert 999 < fresh["max_age_seconds"] < 1010
+
+    def test_counts_the_rows_older_than_the_stale_threshold(self, store) -> None:
+        stale = settings.ML_PUB_STALE_DAYS
+        put_item(store, "MLA1", checked="1 day")
+        put_item(store, "MLA2", checked=f"{stale + 1} days")
+        put_item(store, "MLA3", checked=f"{stale + 2} days")
+        put_item(store, "MLA4", checked=None)  # never checked: not counted as stale
+
+        fresh = report(store)["freshness"]["items"]
+
+        assert (fresh["checked"], fresh["stale_rows"]) == (3, 2)
 
     def test_every_sub_resource_table_has_its_own_distribution(self, store) -> None:
         run(
