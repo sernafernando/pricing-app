@@ -27,7 +27,7 @@ from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
 from app.models.sell_dirty import SellDirty
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
@@ -43,6 +43,7 @@ TABLES = [
     ProductoERP.__table__,
     SellInCompra.__table__,
     SellInCompraItem.__table__,
+    SellInCompraPedido.__table__,
     SellInConsumo.__table__,
     Auditoria.__table__,
     VentaFueraMLMetrica.__table__,
