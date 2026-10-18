@@ -254,6 +254,31 @@ class TestSkuDivergence:
         assert link == {"auto": 5, "manual": 1, "sin_producto": 1, "sku_divergente": 3}
         assert link["sku_divergente"] == run(db, vinculo="sku_divergente").total
 
+    def test_a_sku_that_matches_nothing_names_no_product_even_with_a_stale_suggestion(self, conn, db) -> None:
+        seed.add_product(conn, 70, "MAP-70", "Router del mapa")
+        seed.add_product(conn, 71, "SKU-71", "Switch del SKU")
+        seed.add_item(conn, "MLA1", seller_sku="SKU-MLA1")
+        # a suggestion that once matched product 71, then stopped matching: the stored id is stale
+        seed.add_link(conn, "MLA1", 70, suggestion_status="unmatched", suggested_producto_item_id=71)
+        (row,) = run(db).items
+        assert row["sku_divergence"] == {
+            "kind": "sin_coincidencia",
+            "producto_item_id": None,
+            "codigo": None,
+            "descripcion": None,
+        }
+
+    def test_with_the_links_flag_off_nothing_is_evaluated_so_link_and_divergence_read_empty(self, conn, db) -> None:
+        """`links.enabled` off: the store writes no link row (`store._evaluate_links`), and the divergence reads
+        only the stored link row, exactly like `link` (status_block.FLAG_EFFECTS["links"])."""
+        seed.add_product(conn, 71, "SKU-71", "Switch del SKU")
+        seed.add_item(conn, "MLA1", seller_sku="SKU-71")
+        (row,) = run(db).items
+        assert row["link"]["state"] == "no_evaluado" and row["link"]["producto_item_id"] is None
+        assert row["sku_divergence"] is None
+        assert run(db, vinculo="sku_divergente").total == 0
+        assert "sku_divergente" not in listing.facets(db, parse_filter())["link"]
+
     def test_the_facet_offers_no_divergence_when_there_is_none(self, conn, db) -> None:
         seed.add_item(conn, "MLA1")
         seed.add_link(conn, "MLA1", None, match_status="unmatched")

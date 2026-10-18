@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
-from app.services.ml_publications.links import sku_key
+from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import (
     AXES,
@@ -197,14 +197,16 @@ def _seller_sku(row: Any) -> Optional[str]:
 
 def _sku_divergence(row: Any) -> dict[str, Any] | None:
     """The product the publication's SKU names when it disagrees with the linked one (`links.sku_divergence`):
-    none for `sin_coincidencia`, which names no single product; the whole block is None when the SKU agrees."""
+    none for `sin_coincidencia`, which names no single product (a stored suggested id is then stale and is not
+    shown); the whole block is None when the SKU agrees."""
     if row.sku_divergence_kind is None:
         return None
+    names_product = row.sku_divergence_kind == DIVERGENCE_OTHER_PRODUCT
     return {
         "kind": row.sku_divergence_kind,
-        "producto_item_id": row.suggested_producto_item_id,
-        "codigo": row.suggested_codigo,
-        "descripcion": row.suggested_descripcion,
+        "producto_item_id": row.suggested_producto_item_id if names_product else None,
+        "codigo": row.suggested_codigo if names_product else None,
+        "descripcion": row.suggested_descripcion if names_product else None,
     }
 
 

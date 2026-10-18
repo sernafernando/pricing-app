@@ -70,6 +70,8 @@ class TestBuildBlock:
             },
         )
         assert codes(build_block(report)) == [("flag_disabled", "links"), ("resource_not_collected", "stock")]
+        links = next(d for d in build_block(report)["degradations"] if d.get("flag") == "links")
+        assert links["affects"] == ["link", "sku_divergence"]
 
     def test_a_refresh_that_is_off_means_the_data_may_be_stale(self) -> None:
         report = healthy(flags={"refresh": False, "intake": True, "events": True, "links": True})
