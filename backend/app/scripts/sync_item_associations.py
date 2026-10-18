@@ -16,6 +16,10 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
+import json
+import socket
+import threading
+import time
 import requests
 from decimal import Decimal
 from sqlalchemy.orm import Session
@@ -30,8 +34,107 @@ logger = logging.getLogger(__name__)
 WORKER_URL = "http://localhost:8002/api/gbp-parser"
 
 
+_CHUNK_BYTES = 64 * 1024
+
+# The last bounded fetch's thread. One abandoned at its deadline may still be
+# blocked in the network; a new bounded fetch refuses to start until it ends,
+# so a hung ERP cannot pile up threads and connections.
+_fetch_thread: threading.Thread | None = None
+_fetch_done: threading.Event | None = None  # set by that thread as its last step
+_fetch_deadline = 0.0  # monotonic deadline of that fetch
+_fetch_lock = threading.Lock()
+
+
+class ErpFetchTimeout(requests.exceptions.Timeout):
+    """The ERP response did not finish within the total wall-clock bound."""
+
+
+def _abort_response(response) -> None:
+    """Best-effort: shut the response's socket down so a `recv` blocked in
+    another thread returns at once (a bare close does not wake it), then close."""
+    connection = getattr(getattr(response, "raw", None), "_connection", None)
+    sock = getattr(connection, "sock", None)
+    if sock is not None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    try:
+        response.close()
+    except Exception:  # cleanup only: the caller already raises ErpFetchTimeout
+        pass
+
+
+def _get_json_within(url: str, params: dict, read_timeout: float, total_timeout: float):
+    """GET `url` and parse its JSON body, returning or raising within
+    `total_timeout` seconds of wall-clock time.
+
+    `requests`' timeout only bounds the connect and each `recv`: one chunk read
+    is many `recv` calls, and DNS/connect come first, so no check between reads
+    can bound the total. The GET and the whole read run in a daemon thread and
+    the caller waits on it for at most `total_timeout`; at the deadline it
+    shuts the socket down (unblocking the read) and raises `ErpFetchTimeout`.
+    A thread still stuck where nothing can be closed (DNS, connect) ends on its
+    own `read_timeout`; until it does, new bounded fetches refuse to start (as
+    they do while another bounded fetch is still inside its own deadline)."""
+    global _fetch_thread, _fetch_done, _fetch_deadline
+    with _fetch_lock:
+        if _fetch_done is not None and not _fetch_done.is_set():
+            if time.monotonic() < _fetch_deadline:
+                raise ErpFetchTimeout("another ERP fetch is already running, inside its deadline")
+            raise ErpFetchTimeout("a previous ERP fetch is still running past its deadline")
+        state: dict = {}
+        done = threading.Event()
+        abort = threading.Event()
+
+        def fetch() -> None:
+            try:
+                response = requests.get(url, params=params, timeout=read_timeout, stream=True)
+                state["response"] = response
+                if abort.is_set():  # the deadline passed while `get` returned: the caller had nothing to close
+                    response.close()
+                    return
+                try:
+                    response.raise_for_status()
+                    chunks = []
+                    for chunk in response.iter_content(chunk_size=_CHUNK_BYTES):
+                        if abort.is_set():
+                            return
+                        chunks.append(chunk)
+                    state["body"] = b"".join(chunks)
+                finally:
+                    response.close()
+            except Exception as exc:  # handed to the caller, which re-raises it
+                state["error"] = exc
+            finally:
+                done.set()
+
+        _fetch_done = done
+        _fetch_deadline = time.monotonic() + total_timeout
+        _fetch_thread = threading.Thread(target=fetch, name="erp-fetch", daemon=True)
+        _fetch_thread.start()
+
+    if not done.wait(total_timeout):
+        abort.set()
+        response = state.get("response")
+        if response is not None:
+            _abort_response(response)
+        raise ErpFetchTimeout(f"ERP response exceeded {total_timeout}s")
+    if "error" in state:
+        raise state["error"]
+    if "body" not in state:  # the thread died on a BaseException it does not catch
+        raise ErpFetchTimeout("ERP fetch ended without a response")
+    return json.loads(state["body"])
+
+
 def fetch_item_associations_from_erp(
-    itema_id: int = None, itema_id_4update: int = None, item_id: int = None, item1_id: int = None
+    itema_id: int = None,
+    itema_id_4update: int = None,
+    item_id: int = None,
+    item1_id: int = None,
+    timeout: float = 120,
+    total_timeout: float | None = None,
+    strict: bool = False,
 ):
     """
     Obtiene asociaciones de items desde el ERP vía gbp-parser.
@@ -41,9 +144,24 @@ def fetch_item_associations_from_erp(
         itema_id_4update: ID desde (para paginación incremental)
         item_id: ID de item principal
         item1_id: ID de item asociado
+        timeout: `requests` timeout: bounds the connect and each wait for
+            bytes, not the whole download (120 by default).
+        total_timeout: opt-in total wall-clock bound in seconds; the call
+            returns or raises `ErpFetchTimeout` within it, whatever the
+            network does. None (the cron script) keeps the old
+            plain GET with no total bound, so a slow but healthy full download
+            still completes. `app.services.combos.fuente_erp.fetch_snapshot` sets it.
+        strict: raise `ValueError` when the response is not a JSON list. The
+            cron script keeps the old lenient behavior (logs and returns []);
+            `fetch_snapshot` passes True, because an empty list there
+            would read as "the ERP has no combos".
 
     Returns:
         Lista de registros
+
+    Raises:
+        requests.exceptions.RequestException on a connection error, a non-2xx
+        status or the total bound; ValueError on a body that is not JSON.
     """
     params = {"strScriptLabel": "scriptItemAssociation"}
 
@@ -59,20 +177,22 @@ def fetch_item_associations_from_erp(
     logger.info(f"Consultando ERP con params: {params}")
 
     try:
-        response = requests.get(WORKER_URL, params=params, timeout=120)
-        response.raise_for_status()
-
-        data = response.json()
-
-        if isinstance(data, list):
-            return data
+        if total_timeout is None:
+            response = requests.get(WORKER_URL, params=params, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
         else:
-            logger.error(f"Respuesta inesperada del worker: {type(data)}")
-            return []
-
+            data = _get_json_within(WORKER_URL, params, timeout, total_timeout)
     except requests.exceptions.RequestException as e:
         logger.error(f"Error al consultar el worker: {e}")
         raise
+
+    if isinstance(data, list):
+        return data
+    if strict:
+        raise ValueError(f"unexpected ERP response: {type(data).__name__}, expected a list")
+    logger.error(f"Respuesta inesperada del worker: {type(data)}")
+    return []
 
 
 def parse_bool(value):
