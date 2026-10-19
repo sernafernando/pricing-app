@@ -36,7 +36,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.services.combos.componentes import componentes_de
+from app.services.combos.componentes import CombosNoSincronizados, componentes_de, exigir_combos_disponibles
 
 ESTADOS_TERMINALES = ("consumido", "anulado")
 
@@ -55,7 +55,11 @@ def _bom_actual_por_combo(db: Session, combo_item_id: int) -> dict[int, float]:
 
 
 def reportar(db: Session, estado: str = None, combo_item_id: int = None, solo_activos: bool = False) -> dict:
-    """Construye el reporte de filas sospechosas. NO modifica nada."""
+    """Construye el reporte de filas sospechosas. NO modifica nada.
+
+    Con `combo_componentes` vacía levanta `CombosNoSincronizados`: sin BOM,
+    todos los seriales parecerían FUERA_DE_BOM."""
+    exigir_combos_disponibles(db)
     filtros = []
     params: dict = {}
     if estado:
@@ -212,6 +216,8 @@ def main() -> None:
             solo_activos=args.solo_activos,
         )
         imprimir(reporte)
+    except CombosNoSincronizados as exc:
+        sys.exit(f"ERROR: {exc}")
     finally:
         db.close()
 

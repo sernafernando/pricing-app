@@ -20,6 +20,7 @@ import pytest
 
 from app.core.security import create_access_token, get_password_hash
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
+from tests.integration.combos_mock import con_chequeo_de_combos
 from app.models.rol import Rol
 
 
@@ -124,7 +125,7 @@ def _make_kpis_mock_db_session() -> MagicMock:
 
     mock_db = MagicMock()
     mock_db.execute.return_value = result
-    return mock_db
+    return con_chequeo_de_combos(mock_db)
 
 
 @pytest.fixture()

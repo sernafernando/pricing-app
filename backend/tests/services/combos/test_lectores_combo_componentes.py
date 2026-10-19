@@ -26,8 +26,11 @@ from app.models.tb_item_association import TbItemAssociation
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.routers import prearmado as prearmado_router
 from app.schemas.prearmado import PrearmadoCreate
-from app.scripts.report_prearmado_ghost_serials import _bom_actual_por_combo
+from app.scripts.report_prearmado_ghost_serials import _bom_actual_por_combo, reportar
 from app.services.combos.componentes import (
+    DETALLE_COMBOS_NO_SINCRONIZADOS,
+    CombosNoSincronizados,
+    combos_disponibles,
     combos_que_contienen,
     componentes_de,
     es_combo,
@@ -148,3 +151,56 @@ class TestReporteSerialesFantasma:
     def test_current_bom_comes_from_the_app_table(self, bom) -> None:
         assert _bom_actual_por_combo(bom, COMBO) == {500: 2.0, 600: 1.0}
         assert _bom_actual_por_combo(bom, SOLO_ESPEJO) == {}
+
+
+@pytest.fixture()
+def bom_vacia(db):
+    """The sync never ran: the ERP mirror has the combo, the app table is empty."""
+    for item_id, code in [(COMBO, "NB-COMBO-WH"), (500, "DISCO")]:
+        db.add(TBItem(comp_id=1, item_id=item_id, item_code=code, item_desc=f"desc {code}"))
+    db.add(TbItemAssociation(comp_id=1, itema_id=1, item_id=COMBO, item_id_1=500, iasso_qty=1))
+    db.flush()
+    return db
+
+
+class TestEmptyBomFailsClosed:
+    """An empty `combo_componentes` means "not synced yet", never "no combos":
+    answering would call every real combo a plain item."""
+
+    def test_combos_disponibles(self, bom_vacia) -> None:
+        assert combos_disponibles(bom_vacia) is False
+        bom_vacia.add(ComboComponente(combo_item_id=COMBO, componente_item_id=500, cantidad=Decimal("1")))
+        bom_vacia.flush()
+        assert combos_disponibles(bom_vacia) is True
+
+    def test_prearmado_componentes_is_503(self, bom_vacia) -> None:
+        with pytest.raises(HTTPException) as exc:
+            prearmado_router.obtener_componentes_para_prearmado(COMBO, db=bom_vacia)
+        assert exc.value.status_code == 503
+        assert exc.value.detail == DETALLE_COMBOS_NO_SINCRONIZADOS
+
+    def test_crear_prearmado_is_503(self, bom_vacia) -> None:
+        with patch.object(prearmado_router, "generar_codigo_prearmado", return_value="PRA-TEST-000001"):
+            with pytest.raises(HTTPException) as exc:
+                prearmado_router.crear_prearmado(
+                    PrearmadoCreate(combo_item_id=COMBO), db=bom_vacia, current_user=SimpleNamespace(id=1)
+                )
+        assert exc.value.status_code == 503
+        assert bom_vacia.query(Prearmado).count() == 0
+
+    def test_ghost_serial_report_refuses(self, bom_vacia) -> None:
+        with pytest.raises(CombosNoSincronizados):
+            reportar(bom_vacia)
+
+    def test_ghost_serial_report_main_exits_with_an_error(self, bom_vacia, capsys) -> None:
+        from app.scripts import report_prearmado_ghost_serials as script
+
+        with (
+            patch.object(script, "SessionLocal", return_value=bom_vacia),
+            patch.object(bom_vacia, "close"),
+            patch("sys.argv", ["report_prearmado_ghost_serials"]),
+        ):
+            with pytest.raises(SystemExit) as exc:
+                script.main()
+        assert exc.value.code != 0
+        assert "combos" in str(exc.value.code)

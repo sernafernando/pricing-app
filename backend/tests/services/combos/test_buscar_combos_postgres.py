@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from decimal import Decimal
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,6 +16,7 @@ from app.models.combo_componente import ComboComponente
 from app.models.tb_item import TBItem
 from app.models.tb_item_association import TbItemAssociation
 from app.routers.prearmado import buscar_combos
+from app.services.combos.componentes import DETALLE_COMBOS_NO_SINCRONIZADOS
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
 
 _TABLES = [ComboComponente.__table__, TBItem.__table__, TbItemAssociation.__table__]
@@ -67,3 +69,34 @@ def test_finds_combos_of_the_app_table_only(pg_session: Session) -> None:
 
     # One row per combo even with several components.
     assert [c.item_id for c in found] == [100, 200]
+
+
+@pytest.mark.postgres
+def test_an_item_under_two_companies_is_found_once(pg_session: Session) -> None:
+    """The old query joined the mirror on item_id AND comp_id, so the search
+    only ever saw the company the bill of materials belongs to (1). The app
+    table has no company: the search keeps that scope instead of returning
+    one row per company."""
+    db = pg_session
+    db.add(TBItem(comp_id=1, item_id=100, item_code="NB-A", item_desc="notebook A"))
+    db.add(TBItem(comp_id=2, item_id=100, item_code="NB-A-OTRA", item_desc="notebook A otra empresa"))
+    db.add(ComboComponente(combo_item_id=100, componente_item_id=500, cantidad=Decimal("1")))
+    db.commit()
+
+    found = buscar_combos(q="nb-", limit=20, db=db)
+
+    assert [(c.item_id, c.item_code) for c in found] == [(100, "NB-A")]
+
+
+@pytest.mark.postgres
+def test_an_empty_bom_is_503_not_an_empty_search(pg_session: Session) -> None:
+    db = pg_session
+    db.add(TBItem(comp_id=1, item_id=100, item_code="NB-A", item_desc="notebook A"))
+    db.add(TbItemAssociation(comp_id=1, itema_id=1, item_id=100, item_id_1=500, iasso_qty=1))
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        buscar_combos(q="nb-", limit=20, db=db)
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail == DETALLE_COMBOS_NO_SINCRONIZADOS

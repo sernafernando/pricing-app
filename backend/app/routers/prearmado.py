@@ -44,7 +44,7 @@ from app.schemas.prearmado import (
     ValidateSerialRequest,
     ValidateSerialResponse,
 )
-from app.services.combos.componentes import es_combo
+from app.services.combos.componentes import DETALLE_COMBOS_NO_SINCRONIZADOS, combos_disponibles, es_combo
 from app.services.prearmado_helpers import generar_codigo_prearmado, parse_windows_suffix
 from app.services.prearmado_matcher import match_prearmados_with_sales_orders
 
@@ -379,6 +379,19 @@ def _get_prearmado_or_404(db: Session, prearmado_id: int) -> Prearmado:
     return p
 
 
+# The ERP company the combo bill of materials belongs to. The old search joined
+# the mirror on comp_id and the mirror only ever held company 1; `combo_componentes`
+# has no company, so the catalog side keeps that scope explicitly.
+COMP_ID_BOM = 1
+
+
+def _exigir_combos_sincronizados(db: Session) -> None:
+    """503 while `combo_componentes` is empty: an unsynced table would call
+    every real combo a plain item."""
+    if not combos_disponibles(db):
+        raise HTTPException(status_code=503, detail=DETALLE_COMBOS_NO_SINCRONIZADOS)
+
+
 # --- Endpoints ---
 
 
@@ -399,6 +412,7 @@ def buscar_combos(
     `combo_componentes` (la BOM propia de la app). Independiente del cache de pedidos
     pendientes — permite prearmar cualquier combo del catálogo aunque no tenga pedido.
     """
+    _exigir_combos_sincronizados(db)
     search_pattern = f"%{q}%"
     rows = (
         db.execute(
@@ -406,13 +420,14 @@ def buscar_combos(
                 """
                 SELECT DISTINCT ti.item_id, ti.item_code, ti.item_desc
                 FROM tb_item ti
-                WHERE EXISTS (SELECT 1 FROM combo_componentes cc WHERE cc.combo_item_id = ti.item_id)
+                WHERE ti.comp_id = :comp_id
+                  AND EXISTS (SELECT 1 FROM combo_componentes cc WHERE cc.combo_item_id = ti.item_id)
                   AND (ti.item_code ILIKE :search OR ti.item_desc ILIKE :search)
                 ORDER BY ti.item_code
                 LIMIT :limit
                 """
             ),
-            {"search": search_pattern, "limit": limit},
+            {"search": search_pattern, "limit": limit, "comp_id": COMP_ID_BOM},
         )
         .mappings()
         .all()
@@ -448,6 +463,7 @@ def obtener_componentes_para_prearmado(
     if not combo:
         raise HTTPException(status_code=404, detail="Item no encontrado")
 
+    _exigir_combos_sincronizados(db)
     if not es_combo(db, combo_item_id):
         raise HTTPException(
             status_code=400,
@@ -526,6 +542,7 @@ def crear_prearmado(
     if not combo:
         raise HTTPException(status_code=404, detail="Item del combo no encontrado")
 
+    _exigir_combos_sincronizados(db)
     if not es_combo(db, body.combo_item_id):
         raise HTTPException(
             status_code=400,
