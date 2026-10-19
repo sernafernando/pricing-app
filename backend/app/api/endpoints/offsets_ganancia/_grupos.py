@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
+from app.models.sell_out import SellOutCampanaGrupo
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
@@ -110,6 +111,13 @@ def eliminar_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: U
     offsets_count = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id).count()
     if offsets_count > 0:
         raise HTTPException(400, f"No se puede eliminar el grupo, tiene {offsets_count} offsets asociados")
+
+    # sell_out_campana_grupos points here with RESTRICT: answer clearly instead of a database error
+    if db.query(SellOutCampanaGrupo).filter(SellOutCampanaGrupo.grupo_id == grupo_id).first() is not None:
+        raise HTTPException(
+            400,
+            "El grupo está asignado a una campaña de sell out. Quite el grupo de la campaña antes de eliminarlo.",
+        )
 
     # Los filtros se eliminan automáticamente por el cascade
     db.delete(grupo)
