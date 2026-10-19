@@ -417,3 +417,40 @@ class TestDatabaseErrors:
         assert result.detail["errors"] == 1
         assert result.detail["refreshed"] == 1
         assert "claiming a row failed" in caplog.text
+
+
+class TestWriteConfirmation:
+    """P3 end to end: a pass whose refresh succeeded stamps the MLA's recent write with what the fresh mirror
+    shows. The mirror read is mocked; the `ml_write_log` update is real."""
+
+    @pytest.fixture()
+    def write_log(self, pg_engine) -> Engine:
+        from app.models.ml_write_log import MlWriteLog
+
+        _restore_pristine_pg_types([MlWriteLog.__table__])
+        with pg_engine.begin() as conn:
+            conn.execute(text("CREATE TABLE usuarios (id integer PRIMARY KEY, nombre varchar(255) NOT NULL)"))
+            MlWriteLog.__table__.create(bind=conn)
+        return pg_engine
+
+    def test_an_accepted_enroll_left_candidate_is_recorded_as_not_applied(self, write_log, proxy) -> None:
+        with write_log.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO ml_write_log (mla, resource, action, target_id, payload)"
+                    " VALUES ('MLA1', 'promotion', 'enroll', 'C-1', '{\"outcome\": \"submitted\"}'::jsonb)"
+                )
+            )
+        put(write_log, "MLA1")
+
+        with mock.patch(
+            "app.services.promo_write_confirmation.fetch_item_promotions",
+            return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "candidate"}],
+        ):
+            result = handler.run(ctx())
+
+        assert result.detail["refreshed"] == 1
+        with _READERS[write_log].connect() as conn:
+            payload = conn.execute(text("SELECT payload FROM ml_write_log")).scalar_one()
+        assert payload["confirmation"]["status"] == "not_applied"
+        assert payload["confirmation"]["mirror_status"] == "candidate"

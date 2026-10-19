@@ -17,6 +17,8 @@ One pass (`drain`):
      success, dropped when retrying cannot help, otherwise retried `REFRESH_RETRY_DELAY_SECONDS` later and
      quarantined (deleted, logged) at `MAX_ATTEMPTS`. A settle only touches the row while `due_at` still
      equals the lease, so a new write that re-queued the MLA during the call survives it.
+  4. After a successful refresh, outside any session: `promo_write_confirmation.confirm_recent_writes` records
+     whether ML actually applied the MLA's recent writes. Best effort; it never changes the settle or the counts.
 
 The lease replaces the old session-level advisory lock, which had to keep a connection open for the whole pass.
 """
@@ -33,6 +35,7 @@ from app.core.database import get_background_db
 from app.models.promo_refresh_pending import PromoRefreshPending
 from app.services.ml_promotions_write_service import REFRESH_RETRY_DELAY_SECONDS
 from app.services.ml_webhook_client import RefreshOutcome, ml_webhook_client
+from app.services.promo_write_confirmation import confirm_recent_writes
 from app.utils.async_bridge import resolve_maybe_async
 
 logger = logging.getLogger(__name__)
@@ -232,4 +235,15 @@ def drain(
         except Exception:  # noqa: BLE001 -- the row keeps its lease and is claimed again once it expires
             logger.error("promo_write.refresh: settling %s failed", claim.mla, exc_info=True)
             detail["errors"] += 1
+        if outcome is not None and outcome.ok:
+            _confirm(claim.mla, sessions)
     return detail
+
+
+def _confirm(mla: str, sessions: Callable[[], Any]) -> None:
+    """The mirror is fresh: record whether ML applied the recent writes (P3). After the settle and outside its
+    session; best effort, so it never changes the settle or the counts."""
+    try:
+        confirm_recent_writes(mla, session_factory=sessions)
+    except Exception:  # noqa: BLE001 -- confirm_recent_writes never raises; this guards a bug in it
+        logger.warning("promo_write.refresh: confirming writes for %s failed", mla, exc_info=True)
