@@ -976,6 +976,45 @@ class MLWebhookClient:
             logger.error(f"Error obteniendo items de la promoción {promotion_id}: {_describe_exc(e)}")
             return None
 
+    async def get_promotion_item(
+        self,
+        promotion_id: str,
+        promotion_type: str,
+        item_id: str,
+        timeout: Optional[float] = None,
+    ) -> Optional[Dict]:
+        """Reads ONE item's entry in a promotion's item list: a single page of
+        `/seller-promotions/promotions/{id}/items` filtered by `item_id`
+        (the proxy forwards every query param but `app_version`), never a
+        walk of the whole promotion like `get_promotion_items`.
+
+        Args:
+            promotion_id: The promotion ID.
+            promotion_type: Its type (ML requires it).
+            item_id: The MLA to filter by.
+            timeout: Optional hard overall deadline in seconds.
+
+        Returns:
+            The raw page `{paging, results}`, or None on error/timeout.
+        """
+
+        async def _fetch() -> Dict:
+            async with httpx.AsyncClient(timeout=timeout or 10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/promociones/{promotion_id}/items",
+                    params={"promotion_type": promotion_type, "item_id": item_id},
+                )
+                response.raise_for_status()
+                return response.json()
+
+        try:
+            if timeout is None:
+                return await _fetch()
+            return await asyncio.wait_for(_fetch(), timeout=timeout)
+        except Exception as e:
+            logger.error(f"Error obteniendo el item {item_id} de la promoción {promotion_id}: {_describe_exc(e)}")
+            return None
+
     # ── ML Seller Promotions (WRITE, PR2) ────────────────────────────
     # Unlike the read methods above, write methods NEVER collapse errors
     # to None: they always return a structured outcome
