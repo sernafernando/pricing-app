@@ -245,16 +245,23 @@ export default function PublicacionesML() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
-  // A refusal belongs to the list it was asked for: narrowing the filters or changing the view clears it.
-  useEffect(() => setExportError(null), [filterKey, filters.vista]);
+  // A refusal belongs to the list it was asked for: narrowing the filters or changing the view clears it, and a
+  // refusal that arrives after the operator left that list is dropped (the file of a success is still the one asked for).
+  const exportList = `${filters.vista}|${filterKey}`;
+  const currentExportList = useRef(exportList);
+  useEffect(() => {
+    currentExportList.current = exportList;
+    setExportError(null);
+  }, [exportList]);
   // The CSV of the view on screen, with the list's own filters and sort (the Agrupado tree has no export).
   const handleExport = async () => {
+    const askedFor = exportList;
     setExporting(true);
     setExportError(null);
     try {
       await exportPublicacionesCsv(filters.vista, buildExportParams(filters, { canSeeMargin, canSeeSales }));
     } catch (err) {
-      setExportError(err.message);
+      if (askedFor === currentExportList.current) setExportError(err.message);
     } finally {
       setExporting(false);
     }

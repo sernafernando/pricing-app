@@ -1369,4 +1369,30 @@ describe('CSV export of the current view (S7)', () => {
     await userEvent.click(exportButton());
     expect(await screen.findByRole('alert')).toHaveTextContent('Son 12000 publicaciones (máximo 10000). Acotá los filtros.');
   });
+
+  const narrow = async () => {
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(lastParams().estado).toBe('active'));
+  };
+
+  it('narrowing the filters clears the refusal, so the operator can retry', async () => {
+    exportPublicacionesCsv.mockRejectedValue(new Error('Son 12000 publicaciones (máximo 10000). Acotá los filtros.'));
+    await page();
+    await userEvent.click(exportButton());
+    await screen.findByRole('alert');
+    await narrow();
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('a refusal for a list the operator already left is not shown under the new filters', async () => {
+    let refuse;
+    exportPublicacionesCsv.mockReturnValue(new Promise((_, reject) => (refuse = reject)));
+    await page();
+    await userEvent.click(exportButton());
+    await narrow();
+    refuse(new Error('Son 12000 publicaciones (máximo 10000). Acotá los filtros.'));
+    expect(await screen.findByRole('button', { name: /Exportar CSV/ })).toBeEnabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
