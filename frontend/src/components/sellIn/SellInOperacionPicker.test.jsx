@@ -155,6 +155,33 @@ describe('SellInOperacionPicker', () => {
     expect(screen.queryByText('No se pudieron buscar operaciones.')).not.toBeInTheDocument();
   });
 
+  it('a failed Enter fast path with the list closed opens it to show the error', async () => {
+    const user = userEvent.setup();
+    const { onPick, input } = renderPicker();
+    await user.type(input, '15');
+    await screen.findByRole('listbox');
+    await user.keyboard('{Escape}');
+    sellInAPI.operaciones.mockRejectedValue(new Error('boom'));
+
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByText('No se pudieron buscar operaciones.')).toBeInTheDocument();
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('points aria-controls at the listbox only while it is shown', async () => {
+    const user = userEvent.setup();
+    const { input } = renderPicker();
+    expect(input).not.toHaveAttribute('aria-controls');
+
+    await user.type(input, 'p-');
+    const lista = await screen.findByRole('listbox');
+    expect(input).toHaveAttribute('aria-controls', lista.id);
+
+    await user.keyboard('{Escape}');
+    expect(input).not.toHaveAttribute('aria-controls');
+  });
+
   it('an empty answer says nothing matched', async () => {
     const user = userEvent.setup();
     const { input } = renderPicker();

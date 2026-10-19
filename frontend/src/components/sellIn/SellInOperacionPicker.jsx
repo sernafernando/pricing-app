@@ -88,6 +88,8 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
       const exactas = data.items.filter((operacion) => esExacta(operacion, q));
       if (exactas.length === 1 && textoRef.current.trim() === q) elegir(exactas[0]);
     } catch {
+      // The hint only shows with the list open: open it, or a failure here would go unseen.
+      setAbierto(true);
       setError(true);
     }
   };
@@ -126,7 +128,7 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
         className={styles.input}
         placeholder="Buscar por N°, proveedor o factura…"
         aria-expanded={mostrarLista}
-        aria-controls={listId}
+        aria-controls={mostrarLista ? listId : undefined}
         aria-autocomplete="list"
         aria-activedescendant={mostrarLista && activo >= 0 ? opcionId(opciones[activo]) : undefined}
         value={texto}

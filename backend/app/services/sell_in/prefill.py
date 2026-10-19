@@ -40,7 +40,7 @@ from app.services.sell_in.compras import SellInError, operaciones
 _TZ_LOCAL = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
-def _fecha_local(momento: datetime) -> date:
+def fecha_local(momento: datetime) -> date:
     if momento.tzinfo is None:  # SQLite drops the zone; the column is UTC
         momento = momento.replace(tzinfo=timezone.utc)
     return momento.astimezone(_TZ_LOCAL).date()
@@ -50,7 +50,7 @@ def _fecha_ingreso(db: Session, pedido_ids: list[int]) -> Optional[date]:
     filas = db.query(PedidoCompraIngreso.fecha_ingreso, PedidoCompraIngreso.created_at).filter(
         PedidoCompraIngreso.pedido_id.in_(pedido_ids)
     )
-    fechas = [tipeada or _fecha_local(creada) for tipeada, creada in filas]
+    fechas = [tipeada or fecha_local(creada) for tipeada, creada in filas]
     return min(fechas, default=None)
 
 

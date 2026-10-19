@@ -412,7 +412,7 @@ def _items_que_cumplen(db: Session, *condiciones):
 _LIKE_ESCAPE = "\\"
 
 
-def _contiene(columna, q: str):
+def contiene(columna, q: str):
     """`columna` contains `q`, ignoring case, with the folding done by the DATABASE on both sides.
 
     SQLAlchemy's `ilike` is `ILIKE` on Postgres and `lower(x) LIKE lower(y)` elsewhere, so the query
@@ -429,16 +429,16 @@ def _texto(db: Session, q: str):
     the purchase's own reference text (`descripcion`) and its purchase orders' numbers, through
     `SellInCompraPedido` or the `pedido_compra_id` column (a writer that skips the link sync still matches)."""
     return or_(
-        _contiene(SellInCompra.descripcion, q),
-        db.query(Proveedor).filter(Proveedor.id == SellInCompra.proveedor_id, _contiene(Proveedor.nombre, q)).exists(),
+        contiene(SellInCompra.descripcion, q),
+        db.query(Proveedor).filter(Proveedor.id == SellInCompra.proveedor_id, contiene(Proveedor.nombre, q)).exists(),
         db.query(SellInCompraPedido)
         .join(PedidoCompra, PedidoCompra.id == SellInCompraPedido.pedido_compra_id)
-        .filter(SellInCompraPedido.compra_id == SellInCompra.id, _contiene(PedidoCompra.numero, q))
+        .filter(SellInCompraPedido.compra_id == SellInCompra.id, contiene(PedidoCompra.numero, q))
         .exists(),
         db.query(PedidoCompra)
-        .filter(PedidoCompra.id == SellInCompra.pedido_compra_id, _contiene(PedidoCompra.numero, q))
+        .filter(PedidoCompra.id == SellInCompra.pedido_compra_id, contiene(PedidoCompra.numero, q))
         .exists(),
-        _items_que_cumplen(db, or_(_contiene(ProductoERP.codigo, q), _contiene(ProductoERP.descripcion, q))),
+        _items_que_cumplen(db, or_(contiene(ProductoERP.codigo, q), contiene(ProductoERP.descripcion, q))),
     )
 
 

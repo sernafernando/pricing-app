@@ -26,8 +26,8 @@ from sqlalchemy.orm import Session
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
 from app.schemas.sell_in import OPERACIONES_LIMITE
-from app.services.sell_in.compras import _contiene
-from app.services.sell_in.prefill import _fecha_local
+from app.services.sell_in.compras import contiene
+from app.services.sell_in.prefill import fecha_local
 
 
 def buscar_operaciones(
@@ -42,9 +42,9 @@ def buscar_operaciones(
     texto = (q or "").strip()
     if texto:
         condiciones = [
-            _contiene(PedidoCompra.numero, texto),
-            _contiene(Proveedor.nombre, texto),
-            _contiene(PedidoCompra.numero_factura, texto),
+            contiene(PedidoCompra.numero, texto),
+            contiene(Proveedor.nombre, texto),
+            contiene(PedidoCompra.numero_factura, texto),
         ]
         if texto.isascii() and texto.isdigit():  # str.isdigit() also accepts "²", which int() refuses
             condiciones.append(PedidoCompra.id == int(texto))
@@ -62,7 +62,7 @@ def buscar_operaciones(
             "numero": pedido.numero,
             "proveedor_id": pedido.proveedor_id,
             "proveedor_nombre": nombre,
-            "fecha": _fecha_local(pedido.created_at),
+            "fecha": fecha_local(pedido.created_at),
             "moneda": pedido.moneda,
             "monto": pedido.monto,
             "estado": pedido.estado,
