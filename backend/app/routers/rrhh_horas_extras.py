@@ -55,7 +55,7 @@ from app.models.rrhh_horas_extras import (
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.rrhh_hikvision_client import ART_TZ
-from app.services.rrhh_horas_extras_diario import DetectionLockUnavailable, detection_lock
+from app.services.rrhh_horas_extras_diario import DetectionLockUnavailable, try_detection_lock
 from app.services.rrhh_horas_extras_service import HorasExtrasService
 
 router = APIRouter(prefix="/rrhh/horas-extras", tags=["rrhh-horas-extras"])
@@ -1154,7 +1154,7 @@ def liquidar_periodo(
 
 @router.post(
     "/recalcular",
-    summary="Recálculo manual de un rango (cap configurable, lockfile cron)",
+    summary="Recálculo manual de un rango (cap configurable, lock de detección HE)",
 )
 def recalcular_periodo(
     data: RecalcularRequest,
@@ -1166,9 +1166,10 @@ def recalcular_periodo(
 
     Validaciones:
     - Rango <= `cap_dias_recalculo_manual` (default 90, configurable). 422 si excede.
-    - Holds the shared HE detection lock while recalculating, so the worker run and the manual script
-      skip instead of overlapping; if another run holds it → 409. A lockfile nobody holds does not block.
-    - Lock file cannot be opened → 503 (running unlocked could overlap another run).
+    - Takes the shared HE detection advisory lock in this request's transaction and commits the writes
+      while holding it, so the worker run and the manual script skip instead of overlapping; if another
+      run holds it → 409.
+    - Database error taking the lock → 503 (running unlocked could overlap another run).
     """
     _check_permiso(db, current_user, "rrhh.gestionar_horas_extras")
 
@@ -1183,22 +1184,28 @@ def recalcular_periodo(
             ),
         )
 
+    # The lock lives in this request's transaction: it is released exactly when the writes below commit
+    # (or roll back when the request fails), never before.
     try:
-        with detection_lock() as acquired:
-            if not acquired:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Cron en curso, intentá luego",
-                )
-            service = HorasExtrasService(db)
-            empleado_ids = [data.empleado_id] if data.empleado_id is not None else None
-            return service.detectar_he_periodo(
-                fecha_desde=data.fecha_desde,
-                fecha_hasta=data.fecha_hasta,
-                empleado_ids=empleado_ids,
-            )
+        acquired = try_detection_lock(db)
     except DetectionLockUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not acquired:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cron en curso, intentá luego",
+        )
+
+    service = HorasExtrasService(db)
+    empleado_ids = [data.empleado_id] if data.empleado_id is not None else None
+    resultado = service.detectar_he_periodo(
+        fecha_desde=data.fecha_desde,
+        fecha_hasta=data.fecha_hasta,
+        empleado_ids=empleado_ids,
+        commit=False,
+    )
+    db.commit()
+    return resultado
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -17,13 +17,12 @@ class _Runs(list):
 
 
 @pytest.fixture()
-def runs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> _Runs:
-    monkeypatch.setattr(diario, "LOCK_PATHS", (tmp_path / "he.lock",))
+def runs(monkeypatch: pytest.MonkeyPatch) -> _Runs:
     called = _Runs()
 
-    def fake_run(day, **_):
-        called.append(day)
-        return diario.DailyRunResult(day=day, status=called.status)
+    def fake_run(days, **_):
+        called.append(list(days))
+        return diario.DailyRunResult(status=called.status)
 
     monkeypatch.setattr(script, "run_daily_detection", fake_run)
     return called
@@ -31,13 +30,13 @@ def runs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> _Runs:
 
 def test_it_reruns_the_given_day(runs) -> None:
     assert script.main(["--fecha", "2026-05-05"]) == 0
-    assert runs == [date(2026, 5, 5)]
+    assert runs == [[date(2026, 5, 5)]]
 
 
 def test_without_a_day_it_runs_yesterday_in_argentina(runs, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(script, "previous_local_day", lambda now: date(2026, 10, 18))
     assert script.main([]) == 0
-    assert runs == [date(2026, 10, 18)]
+    assert runs == [[date(2026, 10, 18)]]
 
 
 @pytest.mark.parametrize(

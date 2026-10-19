@@ -16,15 +16,14 @@ What a run does:
     Idempotent: editable blocks are recomputed, frozen blocks are kept.
   - Purges old read alerts (`dias_retencion_alertas`). A purge failure does not change the exit code:
     the detection is already committed.
-  - Detection and purge run under the shared non-blocking HE detection flock
-    (`/var/run/pricing-app/rrhh_he_cron.lock`, fallback `/tmp/rrhh_he_cron.lock`; see
-    `rrhh_horas_extras_diario.detection_lock`), also taken by the worker and `/recalcular`, so no two
-    runs overlap.
+  - The detection runs under the shared HE detection lock, a Postgres advisory lock taken in the same
+    transaction as the writes (`rrhh_horas_extras_diario.try_detection_lock`), also taken by the worker
+    and `/recalcular`, so no two runs overlap. A manual run never moves the worker's day cursor.
 
 Exit codes:
   0 -- OK (detection and purge done, or detection done with a failed purge)
   1 -- lock held (another run in progress: worker, script or /recalcular)
-  2 -- detection failed (rolled back), or the lock file could not be opened
+  2 -- detection failed (rolled back), or the lock could not be taken (database error)
   3 -- disabled by config (cron_activo=false)
 
 Usage:
@@ -76,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     day = args.fecha or previous_local_day(datetime.now(UTC))
 
-    outcome = run_daily_detection(day)
+    outcome = run_daily_detection([day])
     if outcome.status == STATUS_DISABLED:
         logger.warning("HE detection disabled by config (cron_activo=false); nothing done")
     elif outcome.status == STATUS_LOCKED:
