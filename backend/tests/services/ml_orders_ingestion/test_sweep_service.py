@@ -1372,8 +1372,7 @@ class TestWriteErrorIsolationAndQuarantine:
         quarantined = db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=502).one()
         assert quarantined.raw_order["id"] == 502
 
-        divergence = db.query(MlOpsDivergence).filter_by(order_id=502, kind="ingest_failed").one()
-        assert divergence.state == "open"
+        assert db.query(MlOpsDivergence).filter_by(kind="ingest_failed").count() == 0
 
         # The cursor checkpointed -- the whole point of isolation: one bad
         # order used to stall the checkpoint for four real days.
@@ -1406,17 +1405,19 @@ class TestWriteErrorIsolationAndQuarantine:
         assert db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=602).count() == 1
 
         # The defect is fixed: undo the monkeypatch, and nothing new
-        # comes from ML this pass.
+        # comes from ML this pass. The row's backoff has also expired.
         monkeypatch.setattr(ingestion_service, "_upsert_item_row", real_upsert_item_row)
         mock_search.return_value = _page([])
+        db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=602).update(
+            {"ultimo_intento_at": datetime.now(timezone.utc) - timedelta(hours=7)}
+        )
+        db.commit()
 
         result = sweep_service.run_sweep(seller_id=999, window_days=90)
 
         assert result.orders_quarantine_recovered == 1
         assert db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=602).count() == 0
         assert db.query(MlOrdersOps).filter_by(order_id=602).count() == 1
-        divergence = db.query(MlOpsDivergence).filter_by(order_id=602, kind="ingest_failed").one()
-        assert divergence.state == "resolved"
 
 
 class SQLAlchemyErrorForTest(SQLAlchemyError):

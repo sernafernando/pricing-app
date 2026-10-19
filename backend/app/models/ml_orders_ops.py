@@ -408,7 +408,8 @@ class MlOrdersOpsCuarentena(Base):
     ALL the data, never trim it) so a later automatic retry
     (`ingestion_service.retry_quarantined_orders`) can re-attempt the
     exact write with zero HTTP calls once the code is fixed -- this is
-    what keeps a quarantined order from being lost forever.
+    what keeps a quarantined order from being lost forever. The worker
+    handler `ml_orders.quarantine_retry` runs that retry on its own.
     """
 
     __tablename__ = "ml_orders_ops_cuarentena"

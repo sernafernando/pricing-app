@@ -1424,11 +1424,10 @@ def process_batch(
             elif outcome == UpsertOutcome.MAPPING_ERROR:
                 mapping_error += 1
             elif outcome == UpsertOutcome.WRITE_ERROR:
-                # Quarantined + surfaced as an `ingest_failed` divergence
-                # already inside `upsert_order` -- this counter is ONLY
-                # for this pass's own visibility (2026-09-14 incident),
-                # never the recovery path itself (see `run_sweep`'s
-                # `retry_quarantined_orders` call at the top of the pass).
+                # Quarantined already inside `upsert_order` and retried
+                # by the `ml_orders.quarantine_retry` worker -- this counter
+                # is ONLY for this pass's own visibility (2026-09-14
+                # incident), never the recovery path itself.
                 write_error += 1
                 logger.error("sweep: write error for order_id=%s — quarantined for automatic retry", mapped.order_id)
                 # The order row was rolled back to its pre-write state (or
@@ -1752,8 +1751,8 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
         # INSIDE this `try`, and in its OWN session, on purpose. The lock is
         # taken further up, in a block whose COMMIT lands outside every
         # try/finally; while that block only held the lock and a SELECT its
-        # commit was trivial, but carrying up to fifty upserts, deletes and
-        # divergence inserts through it means a failed commit escapes and
+        # commit was trivial, but carrying up to fifty upserts and deletes
+        # through it means a failed commit escapes and
         # strands the lock -- the exact failure that cost four days of
         # ingestion. The release is guaranteed by STRUCTURE, so this belongs
         # inside that structure.

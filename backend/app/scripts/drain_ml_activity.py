@@ -94,11 +94,11 @@ def main() -> None:
     if result.orders_write_error:
         # A quarantined order does not vanish quietly -- it must GRIT its
         # order_id, not just sum into a counter nobody reads. The order
-        # itself carries the error on `ml_orders_ops_cuarentena.error` and
-        # on the `ingest_failed` divergence dashboard row.
+        # itself carries the error on `ml_orders_ops_cuarentena.error`; the
+        # `ml_orders.quarantine_retry` worker retries it until it lands.
         logger.error(
             "drain_ml_activity: %s order(s) failed to WRITE this pass and were quarantined for "
-            "automatic retry — see ml_orders_ops_cuarentena / GET /ml-ventas-ops/divergences?kind=ingest_failed",
+            "automatic retry by the ml_orders.quarantine_retry worker (ml_orders_ops_cuarentena)",
             result.orders_write_error,
         )
     # `resolved` only means ML answered. A pass that resolved orders and
@@ -113,9 +113,8 @@ def main() -> None:
     # accounts for -- today that is mapping errors, and by construction it
     # also catches whatever silently drops orders next.
     # `orders_write_error` counts as ACCOUNTED FOR. A write error is not a
-    # silent disappearance: the order sits in quarantine, it has a row in
-    # the divergences board, it logged its own error above, and the next
-    # pass retries it. Leaving it out of this subtraction made every
+    # silent disappearance: the order sits in quarantine, it logged its own
+    # error above, and the quarantine retry worker replays it. Leaving it out of this subtraction made every
     # quarantined order ALSO fire "written NOWHERE and no outcome accounts
     # for them" -- which is false, and is precisely the routine noise the
     # comment above warns turns a real signal into one nobody reads.

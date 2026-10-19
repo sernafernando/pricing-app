@@ -19,18 +19,18 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from sqlalchemy import func, nullsfirst
+from sqlalchemy import and_, func, not_, nullsfirst, or_, text
 from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.ml_orders_ops import (
-    INGEST_FAILED_KIND,
-    MlOpsDivergence,
     MlOrderItemOps,
     MlOrdersOps,
     MlOrdersOpsCuarentena,
@@ -56,6 +56,55 @@ logger = logging.getLogger(__name__)
 # starve fresh ingestion of its own budget.
 MAX_QUARANTINE_RETRIES_PER_PASS = 50
 
+# LISTEN channel of the `ml_orders.quarantine_retry` worker handler.
+# `_quarantine_order` notifies it inside the quarantining transaction, so the
+# worker wakes once the row is committed (never for a rolled-back one).
+QUARANTINE_CHANNEL = "ml_orders_quarantine"
+
+# Failure classes, stored as a prefix of `ml_orders_ops_cuarentena.error` (no
+# column of its own: the tag rides on the text the row already keeps).
+# TRANSIENT -- pool exhaustion, a dropped connection, a timeout, a lock
+# timeout, a deadlock or a serialization failure -- says nothing about the
+# order, so it is retried on the backoff with no attempt cap. Anything else
+# (a value the database rejects, a payload that no longer maps) is a bug of
+# ours that replaying cannot fix: PERMANENT, retried at most
+# `MAX_PERMANENT_ATTEMPTS` times, then left alone with one error log.
+TRANSIENT_TAG = "[transient] "
+PERMANENT_TAG = "[permanent] "
+MAX_PERMANENT_ATTEMPTS = 5
+
+# Rows quarantined before the tags existed: treated as transient only when
+# their text says so, otherwise as permanent.
+_LEGACY_TRANSIENT_MARKERS = (
+    "queuepool",
+    "timeout",
+    "timed out",
+    "canceling statement",
+    "could not connect",
+    "connection",
+    "deadlock",
+    "could not serialize",
+    "lock not available",
+)
+
+# Retry backoff on the LAST attempt: 1 minute * 2^min(intentos, 9), capped at
+# 6 hours. No attempt cap for transient failures.
+_BACKOFF_BASE = timedelta(minutes=1)
+_BACKOFF_MAX_EXPONENT = 9
+_BACKOFF_CAP = timedelta(hours=6)
+
+
+def _backoff(intentos: int) -> timedelta:
+    return min(_BACKOFF_BASE * (2 ** min(max(intentos, 0), _BACKOFF_MAX_EXPONENT)), _BACKOFF_CAP)
+
+
+def _is_transient_write_error(exc: SQLAlchemyError) -> bool:
+    """psycopg2 raises `QueryCanceled` (statement/lock timeout),
+    `LockNotAvailable`, `DeadlockDetected` and `SerializationFailure` as
+    subclasses of its `OperationalError`, which SQLAlchemy wraps in its own
+    `OperationalError` -- so that one check covers them."""
+    return isinstance(exc, (OperationalError, DisconnectionError, PoolTimeoutError))
+
 
 class UpsertOutcome(str, Enum):
     """Every outcome `upsert_order` can return. Nothing
@@ -72,7 +121,7 @@ class UpsertOutcome(str, Enum):
     # these counters route them to different places -- a mapping error is
     # a resolved per-row outcome the window checkpoint may advance past
     # (design D7 row 2), while a write error is quarantined AND raised as
-    # a visible `ingest_failed` divergence so it is never silently lost.
+    # retried automatically from there so it is never silently lost.
     WRITE_ERROR = "write_error"
     DISABLED = "disabled"
 
@@ -251,7 +300,9 @@ def upsert_shipment(db: Session, payload: Dict[str, Any], mapped: Optional[Shipm
     return UpsertOutcome.OK
 
 
-def _quarantine_order(db: Session, order_id: int, raw_order: Dict[str, Any], error_message: str) -> None:
+def _quarantine_order(
+    db: Session, order_id: int, raw_order: Dict[str, Any], error_message: str, *, transient: bool
+) -> None:
     """Records a per-order write failure (`UpsertOutcome.WRITE_ERROR`) so
     it is never silently lost. Runs in its OWN SAVEPOINT: recording the
     failure must not be able to take the batch down a second time.
@@ -263,7 +314,14 @@ def _quarantine_order(db: Session, order_id: int, raw_order: Dict[str, Any], err
     later pass, or from `retry_quarantined_orders` itself) updates the
     existing row's `error`/`intentos` instead of erroring on the
     duplicate primary key.
+
+    `error_message` is stored with its failure class as a prefix
+    (`TRANSIENT_TAG`/`PERMANENT_TAG`), which decides whether the retry ever
+    gives up. On Postgres the same SAVEPOINT also notifies
+    `QUARANTINE_CHANNEL`, delivered only if the surrounding transaction
+    commits.
     """
+    error_message = (TRANSIENT_TAG if transient else PERMANENT_TAG) + error_message
     try:
         with db.begin_nested():
             stmt = _insert_stmt(db, MlOrdersOpsCuarentena.__table__).values(
@@ -284,62 +342,23 @@ def _quarantine_order(db: Session, order_id: int, raw_order: Dict[str, Any], err
                 },
             )
             db.execute(stmt)
+            if db.get_bind().dialect.name == "postgresql":
+                db.execute(text("SELECT pg_notify(:channel, '')"), {"channel": QUARANTINE_CHANNEL})
+            intentos = (
+                db.query(MlOrdersOpsCuarentena.intentos).filter(MlOrdersOpsCuarentena.order_id == order_id).scalar()
+            )
     except SQLAlchemyError:
         logger.exception("ml_orders_ops: failed to quarantine order_id=%r after a write error", order_id)
-
-
-def _open_ingest_failed_divergence(db: Session, order_id: int, error_message: str) -> None:
-    """Surfaces a quarantined order on the existing divergences dashboard
-    (`GET /ml-ventas-ops/divergences`) instead of leaving it visible only
-    in a log line nobody watches (explicit user requirement). Own
-    SAVEPOINT for the same reason as `_quarantine_order`."""
-    try:
-        with db.begin_nested():
-            existing = (
-                db.query(MlOpsDivergence)
-                .filter(
-                    MlOpsDivergence.order_id == order_id,
-                    MlOpsDivergence.kind == INGEST_FAILED_KIND,
-                    MlOpsDivergence.field.is_(None),
-                )
-                .first()
-            )
-            if existing is not None:
-                existing.ml_value = error_message
-                # Only a RESOLVED divergence reopens. If an operator marked
-                # this one `ignored` or `acknowledged`, re-opening it on
-                # every pass would empty those states of meaning -- the
-                # PATCH endpoint exists precisely so a human's decision
-                # survives the next pass.
-                if existing.state == "resolved":
-                    existing.state = "open"
-            else:
-                db.add(
-                    MlOpsDivergence(
-                        order_id=order_id,
-                        kind=INGEST_FAILED_KIND,
-                        field=None,
-                        ml_value=error_message,
-                        state="open",
-                    )
-                )
-    except SQLAlchemyError:
-        logger.exception("ml_orders_ops: failed to open an ingest_failed divergence for order_id=%r", order_id)
-
-
-def _resolve_ingest_failed_divergence(db: Session, order_id: int) -> None:
-    """Closes the alarm once a quarantined order is recovered. Marked
-    `resolved`, not deleted: deleting would erase the audit trail of what
-    failed and for how long (persist-everything principle)."""
-    (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.order_id == order_id,
-            MlOpsDivergence.kind == INGEST_FAILED_KIND,
-            MlOpsDivergence.state != "resolved",
+        return
+    if not transient and intentos == MAX_PERMANENT_ATTEMPTS:
+        # Exactly once: the retry no longer selects the row past the cap.
+        logger.error(
+            "ml_orders_ops: stopped retrying order_id=%s after %s attempts -- permanent write error, "
+            "needs a code fix (row kept in ml_orders_ops_cuarentena): %s",
+            order_id,
+            intentos,
+            error_message,
         )
-        .update({"state": "resolved"}, synchronize_session=False)
-    )
 
 
 def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOpsDTO] = None) -> UpsertOutcome:
@@ -358,9 +377,9 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
             payload shaped as a dict, not a string). The write runs
             inside its own SAVEPOINT so it cannot poison the rest of the
             caller's batch, the failing order is quarantined with its raw
-            payload (`ml_orders_ops_cuarentena`) for automatic retry, and
-            an `ingest_failed` divergence is opened so it is visible on
-            the dashboard -- never a silent drop.
+            payload (`ml_orders_ops_cuarentena`) and retried automatically
+            by the `ml_orders.quarantine_retry` worker -- never a silent
+            drop.
         SKIPPED_STALE   -- the payload's `ml_last_updated` is not newer
             than the stored value (identical re-ingest or an out-of-order
             older update); the stored row is left completely unchanged.
@@ -425,13 +444,39 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
         # so the surrounding transaction is healthy again here.
         error_message = str(exc)[:2000]
         logger.error("ml_orders_ops: write error for order_id=%r: %s", dto.order_id, error_message)
-        _quarantine_order(db, dto.order_id, payload, error_message)
-        _open_ingest_failed_divergence(db, dto.order_id, error_message)
+        _quarantine_order(db, dto.order_id, payload, error_message, transient=_is_transient_write_error(exc))
         return UpsertOutcome.WRITE_ERROR
 
     if stale:
         return UpsertOutcome.SKIPPED_STALE
     return UpsertOutcome.OK
+
+
+def _is_transient_row():
+    error = MlOrdersOpsCuarentena.error
+    legacy = and_(
+        not_(error.like(f"{PERMANENT_TAG}%")),
+        or_(*(error.ilike(f"%{marker}%") for marker in _LEGACY_TRANSIENT_MARKERS)),
+    )
+    return or_(error.like(f"{TRANSIENT_TAG}%"), legacy)
+
+
+def _due_for_retry(now: datetime):
+    """Past its backoff and, unless transient, under the attempt cap. The
+    backoff is spelled out per attempt count (it only has ten distinct
+    values) so one portable expression serves Postgres and the SQLite tests
+    alike -- no dialect branch proving a different query than production."""
+    intentos = MlOrdersOpsCuarentena.intentos
+    last = MlOrdersOpsCuarentena.ultimo_intento_at
+    past_backoff = or_(
+        last.is_(None),
+        *(and_(intentos == k, last < now - _backoff(k)) for k in range(_BACKOFF_MAX_EXPONENT)),
+        and_(
+            or_(intentos >= _BACKOFF_MAX_EXPONENT, intentos.is_(None)),
+            last < now - _backoff(_BACKOFF_MAX_EXPONENT),
+        ),
+    )
+    return and_(past_backoff, or_(_is_transient_row(), intentos < MAX_PERMANENT_ATTEMPTS))
 
 
 @dataclass
@@ -456,7 +501,14 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
 
     Bounded by `limit` per pass (see `MAX_QUARANTINE_RETRIES_PER_PASS`) so
     a large backlog cannot turn the retry into the main job.
+
+    Only DUE rows are selected: past their backoff (`_backoff`), and for a
+    permanent failure, under `MAX_PERMANENT_ATTEMPTS`. A row that is not due
+    is simply skipped -- every caller (the worker handler, the sweep, the
+    activity drain) shares this gate.
     """
+    if not settings.ML_ORDERS_OPS_ENABLED:
+        return QuarantineRetryResult()
     # DELIBERATELY WITHOUT the sweep's `window_from_floor`, and this is a
     # decision, not an oversight: a quarantined order is NOT an old order
     # discovered late. It arrived through the feed, inside the window, and
@@ -480,10 +532,15 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     # through `_quarantine_order`, so a live ORM object for it would be
     # stale from the second iteration on -- working today only by the
     # accident of the current ordering.
+    # SKIP LOCKED (Postgres; ignored by SQLite): the worker handler, the
+    # sweep and the activity drain all call this, and two of them must not
+    # replay the same order at once.
     rows = (
         db.query(MlOrdersOpsCuarentena.order_id, MlOrdersOpsCuarentena.raw_order)
+        .filter(_due_for_retry(datetime.now(timezone.utc)))
         .order_by(nullsfirst(MlOrdersOpsCuarentena.ultimo_intento_at.asc()))
         .limit(limit)
+        .with_for_update(skip_locked=True)
         .all()
     )
     for order_id, raw_order in rows:
@@ -493,10 +550,14 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
             db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.order_id == order_id).delete(
                 synchronize_session=False
             )
-            _resolve_ingest_failed_divergence(db, order_id)
             result.recovered += 1
         else:
             result.still_failed += 1
+            if outcome == UpsertOutcome.MAPPING_ERROR:
+                # WRITE_ERROR already re-quarantined (and counted) itself. A
+                # payload that no longer maps is a permanent failure too, and
+                # without this it would stay due -- first in line -- forever.
+                _quarantine_order(db, order_id, raw_order, "mapping error on retry", transient=False)
 
     if rows:
         logger.warning(

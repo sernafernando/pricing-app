@@ -16,6 +16,7 @@ from typing import List, Optional, Protocol, Tuple
 
 from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.combos_sync import sync as _combos_sync
+from app.workers.handlers.ml_orders_quarantine import quarantine_retry as _ml_orders_quarantine_retry
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
 from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
@@ -56,6 +57,7 @@ class JobHandler(Protocol):
 # sell-in-sell-out T4 appends `sell.drain` (notify-driven); since T5 it recomputes the sell-in allocation.
 # combos-propios C1 appends `combos.sync` (every 30 minutes; replaces the ERP cron for combos).
 # rrhh-horas-extras appends `rrhh.horas_extras` (daily 03:30; replaces the never-installed HE crontab entry).
+# remove-ml-divergences appends `ml_orders.quarantine_retry` (notify-driven; retries failed ML order writes).
 REGISTRY: List[JobHandler] = [
     _order_metrics_drain,
     _order_metrics_reconcile,
@@ -64,6 +66,7 @@ REGISTRY: List[JobHandler] = [
     _sell_drain,
     _combos_sync,
     _rrhh_horas_extras,
+    _ml_orders_quarantine_retry,
 ]
 
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
