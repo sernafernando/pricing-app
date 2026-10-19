@@ -34,18 +34,24 @@ class QuarantineRetryHandler:
     def run(self, ctx: WorkerContext) -> JobResult:
         detail = {"attempted": 0, "recovered": 0, "still_failed": 0, "passes": 0}
         limit = ingestion_service.MAX_QUARANTINE_RETRIES_PER_PASS
+        seen: set[int] = set()
         while datetime.now(timezone.utc) < ctx.deadline:
             # One short transaction per pass: commits the recovered orders and
             # releases the connection before the next pass (DB pool rule).
             with get_background_db() as db:
                 result = ingestion_service.retry_quarantined_orders(db, limit=limit)
+            if result.order_ids and seen.issuperset(result.order_ids):
+                # Only orders this run already replayed: they are still due
+                # (their attempt could not be recorded), so another pass would
+                # replay them until the deadline. The next wake retries them.
+                break
+            seen.update(result.order_ids)
             detail["passes"] += 1
             detail["attempted"] += result.attempted
             detail["recovered"] += result.recovered
             detail["still_failed"] += result.still_failed
-            # A failed retry pushes its row's backoff forward, so a full pass
-            # never selects the same rows again: a short pass means nothing
-            # due is left.
+            # A retried row's backoff moves forward, so a short pass means
+            # nothing due is left.
             if result.attempted < limit:
                 break
         return JobResult(success=True, detail=detail)

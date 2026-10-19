@@ -5,6 +5,7 @@ that failed to ingest lands without anyone reading an alarm.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from typing import Iterator
@@ -17,6 +18,7 @@ from app.core.config import settings
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlOrdersOpsCuarentena
 from app.services.ml_orders_ingestion import ingestion_service
 from app.workers.context import WorkerContext
+from app.workers.handlers import ml_orders_quarantine as handler_module
 from app.workers.handlers.ml_orders_quarantine import quarantine_retry
 from app.workers.registry import REGISTRY
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
@@ -126,3 +128,33 @@ class TestRetriesQuarantinedOrders:
         assert result.detail["attempted"] == 0
         with Session(bind=pg_quarantine_engine) as session:
             assert session.query(MlOrdersOpsCuarentena).filter_by(order_id=4002).count() == 1
+
+
+class TestTheHandlerNeverSpins:
+    def test_a_full_pass_of_rows_that_stay_due_ends_the_run(self, monkeypatch) -> None:
+        """If a pass returns only orders this run already attempted, retrying
+        again would replay them until the deadline: the run stops instead."""
+        limit = ingestion_service.MAX_QUARANTINE_RETRIES_PER_PASS
+        same_rows = list(range(1, limit + 1))
+        calls = []
+
+        def _retry(db, limit):
+            calls.append(limit)
+            return ingestion_service.QuarantineRetryResult(
+                attempted=limit, still_failed=limit, order_ids=list(same_rows)
+            )
+
+        @contextmanager
+        def _no_db():
+            yield None
+
+        monkeypatch.setattr(ingestion_service, "retry_quarantined_orders", _retry)
+        monkeypatch.setattr(handler_module, "get_background_db", _no_db)
+
+        result = quarantine_retry.run(
+            WorkerContext(deadline=datetime.now(timezone.utc) + timedelta(seconds=30), worker_name="w")
+        )
+
+        assert result.success is True
+        assert len(calls) == 2
+        assert result.detail["attempted"] == limit

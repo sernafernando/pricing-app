@@ -675,11 +675,46 @@ class TestTransientVersusPermanentFailures:
 
         assert retry_quarantined_orders(db).attempted == 1
 
-    def test_an_untagged_legacy_row_is_otherwise_permanent(self, db):
-        db.add(_quarantined(917, intentos=9, error="(psycopg2.errors.StringDataRightTruncation) value too long"))
+    def test_an_untagged_legacy_row_gets_one_attempt_regardless_of_the_cap(self, db, monkeypatch, caplog):
+        """A row quarantined before the tags existed is never dropped silently
+        on deploy: it gets one attempt, which tags it with its real class."""
+
+        def _boom(*args, **kwargs):
+            raise IntegrityError("INSERT", {}, Exception("value too long for type character varying(5)"))
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+        db.add(_quarantined(917, intentos=6, error="(psycopg2.errors.StringDataRightTruncation) value too long"))
         db.flush()
 
-        assert retry_quarantined_orders(db).attempted == 0
+        with caplog.at_level(logging.ERROR, logger=ingestion_service.logger.name):
+            first = retry_quarantined_orders(db)
+            _make_due(db, 917)
+            second = retry_quarantined_orders(db)
+
+        assert first.attempted == 1
+        assert second.attempted == 0
+        row = db.query(MlOrdersOpsCuarentena).filter_by(order_id=917).one()
+        assert row.error.startswith("[permanent] ")
+        assert row.intentos == 7
+        assert len(_gave_up_logs(caplog, 917)) == 1
+
+    def test_a_transient_row_past_the_cap_that_turns_permanent_is_logged_once(self, db, monkeypatch, caplog):
+        def _boom(*args, **kwargs):
+            raise IntegrityError("INSERT", {}, Exception("value too long for type character varying(5)"))
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+        db.add(_quarantined(919, intentos=7, error="[transient] QueuePool limit reached"))
+        db.flush()
+
+        with caplog.at_level(logging.ERROR, logger=ingestion_service.logger.name):
+            first = retry_quarantined_orders(db)
+            _make_due(db, 919)
+            second = retry_quarantined_orders(db)
+
+        assert first.attempted == 1
+        assert second.attempted == 0
+        assert db.query(MlOrdersOpsCuarentena).filter_by(order_id=919).one().intentos == 8
+        assert len(_gave_up_logs(caplog, 919)) == 1
 
     def test_a_payload_that_no_longer_maps_counts_as_a_permanent_attempt(self, db):
         """Without a bump it would stay due forever and be first in line on
@@ -694,3 +729,59 @@ class TestTransientVersusPermanentFailures:
         assert row.intentos == 2
         assert row.error.startswith("[permanent] ")
         assert retry_quarantined_orders(db).attempted == 0
+
+
+def _make_due(db, order_id: int) -> None:
+    db.query(MlOrdersOpsCuarentena).filter_by(order_id=order_id).update(
+        {"ultimo_intento_at": datetime.now(timezone.utc) - timedelta(hours=7)}
+    )
+
+
+def _gave_up_logs(caplog, order_id: int) -> list:
+    return [
+        r
+        for r in caplog.records
+        if r.levelno == logging.ERROR
+        and "stopped retrying" in r.getMessage()
+        and f"order_id={order_id} " in r.getMessage()
+    ]
+
+
+class TestEveryAttemptAdvancesTheRow:
+    """A retried row must leave the pass with its attempt counted, whatever
+    the outcome -- otherwise it stays due and is replayed on every poll."""
+
+    def test_a_failed_requarantine_still_counts_the_attempt(self, db, monkeypatch):
+        def _boom(*args, **kwargs):
+            raise OperationalError("INSERT", {}, Exception("server closed the connection unexpectedly"))
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+        monkeypatch.setattr(ingestion_service, "_quarantine_order", lambda *args, **kwargs: None)
+        db.add(_quarantined(931, intentos=2, error="[transient] boom"))
+        db.flush()
+
+        first = retry_quarantined_orders(db)
+        second = retry_quarantined_orders(db)
+
+        assert first.attempted == 1
+        assert second.attempted == 0
+        assert db.query(MlOrdersOpsCuarentena).filter_by(order_id=931).one().intentos == 3
+
+    def test_any_other_non_ok_outcome_counts_as_an_attempt(self, db, monkeypatch):
+        monkeypatch.setattr(ingestion_service, "upsert_order", lambda db_arg, payload: UpsertOutcome.DISABLED)
+        db.add(_quarantined(932, intentos=2, error="[transient] boom"))
+        db.flush()
+
+        first = retry_quarantined_orders(db)
+        second = retry_quarantined_orders(db)
+
+        assert first.still_failed == 1
+        assert second.attempted == 0
+        assert db.query(MlOrdersOpsCuarentena).filter_by(order_id=932).one().intentos == 3
+
+    def test_the_result_lists_the_attempted_orders(self, db):
+        db.add(_quarantined(933))
+        db.add(_quarantined(934, ago=timedelta(hours=8)))
+        db.flush()
+
+        assert sorted(retry_quarantined_orders(db).order_ids) == [933, 934]

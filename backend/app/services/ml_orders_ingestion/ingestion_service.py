@@ -18,10 +18,10 @@ try/except around this call.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, func, not_, nullsfirst, or_, text
 from sqlalchemy.dialects import postgresql, sqlite
@@ -69,23 +69,11 @@ QUARANTINE_CHANNEL = "ml_orders_quarantine"
 # (a value the database rejects, a payload that no longer maps) is a bug of
 # ours that replaying cannot fix: PERMANENT, retried at most
 # `MAX_PERMANENT_ATTEMPTS` times, then left alone with one error log.
+# Only a row TAGGED permanent is capped: a row quarantined before the tags
+# existed gets one more attempt whatever its count, and that attempt tags it.
 TRANSIENT_TAG = "[transient] "
 PERMANENT_TAG = "[permanent] "
 MAX_PERMANENT_ATTEMPTS = 5
-
-# Rows quarantined before the tags existed: treated as transient only when
-# their text says so, otherwise as permanent.
-_LEGACY_TRANSIENT_MARKERS = (
-    "queuepool",
-    "timeout",
-    "timed out",
-    "canceling statement",
-    "could not connect",
-    "connection",
-    "deadlock",
-    "could not serialize",
-    "lock not available",
-)
 
 # Retry backoff on the LAST attempt: 1 minute * 2^min(intentos, 9), capped at
 # 6 hours. No attempt cap for transient failures.
@@ -350,8 +338,10 @@ def _quarantine_order(
     except SQLAlchemyError:
         logger.exception("ml_orders_ops: failed to quarantine order_id=%r after a write error", order_id)
         return
-    if not transient and intentos == MAX_PERMANENT_ATTEMPTS:
-        # Exactly once: the retry no longer selects the row past the cap.
+    if not transient and intentos >= MAX_PERMANENT_ATTEMPTS:
+        # Once per given-up order: a row tagged permanent at or past the cap
+        # is never selected by the retry again. `>=`, not `==`: a row can
+        # pass the cap while transient and only then fail permanently.
         logger.error(
             "ml_orders_ops: stopped retrying order_id=%s after %s attempts -- permanent write error, "
             "needs a code fix (row kept in ml_orders_ops_cuarentena): %s",
@@ -452,17 +442,8 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
     return UpsertOutcome.OK
 
 
-def _is_transient_row():
-    error = MlOrdersOpsCuarentena.error
-    legacy = and_(
-        not_(error.like(f"{PERMANENT_TAG}%")),
-        or_(*(error.ilike(f"%{marker}%") for marker in _LEGACY_TRANSIENT_MARKERS)),
-    )
-    return or_(error.like(f"{TRANSIENT_TAG}%"), legacy)
-
-
 def _due_for_retry(now: datetime):
-    """Past its backoff and, unless transient, under the attempt cap. The
+    """Past its backoff and, if tagged permanent, under the attempt cap. The
     backoff is spelled out per attempt count (it only has ten distinct
     values) so one portable expression serves Postgres and the SQLite tests
     alike -- no dialect branch proving a different query than production."""
@@ -476,7 +457,23 @@ def _due_for_retry(now: datetime):
             last < now - _backoff(_BACKOFF_MAX_EXPONENT),
         ),
     )
-    return and_(past_backoff, or_(_is_transient_row(), intentos < MAX_PERMANENT_ATTEMPTS))
+    capped = MlOrdersOpsCuarentena.error.like(f"{PERMANENT_TAG}%")
+    return and_(past_backoff, or_(not_(capped), intentos < MAX_PERMANENT_ATTEMPTS))
+
+
+def _count_attempt(db: Session, order_id: int) -> None:
+    """Advances a row's attempt counter and clock when the attempt itself did
+    not (a re-quarantine that failed, or an outcome that never re-quarantines).
+    Otherwise the row would stay due and be replayed on every poll. Its own
+    SAVEPOINT, like `_quarantine_order`."""
+    try:
+        with db.begin_nested():
+            db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.order_id == order_id).update(
+                {"intentos": MlOrdersOpsCuarentena.intentos + 1, "ultimo_intento_at": func.now()},
+                synchronize_session=False,
+            )
+    except SQLAlchemyError:
+        logger.exception("ml_orders_ops: failed to count a quarantine retry attempt for order_id=%r", order_id)
 
 
 @dataclass
@@ -486,6 +483,7 @@ class QuarantineRetryResult:
     attempted: int = 0
     recovered: int = 0
     still_failed: int = 0
+    order_ids: List[int] = field(default_factory=list)
 
 
 def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PER_PASS) -> QuarantineRetryResult:
@@ -503,7 +501,8 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     a large backlog cannot turn the retry into the main job.
 
     Only DUE rows are selected: past their backoff (`_backoff`), and for a
-    permanent failure, under `MAX_PERMANENT_ATTEMPTS`. A row that is not due
+    row tagged permanent, under `MAX_PERMANENT_ATTEMPTS`. Every attempted row
+    leaves with its attempt counted, whatever the outcome. A row that is not due
     is simply skipped -- every caller (the worker handler, the sweep, the
     activity drain) shares this gate.
     """
@@ -536,15 +535,16 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     # sweep and the activity drain all call this, and two of them must not
     # replay the same order at once.
     rows = (
-        db.query(MlOrdersOpsCuarentena.order_id, MlOrdersOpsCuarentena.raw_order)
+        db.query(MlOrdersOpsCuarentena.order_id, MlOrdersOpsCuarentena.raw_order, MlOrdersOpsCuarentena.intentos)
         .filter(_due_for_retry(datetime.now(timezone.utc)))
         .order_by(nullsfirst(MlOrdersOpsCuarentena.ultimo_intento_at.asc()))
         .limit(limit)
         .with_for_update(skip_locked=True)
         .all()
     )
-    for order_id, raw_order in rows:
+    for order_id, raw_order, intentos_before in rows:
         result.attempted += 1
+        result.order_ids.append(order_id)
         outcome = upsert_order(db, raw_order)
         if outcome in (UpsertOutcome.OK, UpsertOutcome.SKIPPED_STALE):
             db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.order_id == order_id).delete(
@@ -558,6 +558,11 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
                 # payload that no longer maps is a permanent failure too, and
                 # without this it would stay due -- first in line -- forever.
                 _quarantine_order(db, order_id, raw_order, "mapping error on retry", transient=False)
+            intentos_after = (
+                db.query(MlOrdersOpsCuarentena.intentos).filter(MlOrdersOpsCuarentena.order_id == order_id).scalar()
+            )
+            if intentos_after is not None and intentos_after == intentos_before:
+                _count_attempt(db, order_id)
 
     if rows:
         logger.warning(
