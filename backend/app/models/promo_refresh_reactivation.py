@@ -1,7 +1,7 @@
 """Queue of publications that became active again and owe a promotions-mirror refresh.
 
-Its own table, NOT `promo_refresh_pending`: that one belongs to the panel write path and its cron-era drainer
-(`app/scripts/drain_promo_refresh.py`), which has its own retry policy and refreshes without looking at the
+Its own table, NOT `promo_refresh_pending`: that one belongs to the panel write path and its own drainer
+(the `promo_write.refresh` worker handler), which has its own retry policy and refreshes without looking at the
 publication's status. Sharing rows would mean two drainers racing on one lease-less table. This queue is fed by
 the ML publications store (`events_store.write_events`) and drained only by `ml_publications.promo_refresh`.
 """

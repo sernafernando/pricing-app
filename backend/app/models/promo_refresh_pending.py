@@ -7,10 +7,11 @@ the queue queryable/auditable like any other model.
 One row per `mla` (UNIQUE) is enqueued by `_maybe_refresh_after_write` right
 after the immediate best-effort refresh, so a slower-consistency write
 (e.g. SMART, ~10-18s) still gets a reliable follow-up refresh even if the
-operator closes the panel. The drainer script
-(`app/scripts/drain_promo_refresh.py`) polls `due_at <= now()` every
-minute, deletes the row on a successful refresh, and backs off/quarantines
-on repeated failure.
+operator closes the panel. The `promo_write.refresh` worker handler (every
+30 s, ML worker; logic in `app/services/promo_refresh_drain.py`) refreshes
+rows with `due_at <= now()`, deletes the row on a successful refresh, backs
+off/quarantines on repeated failure, and drops rows due more than 24 h ago
+without a refresh.
 """
 
 from __future__ import annotations
