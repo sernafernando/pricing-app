@@ -350,6 +350,14 @@ def test_prefill_refuses_what_create_refuses(client, gestor, productos, proveedo
     assert _prefill(client, gestor).status_code == 422
 
 
+def test_prefill_refuses_too_many_operations_before_reading_them(client, gestor):
+    resp = _prefill(client, gestor, *range(1, PEDIDOS_MAX + 2))
+
+    assert resp.status_code == 422, resp.text
+    assert "pedido_compra_ids" in resp.text
+    assert "no existe" not in resp.text
+
+
 def test_prefill_needs_gestionar(client, lector, proveedores, nuevo_pedido):
     p1 = nuevo_pedido(proveedores[0])
 

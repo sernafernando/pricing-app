@@ -42,6 +42,7 @@ from app.core.database import get_db
 from app.models.sell_in import SellInCompra
 from app.models.usuario import Usuario
 from app.schemas.sell_in import (
+    PEDIDOS_MAX,
     Aplica,
     Estado,
     Moneda,
@@ -162,7 +163,7 @@ def resumir_compras(
 
 @router.get("/prefill", response_model=SellInPrefillOut)
 def prefill_compra(
-    pedido_compra_ids: list[int] = Query(default_factory=list),
+    pedido_compra_ids: list[int] = Query(default_factory=list, max_length=PEDIDOS_MAX),
     _user: Usuario = Depends(requiere_gestionar),
     db: Session = Depends(get_db),
 ) -> dict:
