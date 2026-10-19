@@ -1972,3 +1972,103 @@ class TestPublicationsRefreshEnqueue:
 
         self._assert_queued_once(mock_enqueue)
         assert failed == ok
+
+
+class TestWriteTookEffect:
+    """`write_took_effect(action, mirror_status)` is the single rule for "did ML apply our write".
+
+    Enroll: only `started` (running) or `pending` (enrolled, "En espera") count. `candidate` means the item is
+    still only eligible, which is exactly the 2026-10-19 false success (MLA1610390994 in C-MLA1669550).
+    Remove: anything but `started` or `pending`, and a missing row also counts as removed."""
+
+    @pytest.mark.parametrize(
+        ("mirror_status", "expected"),
+        [
+            ("started", True),
+            ("pending", True),
+            ("candidate", False),
+            ("finished", False),
+            (None, False),
+            ("", False),
+            ("STARTED", True),
+            ("Pending", True),
+            ("Candidate", False),
+        ],
+    )
+    def test_enroll(self, mirror_status, expected) -> None:
+        assert write_service.write_took_effect("enroll", mirror_status) is expected
+
+    @pytest.mark.parametrize(
+        ("mirror_status", "expected"),
+        [
+            ("started", False),
+            ("pending", False),
+            ("Pending", False),
+            ("candidate", True),
+            ("finished", True),
+            (None, True),
+            ("", True),
+            ("Started", False),
+        ],
+    )
+    def test_remove(self, mirror_status, expected) -> None:
+        assert write_service.write_took_effect("remove", mirror_status) is expected
+
+
+class TestReconcileEnrollFalseSuccess:
+    """An ambiguous enroll whose promo the mirror still shows as `candidate` did NOT apply. Before P3 the row's mere
+    presence counted as applied, so the PM was told the promo was in when ML had not enrolled the item."""
+
+    @pytest.mark.parametrize("mirror_status", ["candidate", "finished"])
+    def test_enroll_row_present_but_not_enrolled_is_not_applied(self, mirror_status) -> None:
+        with patch.object(
+            write_service,
+            "fetch_item_promotions",
+            return_value=[{"mla": "MLA1610390994", "promotion_id": "C-MLA1669550", "status": mirror_status}],
+        ):
+            result = write_service.reconcile_write_outcome("MLA1610390994", "C-MLA1669550", "enroll")
+
+        assert result["status"] == "reconciled_not_applied"
+        assert result["row"]["status"] == mirror_status
+
+    @pytest.mark.parametrize(
+        "row", [{"mla": "MLA1", "promotion_id": "C-1"}, {"mla": "MLA1", "promotion_id": "C-1", "status": None}]
+    )
+    def test_enroll_row_without_status_is_not_applied(self, row) -> None:
+        """A mirror row that says nothing about its status is no proof ML enrolled the item."""
+        with patch.object(write_service, "fetch_item_promotions", return_value=[row]):
+            result = write_service.reconcile_write_outcome("MLA1", "C-1", "enroll")
+
+        assert result["status"] == "reconciled_not_applied"
+
+    @pytest.mark.parametrize(("slow", "expected"), [(False, "reconciled_not_applied"), (True, "ambiguous")])
+    def test_remove_still_pending_is_not_applied(self, slow, expected) -> None:
+        """`pending` is enrolled-and-waiting: a remove whose item the mirror still shows pending did NOT apply."""
+        with patch.object(
+            write_service,
+            "fetch_item_promotions",
+            return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "pending"}],
+        ):
+            result = write_service.reconcile_write_outcome("MLA1", "C-1", "remove", slow_consistency=slow)
+
+        assert result["status"] == expected
+
+    def test_enroll_pending_is_applied(self) -> None:
+        with patch.object(
+            write_service,
+            "fetch_item_promotions",
+            return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "pending"}],
+        ):
+            result = write_service.reconcile_write_outcome("MLA1", "C-1", "enroll")
+
+        assert result["status"] == "reconciled_applied"
+
+    def test_smart_enroll_still_candidate_is_ambiguous_not_applied(self) -> None:
+        with patch.object(
+            write_service,
+            "fetch_item_promotions",
+            return_value=[{"mla": "MLA1", "promotion_id": "P-1", "status": "candidate"}],
+        ):
+            result = write_service.reconcile_write_outcome("MLA1", "P-1", "enroll", slow_consistency=True)
+
+        assert result["status"] == "ambiguous"

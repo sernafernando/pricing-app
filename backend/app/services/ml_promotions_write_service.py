@@ -202,6 +202,26 @@ def _trim_reconciled_row(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, An
     return {field: row.get(field) for field in _RECONCILED_ROW_FIELDS if field in row}
 
 
+# Mirror statuses that mean the item IS enrolled: running now, or enrolled and waiting to start ("En espera").
+_ENROLLED_STATUSES = frozenset({"started", "pending"})
+
+
+def write_took_effect(action: str, mirror_status: Optional[str]) -> bool:
+    """Whether the mirror shows our enroll/remove in effect. `mirror_status` None means no mirror row.
+
+    - enroll: `started` or `pending`. A `candidate` row only says the item is eligible, so ML did not enroll it
+      (2026-10-19: six accepted enrolls of MLA1610390994 left it `candidate`); `finished` or no row neither.
+    - remove: anything but `started` or `pending` (`pending` is enrolled-and-waiting). A successful DELETE
+      returns the item to `candidate` (the row persists), and a missing row is removed too.
+
+    Case-insensitive; a row without a status is no proof of an enroll.
+    """
+    status = (mirror_status or "").lower()
+    if action == "remove":
+        return status not in _ENROLLED_STATUSES
+    return status in _ENROLLED_STATUSES
+
+
 def reconcile_write_outcome(
     mla_id: str, promotion_id: str, operation: str = "enroll", slow_consistency: bool = False
 ) -> Dict[str, Any]:
@@ -210,22 +230,23 @@ def reconcile_write_outcome(
     precedent: read-then-classify instead of retrying the original write.
 
     The interpretation is DIRECTION-DEPENDENT:
-      - operation="enroll": row present (candidate/started/finished) means
-        the enrollment IS in effect -> reconciled_applied. Row absent ->
-        reconciled_not_applied (unless slow_consistency, see below).
+      - operation="enroll": status started/pending means the enrollment IS
+        in effect -> reconciled_applied. A candidate/finished row or no row
+        -> reconciled_not_applied (unless slow_consistency, see below).
+        See `write_took_effect`.
       - operation="remove": keyed on STATUS, not presence. A successful
         DELETE returns the item to status='candidate' — the row PERSISTS
         in `ml_item_promotions`, it does NOT disappear. So "removed" means
-        the item is no longer ACTIVELY enrolled: status != 'started'
+        the item is no longer enrolled: status not 'started'/'pending'
         (row absent, or status 'candidate'/'finished') -> reconciled_applied.
-        Only status == 'started' means the removal did NOT take effect
-        (still actively enrolled) -> reconciled_not_applied (unless
+        'started' or 'pending' means the removal did NOT take effect
+        (still enrolled) -> reconciled_not_applied (unless
         slow_consistency, see below).
 
     slow_consistency (True for SMART, ~10-18s to settle vs ~2s for
-    SELLER_CAMPAIGN/DEAL): the POSITIVE verdict (row present on enroll, row
-    absent on remove) stays reconciled_applied — it is trustworthy either
-    way. The NEGATIVE verdict (row absent on enroll, row present on remove)
+    SELLER_CAMPAIGN/DEAL): the POSITIVE verdict (started/pending on enroll, neither
+    on remove) stays reconciled_applied — it is trustworthy either
+    way. The NEGATIVE verdict (not enrolled on enroll, still enrolled on remove)
     becomes "ambiguous" instead of "reconciled_not_applied": an immediate
     read can still miss a just-applied SMART write, and confidently
     reporting "not applied" would be a false negative that could make an
@@ -250,15 +271,8 @@ def reconcile_write_outcome(
             matched_row = row
             break
 
-    row_present = matched_row is not None
     matched_status = matched_row.get("status") if matched_row is not None else None
-    if operation == "remove":
-        # A successful DELETE returns the item to 'candidate' — the row
-        # PERSISTS, so presence != "still enrolled". Removal took effect
-        # unless the item is still actively enrolled (status 'started').
-        applied = matched_status != "started"
-    else:  # enroll
-        applied = row_present
+    applied = write_took_effect("remove" if operation == "remove" else "enroll", matched_status)
 
     if applied:
         status = "reconciled_applied"
