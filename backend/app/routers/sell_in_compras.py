@@ -14,6 +14,11 @@ lowers the cost of THAT purchase's units only. The math lives in
   (`q`), item brands (`marcas`, CSV, exact) and currency. Every purchase carries
   its supplier name, its `aplica` flag and its lines with consumed and remaining
   units (from `sell_in_consumos`).
+- A purchase may come from several Compras operations (`pedido_compra_ids`; the
+  legacy single `pedido_compra_id` still works): they must exist and share the
+  supplier and currency, which the purchase must match. `GET /prefill` (needs
+  `sell_in.gestionar`) suggests supplier, currency, receipt date and products
+  from them (`app.services.sell_in.prefill`).
 - `GET /resumen` takes the same filters and returns exact aggregates over every
   matching purchase (bucket counts, amount per currency, units covered).
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
@@ -37,6 +42,7 @@ from app.core.database import get_db
 from app.models.sell_in import SellInCompra
 from app.models.usuario import Usuario
 from app.schemas.sell_in import (
+    PEDIDOS_MAX,
     Aplica,
     Estado,
     Moneda,
@@ -45,11 +51,13 @@ from app.schemas.sell_in import (
     SellInCompraListOut,
     SellInCompraOut,
     SellInCompraResumenOut,
+    SellInPrefillOut,
     SellInPreviewIn,
     SellInPreviewOut,
 )
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import compras as service
+from app.services.sell_in import prefill as prefill_service
 
 router = APIRouter(prefix="/sell-in/compras", tags=["Sell in"])
 
@@ -151,6 +159,19 @@ def resumir_compras(
 ) -> dict:
     """Totals for the summary cards over EVERY purchase matching the list filters (not a page)."""
     return service.resumir_compras(db, filtros)
+
+
+@router.get("/prefill", response_model=SellInPrefillOut)
+def prefill_compra(
+    pedido_compra_ids: list[int] = Query(default_factory=list, max_length=PEDIDOS_MAX),
+    _user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Supplier, currency, receipt date and products of Compras operations, to start a load from. Writes nothing."""
+    try:
+        return prefill_service.prefill(db, pedido_compra_ids)
+    except service.SellInError as exc:
+        raise _unprocessable(exc) from exc
 
 
 @router.get("/{compra_id}", response_model=SellInCompraOut)

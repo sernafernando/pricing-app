@@ -119,6 +119,24 @@ class SellInCompraOut(BaseModel):
     items: list[SellInCompraItemOut]
 
 
+class SellInPrefillItem(BaseModel):
+    item_id: int
+    codigo: Optional[str]
+    descripcion: Optional[str]
+    cantidad: int
+
+
+class SellInPrefillOut(BaseModel):
+    """What the operations say about a new sell in; the operator may change any of it."""
+
+    pedido_compra_ids: list[int]
+    proveedor_id: int
+    proveedor_nombre: Optional[str]
+    moneda: Moneda
+    fecha_ingreso: Optional[date]
+    items: list[SellInPrefillItem]
+
+
 class SellInCompraListOut(BaseModel):
     items: list[SellInCompraOut]
     total: int
