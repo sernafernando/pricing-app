@@ -1,0 +1,144 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { sellInAPI } from '../../services/sellInAPI';
+import { operacionesFake } from './sellInFixtures';
+import SellInOperacionPicker from './SellInOperacionPicker';
+
+vi.mock('../../services/sellInAPI', () => ({ sellInAPI: { operaciones: vi.fn() } }));
+
+const LABEL = 'Pedido de compra (N°)';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  sellInAPI.operaciones.mockImplementation(operacionesFake);
+});
+
+const renderPicker = (props = {}) => {
+  const onPick = vi.fn();
+  render(<SellInOperacionPicker label={LABEL} excluir={[]} restriccion={null} onPick={onPick} {...props} />);
+  return { onPick, input: screen.getByLabelText(LABEL) };
+};
+
+describe('SellInOperacionPicker', () => {
+  it('searches as the user types, debounced, and shows what identifies each operation', async () => {
+    const user = userEvent.setup();
+    const { input } = renderPicker();
+    await user.type(input, 'tp-link');
+
+    const opciones = await screen.findAllByRole('option');
+    expect(opciones).toHaveLength(2);
+    expect(sellInAPI.operaciones).toHaveBeenCalledTimes(1);
+    expect(sellInAPI.operaciones).toHaveBeenCalledWith({ q: 'tp-link', excluir: [] });
+    const nueva = opciones[0];
+    expect(nueva).toHaveTextContent('N° 16');
+    expect(nueva).toHaveTextContent('P-00016');
+    expect(nueva).toHaveTextContent('TP-Link');
+    expect(nueva).toHaveTextContent('3/10/2026');
+    expect(nueva).toHaveTextContent('USD 5.000,50');
+    expect(nueva).toHaveTextContent('Recibido');
+    expect(nueva).toHaveTextContent('Factura A-0001-00001234');
+  });
+
+  it('opening the box with no text offers the newest operations', async () => {
+    const user = userEvent.setup();
+    const { input } = renderPicker();
+    await user.click(input);
+
+    expect(await screen.findAllByRole('option')).toHaveLength(3);
+    expect(sellInAPI.operaciones).toHaveBeenCalledWith({ q: '', excluir: [] });
+  });
+
+  it('clicking an option picks it, clears the box and closes the list', async () => {
+    const user = userEvent.setup();
+    const { onPick, input } = renderPicker();
+    await user.type(input, 'mercu');
+    await user.click(await screen.findByRole('option', { name: /N° 20/ }));
+
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 20, proveedor_id: 9, moneda: 'ARS' }));
+    expect(input).toHaveValue('');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('once an operation is linked, asks only for its supplier and currency, without the linked ones', async () => {
+    const user = userEvent.setup();
+    const { input } = renderPicker({ excluir: [15], restriccion: { proveedorId: 7, proveedorNombre: 'TP-Link', moneda: 'USD' } });
+    expect(screen.getByText('Solo se ofrecen operaciones de TP-Link en USD.')).toBeInTheDocument();
+    await user.type(input, 'p-');
+
+    const opciones = await screen.findAllByRole('option');
+    expect(opciones).toHaveLength(1);
+    expect(opciones[0]).toHaveTextContent('N° 16');
+    expect(sellInAPI.operaciones).toHaveBeenLastCalledWith({ q: 'p-', excluir: [15], proveedor_id: 7, moneda: 'USD' });
+  });
+
+  it('arrow keys move through the options and Enter picks the highlighted one', async () => {
+    const user = userEvent.setup();
+    const { onPick, input } = renderPicker();
+    await user.type(input, 'p-');
+    await screen.findAllByRole('option');
+
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowUp}');
+    expect(screen.getByRole('option', { name: /N° 16/ })).toHaveAttribute('aria-selected', 'true');
+    expect(input).toHaveAttribute('aria-activedescendant', screen.getByRole('option', { name: /N° 16/ }).id);
+    await user.keyboard('{Enter}');
+
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 16 }));
+  });
+
+  it('Escape closes the list without picking', async () => {
+    const user = userEvent.setup();
+    const { onPick, input } = renderPicker();
+    await user.type(input, 'p-');
+    await screen.findAllByRole('listbox');
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(onPick).not.toHaveBeenCalled();
+    expect(input).toHaveValue('p-');
+  });
+
+  it('Enter on a typed number adds it at once when exactly one operation has it', async () => {
+    const user = userEvent.setup();
+    const { onPick, input } = renderPicker();
+    await user.type(input, '15{Enter}');
+
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 15, numero: 'P-00015' })));
+    expect(input).toHaveValue('');
+  });
+
+  it('Enter on text that is no single operation number picks nothing', async () => {
+    const user = userEvent.setup();
+    const { onPick, input } = renderPicker();
+    await user.type(input, 'tp-link{Enter}');
+
+    await screen.findAllByRole('option');
+    expect(onPick).not.toHaveBeenCalled();
+    expect(input).toHaveValue('tp-link');
+  });
+
+  it('says so when the search fails', async () => {
+    sellInAPI.operaciones.mockRejectedValue(new Error('boom'));
+    const user = userEvent.setup();
+    const { input } = renderPicker();
+    await user.type(input, 'tp');
+
+    expect(await screen.findByText('No se pudieron buscar operaciones.')).toBeInTheDocument();
+  });
+
+  it('an empty answer says nothing matched', async () => {
+    const user = userEvent.setup();
+    const { input } = renderPicker();
+    await user.type(input, 'nada');
+
+    expect(await screen.findByText('Ninguna operación coincide.')).toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+  });
+
+  it('is disabled when no more operations fit', () => {
+    const { input } = renderPicker({ deshabilitado: true });
+    expect(input).toBeDisabled();
+  });
+});

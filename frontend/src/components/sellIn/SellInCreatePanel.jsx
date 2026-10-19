@@ -5,6 +5,7 @@ import { sellInAPI } from '../../services/sellInAPI';
 import { toLocalDateString } from '../../utils/dateUtils';
 import { SegmentedControl } from '../kit';
 import SellInBuscador from './SellInBuscador';
+import SellInOperacionPicker from './SellInOperacionPicker';
 import SellInPreview from './SellInPreview';
 import { apiMessage, formatMonto, sumaManual } from './sellInFormat';
 import styles from './SellInPanel.module.css';
@@ -38,7 +39,9 @@ const buscarProveedores = (search) =>
  * server preview, and save. Any change to what the split depends on drops the
  * preview, so what gets saved is always what was last seen.
  *
- * It may come from several Compras operations: each change of that set asks
+ * It may come from several Compras operations, picked from a search
+ * (`SellInOperacionPicker`) that, once one is linked, offers only those of
+ * its supplier and currency. Each change of that set asks
  * `GET /prefill` and fills what is empty or still holds an untouched prefill
  * (supplier, receipt date, products); removing every operation clears what
  * they filled. Typed products are replaced only after an inline confirmation,
@@ -51,7 +54,8 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
   const [reparto, setReparto] = useState({ moneda: 'USD', montoTotal: '', tipoCambio: '', formula: 'proporcional' });
   const [lineas, setLineas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
-  const [pedidoTexto, setPedidoTexto] = useState('');
+  // The picked operations as the search answered them, by id: the first one sets the supplier and currency rule.
+  const [operaciones, setOperaciones] = useState({});
   // What the last prefill answered: its currency (offered) and products waiting for the user's go-ahead.
   const [monedaOperaciones, setMonedaOperaciones] = useState(null);
   const [lineasPendientes, setLineasPendientes] = useState(null);
@@ -167,12 +171,15 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
     setPedidos(ids);
     pedirPrefill(ids);
   };
-  const agregarPedido = () => {
-    const numero = Number(pedidoTexto);
-    setPedidoTexto('');
-    if (!Number.isInteger(numero) || numero < 1 || pedidos.includes(numero) || pedidos.length >= PEDIDOS_MAX) return;
-    cambiarPedidos([...pedidos, numero]);
+  const agregarPedido = (operacion) => {
+    if (pedidos.includes(operacion.id) || pedidos.length >= PEDIDOS_MAX) return;
+    setOperaciones((prev) => ({ ...prev, [operacion.id]: operacion }));
+    cambiarPedidos([...pedidos, operacion.id]);
   };
+  const primera = operaciones[pedidos[0]];
+  const restriccion = primera
+    ? { proveedorId: primera.proveedor_id, proveedorNombre: primera.proveedor_nombre ?? `Proveedor #${primera.proveedor_id}`, moneda: primera.moneda }
+    : null;
   const reemplazarLineas = () => {
     setLineas(lineasPendientes);
     setLineasPendientes(null);
@@ -279,31 +286,14 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
                 <option value="ingreso">Fecha de ingreso</option>
               </select>
             </label>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor={`${id}-pc`}>
-                Pedido de compra (N°)
-              </label>
-              <div className={styles.inline}>
-                <input
-                  id={`${id}-pc`}
-                  type="number"
-                  min="1"
-                  className={styles.input}
-                  value={pedidoTexto}
-                  onChange={(e) => setPedidoTexto(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      agregarPedido();
-                    }
-                  }}
-                />
-                <button type="button" className="btn-tesla outline sm" onClick={agregarPedido} disabled={!pedidoTexto || pedidos.length >= PEDIDOS_MAX}>
-                  Agregar operación
-                </button>
-              </div>
-            </div>
           </div>
+          <SellInOperacionPicker
+            label="Pedido de compra (N°)"
+            excluir={pedidos}
+            restriccion={restriccion}
+            deshabilitado={pedidos.length >= PEDIDOS_MAX}
+            onPick={agregarPedido}
+          />
           {pedidos.length > 0 && (
             <ul className={styles.chips} aria-label="Operaciones de compra">
               {pedidos.map((numero) => (
