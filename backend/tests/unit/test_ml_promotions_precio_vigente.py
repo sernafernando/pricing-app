@@ -18,7 +18,7 @@ All proxy calls go through a fake `ml_webhook_client` — no network, no DB.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -87,6 +87,8 @@ class FakeProxy:
 def _no_post_write_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(write_service, "_maybe_recompute_after_write", lambda *a, **k: None)
     monkeypatch.setattr(write_service, "_maybe_refresh_after_write", lambda *a, **k: None)
+    # A diverged price triggers the read-source capture; keep it off the network.
+    monkeypatch.setattr(write_service.ml_webhook_client, "get_promotion_item", AsyncMock(return_value=None))
 
 
 @pytest.fixture()
