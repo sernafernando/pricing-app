@@ -108,8 +108,8 @@ class UpsertOutcome(str, Enum):
     # `status_detail` payload shaped as a dict, not a string). Readers of
     # these counters route them to different places -- a mapping error is
     # a resolved per-row outcome the window checkpoint may advance past
-    # (design D7 row 2), while a write error is quarantined AND raised as
-    # retried automatically from there so it is never silently lost.
+    # (design D7 row 2), while a write error is quarantined and retried
+    # automatically from there so it is never silently lost.
     WRITE_ERROR = "write_error"
     DISABLED = "disabled"
 

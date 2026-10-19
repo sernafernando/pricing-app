@@ -40,16 +40,18 @@ class QuarantineRetryHandler:
             # releases the connection before the next pass (DB pool rule).
             with get_background_db() as db:
                 result = ingestion_service.retry_quarantined_orders(db, limit=limit)
+            # This pass's orders were replayed, so they count even when it is
+            # the last one.
+            detail["passes"] += 1
+            detail["attempted"] += result.attempted
+            detail["recovered"] += result.recovered
+            detail["still_failed"] += result.still_failed
             if result.order_ids and seen.issuperset(result.order_ids):
                 # Only orders this run already replayed: they are still due
                 # (their attempt could not be recorded), so another pass would
                 # replay them until the deadline. The next wake retries them.
                 break
             seen.update(result.order_ids)
-            detail["passes"] += 1
-            detail["attempted"] += result.attempted
-            detail["recovered"] += result.recovered
-            detail["still_failed"] += result.still_failed
             # A retried row's backoff moves forward, so a short pass means
             # nothing due is left.
             if result.attempted < limit:

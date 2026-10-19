@@ -157,4 +157,6 @@ class TestTheHandlerNeverSpins:
 
         assert result.success is True
         assert len(calls) == 2
-        assert result.detail["attempted"] == limit
+        # Both passes replayed the rows, so both count.
+        assert result.detail["attempted"] == 2 * limit
+        assert result.detail["passes"] == 2
