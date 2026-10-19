@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.models.promo_refresh_pending import PromoRefreshPending
 from app.services import promo_refresh_drain as drain
 from app.services.ml_webhook_client import RefreshOutcome, ml_webhook_client
+from app.workers import registry
 from app.workers.context import WorkerContext
 from app.workers.handlers.promo_refresh import promo_write_refresh as handler
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
@@ -84,6 +85,16 @@ def rows(engine: Engine) -> dict:
 
 def called(proxy: mock.AsyncMock) -> list[str]:
     return [c.args[0] for c in proxy.await_args_list]
+
+
+class TestRegistration:
+    def test_it_runs_every_30_seconds_in_the_ml_worker_and_not_in_the_sales_one(self) -> None:
+        assert handler in registry.ML_PUBLICATIONS_REGISTRY
+        assert handler not in registry.REGISTRY
+        assert handler.name == "promo_write.refresh"
+        assert handler.channels == ()
+        assert handler.interval == timedelta(seconds=30)
+        assert handler.run_at_local is None
 
 
 class TestDrain:
