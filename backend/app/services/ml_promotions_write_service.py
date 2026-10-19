@@ -211,14 +211,14 @@ def write_took_effect(action: str, mirror_status: Optional[str]) -> bool:
 
     - enroll: `started` or `pending`. A `candidate` row only says the item is eligible, so ML did not enroll it
       (2026-10-19: six accepted enrolls of MLA1610390994 left it `candidate`); `finished` or no row neither.
-    - remove: anything but `started`. A successful DELETE returns the item to `candidate` (the row persists),
+    - remove: anything but `started` or `pending` (`pending` is enrolled-and-waiting). A successful DELETE returns the item to `candidate` (the row persists),
       and a missing row is removed too.
 
     Case-insensitive; a row without a status is no proof of an enroll.
     """
     status = (mirror_status or "").lower()
     if action == "remove":
-        return status != "started"
+        return status not in _ENROLLED_STATUSES
     return status in _ENROLLED_STATUSES
 
 
@@ -237,16 +237,16 @@ def reconcile_write_outcome(
       - operation="remove": keyed on STATUS, not presence. A successful
         DELETE returns the item to status='candidate' — the row PERSISTS
         in `ml_item_promotions`, it does NOT disappear. So "removed" means
-        the item is no longer ACTIVELY enrolled: status != 'started'
+        the item is no longer enrolled: status not 'started'/'pending'
         (row absent, or status 'candidate'/'finished') -> reconciled_applied.
-        Only status == 'started' means the removal did NOT take effect
-        (still actively enrolled) -> reconciled_not_applied (unless
+        'started' or 'pending' means the removal did NOT take effect
+        (still enrolled) -> reconciled_not_applied (unless
         slow_consistency, see below).
 
     slow_consistency (True for SMART, ~10-18s to settle vs ~2s for
-    SELLER_CAMPAIGN/DEAL): the POSITIVE verdict (started/pending on enroll, not
-    started on remove) stays reconciled_applied — it is trustworthy either
-    way. The NEGATIVE verdict (not enrolled on enroll, started on remove)
+    SELLER_CAMPAIGN/DEAL): the POSITIVE verdict (started/pending on enroll, neither
+    on remove) stays reconciled_applied — it is trustworthy either
+    way. The NEGATIVE verdict (not enrolled on enroll, still enrolled on remove)
     becomes "ambiguous" instead of "reconciled_not_applied": an immediate
     read can still miss a just-applied SMART write, and confidently
     reporting "not applied" would be a false negative that could make an

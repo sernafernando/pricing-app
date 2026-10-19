@@ -2002,7 +2002,8 @@ class TestWriteTookEffect:
         ("mirror_status", "expected"),
         [
             ("started", False),
-            ("pending", True),
+            ("pending", False),
+            ("Pending", False),
             ("candidate", True),
             ("finished", True),
             (None, True),
@@ -2039,6 +2040,18 @@ class TestReconcileEnrollFalseSuccess:
             result = write_service.reconcile_write_outcome("MLA1", "C-1", "enroll")
 
         assert result["status"] == "reconciled_not_applied"
+
+    @pytest.mark.parametrize(("slow", "expected"), [(False, "reconciled_not_applied"), (True, "ambiguous")])
+    def test_remove_still_pending_is_not_applied(self, slow, expected) -> None:
+        """`pending` is enrolled-and-waiting: a remove whose item the mirror still shows pending did NOT apply."""
+        with patch.object(
+            write_service,
+            "fetch_item_promotions",
+            return_value=[{"mla": "MLA1", "promotion_id": "C-1", "status": "pending"}],
+        ):
+            result = write_service.reconcile_write_outcome("MLA1", "C-1", "remove", slow_consistency=slow)
+
+        assert result["status"] == expected
 
     def test_enroll_pending_is_applied(self) -> None:
         with patch.object(
