@@ -107,8 +107,9 @@ def confirm_recent_writes(mla: str, *, session_factory: Optional[Callable[[], An
     provisional and is re-checked here; `applied` is final. The "not applied by ML" warning is logged once, when an
     unstamped write is first stamped `not_applied`.
 
-    Returns how many rows changed status (unstamped to a status, or `not_applied` to `applied`). Never raises: a failure is logged and returns 0, and the drain that
-    calls it settles and counts exactly as without it. Short sessions, none open during the mirror read."""
+    Returns how many rows changed status (unstamped to a status, or `not_applied` to `applied`). Never raises: a
+    failure is logged and returns 0, and the drain that calls it settles and counts exactly as without it. Short
+    sessions, none open during the mirror read."""
     sessions = session_factory or get_background_db
     try:
         now = _utcnow()
