@@ -211,6 +211,25 @@ class TestLastResultNeverBreaksBookkeeping:
 
         assert summary["detail"]["unserializable"] is True
 
+    def test_a_deeply_nested_detail_degrades_to_a_marker(self) -> None:
+        detail: dict = {}
+        node = detail
+        for _ in range(5000):
+            node["n"] = {}
+            node = node["n"]
+
+        summary = WorkerRuntime._last_result(JobResult(success=True, detail=detail), self.AT)
+
+        assert summary["detail"]["unserializable"] is True
+
+    def test_huge_keys_are_cut_so_the_summary_stays_bounded(self) -> None:
+        detail = {"k" * 100_000: 1}
+
+        summary = WorkerRuntime._last_result(JobResult(success=True, detail=detail), self.AT)
+
+        assert summary["detail"]["truncated"] is True
+        assert len(json.dumps(summary)) <= 2 * runtime_module.MAX_LAST_RESULT_DETAIL_CHARS
+
     def test_the_summary_is_bounded_however_many_keys_and_however_long_the_error(self) -> None:
         detail = {f"key_{i:05d}": 1 for i in range(5000)}
         result = JobResult(success=False, detail=detail, error="e" * 50_000)

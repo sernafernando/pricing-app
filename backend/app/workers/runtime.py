@@ -50,6 +50,7 @@ DEFAULT_HANDLER_DEADLINE_SECONDS = 30.0
 # `detail.last_result` is a diagnostic breadcrumb, not a second copy of a handler's summary.
 MAX_LAST_RESULT_DETAIL_CHARS = 4096
 MAX_LAST_RESULT_KEYS = 100
+MAX_LAST_RESULT_KEY_CHARS = 30
 
 # systemd `Restart=always` treats this as a normal supervised restart, not a
 # crash loop (design D4 step 5 "Thread death detection").
@@ -210,16 +211,16 @@ class WorkerRuntime:
         raw: Any = result.detail if result is not None else None
         try:
             # Total by design: this runs OUTSIDE the handler's try/except, so a detail
-            # Postgres JSONB cannot store (NaN, non-string keys, cycles, non-mapping)
+            # Postgres JSONB cannot store (NaN, non-string keys, cycles, deep nesting, non-mapping)
             # must degrade to a marker instead of losing the run's bookkeeping.
             detail: Any = dict(raw) if raw else {}
             serialized = json.dumps(detail, default=str, allow_nan=False)
             if len(serialized) > MAX_LAST_RESULT_DETAIL_CHARS:
-                keys = sorted(str(key) for key in detail)
+                keys = sorted(str(key)[:MAX_LAST_RESULT_KEY_CHARS] for key in detail)
                 detail = {"truncated": True, "key_count": len(keys), "keys": keys[:MAX_LAST_RESULT_KEYS]}
             else:
                 detail = json.loads(serialized)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, RecursionError) as exc:
             detail = {"unserializable": True, "type": type(raw).__name__, "reason": str(exc)[:200]}
         error = result.error if result is not None else None
         return {
