@@ -213,10 +213,13 @@ def write_took_effect(action: str, mirror_status: Optional[str]) -> bool:
       (2026-10-19: six accepted enrolls of MLA1610390994 left it `candidate`); `finished` or no row neither.
     - remove: anything but `started`. A successful DELETE returns the item to `candidate` (the row persists),
       and a missing row is removed too.
+
+    Case-insensitive; a row without a status is no proof of an enroll.
     """
+    status = (mirror_status or "").lower()
     if action == "remove":
-        return mirror_status != "started"
-    return mirror_status in _ENROLLED_STATUSES
+        return status != "started"
+    return status in _ENROLLED_STATUSES
 
 
 def reconcile_write_outcome(

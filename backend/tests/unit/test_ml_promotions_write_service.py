@@ -1983,14 +1983,32 @@ class TestWriteTookEffect:
 
     @pytest.mark.parametrize(
         ("mirror_status", "expected"),
-        [("started", True), ("pending", True), ("candidate", False), ("finished", False), (None, False)],
+        [
+            ("started", True),
+            ("pending", True),
+            ("candidate", False),
+            ("finished", False),
+            (None, False),
+            ("", False),
+            ("STARTED", True),
+            ("Pending", True),
+            ("Candidate", False),
+        ],
     )
     def test_enroll(self, mirror_status, expected) -> None:
         assert write_service.write_took_effect("enroll", mirror_status) is expected
 
     @pytest.mark.parametrize(
         ("mirror_status", "expected"),
-        [("started", False), ("pending", True), ("candidate", True), ("finished", True), (None, True)],
+        [
+            ("started", False),
+            ("pending", True),
+            ("candidate", True),
+            ("finished", True),
+            (None, True),
+            ("", True),
+            ("Started", False),
+        ],
     )
     def test_remove(self, mirror_status, expected) -> None:
         assert write_service.write_took_effect("remove", mirror_status) is expected
@@ -2011,6 +2029,16 @@ class TestReconcileEnrollFalseSuccess:
 
         assert result["status"] == "reconciled_not_applied"
         assert result["row"]["status"] == mirror_status
+
+    @pytest.mark.parametrize(
+        "row", [{"mla": "MLA1", "promotion_id": "C-1"}, {"mla": "MLA1", "promotion_id": "C-1", "status": None}]
+    )
+    def test_enroll_row_without_status_is_not_applied(self, row) -> None:
+        """A mirror row that says nothing about its status is no proof ML enrolled the item."""
+        with patch.object(write_service, "fetch_item_promotions", return_value=[row]):
+            result = write_service.reconcile_write_outcome("MLA1", "C-1", "enroll")
+
+        assert result["status"] == "reconciled_not_applied"
 
     def test_enroll_pending_is_applied(self) -> None:
         with patch.object(
