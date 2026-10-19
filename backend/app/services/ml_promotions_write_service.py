@@ -917,6 +917,9 @@ def _read_divergence_sources(mla_id: str, promotion_id: str, promotion_type: str
     # `asyncio.run` never meets an event loop the caller may be running. The
     # client owns the read deadline (`timeout`); the grace only bounds a read
     # that overruns it, so an overrun is told apart from a client-side error.
+    # An overrunning read is not cancelled: its thread ends when the client's
+    # own deadline fires. Only the single-item enroll endpoint reaches this, so
+    # the extra wait (at most timeout + grace) is paid once per diverged enroll.
     pool = ThreadPoolExecutor(max_workers=len(sources), thread_name_prefix="promo-divergence")
     try:
         futures = {name: pool.submit(_timed_read, read) for name, (read, _) in sources.items()}

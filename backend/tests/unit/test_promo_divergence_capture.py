@@ -247,12 +247,13 @@ class TestDivergenceCapture:
         assert capture["promotion_items"]["error"].startswith("TimeoutError")
         assert capture["item_promotions"]["status"] == "ok"
 
-    def test_sync_reads_run_concurrently(self, log_rows) -> None:
+    def test_sync_reads_run_concurrently(self, log_rows, monkeypatch: pytest.MonkeyPatch) -> None:
         """A blocking client call must not hold back the other source."""
+        monkeypatch.setattr(write_service, "DIVERGENCE_CAPTURE_TIMEOUT_S", 1.0)
 
         def _slow(value: Any) -> Any:
             def _read() -> Any:
-                time.sleep(0.15)
+                time.sleep(0.3)
                 return value
 
             return _read
@@ -266,7 +267,8 @@ class TestDivergenceCapture:
         capture = _capture(log_rows)
         assert capture["item_promotions"]["status"] == "ok"
         assert capture["promotion_items"]["status"] == "ok"
-        assert elapsed < 0.28
+        # Serial reads take at least 0.6s; concurrent ones about 0.3s.
+        assert elapsed < 0.5
 
     def test_a_blocking_read_that_hangs_is_bounded_by_the_budget(self, log_rows) -> None:
         def _block() -> Any:
