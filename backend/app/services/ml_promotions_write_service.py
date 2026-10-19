@@ -44,12 +44,11 @@ low-volume, human-triggered, so reconciliation happens inline on the
 ambiguous response rather than via a scheduled sweep (see design decision).
 """
 
-import asyncio
-import inspect
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -86,6 +85,7 @@ REFRESH_RETRY_DELAY_SECONDS = 60
 # Per-source budget (seconds) for the evidence reads taken when an enroll's
 # applied price diverges (`_capture_divergence_sources`). Both run at once.
 DIVERGENCE_CAPTURE_TIMEOUT_S = 5.0
+DIVERGENCE_CAPTURE_GRACE_S = 1.0
 
 # NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED from this set
 # (ML-autogestionado, not writable by us). Its absence here is what enforces
@@ -537,6 +537,9 @@ def enroll_one_item(
         precio_visto=precio_visto,
         markup_visto=markup_visto,
     )
+    # Evidence for the write log only: taken off the outcome before anything
+    # else (the refresh hook, the API response) sees it.
+    divergence_capture = outcome.pop("divergence_capture", None)
     _record_write_log(
         mla_id,
         ACTION_ENROLL,
@@ -553,8 +556,7 @@ def enroll_one_item(
             "markup_visto": markup_visto,
             "precio_aplicado": outcome.get("precio_aplicado"),
             "offer_id": outcome.get("offer_id"),
-            # Evidence only, kept off the API response.
-            "divergence_capture": outcome.pop("divergence_capture", None),
+            "divergence_capture": divergence_capture,
         },
     )
     _maybe_refresh_after_write(mla_id, outcome)
@@ -899,39 +901,69 @@ def _read_divergence_sources(mla_id: str, promotion_id: str, promotion_type: str
             raise ValueError("payload has no results list")
         return next((r for r in results if isinstance(r, dict) and r.get("id") == mla_id), None)
 
-    async def _both() -> List[Dict[str, Any]]:
-        return await asyncio.gather(
-            _capture_source(
-                lambda: ml_webhook_client.get_item_promotions(mla_id, timeout=timeout), _item_promotions_entry, timeout
-            ),
-            _capture_source(
-                lambda: ml_webhook_client.get_promotion_item(promotion_id, promotion_type, mla_id, timeout=timeout),
-                _promotion_items_entry,
-                timeout,
-            ),
-        )
+    sources = {
+        "item_promotions": (
+            lambda: ml_webhook_client.get_item_promotions(mla_id, timeout=timeout),
+            _item_promotions_entry,
+        ),
+        "promotion_items": (
+            lambda: ml_webhook_client.get_promotion_item(promotion_id, promotion_type, mla_id, timeout=timeout),
+            _promotion_items_entry,
+        ),
+    }
 
-    item_promotions, promotion_items = asyncio.run(_both())
-    return {"item_promotions": item_promotions, "promotion_items": promotion_items}
-
-
-async def _capture_source(read: Any, match: Any, timeout: float) -> Dict[str, Any]:
-    """One source's capture: `ok` with the matched entry (None when the source
-    does not list it), or `error` when the read failed, timed out or returned
-    something unreadable. `captured_at` is when the read finished (UTC)."""
-    result: Dict[str, Any]
+    # Each read runs in its own worker thread: the two are concurrent whether
+    # the client call blocks or returns a coroutine, and `_resolve`'s
+    # `asyncio.run` never meets an event loop the caller may be running. The
+    # client owns the read deadline (`timeout`); the grace only bounds a read
+    # that overruns it, so an overrun is told apart from a client-side error.
+    pool = ThreadPoolExecutor(max_workers=len(sources), thread_name_prefix="promo-divergence")
     try:
-        payload = read()
-        if inspect.isawaitable(payload):
-            payload = await asyncio.wait_for(payload, timeout=timeout)
-        if payload is None:
-            result = {"status": "error", "entry": None, "error": "read returned no data (see the client log)"}
-        else:
-            result = {"status": "ok", "entry": match(payload)}
+        futures = {name: pool.submit(_timed_read, read) for name, (read, _) in sources.items()}
+        wait(futures.values(), timeout=timeout + DIVERGENCE_CAPTURE_GRACE_S)
+        return {name: _source_result(futures[name], match, timeout) for name, (_, match) in sources.items()}
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _timed_read(read: Any) -> Tuple[Any, str]:
+    """Runs one client read to completion and stamps when it finished (UTC)."""
+    payload = _resolve(read())
+    return payload, datetime.now(timezone.utc).isoformat()
+
+
+def _source_result(future: Future, match: Any, timeout: float) -> Dict[str, Any]:
+    """One source's capture: `ok` with the matched entry (None when the source
+    does not list it), or `error` when the read failed, overran its budget or
+    returned something unreadable."""
+    if not future.done():
+        return {
+            "status": "error",
+            "entry": None,
+            "error": f"TimeoutError: no answer within {timeout}s",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+    try:
+        payload, captured_at = future.result()
     except Exception as e:
-        result = {"status": "error", "entry": None, "error": _short_error(e)}
-    result["captured_at"] = datetime.now(timezone.utc).isoformat()
-    return result
+        return {
+            "status": "error",
+            "entry": None,
+            "error": _short_error(e),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+    if payload is None:
+        return {
+            "status": "error",
+            "entry": None,
+            # The client collapses errors and its own deadline to None and logs which one.
+            "error": "client returned no data (error or timeout, see the client log)",
+            "captured_at": captured_at,
+        }
+    try:
+        return {"status": "ok", "entry": match(payload), "captured_at": captured_at}
+    except Exception as e:
+        return {"status": "error", "entry": None, "error": _short_error(e), "captured_at": captured_at}
 
 
 def remove_one_item(

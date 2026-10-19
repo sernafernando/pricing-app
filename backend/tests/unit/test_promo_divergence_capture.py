@@ -13,6 +13,7 @@ Fixture shapes are live captures (2026-10-19), not invented:
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
@@ -107,6 +108,7 @@ def _writes_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(write_service, "_maybe_refresh_after_write", lambda *a, **k: None)
     monkeypatch.setattr(write_service, "_maybe_recompute_after_write", lambda *a, **k: None)
     monkeypatch.setattr(write_service, "DIVERGENCE_CAPTURE_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(write_service, "DIVERGENCE_CAPTURE_GRACE_S", 0.1)
 
 
 class FakeProxy:
@@ -232,7 +234,7 @@ class TestDivergenceCapture:
 
     def test_a_source_that_hangs_times_out_as_an_error_within_the_budget(self, log_rows) -> None:
         async def _hang() -> Any:
-            await asyncio.sleep(30)
+            await asyncio.sleep(1)
 
         proxy = FakeProxy(APPLIED_PRICE, [_item_list_entry()], _hang)
 
@@ -244,6 +246,67 @@ class TestDivergenceCapture:
         assert capture["promotion_items"]["entry"] is None
         assert capture["promotion_items"]["error"].startswith("TimeoutError")
         assert capture["item_promotions"]["status"] == "ok"
+
+    def test_sync_reads_run_concurrently(self, log_rows) -> None:
+        """A blocking client call must not hold back the other source."""
+
+        def _slow(value: Any) -> Any:
+            def _read() -> Any:
+                time.sleep(0.15)
+                return value
+
+            return _read
+
+        proxy = FakeProxy(APPLIED_PRICE, _slow([_item_list_entry()]), _slow(_promotion_items_page()))
+
+        started = time.monotonic()
+        _enroll(proxy)
+        elapsed = time.monotonic() - started
+
+        capture = _capture(log_rows)
+        assert capture["item_promotions"]["status"] == "ok"
+        assert capture["promotion_items"]["status"] == "ok"
+        assert elapsed < 0.28
+
+    def test_a_blocking_read_that_hangs_is_bounded_by_the_budget(self, log_rows) -> None:
+        def _block() -> Any:
+            time.sleep(1)
+            return [_item_list_entry()]
+
+        proxy = FakeProxy(APPLIED_PRICE, _block, _promotion_items_page())
+
+        started = time.monotonic()
+        _enroll(proxy)
+        elapsed = time.monotonic() - started
+
+        capture = _capture(log_rows)
+        assert capture["item_promotions"]["status"] == "error"
+        assert capture["item_promotions"]["error"].startswith("TimeoutError")
+        assert capture["promotion_items"]["status"] == "ok"
+        assert elapsed < 0.6
+
+    def test_the_capture_works_inside_a_running_event_loop(self) -> None:
+        """The capture must not depend on the caller's loop state: its reads
+        run in worker threads, never on a loop the caller may be running."""
+        client = write_service.ml_webhook_client
+
+        async def _item_list(mla_id: str, timeout: Optional[float] = None) -> Any:
+            return [_item_list_entry()]
+
+        async def _promotion_items(*args: Any, **kwargs: Any) -> Any:
+            return _promotion_items_page()
+
+        async def _from_async_context() -> Dict[str, Any]:
+            return write_service._capture_divergence_sources(MLA, PROMO_ID, "SMART")
+
+        with (
+            patch.object(client, "get_item_promotions", new=_item_list),
+            patch.object(client, "get_promotion_item", new=_promotion_items, create=True),
+        ):
+            capture = asyncio.run(_from_async_context())
+
+        assert capture["item_promotions"]["status"] == "ok"
+        assert capture["promotion_items"]["status"] == "ok"
 
     def test_a_failed_read_returning_none_is_an_error(self, log_rows) -> None:
         proxy = FakeProxy(APPLIED_PRICE, None, None)
