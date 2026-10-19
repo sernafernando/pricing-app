@@ -46,7 +46,7 @@ def buscar_operaciones(
             _contiene(Proveedor.nombre, texto),
             _contiene(PedidoCompra.numero_factura, texto),
         ]
-        if texto.isdigit():
+        if texto.isascii() and texto.isdigit():  # str.isdigit() also accepts "²", which int() refuses
             condiciones.append(PedidoCompra.id == int(texto))
         query = query.filter(or_(*condiciones))
     if proveedor_id is not None:

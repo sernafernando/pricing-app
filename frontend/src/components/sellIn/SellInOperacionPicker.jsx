@@ -69,6 +69,7 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
 
   const cerrar = () => {
     setAbierto(false);
+    setError(false);
     setCargado(false);
     setActivo(-1);
   };
@@ -144,7 +145,7 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
           Solo se ofrecen operaciones de {restriccion.proveedorNombre} en {restriccion.moneda}.
         </p>
       )}
-      {error && <p className={styles.hint}>No se pudieron buscar operaciones.</p>}
+      {abierto && error && <p className={styles.hint}>No se pudieron buscar operaciones.</p>}
       {abierto && cargado && !error && opciones.length === 0 && <p className={styles.hint}>Ninguna operación coincide.</p>}
       {mostrarLista && (
         <ul id={listId} role="listbox" aria-label="Operaciones de compra encontradas" className={styles.resultados}>

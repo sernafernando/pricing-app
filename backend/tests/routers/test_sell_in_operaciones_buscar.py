@@ -172,3 +172,10 @@ def test_needs_gestionar_not_compras_permissions(client, lector, proveedores, nu
 
     assert client.get(URL, headers=lector).status_code == 403
     assert client.get(URL).status_code in (401, 403)
+
+
+@pytest.mark.parametrize("q", ["²", "١٢"])
+def test_non_ascii_digits_are_plain_text_not_an_id(client, gestor, proveedores, nuevo_pedido, q):
+    nuevo_pedido(proveedores[0])
+
+    assert _ids(client.get(URL, params={"q": q}, headers=gestor)) == []

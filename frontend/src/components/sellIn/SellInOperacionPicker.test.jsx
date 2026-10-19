@@ -128,6 +128,33 @@ describe('SellInOperacionPicker', () => {
     expect(await screen.findByText('No se pudieron buscar operaciones.')).toBeInTheDocument();
   });
 
+  it('a failed search stops being reported once the list is closed with Escape', async () => {
+    sellInAPI.operaciones.mockRejectedValue(new Error('boom'));
+    const user = userEvent.setup();
+    const { input } = renderPicker();
+    await user.type(input, 'tp');
+    await screen.findByText('No se pudieron buscar operaciones.');
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByText('No se pudieron buscar operaciones.')).not.toBeInTheDocument();
+  });
+
+  it('a failed search stops being reported once a later search picks an operation', async () => {
+    sellInAPI.operaciones.mockRejectedValueOnce(new Error('boom'));
+    const user = userEvent.setup();
+    const { onPick, input } = renderPicker();
+    await user.type(input, 'zz');
+    await screen.findByText('No se pudieron buscar operaciones.');
+
+    await user.clear(input);
+    await user.type(input, 'mercu');
+    await user.click(await screen.findByRole('option', { name: /N° 20/ }));
+
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 20 }));
+    expect(screen.queryByText('No se pudieron buscar operaciones.')).not.toBeInTheDocument();
+  });
+
   it('an empty answer says nothing matched', async () => {
     const user = userEvent.setup();
     const { input } = renderPicker();
