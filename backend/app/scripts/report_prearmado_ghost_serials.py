@@ -2,7 +2,7 @@
 Reporte READ-ONLY de seriales fantasma en prearmados viejos.
 
 Compara las filas de `prearmados_seriales` de cada prearmado contra la BOM ACTUAL
-del combo (`tb_item_association` con `iasso_qty > 0`) y marca las sospechosas:
+del combo (`combo_componentes`, la BOM propia de la app) y marca las sospechosas:
 
 - FUERA_DE_BOM: el `componente_item_id` ya no existe en la BOM del combo. El
   componente fue removido por completo del combo → candidato fuerte a fantasma.
@@ -14,9 +14,8 @@ IMPORTANTE: este script NO modifica nada. Es solo diagnóstico. Un prearmado en
 estado `consumido`/`anulado` es historia (esa unidad física se armó con esos
 componentes), así que se reporta aparte y NO debería tocarse a la ligera.
 
-Corré SIEMPRE la reconciliación de asociaciones ANTES de este reporte, si no la
-BOM "actual" todavía tiene los propios fantasmas:
-    python -m app.scripts.sync_item_associations
+La BOM la mantiene al día el handler `combos.sync` del worker; si el ERP cambió
+hace minutos, esperá a su próxima corrida antes de este reporte.
 
 Uso:
     python -m app.scripts.report_prearmado_ghost_serials
@@ -37,6 +36,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.services.combos.componentes import componentes_de
 
 ESTADOS_TERMINALES = ("consumido", "anulado")
 
@@ -45,27 +45,13 @@ def _bom_actual_por_combo(db: Session, combo_item_id: int) -> dict[int, float]:
     """
     Cantidad esperada por componente en la BOM ACTUAL del combo.
 
-    Devuelve {componente_item_id: qty_total}, sumando `iasso_qty` de todas las
-    asociaciones vigentes (iasso_qty > 0) de ese combo. Refleja cuántas unidades
-    de cada componente debería tener hoy un prearmado de ese combo.
+    Devuelve {componente_item_id: qty_total} desde `combo_componentes` (un par
+    que el ERP listaba dos veces ya está guardado una vez, con la suma).
+    Refleja cuántas unidades de cada componente debería tener hoy un
+    prearmado de ese combo.
     """
-    rows = (
-        db.execute(
-            text(
-                """
-            SELECT item_id_1 AS componente_item_id, SUM(iasso_qty) AS qty_total
-            FROM tb_item_association
-            WHERE item_id = :combo_id
-              AND iasso_qty > 0
-            GROUP BY item_id_1
-            """
-            ),
-            {"combo_id": combo_item_id},
-        )
-        .mappings()
-        .all()
-    )
-    return {r["componente_item_id"]: float(r["qty_total"]) for r in rows}
+    componentes = componentes_de(db, [combo_item_id]).get(combo_item_id, {})
+    return {componente: float(cantidad) for componente, cantidad in componentes.items()}
 
 
 def reportar(db: Session, estado: str = None, combo_item_id: int = None, solo_activos: bool = False) -> dict:
