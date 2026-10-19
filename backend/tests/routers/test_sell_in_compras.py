@@ -18,7 +18,7 @@ from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.services.sell_in import compras as compras_service
 
 BASE = "/api/sell-in/compras"
@@ -361,6 +361,57 @@ def test_create_keeps_a_known_supplier_and_purchase_order(client, gestor, produc
     assert (compra.proveedor_id, compra.pedido_compra_id) == (proveedor.id, pedido.id)
 
 
+def _links(db, compra_id: int) -> list[int]:
+    rows = db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == compra_id)
+    return sorted(row.pedido_compra_id for row in rows)
+
+
+def test_create_links_the_purchase_order(client, gestor, productos, pedido, db):
+    data = _crear(client, gestor, pedido_compra_id=pedido.id)
+
+    assert _links(db, data["id"]) == [pedido.id]
+    assert client.get(f"{BASE}/{data['id']}", headers=gestor).json()["pedido_compra_id"] == pedido.id
+
+
+def test_create_without_purchase_order_writes_no_link(client, gestor, productos, db):
+    data = _crear(client, gestor)
+
+    assert _links(db, data["id"]) == []
+
+
+def test_syncing_the_links_follows_the_column(client, gestor, productos, pedido, db):
+    """The link rows mirror `pedido_compra_id`: cleared column, no links; set again, exactly one."""
+    data = _crear(client, gestor, pedido_compra_id=pedido.id)
+    compra = db.get(SellInCompra, data["id"])
+
+    compra.pedido_compra_id = None
+    compras_service._sincronizar_pedidos(db, compra)
+    db.flush()
+    assert _links(db, compra.id) == []
+
+    compra.pedido_compra_id = pedido.id
+    compras_service._sincronizar_pedidos(db, compra)
+    compras_service._sincronizar_pedidos(db, compra)  # idempotent
+    db.flush()
+    assert _links(db, compra.id) == [pedido.id]
+
+
+def test_syncing_twice_without_autoflush_adds_one_link(client, gestor, productos, pedido, db):
+    """Idempotent on its own, not by relying on the session's autoflush."""
+    data = _crear(client, gestor, pedido_compra_id=pedido.id)
+    compra = db.get(SellInCompra, data["id"])
+    compra.pedido_compra_id = None
+    compras_service._sincronizar_pedidos(db, compra)
+    db.flush()
+
+    compra.pedido_compra_id = pedido.id
+    with db.no_autoflush:
+        compras_service._sincronizar_pedidos(db, compra)
+        compras_service._sincronizar_pedidos(db, compra)
+    db.flush()
+    assert _links(db, compra.id) == [pedido.id]
+
+
 @pytest.mark.parametrize(
     "overrides,fragment",
     [({"proveedor_id": 987654}, "proveedor 987654"), ({"pedido_compra_id": 987654}, "pedido de compra 987654")],
@@ -625,6 +676,19 @@ def test_list_free_text_matches_the_purchase_order_number(client, gestor, produc
     _crear(client, gestor, descripcion=None)
     resp = client.get(BASE, params={"q": "p-si-0000"}, headers=gestor)
     assert _ids(resp) == [con["id"]]
+
+
+def test_list_free_text_finds_the_purchase_order_through_the_link_or_the_column(client, gestor, productos, pedido, db):
+    """The number is matched over the link rows AND the old column, so a write path that sets the column
+    without syncing the links never drops the purchase from the search."""
+    solo_link = _crear(client, gestor, descripcion=None)
+    db.add(SellInCompraPedido(compra_id=solo_link["id"], pedido_compra_id=pedido.id))
+    solo_columna = _crear(client, gestor, pedido_compra_id=pedido.id, descripcion=None)
+    db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == solo_columna["id"]).delete()
+    db.flush()
+
+    resp = client.get(BASE, params={"q": "p-si-0000"}, headers=gestor)
+    assert sorted(_ids(resp)) == sorted([solo_link["id"], solo_columna["id"]])
 
 
 @pytest.mark.parametrize(
