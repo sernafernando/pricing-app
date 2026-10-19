@@ -58,6 +58,8 @@ from app.models.promo_refresh_pending import PromoRefreshPending
 from app.models.publicacion_ml import PublicacionML
 from app.services.ml_promotions_pricing import precio_de_oferta
 from app.services.ml_promotions_service import fetch_item_promotions
+from app.services.ml_publications import queue as ml_pub_queue
+from app.services.ml_publications.resources import PROMOTIONS_RESOURCE
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.promo_price_propagation import recompute_item
 from app.utils.async_bridge import resolve_maybe_async as _resolve
@@ -363,6 +365,38 @@ def _record_write_log(
         )
 
 
+# A promo write moves the item's price too, so the Publicaciones ML refresh
+# re-reads the promotions and both price resources.
+PUBLICATIONS_REFRESH_RESOURCES = (PROMOTIONS_RESOURCE, "prices", "sale_price")
+
+
+def _enqueue_publications_refresh(mla_id: str) -> None:
+    """Queues `mla_id` in `ml_pub_refresh_queue` (manual lane) so the
+    ml_publications worker refreshes `ml_item_seller_promotions`, which
+    Publicaciones ML reads (the ml-webhook mirror refreshed by the other
+    steps only feeds Productos).
+
+    Due `REFRESH_RETRY_DELAY_SECONDS` from now: ML often still reports the
+    promo as `candidate` right after the write, and an immediate refresh
+    would just store that stale state again. `queue.enqueue` without a
+    session opens its own short-lived `get_background_db()` transaction, so
+    no request session is held (ADR-5 / DB-pool-exhaustion pattern).
+    """
+    not_before = datetime.now(timezone.utc) + timedelta(seconds=REFRESH_RETRY_DELAY_SECONDS)
+    # An existing row with an earlier not_before keeps it, so this may read ML early; P2's drain re-refreshes the mirror 60s later and P3 confirms the applied state after the settle window, correcting it.
+    ml_pub_queue.enqueue(
+        [
+            ml_pub_queue.EnqueueEntry(
+                kind="item",
+                entity_id=mla_id,
+                lane=ml_pub_queue.LANE_MANUAL,
+                resources=PUBLICATIONS_REFRESH_RESOURCES,
+                not_before=not_before,
+            )
+        ]
+    )
+
+
 def _maybe_refresh_after_write(mla_id: str, outcome: Dict[str, Any]) -> None:
     """Best-effort post-write hook: triggers a server-side point-refresh of
     the `ml_item_promotions` mirror for this `mla_id`, AFTER the
@@ -376,13 +410,14 @@ def _maybe_refresh_after_write(mla_id: str, outcome: Dict[str, Any]) -> None:
     happened at ML). `_RECOMPUTE_TRIGGER_STATUSES` is intentionally NOT
     touched by this widening.
 
-    Does two things, in INDEPENDENT best-effort steps: (a) enqueues a ~60s
+    Does three things, in INDEPENDENT best-effort steps: (a) enqueues a ~60s
     retry FIRST (the reliable follow-up for slower-consistency writes like
     SMART, ~10-18s) so the durable retry is guaranteed even if the immediate
     refresh below fails to run, and (b) an immediate best-effort refresh
     (campaign consistency may already be settled by the time this runs). The
     drainer is idempotent, so a successful immediate refresh just makes the
-    queued retry a cheap confirming no-op.
+    queued retry a cheap confirming no-op. (c) queues the Publicaciones ML
+    refresh (`_enqueue_publications_refresh`), which reads its own table.
 
     Defensive by design, mirroring `_maybe_recompute_after_write`'s
     isolation contract exactly: the enroll/remove already happened at ML
@@ -409,6 +444,16 @@ def _maybe_refresh_after_write(mla_id: str, outcome: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error(
             "Promo immediate point-refresh failed for mla=%s (enroll/remove outcome is unaffected): %s",
+            mla_id,
+            e,
+            exc_info=True,
+        )
+    # (c) Publicaciones ML refresh queue — independent of (a) and (b).
+    try:
+        _enqueue_publications_refresh(mla_id)
+    except Exception as e:
+        logger.error(
+            "Publicaciones ML refresh enqueue failed for mla=%s (enroll/remove outcome is unaffected): %s",
             mla_id,
             e,
             exc_info=True,
