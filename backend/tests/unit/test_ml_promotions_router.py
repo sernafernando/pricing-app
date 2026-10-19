@@ -20,7 +20,8 @@ Spec coverage:
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -569,3 +570,70 @@ class TestApplicationStatus:
 
         assert response.status_code == 200
         assert response.json()["promotions"][0]["application_status"] is None
+
+
+class TestEscrituraNoAplicada:
+    """P3: the panel learns that ML did not apply a write the PM made. One per-row field
+    (`escritura_no_aplicada`) and one panel-level list for a not-applied enroll whose promo the panel
+    does not show. Both are additive: an old client ignores them, and a failing read leaves them empty."""
+
+    # The query returns a tz-aware datetime; Pydantic serializes it as ISO 8601 with `Z`.
+    _FECHA = datetime(2026, 10, 19, 14, 5, tzinfo=UTC)
+    _FECHA_JSON = "2026-10-19T14:05:00Z"
+
+    def _get(self, client: TestClient, advertencias, db=None):
+        fake_service = _override_auth(allowed_permiso=True)
+        if db is not None:
+            app.dependency_overrides[get_db] = lambda: db
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.fetch_item_promotions",
+                    return_value=[_item_promo("C-MLA1669550", "candidate"), _item_promo("DEAL-2", "started")],
+                ),
+                patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=_passthrough_enriquecer),
+                patch("app.routers.ml_promotions.motivo_sin_consulta_ml", return_value=None),
+                patch("app.routers.ml_promotions.advertencias_de_escritura", **advertencias) as mock_adv,
+            ):
+                response = client.get("/api/promociones/item/MLA123456789")
+        finally:
+            _clear_overrides()
+        return response, mock_adv
+
+    def test_a_not_applied_write_is_exposed_on_its_row_and_missing_ones_at_panel_level(
+        self, client: TestClient
+    ) -> None:
+        aviso = {"accion": "enroll", "fecha": self._FECHA, "usuario": "Ana PM", "mirror_status": "candidate"}
+        faltante = {"promotion_id": "C-GONE", **aviso, "mirror_status": None}
+
+        response, mock_adv = self._get(client, {"return_value": ({"C-MLA1669550": aviso}, [faltante])})
+
+        assert response.status_code == 200
+        body = response.json()
+        rows = {p["promotion_id"]: p for p in body["promotions"]}
+        assert rows["C-MLA1669550"]["escritura_no_aplicada"] == {**aviso, "fecha": self._FECHA_JSON}
+        assert rows["DEAL-2"]["escritura_no_aplicada"] is None
+        assert body["escrituras_no_aplicadas_sin_promo"] == [{**faltante, "fecha": self._FECHA_JSON}]
+        # One batched read for the whole MLA, given the rows the panel shows.
+        mock_adv.assert_called_once()
+        assert mock_adv.call_args.args[1] == "MLA123456789"
+        assert [p["promotion_id"] for p in mock_adv.call_args.args[2]] == ["C-MLA1669550", "DEAL-2"]
+
+    def test_a_failing_read_keeps_the_panel_working_without_warnings(self, client: TestClient) -> None:
+        response, _ = self._get(client, {"side_effect": RuntimeError("db down")})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 2
+        assert all(p["escritura_no_aplicada"] is None for p in body["promotions"])
+        assert body["escrituras_no_aplicadas_sin_promo"] == []
+
+    def test_a_failing_read_rolls_the_request_session_back(self, client: TestClient) -> None:
+        # A failed statement aborts the Postgres transaction; the rollback keeps the request session usable.
+        db = MagicMock()
+
+        response, _ = self._get(client, {"side_effect": RuntimeError("db down")}, db=db)
+
+        assert response.status_code == 200
+        db.rollback.assert_called_once()

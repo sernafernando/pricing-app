@@ -117,6 +117,20 @@
   color: var(--info-text, var(--text-secondary));
 }
 
+/* ML accepted our enroll/remove but the mirror shows it did not take effect. Outlined in danger so it
+   reads as "needs attention", not as another status badge. */
+.badgeNotApplied {
+  background: transparent;
+  color: var(--danger, var(--text-primary));
+  border: 1px solid var(--danger, var(--border-secondary));
+  cursor: help;
+}
+
+.writeWarningList {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
 .promoCountBadge {
   background: var(--bg-secondary);
   color: var(--text-secondary);
