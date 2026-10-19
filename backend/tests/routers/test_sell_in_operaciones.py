@@ -358,6 +358,46 @@ def test_prefill_refuses_too_many_operations_before_reading_them(client, gestor)
     assert "no existe" not in resp.text
 
 
+def test_prefill_rounds_quantities_half_up_and_drops_products_without_units(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    """2.1 + 0.4 = 2.5 rounds UP to 3 (banker's rounding would give 2); a product whose lines cancel
+    out (a correction line) or round to 0 is left out. A product missing from productos_erp keeps
+    its line with no code nor description."""
+    p1 = nuevo_pedido(proveedores[0])
+    _oc(db, p1, 9101, [(4512, "2.1"), (4513, "5"), (4512, "0.4"), (4513, "-5"), (9999, "1"), (4514, "0.4")])
+
+    assert _prefill(client, gestor, p1.id).json()["items"] == [
+        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch 8 bocas", "cantidad": 3},
+        {"item_id": 9999, "codigo": None, "descripcion": None, "cantidad": 1},
+    ]
+
+
+def test_prefill_counts_an_oc_shared_by_two_operations_once(client, gestor, productos, proveedores, nuevo_pedido, db):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    _oc(db, p1, 9201, [(4512, "4")])
+    db.add(PedidoCompraOc(pedido_id=p2.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=9201))
+    db.flush()
+
+    assert [i["cantidad"] for i in _prefill(client, gestor, p1.id, p2.id).json()["items"]] == [4]
+
+
+@pytest.mark.parametrize("enviar", ["post", "prefill"])
+def test_the_operations_cap_counts_what_was_sent_not_the_distinct_ids(
+    client, gestor, productos, proveedores, nuevo_pedido, enviar
+):
+    p1 = nuevo_pedido(proveedores[0])
+    ids = [p1.id] * (PEDIDOS_MAX + 1)  # the cap counts what was sent, before deduplication
+
+    if enviar == "post":
+        resp = client.post(BASE, json=_body(pedido_compra_ids=ids), headers=gestor)
+    else:
+        resp = _prefill(client, gestor, *ids)
+
+    assert resp.status_code == 422, resp.text
+    assert "pedido_compra_ids" in resp.text
+
+
 def test_prefill_needs_gestionar(client, lector, proveedores, nuevo_pedido):
     p1 = nuevo_pedido(proveedores[0])
 
