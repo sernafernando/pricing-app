@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { FilterX, ShieldAlert } from 'lucide-react';
+import { Download, FilterX, ShieldAlert } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -26,6 +26,7 @@ import {
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
+  buildExportParams,
   buildItemsParams,
   buildKpiParams,
   effectiveSort,
@@ -34,6 +35,7 @@ import {
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
+import { canExportVista, exportPublicacionesCsv } from '../utils/publicacionesMlExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import styles from './PublicacionesML.module.css';
 
@@ -241,6 +243,30 @@ export default function PublicacionesML() {
       });
   }, [requestKey, filterKey, reloadToken]);
 
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
+  // A refusal belongs to the list it was asked for: narrowing the filters or changing the view clears it, and a
+  // refusal that arrives after the operator left that list is dropped (the file of a success is still the one asked for).
+  const exportList = `${filters.vista}|${filterKey}`;
+  const currentExportList = useRef(exportList);
+  useEffect(() => {
+    currentExportList.current = exportList;
+    setExportError(null);
+  }, [exportList]);
+  // The CSV of the view on screen, with the list's own filters and sort (the Agrupado tree has no export).
+  const handleExport = async () => {
+    const askedFor = exportList;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportPublicacionesCsv(filters.vista, buildExportParams(filters, { canSeeMargin, canSeeSales }));
+    } catch (err) {
+      if (askedFor === currentExportList.current) setExportError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
   const productRows = useProductRows({ filters, pageSize, canSeeSales, canSeeMargin, enabled: producto });
 
@@ -386,8 +412,21 @@ export default function PublicacionesML() {
             onDone={reloadList}
           />
           <ColumnPicker table={pickerTable} />
+          {canExportVista(filters.vista) && (
+            <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
+              <Download size={14} />
+              {exporting ? 'Exportando…' : 'Exportar CSV'}
+            </button>
+          )}
         </div>
       </header>
+
+      {exportError && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} aria-hidden="true" />
+          <span className={styles.errorText}>{exportError}</span>
+        </div>
+      )}
 
       <StateBanner dataState={data?.data_state} />
 
