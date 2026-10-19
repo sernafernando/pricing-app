@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,7 @@ from app.services import rrhh_horas_extras_diario as diario
 from app.workers.context import WorkerContext
 from app.workers.handlers.rrhh_horas_extras import RRHHHorasExtrasHandler, horas_extras
 from app.workers.registry import REGISTRY
+from tests.routers.test_rrhh_horas_extras_recalcular_lock import held, is_held
 
 DETECTION = {"procesados": 3, "creados": 2, "actualizados": 1, "alertas": 0, "errores": 0, "pendientes_turno": 0}
 PURGE = {"purgadas": 4, "retenidas": 9}
@@ -36,8 +38,16 @@ class _Sessions:
             raise
 
 
+@pytest.fixture(autouse=True)
+def lock_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    path = tmp_path / "rrhh_he_cron.lock"
+    monkeypatch.setattr(diario, "LOCK_PATHS", (path,))
+    return path
+
+
 class _FakeService:
     calls: list[tuple] = []
+    lock_held_during_detection: list[bool] = []
     detection_error: Exception | None = None
     purge_error: Exception | None = None
 
@@ -46,6 +56,7 @@ class _FakeService:
 
     def detectar_he_periodo(self, desde: date, hasta: date) -> dict[str, int]:
         _FakeService.calls.append(("detect", desde, hasta))
+        _FakeService.lock_held_during_detection.append(is_held(diario.LOCK_PATHS[0]))
         if _FakeService.detection_error is not None:
             raise _FakeService.detection_error
         return dict(DETECTION)
@@ -60,6 +71,7 @@ class _FakeService:
 @pytest.fixture()
 def service(monkeypatch: pytest.MonkeyPatch) -> type[_FakeService]:
     _FakeService.calls = []
+    _FakeService.lock_held_during_detection = []
     _FakeService.detection_error = None
     _FakeService.purge_error = None
     monkeypatch.setattr(diario, "HorasExtrasService", _FakeService)
@@ -183,3 +195,48 @@ class TestRetryDelay:
         clock[0] = NOON + timedelta(minutes=15)
         assert handler.run(_ctx()).success is True
         assert len(service.calls) == 3  # the second detection, then its purge
+
+
+class TestDetectionLock:
+    """The worker, the manual script and `/recalcular` share one flock; the worker never overlaps them."""
+
+    def test_the_detection_runs_holding_the_lock_and_releases_it(self, db, service, lock_path) -> None:
+        _config(db, cron_activo=True)
+        handler, _ = _handler(db, NOON)
+
+        assert handler.run(_ctx()).success is True
+
+        assert service.lock_held_during_detection == [True]
+        assert is_held(lock_path) is False
+
+    def test_it_skips_while_another_run_holds_the_lock(self, db, service, lock_path) -> None:
+        _config(db, cron_activo=True)
+        clock = [NOON]
+        handler = RRHHHorasExtrasHandler(session_factory=_Sessions(db), now=lambda: clock[0])
+
+        with held(lock_path):
+            result = handler.run(_ctx())
+            assert result.success is False
+            assert result.detail == {"skipped": "locked"}
+            assert service.calls == []
+
+        # the 15-minute retry delay applies to a skipped run too
+        clock[0] = NOON + timedelta(minutes=5)
+        assert handler.run(_ctx()).success is False
+        assert service.calls == []
+        clock[0] = NOON + timedelta(minutes=15)
+        assert handler.run(_ctx()).success is True
+
+    def test_an_unusable_lock_directory_fails_clearly(self, db, service, monkeypatch, tmp_path) -> None:
+        _config(db, cron_activo=True)
+        blocker = tmp_path / "not-a-dir"
+        blocker.write_text("")
+        monkeypatch.setattr(diario, "LOCK_PATHS", (blocker / "rrhh_he_cron.lock",))
+        handler, _ = _handler(db, NOON)
+
+        result = handler.run(_ctx())
+
+        assert result.success is False
+        assert result.error.startswith("cannot open the HE detection lock")
+        assert "not-a-dir" in result.error
+        assert service.calls == []

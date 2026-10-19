@@ -5,14 +5,18 @@ the Hikvision punch sync and before the working day starts. A run processes the 
 and then purges old read alerts (`services.rrhh_horas_extras_diario`); `RRHHHorasExtrasConfig.cron_activo`
 stays the on/off switch.
 
-No lockfile: the worker runs its handlers one at a time, so two scheduled runs never overlap (the
-manual script keeps its own flock for runs started by hand).
+The worker runs its handlers one at a time, so two scheduled runs never overlap; the run still takes
+the shared HE detection flock (`rrhh_horas_extras_diario.detection_lock`) so it never overlaps a manual
+script run or a `POST /rrhh/horas-extras/recalcular` either.
 
 Outcomes, read by `scheduling.is_due` through `success`:
   - disabled: `success=False` with `{"disabled": True}`, so the job stays due and turning the switch
     on runs it on the next pass instead of tomorrow (same shape as the ML handlers' `disabled_outcome`);
-  - detection failed: `success=False` with the error; the job stays due, and this handler waits
-    `RETRY_DELAY` before trying again instead of re-running the whole detection on every pass;
+  - another run holds the lock: `success=False` with `{"skipped": "locked"}`;
+  - the lock cannot be opened (e.g. its directory is not writable): `success=False` with the error;
+  - detection failed: `success=False` with the error;
+  - after any of those three the job stays due, and this handler waits `RETRY_DELAY` before trying
+    again instead of re-running on every pass;
   - otherwise `success=True` with the day, the detection counts and the purge result (or its error).
 """
 
@@ -59,9 +63,11 @@ class RRHHHorasExtrasHandler:
 
         if outcome.status == diario.STATUS_DISABLED:
             return JobResult(success=False, detail={"disabled": True})
-        if outcome.status == diario.STATUS_DETECTION_FAILED:
+        if outcome.status != diario.STATUS_OK:
             self._retry_at = now + RETRY_DELAY
             self._last_error = outcome.error
+            if outcome.status == diario.STATUS_LOCKED:
+                return JobResult(success=False, detail={"skipped": "locked"})
             return JobResult(
                 success=False, detail={"day": day.isoformat(), "error": outcome.error}, error=outcome.error
             )

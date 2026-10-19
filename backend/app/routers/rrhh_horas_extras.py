@@ -30,10 +30,8 @@ ORDEN DE RUTAS:
 from __future__ import annotations
 
 import io
-import os
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -57,6 +55,7 @@ from app.models.rrhh_horas_extras import (
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.rrhh_hikvision_client import ART_TZ
+from app.services.rrhh_horas_extras_diario import DetectionLockUnavailable, detection_lock
 from app.services.rrhh_horas_extras_service import HorasExtrasService
 
 router = APIRouter(prefix="/rrhh/horas-extras", tags=["rrhh-horas-extras"])
@@ -322,14 +321,6 @@ class HistorialEntryResponse(BaseModel):
 # ════════════════════════════════════════════════════════════════════════════
 
 
-# Lockfile del cron — design §12 + §14 decisión locked.
-# Configurable vía env vars para que dev/staging/prod puedan apuntar a paths distintos.
-_CRON_LOCK_PATHS = (
-    Path(os.environ.get("RRHH_HE_CRON_LOCK_PRIMARY", "/var/run/pricing-app/rrhh_he_cron.lock")),
-    Path(os.environ.get("RRHH_HE_CRON_LOCK_FALLBACK", "/tmp/rrhh_he_cron.lock")),
-)
-
-
 def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
     """Verifica permiso o lanza 403 (mismo patrón que `rrhh_horarios.py`)."""
     if not PermisosService(db).tiene_permiso(user, codigo):
@@ -446,24 +437,6 @@ def _get_config_or_500(db: Session) -> RRHHHorasExtrasConfig:
             detail="Configuración de horas extras no inicializada (singleton id=1 ausente)",
         )
     return cfg
-
-
-def _cron_lock_activo() -> bool:
-    """
-    Chequea si el cron del módulo está corriendo (lockfile presente).
-
-    No abre el archivo: solo `Path.exists()` para evitar bloquear el lock.
-    El cron real (Batch 3) usa `flock` no-bloqueante; si la ruta primaria no
-    existe, cae en `/tmp/` (design §12).
-    """
-    for p in _CRON_LOCK_PATHS:
-        try:
-            if p.exists():
-                return True
-        except OSError:
-            # Permisos / FS efímero — tratamos como no-lock (best-effort).
-            continue
-    return False
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1193,7 +1166,9 @@ def recalcular_periodo(
 
     Validaciones:
     - Rango <= `cap_dias_recalculo_manual` (default 90, configurable). 422 si excede.
-    - Si el lockfile del cron está activo → 409 (race condition, design §12).
+    - Holds the shared HE detection lock while recalculating, so the worker run and the manual script
+      skip instead of overlapping; if another run holds it → 409. A lockfile nobody holds does not block.
+    - Lock file cannot be opened → 503 (running unlocked could overlap another run).
     """
     _check_permiso(db, current_user, "rrhh.gestionar_horas_extras")
 
@@ -1208,19 +1183,22 @@ def recalcular_periodo(
             ),
         )
 
-    if _cron_lock_activo():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cron en curso, intentá luego",
-        )
-
-    service = HorasExtrasService(db)
-    empleado_ids = [data.empleado_id] if data.empleado_id is not None else None
-    return service.detectar_he_periodo(
-        fecha_desde=data.fecha_desde,
-        fecha_hasta=data.fecha_hasta,
-        empleado_ids=empleado_ids,
-    )
+    try:
+        with detection_lock() as acquired:
+            if not acquired:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cron en curso, intentá luego",
+                )
+            service = HorasExtrasService(db)
+            empleado_ids = [data.empleado_id] if data.empleado_id is not None else None
+            return service.detectar_he_periodo(
+                fecha_desde=data.fecha_desde,
+                fecha_hasta=data.fecha_hasta,
+                empleado_ids=empleado_ids,
+            )
+    except DetectionLockUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 # ════════════════════════════════════════════════════════════════════════════

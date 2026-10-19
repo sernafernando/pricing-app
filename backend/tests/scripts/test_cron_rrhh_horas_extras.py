@@ -18,8 +18,7 @@ class _Runs(list):
 
 @pytest.fixture()
 def runs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> _Runs:
-    monkeypatch.setattr(script, "LOCK_PATH_PRIMARY", tmp_path / "he.lock")
-    monkeypatch.setattr(script, "LOCK_PATH_FALLBACK", tmp_path / "he-fallback.lock")
+    monkeypatch.setattr(diario, "LOCK_PATHS", (tmp_path / "he.lock",))
     called = _Runs()
 
     def fake_run(day, **_):
@@ -43,7 +42,13 @@ def test_without_a_day_it_runs_yesterday_in_argentina(runs, monkeypatch: pytest.
 
 @pytest.mark.parametrize(
     ("status", "exit_code"),
-    [(diario.STATUS_DISABLED, 3), (diario.STATUS_DETECTION_FAILED, 2), (diario.STATUS_OK, 0)],
+    [
+        (diario.STATUS_DISABLED, 3),
+        (diario.STATUS_DETECTION_FAILED, 2),
+        (diario.STATUS_LOCK_UNAVAILABLE, 2),
+        (diario.STATUS_LOCKED, 1),
+        (diario.STATUS_OK, 0),
+    ],
 )
 def test_exit_codes_follow_the_run_status(runs, status, exit_code) -> None:
     runs.status = status
