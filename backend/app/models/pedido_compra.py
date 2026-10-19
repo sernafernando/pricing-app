@@ -60,6 +60,10 @@ class PedidoCompra(Base):
     requiere_envio = Column(Boolean, nullable=False, default=False, server_default="false")
     numero_factura = Column(String(50), nullable=True)
     ct_transaction_id = Column(BigInteger, nullable=True)
+    # Supplier invoice date (`ct_date` date part) of the linked ERP invoice, kept
+    # app-side so the sell in reads no ERP table. Written only together with
+    # ct_transaction_id by erp_matching_service.asignar_factura_erp.
+    fecha_factura = Column(Date, nullable=True)
     # F1 — Immutable snapshot of tipo_cambio at approval time. Set once when the
     # pedido transitions to 'aprobado' and never overwritten. NULL for ARS pedidos
     # (no TC) or pre-F1 pedidos where TC was already NULL.

@@ -18,7 +18,7 @@ las migraciones Alembic NO corren bajo SQLite de tests.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -628,3 +628,59 @@ class TestMatchBackward:
         assert evento is not None
         assert evento.payload["modo"] == "backward"
         assert evento.payload["ct_transaction"] == 910040
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tests: fecha_factura follows the matched invoice
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestFechaFacturaEnMatching:
+    def test_match_forward_copia_fecha_de_la_factura(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-01-2026-07001",
+            numero_factura="FWD-FECHA",
+            creado_por_id=active_user.id,
+        )
+        _crear_ct(
+            db,
+            ct_transaction=970001,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="FWD-FECHA",
+            sd_id=sd_factura.sd_id,
+        )
+
+        assert match_forward(db, pedido_compra_id=pedido.id) == 970001
+
+        db.refresh(pedido)
+        assert pedido.fecha_factura == date(2026, 4, 1)
+
+    def test_match_backward_copia_fecha_de_la_factura(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-01-2026-07002",
+            numero_factura="BWD-FECHA",
+            creado_por_id=active_user.id,
+        )
+        _crear_ct(
+            db,
+            ct_transaction=970002,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="BWD-FECHA",
+            sd_id=sd_factura.sd_id,
+        )
+
+        assert match_backward(db, cts_synced=[970002])["pedidos_asociados"] == 1
+
+        db.refresh(pedido)
+        assert pedido.ct_transaction_id == 970002
+        assert pedido.fecha_factura == date(2026, 4, 1)

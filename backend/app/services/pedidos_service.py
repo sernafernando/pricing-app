@@ -2730,7 +2730,7 @@ def vincular_factura(
     # que la moneda de la factura sea mapeable (ARS/USD).
     _validar_curr_id_factura_mapeable(ct_transaction=ct_transaction, ct_docnumber=ct_docnumber, curr_id=curr_id)
 
-    pedido.ct_transaction_id = int(ct_transaction)
+    erp_matching_service.asignar_factura_erp(session, pedido, ct_transaction)
     session.flush()
 
     _registrar_evento(
@@ -2781,7 +2781,7 @@ def desvincular_factura(
         )
 
     ct_anterior = int(pedido.ct_transaction_id)
-    pedido.ct_transaction_id = None
+    erp_matching_service.asignar_factura_erp(session, pedido, None)
     session.flush()
 
     _registrar_evento(
@@ -3192,7 +3192,7 @@ def ajustar_monto_con_factura(
         )
 
     pedido.monto = nuevo_monto_dec  # type: ignore[assignment]
-    pedido.ct_transaction_id = int(ct_transaction)
+    erp_matching_service.asignar_factura_erp(session, pedido, ct_transaction)
     session.flush()
 
     evento_tipo = (
@@ -3498,7 +3498,9 @@ def corregir_pedido(
         pedidos_documento=cambios.get("pedidos_documento", original.pedidos_documento),
         tipo=original.tipo,
         responsable_id=original.responsable_id,
+        # The clone inherits the original's invoice link as-is (no ERP re-read).
         ct_transaction_id=ct_transaction_heredado,
+        fecha_factura=original.fecha_factura,
         corregido_desde_id=original.id,
         estado=estado_clon,
         creado_por_id=user_id,
@@ -3509,7 +3511,7 @@ def corregir_pedido(
 
     # 7. Transferir ct_transaction y marcar original cancelado + ref cruzada
     original_estado_anterior = original.estado
-    original.ct_transaction_id = None
+    erp_matching_service.asignar_factura_erp(session, original, None)
     original.estado = "cancelado"
     original.corregido_a_id = clon.id
     session.flush()

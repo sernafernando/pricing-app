@@ -12,7 +12,7 @@ Cubre:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -26,6 +26,7 @@ from app.models.imputacion import Imputacion
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.tb_sale_document import SaleDocument
+from app.schemas.pedido_compra import PedidoCompraResponse
 
 
 def _seed_imputacion_viva(db, *, pedido_id: int, proveedor_id: int, user_id: int, monto: Decimal = Decimal("1")):
@@ -705,3 +706,66 @@ class TestMatchBackwardMismatchMonto:
         )
         assert notif.severidad.value == "WARNING"
         assert notif.item_id == pedido.id
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# fecha_factura: app-side copy of the linked invoice date (sell in reads it)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _set_ct_date(db, ct_transaction: int, ct_date: datetime) -> None:
+    db.query(CommercialTransaction).filter_by(ct_transaction=ct_transaction).update({"ct_date": ct_date})
+    db.flush()
+
+
+class TestFechaFactura:
+    def test_vincular_copia_fecha_de_la_factura(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(db, empresa, proveedor, active_user)
+        _crear_ct(db, ct_transaction=700101, supp_id=proveedor.supp_id, ct_total=Decimal("1000"))
+        # Early-morning ERP wall clock: a UTC→local shift would move it to the 14th.
+        _set_ct_date(db, 700101, datetime(2026, 4, 15, 1, 30, 0))
+
+        pedidos_service.vincular_factura(db, pedido_id=pedido.id, ct_transaction=700101, user_id=active_user.id)
+
+        db.refresh(pedido)
+        assert pedido.fecha_factura == date(2026, 4, 15)
+        assert PedidoCompraResponse.model_validate(pedido).fecha_factura == date(2026, 4, 15)
+
+    def test_ajustar_monto_copia_fecha_de_la_factura(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(db, empresa, proveedor, active_user, monto=Decimal("1000"))
+        _crear_ct(db, ct_transaction=700102, supp_id=proveedor.supp_id, ct_total=Decimal("1300"))
+        _set_ct_date(db, 700102, datetime(2026, 3, 2, 18, 0, 0))
+
+        pedidos_service.ajustar_monto_con_factura(
+            db,
+            pedido_id=pedido.id,
+            ct_transaction=700102,
+            nuevo_monto=Decimal("1300"),
+            motivo="monto real de factura",
+            user_id=active_user.id,
+        )
+
+        db.refresh(pedido)
+        assert pedido.fecha_factura == date(2026, 3, 2)
+
+    def test_desvincular_limpia_fecha_factura(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(db, empresa, proveedor, active_user, ct_id=555)
+        pedido.fecha_factura = date(2026, 4, 15)
+        db.flush()
+
+        pedidos_service.desvincular_factura(db, pedido_id=pedido.id, user_id=active_user.id)
+
+        db.refresh(pedido)
+        assert pedido.ct_transaction_id is None
+        assert pedido.fecha_factura is None
+
+    def test_ct_sin_fila_en_la_vista_vincula_con_fecha_nula(self, db, empresa, proveedor, active_user):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        pedido = _crear_pedido(db, empresa, proveedor, active_user)
+        pedido.fecha_factura = date(2020, 1, 1)
+
+        asignar_factura_erp(db, pedido, 999_999)
+
+        assert pedido.ct_transaction_id == 999_999
+        assert pedido.fecha_factura is None
