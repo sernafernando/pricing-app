@@ -1979,7 +1979,7 @@ class TestWriteTookEffect:
 
     Enroll: only `started` (running) or `pending` (enrolled, "En espera") count. `candidate` means the item is
     still only eligible, which is exactly the 2026-10-19 false success (MLA1610390994 in C-MLA1669550).
-    Remove: anything but `started`, and a missing row also counts as removed."""
+    Remove: anything but `started` or `pending`, and a missing row also counts as removed."""
 
     @pytest.mark.parametrize(
         ("mirror_status", "expected"),

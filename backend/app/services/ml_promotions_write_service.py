@@ -211,8 +211,8 @@ def write_took_effect(action: str, mirror_status: Optional[str]) -> bool:
 
     - enroll: `started` or `pending`. A `candidate` row only says the item is eligible, so ML did not enroll it
       (2026-10-19: six accepted enrolls of MLA1610390994 left it `candidate`); `finished` or no row neither.
-    - remove: anything but `started` or `pending` (`pending` is enrolled-and-waiting). A successful DELETE returns the item to `candidate` (the row persists),
-      and a missing row is removed too.
+    - remove: anything but `started` or `pending` (`pending` is enrolled-and-waiting). A successful DELETE
+      returns the item to `candidate` (the row persists), and a missing row is removed too.
 
     Case-insensitive; a row without a status is no proof of an enroll.
     """
