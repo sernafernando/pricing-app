@@ -155,6 +155,7 @@ class TestProductKeys:
             (0, "Sin producto", 1),
             (77, "Router AX", 2),
         ]
+        assert page.without_figures == frozenset({"0", "77"})  # no sale: the cells are blank, not zero
 
     def test_a_product_that_stopped_matching_is_skipped(self, linked, db) -> None:
         page = products.products_for_keys(db, parse_filter(estado="paused"), [78, 77])

@@ -18,6 +18,7 @@ import csv
 import io
 
 import pytest
+from sqlalchemy import func
 
 from app.services.ml_publications.view import export, listing, products as products_service
 from tests.routers.test_ml_publications_links import grant
@@ -342,6 +343,40 @@ class TestProducts:
         header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
         assert METRIC_COLUMNS <= set(header) and not {"Markup real 30D", "Total Gauss 30D"} & set(header)
         assert column(header, rows, "Ventas 30D")[0] == "2"  # the default sort: facturado_30d, Router AX first
+
+    def test_a_product_without_board_rows_has_blank_figures(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER, METRICAS)
+        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers, params={"orden": "titulo"}))
+        figures = dict(zip(column(header, rows, "Producto"), column(header, rows, "Ventas 30D")))
+        assert figures == {"Antena": "1", "Router AX": "2", "Sin producto": ""}  # no sale reached "Sin producto"
+
+    @pytest.mark.parametrize(
+        ("params", "field"),
+        [({"estado": "bogus"}, "estado"), ({"evento": "price_changed"}, "evento")],  # the events flag is off
+    )
+    def test_a_bad_filter_is_a_422_before_any_byte(
+        self, client, pg, db, rol_admin, admin_auth_headers, params, field
+    ) -> None:
+        grant(db, rol_admin, VER)
+        response = client.get(PRODUCTS_CSV, headers=admin_auth_headers, params=params)
+        assert response.status_code == 422 and response.json()["error"]["field"] == field
+
+    def test_a_statement_timeout_is_a_controlled_503_and_the_connection_goes_back(
+        self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
+    ) -> None:
+        grant(db, rol_admin, VER)
+        real = products_service.build_base_select
+
+        def slow(f, *columns, **kwargs):  # the set is one column, so the delay goes in the WHERE
+            return real(f, *columns, **kwargs).where(func.pg_sleep(1).is_not(None))
+
+        monkeypatch.setattr(listing, "STATEMENT_TIMEOUT", "50ms")
+        monkeypatch.setattr(products_service, "build_base_select", slow)
+        response = client.get(PRODUCTS_CSV, headers=admin_auth_headers)
+        assert response.status_code == 503 and response.json()["error"]["code"] == "consulta_lenta"
+        assert sold.pool.checkedout() == 0
 
     def test_ver_ganancia_adds_the_margin(self, client, sold, db, rol_admin, admin_auth_headers) -> None:
         grant(db, rol_admin, VER, METRICAS, GANANCIA)
