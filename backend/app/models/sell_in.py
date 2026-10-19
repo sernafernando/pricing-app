@@ -66,10 +66,11 @@ class SellInCompra(Base):
 class SellInCompraPedido(Base):
     """Links a sell-in purchase to one Compras operation (`pedidos_compra`).
 
-    For now it mirrors `SellInCompra.pedido_compra_id` (at most one row per
-    purchase, kept in step by the service); one operation can still serve
-    several purchases, so there is no unique on `pedido_compra_id` alone.
-    Deleting the operation removes the link, as it clears the old column.
+    A purchase can link several operations (same supplier and currency, checked
+    by the service), and one operation can serve several purchases, so there is
+    no unique on `pedido_compra_id` alone. The old `SellInCompra.pedido_compra_id`
+    column still holds the first operation until it is dropped. Deleting an
+    operation removes its link only; the purchase keeps its items.
     """
 
     __tablename__ = "sell_in_compra_pedidos"

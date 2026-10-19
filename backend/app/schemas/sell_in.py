@@ -21,6 +21,7 @@ Estado = Literal["activa", "anulada"]
 Aplica = Literal["si", "no", "todas"]
 
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
+PEDIDOS_MAX = 50  # Compras operations per sell in; a real one carries a handful
 
 
 class SellInLineaIn(BaseModel):
@@ -45,7 +46,10 @@ class SellInCompraCreate(SellInPreviewIn):
     fecha_ingreso: Optional[date] = None
     cuenta_desde: CuentaDesde = "compra"
     proveedor_id: Optional[int] = None
+    # Legacy single operation: read as a one-element `pedido_compra_ids`.
     pedido_compra_id: Optional[int] = None
+    # Compras operations (`pedidos_compra`) this sell in comes from: same supplier and currency.
+    pedido_compra_ids: list[int] = Field(default_factory=list, max_length=PEDIDOS_MAX)
     descripcion: Optional[str] = None
 
 
@@ -93,6 +97,7 @@ class SellInCompraOut(BaseModel):
     id: int
     proveedor_id: Optional[int]
     pedido_compra_id: Optional[int]
+    pedido_compra_ids: list[int] = []
     fecha_compra: date
     fecha_ingreso: Optional[date]
     cuenta_desde: CuentaDesde

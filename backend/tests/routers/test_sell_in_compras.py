@@ -380,18 +380,16 @@ def test_create_without_purchase_order_writes_no_link(client, gestor, productos,
 
 
 def test_syncing_the_links_follows_the_column(client, gestor, productos, pedido, db):
-    """The link rows mirror `pedido_compra_id`: cleared column, no links; set again, exactly one."""
+    """The link rows follow the ids given: none, no links; one again, exactly one."""
     data = _crear(client, gestor, pedido_compra_id=pedido.id)
     compra = db.get(SellInCompra, data["id"])
 
-    compra.pedido_compra_id = None
-    compras_service._sincronizar_pedidos(db, compra)
+    compras_service._sincronizar_pedidos(db, compra, [])
     db.flush()
     assert _links(db, compra.id) == []
 
-    compra.pedido_compra_id = pedido.id
-    compras_service._sincronizar_pedidos(db, compra)
-    compras_service._sincronizar_pedidos(db, compra)  # idempotent
+    compras_service._sincronizar_pedidos(db, compra, [pedido.id])
+    compras_service._sincronizar_pedidos(db, compra, [pedido.id])  # idempotent
     db.flush()
     assert _links(db, compra.id) == [pedido.id]
 
@@ -400,14 +398,12 @@ def test_syncing_twice_without_autoflush_adds_one_link(client, gestor, productos
     """Idempotent on its own, not by relying on the session's autoflush."""
     data = _crear(client, gestor, pedido_compra_id=pedido.id)
     compra = db.get(SellInCompra, data["id"])
-    compra.pedido_compra_id = None
-    compras_service._sincronizar_pedidos(db, compra)
+    compras_service._sincronizar_pedidos(db, compra, [])
     db.flush()
 
-    compra.pedido_compra_id = pedido.id
     with db.no_autoflush:
-        compras_service._sincronizar_pedidos(db, compra)
-        compras_service._sincronizar_pedidos(db, compra)
+        compras_service._sincronizar_pedidos(db, compra, [pedido.id])
+        compras_service._sincronizar_pedidos(db, compra, [pedido.id])
     db.flush()
     assert _links(db, compra.id) == [pedido.id]
 
