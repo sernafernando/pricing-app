@@ -545,7 +545,9 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     for order_id, raw_order, intentos_before in rows:
         result.attempted += 1
         result.order_ids.append(order_id)
-        outcome = upsert_order(db, raw_order)
+        mapped = map_order(raw_order)
+        mapping_error = mapped if isinstance(mapped, MappingError) else None
+        outcome = upsert_order(db, raw_order, mapped=None if mapping_error else mapped)
         if outcome in (UpsertOutcome.OK, UpsertOutcome.SKIPPED_STALE):
             db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.order_id == order_id).delete(
                 synchronize_session=False
@@ -557,7 +559,13 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
                 # WRITE_ERROR already re-quarantined (and counted) itself. A
                 # payload that no longer maps is a permanent failure too, and
                 # without this it would stay due -- first in line -- forever.
-                _quarantine_order(db, order_id, raw_order, "mapping error on retry", transient=False)
+                _quarantine_order(
+                    db,
+                    order_id,
+                    raw_order,
+                    f"mapping error on retry: {mapping_error.reason if mapping_error else 'unknown'}",
+                    transient=False,
+                )
             intentos_after = (
                 db.query(MlOrdersOpsCuarentena.intentos).filter(MlOrdersOpsCuarentena.order_id == order_id).scalar()
             )

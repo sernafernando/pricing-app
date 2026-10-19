@@ -616,6 +616,16 @@ class TestTransientVersusPermanentFailures:
 
         assert retry_quarantined_orders(db).attempted == 1
 
+    def test_a_payload_that_no_longer_maps_keeps_the_mapping_reason(self, db):
+        db.add(_quarantined(914, payload={"id": 914}))  # missing every other required field
+        db.flush()
+
+        retry_quarantined_orders(db)
+
+        row = db.query(MlOrdersOpsCuarentena).filter_by(order_id=914).one()
+        assert row.error.startswith("[permanent] mapping error on retry: ")
+        assert len(row.error) > len("[permanent] mapping error on retry: ")
+
     def test_a_permanent_row_at_the_cap_is_no_longer_selected(self, db):
         db.add(_quarantined(913, intentos=5, error="[permanent] value too long"))
         db.flush()
@@ -768,7 +778,9 @@ class TestEveryAttemptAdvancesTheRow:
         assert db.query(MlOrdersOpsCuarentena).filter_by(order_id=931).one().intentos == 3
 
     def test_any_other_non_ok_outcome_counts_as_an_attempt(self, db, monkeypatch):
-        monkeypatch.setattr(ingestion_service, "upsert_order", lambda db_arg, payload: UpsertOutcome.DISABLED)
+        monkeypatch.setattr(
+            ingestion_service, "upsert_order", lambda db_arg, payload, mapped=None: UpsertOutcome.DISABLED
+        )
         db.add(_quarantined(932, intentos=2, error="[transient] boom"))
         db.flush()
 
