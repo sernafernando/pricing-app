@@ -264,12 +264,9 @@ class OrderMetricsReconcileHandler:
 
 reconcile = OrderMetricsReconcileHandler()
 
-# design D10: divergence runs in batches of 500, records at most this many
-# `ml_ops_divergence` rows per run (the health endpoint only needs enough
-# ids to be actionable, not an unbounded write burst against a table that
-# can already be large).
+# design D10: divergence runs in batches of 500. A divergent order is only
+# re-enqueued (the recompute IS the fix); no alarm row is recorded.
 DIVERGENCE_BATCH_SIZE = 500
-DIVERGENCE_MAX_RECORDED_PER_RUN = 100
 
 # PR6 review fix J4: while the last lap is `complete=False`, the handler
 # also becomes due on this short cadence (via `scheduling.is_due`'s
@@ -316,49 +313,6 @@ def _stored_metrics_diverges(stored_row, fresh) -> bool:
         or stored_row.provisional_falta != fresh.provisional_falta
         or stored_row.unresolved_reason != fresh.unresolved_reason
         or stored_row.formula_version != fresh.formula_version
-    )
-
-
-def _open_divergence_record(db, order_id: int, field: Optional[str] = None) -> None:
-    """Inserts one `ml_ops_divergence` row (`kind='stored_metrics_mismatch'`,
-    design D10, reusing `ml_orders_ops.py:463`'s model) -- idempotent across
-    runs via the table's own `uq_ml_ops_divergence_order_kind_field`
-    (`order_id`, `kind`, `field`, `field IS NULL`) unique constraint, so a
-    still-open divergence found again tomorrow does not duplicate.
-
-    A row an operator already marked `resolved`/`ignored` must NOT be left
-    behind on recurrence -- `on_conflict_do_nothing` used to do exactly
-    that: the order re-enqueues (self-heal still fires) but the dashboard
-    keeps showing the divergence as closed, breaking this function's own
-    "open (or keep open)" contract (PR6 review fix J2). `on_conflict_do_
-    update` flips the row back to `state='open'` and refreshes `detected_
-    at`, matching the reopening convention already used by
-    `ml_orders_ingestion.divergence_service._apply_divergence`. The `where`
-    clause restricts the update to currently-closed rows so an
-    already-open row is not needlessly rewritten (no-op `UPDATE`, same
-    `detected_at`, same row)."""
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-    from app.models.ml_orders_ops import MlOpsDivergence
-
-    stmt = pg_insert(MlOpsDivergence.__table__).values(
-        order_id=order_id,
-        kind="stored_metrics_mismatch",
-        field=field,
-        state="open",
-    )
-    # `stmt.excluded.detected_at` reflects the column's own `server_default
-    # =func.now()` (design D10's own `MlOpsDivergence.detected_at`
-    # default) for the row proposed for insertion -- never a Python-side
-    # `datetime.now()` call here, which would consume an extra value from
-    # the `_ScriptedNow` stand-in the deadline tests monkeypatch onto this
-    # module's `datetime` import (`TestDivergenceCompletionCursor`).
-    db.execute(
-        stmt.on_conflict_do_update(
-            index_elements=["order_id", "kind", "field"],
-            set_={"state": "open", "detected_at": stmt.excluded.detected_at},
-            where=MlOpsDivergence.state.in_(("resolved", "ignored")),
-        )
     )
 
 
@@ -426,9 +380,9 @@ class OrderMetricsDivergenceHandler:
     stored `ml_order_metrics` field + status + formula_version against a
     fresh `compute_order_metrics`, skipping orders that currently have a
     dirty row (mid-flight -- a mismatch there is expected, not a bug).
-    Divergent orders open (or keep open) a `ml_ops_divergence` row and are
-    re-enqueued via the system enqueue (self-heal, still visible -- never
-    silently patched in place).
+    Divergent orders are re-enqueued via the system enqueue (self-heal --
+    never silently patched in place) and counted in the run summary
+    (`divergent_count`/`lines_divergent_count`).
 
     A single run bounded by `ctx.deadline` (30s, `DEFAULT_HANDLER_DEADLINE_
     SECONDS`) cannot walk ~77k orders' worth of `compute_order_metrics`
@@ -484,7 +438,6 @@ class OrderMetricsDivergenceHandler:
             checked_count = previous.get("checked_count", 0)
             lines_divergent_count = previous.get("lines_divergent_count", 0)
 
-        recorded = 0
         complete = False
         started_at = datetime.now(timezone.utc)
 
@@ -512,10 +465,6 @@ class OrderMetricsDivergenceHandler:
                         divergent_ids.append(row.order_id)
 
                 if divergent_ids:
-                    remaining_slots = max(0, DIVERGENCE_MAX_RECORDED_PER_RUN - recorded)
-                    for order_id in divergent_ids[:remaining_slots]:
-                        _open_divergence_record(db, order_id)
-                    recorded += min(len(divergent_ids), remaining_slots)
                     db.execute(
                         text("SELECT order_metrics_enqueue_system(CAST(:ids AS bigint[]), 'divergence')"),
                         {"ids": divergent_ids},
@@ -525,10 +474,6 @@ class OrderMetricsDivergenceHandler:
                 # derivation: the self-heal of `ml_sale_lines`, in the same lap.
                 line_ids = _orders_with_diverging_sale_lines(db, order_ids)
                 if line_ids:
-                    remaining_slots = max(0, DIVERGENCE_MAX_RECORDED_PER_RUN - recorded)
-                    for order_id in line_ids[:remaining_slots]:
-                        _open_divergence_record(db, order_id, "sale_lines")
-                    recorded += min(len(line_ids), remaining_slots)
                     db.execute(
                         text("SELECT order_metrics_enqueue_system(CAST(:ids AS bigint[]), 'divergence')"),
                         {"ids": line_ids},

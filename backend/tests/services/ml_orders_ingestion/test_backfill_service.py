@@ -420,14 +420,12 @@ class TestDryRunPredictsTheRealRun:
         assert dry.orders_mapping_error == real.orders_mapping_error
 
 
-class TestUnenumerableWindowIsRecordedLikeTheSweep:
+class TestUnenumerableWindowIsCounted:
     """Finding 1 (round 3): a day leaf that cannot be enumerated even at
-    the minimum bisect span must leave the SAME divergence row the sweep
-    leaves (`ml_ops_divergence.kind='window_not_enumerable'`), and the
-    count must be visible on the result -- not just a local counter that
-    dies with the stack frame."""
+    the minimum bisect span is counted on the result and logged -- no
+    alarm row."""
 
-    def test_unenumerable_day_is_recorded_in_divergence_and_on_the_result(self, db, monkeypatch):
+    def test_unenumerable_day_is_counted_on_the_result(self, db, monkeypatch):
         async def always_over_cap(seller_id, date_from, date_to, offset=0):
             return {"results": [], "paging": {"total": 5000}}
 
@@ -437,8 +435,7 @@ class TestUnenumerableWindowIsRecordedLikeTheSweep:
 
         assert result.error is None
         assert result.windows_unenumerable > 0
-        rows = db.query(MlOpsDivergence).filter_by(kind="window_not_enumerable").all()
-        assert len(rows) == result.windows_unenumerable
+        assert db.query(MlOpsDivergence).count() == 0
 
 
 class TestCountersSurviveAMidDayFailure:

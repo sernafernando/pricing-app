@@ -299,11 +299,6 @@ class TestDetail:
 
 
 class TestOtherEndpoints:
-    def test_divergences_are_forbidden(self, client, admin_auth_headers, tp_solo):
-        """Divergence rows carry stored-metric values (Total Gauss among them)."""
-        assert client.get("/api/ml-ventas-ops/divergences", headers=admin_auth_headers).status_code == 403
-        assert client.get("/api/ml-ventas-ops/divergences/1", headers=admin_auth_headers).status_code == 403
-
     def test_resync_of_a_gauss_store_order_is_not_found(
         self, client, admin_auth_headers, rol_admin, grant_permiso, tp_solo, monkeypatch
     ):
@@ -476,13 +471,6 @@ class TestTpStateRules:
 
 
 class TestMoreForbiddenAndFailClosed:
-    def test_divergence_patch_is_forbidden(self, client, admin_auth_headers, rol_admin, grant_permiso, tp_solo):
-        grant_permiso(rol_admin, "ml_ops.gestionar")
-
-        resp = client.patch("/api/ml-ventas-ops/divergences/1", json={"state": "resolved"}, headers=admin_auth_headers)
-
-        assert resp.status_code == 403
-
     @pytest.mark.parametrize(
         "path", ["/api/ml-ventas-ops/orders/98002", "/api/ml-ventas-ops/sales/kpis", "/api/ml-ventas-ops/sales/export"]
     )

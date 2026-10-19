@@ -260,12 +260,8 @@ class TestPaymentFetchOnIngest:
         mock_get_payment.assert_not_called()
         order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
         assert order_row.payments_synced_at is not None
-        divergence = (
-            db.query(MlOpsDivergence)
-            .filter_by(order_id=1, kind="unknown", field=sweep_service.PAYMENTS_KEY_MISSING_FIELD)
-            .one()
-        )
-        assert divergence is not None
+        # Logged, not recorded as an alarm row.
+        assert db.query(MlOpsDivergence).count() == 0
 
 
 class TestRetryGate:

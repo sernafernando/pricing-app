@@ -246,20 +246,8 @@ class TestOutOfWindowCounter:
         assert result.ran is True
         assert result.orders_out_of_window == 1
         assert db.query(MlOrdersOps).filter_by(order_id=42).count() == 0
-        divergence = db.query(MlOpsDivergence).filter_by(order_id=42, kind="out_of_window_update").one()
-        assert divergence.field is None
-
-    def test_repeat_detection_updates_not_duplicates(self, db, monkeypatch):
-        now = datetime.now(timezone.utc)
-        recent_update = now - timedelta(days=1)
-        old_created = now - timedelta(days=400)
-        mock_search = AsyncMock(return_value=_page([_order(42, 999, recent_update, old_created)]))
-        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
-
-        sweep_service.run_sweep(seller_id=999, window_days=90)
-        sweep_service.run_sweep(seller_id=999, window_days=90)
-
-        assert db.query(MlOpsDivergence).filter_by(order_id=42, kind="out_of_window_update").count() == 1
+        # Counted only: no alarm row.
+        assert db.query(MlOpsDivergence).count() == 0
 
     def test_order_inside_window_is_ingested_normally(self, db, monkeypatch):
         now = datetime.now(timezone.utc)
@@ -371,29 +359,13 @@ class TestUnenumerableWindowEscape:
         assert result.error is None
         assert result.ran is True
         assert result.windows_unenumerable > 0
-        rows = db.query(MlOpsDivergence).filter_by(kind="window_not_enumerable").all()
-        assert len(rows) == result.windows_unenumerable
+        # Logged and counted, no alarm row.
+        assert db.query(MlOpsDivergence).count() == 0
         # The cursor still advances (it is not a normal failure) -- this
         # is the whole point of the escape hatch.
         cursor = db.query(MlOpsSyncCursor).filter_by(name="sweep").one()
         assert cursor.state == "idle"
         assert cursor.window_to is not None
-
-    def test_repeat_unenumerable_detection_does_not_duplicate(self, db, monkeypatch):
-        async def fake_search(seller_id, date_from, date_to, offset=0):
-            return {"results": [], "paging": {"total": 5000}}
-
-        monkeypatch.setattr(ml_webhook_client, "search_orders", fake_search)
-
-        sweep_service.run_sweep(seller_id=999, window_days=1)
-        first_count = db.query(MlOpsDivergence).filter_by(kind="window_not_enumerable").count()
-        sweep_service.run_sweep(seller_id=999, window_days=1)
-        second_count = db.query(MlOpsDivergence).filter_by(kind="window_not_enumerable").count()
-
-        # A second pass covers a NEW (advanced) window, so it may add its
-        # own rows, but it must never duplicate an already-recorded one
-        # (unique (order_id, kind, field)).
-        assert second_count >= first_count
 
 
 class TestRunningLock:
@@ -456,37 +428,6 @@ class TestRunningLock:
 
         cursor = db.query(MlOpsSyncCursor).filter_by(name="sweep").one()
         assert cursor.state == "error"
-
-
-class TestUnenumerableFieldKeyFitsTheColumn:
-    """`ml_ops_divergence.field` is String(40). SQLite does not enforce
-    VARCHAR length, so a key that overflows passes every test here and
-    only fails on Postgres — precisely inside the escape hatch, whose
-    whole point is to keep the sweep alive."""
-
-    def test_field_key_fits_in_forty_characters(self) -> None:
-        from app.models.ml_orders_ops import MlOpsDivergence
-        from app.services.ml_orders_ingestion.sweep_service import _unenumerable_field_key
-
-        limit = MlOpsDivergence.__table__.c.field.type.length
-        key = _unenumerable_field_key(
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-            datetime(2026, 12, 31, 23, 59, tzinfo=timezone.utc),
-        )
-
-        assert len(key) <= limit
-
-    def test_field_key_is_distinct_per_window(self) -> None:
-        from app.services.ml_orders_ingestion.sweep_service import _unenumerable_field_key
-
-        a = _unenumerable_field_key(
-            datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
-        )
-        b = _unenumerable_field_key(
-            datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc), datetime(2026, 1, 1, 0, 2, tzinfo=timezone.utc)
-        )
-
-        assert a != b
 
 
 class TestBisectionIsBounded:
@@ -1372,7 +1313,7 @@ class TestWriteErrorIsolationAndQuarantine:
         quarantined = db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=502).one()
         assert quarantined.raw_order["id"] == 502
 
-        assert db.query(MlOpsDivergence).filter_by(kind="ingest_failed").count() == 0
+        assert db.query(MlOpsDivergence).count() == 0
 
         # The cursor checkpointed -- the whole point of isolation: one bad
         # order used to stall the checkpoint for four real days.

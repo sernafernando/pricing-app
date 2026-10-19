@@ -934,8 +934,8 @@ in the same transaction that stores an order's metrics, and the board reads it w
    needs `ml_ops.gestionar`; it also runs daily at 04:00 and every 2 minutes while a lap is
    unfinished) and wait for `last_divergence.complete = true`. Then
    `last_divergence.lines_divergent_count` should be 0, or fall to 0 on the next lap (the
-   mismatches are re-enqueued, which is the self-heal). Open items:
-   `SELECT order_id FROM ml_ops_divergence WHERE kind = 'stored_metrics_mismatch' AND field = 'sale_lines' AND state = 'open';`
+   mismatches are re-enqueued, which is the self-heal). Re-enqueued orders:
+   `SELECT order_id FROM ml_order_metrics_dirty WHERE reason = 'divergence';`
 5. Flip the flag: set `METRICAS_SALE_LINES_ENABLED=true` in the API's environment and
    restart the API (the board reads it per request from the settings). Turning it OFF again is
    the same change in reverse; nothing else needs undoing.
@@ -1016,12 +1016,11 @@ backfill is needed for a formula bump.
 has a dirty row, and `reconcile` enqueues the whole backlog first, so the
 bulk of the old rows is never compared. An old row that is NOT dirty yet (the
 window between two reconcile runs) is compared against a fresh compute whose
-`formula_version` is the new one, so it counts as divergent: it opens a
-`stored_metrics_mismatch` row and is re-enqueued (self-heal). That is bounded:
-at most `DIVERGENCE_MAX_RECORDED_PER_RUN = 100` records per run. Those records
-are expected during the backfill. Once the progress query is clean, close
-them from the divergences panel (`resolved`); if the same order reappears
-afterwards it is a real mismatch.
+`formula_version` is the new one, so it counts as divergent and is
+re-enqueued (self-heal) -- expected during the backfill. Nothing is recorded
+for an operator: the divergences panel no longer exists. If `divergent_count`
+stays above 0 on a complete lap after the progress query is clean, that is a
+real mismatch.
 
 ### Restart
 

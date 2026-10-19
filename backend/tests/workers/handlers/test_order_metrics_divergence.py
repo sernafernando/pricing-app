@@ -2,9 +2,9 @@
 design D10): daily (04:00 AR) handler, batches of 500, compares every
 stored field + status + formula_version vs a fresh `compute_order_metrics`,
 skipping orders currently dirty; writes a JSON summary to
-`worker_job_state.detail`, opens `ml_ops_divergence` rows
-(`kind='stored_metrics_mismatch'`) for the first N divergent ids, and
-re-enqueues divergent orders via the system enqueue (self-heal).
+`worker_job_state.detail` and re-enqueues divergent orders via the system
+enqueue (self-heal). It records no `ml_ops_divergence` row: the divergences
+board is gone, the re-enqueue IS the fix.
 """
 
 from __future__ import annotations
@@ -70,6 +70,19 @@ def _order_metrics_db_session(monkeypatch, pg_order_metrics_divergence_engine):
         conn.commit()
 
 
+def _queued_reason(engine, order_id: int):
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT reason FROM ml_order_metrics_dirty WHERE order_id = :order_id"), {"order_id": order_id}
+        ).fetchone()
+    return row.reason if row is not None else None
+
+
+def _divergence_rows(engine) -> int:
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT count(*) FROM ml_ops_divergence")).scalar()
+
+
 def _far_deadline() -> datetime:
     return datetime.now(timezone.utc) + timedelta(seconds=30)
 
@@ -96,7 +109,7 @@ class TestDivergenceRegisteredInRegistry:
 
 @pytest.mark.postgres
 class TestDivergenceDetectsInjectedMismatch:
-    def test_stale_stored_value_opens_divergence_and_reenqueues(
+    def test_stale_stored_value_reenqueues_without_recording_a_row(
         self, _order_metrics_db_session, pg_order_metrics_divergence_engine
     ) -> None:
         order_id = 600001
@@ -111,24 +124,10 @@ class TestDivergenceDetectsInjectedMismatch:
         assert result.success is True
         assert result.detail["divergent_count"] >= 1
 
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            div_row = conn.execute(
-                text(
-                    "SELECT kind, state FROM ml_ops_divergence WHERE order_id = :order_id "
-                    "AND kind = 'stored_metrics_mismatch'"
-                ),
-                {"order_id": order_id},
-            ).fetchone()
-            dirty_row = conn.execute(
-                text("SELECT reason FROM ml_order_metrics_dirty WHERE order_id = :order_id"), {"order_id": order_id}
-            ).fetchone()
+        assert _queued_reason(pg_order_metrics_divergence_engine, order_id) == "divergence"
+        assert _divergence_rows(pg_order_metrics_divergence_engine) == 0
 
-        assert div_row is not None
-        assert div_row.state == "open"
-        assert dirty_row is not None
-        assert dirty_row.reason == "divergence"
-
-    def test_matching_stored_value_opens_nothing(
+    def test_matching_stored_value_enqueues_nothing(
         self, _order_metrics_db_session, pg_order_metrics_divergence_engine
     ) -> None:
         order_id = 600002
@@ -150,12 +149,8 @@ class TestDivergenceDetectsInjectedMismatch:
 
         result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
         assert result.success is True
-
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            div_row = conn.execute(
-                text("SELECT id FROM ml_ops_divergence WHERE order_id = :order_id"), {"order_id": order_id}
-            ).fetchone()
-        assert div_row is None
+        assert result.detail["divergent_count"] == 0
+        assert _queued_reason(pg_order_metrics_divergence_engine, order_id) is None
 
 
 @pytest.mark.postgres
@@ -170,13 +165,11 @@ class TestDivergenceSkipsCurrentlyDirtyOrders:
             _insert_dirty(conn, order_id)
             conn.commit()
 
-        divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+        result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
 
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            div_row = conn.execute(
-                text("SELECT id FROM ml_ops_divergence WHERE order_id = :order_id"), {"order_id": order_id}
-            ).fetchone()
-        assert div_row is None  # never compared -- mid-flight, expected to differ
+        # Never compared -- mid-flight, expected to differ.
+        assert result.detail["divergent_count"] == 0
+        assert _queued_reason(pg_order_metrics_divergence_engine, order_id) == "input_write"
 
 
 @pytest.mark.postgres
@@ -292,62 +285,6 @@ class TestDivergenceCompletionCursor:
 
 
 @pytest.mark.postgres
-class TestDivergenceReopensAClosedRecord:
-    """PR6 review fix J2: `_open_divergence_record`'s
-    `on_conflict_do_nothing` silently no-ops once an operator has marked a
-    row `resolved`/`ignored` -- the SAME order diverging again re-enqueues
-    it but leaves the dashboard's divergence row invisible-closed, breaking
-    the handler's own docstring promise "open (or keep open)". Reopening
-    must match the convention already used by
-    `ml_orders_ingestion.divergence_service._apply_divergence`: flip a
-    closed row back to `state='open'` and refresh `detected_at`."""
-
-    def test_a_resolved_divergence_reopens_on_recurrence(
-        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
-    ) -> None:
-        order_id = 600301
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            _insert_order(conn, order_id)
-            _insert_metrics(conn, order_id, total_gauss="999999.00")
-            conn.execute(
-                text(
-                    "INSERT INTO ml_ops_divergence (order_id, kind, field, state, detected_at) "
-                    "VALUES (:order_id, 'stored_metrics_mismatch', NULL, 'resolved', now() - interval '10 days')"
-                ),
-                {"order_id": order_id},
-            )
-            conn.commit()
-
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            before = conn.execute(
-                text(
-                    "SELECT id, detected_at FROM ml_ops_divergence WHERE order_id = :order_id "
-                    "AND kind = 'stored_metrics_mismatch'"
-                ),
-                {"order_id": order_id},
-            ).fetchone()
-
-        result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
-        assert result.success is True
-
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            after = conn.execute(
-                text(
-                    "SELECT id, state, detected_at FROM ml_ops_divergence WHERE order_id = :order_id "
-                    "AND kind = 'stored_metrics_mismatch'"
-                ),
-                {"order_id": order_id},
-            ).fetchone()
-
-        assert after is not None
-        # Same row reopened, never a second insert (the unique constraint
-        # would have raised on a plain second INSERT anyway).
-        assert after.id == before.id
-        assert after.state == "open"
-        assert after.detected_at > before.detected_at
-
-
-@pytest.mark.postgres
 class TestDivergenceComparesAllPromisedFields:
     """PR6 review fix H2: `bool(x) != bool(y)` made `NULL` and `False`
     compare equal for `iva_reconcilia`, and `provisional_falta`/
@@ -386,12 +323,7 @@ class TestDivergenceComparesAllPromisedFields:
 
         result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
         assert result.success is True
-
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            div_row = conn.execute(
-                text("SELECT id FROM ml_ops_divergence WHERE order_id = :order_id"), {"order_id": order_id}
-            ).fetchone()
-        assert div_row is not None
+        assert _queued_reason(pg_order_metrics_divergence_engine, order_id) == "divergence"
 
     def test_stale_unresolved_reason_is_a_divergence(
         self, _order_metrics_db_session, pg_order_metrics_divergence_engine
@@ -422,12 +354,7 @@ class TestDivergenceComparesAllPromisedFields:
 
         result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
         assert result.success is True
-
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            div_row = conn.execute(
-                text("SELECT id FROM ml_ops_divergence WHERE order_id = :order_id"), {"order_id": order_id}
-            ).fetchone()
-        assert div_row is not None
+        assert _queued_reason(pg_order_metrics_divergence_engine, order_id) == "divergence"
 
 
 @pytest.mark.postgres
@@ -459,32 +386,24 @@ class TestBumpDoesNotFloodDivergence:
 
         assert result.detail["divergent_count"] == 0
         assert result.detail["checked_count"] == 0
-        with pg_order_metrics_divergence_engine.connect() as conn:
-            opened = conn.execute(
-                text("SELECT count(*) FROM ml_ops_divergence WHERE kind = 'stored_metrics_mismatch'")
-            ).scalar()
-        assert opened == 0
 
-    def test_stale_rows_nobody_enqueued_yet_open_at_most_the_per_run_cap(
+    def test_stale_rows_nobody_enqueued_yet_are_all_reenqueued_and_none_recorded(
         self, _order_metrics_db_session, pg_order_metrics_divergence_engine
     ) -> None:
         """The window between two reconcile runs: stale rows that are not
-        dirty yet ARE compared and flagged -- but never more than the cap per
-        run, and each is re-enqueued (it heals itself)."""
+        dirty yet ARE compared and each is re-enqueued (it heals itself);
+        nothing is written to `ml_ops_divergence`."""
         ids = self._seed_stale(pg_order_metrics_divergence_engine, 710000, 150)
 
         result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
 
         assert result.detail["divergent_count"] == 150
         with pg_order_metrics_divergence_engine.connect() as conn:
-            opened = conn.execute(
-                text("SELECT count(*) FROM ml_ops_divergence WHERE kind = 'stored_metrics_mismatch'")
-            ).scalar()
             requeued = conn.execute(
                 text("SELECT count(*) FROM ml_order_metrics_dirty WHERE order_id = ANY(:ids)"), {"ids": ids}
             ).scalar()
-        assert opened == order_metrics_handlers.DIVERGENCE_MAX_RECORDED_PER_RUN == 100
         assert requeued == 150
+        assert _divergence_rows(pg_order_metrics_divergence_engine) == 0
 
 
 def _seed_sold_order(engine, order_id: int, *, pack_id=None) -> None:
@@ -531,7 +450,7 @@ def _seed_sold_order(engine, order_id: int, *, pack_id=None) -> None:
 class TestDivergenceChecksThePersistedSaleLines:
     """The self-heal of `ml_sale_lines`: the stored lines of an order's group are
     compared with a live derivation in the same lap, and a mismatch re-enqueues
-    the group's orders and opens a divergence row (`field='sale_lines'`)."""
+    the group's orders (no divergence row is recorded)."""
 
     @pytest.fixture(autouse=True)
     def _seller(self, monkeypatch):
@@ -542,25 +461,15 @@ class TestDivergenceChecksThePersistedSaleLines:
     def _run(self):
         return divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
 
-    def _divergent(self, engine, order_id: int):
-        with engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT state FROM ml_ops_divergence WHERE order_id = :oid AND field = 'sale_lines'"),
-                {"oid": order_id},
-            ).fetchone()
-            queued = conn.execute(
-                text("SELECT reason FROM ml_order_metrics_dirty WHERE order_id = :oid"), {"oid": order_id}
-            ).fetchone()
-        return row, queued
-
-    def test_matching_lines_open_nothing(self, _order_metrics_db_session, pg_order_metrics_divergence_engine) -> None:
+    def test_matching_lines_enqueue_nothing(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
         _seed_sold_order(pg_order_metrics_divergence_engine, 610001)
 
         result = self._run()
 
         assert result.detail["lines_divergent_count"] == 0
-        row, queued = self._divergent(pg_order_metrics_divergence_engine, 610001)
-        assert row is None and queued is None
+        assert _queued_reason(pg_order_metrics_divergence_engine, 610001) is None
 
     @pytest.mark.parametrize(
         "damage",
@@ -572,7 +481,7 @@ class TestDivergenceChecksThePersistedSaleLines:
         ],
         ids=["qty", "missing", "money", "product-changed-without-a-recompute"],
     )
-    def test_a_mismatch_opens_a_divergence_and_reenqueues(
+    def test_a_mismatch_reenqueues_without_recording_a_row(
         self, _order_metrics_db_session, pg_order_metrics_divergence_engine, damage
     ) -> None:
         _seed_sold_order(pg_order_metrics_divergence_engine, 610002)
@@ -583,9 +492,8 @@ class TestDivergenceChecksThePersistedSaleLines:
         result = self._run()
 
         assert result.detail["lines_divergent_count"] == 1
-        row, queued = self._divergent(pg_order_metrics_divergence_engine, 610002)
-        assert row is not None and row.state == "open"
-        assert queued is not None and queued.reason == "divergence"
+        assert _queued_reason(pg_order_metrics_divergence_engine, 610002) == "divergence"
+        assert _divergence_rows(pg_order_metrics_divergence_engine) == 0
 
     def test_a_group_with_an_order_in_the_queue_is_skipped(
         self, _order_metrics_db_session, pg_order_metrics_divergence_engine
@@ -613,5 +521,4 @@ class TestDivergenceChecksThePersistedSaleLines:
         self._run()
 
         for order_id in (610005, 610006):
-            _row, queued = self._divergent(pg_order_metrics_divergence_engine, order_id)
-            assert queued is not None, order_id
+            assert _queued_reason(pg_order_metrics_divergence_engine, order_id) is not None, order_id

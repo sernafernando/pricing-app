@@ -290,8 +290,7 @@ def _record_unresolved_order(db, order_id: int) -> None:
     single permanently-dead order, which is precisely the bug fixed in
     `9cc60ef7` for the payments/costs backfill (a row that never settled
     blocked every candidate behind it). Recording the debt keeps the
-    stream moving AND keeps the miss visible: the row is operator-facing
-    in the divergence dashboard, and the audit sweep re-ingesting the
+    stream moving AND keeps the miss recorded, and the audit sweep re-ingesting the
     order is what actually settles it -- `_clear_resolved_unresolved_debts`
     below is the function that closes the ticket once that re-ingest
     lands (this docstring used to just say "the audit sweep re-ingests
