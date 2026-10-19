@@ -39,8 +39,9 @@ const buscarProveedores = (search) =>
  * preview, so what gets saved is always what was last seen.
  *
  * It may come from several Compras operations: each change of that set asks
- * `GET /prefill` and fills only what is still empty (supplier, receipt date,
- * products). Typed products are replaced only after an inline confirmation,
+ * `GET /prefill` and fills what is empty or still holds an untouched prefill
+ * (supplier, receipt date, products); removing every operation clears what
+ * they filled. Typed products are replaced only after an inline confirmation,
  * and the operations' currency is only offered, since a sell in keeps its own.
  */
 export default function SellInCreatePanel({ onCreated, onClose }) {
@@ -63,11 +64,17 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
   const versionRef = useRef(0);
   // Only the answer for the latest set of operations is applied.
   const prefillRef = useRef(0);
-  // The lines as last rendered: a prefill answer decides fill-or-ask on them, not on its request's closure.
-  const lineasRef = useRef(lineas);
+  // What is on screen as last rendered: a prefill answer decides on it, not on its request's closure.
+  const actualRef = useRef({ proveedor, fechaIngreso: datos.fechaIngreso, lineas });
   useEffect(() => {
-    lineasRef.current = lineas;
+    actualRef.current = { proveedor, fechaIngreso: datos.fechaIngreso, lineas };
   });
+  // Which fields hold what a prefill put there, untouched since: the next prefill (or none) may replace
+  // them. Once the user edits one it is theirs and is never overwritten silently.
+  const prefilladoRef = useRef({ proveedor: false, fechaIngreso: false, lineas: false });
+  const marcarPropio = (campo) => {
+    prefilladoRef.current[campo] = false;
+  };
 
   const setDato = (patch) => setDatos((prev) => ({ ...prev, ...patch }));
   const invalidar = () => {
@@ -79,11 +86,17 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
     setReparto((prev) => ({ ...prev, ...patch }));
     invalidar();
   };
+  const elegirProveedor = (valor) => {
+    marcarPropio('proveedor');
+    setProveedor(valor);
+  };
   const setLinea = (itemId, patch) => {
+    marcarPropio('lineas');
     setLineas((prev) => prev.map((l) => (l.item_id === itemId ? { ...l, ...patch } : l)));
     invalidar();
   };
   const agregarProducto = ({ producto }) => {
+    marcarPropio('lineas');
     setLineas((prev) =>
       prev.some((l) => l.item_id === producto.item_id)
         ? prev
@@ -92,6 +105,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
     invalidar();
   };
   const quitarLinea = (itemId) => {
+    marcarPropio('lineas');
     setLineas((prev) => prev.filter((l) => l.item_id !== itemId));
     invalidar();
   };
@@ -101,29 +115,52 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
     setPrefillError(null);
     setLineasPendientes(null);
     setMonedaOperaciones(null);
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      aplicarPrefill({ proveedor: null, fechaIngreso: '', lineas: [] });
+      return;
+    }
     try {
       const { data } = await sellInAPI.prefill(ids);
       if (token !== prefillRef.current) return;
-      setProveedor((prev) => prev ?? { id: data.proveedor_id, nombre: data.proveedor_nombre ?? `Proveedor #${data.proveedor_id}` });
-      if (data.fecha_ingreso) setDatos((prev) => (prev.fechaIngreso ? prev : { ...prev, fechaIngreso: data.fecha_ingreso }));
       setMonedaOperaciones(data.moneda);
-      const nuevas = data.items.map((item) => ({
-        item_id: item.item_id,
-        codigo: item.codigo ?? '',
-        descripcion: item.descripcion ?? '',
-        cantidad: String(item.cantidad),
-        montoManual: '',
-      }));
-      if (nuevas.length === 0) return;
-      if (lineasRef.current.length === 0) {
-        setLineas(nuevas);
-        invalidar();
-      } else {
-        setLineasPendientes(nuevas);
-      }
+      aplicarPrefill({
+        proveedor: { id: data.proveedor_id, nombre: data.proveedor_nombre ?? `Proveedor #${data.proveedor_id}` },
+        fechaIngreso: data.fecha_ingreso ?? '',
+        lineas: data.items.map((item) => ({
+          item_id: item.item_id,
+          codigo: item.codigo ?? '',
+          descripcion: item.descripcion ?? '',
+          cantidad: String(item.cantidad),
+          montoManual: '',
+        })),
+      });
     } catch (err) {
       if (token === prefillRef.current) setPrefillError(apiMessage(err, 'No se pudieron leer las operaciones.'));
+    }
+  };
+  /**
+   * Puts what the operations say (empty values when there are none left) into every field that is
+   * empty or still holds an untouched prefill. Lines the user edited are only offered for replacing.
+   */
+  const aplicarPrefill = (valores) => {
+    const actual = actualRef.current;
+    const prefillado = prefilladoRef.current;
+    if (!actual.proveedor || prefillado.proveedor) {
+      setProveedor(valores.proveedor);
+      prefillado.proveedor = valores.proveedor !== null;
+    }
+    if (!actual.fechaIngreso || prefillado.fechaIngreso) {
+      setDato({ fechaIngreso: valores.fechaIngreso });
+      prefillado.fechaIngreso = valores.fechaIngreso !== '';
+    }
+    if (actual.lineas.length === 0 || prefillado.lineas) {
+      if (actual.lineas.length > 0 || valores.lineas.length > 0) {
+        setLineas(valores.lineas);
+        invalidar();
+      }
+      prefillado.lineas = valores.lineas.length > 0;
+    } else if (valores.lineas.length > 0) {
+      setLineasPendientes(valores.lineas);
     }
   };
   const cambiarPedidos = (ids) => {
@@ -139,6 +176,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
   const reemplazarLineas = () => {
     setLineas(lineasPendientes);
     setLineasPendientes(null);
+    prefilladoRef.current.lineas = true;
     invalidar();
   };
 
@@ -229,7 +267,10 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
             </label>
             <label className={styles.field} htmlFor={`${id}-fi`}>
               <span className={styles.label}>Fecha de ingreso</span>
-              <input id={`${id}-fi`} type="date" className={styles.input} value={datos.fechaIngreso} onChange={(e) => setDato({ fechaIngreso: e.target.value })} />
+              <input id={`${id}-fi`} type="date" className={styles.input} value={datos.fechaIngreso} onChange={(e) => {
+                  marcarPropio('fechaIngreso');
+                  setDato({ fechaIngreso: e.target.value });
+                }} />
             </label>
             <label className={styles.field} htmlFor={`${id}-cd`}>
               <span className={styles.label}>Cuenta desde</span>
@@ -293,7 +334,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
             <div className={styles.chosen}>
               <span className={styles.label}>Proveedor</span>
               <span>{proveedor.nombre}</span>
-              <button type="button" className={styles.close} aria-label="Quitar proveedor" onClick={() => setProveedor(null)}>
+              <button type="button" className={styles.close} aria-label="Quitar proveedor" onClick={() => elegirProveedor(null)}>
                 <X size={14} />
               </button>
             </div>
@@ -302,7 +343,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
               label="Proveedor"
               placeholder="Buscar proveedor (opcional)…"
               buscar={buscarProveedores}
-              onPick={(opcion) => setProveedor(opcion.proveedor)}
+              onPick={(opcion) => elegirProveedor(opcion.proveedor)}
               errorMessage="No se pudieron buscar proveedores."
             />
           )}
