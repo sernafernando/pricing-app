@@ -233,6 +233,17 @@ export function buildProductsParams(filters, pageSize = filters.limite ?? PAGE_S
   return { ...params, orden: sort.key, dir: sort.dir };
 }
 
+/**
+ * The CSV export's query for the current view: exactly what its list asks (`/items` for Publicación, `/products` for
+ * Producto, with the same permissions), without the page -- the file holds every row of the list, in its order.
+ */
+export function buildExportParams(filters, permissions = {}) {
+  const build = filters.vista === 'producto' ? buildProductsParams : buildItemsParams;
+  const { limit, offset, ...params } = build(filters, undefined, permissions);
+  void limit, offset;
+  return params;
+}
+
 const MARKUP_KEYS = ['markup_neg', 'markup_min', 'markup_max'];
 
 /** True when a markup filter narrows the list. The list applies it after the query, so the KPIs cannot. */

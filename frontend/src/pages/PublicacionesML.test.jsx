@@ -10,6 +10,7 @@ import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
 import { publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
+import { exportPublicacionesCsv } from '../utils/publicacionesMlExport';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 import {
   BRAND_NODES,
@@ -47,6 +48,11 @@ vi.mock('../services/api', () => ({
 vi.mock('../utils/mlSidePanel', async (importOriginal) => ({
   ...(await importOriginal()),
   openInMlPanel: vi.fn(),
+}));
+
+vi.mock('../utils/publicacionesMlExport', async (importOriginal) => ({
+  ...(await importOriginal()),
+  exportPublicacionesCsv: vi.fn(),
 }));
 
 // Everything is allowed except the margin, which each test grants on purpose.
@@ -1302,5 +1308,65 @@ describe('bulk actions over products (S6)', () => {
     await userEvent.click(pick('Router Archer AX55'));
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
     expect(pick('Sin producto')).toBeDisabled();
+  });
+});
+
+describe('CSV export of the current view (S7)', () => {
+  const exportButton = () => screen.getByRole('button', { name: /Exportar CSV/ });
+  // The list's own request without the page and the facets: the file holds what the list holds, every page of it.
+  const withoutPaging = ({ limit, offset, facets, ...params }) => {
+    void limit, offset, facets;
+    return params;
+  };
+
+  beforeEach(() => {
+    exportPublicacionesCsv.mockReset();
+    exportPublicacionesCsv.mockResolvedValue(undefined);
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
+  });
+
+  it('exports the Publicación view with exactly the list request, minus the page', async () => {
+    canSeeMargin = true;
+    await page('/ml-publicaciones?q=router&estado=active,paused&tiendas=sin_tienda&orden=markup&dir=asc&markup_min=5&pagina=3');
+    await userEvent.click(exportButton());
+    expect(exportPublicacionesCsv).toHaveBeenCalledTimes(1);
+    const [vista, params] = exportPublicacionesCsv.mock.calls[0];
+    expect(vista).toBe('publicacion');
+    expect(params).toEqual(withoutPaging(lastParams()));
+    expect(params).toMatchObject({ q: 'router', estado: 'active,paused', tiendas: 'none', orden: 'markup', dir: 'asc', markup_min: '5' });
+  });
+
+  it('exports the Producto view with exactly the products request, minus the page', async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&estado=active&pagina=2'] });
+    await screen.findByText('Router Archer AX55');
+    await userEvent.click(exportButton());
+    const [vista, params] = exportPublicacionesCsv.mock.calls[0];
+    expect(vista).toBe('producto');
+    expect(params).toEqual(withoutPaging(publicacionesMlAPI.products.mock.calls.at(-1)[0]));
+    expect(params).toEqual({ estado: 'active', orden: 'facturado_30d', dir: 'desc' });
+  });
+
+  it('offers no export in the Agrupado view', async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await screen.findByText('EPSON');
+    expect(screen.queryByRole('button', { name: /Exportar CSV/ })).not.toBeInTheDocument();
+  });
+
+  it('shows "Exportando…" while the file downloads', async () => {
+    let finish;
+    exportPublicacionesCsv.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await page();
+    await userEvent.click(exportButton());
+    expect(screen.getByRole('button', { name: /Exportando/ })).toBeDisabled();
+    finish();
+    expect(await screen.findByRole('button', { name: /Exportar CSV/ })).toBeEnabled();
+  });
+
+  it('shows the backend message when the export is refused', async () => {
+    exportPublicacionesCsv.mockRejectedValue(new Error('Son 12000 publicaciones (máximo 10000). Acotá los filtros.'));
+    await page();
+    await userEvent.click(exportButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent('Son 12000 publicaciones (máximo 10000). Acotá los filtros.');
   });
 });

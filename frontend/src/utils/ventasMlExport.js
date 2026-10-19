@@ -11,7 +11,7 @@ export function filenameFromDisposition(header) {
 // With `responseType: 'blob'` an error body arrives as a Blob too, so the
 // backend's message (e.g. "too many sales, narrow the filters") has to be
 // read back out of it.
-async function messageFromError(err) {
+async function messageFromError(err, genericError) {
   const data = err?.response?.data;
   if (data && typeof data.text === 'function') {
     try {
@@ -22,7 +22,7 @@ async function messageFromError(err) {
       // not JSON: fall through to the generic message
     }
   }
-  return GENERIC_ERROR;
+  return genericError;
 }
 
 /**
@@ -41,17 +41,21 @@ export async function exportMetricasCsv(params) {
   await downloadCsv('/ml-metricas/board/export', params);
 }
 
-async function downloadCsv(url, params) {
+/**
+ * GETs `url` as a blob and saves it. The name is `filename` when given, else the server's. A failure throws an
+ * Error carrying the backend's message (or `genericError`), safe to show the operator.
+ */
+export async function downloadCsv(url, params, { filename, genericError = GENERIC_ERROR } = {}) {
   let response;
   try {
     response = await api.get(url, { params, responseType: 'blob' });
   } catch (err) {
-    throw new Error(await messageFromError(err));
+    throw new Error(await messageFromError(err, genericError));
   }
   const objectUrl = URL.createObjectURL(response.data);
   const link = document.createElement('a');
   link.href = objectUrl;
-  link.download = filenameFromDisposition(response.headers?.['content-disposition']);
+  link.download = filename || filenameFromDisposition(response.headers?.['content-disposition']);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
