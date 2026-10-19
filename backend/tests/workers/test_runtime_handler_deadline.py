@@ -177,3 +177,58 @@ class TestJobResultDetailIsPersisted:
         last = _detail(pg_runtime_db, handler.name)["last_result"]
         assert last["success"] is False
         assert "kaput" in last["error"]
+
+
+class TestLastResultNeverBreaksBookkeeping:
+    """`_last_result` runs outside the handler's try/except, so ANY detail a
+    handler returns must still yield a storable summary -- otherwise the run
+    loses its `last_run_at` write and the rest of the pass is aborted."""
+
+    AT = datetime(2026, 10, 19, 15, 0, tzinfo=timezone.utc)
+
+    @pytest.mark.parametrize(
+        "detail",
+        [
+            {"ratio": float("nan")},
+            {"ratio": float("inf")},
+            {("a", 1): "tuple key"},
+            [("not", "a"), ("mapping",)],
+        ],
+        ids=["nan", "infinity", "tuple-key", "not-a-mapping"],
+    )
+    def test_an_unstorable_detail_degrades_to_a_marker(self, detail) -> None:
+        summary = WorkerRuntime._last_result(JobResult(success=True, detail=detail), self.AT)
+
+        assert summary["success"] is True
+        assert summary["detail"]["unserializable"] is True
+        json.dumps(summary, allow_nan=False)
+
+    def test_a_circular_detail_degrades_to_a_marker(self) -> None:
+        detail: dict = {}
+        detail["self"] = detail
+
+        summary = WorkerRuntime._last_result(JobResult(success=True, detail=detail), self.AT)
+
+        assert summary["detail"]["unserializable"] is True
+
+    def test_the_summary_is_bounded_however_many_keys_and_however_long_the_error(self) -> None:
+        detail = {f"key_{i:05d}": 1 for i in range(5000)}
+        result = JobResult(success=False, detail=detail, error="e" * 50_000)
+
+        summary = WorkerRuntime._last_result(result, self.AT)
+
+        assert summary["detail"]["truncated"] is True
+        assert summary["detail"]["key_count"] == 5000
+        assert len(json.dumps(summary)) <= 2 * runtime_module.MAX_LAST_RESULT_DETAIL_CHARS
+        assert summary["error"].startswith("e")
+
+
+@pytest.mark.postgres
+class TestUnstorableDetailStillRecordsTheRun:
+    def test_a_nan_detail_records_the_run_and_the_pass_goes_on(self, pg_runtime_db) -> None:
+        first = _RecordingHandler("ml_publications.refresh", result=JobResult(success=True, detail={"r": float("nan")}))
+        second = _RecordingHandler("ml_publications.scan", result=JobResult(success=True, detail={"pages": 1}))
+        WorkerRuntime(registry=[first, second], direct_url=None).drain_once()
+
+        assert _detail(pg_runtime_db, first.name)["last_result"]["detail"]["unserializable"] is True
+        assert _detail(pg_runtime_db, second.name)["last_result"]["detail"] == {"pages": 1}
