@@ -362,49 +362,66 @@ def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> t
     return result, accepted
 
 
-def _list_by_markup(
-    db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, events: bool, markup: MarkupQuery
-) -> ItemsPage:
-    """Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4): price it once and
-    filter it in Python. The markup order is applied in Python too; a column order is applied by the database over
-    the accepted ids only, which also cuts the page. Then read only the page's rows (by id). A fixed number of
-    statements."""
+def _markup_ids(
+    db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, markup: MarkupQuery
+) -> tuple[list[str], int, MarkupResult]:
+    """The ids at `[offset, offset + limit)` of the set the markup filter keeps, in the requested order, its total and
+    the set-wide markup. Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4):
+    price it once and filter it in Python. The markup order is applied in Python too; a column order is applied by
+    the database over the accepted ids only, which also cuts the page."""
     result, kept = markup_accepted(db, f, markup)
     if sort.key == SORT_MARKUP:
         wanted = [item_id for item_id in _worst_first(result.items, sort.descending) if item_id in kept]
-        total = len(wanted)
-        page_ids = wanted[offset : offset + limit]
-    else:
-        # The database orders only the publications the markup filter accepted and cuts the page: it used to order
-        # the whole filtered set and ship every id back just to keep fifty.
-        accepted = [item_id for item_id in result.items if item_id in kept]  # the computed order, as before
-        total = len(accepted)
-        if sort.key in METRIC_SORTS:
-            only_accepted = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
-            page_ids = (
-                ranked_page(db, only_accepted, sort.key, sort.descending, limit, offset) if offset < total else []
-            )
-        else:
-            page_ids = (
-                list(
-                    db.execute(
-                        build_base_select(f, T.i.item_id)
-                        .where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
-                        .order_by(*_order_by(sort))
-                        .limit(limit)
-                        .offset(offset)
-                    ).scalars()
-                )
-                if offset < total
-                else []
-            )
+        return wanted[offset : offset + limit], len(wanted), result
+    # The database orders only the publications the markup filter accepted and cuts the page: it used to order
+    # the whole filtered set and ship every id back just to keep fifty.
+    accepted = [item_id for item_id in result.items if item_id in kept]  # the computed order, as before
+    total = len(accepted)
+    if offset >= total:
+        return [], total, result
+    only_accepted = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
+    if sort.key in METRIC_SORTS:
+        return ranked_page(db, only_accepted, sort.key, sort.descending, limit, offset), total, result
+    page = db.execute(only_accepted.order_by(*_order_by(sort)).limit(limit).offset(offset)).scalars()
+    return list(page), total, result
+
+
+def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str]) -> list[Any]:
+    """The `row_columns()` of `ids` that still match `f`, in the order of `ids` (one statement)."""
+    if not ids:
+        return []
+    found = db.execute(build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(ids, ARRAY(Text)))))
+    by_id = {row.item_id: row for row in found}
+    return [by_id[i] for i in ids if i in by_id]
+
+
+def _list_by_markup(
+    db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, events: bool, markup: MarkupQuery
+) -> ItemsPage:
+    """The page of a markup sort or filter (`_markup_ids`), then only the page's rows (by id), with the markup
+    computed for the whole set. A fixed number of statements."""
+    page_ids, total, result = _markup_ids(db, f, sort, limit, offset, markup)
     if not page_ids:
         return ItemsPage([], total, result.stats, result.ads_failed)
-    rows = db.execute(build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text)))))
-    by_id = {row.item_id: row for row in rows}
-    items = _assemble(db, [by_id[i] for i in page_ids if i in by_id], events)
+    items = _assemble(db, _rows_for_ids(db, f, page_ids), events)
     _attach_markup(items, result.items)
     return ItemsPage(items, total, result.stats, result.ads_failed)
+
+
+def _check(f: PublicationFilter, sort: Sort, events: bool, can_see_margin: bool) -> None:
+    if f.needs_events and not events:
+        raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+    if sort.key in METRIC_SORTS and needs_margin(sort.key) and not can_see_margin:
+        raise FilterError("orden", f"{sort.key} requires the ml_metricas.ver_ganancia permission")
+
+
+def _by_markup(sort: Sort, markup: Optional[MarkupQuery]) -> bool:
+    """Whether the order (or the selection) is the markup's, computed in Python over the whole set."""
+    if markup is not None and (sort.key == SORT_MARKUP or markup.filter.active):
+        return True
+    if sort.key == SORT_MARKUP:
+        raise FilterError("orden", "markup requires the ml_metricas.ver_ganancia permission")
+    return False
 
 
 def list_items(
@@ -422,27 +439,16 @@ def list_items(
     event is only read while it is on. `markup` (the caller may see margins) adds each row's markup; sorting by
     it or filtering on it prices the whole filtered set first. A Métricas sort (`METRIC_SORTS`) ranks the whole
     filtered set by the Board's figures; the margin ones need `can_see_margin` (fail closed: it defaults to no)."""
-    if f.needs_events and not events:
-        raise FilterError("evento", "requires the events flag (events.enabled) to be on")
-    if sort.key in METRIC_SORTS and needs_margin(sort.key) and not can_see_margin:
-        raise FilterError("orden", f"{sort.key} requires the ml_metricas.ver_ganancia permission")
+    _check(f, sort, events, can_see_margin)
     f = resolve_pm_pairs(db, f)
-    if markup is not None and (sort.key == SORT_MARKUP or markup.filter.active):
+    if _by_markup(sort, markup):
         return _list_by_markup(db, f, sort, limit, offset, events, markup)
-    if sort.key == SORT_MARKUP:
-        raise FilterError("orden", "markup requires the ml_metricas.ver_ganancia permission")
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
     if sort.key in METRIC_SORTS:
         page_ids = ranked_page(db, build_base_select(f, T.i.item_id), sort.key, sort.descending, limit, offset)
-        by_id = {
-            row.item_id: row
-            for row in db.execute(
-                build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(page_ids, ARRAY(Text))))
-            )
-        }
-        rows = [by_id[i] for i in page_ids if i in by_id]
+        rows = _rows_for_ids(db, f, page_ids)
     else:
         rows = db.execute(
             build_base_select(f, *row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)
@@ -453,6 +459,45 @@ def list_items(
     result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
     _attach_markup(items, result.items)
     return ItemsPage(items, total, result.stats, result.ads_failed)
+
+
+def ordered_keys(
+    db: Session,
+    f: PublicationFilter,
+    sort: Sort,
+    cap: int,
+    *,
+    events: bool,
+    markup: Optional[MarkupQuery] = None,
+    can_see_margin: bool = False,
+) -> list[str]:
+    """The item ids of the WHOLE filtered set, at most `cap`, in the very order `list_items` pages them (the markup
+    sort and filter included, through the same `_markup_ids`): the keys an export fixes before reading its pages."""
+    _check(f, sort, events, can_see_margin)
+    f = resolve_pm_pairs(db, f)
+    if _by_markup(sort, markup):
+        return _markup_ids(db, f, sort, cap, 0, markup)[0]
+    if sort.key in METRIC_SORTS:
+        return ranked_page(db, build_base_select(f, T.i.item_id), sort.key, sort.descending, cap, 0)
+    return list(db.execute(build_base_select(f, T.i.item_id).order_by(*_order_by(sort)).limit(cap)).scalars())
+
+
+def items_for_keys(
+    db: Session, f: PublicationFilter, ids: list[str], *, events: bool, markup: Optional[MarkupQuery] = None
+) -> ItemsPage:
+    """The rows of `ids` in their order, built as `list_items` builds them, each with its markup (priced for these
+    ids) when `markup` is given. A key whose row stopped matching `f` is skipped. The markup FILTER is not applied
+    again: the keys already passed it."""
+    f = resolve_pm_pairs(db, f)
+    rows = _rows_for_ids(db, f, list(ids))
+    if not rows:
+        return ItemsPage([], 0)
+    items = _assemble(db, rows, events)
+    if markup is None:
+        return ItemsPage(items, len(items))
+    result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
+    _attach_markup(items, result.items)
+    return ItemsPage(items, len(items), result.stats, result.ads_failed)
 
 
 def _grouped(
