@@ -12,7 +12,7 @@ real de la DB (id=1) para evitar problemas con el chequeo de permiso del
 service. Si no existe, se hace skip del test que requiere user.
 
 Casos:
-- 90 días exactos -> NO 422 por cap (puede fallar por lockfile o por permiso,
+- 90 días exactos -> NO 422 por cap (puede fallar por lock de detección o por permiso,
   ambos casos se aceptan como "no fue por cap").
 - 91 días -> 422 con detail incluyendo "rango de recálculo".
 - fecha_hasta < fecha_desde -> 422 (Pydantic validator).
@@ -124,10 +124,10 @@ def main() -> int:
                 fallos += 1
                 _fail(f"recalcular(90d) lanzó 422 por cap (no debería): {exc.detail!r}")
             elif exc.status_code in (403, 409):
-                # 403=permiso; 409=lockfile activo. Ambos son "no es por cap".
+                # 403=permiso; 409=otra detección en curso (advisory lock). Ambos son "no es por cap".
                 print(
                     f"  WARN - recalcular(90d) -> {exc.status_code} ({exc.detail!r}); "
-                    "no es fallo de cap (probablemente permiso/lockfile)."
+                    "no es fallo de cap (probablemente permiso/lock de detección)."
                 )
             else:
                 fallos += 1

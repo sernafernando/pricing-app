@@ -10,13 +10,22 @@ from app.workers.handlers import ml_ads, ml_billing, ml_publications
 from app.workers.handlers.combos_sync import sync as combos_sync
 from app.workers.handlers.order_metrics import divergence, drain, reconcile
 from app.workers.handlers.promo_refresh import promo_write_refresh
+from app.workers.handlers.rrhh_horas_extras import horas_extras
 from app.workers.handlers.sell_drain import drain as sell_drain
 from app.workers.handlers.tp_cost_fill import fill as tp_cost_fill
 
 
 class TestExistingRegistryIsUntouched:
     def test_main_registry_handlers(self) -> None:
-        assert registry.REGISTRY == [drain, reconcile, divergence, tp_cost_fill, sell_drain, combos_sync]
+        assert registry.REGISTRY == [
+            drain,
+            reconcile,
+            divergence,
+            tp_cost_fill,
+            sell_drain,
+            combos_sync,
+            horas_extras,
+        ]
         assert [h.name for h in registry.REGISTRY] == [
             "order_metrics.drain",
             "order_metrics.reconcile",
@@ -24,6 +33,7 @@ class TestExistingRegistryIsUntouched:
             "tp_cost.fill",
             "sell.drain",
             "combos.sync",
+            "rrhh.horas_extras",
         ]
 
     def test_no_ml_publications_handler_leaks_into_the_default_registry(self) -> None:

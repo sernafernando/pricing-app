@@ -30,10 +30,8 @@ ORDEN DE RUTAS:
 from __future__ import annotations
 
 import io
-import os
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -44,6 +42,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.logging import get_logger
 from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rrhh_horas_extras import (
     EstadoHE,
@@ -57,9 +56,11 @@ from app.models.rrhh_horas_extras import (
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.rrhh_hikvision_client import ART_TZ
+from app.services.rrhh_horas_extras_diario import DetectionLockUnavailable, try_detection_lock
 from app.services.rrhh_horas_extras_service import HorasExtrasService
 
 router = APIRouter(prefix="/rrhh/horas-extras", tags=["rrhh-horas-extras"])
+logger = get_logger("routers.rrhh_horas_extras")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -322,14 +323,6 @@ class HistorialEntryResponse(BaseModel):
 # ════════════════════════════════════════════════════════════════════════════
 
 
-# Lockfile del cron — design §12 + §14 decisión locked.
-# Configurable vía env vars para que dev/staging/prod puedan apuntar a paths distintos.
-_CRON_LOCK_PATHS = (
-    Path(os.environ.get("RRHH_HE_CRON_LOCK_PRIMARY", "/var/run/pricing-app/rrhh_he_cron.lock")),
-    Path(os.environ.get("RRHH_HE_CRON_LOCK_FALLBACK", "/tmp/rrhh_he_cron.lock")),
-)
-
-
 def _check_permiso(db: Session, user: Usuario, codigo: str) -> None:
     """Verifica permiso o lanza 403 (mismo patrón que `rrhh_horarios.py`)."""
     if not PermisosService(db).tiene_permiso(user, codigo):
@@ -446,24 +439,6 @@ def _get_config_or_500(db: Session) -> RRHHHorasExtrasConfig:
             detail="Configuración de horas extras no inicializada (singleton id=1 ausente)",
         )
     return cfg
-
-
-def _cron_lock_activo() -> bool:
-    """
-    Chequea si el cron del módulo está corriendo (lockfile presente).
-
-    No abre el archivo: solo `Path.exists()` para evitar bloquear el lock.
-    El cron real (Batch 3) usa `flock` no-bloqueante; si la ruta primaria no
-    existe, cae en `/tmp/` (design §12).
-    """
-    for p in _CRON_LOCK_PATHS:
-        try:
-            if p.exists():
-                return True
-        except OSError:
-            # Permisos / FS efímero — tratamos como no-lock (best-effort).
-            continue
-    return False
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1181,7 +1156,8 @@ def liquidar_periodo(
 
 @router.post(
     "/recalcular",
-    summary="Recálculo manual de un rango (cap configurable, lockfile cron)",
+    response_model=dict[str, int],
+    summary="Recálculo manual de un rango (cap configurable, lock de detección HE)",
 )
 def recalcular_periodo(
     data: RecalcularRequest,
@@ -1193,7 +1169,10 @@ def recalcular_periodo(
 
     Validaciones:
     - Rango <= `cap_dias_recalculo_manual` (default 90, configurable). 422 si excede.
-    - Si el lockfile del cron está activo → 409 (race condition, design §12).
+    - Toma el lock advisory de detección HE en la transacción de este request y commitea las escrituras
+      mientras lo tiene, así el worker y el script manual saltean su corrida en vez de solaparse; si
+      otra corrida lo tiene → 409.
+    - Error de base al tomar el lock → 503 (correr sin lock podría solaparse con otra corrida).
     """
     _check_permiso(db, current_user, "rrhh.gestionar_horas_extras")
 
@@ -1208,19 +1187,33 @@ def recalcular_periodo(
             ),
         )
 
-    if _cron_lock_activo():
+    # El lock vive en la transacción de este request: se libera justo cuando commitean las escrituras de
+    # abajo (o con el rollback si el request falla), nunca antes.
+    try:
+        acquired = try_detection_lock(db)
+    except DetectionLockUnavailable as exc:
+        # el error de base va solo al log; al cliente, un texto neutro
+        logger.error("/recalcular sin lock de detección HE: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo verificar si hay otra detección de horas extras en curso. Intentá de nuevo en unos minutos.",
+        ) from exc
+    if not acquired:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Cron en curso, intentá luego",
+            detail="Otra detección de horas extras está en curso. Intentá de nuevo en unos minutos.",
         )
 
     service = HorasExtrasService(db)
     empleado_ids = [data.empleado_id] if data.empleado_id is not None else None
-    return service.detectar_he_periodo(
+    resultado = service.detectar_he_periodo(
         fecha_desde=data.fecha_desde,
         fecha_hasta=data.fecha_hasta,
         empleado_ids=empleado_ids,
+        commit=False,
     )
+    db.commit()
+    return resultado
 
 
 # ════════════════════════════════════════════════════════════════════════════

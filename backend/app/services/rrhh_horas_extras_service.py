@@ -580,9 +580,13 @@ class HorasExtrasService:
         fecha_desde: date,
         fecha_hasta: date,
         empleado_ids: list[int] | None = None,
+        commit: bool = True,
     ) -> dict[str, int]:
         """
         Detecta HE para todos los empleados activos en el rango [desde, hasta].
+
+        `commit=False` only flushes: the caller commits, e.g. while it still holds the HE detection
+        advisory lock taken in this same transaction (`rrhh_horas_extras_diario.try_detection_lock`).
 
         Idempotente:
           - Bloques en estado congelado (aprobada/rechazada/liquidada/error_fichadas)
@@ -703,7 +707,10 @@ class HorasExtrasService:
                         exc_info=True,
                     )
 
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
         logger.info(
             "✅ detectar_he_periodo procesados=%d creados=%d actualizados=%d errores=%d pendientes_turno=%d alertas=%d",
