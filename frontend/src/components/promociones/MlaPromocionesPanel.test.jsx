@@ -1261,6 +1261,23 @@ describe('MlaPromocionesPanel — writes ML did not apply', () => {
     expect(aviso).toHaveTextContent('C-GONE: pedida por Ana PM el 19/10 14:05; ML no la muestra');
   });
 
+  it('warns at panel level while ML is still being asked about the empty mirror', async () => {
+    // The ML check never answers, so the panel stays in its "checking" state.
+    promocionesAPI.confirmarSinPromosML.mockReturnValueOnce(new Promise(() => {}));
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: itemPromotionsList([], {
+        escrituras_no_aplicadas_sin_promo: [
+          { accion: 'enroll', fecha: FECHA, usuario: 'Ana PM', promotion_id: 'C-GONE', mirror_status: null },
+        ],
+      }),
+    });
+
+    renderPanel({ pullOnOpen: false });
+
+    expect(await screen.findByText(/confirmando con ML/)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('C-GONE: pedida por Ana PM el 19/10 14:05; ML no la muestra');
+  });
+
   it('warns at panel level when the empty mirror could not be confirmed with ML', async () => {
     promocionesAPI.confirmarSinPromosML.mockResolvedValueOnce({
       data: { sin_promos_confirmado: false, promos_en_ml: null },

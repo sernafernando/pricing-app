@@ -21,7 +21,7 @@ Spec coverage:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -581,8 +581,10 @@ class TestEscrituraNoAplicada:
     _FECHA = datetime(2026, 10, 19, 14, 5, tzinfo=UTC)
     _FECHA_JSON = "2026-10-19T14:05:00Z"
 
-    def _get(self, client: TestClient, advertencias):
+    def _get(self, client: TestClient, advertencias, db=None):
         fake_service = _override_auth(allowed_permiso=True)
+        if db is not None:
+            app.dependency_overrides[get_db] = lambda: db
         try:
             with (
                 patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
@@ -626,3 +628,12 @@ class TestEscrituraNoAplicada:
         assert body["count"] == 2
         assert all(p["escritura_no_aplicada"] is None for p in body["promotions"])
         assert body["escrituras_no_aplicadas_sin_promo"] == []
+
+    def test_a_failing_read_rolls_the_request_session_back(self, client: TestClient) -> None:
+        # A failed statement aborts the Postgres transaction; the rollback keeps the request session usable.
+        db = MagicMock()
+
+        response, _ = self._get(client, {"side_effect": RuntimeError("db down")}, db=db)
+
+        assert response.status_code == 200
+        db.rollback.assert_called_once()
