@@ -44,7 +44,8 @@ from app.schemas.prearmado import (
     ValidateSerialRequest,
     ValidateSerialResponse,
 )
-from app.services.combos.componentes import DETALLE_COMBOS_NO_SINCRONIZADOS, combos_disponibles, es_combo
+from app.api.deps import exigir_combos_sincronizados
+from app.services.combos.componentes import es_combo
 from app.services.prearmado_helpers import generar_codigo_prearmado, parse_windows_suffix
 from app.services.prearmado_matcher import match_prearmados_with_sales_orders
 
@@ -385,13 +386,6 @@ def _get_prearmado_or_404(db: Session, prearmado_id: int) -> Prearmado:
 COMP_ID_BOM = 1
 
 
-def _exigir_combos_sincronizados(db: Session) -> None:
-    """503 while `combo_componentes` is empty: an unsynced table would call
-    every real combo a plain item."""
-    if not combos_disponibles(db):
-        raise HTTPException(status_code=503, detail=DETALLE_COMBOS_NO_SINCRONIZADOS)
-
-
 # --- Endpoints ---
 
 
@@ -412,7 +406,7 @@ def buscar_combos(
     `combo_componentes` (la BOM propia de la app). Independiente del cache de pedidos
     pendientes — permite prearmar cualquier combo del catálogo aunque no tenga pedido.
     """
-    _exigir_combos_sincronizados(db)
+    exigir_combos_sincronizados(db)
     search_pattern = f"%{q}%"
     rows = (
         db.execute(
@@ -465,7 +459,7 @@ def obtener_componentes_para_prearmado(
     if not combo:
         raise HTTPException(status_code=404, detail="Item no encontrado")
 
-    _exigir_combos_sincronizados(db)
+    exigir_combos_sincronizados(db)
     if not es_combo(db, combo_item_id):
         raise HTTPException(
             status_code=400,
@@ -546,7 +540,7 @@ def crear_prearmado(
     if not combo:
         raise HTTPException(status_code=404, detail="Item del combo no encontrado")
 
-    _exigir_combos_sincronizados(db)
+    exigir_combos_sincronizados(db)
     if not es_combo(db, body.combo_item_id):
         raise HTTPException(
             status_code=400,

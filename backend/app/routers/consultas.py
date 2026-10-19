@@ -36,7 +36,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_algun_permiso
 from app.core.database import get_db
 from app.models.usuario import Usuario
-from app.services.combos.componentes import DETALLE_COMBOS_NO_SINCRONIZADOS, combos_disponibles, sql_no_es_combo
+from app.api.deps import exigir_combos_sincronizados
+from app.services.combos.componentes import sql_no_es_combo
 from app.services.permisos_service import PermisosService
 from app.services.pm_scope import scope_exists_sql
 from app.core.logging import get_logger
@@ -386,13 +387,6 @@ def _scope_user_id(current_user: Usuario, db: Session) -> Optional[int]:
     return current_user.id
 
 
-def _exigir_combos_sincronizados(db: Session) -> None:
-    """503 while `combo_componentes` is empty: excluding combos against an
-    unsynced table would silently let every combo back into the ranking."""
-    if not combos_disponibles(db):
-        raise HTTPException(status_code=503, detail=DETALLE_COMBOS_NO_SINCRONIZADOS)
-
-
 def _get_tc_venta(db: Session) -> Optional[float]:
     """Return the latest USD→ARS venta rate from tipo_cambio, or None."""
     row = db.execute(
@@ -522,7 +516,7 @@ async def get_ranking(
 
     # incluir_combos=False → exclude combos: products with components in combo_componentes (ADR-8)
     if not incluir_combos:
-        _exigir_combos_sincronizados(db)
+        exigir_combos_sincronizados(db)
         filter_clauses.append(sql_no_es_combo("pe.item_id"))
 
     # solo_muerto=True → restrict to dead stock: no sale in the last DIAS_MUERTO_UMBRAL days.
@@ -859,7 +853,7 @@ async def get_ranking_resumen(
         filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
 
     if not incluir_combos:
-        _exigir_combos_sincronizados(db)
+        exigir_combos_sincronizados(db)
         filter_clauses.append(sql_no_es_combo("pe.item_id"))
 
     if solo_muerto:
@@ -1148,7 +1142,7 @@ async def get_ranking_kpis(
         filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
 
     if not incluir_combos:
-        _exigir_combos_sincronizados(db)
+        exigir_combos_sincronizados(db)
         filter_clauses.append(sql_no_es_combo("pe.item_id"))
 
     if solo_muerto:
