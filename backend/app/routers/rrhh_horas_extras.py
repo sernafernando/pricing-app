@@ -1156,6 +1156,7 @@ def liquidar_periodo(
 
 @router.post(
     "/recalcular",
+    response_model=dict[str, int],
     summary="Recálculo manual de un rango (cap configurable, lock de detección HE)",
 )
 def recalcular_periodo(

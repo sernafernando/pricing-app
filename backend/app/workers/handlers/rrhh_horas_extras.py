@@ -7,8 +7,10 @@ the on/off switch.
 Days to process come from a cursor, `worker_job_state.detail.last_day_done` (merged into that JSONB,
 never replacing it): every Argentina day from the cursor + 1 through yesterday, oldest first, at most
 `MAX_DAYS_PER_RUN` per run. The first run ever (no cursor yet, switch on) seeds the cursor at the day
-before yesterday in its own short transaction, so only yesterday runs and the cursor never starts a
-backfill on its own, yet a failed first day is still retried after midnight. The cursor advances in
+before yesterday in its own short transaction, so only yesterday runs: history before the first run is
+never backfilled, yet a failed first day is still retried after midnight. Days missed later are caught
+up from the cursor: turning `cron_activo` back on after some days off reprocesses those days, up to
+`MAX_DAYS_PER_RUN` per run (idempotent; frozen blocks are kept). The cursor advances in
 the same transaction as each day's detection, so a day that fails stays pending and is retried on the
 next run, even when that run lands after midnight. Then old read alerts are purged
 (`services.rrhh_horas_extras_diario`).
@@ -156,7 +158,7 @@ class RRHHHorasExtrasHandler:
         logger.info("rrhh.horas_extras: %s", detail)
         return JobResult(success=True, detail=detail)
 
-    def _failed(self, now: datetime, detail: dict, error: str | None) -> JobResult:
+    def _failed(self, now: datetime, detail: dict[str, object], error: str | None) -> JobResult:
         """Not done: stay due, but wait `RETRY_DELAY` before the next try instead of every pass."""
         self._retry_at = now + RETRY_DELAY
         self._last_error = error
