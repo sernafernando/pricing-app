@@ -14,9 +14,12 @@ from unittest import mock
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
+from app.core.database import get_background_db
 from app.models.promo_refresh_pending import PromoRefreshPending
 from app.services import promo_refresh_drain as drain
 from app.services.ml_webhook_client import RefreshOutcome, ml_webhook_client
@@ -28,6 +31,9 @@ from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pris
 pytestmark = pytest.mark.postgres
 
 _TABLES = [PromoRefreshPending.__table__]
+# Per test engine -> an engine with its own, unpooled connections. Assertions read through it, never through a
+# connection the drain may have used, so an effect only shows up if the drain's session committed it.
+_READERS: dict[Engine, Engine] = {}
 
 
 def now() -> datetime:
@@ -54,8 +60,14 @@ def pg_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
                 table.create(bind=conn)
         monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
         monkeypatch.setattr(settings, "PROMOS_WRITE_ENABLED", True)
+        _READERS[engine] = create_engine(
+            POSTGRES_TEST_URL, poolclass=NullPool, connect_args={"options": f"-csearch_path={schema}"}
+        )
         yield engine
     finally:
+        reader = _READERS.pop(engine, None)
+        if reader is not None:
+            reader.dispose()
         engine.dispose()
         with admin.connect() as conn:
             conn.execute(text(f"DROP SCHEMA {schema} CASCADE"))
@@ -79,7 +91,8 @@ def put(engine: Engine, mla: str, *, due_in: float = -1, attempts: int = 0) -> N
 
 
 def rows(engine: Engine) -> dict:
-    with engine.connect() as conn:
+    """The table as a FRESH connection sees it (committed state only)."""
+    with _READERS[engine].connect() as conn:
         return {r.mla: r for r in conn.execute(text("SELECT mla, due_at, attempts FROM promo_refresh_pending"))}
 
 
@@ -145,10 +158,31 @@ class TestDrain:
 
         proxy.side_effect = refresh
 
-        handler.run(ctx())
+        result = handler.run(ctx())
 
         assert rows(pg_engine)["MLA1"].attempts == 0
         assert rows(pg_engine)["MLA1"].due_at > now()
+        assert result.detail["refreshed"] == 0
+        assert result.detail["superseded"] == 1
+
+    def test_a_non_retryable_drop_after_a_requeue_during_the_call_is_not_counted(self, pg_engine, proxy) -> None:
+        put(pg_engine, "MLA1")
+
+        async def refresh(mla: str) -> RefreshOutcome:
+            with pg_engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE promo_refresh_pending SET due_at = :d, attempts = 0 WHERE mla = :m"),
+                    {"d": now() + timedelta(seconds=60), "m": mla},
+                )
+            return RefreshOutcome(ok=False, motivo="cerrada", reintentable=False)
+
+        proxy.side_effect = refresh
+
+        result = handler.run(ctx())
+
+        assert set(rows(pg_engine)) == {"MLA1"}
+        assert result.detail["dropped"] == 0
+        assert result.detail["superseded"] == 1
 
     def test_the_batch_is_bounded_and_takes_the_oldest_due_first(self, pg_engine, proxy, monkeypatch) -> None:
         monkeypatch.setattr(drain, "MAX_ROWS_PER_RUN", 2)
@@ -277,3 +311,109 @@ class TestFailures:
         assert set(rows(pg_engine)) == {"MLA_BAD"}
         assert result.detail["refreshed"] == 1
         assert result.detail["failed"] == 1
+
+
+class TestCommittedEffects:
+    """Every effect is read from a fresh connection: a session that stopped committing would fail these."""
+
+    def test_a_claim_commits_the_lease_and_the_attempt_charge(self, pg_engine) -> None:
+        put(pg_engine, "MLA1", attempts=1)
+
+        with get_background_db() as db:
+            claim, quarantined = drain.claim_one(db, now())
+
+        row = rows(pg_engine)["MLA1"]
+        assert claim is not None and quarantined == 0
+        assert row.attempts == 2
+        assert row.due_at == claim.leased_until
+        assert row.due_at > now() + timedelta(seconds=drain.CLAIM_LEASE_SECONDS - 5)
+
+    def test_the_stale_purge_is_committed(self, pg_engine) -> None:
+        put(pg_engine, "MLA_STALE", due_in=-2 * 86400)
+
+        with get_background_db() as db:
+            assert drain.purge_stale(db, now()) == 1
+
+        assert rows(pg_engine) == {}
+
+    def test_the_delete_after_a_success_is_committed(self, pg_engine, proxy) -> None:
+        put(pg_engine, "MLA1")
+
+        handler.run(ctx())
+
+        assert rows(pg_engine) == {}
+
+
+class TestLeaseRecovery:
+    def test_an_expired_lease_out_of_attempts_is_quarantined_at_claim_without_a_call(
+        self, pg_engine, proxy, caplog
+    ) -> None:
+        put(pg_engine, "MLA_DEAD", due_in=-1, attempts=drain.MAX_ATTEMPTS)
+
+        with caplog.at_level(logging.ERROR):
+            result = handler.run(ctx())
+
+        assert called(proxy) == []
+        assert rows(pg_engine) == {}
+        assert result.detail["quarantined"] == 1
+        assert "MLA_DEAD QUARANTINED after 5 attempts" in caplog.text
+
+    def test_an_expired_lease_under_the_cap_is_claimed_again(self, pg_engine, proxy) -> None:
+        put(pg_engine, "MLA1", due_in=-1, attempts=2)
+        proxy.return_value = RefreshOutcome(ok=False, motivo="proxy 502")
+
+        result = handler.run(ctx())
+
+        assert called(proxy) == ["MLA1"]
+        assert rows(pg_engine)["MLA1"].attempts == 3
+        assert result.detail["failed"] == 1
+
+
+class TestDatabaseErrors:
+    """A DB error on one row is logged and counted; the pass goes on and the handler does not raise."""
+
+    def test_a_settle_error_on_one_row_does_not_stop_the_others(self, pg_engine, proxy, monkeypatch, caplog) -> None:
+        put(pg_engine, "MLA_BAD", due_in=-20)
+        put(pg_engine, "MLA_GOOD", due_in=-10)
+        real_settle = drain._settle
+
+        def settle(db, claim, outcome, detail):
+            if claim.mla == "MLA_BAD":
+                raise OperationalError("UPDATE promo_refresh_pending", {}, Exception("connection reset"))
+            return real_settle(db, claim, outcome, detail)
+
+        monkeypatch.setattr(drain, "_settle", settle)
+
+        with caplog.at_level(logging.ERROR):
+            result = handler.run(ctx())
+
+        assert result.success is True
+        assert called(proxy) == ["MLA_BAD", "MLA_GOOD"]
+        assert result.detail["errors"] == 1
+        assert result.detail["refreshed"] == 1
+        bad = rows(pg_engine)["MLA_BAD"]
+        assert bad.attempts == 1 and bad.due_at > now()  # still leased: it recovers when the lease expires
+        assert "MLA_GOOD" not in rows(pg_engine)
+        assert "settling MLA_BAD failed" in caplog.text
+
+    def test_a_claim_error_does_not_stop_the_pass(self, pg_engine, proxy, monkeypatch, caplog) -> None:
+        put(pg_engine, "MLA1")
+        real_claim = drain.claim_one
+        calls = {"n": 0}
+
+        def claim_one(db, at):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OperationalError("SELECT promo_refresh_pending", {}, Exception("lock timeout"))
+            return real_claim(db, at)
+
+        monkeypatch.setattr(drain, "claim_one", claim_one)
+
+        with caplog.at_level(logging.ERROR):
+            result = handler.run(ctx())
+
+        assert result.success is True
+        assert called(proxy) == ["MLA1"]
+        assert result.detail["errors"] == 1
+        assert result.detail["refreshed"] == 1
+        assert "claiming a row failed" in caplog.text

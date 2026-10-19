@@ -53,18 +53,49 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# What a settle does with a claimed row, given the outcome of its refresh (`decide`).
+REFRESHED = "refreshed"
+DROPPED = "dropped"
+RETRY = "retry"
+QUARANTINE = "quarantine"
+
+
 @dataclass(frozen=True)
 class Claim:
     mla: str
     leased_until: datetime
 
 
+def stale_cutoff(now: datetime) -> datetime:
+    """Rows due before this instant are stale: dropped by the purge, never claimed."""
+    return now - STALE_AFTER
+
+
+def is_stale(due_at: datetime, now: datetime) -> bool:
+    return due_at < stale_cutoff(now)
+
+
+def decide(outcome: Optional[RefreshOutcome], attempts: int) -> str:
+    """The settle rule. `outcome` None means the call raised (a retryable failure); `attempts` already includes
+    the one charged by this claim."""
+    if outcome is not None and outcome.ok:
+        return REFRESHED
+    if outcome is not None and not outcome.reintentable:
+        # The item's own condition (closed, not eligible): retrying spends calls on something that cannot change.
+        return DROPPED
+    return QUARANTINE if attempts >= MAX_ATTEMPTS else RETRY
+
+
+def retry_due_at(now: datetime) -> datetime:
+    return now + timedelta(seconds=REFRESH_RETRY_DELAY_SECONDS)
+
+
 def purge_stale(db, now: datetime) -> int:
-    """Delete up to `STALE_PURGE_BATCH` rows due before `now - STALE_AFTER`. Returns how many."""
+    """Delete up to `STALE_PURGE_BATCH` stale rows. Returns how many."""
     ids = [
         row.id
         for row in db.query(PromoRefreshPending.id)
-        .filter(PromoRefreshPending.due_at < now - STALE_AFTER)
+        .filter(PromoRefreshPending.due_at < stale_cutoff(now))
         .order_by(PromoRefreshPending.due_at, PromoRefreshPending.id)
         .limit(STALE_PURGE_BATCH)
         .with_for_update(skip_locked=True)
@@ -77,14 +108,14 @@ def purge_stale(db, now: datetime) -> int:
 
 
 def claim_one(db, now: datetime) -> tuple[Optional[Claim], int]:
-    """Lease the oldest due, non-stale row, charging one attempt. Returns the claim (None when nothing is due) and how many
-    rows were quarantined on the way (already out of attempts: a pass died mid-call on them)."""
+    """Lease the oldest due, non-stale row, charging one attempt. Returns the claim (None when nothing is due) and
+    how many rows were quarantined on the way (already out of attempts: a pass died mid-call on them)."""
     quarantined = 0
     while True:
         row = (
             db.query(PromoRefreshPending)
             # Stale rows the purge has not reached yet are left for it, never replayed.
-            .filter(PromoRefreshPending.due_at <= now, PromoRefreshPending.due_at >= now - STALE_AFTER)
+            .filter(PromoRefreshPending.due_at <= now, PromoRefreshPending.due_at >= stale_cutoff(now))
             .order_by(PromoRefreshPending.due_at, PromoRefreshPending.id)
             .with_for_update(skip_locked=True)
             .first()
@@ -103,12 +134,6 @@ def claim_one(db, now: datetime) -> tuple[Optional[Claim], int]:
         return Claim(row.mla, row.due_at), quarantined
 
 
-def _leased(db, claim: Claim):
-    return db.query(PromoRefreshPending).filter(
-        PromoRefreshPending.mla == claim.mla, PromoRefreshPending.due_at == claim.leased_until
-    )
-
-
 def _refresh(mla: str) -> Optional[RefreshOutcome]:
     """The proxy call, outside any session. Never raises: an exception is a retryable failure (None)."""
     try:
@@ -119,28 +144,32 @@ def _refresh(mla: str) -> Optional[RefreshOutcome]:
 
 
 def _settle(db, claim: Claim, outcome: Optional[RefreshOutcome], detail: Dict[str, Any]) -> None:
-    if outcome is not None and outcome.ok:
-        _leased(db, claim).delete(synchronize_session=False)
-        detail["refreshed"] += 1
+    # Locked, so a write re-queueing the MLA right now waits for this settle instead of being swallowed by it.
+    row = (
+        db.query(PromoRefreshPending)
+        .filter(PromoRefreshPending.mla == claim.mla, PromoRefreshPending.due_at == claim.leased_until)
+        .with_for_update()
+        .first()
+    )
+    if row is None:  # a new write re-queued the MLA during the call; its fresh row stands, nothing is counted
+        detail["superseded"] += 1
         return
-    if outcome is not None and not outcome.reintentable:
-        # The item's own condition (closed, not eligible): retrying spends calls on something that cannot change.
+    decision = decide(outcome, row.attempts)
+    if decision == DROPPED:
         logger.warning("promo_write.refresh: %s dropped, not retryable: %s", claim.mla, outcome.motivo)
-        _leased(db, claim).delete(synchronize_session=False)
-        detail["dropped"] += 1
-        return
-    row = _leased(db, claim).first()
-    if row is None:  # a new write re-queued the MLA during the call; its fresh row stands
+    if decision in (REFRESHED, DROPPED):
+        db.delete(row)
+        detail[decision] += 1
         return
     detail["failed"] += 1
-    if row.attempts >= MAX_ATTEMPTS:
+    if decision == QUARANTINE:
         logger.error("promo_write.refresh: %s QUARANTINED after %s attempts", claim.mla, row.attempts)
         db.delete(row)
         detail["quarantined"] += 1
         return
     if outcome is not None:
         logger.warning("promo_write.refresh: %s failed, retrying later: %s", claim.mla, outcome.motivo)
-    row.due_at = _utcnow() + timedelta(seconds=REFRESH_RETRY_DELAY_SECONDS)
+    row.due_at = retry_due_at(_utcnow())
 
 
 def drain(
@@ -148,7 +177,12 @@ def drain(
     deadline: Optional[datetime],
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> Dict[str, Any]:
-    """One pass (see the module docstring). Returns counts for the handler result."""
+    """One pass (see the module docstring). Returns counts for the handler result.
+
+    Each DB step runs in its own `get_background_db()` block, which commits on exit and rolls back on error. A DB
+    error is logged, counted in `errors` and does not stop the pass: a row whose settle failed keeps its lease
+    and is claimed again when the lease expires. A claim error still takes a slot of `MAX_ROWS_PER_RUN`, so a
+    database that keeps failing cannot spin the pass."""
     if not settings.PROMOS_WRITE_ENABLED:
         return {"skipped": "PROMOS_WRITE_ENABLED is off"}
     sessions = session_factory or get_background_db
@@ -158,10 +192,17 @@ def drain(
         "dropped": 0,
         "failed": 0,
         "quarantined": 0,
+        "superseded": 0,
+        "errors": 0,
         "capped": False,
     }
-    with sessions() as db:
-        detail["stale_dropped"] = purge_stale(db, _utcnow())
+    # `get_background_db()` commits on a clean exit (app/core/database.py), so each block below is its own txn.
+    try:
+        with sessions() as db:
+            detail["stale_dropped"] = purge_stale(db, _utcnow())
+    except Exception:  # noqa: BLE001 -- the due rows still deserve their refresh
+        logger.error("promo_write.refresh: purging stale rows failed", exc_info=True)
+        detail["errors"] += 1
     if detail["stale_dropped"]:
         logger.info("promo_write.refresh: dropped %s stale rows without a refresh", detail["stale_dropped"])
 
@@ -173,13 +214,22 @@ def drain(
         if taken >= MAX_ROWS_PER_RUN:
             detail["capped"] = True
             break
-        with sessions() as db:
-            claim, quarantined = claim_one(db, _utcnow())
+        taken += 1
+        try:
+            with sessions() as db:
+                claim, quarantined = claim_one(db, _utcnow())
+        except Exception:  # noqa: BLE001 -- nothing was leased; the next claim tries again
+            logger.error("promo_write.refresh: claiming a row failed", exc_info=True)
+            detail["errors"] += 1
+            continue
         detail["quarantined"] += quarantined
         if claim is None:
             break
-        taken += 1
         outcome = _refresh(claim.mla)
-        with sessions() as db:
-            _settle(db, claim, outcome, detail)
+        try:
+            with sessions() as db:
+                _settle(db, claim, outcome, detail)
+        except Exception:  # noqa: BLE001 -- the row keeps its lease and is claimed again once it expires
+            logger.error("promo_write.refresh: settling %s failed", claim.mla, exc_info=True)
+            detail["errors"] += 1
     return detail
