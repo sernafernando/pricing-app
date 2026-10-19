@@ -65,7 +65,7 @@ def componentes_de(db: Session, combo_item_ids: Iterable[int]) -> dict[int, dict
     )
     out: dict[int, dict[int, Decimal]] = {}
     for combo, componente, cantidad in rows:
-        out.setdefault(combo, {})[componente] = Decimal(cantidad)
+        out.setdefault(combo, {})[componente] = Decimal(str(cantidad))
     return out
 
 
