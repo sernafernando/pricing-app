@@ -11,6 +11,7 @@ el kill-switch `PROMOS_WRITE_ENABLED` (chequeado dentro del servicio,
 ANTES de cualquier llamada al proxy).
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -41,6 +42,7 @@ from app.services.ml_promotions_write_service import enroll_one_item, remove_one
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
+from app.services.promo_write_confirmation import advertencias_de_escritura
 from app.utils.async_bridge import resolve_maybe_async
 
 logger = get_logger(__name__)
@@ -75,6 +77,24 @@ class PromotionsList(BaseModel):
     promotions: List[PromotionItem]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class EscrituraNoAplicada(BaseModel):
+    """Our latest enroll/remove of a promo that ML accepted but did not apply, as checked against the
+    mirror after the follow-up refresh (`promo_write_confirmation`)."""
+
+    accion: Literal["enroll", "remove"]
+    fecha: datetime
+    usuario: Optional[str] = None
+    """Who asked for it: the user's `nombre`; `#<id>` when that user row is gone; None for a system write."""
+    mirror_status: Optional[str] = None
+    """Mirror status when it was checked; None when the mirror had no row for it."""
+
+
+class EscrituraNoAplicadaSinPromo(EscrituraNoAplicada):
+    """A not-applied enroll whose promo the panel does not show (gone from the mirror, or finished)."""
+
+    promotion_id: str
 
 
 class ItemPromotion(BaseModel):
@@ -112,6 +132,9 @@ class ItemPromotion(BaseModel):
     server-side; None when cost/publication is unresolvable. Only populated
     on `GET /promociones/item/{mla_id}` (per-item read); absent/None on the
     per-promotion listing (`GET /promociones/{promotion_id}/items`)."""
+    escritura_no_aplicada: Optional[EscrituraNoAplicada] = None
+    """Set only when our latest write on this promo was confirmed NOT applied by ML and the row still says
+    so (an enroll not started/pending, a remove still started). Only on `GET /promociones/item/{mla_id}`."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -135,6 +158,8 @@ class ItemPromotionsList(BaseModel):
     # review, inactive, closed, gone). `None` = active or not in the store yet. The panel shows the
     # mirror read-only with this reason and skips the refresh pull. Spanish, ready to display.
     motivo_sin_actualizacion: Optional[str] = None
+    # Not-applied enrolls whose promo is not among `promotions`, so the panel can warn with no row to badge.
+    escrituras_no_aplicadas_sin_promo: List[EscrituraNoAplicadaSinPromo] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -525,6 +550,23 @@ def confirmar_sin_promos_con_ml(
     return ConfirmacionML(sin_promos_confirmado=activas == 0, promos_en_ml=activas)
 
 
+def _marcar_escrituras_no_aplicadas(db: Session, mla_id: str, promotions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sets `escritura_no_aplicada` on the shown rows and returns the panel-level list. FAIL-OPEN: a failing
+    read is logged and shows no warning; the promotions themselves must still load."""
+    try:
+        por_promo, sin_promo = advertencias_de_escritura(db, mla_id, promotions)
+    except Exception as e:  # noqa: BLE001 -- warnings are an extra; the panel must not fail with them
+        logger.warning("Write confirmations for %s unavailable: %s", mla_id, e, exc_info=True)
+        try:
+            db.rollback()  # leave the request session usable after a failed statement
+        except Exception:  # noqa: BLE001
+            logger.debug("rollback after a failed write-confirmation read failed", exc_info=True)
+        return []
+    for promo in promotions:
+        promo["escritura_no_aplicada"] = por_promo.get(promo.get("promotion_id"))
+    return sin_promo
+
+
 @router.get("/item/{mla_id}", response_model=ItemPromotionsList)
 def obtener_promociones_item(
     mla_id: str,
@@ -549,11 +591,15 @@ def obtener_promociones_item(
         # derived here.
         promotions = derivar_application_status(promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
+        motivo = motivo_sin_consulta_ml(db, mla_id)
+        # Last: on failure it rolls the request session back, so nothing may read through it afterwards.
+        sin_promo = _marcar_escrituras_no_aplicadas(db, mla_id, promotions)
         return ItemPromotionsList(
             mla=mla_id,
             count=len(promotions),
             promotions=promotions,
-            motivo_sin_actualizacion=motivo_sin_consulta_ml(db, mla_id),
+            motivo_sin_actualizacion=motivo,
+            escrituras_no_aplicadas_sin_promo=sin_promo,
         )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
