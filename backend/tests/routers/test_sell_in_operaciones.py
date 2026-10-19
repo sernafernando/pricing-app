@@ -1,10 +1,8 @@
 """Sell-in purchases linked to several Compras operations (feature sell-in-sell-out T3b-2).
 
 A sell in may reference 0..N operations (`pedidos_compra`): every one must
-exist and they must share supplier and currency, which the sell in must match.
-`GET /prefill` reads the operations' supplier, currency, first goods-receipt
-date and their ordered OC lines (`pedido_compra_ocs` -> `tb_purchase_order_detail`)
-so the panel starts from them; the operator can still change everything.
+exist and they must share one supplier and one currency. The sell in's supplier
+must be theirs (taken from them when missing); its currency is its own.
 
 SQLite test database, like `test_sell_in_compras.py`.
 """
@@ -169,6 +167,19 @@ def test_one_operation_may_feed_several_sell_ins(client, gestor, productos, prov
     assert db.query(SellInCompraPedido).filter(SellInCompraPedido.pedido_compra_id == p1.id).count() == 2
 
 
+def test_a_sell_in_keeps_its_own_currency_over_the_operations_one(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    """An ARS credit on USD operations is allowed: the sell in converts costs at its own tipo_cambio."""
+    p1, p2 = nuevo_pedido(proveedores[0], moneda="USD"), nuevo_pedido(proveedores[0], moneda="USD")
+
+    resp = client.post(BASE, json=_body(pedido_compra_ids=[p1.id, p2.id], moneda="ARS"), headers=gestor)
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["moneda"] == "ARS"
+    assert _links(db, resp.json()["id"]) == sorted([p1.id, p2.id])
+
+
 def _rechazos(proveedores, nuevo_pedido):
     """(body overrides, message fragment) for every rule a set of operations can break."""
     tp, merc = proveedores
@@ -180,7 +191,6 @@ def _rechazos(proveedores, nuevo_pedido):
         ({"pedido_compra_ids": [p1.id, otro_proveedor.id]}, "proveedores distintos"),
         ({"pedido_compra_ids": [p1.id, en_usd.id]}, "monedas distintas"),
         ({"pedido_compra_ids": [p1.id], "proveedor_id": merc.id}, "proveedor de la compra no coincide"),
-        ({"pedido_compra_ids": [p1.id], "moneda": "USD", "tipo_cambio": "1000"}, "moneda de la compra (USD)"),
     ]
 
 

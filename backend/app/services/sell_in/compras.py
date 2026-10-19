@@ -229,13 +229,10 @@ def operaciones(db: Session, ids: list[int]) -> Optional[Operaciones]:
 
 
 def _validar_contra_operaciones(data: SellInCompraCreate, ops: Operaciones) -> None:
-    """The purchase's own supplier (when given) and currency must be the operations' ones."""
+    """The purchase's own supplier, when given, must be the operations' one. Its currency is its
+    own: a credit in ARS on USD operations is fine, costs convert at the purchase's `tipo_cambio`."""
     if data.proveedor_id is not None and data.proveedor_id != ops.proveedor_id:
         raise SellInError("El proveedor de la compra no coincide con el de las operaciones")
-    if data.moneda != ops.moneda:
-        raise SellInError(
-            f"La moneda de la compra ({data.moneda}) no coincide con la de las operaciones ({ops.moneda})"
-        )
 
 
 def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> SellInCompra:
