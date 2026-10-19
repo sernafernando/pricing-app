@@ -1166,10 +1166,10 @@ def recalcular_periodo(
 
     Validaciones:
     - Rango <= `cap_dias_recalculo_manual` (default 90, configurable). 422 si excede.
-    - Takes the shared HE detection advisory lock in this request's transaction and commits the writes
-      while holding it, so the worker run and the manual script skip instead of overlapping; if another
-      run holds it → 409.
-    - Database error taking the lock → 503 (running unlocked could overlap another run).
+    - Toma el lock advisory de detección HE en la transacción de este request y commitea las escrituras
+      mientras lo tiene, así el worker y el script manual saltean su corrida en vez de solaparse; si
+      otra corrida lo tiene → 409.
+    - Error de base al tomar el lock → 503 (correr sin lock podría solaparse con otra corrida).
     """
     _check_permiso(db, current_user, "rrhh.gestionar_horas_extras")
 
@@ -1184,8 +1184,8 @@ def recalcular_periodo(
             ),
         )
 
-    # The lock lives in this request's transaction: it is released exactly when the writes below commit
-    # (or roll back when the request fails), never before.
+    # El lock vive en la transacción de este request: se libera justo cuando commitean las escrituras de
+    # abajo (o con el rollback si el request falla), nunca antes.
     try:
         acquired = try_detection_lock(db)
     except DetectionLockUnavailable as exc:
@@ -1193,7 +1193,7 @@ def recalcular_periodo(
     if not acquired:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Cron en curso, intentá luego",
+            detail="Otra detección de horas extras está en curso. Intentá de nuevo en unos minutos.",
         )
 
     service = HorasExtrasService(db)
