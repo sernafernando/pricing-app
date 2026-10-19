@@ -44,6 +44,8 @@ low-volume, human-triggered, so reconciliation happens inline on the
 ambiguous response rather than via a scheduled sweep (see design decision).
 """
 
+import asyncio
+import inspect
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -80,6 +82,10 @@ _REFRESH_TRIGGER_STATUSES = {"submitted", "reconciled_applied", "ambiguous"}
 
 # Retry queue tuning (see PromoRefreshPending / drain_promo_refresh.py).
 REFRESH_RETRY_DELAY_SECONDS = 60
+
+# Per-source budget (seconds) for the evidence reads taken when an enroll's
+# applied price diverges (`_capture_divergence_sources`). Both run at once.
+DIVERGENCE_CAPTURE_TIMEOUT_S = 5.0
 
 # NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED from this set
 # (ML-autogestionado, not writable by us). Its absence here is what enforces
@@ -547,6 +553,8 @@ def enroll_one_item(
             "markup_visto": markup_visto,
             "precio_aplicado": outcome.get("precio_aplicado"),
             "offer_id": outcome.get("offer_id"),
+            # Evidence only, kept off the API response.
+            "divergence_capture": outcome.pop("divergence_capture", None),
         },
     )
     _maybe_refresh_after_write(mla_id, outcome)
@@ -838,12 +846,92 @@ def _post_apply_price_check(
                 precio_aplicado,
             )
 
-    return {
+    result = {
         "precio_confirmado": precio_confirmado,
         "precio_aplicado": precio_aplicado,
         "precio_difiere": precio_difiere,
         "live_promo": dict(live_promo),
     }
+    if precio_difiere:
+        result["divergence_capture"] = _capture_divergence_sources(mla_id, promotion_id, promotion_type)
+    return result
+
+
+def _short_error(exc: BaseException) -> str:
+    """`TimeoutError()` renders empty, so the class name always leads."""
+    return f"{type(exc).__name__}: {exc}"[:200]
+
+
+def _capture_divergence_sources(mla_id: str, promotion_id: str, promotion_type: str) -> Dict[str, Any]:
+    """Evidence for a diverged enroll (promo-mirror-freshness F2): what ML's
+    two READ sources say about this item and promotion right now, so the
+    write log shows whether either of them already carried the price ML
+    applied. Read-only and best effort: it never raises, and each source has
+    its own short budget (`DIVERGENCE_CAPTURE_TIMEOUT_S`), both run at once.
+    It changes nothing about the divergence itself, which is still flagged
+    to the operator through `precio_difiere`.
+    """
+    try:
+        return _read_divergence_sources(mla_id, promotion_id, promotion_type)
+    except Exception as e:
+        logger.warning(
+            "Divergence capture failed mla=%s promotion_id=%s (the enroll outcome is unaffected): %s",
+            mla_id,
+            promotion_id,
+            e,
+        )
+        return {"status": "error", "error": _short_error(e)}
+
+
+def _read_divergence_sources(mla_id: str, promotion_id: str, promotion_type: str) -> Dict[str, Any]:
+    timeout = DIVERGENCE_CAPTURE_TIMEOUT_S
+
+    def _item_promotions_entry(payload: Any) -> Optional[Dict[str, Any]]:
+        # `/seller-promotions/items/{mla}`: a bare list, entries keyed by promotion id.
+        if not isinstance(payload, list):
+            raise ValueError(f"unexpected payload type {type(payload).__name__}")
+        return _find_live_promotion([p for p in payload if isinstance(p, dict)], promotion_id)
+
+    def _promotion_items_entry(payload: Any) -> Optional[Dict[str, Any]]:
+        # `/seller-promotions/promotions/{id}/items?item_id=`: `{paging, results}`, entries keyed by MLA.
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if not isinstance(results, list):
+            raise ValueError("payload has no results list")
+        return next((r for r in results if isinstance(r, dict) and r.get("id") == mla_id), None)
+
+    async def _both() -> List[Dict[str, Any]]:
+        return await asyncio.gather(
+            _capture_source(
+                lambda: ml_webhook_client.get_item_promotions(mla_id, timeout=timeout), _item_promotions_entry, timeout
+            ),
+            _capture_source(
+                lambda: ml_webhook_client.get_promotion_item(promotion_id, promotion_type, mla_id, timeout=timeout),
+                _promotion_items_entry,
+                timeout,
+            ),
+        )
+
+    item_promotions, promotion_items = asyncio.run(_both())
+    return {"item_promotions": item_promotions, "promotion_items": promotion_items}
+
+
+async def _capture_source(read: Any, match: Any, timeout: float) -> Dict[str, Any]:
+    """One source's capture: `ok` with the matched entry (None when the source
+    does not list it), or `error` when the read failed, timed out or returned
+    something unreadable. `captured_at` is when the read finished (UTC)."""
+    result: Dict[str, Any]
+    try:
+        payload = read()
+        if inspect.isawaitable(payload):
+            payload = await asyncio.wait_for(payload, timeout=timeout)
+        if payload is None:
+            result = {"status": "error", "entry": None, "error": "read returned no data (see the client log)"}
+        else:
+            result = {"status": "ok", "entry": match(payload)}
+    except Exception as e:
+        result = {"status": "error", "entry": None, "error": _short_error(e)}
+    result["captured_at"] = datetime.now(timezone.utc).isoformat()
+    return result
 
 
 def remove_one_item(
