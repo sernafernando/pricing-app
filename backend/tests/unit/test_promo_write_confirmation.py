@@ -210,6 +210,19 @@ class TestConfirmRecentWrites:
 
         assert _payload(pg, later)["confirmation"]["status"] == "applied"
 
+    def test_the_window_start_uses_the_database_clock_not_the_app_clock(self, pg) -> None:
+        # With the app clock 20 minutes ahead, an app-clock window would start after a write made a minute ago
+        # (by the database's clock), and that write would never be confirmed.
+        row = _log(pg, "enroll", ago=timedelta(minutes=1))
+
+        with (
+            mock.patch.object(confirmation, "_utcnow", return_value=datetime.now(UTC) + timedelta(minutes=20)),
+            mock.patch.object(confirmation, "fetch_item_promotions", return_value=_mirror(C_MLA1669550="pending")),
+        ):
+            assert confirmation.confirm_recent_writes(MLA) == 1
+
+        assert _payload(pg, row)["confirmation"]["status"] == "applied"
+
     def test_the_read_bound_uses_the_database_clock_not_the_app_clock(self, pg) -> None:
         # `created_at` is stamped by Postgres, so the read bound must come from the same clock. With the app clock
         # two minutes ahead, a write made after the real read would fall under an app-clock bound and be stamped

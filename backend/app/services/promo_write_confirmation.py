@@ -112,7 +112,7 @@ def confirm_recent_writes(mla: str, *, session_factory: Optional[Callable[[], An
     sessions, none open during the mirror read."""
     sessions = session_factory or get_background_db
     try:
-        now = _utcnow()
+        now = _db_now(sessions)  # the window is compared with `created_at`, so it starts on the same clock
         since = now - CONFIRM_WINDOW
         if not _pending(sessions, mla, since, now):
             return 0
