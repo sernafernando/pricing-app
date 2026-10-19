@@ -3,20 +3,27 @@
 A sell in may reference 0..N operations (`pedidos_compra`): every one must
 exist and they must share one supplier and one currency. The sell in's supplier
 must be theirs (taken from them when missing); its currency is its own.
+`GET /prefill` reads the operations' supplier, currency, first goods-receipt
+date and their ordered OC lines (`pedido_compra_ocs` -> `tb_purchase_order_detail`)
+so the panel starts from them; the operator can still change everything.
 
 SQLite test database, like `test_sell_in_compras.py`.
 """
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
 
 from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_ingresos import PedidoCompraIngreso
+from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
+from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.sell_in import SellInCompra, SellInCompraPedido
 from app.schemas.sell_in import PEDIDOS_MAX
 from app.services.sell_in import compras as compras_service
@@ -248,3 +255,103 @@ def test_create_refuses_operations_that_do_not_fit_and_writes_nothing(
         assert fragment in _message(resp), (overrides, _message(resp))
     assert db.query(SellInCompra).count() == 0
     assert db.query(SellInCompraPedido).count() == 0
+
+
+# ── Prefill ─────────────────────────────────────────────────────────
+
+
+def _oc(db, pedido: PedidoCompra, poh_id: int, lineas: list[tuple[int | None, str]], *, por_cabecera=False) -> None:
+    """An ERP purchase order with `(item_id, pod_qty)` lines, linked to `pedido` through
+    `pedido_compra_ocs` or, with `por_cabecera`, only through the header's first-link cache."""
+    if por_cabecera:
+        pedido.oc_comp_id, pedido.oc_bra_id, pedido.oc_poh_id = 1, 1, poh_id
+    else:
+        db.add(PedidoCompraOc(pedido_id=pedido.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=poh_id))
+    for pod_id, (item_id, qty) in enumerate(lineas, start=1):
+        db.add(
+            PurchaseOrderDetail(
+                comp_id=1,
+                bra_id=1,
+                poh_id=poh_id,
+                pod_id=pod_id,
+                item_id=item_id,
+                pod_qty=Decimal(qty),
+                pod_confirmedqty=Decimal("1"),
+            )
+        )
+    db.flush()
+
+
+def _ingreso(db, pedido: PedidoCompra, user, creado: datetime, fecha: date | None = None) -> None:
+    db.add(
+        PedidoCompraIngreso(
+            pedido_id=pedido.id,
+            cantidad_recibida=Decimal("1"),
+            usuario_id=user.id,
+            created_at=creado,
+            fecha_ingreso=fecha,
+        )
+    )
+    db.flush()
+
+
+def _prefill(client, headers, *ids):
+    return client.get(f"{BASE}/prefill", params={"pedido_compra_ids": list(ids)}, headers=headers)
+
+
+def test_prefill_sums_the_ordered_quantity_of_every_oc_line_per_product(
+    client, gestor, productos, proveedores, nuevo_pedido, db, admin_user
+):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    _oc(db, p1, 9001, [(4513, "5"), (4512, "10"), (None, "3")])
+    _oc(db, p1, 9002, [(4512, "2.000000")])
+    _oc(db, p2, 9003, [(4513, "7")], por_cabecera=True)
+    # 21:00 in Buenos Aires on Oct 3 is already Oct 4 in UTC: the date is the local one.
+    _ingreso(db, p2, admin_user, datetime(2026, 10, 4, 0, 0, tzinfo=timezone.utc))
+    _ingreso(db, p1, admin_user, datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc))
+
+    resp = _prefill(client, gestor, p1.id, p2.id, p1.id)
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["pedido_compra_ids"] == [p1.id, p2.id]
+    assert (data["proveedor_id"], data["proveedor_nombre"], data["moneda"]) == (proveedores[0].id, "TP-Link", "ARS")
+    assert data["fecha_ingreso"] == "2026-10-03"
+    assert data["items"] == [
+        {"item_id": 4513, "codigo": "SW-16", "descripcion": "Switch 16 bocas", "cantidad": 12},
+        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch 8 bocas", "cantidad": 12},
+    ]
+
+
+def test_prefill_prefers_a_typed_receipt_date_and_is_null_without_receipts(
+    client, gestor, productos, proveedores, nuevo_pedido, db, admin_user
+):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    assert _prefill(client, gestor, p1.id).json()["fecha_ingreso"] is None
+    assert _prefill(client, gestor, p1.id).json()["items"] == []
+
+    _ingreso(db, p2, admin_user, datetime(2026, 10, 9, 15, 0, tzinfo=timezone.utc), fecha=date(2026, 10, 2))
+
+    assert _prefill(client, gestor, p1.id, p2.id).json()["fecha_ingreso"] == "2026-10-02"
+
+
+def test_prefill_refuses_what_create_refuses(client, gestor, productos, proveedores, nuevo_pedido):
+    tp, merc = proveedores
+    p1, otro, en_usd = nuevo_pedido(tp), nuevo_pedido(merc), nuevo_pedido(tp, moneda="USD")
+
+    for ids, fragment in [
+        ((p1.id, 987654), "987654 no existe"),
+        ((p1.id, otro.id), "proveedores distintos"),
+        ((p1.id, en_usd.id), "monedas distintas"),
+    ]:
+        resp = _prefill(client, gestor, *ids)
+        assert resp.status_code == 422, resp.text
+        assert fragment in _message(resp)
+    assert _prefill(client, gestor).status_code == 422
+
+
+def test_prefill_needs_gestionar(client, lector, proveedores, nuevo_pedido):
+    p1 = nuevo_pedido(proveedores[0])
+
+    assert _prefill(client, lector, p1.id).status_code == 403
+    assert client.get(f"{BASE}/prefill", params={"pedido_compra_ids": [p1.id]}).status_code in (401, 403)
