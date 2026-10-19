@@ -1,55 +1,35 @@
 """
-Cron diario de detección de horas extras (HE).
+Manual run of the daily overtime (HE) detection.
 
-Procesa D-1 (ayer) completo para todos los empleados activos y luego
-ejecuta una purga de alertas leídas viejas según `dias_retencion_alertas`
-del singleton de configuración.
+The scheduled run lives in the worker: handler `rrhh.horas_extras` in the main `REGISTRY`
+(`pricing-worker.service`), daily at 03:30 Argentina time. This script is only a thin wrapper over the
+same shared run (`app.services.rrhh_horas_extras_diario.run_daily_detection`), useful to re-run one
+day by hand.
 
-Estrategia:
-  - Lockfile flock no-bloqueante (`/var/run/pricing-app/rrhh_he_cron.lock`,
-    fallback `/tmp/rrhh_he_cron.lock`) — si ya hay otra corrida activa,
-    sale con exit 1 SIN encolar.
-  - Chequea `RRHHHorasExtrasConfig.cron_activo`. Si está deshabilitado,
-    sale con exit 3 sin tocar nada.
-  - Detección con `HorasExtrasService.detectar_he_periodo(ayer, ayer)`
-    + commit. Idempotente (recalcula bloques editables, conserva
-    bloques congelados).
-  - Purga final con `service.purgar_alertas_viejas()` (lee retención de
-    config). Si la purga falla, NO rompe el exit code de la detección
-    (la detección ya commiteó).
-  - TZ explícita: usa `ART_TZ` de `rrhh_hikvision_client` para evitar
-    drift si el servidor cambia de zona (riesgo §12 del design).
+Cron entry: NONE. Do NOT add this script to any crontab; the worker already runs it every day, and a
+crontab entry would only duplicate it.
 
-Cron entry (NO se autoinstala — agregar manualmente al crontab del
-usuario `www-data` o equivalente. Independiente: NO se integra en
-`sync_all_incremental.sh`):
-
-  30 3 * * * cd /var/www/html/pricing-app/backend && \\
-    /var/www/html/pricing-app/backend/venv/bin/python \\
-    -m app.scripts.cron_rrhh_horas_extras \\
-    >> /var/log/pricing-app/rrhh_he_cron.log 2>&1
-
-Justificación del horario 03:30 AM:
-  - Después de `sync_hikvision_fichadas` (cada 2h, ciclos 02:00 y 04:00)
-    — corre entre ciclos para no chocar contra el sync de fichadas.
-  - Después de `reconciliar_cc_proveedor` (03:00 AM) — separa cargas.
-  - Antes del inicio de jornada (~06:00) — los managers ven HE de ayer
-    al entrar.
+What a run does:
+  - Checks `RRHHHorasExtrasConfig.cron_activo` (also the worker's switch); when off, exits 3 without
+    touching anything.
+  - Detects HE for the day (default: yesterday in `ART_TZ`, from `rrhh_hikvision_client`) and commits.
+    Idempotent: editable blocks are recomputed, frozen blocks are kept.
+  - Purges old read alerts (`dias_retencion_alertas`). A purge failure does not change the exit code:
+    the detection is already committed.
+  - Takes a non-blocking flock (`/var/run/pricing-app/rrhh_he_cron.lock`, fallback
+    `/tmp/rrhh_he_cron.lock`) so two manual runs never overlap. The worker does not need it: it runs
+    its handlers one at a time.
 
 Exit codes:
-  0 — OK (detección + purga completadas, o detección OK con purga fallida)
-  1 — Lock activo (otra corrida en curso)
-  2 — Error fatal en detección (rollback aplicado)
-  3 — Cron deshabilitado por config (cron_activo=false)
+  0 -- OK (detection and purge done, or detection done with a failed purge)
+  1 -- lock held (another manual run in progress)
+  2 -- detection failed (rolled back)
+  3 -- disabled by config (cron_activo=false)
 
-Uso manual:
+Usage:
     cd /var/www/html/pricing-app/backend
-    python -m app.scripts.cron_rrhh_horas_extras
-
-Referencias:
-  - design.md §8 (estructura del cron)
-  - tasks.md Batch 5 (T-5.1..T-5.5)
-  - openspec/changes/rrhh-horas-extras/specs/cron-diario.md
+    python -m app.scripts.cron_rrhh_horas_extras                     # yesterday
+    python -m app.scripts.cron_rrhh_horas_extras --fecha 2026-05-05  # one given day
 """
 
 from __future__ import annotations
@@ -57,7 +37,6 @@ from __future__ import annotations
 import os
 import sys
 from contextlib import contextmanager
-from datetime import timedelta
 from pathlib import Path
 from typing import Iterator
 
@@ -72,13 +51,16 @@ if __name__ == "__main__":
     load_dotenv(dotenv_path=env_path)
 
 
-from datetime import datetime  # noqa: E402
+import argparse  # noqa: E402
+from datetime import UTC, date, datetime  # noqa: E402
 
-from app.core.database import SessionLocal  # noqa: E402
 from app.core.logging import get_logger  # noqa: E402
-from app.models.rrhh_horas_extras import RRHHHorasExtrasConfig  # noqa: E402
-from app.services.rrhh_hikvision_client import ART_TZ  # noqa: E402
-from app.services.rrhh_horas_extras_service import HorasExtrasService  # noqa: E402
+from app.services.rrhh_horas_extras_diario import (  # noqa: E402
+    STATUS_DETECTION_FAILED,
+    STATUS_DISABLED,
+    previous_local_day,
+    run_daily_detection,
+)
 
 logger = get_logger("scripts.cron_rrhh_horas_extras")
 
@@ -137,101 +119,27 @@ def _file_lock() -> Iterator[Path]:
             pass
 
 
-def _run_detection(db, ayer) -> dict[str, int]:
-    """Step D-1: detección de HE para `ayer` completo.
-
-    Args:
-        db: sesión SQLAlchemy abierta.
-        ayer: fecha a procesar (date).
-
-    Returns:
-        Dict con counts retornado por `detectar_he_periodo`
-        (procesados, creados, actualizados, alertas, errores, pendientes_turno).
-    """
-    logger.info("🔄 Iniciando detección HE para fecha=%s", ayer)
-    service = HorasExtrasService(db)
-    result = service.detectar_he_periodo(ayer, ayer)
-    db.commit()
-    logger.info(
-        "✅ Detección HE completada fecha=%s procesados=%s creados=%s "
-        "actualizados=%s alertas=%s errores=%s pendientes_turno=%s",
-        ayer,
-        result.get("procesados", 0),
-        result.get("creados", 0),
-        result.get("actualizados", 0),
-        result.get("alertas", 0),
-        result.get("errores", 0),
-        result.get("pendientes_turno", 0),
-    )
-    return result
+_EXIT_CODES = {STATUS_DISABLED: 3, STATUS_DETECTION_FAILED: 2}
 
 
-def _run_purga(db) -> dict[str, int]:
-    """Step final: purga de alertas leídas viejas (revisión 2 — Q4).
-
-    Lee `dias_retencion_alertas` del singleton de config (default 15).
-    Hard-delete de alertas con `leida_at IS NOT NULL` y
-    `created_at < (today - dias)`. Las alertas no leídas NUNCA se purgan.
-
-    Args:
-        db: sesión SQLAlchemy abierta (ya commiteada por la detección).
-
-    Returns:
-        Dict {purgadas, retenidas}.
-    """
-    logger.info("🔄 Iniciando purga de alertas viejas")
-    service = HorasExtrasService(db)
-    resultado = service.purgar_alertas_viejas()
-    logger.info(
-        "🗑️ Purga alertas: %s eliminadas, %s retenidas",
-        resultado.get("purgadas", 0),
-        resultado.get("retenidas", 0),
-    )
-    return resultado
-
-
-def main() -> int:
-    """Entry point del cron.
-
-    Returns:
-        Exit code (0=OK, 1=lock, 2=error fatal, 3=cron deshabilitado).
-    """
-    # TZ explícita: zona Argentina (ART, UTC-3) — coherente con Hikvision.
-    ayer = datetime.now(ART_TZ).date() - timedelta(days=1)
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. Returns the exit code (0=OK, 1=lock, 2=detection failed, 3=disabled)."""
+    parser = argparse.ArgumentParser(description="Manual run of the daily HE detection")
+    parser.add_argument("--fecha", type=date.fromisoformat, help="day to process (YYYY-MM-DD); default: yesterday")
+    args = parser.parse_args(argv)
+    day = args.fecha or previous_local_day(datetime.now(UTC))
 
     try:
         with _file_lock() as lock_path:
-            logger.info("🔒 Lock adquirido en %s (pid=%s)", lock_path, os.getpid())
-            db = SessionLocal()
-            try:
-                cfg = db.query(RRHHHorasExtrasConfig).filter(RRHHHorasExtrasConfig.id == 1).one_or_none()
-                if cfg is None or not cfg.cron_activo:
-                    logger.warning("⚠️ Cron HE deshabilitado por config (cron_activo=false). Aborta.")
-                    return 3
-
-                # Step 1: detección D-1 (commit interno).
-                try:
-                    _run_detection(db, ayer)
-                except Exception:
-                    db.rollback()
-                    logger.exception("❌ Error fatal en detección HE fecha=%s", ayer)
-                    return 2
-
-                # Step 2: purga (revisión 2 Q4). NO rompe exit code si falla:
-                # la detección ya commiteó y eso es lo que importa.
-                try:
-                    _run_purga(db)
-                except Exception:
-                    db.rollback()
-                    logger.exception("❌ Error en purga de alertas (no bloquea exit)")
-
-                return 0
-            finally:
-                db.close()
+            logger.info("Lock acquired at %s (pid=%s)", lock_path, os.getpid())
+            outcome = run_daily_detection(day)
     except SystemExit as exc:
-        # `_file_lock` levanta SystemExit(1) si el lock está activo.
-        code = exc.code if isinstance(exc.code, int) else 1
-        return code
+        # `_file_lock` raises SystemExit(1) when the lock is held.
+        return exc.code if isinstance(exc.code, int) else 1
+
+    if outcome.status == STATUS_DISABLED:
+        logger.warning("HE detection disabled by config (cron_activo=false); nothing done")
+    return _EXIT_CODES.get(outcome.status, 0)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from app.workers.handlers.combos_sync import sync as _combos_sync
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
 from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
+from app.workers.handlers.rrhh_horas_extras import horas_extras as _rrhh_horas_extras
 from app.workers.handlers.sell_drain import drain as _sell_drain
 from app.workers.handlers.tp_cost_fill import fill as _tp_cost_fill
 
@@ -54,6 +55,7 @@ class JobHandler(Protocol):
 # metricas-ml-tplink-mode P2 appends `tp_cost.fill` (notify-driven, like the drain).
 # sell-in-sell-out T4 appends `sell.drain` (notify-driven); since T5 it recomputes the sell-in allocation.
 # combos-propios C1 appends `combos.sync` (every 30 minutes; replaces the ERP cron for combos).
+# rrhh-horas-extras appends `rrhh.horas_extras` (daily 03:30; replaces the never-installed HE crontab entry).
 REGISTRY: List[JobHandler] = [
     _order_metrics_drain,
     _order_metrics_reconcile,
@@ -61,6 +63,7 @@ REGISTRY: List[JobHandler] = [
     _tp_cost_fill,
     _sell_drain,
     _combos_sync,
+    _rrhh_horas_extras,
 ]
 
 # The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
