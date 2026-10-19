@@ -336,6 +336,7 @@ async def sync_commercial_transactions_guid(
             from app.services.erp_matching_service import (  # noqa: PLC0415
                 match_backward,
                 match_ncs_backward,
+                reconciliar_lineas_facturadas,
                 refrescar_fechas_factura,
                 validar_catalogo_populado,
             )
@@ -369,6 +370,18 @@ async def sync_commercial_transactions_guid(
                     logger.error(
                         "[compras.matching] Refresco de fecha_factura falló — el sync sigue OK: %s",
                         refresco_exc,
+                        exc_info=True,
+                    )
+                # Invoiced-units snapshot: late or edited ERP lines, annulled
+                # invoices. Own scope too, so it never undoes the dates.
+                try:
+                    reconciliar_lineas_facturadas(db)
+                    db.commit()
+                except Exception as lineas_exc:  # noqa: BLE001 — nunca tumbar el sync
+                    db.rollback()
+                    logger.error(
+                        "[compras.matching] Reconciliación de líneas facturadas falló — el sync sigue OK: %s",
+                        lineas_exc,
                         exc_info=True,
                     )
         except RuntimeError as mismatch_exc:

@@ -3511,6 +3511,7 @@ def corregir_pedido(
 
     # 7. Transferir ct_transaction y marcar original cancelado + ref cruzada
     original_estado_anterior = original.estado
+    erp_matching_service.copiar_lineas_facturadas(session, origen_id=original.id, destino_id=clon.id)
     erp_matching_service.asignar_factura_erp(session, original, None)
     original.estado = "cancelado"
     original.corregido_a_id = clon.id

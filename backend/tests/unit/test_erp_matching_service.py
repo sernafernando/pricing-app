@@ -793,3 +793,145 @@ class TestRefrescarFechasFactura:
 
         assert _refrescar(db) == 0
         assert pedido.fecha_factura == date(2025, 1, 1)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tests: pedido_compra_lineas_facturadas — invoiced units snapshot
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _linea_erp(db, *, it: int, ct: int, item_id: int | None, qty: str, **flags) -> None:
+    from app.models.item_transaction import ItemTransaction  # noqa: PLC0415
+
+    db.add(ItemTransaction(it_transaction=it, ct_transaction=ct, item_id=item_id, it_qty=Decimal(qty), **flags))
+    db.flush()
+
+
+def _unidades(db, pedido_id: int) -> dict[int, int]:
+    from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada  # noqa: PLC0415
+
+    db.expire_all()
+    rows = db.query(PedidoCompraLineaFacturada).filter_by(pedido_id=pedido_id).all()
+    return {r.item_id: r.cantidad for r in rows}
+
+
+def _refrescar_lineas(db) -> None:
+    from app.services.erp_matching_service import reconciliar_lineas_facturadas  # noqa: PLC0415
+
+    reconciliar_lineas_facturadas(db)
+
+
+class TestLineasFacturadas:
+    @pytest.fixture
+    def factura(self, db, empresa, proveedor, sd_factura):
+        _crear_ct(
+            db,
+            ct_transaction=990001,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="LIN-1",
+            sd_id=sd_factura.sd_id,
+        )
+        _linea_erp(db, it=1, ct=990001, item_id=501, qty="3")
+        _linea_erp(db, it=2, ct=990001, item_id=501, qty="2")
+        _linea_erp(db, it=3, ct=990001, item_id=502, qty="7")
+        _linea_erp(db, it=4, ct=990001, item_id=None, qty="1")
+        return 990001
+
+    @pytest.fixture
+    def pedido(self, db, empresa, proveedor, active_user):
+        return _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-LIN-1",
+            numero_factura="LIN-1",
+            creado_por_id=active_user.id,
+        )
+
+    def test_vincular_snapshotea_unidades_por_item(self, db, factura, pedido):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+
+        assert _unidades(db, pedido.id) == {501: 5, 502: 7}
+
+    def test_desvincular_borra_las_lineas(self, db, factura, pedido):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+        asignar_factura_erp(db, pedido, None)
+
+        assert _unidades(db, pedido.id) == {}
+
+    def test_componentes_de_combo_no_se_cuentan(self, db, factura, pedido):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        _linea_erp(db, it=5, ct=factura, item_id=503, qty="1", it_isassociation=True, it_order=1)
+        _linea_erp(
+            db, it=6, ct=factura, item_id=504, qty="2", it_isassociation=True, it_isassociationgroup=True, it_order=2
+        )
+        asignar_factura_erp(db, pedido, factura)
+
+        assert _unidades(db, pedido.id) == {501: 5, 502: 7, 503: 1}
+
+    def test_refresco_aplica_diferencia_de_conjuntos(self, db, factura, pedido):
+        from app.models.item_transaction import ItemTransaction  # noqa: PLC0415
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+        # ERP edits: item 502 removed, 501 changes, a late line for 505 arrives.
+        db.query(ItemTransaction).filter_by(item_id=502).delete()
+        db.query(ItemTransaction).filter_by(it_transaction=2).update({"it_qty": Decimal("10")})
+        _linea_erp(db, it=7, ct=factura, item_id=505, qty="4")
+
+        _refrescar_lineas(db)
+
+        assert _unidades(db, pedido.id) == {501: 13, 505: 4}
+
+    def test_factura_anulada_vacia_el_snapshot(self, db, factura, pedido, proveedor, sd_anulacion):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+        _crear_ct(
+            db,
+            ct_transaction=990002,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="LIN-1",
+            sd_id=sd_anulacion.sd_id,
+        )
+
+        _refrescar_lineas(db)
+
+        assert _unidades(db, pedido.id) == {}
+
+    def test_backfill_de_la_migracion_snapshotea_los_vinculados(
+        self, db, factura, pedido, empresa, proveedor, active_user
+    ):
+        import importlib.util  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        migration = (
+            Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20261104_pedido_lineas_facturadas.py"
+        )
+        spec = importlib.util.spec_from_file_location("pedido_lineas_facturadas", migration)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        pedido.ct_transaction_id = factura
+        sin_vincular = _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-LIN-2",
+            numero_factura=None,
+            creado_por_id=active_user.id,
+        )
+        db.flush()
+
+        db.execute(text(module.BACKFILL))
+
+        assert _unidades(db, pedido.id) == {501: 5, 502: 7}
+        assert _unidades(db, sin_vincular.id) == {}

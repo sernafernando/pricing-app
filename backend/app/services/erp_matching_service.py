@@ -287,15 +287,20 @@ def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: 
     """Single write path for a pedido's ERP invoice link.
 
     Sets `ct_transaction_id` and its app-side `fecha_factura` together (None
-    clears both). A ct missing from `v_facturas_compra_vigentes` still links,
-    with `fecha_factura` NULL. NO flush, NO commit.
+    clears both) and reconciles the invoiced-units snapshot of a persisted
+    pedido (flushes). A ct missing from `v_facturas_compra_vigentes` still
+    links, with `fecha_factura` NULL and no lines. NO commit.
     """
     if ct_transaction is None:
         pedido.ct_transaction_id = None
         pedido.fecha_factura = None
+        if pedido.id is not None:
+            session.execute(_BORRAR_LINEAS_SQL, {"pid": pedido.id})
         return
     pedido.ct_transaction_id = int(ct_transaction)
     pedido.fecha_factura = session.execute(_FECHA_FACTURA_SQL, {"ct": int(ct_transaction)}).scalar()
+    if pedido.id is not None:
+        reconciliar_lineas_facturadas(session, pedido.id)
 
 
 _FECHA_VISTA_SQL = (
@@ -324,6 +329,73 @@ def refrescar_fechas_factura(session: Session) -> int:
     actualizados = session.execute(_REFRESCAR_FECHAS_SQL).rowcount or 0
     logger.info("refrescar_fechas_factura: pedidos actualizados=%s", actualizados)
     return actualizados
+
+
+# Invoiced units per item of every linked pedido (one per scope), from the ERP
+# mirror. Only invoices still in v_facturas_compra_vigentes count (annulled →
+# no lines). Combo components are left out and only the main line counts, as
+# in the sales metrics scripts (no purchase line had association flags on prod
+# 2026-10-19; the rule only guards against a future double count).
+_LINEAS_ORIGEN_SQL = """
+SELECT p.id AS pedido_id, it.item_id AS item_id, CAST(SUM(it.it_qty) AS INTEGER) AS cantidad
+FROM pedidos_compra p
+JOIN v_facturas_compra_vigentes v ON v.ct_transaction = p.ct_transaction_id
+JOIN tb_item_transactions it ON it.ct_transaction = p.ct_transaction_id
+WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+  AND it.item_id IS NOT NULL
+  AND NOT (
+    COALESCE(it.it_isassociation, false) = true
+    AND COALESCE(it.it_order, 1) <> 1
+    AND it.it_isassociationgroup IS NOT NULL
+  )
+GROUP BY p.id, it.item_id
+HAVING SUM(it.it_qty) >= 1
+"""
+_T = "pedido_compra_lineas_facturadas"
+_BORRAR_LINEAS_SQL = text(f"DELETE FROM {_T} WHERE pedido_id = :pid")
+# The corrected clone inherits the original's link and lines as-is.
+_COPIAR_LINEAS_SQL = text(
+    f"INSERT INTO {_T} (pedido_id, item_id, cantidad) SELECT :destino, item_id, cantidad FROM {_T} WHERE pedido_id = :origen"
+)
+_MATCH = f"s.pedido_id = {_T}.pedido_id AND s.item_id = {_T}.item_id"
+# Set difference against the snapshot: delete what the ERP no longer has,
+# update changed quantities, insert new items. Updating in place (never
+# delete + insert of the same item) keeps the UNIQUE(pedido_id, item_id) safe.
+_RECONCILIAR_SQL = (
+    "WITH s AS ({origen}) DELETE FROM {t} WHERE {scope_t} AND NOT EXISTS (SELECT 1 FROM s WHERE {match})",
+    "WITH s AS ({origen}) UPDATE {t} SET cantidad = (SELECT s.cantidad FROM s WHERE {match}) "
+    "WHERE {scope_t} AND EXISTS (SELECT 1 FROM s WHERE {match} AND s.cantidad <> {t}.cantidad)",
+    "WITH s AS ({origen}) INSERT INTO {t} (pedido_id, item_id, cantidad) "
+    "SELECT s.pedido_id, s.item_id, s.cantidad FROM s WHERE NOT EXISTS (SELECT 1 FROM {t} WHERE {match})",
+)
+
+
+def copiar_lineas_facturadas(session: Session, *, origen_id: int, destino_id: int) -> None:
+    """Copy a pedido's invoiced-units snapshot to another one (corregir_pedido). NO commit."""
+    session.execute(_COPIAR_LINEAS_SQL, {"origen": origen_id, "destino": destino_id})
+
+
+def reconciliar_lineas_facturadas(session: Session, pedido_id: Optional[int] = None) -> int:
+    """Bring `pedido_compra_lineas_facturadas` in step with the ERP mirror.
+
+    One pedido (`pedido_id`) or every pedido (None, the ERP sync hook). Flushes
+    first because it reads `pedidos_compra.ct_transaction_id` from SQL. A pedido
+    without a link, or whose invoice left the view, ends with no lines. NO commit.
+
+    Returns:
+        how many snapshot rows were deleted, updated or inserted.
+    """
+    session.flush()
+    params = {"pid": pedido_id}
+    scope_pedido = "p.id = :pid" if pedido_id is not None else "1 = 1"
+    scope_t = f"{_T}.pedido_id = :pid" if pedido_id is not None else "1 = 1"
+    origen = _LINEAS_ORIGEN_SQL.format(scope_pedido=scope_pedido)
+    cambios = sum(
+        session.execute(text(sql.format(origen=origen, t=_T, scope_t=scope_t, match=_MATCH)), params).rowcount or 0
+        for sql in _RECONCILIAR_SQL
+    )
+    logger.info("reconciliar_lineas_facturadas: pedido_id=%s filas cambiadas=%s", pedido_id, cambios)
+    return cambios
 
 
 def match_forward(
@@ -900,9 +972,11 @@ def _cancelar_ncs_locales_por_erp_cancelado(
 
 __all__ = [
     "asignar_factura_erp",
+    "copiar_lineas_facturadas",
     "match_backward",
     "match_forward",
     "match_ncs_backward",
+    "reconciliar_lineas_facturadas",
     "refrescar_fechas_factura",
     "validar_catalogo_populado",
 ]
