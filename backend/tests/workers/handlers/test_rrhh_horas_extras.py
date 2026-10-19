@@ -24,7 +24,6 @@ from app.workers.context import WorkerContext
 from app.workers.handlers import rrhh_horas_extras as module
 from app.workers.handlers.rrhh_horas_extras import RRHHHorasExtrasHandler, horas_extras
 from app.workers.registry import REGISTRY
-from tests.routers.test_rrhh_horas_extras_recalcular_lock import held, is_held
 
 DETECTION = {"procesados": 3, "creados": 2, "actualizados": 1, "alertas": 0, "errores": 0, "pendientes_turno": 0}
 PURGE = {"purgadas": 4, "retenidas": 9}
@@ -235,8 +234,9 @@ class TestFailures:
         assert result.detail["purge_error"] == "RuntimeError: purge exploded"
         assert "purge" not in result.detail
         assert _cursor(db) == "2026-10-18"
-        # cursor read, config read, the day and the purge each ran in their own session; only the purge failed
-        assert (sessions.opened, sessions.failed) == (4, 1)
+        # switch + cursor read, cursor seed, config read, the day and the purge each ran in their own
+        # session; only the purge failed
+        assert (sessions.opened, sessions.failed) == (5, 1)
 
     def test_a_failed_day_stops_the_run_and_keeps_the_cursor_before_it(self, db, service) -> None:
         _config(db, cron_activo=True)
@@ -299,6 +299,36 @@ class TestRetryAcrossMidnight:
         assert _cursor(db) == "2026-10-18"
 
 
+class TestFirstRunAcrossMidnight:
+    def test_a_first_ever_run_that_fails_keeps_its_day_after_midnight(self, db, service) -> None:
+        # No cursor yet: the run for the 17th fails at 23:50 on the 18th (Argentina) and the retry lands
+        # after midnight. The first run seeds the cursor at the day before its target, so the 17th is
+        # still pending and runs before the 18th.
+        _config(db, cron_activo=True)
+        service.failing_days = {date(2026, 10, 17)}
+        clock = [datetime(2026, 10, 19, 2, 50, tzinfo=UTC)]  # 23:50 on the 18th in Argentina
+        handler = RRHHHorasExtrasHandler(session_factory=_Sessions(db), now=lambda: clock[0])
+
+        assert handler.run(_ctx()).success is False
+        assert _cursor(db) == "2026-10-16"
+
+        service.failing_days = set()
+        clock[0] = datetime(2026, 10, 19, 3, 10, tzinfo=UTC)  # 00:10 on the 19th, past the retry delay
+        result = handler.run(_ctx())
+
+        assert result.success is True
+        assert result.detail["days"] == ["2026-10-17", "2026-10-18"]
+        assert _cursor(db) == "2026-10-18"
+
+    def test_a_disabled_switch_seeds_nothing(self, db, service) -> None:
+        _config(db, cron_activo=False)
+        handler, _ = _handler(db, NOON)
+
+        handler.run(_ctx())
+
+        assert _cursor(db) is None
+
+
 class TestRetryDelay:
     def test_a_failed_detection_waits_before_the_next_try(self, db, service) -> None:
         # A failed daily job stays due on every worker pass (seconds apart); the handler spaces the retries.
@@ -327,7 +357,7 @@ class TestRetryDelay:
 @pytest.fixture()
 def pg_sessions(pg_worker_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
     """Real committing sessions on `worker_job_state` (config gate stubbed: no RRHH tables here)."""
-    monkeypatch.setattr(diario, "_cron_activo", lambda db: True)
+    monkeypatch.setattr(diario, "cron_activo", lambda db: True)
     with pg_worker_engine.begin() as conn:
         conn.execute(text("DELETE FROM worker_job_state WHERE name = :name"), {"name": NAME})
     yield pg_worker_engine
@@ -356,21 +386,21 @@ def _pg_detail(engine: Engine):
 
 @pytest.mark.postgres
 class TestPostgresLock:
-    def test_the_day_runs_holding_the_lock_and_releases_it_at_commit(self, pg_sessions, service) -> None:
-        service.probe = lambda: is_held(pg_sessions)
+    def test_the_day_runs_holding_the_lock_and_releases_it_at_commit(self, pg_sessions, he_lock, service) -> None:
+        service.probe = he_lock.is_held
         handler = RRHHHorasExtrasHandler(session_factory=_pg_factory(pg_sessions), now=lambda: NOON)
 
         assert handler.run(_ctx()).success is True
 
         assert service.probes == [True]
-        assert is_held(pg_sessions) is False
+        assert he_lock.is_held() is False
         assert _pg_detail(pg_sessions) == {"last_day_done": "2026-10-18"}
 
-    def test_it_skips_while_another_run_holds_the_lock(self, pg_sessions, service) -> None:
+    def test_it_skips_while_another_run_holds_the_lock(self, pg_sessions, he_lock, service) -> None:
         clock = [NOON]
         handler = RRHHHorasExtrasHandler(session_factory=_pg_factory(pg_sessions), now=lambda: clock[0])
 
-        with held(pg_sessions):
+        with he_lock.held():
             result = handler.run(_ctx())
 
         assert result.success is False

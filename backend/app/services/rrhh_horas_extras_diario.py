@@ -86,7 +86,8 @@ def _describe(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"[:300]
 
 
-def _cron_activo(db: Session) -> bool:
+def cron_activo(db: Session) -> bool:
+    """The on/off switch `RRHHHorasExtrasConfig.cron_activo`; a missing config row counts as off."""
     cfg = db.query(RRHHHorasExtrasConfig).filter(RRHHHorasExtrasConfig.id == 1).one_or_none()
     return cfg is not None and bool(cfg.cron_activo)
 
@@ -115,7 +116,7 @@ def run_daily_detection(
     sessions = session_factory or database.get_background_db
 
     with sessions() as db:
-        if not _cron_activo(db):
+        if not cron_activo(db):
             # debug only: the worker re-checks this on every pass while the switch is off
             logger.debug("HE detection disabled by config (cron_activo=false)")
             return DailyRunResult(status=STATUS_DISABLED)

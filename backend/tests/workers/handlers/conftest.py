@@ -2,3 +2,4 @@
 
 from tests.services.ml_publications.conftest import bridge_pg, mlpub_pg  # noqa: F401  (fixture re-exports)
 from tests.services.ml_ads.conftest import pg_ads_db, pg_ads_engine  # noqa: F401  (ml_ads handler tests)
+from tests.routers.conftest import he_lock  # noqa: F401  (rrhh.horas_extras lock tests)

@@ -7,20 +7,16 @@ transaction, the other must see it as held."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import date
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.routers import rrhh_horas_extras as router
-from app.services import rrhh_horas_extras_diario as diario
-from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
 
 pytestmark = pytest.mark.postgres
 
@@ -28,37 +24,12 @@ RESULT = {"procesados": 1, "creados": 0, "actualizados": 0, "alertas": 0, "error
 
 
 @pytest.fixture()
-def pg() -> Iterator[Engine]:
-    if not _postgres_reachable():
-        pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
-    engine = create_engine(POSTGRES_TEST_URL)
-    try:
-        yield engine
-    finally:
-        engine.dispose()
-
-
-@contextmanager
-def held(engine: Engine) -> Iterator[None]:
-    """Hold the lock from another connection, inside an open transaction, as another process would."""
-    with engine.connect() as conn, conn.begin():
-        conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": diario.DETECTION_LOCK_KEY})
-        yield
-
-
-def is_held(engine: Engine) -> bool:
-    """Whether another session holds the lock (a successful probe is released at once by the rollback)."""
-    with engine.connect() as conn:
-        trans = conn.begin()
-        acquired = conn.execute(
-            text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": diario.DETECTION_LOCK_KEY}
-        ).scalar()
-        trans.rollback()
-    return not acquired
+def pg(he_lock) -> Engine:
+    return he_lock.engine
 
 
 @pytest.fixture()
-def calls(monkeypatch: pytest.MonkeyPatch, pg: Engine) -> list[dict]:
+def calls(monkeypatch: pytest.MonkeyPatch, he_lock) -> list[dict]:
     """Fake detection: records its arguments and whether the lock was held while it ran."""
     recorded: list[dict] = []
 
@@ -67,7 +38,7 @@ def calls(monkeypatch: pytest.MonkeyPatch, pg: Engine) -> list[dict]:
             pass
 
         def detectar_he_periodo(self, fecha_desde, fecha_hasta, empleado_ids=None, commit=True):
-            recorded.append({"commit": commit, "held": is_held(pg)})
+            recorded.append({"commit": commit, "held": he_lock.is_held()})
             return dict(RESULT)
 
     monkeypatch.setattr(router, "HorasExtrasService", FakeService)
@@ -81,13 +52,13 @@ def _recalcular(db: Session):
     return router.recalcular_periodo(data, db=db, current_user=object())
 
 
-def test_it_recalculates_holding_the_lock_and_commits_before_releasing_it(pg, calls) -> None:
+def test_it_recalculates_holding_the_lock_and_commits_before_releasing_it(pg, he_lock, calls) -> None:
     held_at_commit: list[bool] = []
     with Session(bind=pg) as db:
         real_commit = db.commit
 
         def spying_commit() -> None:
-            held_at_commit.append(is_held(pg))
+            held_at_commit.append(he_lock.is_held())
             real_commit()
 
         db.commit = spying_commit  # type: ignore[method-assign]
@@ -96,14 +67,15 @@ def test_it_recalculates_holding_the_lock_and_commits_before_releasing_it(pg, ca
         # the service does not commit on its own: the endpoint commits the writes while the lock is held
         assert calls == [{"commit": False, "held": True}]
         assert held_at_commit == [True]
-        assert is_held(pg) is False
+        assert he_lock.is_held() is False
 
 
-def test_a_lock_held_by_another_run_answers_409_without_recalculating(pg, calls) -> None:
-    with held(pg), Session(bind=pg) as db, pytest.raises(HTTPException) as exc:
+def test_a_lock_held_by_another_run_answers_409_without_recalculating(pg, he_lock, calls) -> None:
+    with he_lock.held(), Session(bind=pg) as db, pytest.raises(HTTPException) as exc:
         _recalcular(db)
 
     assert exc.value.status_code == 409
+    assert exc.value.detail == "Otra detección de horas extras está en curso. Intentá de nuevo en unos minutos."
     assert calls == []
 
 

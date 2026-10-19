@@ -6,8 +6,9 @@ the on/off switch.
 
 Days to process come from a cursor, `worker_job_state.detail.last_day_done` (merged into that JSONB,
 never replacing it): every Argentina day from the cursor + 1 through yesterday, oldest first, at most
-`MAX_DAYS_PER_RUN` per run. With no cursor yet only yesterday runs: the cursor never starts a backfill
-on its own. The cursor advances in the same transaction as each day's detection, so a day that fails
+`MAX_DAYS_PER_RUN` per run. The first run ever (no cursor yet, switch on) seeds the cursor at the day
+before yesterday in its own short transaction, so only yesterday runs and the cursor never starts a
+backfill on its own, yet a failed first day is still retried after midnight. The cursor advances in the same transaction as each day's detection, so a day that fails
 stays pending and is retried on the next run, even when that run lands after midnight. Then old read
 alerts are purged (`services.rrhh_horas_extras_diario`).
 
@@ -77,10 +78,8 @@ def _write_cursor(db: Session, day: date) -> None:
     db.flush()
 
 
-def pending_days(cursor: date | None, yesterday: date) -> list[date]:
-    """Days still to process, oldest first, at most `MAX_DAYS_PER_RUN`. No cursor: only yesterday."""
-    if cursor is None:
-        return [yesterday]
+def pending_days(cursor: date, yesterday: date) -> list[date]:
+    """Days after `cursor` through `yesterday`, oldest first, at most `MAX_DAYS_PER_RUN`."""
     days: list[date] = []
     day = cursor + timedelta(days=1)
     while day <= yesterday and len(days) < MAX_DAYS_PER_RUN:
@@ -113,14 +112,23 @@ class RRHHHorasExtrasHandler:
         if self._retry_at is not None and now < self._retry_at:
             return JobResult(success=False, detail={"retry_at": self._retry_at.isoformat()}, error=self._last_error)
 
+        yesterday = diario.previous_local_day(now)
         try:
             with self._sessions() as db:
+                if not diario.cron_activo(db):
+                    return JobResult(success=False, detail={"disabled": True})
                 cursor = _read_cursor(db)
+            if cursor is None:
+                # First run ever: pin the starting point, so a retry after midnight still finds this day.
+                cursor = yesterday - timedelta(days=1)
+                with self._sessions() as db:
+                    _write_cursor(db, cursor)
+                    db.commit()
         except Exception as exc:  # noqa: BLE001 -- same retry path as a failed detection
-            logger.exception("rrhh.horas_extras: could not read the cursor")
+            logger.exception("rrhh.horas_extras: could not read or seed the cursor")
             return self._failed(now, {"days": []}, f"{type(exc).__name__}: {exc}"[:300])
 
-        days = pending_days(cursor, diario.previous_local_day(now))
+        days = pending_days(cursor, yesterday)
         if not days:
             return JobResult(success=True, detail={"days": []})
 
