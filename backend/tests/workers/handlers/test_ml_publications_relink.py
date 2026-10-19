@@ -107,7 +107,7 @@ class TestDisabledOutcome:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime.now(timezone.utc)
 
-        assert runtime._run_handler(handler, now) is False
+        assert runtime._run_handler(handler) is False
 
         assert runtime._due_handlers(now) == [handler]
 

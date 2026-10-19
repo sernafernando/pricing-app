@@ -171,7 +171,7 @@ class TestDisabledOutcome:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
 
-        assert runtime._run_handler(handler, now) is False
+        assert runtime._run_handler(handler) is False
 
         row = sql_all(env, "SELECT * FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)[0]
         assert row["last_run_at"] is not None and row["last_success_at"] is None

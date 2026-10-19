@@ -180,13 +180,12 @@ class WorkerRuntime:
                 {"name": handler_name},
             )
 
-    def _run_handler(self, handler: JobHandler, now: Optional[datetime] = None) -> bool:
+    def _run_handler(self, handler: JobHandler) -> bool:
         """Runs one handler with its OWN deadline, measured from the clock at
-        the moment it starts. `now` is the pass's scheduling instant and is
-        deliberately NOT used for the deadline: a pass used to share one
-        deadline, so after a handler that spent its whole budget every later
-        handler started already expired and "succeeded" with zero work
-        (prod, 2026-10-19). Kept as a parameter only for existing callers."""
+        the moment it starts -- never from the drain pass's scheduling
+        instant: a pass used to share one deadline, so after a handler that
+        spent its whole budget every later handler started already expired
+        and "succeeded" with zero work (prod, 2026-10-19)."""
         deadline = self._clock() + timedelta(seconds=DEFAULT_HANDLER_DEADLINE_SECONDS)
         ctx = WorkerContext(deadline=deadline, worker_name=self.worker_name, held_tokens=self._held_tokens)
         # PR3.T6a: `worker_job_state.detail.draining` and the heartbeat's
@@ -279,7 +278,7 @@ class WorkerRuntime:
                 seen.add(handler.name)
                 to_run.append(handler)
         for handler in to_run:
-            success = self._run_handler(handler, now)
+            success = self._run_handler(handler)
             # Only a successful run clears the on-demand request flag
             # (PR6 review fix J3) -- a raise or `success=False` leaves it
             # `'requested'` so the next drain pass retries it.

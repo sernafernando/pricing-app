@@ -106,7 +106,7 @@ class TestDisabledOutcome:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime.now(timezone.utc)
 
-        assert runtime._run_handler(handler, now) is False
+        assert runtime._run_handler(handler) is False
 
         row = sql_one(env[0], "SELECT * FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)
         assert row["last_success_at"] is None
