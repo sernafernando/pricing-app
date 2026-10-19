@@ -899,8 +899,10 @@ def _cancelar_ncs_locales_por_erp_cancelado(
 
 
 __all__ = [
+    "asignar_factura_erp",
     "match_backward",
     "match_forward",
     "match_ncs_backward",
+    "refrescar_fechas_factura",
     "validar_catalogo_populado",
 ]
