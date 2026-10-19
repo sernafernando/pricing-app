@@ -3,12 +3,32 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { productosAPI } from '../../services/api';
 import { sellInAPI } from '../../services/sellInAPI';
-import { COMPRA_ARS, PREVIEW, PRODUCTOS } from './sellInFixtures';
+import { COMPRA_ARS, PREFILL, PREVIEW, PRODUCTOS } from './sellInFixtures';
 import SellInCreatePanel from './SellInCreatePanel';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInAPI: { preview: vi.fn(), crear: vi.fn(), proveedores: vi.fn() },
+  sellInAPI: { preview: vi.fn(), crear: vi.fn(), proveedores: vi.fn(), prefill: vi.fn() },
 }));
+
+// Operation 20 belongs to another supplier, Mercusys (9), with no receipt yet.
+const PREFILL_MERCUSYS = {
+  pedido_compra_ids: [20],
+  proveedor_id: 9,
+  proveedor_nombre: 'Mercusys',
+  moneda: 'ARS',
+  fecha_ingreso: null,
+  items: [{ item_id: 4513, codigo: 'SW-16', descripcion: 'Switch 16 bocas', cantidad: 7 }],
+};
+const MEZCLA = {
+  response: { status: 422, data: { error: { code: 'VALIDATION_ERROR', message: 'Las operaciones son de distintos proveedores.' } } },
+};
+
+/** A promise and the function that settles it, to answer requests in a chosen order. */
+const diferido = () => {
+  let resolver;
+  const promise = new Promise((resolve) => (resolver = resolve));
+  return { promise, resolver };
+};
 
 const PROVEEDORES = { proveedores: [{ id: 7, nombre: 'TP-Link', cuit: '30-1' }], total: 1, page: 1, page_size: 10 };
 
@@ -18,6 +38,7 @@ beforeEach(() => {
   sellInAPI.proveedores.mockResolvedValue({ data: PROVEEDORES });
   sellInAPI.preview.mockResolvedValue({ data: PREVIEW });
   sellInAPI.crear.mockResolvedValue({ data: COMPRA_ARS });
+  sellInAPI.prefill.mockResolvedValue({ data: PREFILL });
 });
 
 const renderPanel = (props = {}) => {
@@ -26,6 +47,12 @@ const renderPanel = (props = {}) => {
   render(<SellInCreatePanel onCreated={onCreated} onClose={onClose} {...props} />);
   return { onCreated, onClose };
 };
+
+/** Links Compras operation `numero` to the sell in. */
+async function agregarOperacion(user, numero) {
+  await user.type(screen.getByLabelText('Pedido de compra (N°)'), String(numero));
+  await user.click(screen.getByRole('button', { name: 'Agregar operación' }));
+}
 
 /** Fills an ARS purchase of 1000 over SW-8 x10 and SW-16 x10 (the backend tests' purchase). */
 async function fillCompra(user) {
@@ -115,7 +142,6 @@ describe('SellInCreatePanel', () => {
     await user.clear(screen.getByLabelText('Fecha de compra'));
     await user.type(screen.getByLabelText('Fecha de compra'), '2026-10-01');
     await user.type(screen.getByLabelText('Descripción'), 'Bonificación Q4 switches');
-    await user.type(screen.getByLabelText('Pedido de compra (N°)'), '15');
     const buscadorProveedor = screen.getByRole('group', { name: 'Proveedor' });
     await user.type(within(buscadorProveedor).getByRole('searchbox'), 'tp');
     await user.click(await within(buscadorProveedor).findByRole('button', { name: /TP-Link/ }));
@@ -139,7 +165,7 @@ describe('SellInCreatePanel', () => {
       fecha_ingreso: null,
       cuenta_desde: 'compra',
       proveedor_id: 7,
-      pedido_compra_id: 15,
+      pedido_compra_ids: [],
       descripcion: 'Bonificación Q4 switches',
     });
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(COMPRA_ARS));
@@ -203,5 +229,198 @@ describe('SellInCreatePanel', () => {
     await fillCompra(user);
     await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Falta el tipo de cambio');
+  });
+
+  it('links several operations, asks their prefill for each set, and saves them as pedido_compra_ids', async () => {
+    const user = userEvent.setup();
+    const { onCreated } = renderPanel();
+    await agregarOperacion(user, 15);
+    await agregarOperacion(user, 16);
+    await agregarOperacion(user, 17);
+    await user.click(screen.getByRole('button', { name: 'Quitar operación 17' }));
+    expect(screen.getByText('N° 15')).toBeInTheDocument();
+    expect(screen.getByText('N° 16')).toBeInTheDocument();
+    expect(screen.queryByText('N° 17')).not.toBeInTheDocument();
+    await waitFor(() => expect(sellInAPI.prefill).toHaveBeenLastCalledWith([15, 16]));
+
+    await user.type(screen.getByLabelText('Monto total'), '1000');
+    await user.type(screen.getByLabelText('Tipo de cambio'), '1000');
+    await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+    await screen.findByRole('table', { name: 'Vista previa por ítem' });
+    await user.click(screen.getByRole('button', { name: 'Guardar sell in' }));
+
+    expect(sellInAPI.crear).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pedido_compra_ids: [15, 16],
+        proveedor_id: 7,
+        fecha_ingreso: '2026-10-05',
+        lineas: [
+          { item_id: 4512, cantidad: 12 },
+          { item_id: 4513, cantidad: 4 },
+        ],
+      }),
+    );
+    expect(sellInAPI.crear.mock.calls[0][0]).not.toHaveProperty('pedido_compra_id');
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(COMPRA_ARS));
+  });
+
+  it('fills an empty form from the operations, and only suggests their currency', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole('button', { name: 'ARS' }));
+    await agregarOperacion(user, 15);
+
+    expect(await screen.findByText('TP-Link')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('2026-10-05');
+    expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(12);
+    expect(screen.getByLabelText('Cantidad de SW-16')).toHaveValue(4);
+    // The sell in keeps its own currency: the operations' one is offered, not imposed.
+    expect(screen.getByRole('button', { name: 'ARS' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Las operaciones están en USD.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Usar USD' }));
+    expect(screen.getByRole('button', { name: 'USD' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Las operaciones están en USD.')).not.toBeInTheDocument();
+  });
+
+  it('keeps typed lines, date and supplier unless the user confirms replacing the lines', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await fillCompra(user);
+    await user.type(screen.getByLabelText('Fecha de ingreso'), '2026-10-09');
+    await agregarOperacion(user, 15);
+
+    expect(await screen.findByText('Ya hay productos cargados. ¿Reemplazarlos por los de las operaciones?')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(10);
+    expect(screen.getByLabelText('Cantidad de SW-16')).toHaveValue(10);
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('2026-10-09');
+    await user.click(screen.getByRole('button', { name: 'Mantener los actuales' }));
+    expect(screen.queryByText(/Ya hay productos cargados/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(10);
+
+    await agregarOperacion(user, 16);
+    await user.click(await screen.findByRole('button', { name: 'Reemplazar productos' }));
+    expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(12);
+    expect(screen.getByLabelText('Cantidad de SW-16')).toHaveValue(4);
+  });
+
+  it('shows the readable message of a rejected prefill and fills nothing', async () => {
+    const user = userEvent.setup();
+    sellInAPI.prefill.mockRejectedValue({
+      response: { status: 422, data: { error: { code: 'VALIDATION_ERROR', message: 'Las operaciones son de distintos proveedores.' } } },
+    });
+    renderPanel();
+    await agregarOperacion(user, 15);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Las operaciones son de distintos proveedores.');
+    expect(screen.queryByLabelText(/Cantidad de/)).not.toBeInTheDocument();
+  });
+
+  it('removing every operation clears what their prefill filled', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await agregarOperacion(user, 15);
+    expect(await screen.findByText('TP-Link')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('2026-10-05');
+
+    await user.click(screen.getByRole('button', { name: 'Quitar operación 15' }));
+    expect(screen.queryByText('TP-Link')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Proveedor' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('');
+    expect(screen.queryByLabelText(/Cantidad de/)).not.toBeInTheDocument();
+  });
+
+  it("switching to another supplier's operations replaces the prefilled supplier, but not a date the user typed", async () => {
+    const user = userEvent.setup();
+    sellInAPI.prefill.mockImplementation((ids) => {
+      if (ids.length === 1 && ids[0] === 15) return Promise.resolve({ data: PREFILL });
+      if (ids.length === 1 && ids[0] === 20) return Promise.resolve({ data: PREFILL_MERCUSYS });
+      return Promise.reject(MEZCLA);
+    });
+    renderPanel();
+    await agregarOperacion(user, 15);
+    expect(await screen.findByText('TP-Link')).toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Fecha de ingreso'));
+    await user.type(screen.getByLabelText('Fecha de ingreso'), '2026-10-09');
+
+    await agregarOperacion(user, 20);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Las operaciones son de distintos proveedores.');
+    await user.click(screen.getByRole('button', { name: 'Quitar operación 15' }));
+
+    expect(await screen.findByText('Mercusys')).toBeInTheDocument();
+    expect(screen.queryByText('TP-Link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('2026-10-09');
+    // The untouched prefilled lines follow the operations.
+    expect(screen.queryByLabelText('Cantidad de SW-8')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Cantidad de SW-16')).toHaveValue(7);
+  });
+
+  it('a supplier the user picked survives a prefill', async () => {
+    const user = userEvent.setup();
+    sellInAPI.prefill.mockResolvedValue({ data: PREFILL_MERCUSYS });
+    renderPanel();
+    const buscadorProveedor = screen.getByRole('group', { name: 'Proveedor' });
+    await user.type(within(buscadorProveedor).getByRole('searchbox'), 'tp');
+    await user.click(await within(buscadorProveedor).findByRole('button', { name: /TP-Link/ }));
+
+    await agregarOperacion(user, 20);
+    expect(await screen.findByLabelText('Cantidad de SW-16')).toHaveValue(7);
+    expect(screen.getByText('TP-Link')).toBeInTheDocument();
+    expect(screen.queryByText('Mercusys')).not.toBeInTheDocument();
+  });
+
+  it('an older prefill that answers after a newer one is dropped', async () => {
+    const user = userEvent.setup();
+    const viejo = diferido();
+    const nuevo = diferido();
+    sellInAPI.prefill.mockReturnValueOnce(viejo.promise).mockReturnValueOnce(nuevo.promise);
+    renderPanel();
+    await agregarOperacion(user, 15);
+    await agregarOperacion(user, 20);
+
+    nuevo.resolver({ data: PREFILL_MERCUSYS });
+    expect(await screen.findByText('Mercusys')).toBeInTheDocument();
+    viejo.resolver({ data: PREFILL });
+    await waitFor(() => expect(screen.getByLabelText('Cantidad de SW-16')).toHaveValue(7));
+    expect(screen.queryByText('TP-Link')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('');
+    expect(screen.queryByLabelText('Cantidad de SW-8')).not.toBeInTheDocument();
+  });
+
+  it('removing the last operation drops the pending confirmation and the currency suggestion', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await fillCompra(user);
+    await agregarOperacion(user, 15);
+    expect(await screen.findByText(/Ya hay productos cargados/)).toBeInTheDocument();
+    expect(screen.getByText('Las operaciones están en USD.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar operación 15' }));
+    expect(screen.queryByText(/Ya hay productos cargados/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Las operaciones están en USD.')).not.toBeInTheDocument();
+    // The lines were the user's: they stay.
+    expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(10);
+  });
+
+  it('Enter in the operation number adds it', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Pedido de compra (N°)'), '15{Enter}');
+    expect(screen.getByText('N° 15')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pedido de compra (N°)')).toHaveValue(null);
+    await waitFor(() => expect(sellInAPI.prefill).toHaveBeenCalledWith([15]));
+  });
+
+  it('links at most 50 operations, as the backend allows', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const numero = screen.getByLabelText('Pedido de compra (N°)');
+    for (let n = 1; n <= 50; n += 1) await user.type(numero, `${n}{Enter}`);
+    expect(screen.getAllByRole('button', { name: /Quitar operación/ })).toHaveLength(50);
+
+    await user.type(numero, '51');
+    expect(screen.getByRole('button', { name: 'Agregar operación' })).toBeDisabled();
+    await user.type(numero, '{Enter}');
+    expect(screen.queryByText('N° 51')).not.toBeInTheDocument();
+    expect(sellInAPI.prefill).toHaveBeenCalledTimes(50);
   });
 });

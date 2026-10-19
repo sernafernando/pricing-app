@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { sellInAPI } from '../../services/sellInAPI';
-import { COMPRA_ARS, COMPRA_USD_ANULADA } from './sellInFixtures';
+import { COMPRA_ARS, COMPRA_CON_OPERACIONES, COMPRA_USD_ANULADA } from './sellInFixtures';
 import SellInDetailPanel from './SellInDetailPanel';
 
 vi.mock('../../services/sellInAPI', () => ({
@@ -36,6 +36,13 @@ describe('SellInDetailPanel', () => {
     expect(screen.getByText('Reparto proporcional')).toBeInTheDocument();
     expect(screen.getByText('Switch 16 bocas')).toBeInTheDocument();
     expect(screen.getByText('$ 225,00')).toBeInTheDocument();
+  });
+
+  it('lists every Compras operation the purchase is linked to', async () => {
+    sellInAPI.detalle.mockResolvedValue({ data: COMPRA_CON_OPERACIONES });
+    renderPanel();
+    const campo = (await screen.findByText('Operaciones de compra')).closest('div');
+    expect(campo).toHaveTextContent('N° 15, N° 16');
   });
 
   it('shows the FX rate of a USD purchase', async () => {

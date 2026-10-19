@@ -30,6 +30,14 @@ describe('sellInAPI', () => {
     expect(api.get).toHaveBeenCalledWith('/administracion/proveedores', { params: { search: 'tp', page_size: 10 } });
   });
 
+  it('asks the prefill of several operations as a repeated query parameter', () => {
+    sellInAPI.prefill([15, 16]);
+    expect(api.get).toHaveBeenCalledWith('/sell-in/compras/prefill', {
+      params: { pedido_compra_ids: [15, 16] },
+      paramsSerializer: { indexes: null },
+    });
+  });
+
   it('voids without a reason as an empty one', () => {
     sellInAPI.anular(5, '  ');
     expect(api.post).toHaveBeenCalledWith('/sell-in/compras/5/anular', { motivo: null });

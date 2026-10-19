@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { productosAPI } from '../../services/api';
 import { sellInAPI } from '../../services/sellInAPI';
@@ -19,6 +19,9 @@ const FORMULAS = [
   { value: 'manual', label: 'Manual' },
 ];
 
+// `PEDIDOS_MAX` in `backend/app/schemas/sell_in.py`.
+const PEDIDOS_MAX = 50;
+
 const buscarProductos = (search) =>
   productosAPI.listar({ search, page_size: 10 }).then(({ data }) =>
     (data?.productos ?? []).map((p) => ({ key: p.item_id, label: `${p.codigo} · ${p.descripcion}`, sub: p.marca, producto: p })),
@@ -34,19 +37,44 @@ const buscarProveedores = (search) =>
  * currency and FX rate, the items and quantities, the split formula, a
  * server preview, and save. Any change to what the split depends on drops the
  * preview, so what gets saved is always what was last seen.
+ *
+ * It may come from several Compras operations: each change of that set asks
+ * `GET /prefill` and fills what is empty or still holds an untouched prefill
+ * (supplier, receipt date, products); removing every operation clears what
+ * they filled. Typed products are replaced only after an inline confirmation,
+ * and the operations' currency is only offered, since a sell in keeps its own.
  */
 export default function SellInCreatePanel({ onCreated, onClose }) {
   const id = useId();
-  const [datos, setDatos] = useState({ fechaCompra: toLocalDateString(), fechaIngreso: '', cuentaDesde: 'compra', pedido: '', descripcion: '' });
+  const [datos, setDatos] = useState({ fechaCompra: toLocalDateString(), fechaIngreso: '', cuentaDesde: 'compra', descripcion: '' });
   const [proveedor, setProveedor] = useState(null);
   const [reparto, setReparto] = useState({ moneda: 'USD', montoTotal: '', tipoCambio: '', formula: 'proporcional' });
   const [lineas, setLineas] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
+  const [pedidoTexto, setPedidoTexto] = useState('');
+  // What the last prefill answered: its currency (offered) and products waiting for the user's go-ahead.
+  const [monedaOperaciones, setMonedaOperaciones] = useState(null);
+  const [lineasPendientes, setLineasPendientes] = useState(null);
+  const [prefillError, setPrefillError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   // Bumped on every change the split depends on: a preview answer carries the
   // version it was asked for, and one that arrives after an edit is dropped.
   const versionRef = useRef(0);
+  // Only the answer for the latest set of operations is applied.
+  const prefillRef = useRef(0);
+  // What is on screen as last rendered: a prefill answer decides on it, not on its request's closure.
+  const actualRef = useRef({ proveedor, fechaIngreso: datos.fechaIngreso, lineas });
+  useEffect(() => {
+    actualRef.current = { proveedor, fechaIngreso: datos.fechaIngreso, lineas };
+  }, [proveedor, datos.fechaIngreso, lineas]);
+  // Which fields hold what a prefill put there, untouched since: the next prefill (or none) may replace
+  // them. Once the user edits one it is theirs and is never overwritten silently.
+  const prefilladoRef = useRef({ proveedor: false, fechaIngreso: false, lineas: false });
+  const marcarPropio = (campo) => {
+    prefilladoRef.current[campo] = false;
+  };
 
   const setDato = (patch) => setDatos((prev) => ({ ...prev, ...patch }));
   const invalidar = () => {
@@ -58,11 +86,17 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
     setReparto((prev) => ({ ...prev, ...patch }));
     invalidar();
   };
+  const elegirProveedor = (valor) => {
+    marcarPropio('proveedor');
+    setProveedor(valor);
+  };
   const setLinea = (itemId, patch) => {
+    marcarPropio('lineas');
     setLineas((prev) => prev.map((l) => (l.item_id === itemId ? { ...l, ...patch } : l)));
     invalidar();
   };
   const agregarProducto = ({ producto }) => {
+    marcarPropio('lineas');
     setLineas((prev) =>
       prev.some((l) => l.item_id === producto.item_id)
         ? prev
@@ -71,7 +105,78 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
     invalidar();
   };
   const quitarLinea = (itemId) => {
+    marcarPropio('lineas');
     setLineas((prev) => prev.filter((l) => l.item_id !== itemId));
+    invalidar();
+  };
+
+  const pedirPrefill = async (ids) => {
+    const token = ++prefillRef.current;
+    setPrefillError(null);
+    setLineasPendientes(null);
+    setMonedaOperaciones(null);
+    if (ids.length === 0) {
+      aplicarPrefill({ proveedor: null, fechaIngreso: '', lineas: [] });
+      return;
+    }
+    try {
+      const { data } = await sellInAPI.prefill(ids);
+      if (token !== prefillRef.current) return;
+      setMonedaOperaciones(data.moneda);
+      aplicarPrefill({
+        proveedor: { id: data.proveedor_id, nombre: data.proveedor_nombre ?? `Proveedor #${data.proveedor_id}` },
+        fechaIngreso: data.fecha_ingreso ?? '',
+        lineas: data.items.map((item) => ({
+          item_id: item.item_id,
+          codigo: item.codigo ?? '',
+          descripcion: item.descripcion ?? '',
+          cantidad: String(item.cantidad),
+          montoManual: '',
+        })),
+      });
+    } catch (err) {
+      if (token === prefillRef.current) setPrefillError(apiMessage(err, 'No se pudieron leer las operaciones.'));
+    }
+  };
+  /**
+   * Puts what the operations say (empty values when there are none left) into every field that is
+   * empty or still holds an untouched prefill. Lines the user edited are only offered for replacing.
+   */
+  const aplicarPrefill = (valores) => {
+    const actual = actualRef.current;
+    const prefillado = prefilladoRef.current;
+    if (!actual.proveedor || prefillado.proveedor) {
+      setProveedor(valores.proveedor);
+      prefillado.proveedor = valores.proveedor !== null;
+    }
+    if (!actual.fechaIngreso || prefillado.fechaIngreso) {
+      setDato({ fechaIngreso: valores.fechaIngreso });
+      prefillado.fechaIngreso = valores.fechaIngreso !== '';
+    }
+    if (actual.lineas.length === 0 || prefillado.lineas) {
+      if (actual.lineas.length > 0 || valores.lineas.length > 0) {
+        setLineas(valores.lineas);
+        invalidar();
+      }
+      prefillado.lineas = valores.lineas.length > 0;
+    } else if (valores.lineas.length > 0) {
+      setLineasPendientes(valores.lineas);
+    }
+  };
+  const cambiarPedidos = (ids) => {
+    setPedidos(ids);
+    pedirPrefill(ids);
+  };
+  const agregarPedido = () => {
+    const numero = Number(pedidoTexto);
+    setPedidoTexto('');
+    if (!Number.isInteger(numero) || numero < 1 || pedidos.includes(numero) || pedidos.length >= PEDIDOS_MAX) return;
+    cambiarPedidos([...pedidos, numero]);
+  };
+  const reemplazarLineas = () => {
+    setLineas(lineasPendientes);
+    setLineasPendientes(null);
+    prefilladoRef.current.lineas = true;
     invalidar();
   };
 
@@ -130,7 +235,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
         fecha_ingreso: datos.fechaIngreso || null,
         cuenta_desde: datos.cuentaDesde,
         proveedor_id: proveedor?.id ?? null,
-        pedido_compra_id: datos.pedido ? Number(datos.pedido) : null,
+        pedido_compra_ids: pedidos,
         descripcion: datos.descripcion.trim() || null,
       });
       onCreated(data);
@@ -162,7 +267,10 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
             </label>
             <label className={styles.field} htmlFor={`${id}-fi`}>
               <span className={styles.label}>Fecha de ingreso</span>
-              <input id={`${id}-fi`} type="date" className={styles.input} value={datos.fechaIngreso} onChange={(e) => setDato({ fechaIngreso: e.target.value })} />
+              <input id={`${id}-fi`} type="date" className={styles.input} value={datos.fechaIngreso} onChange={(e) => {
+                  marcarPropio('fechaIngreso');
+                  setDato({ fechaIngreso: e.target.value });
+                }} />
             </label>
             <label className={styles.field} htmlFor={`${id}-cd`}>
               <span className={styles.label}>Cuenta desde</span>
@@ -171,11 +279,53 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
                 <option value="ingreso">Fecha de ingreso</option>
               </select>
             </label>
-            <label className={styles.field} htmlFor={`${id}-pc`}>
-              <span className={styles.label}>Pedido de compra (N°)</span>
-              <input id={`${id}-pc`} type="number" min="1" className={styles.input} value={datos.pedido} onChange={(e) => setDato({ pedido: e.target.value })} />
-            </label>
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor={`${id}-pc`}>
+                Pedido de compra (N°)
+              </label>
+              <div className={styles.inline}>
+                <input
+                  id={`${id}-pc`}
+                  type="number"
+                  min="1"
+                  className={styles.input}
+                  value={pedidoTexto}
+                  onChange={(e) => setPedidoTexto(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      agregarPedido();
+                    }
+                  }}
+                />
+                <button type="button" className="btn-tesla outline sm" onClick={agregarPedido} disabled={!pedidoTexto || pedidos.length >= PEDIDOS_MAX}>
+                  Agregar operación
+                </button>
+              </div>
+            </div>
           </div>
+          {pedidos.length > 0 && (
+            <ul className={styles.chips} aria-label="Operaciones de compra">
+              {pedidos.map((numero) => (
+                <li key={numero} className={styles.chip}>
+                  <span>N° {numero}</span>
+                  <button
+                    type="button"
+                    className={styles.close}
+                    aria-label={`Quitar operación ${numero}`}
+                    onClick={() => cambiarPedidos(pedidos.filter((n) => n !== numero))}
+                  >
+                    <X size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {prefillError && (
+            <p className={styles.error} role="alert">
+              {prefillError}
+            </p>
+          )}
           <label className={styles.field} htmlFor={`${id}-ds`}>
             <span className={styles.label}>Descripción</span>
             <input id={`${id}-ds`} type="text" className={styles.input} value={datos.descripcion} onChange={(e) => setDato({ descripcion: e.target.value })} />
@@ -184,7 +334,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
             <div className={styles.chosen}>
               <span className={styles.label}>Proveedor</span>
               <span>{proveedor.nombre}</span>
-              <button type="button" className={styles.close} aria-label="Quitar proveedor" onClick={() => setProveedor(null)}>
+              <button type="button" className={styles.close} aria-label="Quitar proveedor" onClick={() => elegirProveedor(null)}>
                 <X size={14} />
               </button>
             </div>
@@ -193,7 +343,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
               label="Proveedor"
               placeholder="Buscar proveedor (opcional)…"
               buscar={buscarProveedores}
-              onPick={(opcion) => setProveedor(opcion.proveedor)}
+              onPick={(opcion) => elegirProveedor(opcion.proveedor)}
               errorMessage="No se pudieron buscar proveedores."
             />
           )}
@@ -209,6 +359,14 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
             <div className={styles.field}>
               <span className={styles.label}>Moneda</span>
               <SegmentedControl label="Moneda" options={MONEDAS} value={moneda} onChange={(value) => setRepartoCampo({ moneda: value })} />
+              {monedaOperaciones && monedaOperaciones !== moneda && (
+                <p className={styles.hint}>
+                  Las operaciones están en {monedaOperaciones}.{' '}
+                  <button type="button" className={styles.linkButton} onClick={() => setRepartoCampo({ moneda: monedaOperaciones })}>
+                    Usar {monedaOperaciones}
+                  </button>
+                </p>
+              )}
             </div>
           </div>
           <label className={styles.field} htmlFor={`${id}-tc`}>
@@ -228,6 +386,19 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
 
         <section className={styles.section}>
           <h3>Productos</h3>
+          {lineasPendientes && (
+            <div className={styles.confirm}>
+              <p className={styles.hint}>Ya hay productos cargados. ¿Reemplazarlos por los de las operaciones?</p>
+              <div className={styles.confirmActions}>
+                <button type="button" className="btn-tesla outline sm" onClick={() => setLineasPendientes(null)}>
+                  Mantener los actuales
+                </button>
+                <button type="button" className="btn-tesla primary sm" onClick={reemplazarLineas}>
+                  Reemplazar productos
+                </button>
+              </div>
+            </div>
+          )}
           <SellInBuscador label="Agregar producto" placeholder="Buscar por código o descripción…" buscar={buscarProductos} onPick={agregarProducto} errorMessage="No se pudieron buscar productos." />
           {lineas.map((l) => (
             <div key={l.item_id} className={styles.linea}>
