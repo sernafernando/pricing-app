@@ -322,12 +322,9 @@ def _guardar(
     return compra, items
 
 
-def _sincronizar_pedidos(db: Session, compra: SellInCompra, ids: Optional[list[int]] = None) -> None:
-    """Makes the purchase's link rows (`SellInCompraPedido`) match `ids`, or, without them, the
-    `pedido_compra_id` column (one row when it is set, none when it is not). Flushes, so a repeat
-    call sees its own rows even with autoflush off."""
-    if ids is None:
-        ids = [compra.pedido_compra_id] if compra.pedido_compra_id is not None else []
+def _sincronizar_pedidos(db: Session, compra: SellInCompra, ids: list[int]) -> None:
+    """Makes the purchase's link rows (`SellInCompraPedido`) match `ids`: missing ones added, others
+    removed. Flushes, so a repeat call sees its own rows even with autoflush off."""
     deseados = set(ids)
     existentes = db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == compra.id).all()
     for link in existentes:

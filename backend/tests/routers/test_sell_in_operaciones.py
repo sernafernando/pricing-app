@@ -18,6 +18,8 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraPedido
+from app.schemas.sell_in import PEDIDOS_MAX
+from app.services.sell_in import compras as compras_service
 
 BASE = "/api/sell-in/compras"
 
@@ -178,6 +180,29 @@ def test_a_sell_in_keeps_its_own_currency_over_the_operations_one(
     assert resp.status_code == 201, resp.text
     assert resp.json()["moneda"] == "ARS"
     assert _links(db, resp.json()["id"]) == sorted([p1.id, p2.id])
+
+
+def test_a_second_sync_with_the_same_operations_keeps_every_link(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    data = client.post(BASE, json=_body(pedido_compra_ids=[p1.id, p2.id]), headers=gestor).json()
+    compra = db.get(SellInCompra, data["id"])
+
+    with db.no_autoflush:
+        compras_service._sincronizar_pedidos(db, compra, [p1.id, p2.id])
+    db.flush()
+
+    assert _links(db, compra.id) == sorted([p1.id, p2.id])
+
+
+def test_too_many_operations_is_refused_by_the_schema(client, gestor, productos, db):
+    resp = client.post(BASE, json=_body(pedido_compra_ids=list(range(1, PEDIDOS_MAX + 2))), headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    assert "pedido_compra_ids" in resp.text
+    assert "no existe" not in resp.text
+    assert db.query(SellInCompra).count() == 0
 
 
 def _rechazos(proveedores, nuevo_pedido):
