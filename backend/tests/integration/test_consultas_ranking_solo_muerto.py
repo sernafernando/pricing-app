@@ -20,10 +20,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
+from app.models.rol import Rol
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from tests.integration.combos_mock import con_chequeo_de_combos, es_chequeo_de_combos
-from app.models.rol import Rol
-
 
 # ---------------------------------------------------------------------------
 # Shared patch helpers
@@ -166,9 +165,10 @@ class TestRankingSoloMuerto:
     """solo_muerto filter on GET /ranking."""
 
     def _client_with_mock(self, mock_db: MagicMock):
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         def _override_get_db():
             yield mock_db
@@ -299,9 +299,10 @@ class TestKpisSoloMuerto:
     """solo_muerto filter on GET /ranking/kpis."""
 
     def _client_with_mock(self, mock_db: MagicMock):
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         def _override_get_db():
             yield mock_db
@@ -377,9 +378,10 @@ class TestResumenSoloMuerto:
     """solo_muerto filter on GET /ranking/resumen."""
 
     def _client_with_mock(self, mock_db: MagicMock):
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         def _override_get_db():
             yield mock_db

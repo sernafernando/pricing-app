@@ -22,10 +22,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
+from app.models.rol import Rol
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from tests.integration.combos_mock import con_chequeo_de_combos
-from app.models.rol import Rol
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -758,9 +757,10 @@ class TestRankingDualCurrencyShape:
 
     def test_response_has_valor_costo_ars_and_usd(self, user_con_permiso) -> None:
         """Each item row exposes valor_costo_ars and valor_costo_usd, not valor_costo."""
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         mock_db = self._make_mock_db_with_rows()
 

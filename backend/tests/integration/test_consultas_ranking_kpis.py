@@ -19,10 +19,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
+from app.models.rol import Rol
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from tests.integration.combos_mock import con_chequeo_de_combos
-from app.models.rol import Rol
-
 
 # ---------------------------------------------------------------------------
 # Fixtures (shared with test_consultas_ranking.py pattern)
@@ -131,9 +130,10 @@ def _make_kpis_mock_db_session() -> MagicMock:
 @pytest.fixture()
 def client_with_mock_db_kpis(user_con_permiso_kpis):
     """TestClient with a mock DB session for the /kpis endpoint."""
+    from starlette.testclient import TestClient
+
     from app.core.database import get_async_db, get_db
     from app.main import app
-    from starlette.testclient import TestClient
 
     mock_db = _make_kpis_mock_db_session()
 
@@ -244,10 +244,11 @@ class TestKpis200:
         sentinel (99999999). Without this, those virtual items inflate capital to
         ~$28B USD (prod incident 2026-06-01). Inspect the executed SQL directly,
         since the mock DB does not run LATERAL/ANY."""
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
         from app.routers.consultas import STOCK_SENTINEL
-        from starlette.testclient import TestClient
 
         mock_db = _make_kpis_mock_db_session()
 
@@ -283,9 +284,10 @@ class TestKpis200:
 
     def test_kpis_nullable_fields_accept_none(self, user_con_permiso_kpis) -> None:
         """Nullable KPI fields (capital_*) can be null when no monetary data exists."""
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         null_row = MagicMock()
         null_row.total_productos = 0

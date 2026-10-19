@@ -459,7 +459,9 @@ def obtener_componentes_para_prearmado(
     `incluye_windows` ('home' | 'pro' | None). Win11 NO se agrega como componente:
     se maneja como info derivada en el FE.
     """
-    combo: Optional[TBItem] = db.query(TBItem).filter(TBItem.item_id == combo_item_id).first()
+    combo: Optional[TBItem] = (
+        db.query(TBItem).filter(TBItem.item_id == combo_item_id, TBItem.comp_id == COMP_ID_BOM).first()
+    )
     if not combo:
         raise HTTPException(status_code=404, detail="Item no encontrado")
 
@@ -488,7 +490,7 @@ def obtener_componentes_para_prearmado(
             ORDER BY cc.componente_item_id
             """
             ),
-            {"combo_id": combo_item_id, "comp_id": combo.comp_id},
+            {"combo_id": combo_item_id, "comp_id": COMP_ID_BOM},
         )
         .mappings()
         .all()
@@ -538,7 +540,9 @@ def crear_prearmado(
     current_user: Usuario = Depends(require_permiso(PERMISO)),
 ) -> PrearmadoDetail:
     """Crea cabecera de prearmado para un combo existente."""
-    combo: Optional[TBItem] = db.query(TBItem).filter(TBItem.item_id == body.combo_item_id).first()
+    combo: Optional[TBItem] = (
+        db.query(TBItem).filter(TBItem.item_id == body.combo_item_id, TBItem.comp_id == COMP_ID_BOM).first()
+    )
     if not combo:
         raise HTTPException(status_code=404, detail="Item del combo no encontrado")
 

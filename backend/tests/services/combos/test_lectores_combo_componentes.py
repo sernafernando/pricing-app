@@ -108,6 +108,29 @@ class TestPrearmadoComponentes:
             prearmado_router.obtener_componentes_para_prearmado(SOLO_ESPEJO, db=bom)
         assert exc.value.status_code == 400
 
+    def test_reads_combo_and_components_from_the_bom_company(self, db) -> None:
+        # The same item ids under another company, inserted first so an unscoped
+        # lookup would pick them.
+        for item_id in (COMBO, 500, 600):
+            db.add(TBItem(comp_id=2, item_id=item_id, item_code=f"OTRA-{item_id}", item_desc="otra empresa"))
+        db.flush()
+        for item_id, code in [(COMBO, "NB-COMBO-WH"), (500, "DISCO"), (600, "RAM")]:
+            db.add(
+                TBItem(comp_id=1, item_id=item_id, item_code=code, item_desc=f"desc {code}", item_expser=item_id != 600)
+            )
+        db.add_all(
+            [
+                ComboComponente(combo_item_id=COMBO, componente_item_id=500, cantidad=Decimal("2")),
+                ComboComponente(combo_item_id=COMBO, componente_item_id=600, cantidad=Decimal("1")),
+            ]
+        )
+        db.flush()
+
+        out = prearmado_router.obtener_componentes_para_prearmado(COMBO, db=db)
+
+        assert [c.item_code for c in out.componentes] == ["DISCO", "RAM"]
+        assert out.incluye_windows == "home"
+
 
 class TestCrearPrearmado:
     @pytest.fixture()
