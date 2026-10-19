@@ -5,7 +5,9 @@ six enrolls of MLA1610390994 in C-MLA1669550 and the promo never started. Nobody
 
 `confirm_recent_writes(mla)` is called by the `promo_refresh_pending` drain right after a successful refresh, when
 the mirror is fresh. It stamps `payload.confirmation = {status, mirror_status, checked_at}` on the latest recent
-`ml_write_log` row per promotion. Best effort: it never raises.
+`ml_write_log` row per promotion. Only `applied` is final: a `not_applied` stamp is re-checked by later passes while
+the write is inside `CONFIRM_WINDOW`, because `created_at` is the transaction start and a write can fall under the
+read bound while still missing from the snapshot. Best effort: it never raises.
 
 The rule itself is `write_took_effect` in `ml_promotions_write_service`, shared with the ambiguous-write
 reconciliation. No migration: the confirmation lives in the existing `payload` JSONB.
@@ -39,7 +41,7 @@ NOT_APPLIED = "not_applied"
 # write has no row and is out of scope here (its own reconciliation already reported it as such).
 _LATEST_UNCONFIRMED_SQL = text(
     """
-    SELECT DISTINCT ON (target_id) id, action, target_id, (payload -> 'confirmation') IS NOT NULL AS confirmed
+    SELECT DISTINCT ON (target_id) id, action, target_id, payload -> 'confirmation' ->> 'status' AS status
     FROM ml_write_log
     WHERE mla = :mla AND resource = :resource AND target_id IS NOT NULL
       AND created_at >= :since AND created_at <= :until
@@ -47,13 +49,20 @@ _LATEST_UNCONFIRMED_SQL = text(
     """
 )
 
-# Merges the key into the existing payload. The `IS NULL` guard keeps a confirmation written by an overlapping
-# drain pass: the first one wins, nothing is overwritten.
+# Merges the key into the existing payload and returns the status it replaced (NULL when unstamped). Only
+# `applied` is final: the guard lets a pass overwrite an unstamped or `not_applied` row and never an `applied` one,
+# so two overlapping passes never downgrade it. The CTE locks the row and reads its current stamp after any
+# concurrent update, which makes the returned status the one actually replaced.
 _SET_CONFIRMATION_SQL = text(
     """
-    UPDATE ml_write_log
-    SET payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{confirmation}', CAST(:confirmation AS jsonb))
-    WHERE id = :id AND (payload -> 'confirmation') IS NULL
+    WITH prev AS (
+        SELECT id, payload -> 'confirmation' ->> 'status' AS status FROM ml_write_log WHERE id = :id FOR UPDATE
+    )
+    UPDATE ml_write_log w
+    SET payload = jsonb_set(COALESCE(w.payload, '{}'::jsonb), '{confirmation}', CAST(:confirmation AS jsonb))
+    FROM prev
+    WHERE w.id = prev.id AND prev.status IS DISTINCT FROM 'applied'
+    RETURNING prev.status
     """
 )
 
@@ -80,23 +89,25 @@ def confirmation_for(action: str, mirror_status: Optional[str], checked_at: date
 
 
 def _pending(sessions: Callable[[], Any], mla: str, since: datetime, until: datetime) -> List[Any]:
-    """The latest write per promotion made in [since, until], kept only when it has no confirmation yet."""
+    """The latest write per promotion made in [since, until], kept unless it is already confirmed `applied`."""
     with sessions() as db:
         rows = db.execute(
             _LATEST_UNCONFIRMED_SQL,
             {"mla": mla, "resource": RESOURCE_PROMOTION, "since": since, "until": until},
         ).all()
-    return [row for row in rows if not row.confirmed]
+    return [row for row in rows if row.status != APPLIED]
 
 
 def confirm_recent_writes(mla: str, *, session_factory: Optional[Callable[[], Any]] = None) -> int:
-    """Stamp a confirmation on the latest unconfirmed write per promotion of `mla` from the last `CONFIRM_WINDOW`.
+    """Stamp a confirmation on the latest write per promotion of `mla` from the last `CONFIRM_WINDOW`, unless it
+    is already `applied`.
 
-    Only writes made up to the mirror read are stamped: a later one is not reflected in that snapshot, and since
-    the first stamp wins, stamping it now would record "not applied" for good. It stays unstamped and a later
-    pass confirms it (the write re-queued the MLA for the drain).
+    Only writes made up to the mirror read are stamped: a later one is not reflected in that snapshot. It stays
+    unstamped and a later pass confirms it (the write re-queued the MLA for the drain). A `not_applied` stamp is
+    provisional and is re-checked here; `applied` is final. The "not applied by ML" warning is logged once, when an
+    unstamped write is first stamped `not_applied`.
 
-    Returns how many rows were stamped. Never raises: a failure is logged and returns 0, and the drain that
+    Returns how many rows changed status (unstamped to a status, or `not_applied` to `applied`). Never raises: a failure is logged and returns 0, and the drain that
     calls it settles and counts exactly as without it. Short sessions, none open during the mirror read."""
     sessions = session_factory or get_background_db
     try:
@@ -113,8 +124,12 @@ def confirm_recent_writes(mla: str, *, session_factory: Optional[Callable[[], An
         with sessions() as db:
             for row in pending:
                 value = confirmation_for(row.action, statuses.get(row.target_id), checked_at)
-                stamped += db.execute(_SET_CONFIRMATION_SQL, {"id": row.id, "confirmation": json.dumps(value)}).rowcount
-                if value["status"] == NOT_APPLIED:
+                replaced = db.execute(_SET_CONFIRMATION_SQL, {"id": row.id, "confirmation": json.dumps(value)}).first()
+                if replaced is None:  # already `applied`, by an overlapping pass: final, left alone
+                    continue
+                if replaced.status != value["status"]:
+                    stamped += 1
+                if replaced.status is None and value["status"] == NOT_APPLIED:
                     logger.warning(
                         "promo write not applied by ML: mla=%s action=%s promotion_id=%s mirror_status=%s",
                         mla,

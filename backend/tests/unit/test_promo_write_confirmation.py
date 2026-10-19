@@ -8,6 +8,7 @@ The mirror read (`fetch_item_promotions`) is the only thing mocked.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -115,6 +116,9 @@ def _payload(engine: Engine, row_id: int) -> dict:
         return conn.execute(text("SELECT payload FROM ml_write_log WHERE id = :i"), {"i": row_id}).scalar_one()
 
 
+_NOT = {"status": "not_applied", "mirror_status": "candidate", "checked_at": "2026-10-19T12:00:00+00:00"}
+
+
 def _mirror(**statuses: str) -> list[dict]:
     return [{"mla": MLA, "promotion_id": pid.replace("_", "-"), "status": st} for pid, st in statuses.items()]
 
@@ -219,6 +223,83 @@ class TestConfirmRecentWrites:
             assert confirmation.confirm_recent_writes(MLA) == 0
 
         assert "confirmation" not in _payload(pg, later)
+
+    @pytest.mark.parametrize("now_status", ["started", "pending"])
+    def test_a_not_applied_write_is_rechecked_and_becomes_applied(self, pg, now_status) -> None:
+        # `created_at` is the transaction start, so a write can sit under the read bound and still be missing from
+        # the snapshot: a `not_applied` stamp is only provisional while the write is in the window.
+        row = _log(pg, "enroll", ago=timedelta(minutes=2), payload={"outcome": "submitted", "confirmation": _NOT})
+
+        with mock.patch.object(confirmation, "fetch_item_promotions", return_value=_mirror(C_MLA1669550=now_status)):
+            assert confirmation.confirm_recent_writes(MLA) == 1
+
+        payload = _payload(pg, row)
+        assert payload["confirmation"]["status"] == "applied"
+        assert payload["confirmation"]["mirror_status"] == now_status
+        assert payload["outcome"] == "submitted"
+
+    def test_an_applied_write_is_never_downgraded_by_an_overlapping_pass(self, pg) -> None:
+        # This pass selects the row while it is still `not_applied` and reads `candidate`; another pass stamps it
+        # `applied` between this pass's select and its update. The update guard must keep `applied`.
+        row = _log(pg, "enroll", ago=timedelta(minutes=2), payload={"confirmation": _NOT})
+        real_pending = confirmation._pending
+        calls = 0
+
+        def pending_then_overlap(*args):
+            nonlocal calls
+            calls += 1
+            rows = real_pending(*args)
+            if calls == 2:  # the re-select right before the update
+                with pg.begin() as conn:
+                    conn.execute(
+                        text("UPDATE ml_write_log SET payload = CAST(:p AS jsonb) WHERE id = :i"),
+                        {
+                            "p": json.dumps({"confirmation": {"status": "applied", "mirror_status": "started"}}),
+                            "i": row,
+                        },
+                    )
+            return rows
+
+        with (
+            mock.patch.object(confirmation, "_pending", side_effect=pending_then_overlap),
+            mock.patch.object(confirmation, "fetch_item_promotions", return_value=_mirror(C_MLA1669550="candidate")),
+        ):
+            assert confirmation.confirm_recent_writes(MLA) == 0
+
+        assert calls == 2
+        assert _payload(pg, row)["confirmation"] == {"status": "applied", "mirror_status": "started"}
+
+    def test_an_applied_write_is_not_rechecked(self, pg) -> None:
+        row = _log(pg, "enroll", ago=timedelta(minutes=2), payload={"confirmation": {"status": "applied"}})
+
+        with mock.patch.object(confirmation, "fetch_item_promotions") as mirror:
+            assert confirmation.confirm_recent_writes(MLA) == 0
+
+        mirror.assert_not_called()
+        assert _payload(pg, row)["confirmation"] == {"status": "applied"}
+
+    def test_a_recheck_that_stays_not_applied_does_not_warn_again_nor_count(self, pg, caplog) -> None:
+        row = _log(pg, "enroll", ago=timedelta(minutes=2), payload={"confirmation": _NOT})
+
+        with (
+            mock.patch.object(confirmation, "fetch_item_promotions", return_value=_mirror(C_MLA1669550="candidate")),
+            caplog.at_level(logging.WARNING),
+        ):
+            assert confirmation.confirm_recent_writes(MLA) == 0
+
+        assert "not applied by ML" not in caplog.text
+        assert _payload(pg, row)["confirmation"]["status"] == "not_applied"
+
+    def test_the_first_not_applied_stamp_warns_once(self, pg, caplog) -> None:
+        _log(pg, "enroll", ago=timedelta(minutes=2))
+
+        with (
+            mock.patch.object(confirmation, "fetch_item_promotions", return_value=_mirror(C_MLA1669550="candidate")),
+            caplog.at_level(logging.WARNING),
+        ):
+            assert confirmation.confirm_recent_writes(MLA) == 1
+
+        assert caplog.text.count("not applied by ML") == 1
 
     def test_a_failing_mirror_read_writes_nothing_and_does_not_raise(self, pg) -> None:
         row = _log(pg, "enroll", ago=timedelta(minutes=1))
