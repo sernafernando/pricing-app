@@ -129,7 +129,7 @@ class TestFlagsAreIndependent:
     def test_the_runtime_keeps_a_disabled_sweep_due_so_enabling_it_runs_it_on_the_next_pass(self, env) -> None:
         runtime = WorkerRuntime(registry=[handlers.sweep], direct_url=None)
         now = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
-        assert runtime._run_handler(handlers.sweep, now) is False
+        assert runtime._run_handler(handlers.sweep) is False
         row = sql_all(env, "SELECT * FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)[0]
         assert row["last_run_at"] is not None and row["last_success_at"] is None
         assert runtime._due_handlers(now + timedelta(seconds=10)) == [handlers.sweep]

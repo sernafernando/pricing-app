@@ -182,7 +182,7 @@ class TestDisabledOutcome:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime.now(timezone.utc)
 
-        assert runtime._run_handler(handler, now) is False
+        assert runtime._run_handler(handler) is False
 
         row = sql_one(env, "SELECT * FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)
         assert row["last_run_at"] is not None
@@ -203,7 +203,7 @@ class TestDisabledOutcome:
         runtime = WorkerRuntime(registry=[stub], direct_url=None)
         after_the_slot = datetime(2026, 10, 6, 17, 0, tzinfo=timezone.utc)  # 14:00 Argentina
 
-        assert runtime._run_handler(stub, after_the_slot) is False
+        assert runtime._run_handler(stub) is False
 
         assert runtime._due_handlers(after_the_slot + timedelta(seconds=10)) == [stub]
 
@@ -614,7 +614,7 @@ class TestCounters:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         enqueue_items("MLA935110613")
 
-        assert runtime._run_handler(handler, datetime.now(timezone.utc)) is True
+        assert runtime._run_handler(handler) is True
 
         row = sql_one(env, "SELECT * FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)
         assert row["last_success_at"] is not None and row["detail"]["counters"]["endpoints"]["items_bulk"] == {"2xx": 1}

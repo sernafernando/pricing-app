@@ -185,7 +185,7 @@ class TestDisabledOutcome:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         after_the_slot = datetime(2026, 10, 6, 17, 0, tzinfo=timezone.utc)  # 14:00 Argentina
 
-        assert runtime._run_handler(handler, after_the_slot) is False
+        assert runtime._run_handler(handler) is False
 
         row = sql_one(env, "SELECT * FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)
         assert row["last_run_at"] is not None and row["last_success_at"] is None
@@ -236,8 +236,8 @@ class TestSustainedUpstreamErrors:
         now = datetime.now(timezone.utc)
 
         for _ in range(handlers.UPSTREAM_ERROR_STREAK - 1):
-            assert runtime._run_handler(handler, now) is False  # a failed run: retried on the next pass
-        assert runtime._run_handler(handler, now) is True  # the streak is over: blocked, not retried
+            assert runtime._run_handler(handler) is False  # a failed run: retried on the next pass
+        assert runtime._run_handler(handler) is True  # the streak is over: blocked, not retried
 
         assert detail_of(env)["blocked"] == "upstream_error" and detail_of(env)["complete"] is True
         assert runtime._due_handlers(now + timedelta(seconds=31)) == []
@@ -316,7 +316,7 @@ class TestBlockedBySetup:
         handler = make_handler(NoCallTransport())
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime.now(timezone.utc)
-        assert runtime._run_handler(handler, now) is True
+        assert runtime._run_handler(handler) is True
         return handler, runtime, now
 
     @pytest.mark.parametrize("break_seller", [True, False])
@@ -334,7 +334,7 @@ class TestBlockedBySetup:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime.now(timezone.utc)
 
-        assert runtime._run_handler(handler, now) is True
+        assert runtime._run_handler(handler) is True
 
         assert detail_of(env)["blocked"] == "unauthorized" and detail_of(env)["complete"] is True
         assert runtime._due_handlers(now + timedelta(seconds=31)) == []
@@ -354,7 +354,7 @@ class TestBlockedBySetup:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime.now(timezone.utc)
 
-        assert runtime._run_handler(handler, now) is True
+        assert runtime._run_handler(handler) is True
 
         assert runtime._due_handlers(now + timedelta(seconds=31)) == []
 
@@ -389,7 +389,7 @@ class TestRun:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         after_the_slot = datetime.now(timezone.utc)
 
-        assert runtime._run_handler(handler, after_the_slot) is True
+        assert runtime._run_handler(handler) is True
 
         detail = detail_of(env)
         assert detail["complete"] is True and detail["mode"] == "full"  # empty store -> backfill
@@ -409,7 +409,7 @@ class TestRun:
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
         now = datetime.now(timezone.utc)
 
-        assert runtime._run_handler(handler, now) is True  # the pause is not a failure
+        assert runtime._run_handler(handler) is True  # the pause is not a failure
 
         assert detail_of(env)["complete"] is False and detail_of(env)["stopped"] == "disabled"
         assert runtime._due_handlers(now + timedelta(seconds=10)) == []
@@ -501,7 +501,7 @@ class TestRunRecords:
         handler = make_handler(NoCallTransport())
         runtime = WorkerRuntime(registry=[handler], direct_url=None)
 
-        assert runtime._run_handler(handler, datetime.now(timezone.utc)) is False  # no exception escapes
+        assert runtime._run_handler(handler) is False  # no exception escapes
 
         row = sql_one(env, "SELECT outcome, last_error FROM ml_pub_job_runs")
         assert row["outcome"] == "error" and "RuntimeError: boom" in row["last_error"]

@@ -21,19 +21,20 @@ Loop (design D4 steps 1-5):
 
 from __future__ import annotations
 
+import json
 import logging
 import select
 import sys
 import threading
 import time as time_module
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.workers.context import WorkerContext
+from app.workers.context import JobResult, WorkerContext
 from app.workers.heartbeat import HeartbeatThread
 from app.workers.registry import REGISTRY, JobHandler
 from app.workers.scheduling import is_due
@@ -45,6 +46,11 @@ DEFAULT_DEBOUNCE_SECONDS = 0.05
 DEFAULT_RECONNECT_BACKOFF_SECONDS = 1.0
 MAX_RECONNECT_BACKOFF_SECONDS = 30.0
 DEFAULT_HANDLER_DEADLINE_SECONDS = 30.0
+# `JobResult.detail` larger than this (serialized) is stored as its key count and first keys only:
+# `detail.last_result` is a diagnostic breadcrumb, not a second copy of a handler's summary.
+MAX_LAST_RESULT_DETAIL_CHARS = 4096
+MAX_LAST_RESULT_KEYS = 100
+MAX_LAST_RESULT_KEY_CHARS = 30
 
 # systemd `Restart=always` treats this as a normal supervised restart, not a
 # crash loop (design D4 step 5 "Thread death detection").
@@ -60,6 +66,7 @@ class WorkerRuntime:
         debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
         direct_url: Optional[str] = None,
         heartbeat_interval: Optional[float] = None,
+        clock: Optional[Callable[[], datetime]] = None,
     ) -> None:
         self.registry: List[JobHandler] = list(registry if registry is not None else REGISTRY)
         self.worker_name = worker_name
@@ -71,6 +78,8 @@ class WorkerRuntime:
         self.heartbeat: Optional[HeartbeatThread] = None
         self._held_tokens: set = set()
         self._draining = False
+        # Injectable for tests; every handler's deadline is read from it when that handler STARTS.
+        self._clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
 
     @property
     def listener_mode(self) -> str:
@@ -173,8 +182,13 @@ class WorkerRuntime:
                 {"name": handler_name},
             )
 
-    def _run_handler(self, handler: JobHandler, now: datetime) -> bool:
-        deadline = now + timedelta(seconds=DEFAULT_HANDLER_DEADLINE_SECONDS)
+    def _run_handler(self, handler: JobHandler) -> bool:
+        """Runs one handler with its OWN deadline, measured from the clock at
+        the moment it starts -- never from the drain pass's scheduling
+        instant: a pass used to share one deadline, so after a handler that
+        spent its whole budget every later handler started already expired
+        and "succeeded" with zero work (prod, 2026-10-19)."""
+        deadline = self._clock() + timedelta(seconds=DEFAULT_HANDLER_DEADLINE_SECONDS)
         ctx = WorkerContext(deadline=deadline, worker_name=self.worker_name, held_tokens=self._held_tokens)
         # PR3.T6a: `worker_job_state.detail.draining` and the heartbeat's
         # lease renewal both key off this flag while a claiming handler runs.
@@ -182,27 +196,64 @@ class WorkerRuntime:
         try:
             result = handler.run(ctx)
             success = result.success
-        except Exception:  # noqa: BLE001 -- one handler's bug must not kill the loop
+        except Exception as exc:  # noqa: BLE001 -- one handler's bug must not kill the loop
             logger.exception("job handler %s raised", handler.name)
+            result = JobResult(success=False, error=f"{type(exc).__name__}: {exc}")
             success = False
         finally:
             self._draining = False
-        self._record_job_run(handler.name, success)
+        self._record_job_run(handler.name, success, result)
         return success
 
-    def _record_job_run(self, handler_name: str, success: bool) -> None:
+    @staticmethod
+    def _last_result(result: Optional[JobResult], at: datetime) -> Dict[str, Any]:
+        """Compact, JSON-safe summary of one run for `detail.last_result`."""
+        raw: Any = result.detail if result is not None else None
+        try:
+            # Total by design: this runs OUTSIDE the handler's try/except, so a detail
+            # Postgres JSONB cannot store (NaN, non-string keys, cycles, deep nesting, non-mapping)
+            # must degrade to a marker instead of losing the run's bookkeeping.
+            detail: Any = dict(raw) if raw else {}
+            serialized = json.dumps(detail, default=str, allow_nan=False)
+            if len(serialized) > MAX_LAST_RESULT_DETAIL_CHARS:
+                keys = sorted(str(key)[:MAX_LAST_RESULT_KEY_CHARS] for key in detail)
+                detail = {"truncated": True, "key_count": len(keys), "keys": keys[:MAX_LAST_RESULT_KEYS]}
+            else:
+                detail = json.loads(serialized)
+        except (TypeError, ValueError, RecursionError) as exc:
+            detail = {"unserializable": True, "type": type(raw).__name__, "reason": str(exc)[:200]}
+        error = result.error if result is not None else None
+        return {
+            "at": at.isoformat(),
+            "success": bool(result.success) if result is not None else False,
+            "error": str(error)[:MAX_LAST_RESULT_DETAIL_CHARS] if error is not None else None,
+            "detail": detail,
+        }
+
+    def _record_job_run(self, handler_name: str, success: bool, result: Optional[JobResult] = None) -> None:
+        """Upserts `last_run_at`/`last_success_at` and, on Postgres, merges the
+        run's `JobResult` into `detail.last_result`. A merge (`detail ||
+        {last_result}`), never a replace: several handlers own their `detail`
+        (resume cursors, counters, `complete`), and this runs AFTER they wrote it."""
         now = datetime.now(timezone.utc)
         with get_background_db() as db:
             if db.get_bind().dialect.name == "postgresql":
+                from sqlalchemy import cast, func
+                from sqlalchemy.dialects.postgresql import JSONB
                 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
                 from app.models.worker_job_state import WorkerJobState
 
-                values = {"name": handler_name, "last_run_at": now}
+                last_result = {"last_result": self._last_result(result, now)}
+                values = {"name": handler_name, "last_run_at": now, "detail": last_result}
                 if success:
                     values["last_success_at"] = now
-                stmt = pg_insert(WorkerJobState.__table__).values(**values)
-                set_ = {"last_run_at": stmt.excluded.last_run_at}
+                table = WorkerJobState.__table__
+                stmt = pg_insert(table).values(**values)
+                set_ = {
+                    "last_run_at": stmt.excluded.last_run_at,
+                    "detail": func.coalesce(table.c.detail, cast({}, JSONB)).op("||")(stmt.excluded.detail),
+                }
                 if success:
                     set_["last_success_at"] = stmt.excluded.last_success_at
                 db.execute(stmt.on_conflict_do_update(index_elements=["name"], set_=set_))
@@ -222,10 +273,11 @@ class WorkerRuntime:
         """Runs every due scheduled handler, PLUS every channel-driven
         handler (design D4 step 2: on wake OR on the safety-poll timeout,
         the notify-driven `order_metrics.drain` runs unconditionally, not
-        on a schedule). PR2's registry is empty, so this stayed a no-op
+        on a schedule). `now` only decides what is due; each handler's
+        deadline comes from the clock when it starts (`_run_handler`). PR2's registry is empty, so this stayed a no-op
         idle pass until PR3 registers `order_metrics.drain`
         (`channels=("order_metrics_dirty",)`, no `interval`/`run_at_local`)."""
-        now = now or datetime.now(timezone.utc)
+        now = now or self._clock()
         due = self._due_handlers(now)
         channel_driven = [h for h in self.registry if h.channels and h.interval is None and h.run_at_local is None]
         requested = self._requested_handlers()
@@ -237,7 +289,7 @@ class WorkerRuntime:
                 seen.add(handler.name)
                 to_run.append(handler)
         for handler in to_run:
-            success = self._run_handler(handler, now)
+            success = self._run_handler(handler)
             # Only a successful run clears the on-demand request flag
             # (PR6 review fix J3) -- a raise or `success=False` leaves it
             # `'requested'` so the next drain pass retries it.
