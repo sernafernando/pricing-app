@@ -70,7 +70,7 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
         ['Monto total', formatMonto(compra.monto_total, compra.moneda)],
         ['Tipo de cambio', compra.tipo_cambio ? formatNumero(compra.tipo_cambio) : '—'],
         ['Reparto', FORMULA_LABELS[compra.formula] ?? compra.formula],
-        ['Pedido de compra', compra.pedido_compra_id ?? '—'],
+        ['Operaciones de compra', compra.pedido_compra_ids?.length ? compra.pedido_compra_ids.map((n) => `N° ${n}`).join(', ') : '—'],
         ['Unidades', `${formatEntero(compra.unidades_consumidas)} consumidas · ${formatEntero(compra.unidades_restantes)} restantes`],
       ]
     : [];

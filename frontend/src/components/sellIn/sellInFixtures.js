@@ -1,7 +1,8 @@
 /**
  * Test fixtures for the sell-in screen, shaped exactly like the backend's
  * Pydantic responses (`backend/app/schemas/sell_in.py`: `SellInCompraOut`,
- * `SellInCompraListOut`, `SellInCompraResumenOut`, `SellInPreviewOut`).
+ * `SellInCompraListOut`, `SellInCompraResumenOut`, `SellInPreviewOut`,
+ * `SellInPrefillOut`).
  * Decimals travel as strings, as Pydantic serialises them.
  *
  * The values come from the backend's own tests
@@ -15,6 +16,7 @@ export const COMPRA_ARS = {
   id: 1,
   proveedor_id: 7,
   pedido_compra_id: null,
+  pedido_compra_ids: [],
   fecha_compra: '2026-10-01',
   fecha_ingreso: null,
   cuenta_desde: 'compra',
@@ -130,3 +132,19 @@ export const PRODUCTOS = [
   { item_id: 4512, codigo: 'SW-8', descripcion: 'Switch 8 bocas', marca: 'TP-Link', moneda_costo: 'ARS', costo: 100 },
   { item_id: 4513, codigo: 'SW-16', descripcion: 'Switch 16 bocas', marca: 'Mercusys', moneda_costo: 'ARS', costo: 300 },
 ];
+
+/** A purchase linked to two Compras operations (`pedido_compra_id` mirrors the first one). */
+export const COMPRA_CON_OPERACIONES = { ...COMPRA_ARS, id: 4, pedido_compra_id: 15, pedido_compra_ids: [15, 16] };
+
+/** `GET /sell-in/compras/prefill` (`SellInPrefillOut`) for operations 15 and 16 of supplier 7. */
+export const PREFILL = {
+  pedido_compra_ids: [15, 16],
+  proveedor_id: 7,
+  proveedor_nombre: 'TP-Link',
+  moneda: 'USD',
+  fecha_ingreso: '2026-10-05',
+  items: [
+    { item_id: 4512, codigo: 'SW-8', descripcion: 'Switch 8 bocas', cantidad: 12 },
+    { item_id: 4513, codigo: 'SW-16', descripcion: 'Switch 16 bocas', cantidad: 4 },
+  ],
+};
