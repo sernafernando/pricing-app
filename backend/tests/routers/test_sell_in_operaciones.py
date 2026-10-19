@@ -196,6 +196,25 @@ def test_a_second_sync_with_the_same_operations_keeps_every_link(
     assert _links(db, compra.id) == sorted([p1.id, p2.id])
 
 
+def test_create_accepts_the_operations_own_supplier(client, gestor, productos, proveedores, nuevo_pedido):
+    p1 = nuevo_pedido(proveedores[0])
+
+    resp = client.post(BASE, json=_body(pedido_compra_ids=[p1.id], proveedor_id=proveedores[0].id), headers=gestor)
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["proveedor_id"] == proveedores[0].id
+
+
+def test_an_operation_only_in_the_column_still_shows(client, gestor, productos, proveedores, nuevo_pedido, db):
+    """Rows written before the link table's backfill, or straight to the column, keep their operation."""
+    p1 = nuevo_pedido(proveedores[0])
+    data = client.post(BASE, json=_body(pedido_compra_ids=[p1.id]), headers=gestor).json()
+    db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == data["id"]).delete()
+    db.flush()
+
+    assert client.get(f"{BASE}/{data['id']}", headers=gestor).json()["pedido_compra_ids"] == [p1.id]
+
+
 def test_too_many_operations_is_refused_by_the_schema(client, gestor, productos, db):
     resp = client.post(BASE, json=_body(pedido_compra_ids=list(range(1, PEDIDOS_MAX + 2))), headers=gestor)
 
