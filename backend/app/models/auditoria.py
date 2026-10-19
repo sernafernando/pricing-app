@@ -33,6 +33,10 @@ class TipoAccion(str, enum.Enum):
     # line's product, `compra_id` travels in the values). Same VARCHAR(50) column: no DDL.
     SELL_IN_COMPRA_CREADA = "sell_in_compra_creada"
     SELL_IN_COMPRA_ANULADA = "sell_in_compra_anulada"
+    # sell out: one row per campaign load, edit or void (`item_id` is NULL, `campana_id` travels in the values).
+    SELL_OUT_CAMPANA_CREADA = "sell_out_campana_creada"
+    SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"
+    SELL_OUT_CAMPANA_ANULADA = "sell_out_campana_anulada"
 
 
 class Auditoria(Base):
