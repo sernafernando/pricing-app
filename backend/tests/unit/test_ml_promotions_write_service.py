@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import datetime as _dt
+
 import pytest
 from sqlalchemy.dialects import postgresql
 
@@ -64,7 +66,7 @@ def _stub_publications_enqueue(request: pytest.FixtureRequest, monkeypatch: pyte
     never open a real DB session through `ml_pub_refresh_queue`."""
     if request.cls is not None and request.cls.__name__ == "TestPublicationsRefreshEnqueue":
         return
-    monkeypatch.setattr(write_service, "_enqueue_publications_refresh", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(write_service, "_enqueue_publications_refresh", lambda *a, **k: None)
 
 
 @pytest.fixture(autouse=True)
@@ -1849,9 +1851,18 @@ class TestPublicationsRefreshEnqueue:
     effort: an enqueue failure never changes the write response."""
 
     _QUEUE_ENQUEUE = "app.services.ml_publications.queue.enqueue"
+    _FROZEN_NOW = _dt.datetime(2026, 10, 19, 12, 0, 0, tzinfo=_dt.timezone.utc)
 
     @pytest.fixture(autouse=True)
     def _isolate_mirror_refresh(self, monkeypatch: pytest.MonkeyPatch):
+        frozen_now = self._FROZEN_NOW
+
+        class _FrozenDatetime(_dt.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen_now if tz is not None else frozen_now.replace(tzinfo=None)
+
+        monkeypatch.setattr(write_service, "datetime", _FrozenDatetime)
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
         monkeypatch.setattr(write_service, "_enqueue_refresh_retry", lambda *a, **k: None)
         monkeypatch.setattr(write_service.ml_webhook_client, "refresh_item_promotions", lambda *a, **k: True)
@@ -1881,10 +1892,8 @@ class TestPublicationsRefreshEnqueue:
         ):
             return write_service.remove_one_item("MLA123456789", "DEAL", "DEAL-1")
 
-    @staticmethod
-    def _assert_queued_once(mock_enqueue: MagicMock) -> None:
-        from datetime import datetime, timedelta, timezone
-
+    @classmethod
+    def _assert_queued_once(cls, mock_enqueue: MagicMock) -> None:
         from app.services.ml_publications import queue
 
         mock_enqueue.assert_called_once()
@@ -1898,9 +1907,7 @@ class TestPublicationsRefreshEnqueue:
         assert entry.lane == queue.LANE_MANUAL
         assert set(entry.resources) == {"promotions", "prices", "sale_price"}
         # Due ~60s later: ML often still reports `candidate` right after the write.
-        assert entry.not_before is not None
-        delay = entry.not_before - datetime.now(timezone.utc)
-        assert timedelta(seconds=50) < delay <= timedelta(seconds=60)
+        assert entry.not_before == cls._FROZEN_NOW + _dt.timedelta(seconds=write_service.REFRESH_RETRY_DELAY_SECONDS)
 
     def test_enroll_enqueues_publications_refresh(self) -> None:
         with patch(self._QUEUE_ENQUEUE, return_value=1) as mock_enqueue:
@@ -1948,3 +1955,20 @@ class TestPublicationsRefreshEnqueue:
             write_service._maybe_refresh_after_write("MLA123456789", {"status": "submitted"})
 
         mirror.assert_called_once_with("MLA123456789")
+
+    def test_enqueue_still_runs_when_retry_and_mirror_refresh_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Step (c) is independent of (a) and (b): both failing must neither skip
+        the Publicaciones ML enqueue nor change the write result."""
+        with patch(self._QUEUE_ENQUEUE, return_value=1):
+            ok = self._enroll()
+
+        def _boom(*a, **k):
+            raise RuntimeError("down")
+
+        monkeypatch.setattr(write_service, "_enqueue_refresh_retry", _boom)
+        monkeypatch.setattr(write_service.ml_webhook_client, "refresh_item_promotions", _boom)
+        with patch(self._QUEUE_ENQUEUE, return_value=1) as mock_enqueue:
+            failed = self._enroll()
+
+        self._assert_queued_once(mock_enqueue)
+        assert failed == ok

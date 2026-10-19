@@ -383,6 +383,7 @@ def _enqueue_publications_refresh(mla_id: str) -> None:
     no request session is held (ADR-5 / DB-pool-exhaustion pattern).
     """
     not_before = datetime.now(timezone.utc) + timedelta(seconds=REFRESH_RETRY_DELAY_SECONDS)
+    # An existing row with an earlier not_before keeps it, so this may read ML early; P2's drain re-refreshes the mirror 60s later and P3 confirms the applied state after the settle window, correcting it.
     ml_pub_queue.enqueue(
         [
             ml_pub_queue.EnqueueEntry(
