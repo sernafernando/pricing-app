@@ -41,7 +41,7 @@ SUPPLIER_FIELD_MAP = {
 # corriendo a la vez dejarían de excluirse.
 #
 # Convive con las claves ya en uso en el proyecto sin colisionar:
-#   84_217_001 → app/scripts/drain_promo_refresh.py
+#   84_217_001 → reservada (era app/scripts/drain_promo_refresh.py; el drain ya no usa advisory lock)
 #   84_217_002 → app/scripts/sync_publication_links.py
 #   84_217_003 → app/services/ml_publication_link_service.py
 #   84_217_005 → app/services/combos/store.py
