@@ -79,7 +79,7 @@ def test_a_lock_held_by_another_run_answers_409_without_recalculating(pg, he_loc
     assert calls == []
 
 
-def test_a_database_error_taking_the_lock_answers_503(pg, calls, monkeypatch) -> None:
+def test_a_database_error_taking_the_lock_answers_503_without_leaking_it(pg, calls, monkeypatch, caplog) -> None:
     with Session(bind=pg) as db:
 
         def broken_execute(*args, **kwargs):
@@ -90,5 +90,10 @@ def test_a_database_error_taking_the_lock_answers_503(pg, calls, monkeypatch) ->
             _recalcular(db)
 
     assert exc.value.status_code == 503
-    assert "lock" in exc.value.detail
+    # the client gets neutral copy; the database error only goes to the log
+    assert (
+        exc.value.detail
+        == "No se pudo verificar si hay otra detección de horas extras en curso. Intentá de nuevo en unos minutos."
+    )
+    assert "connection lost" in caplog.text
     assert calls == []

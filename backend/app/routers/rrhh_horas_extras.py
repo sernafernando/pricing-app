@@ -42,6 +42,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.logging import get_logger
 from app.models.rrhh_empleado import RRHHEmpleado
 from app.models.rrhh_horas_extras import (
     EstadoHE,
@@ -59,6 +60,7 @@ from app.services.rrhh_horas_extras_diario import DetectionLockUnavailable, try_
 from app.services.rrhh_horas_extras_service import HorasExtrasService
 
 router = APIRouter(prefix="/rrhh/horas-extras", tags=["rrhh-horas-extras"])
+logger = get_logger("routers.rrhh_horas_extras")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1189,7 +1191,12 @@ def recalcular_periodo(
     try:
         acquired = try_detection_lock(db)
     except DetectionLockUnavailable as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        # el error de base va solo al log; al cliente, un texto neutro
+        logger.error("/recalcular sin lock de detección HE: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo verificar si hay otra detección de horas extras en curso. Intentá de nuevo en unos minutos.",
+        ) from exc
     if not acquired:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

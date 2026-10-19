@@ -8,9 +8,10 @@ Days to process come from a cursor, `worker_job_state.detail.last_day_done` (mer
 never replacing it): every Argentina day from the cursor + 1 through yesterday, oldest first, at most
 `MAX_DAYS_PER_RUN` per run. The first run ever (no cursor yet, switch on) seeds the cursor at the day
 before yesterday in its own short transaction, so only yesterday runs and the cursor never starts a
-backfill on its own, yet a failed first day is still retried after midnight. The cursor advances in the same transaction as each day's detection, so a day that fails
-stays pending and is retried on the next run, even when that run lands after midnight. Then old read
-alerts are purged (`services.rrhh_horas_extras_diario`).
+backfill on its own, yet a failed first day is still retried after midnight. The cursor advances in
+the same transaction as each day's detection, so a day that fails stays pending and is retried on the
+next run, even when that run lands after midnight. Then old read alerts are purged
+(`services.rrhh_horas_extras_diario`).
 
 The worker runs its handlers one at a time, so two scheduled runs never overlap; each day still takes
 the shared HE detection advisory lock (`rrhh_horas_extras_diario.try_detection_lock`) so it never
