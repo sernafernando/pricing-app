@@ -1,6 +1,6 @@
 """P3: after the settle refresh, record whether ML actually applied our recent promo writes.
 
-The pure rule (`confirmation_for`, `warnings_from_latest_writes`) runs without a database. The queries (latest row
+The pure rule (`confirmation_for`) runs without a database. The queries (latest row
 per promotion, the jsonb update) are Postgres only: `DISTINCT ON` and `jsonb_set` have no SQLite equivalent.
 The mirror read (`fetch_item_promotions`) is the only thing mocked.
 """
@@ -50,77 +50,6 @@ class TestConfirmationFor:
         assert confirmation.confirmation_for("remove", None, NOW)["status"] == "applied"
 
 
-def _latest(action: str, promotion_id: str = PROMO, status: str | None = "not_applied", **kw) -> dict:
-    conf = None if status is None else {"status": status, "mirror_status": kw.pop("mirror_status", "candidate")}
-    return {
-        "promotion_id": promotion_id,
-        "action": action,
-        "created_at": kw.pop("created_at", NOW),
-        "usuario_id": kw.pop("usuario_id", 7),
-        "nombre": kw.pop("nombre", "Ana PM"),
-        "confirmation": conf,
-    }
-
-
-class TestWarningsFromLatestWrites:
-    def test_a_not_applied_enroll_on_a_shown_candidate_row_warns_on_that_row(self) -> None:
-        por_promo, sin_promo = confirmation.warnings_from_latest_writes([_latest("enroll")], {PROMO: "candidate"})
-
-        assert por_promo == {PROMO: {"accion": "enroll", "fecha": NOW, "usuario": "Ana PM"}}
-        assert sin_promo == []
-
-    def test_a_row_that_took_effect_since_the_check_does_not_warn(self) -> None:
-        # Confirmed not applied at the settle refresh, but ML enrolled it later: the current mirror wins.
-        por_promo, sin_promo = confirmation.warnings_from_latest_writes([_latest("enroll")], {PROMO: "started"})
-
-        assert por_promo == {}
-        assert sin_promo == []
-
-    def test_an_applied_or_unconfirmed_write_does_not_warn(self) -> None:
-        latest = [_latest("enroll", "A", status="applied"), _latest("enroll", "B", status=None)]
-
-        assert confirmation.warnings_from_latest_writes(latest, {"A": "candidate", "B": "candidate"}) == ({}, [])
-
-    def test_a_not_applied_enroll_missing_from_the_shown_rows_warns_at_panel_level(self) -> None:
-        por_promo, sin_promo = confirmation.warnings_from_latest_writes(
-            [_latest("enroll", mirror_status="finished")], {}
-        )
-
-        assert por_promo == {}
-        assert sin_promo == [
-            {
-                "promotion_id": PROMO,
-                "accion": "enroll",
-                "fecha": NOW,
-                "usuario": "Ana PM",
-                "estado_ml": "finished",
-            }
-        ]
-
-    def test_a_remove_missing_from_the_shown_rows_is_removed_now(self) -> None:
-        latest = [_latest("remove", mirror_status="started")]
-
-        assert confirmation.warnings_from_latest_writes(latest, {}) == ({}, [])
-
-    def test_a_not_applied_remove_still_started_warns_on_the_row(self) -> None:
-        por_promo, _ = confirmation.warnings_from_latest_writes(
-            [_latest("remove", mirror_status="started")], {PROMO: "started"}
-        )
-
-        assert por_promo[PROMO]["accion"] == "remove"
-
-    def test_the_user_falls_back_to_the_id_and_then_to_none(self) -> None:
-        latest = [
-            _latest("enroll", "A", nombre=None, usuario_id=42),
-            _latest("enroll", "B", nombre=None, usuario_id=None),
-        ]
-
-        por_promo, _ = confirmation.warnings_from_latest_writes(latest, {"A": "candidate", "B": "candidate"})
-
-        assert por_promo["A"]["usuario"] == "#42"
-        assert por_promo["B"]["usuario"] is None
-
-
 class TestConfirmRecentWritesBestEffort:
     def test_a_failing_session_is_logged_and_returns_zero(self, caplog) -> None:
         @contextmanager
@@ -150,7 +79,7 @@ def pg(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
     engine = create_engine(POSTGRES_TEST_URL, connect_args={"options": f"-csearch_path={schema}"})
     try:
         with engine.begin() as conn:
-            # Only what the FK and the name join need; the real table has more columns.
+            # Only what the FK needs; the real table has more columns.
             conn.execute(text("CREATE TABLE usuarios (id integer PRIMARY KEY, nombre varchar(255) NOT NULL)"))
             conn.execute(text("INSERT INTO usuarios (id, nombre) VALUES (7, 'Ana PM')"))
             MlWriteLog.__table__.create(bind=conn)
@@ -298,30 +227,3 @@ class TestConfirmRecentWrites:
             assert confirmation.confirm_recent_writes(MLA) == 0
 
         assert "confirmation" not in _payload(pg, row)
-
-
-@pytest.mark.postgres
-class TestLatestWritesForPanel:
-    def test_one_batched_read_returns_the_latest_write_per_promotion_with_the_user_name(self, pg) -> None:
-        _log(pg, "enroll", ago=timedelta(minutes=5))
-        _log(
-            pg,
-            "enroll",
-            ago=timedelta(minutes=1),
-            payload={"confirmation": {"status": "not_applied", "mirror_status": "candidate"}},
-        )
-        _log(pg, "enroll", target="OTHER", ago=timedelta(minutes=3))
-
-        with sessionmaker(bind=pg)() as db:
-            latest = {row["promotion_id"]: row for row in confirmation.latest_writes_by_promotion(db, MLA)}
-
-        assert set(latest) == {PROMO, "OTHER"}
-        assert latest[PROMO]["confirmation"] == {"status": "not_applied", "mirror_status": "candidate"}
-        assert latest[PROMO]["nombre"] == "Ana PM"
-        assert latest["OTHER"]["confirmation"] is None
-
-    def test_writes_older_than_the_lookback_are_ignored(self, pg) -> None:
-        _log(pg, "enroll", ago=confirmation.WARNING_LOOKBACK + timedelta(days=1))
-
-        with sessionmaker(bind=pg)() as db:
-            assert confirmation.latest_writes_by_promotion(db, MLA) == []
