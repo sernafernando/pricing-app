@@ -68,7 +68,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
   const actualRef = useRef({ proveedor, fechaIngreso: datos.fechaIngreso, lineas });
   useEffect(() => {
     actualRef.current = { proveedor, fechaIngreso: datos.fechaIngreso, lineas };
-  });
+  }, [proveedor, datos.fechaIngreso, lineas]);
   // Which fields hold what a prefill put there, untouched since: the next prefill (or none) may replace
   // them. Once the user edits one it is theirs and is never overwritten silently.
   const prefilladoRef = useRef({ proveedor: false, fechaIngreso: false, lineas: false });
