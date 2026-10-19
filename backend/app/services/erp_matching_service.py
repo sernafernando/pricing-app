@@ -331,26 +331,54 @@ def refrescar_fechas_factura(session: Session) -> int:
     return actualizados
 
 
-# Invoiced units per item of every linked pedido (one per scope), from the ERP
-# mirror. Only invoices still in v_facturas_compra_vigentes count (annulled →
-# no lines). Combo components are left out and only the main line counts, as
-# in the sales metrics scripts (no purchase line had association flags on prod
-# 2026-10-19; the rule only guards against a future double count).
-_LINEAS_ORIGEN_SQL = """
-SELECT p.id AS pedido_id, it.item_id AS item_id, CAST(SUM(it.it_qty) AS INTEGER) AS cantidad
+# ERP documents that make up a linked pedido's invoiced units: its invoice
+# plus every purchase credit note with a VIGENTE imputación (not a reversal and
+# never reversed) to the pedido or to its invoice — an ERP NC directly
+# (origen_id = ct) or a local NC through its matched ct_transaction_id. UNION
+# counts an NC imputed several times only once.
+_DOCUMENTOS_SQL = """
+SELECT p.id AS pedido_id, p.ct_transaction_id AS ct
 FROM pedidos_compra p
-JOIN v_facturas_compra_vigentes v ON v.ct_transaction = p.ct_transaction_id
-JOIN tb_item_transactions it ON it.ct_transaction = p.ct_transaction_id
 WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
-  AND it.item_id IS NOT NULL
+UNION
+SELECT p.id, n.ct
+FROM pedidos_compra p
+JOIN (
+  SELECT i.destino_tipo, i.destino_id,
+         CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS ct
+  FROM imputaciones i
+  LEFT JOIN notas_credito_local ncl ON i.origen_tipo = 'nota_credito_local' AND ncl.id = i.origen_id
+  WHERE i.origen_tipo IN ('nota_credito_erp', 'nota_credito_local')
+    AND i.es_reversal = false
+    AND NOT EXISTS (SELECT 1 FROM imputaciones r WHERE r.es_reversal = true AND r.reimputada_desde_id = i.id)
+) n ON (n.destino_tipo = 'pedido_compra' AND n.destino_id = p.id)
+    OR (n.destino_tipo = 'factura_erp' AND n.destino_id = p.ct_transaction_id)
+JOIN v_facturas_compra_vigentes vn ON vn.ct_transaction = n.ct AND vn.clasificacion = 'NC'
+WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+"""
+# Net units per item: it_qty is stored positive, the sign is the document's
+# sd_plusorminus (what sale_document_classifier.signo_contable returns; -1 for
+# credit notes). Only documents still in v_facturas_compra_vigentes count
+# (annulled → no lines); a net below one unit is not stored (clamp at 0).
+# Combo components are left out and only the main line counts, as in the sales
+# metrics scripts (no purchase line had association flags on prod 2026-10-19;
+# the rule only guards against a future double count).
+_LINEAS_ORIGEN_SQL = (
+    "SELECT d.pedido_id AS pedido_id, it.item_id AS item_id, "
+    "CAST(SUM(it.it_qty * v.sd_plusorminus) AS INTEGER) AS cantidad "
+    "FROM (" + _DOCUMENTOS_SQL + ") d "
+    """JOIN v_facturas_compra_vigentes v ON v.ct_transaction = d.ct
+JOIN tb_item_transactions it ON it.ct_transaction = d.ct
+WHERE it.item_id IS NOT NULL
   AND NOT (
     COALESCE(it.it_isassociation, false) = true
     AND COALESCE(it.it_order, 1) <> 1
     AND it.it_isassociationgroup IS NOT NULL
   )
-GROUP BY p.id, it.item_id
-HAVING SUM(it.it_qty) >= 1
+GROUP BY d.pedido_id, it.item_id
+HAVING SUM(it.it_qty * v.sd_plusorminus) >= 1
 """
+)
 _T = "pedido_compra_lineas_facturadas"
 _BORRAR_LINEAS_SQL = text(f"DELETE FROM {_T} WHERE pedido_id = :pid")
 # The corrected clone inherits the original's link and lines as-is.

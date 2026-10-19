@@ -11,10 +11,12 @@ linked supplier invoice. From now on
 and unlink, and on every ERP sync); this upgrade fills it for the operations
 already linked.
 
-- One row per (pedido, item): SUM(it_qty) of the invoice's
-  `tb_item_transactions` lines, item_id NOT NULL, combo components left out.
-- Only invoices still in `v_facturas_compra_vigentes` count (an annulled one
-  has no lines); rows whose net is below one unit are not stored.
+- One row per (pedido, item): net units of the invoice's `tb_item_transactions`
+  lines minus those of the purchase credit notes with a vigente imputación to
+  the pedido or its invoice (owner 2026-10-19: invoiced 100, returned 10 → 90).
+  Sign = the document's sd_plusorminus; item_id NOT NULL; combo components out.
+- Only documents still in `v_facturas_compra_vigentes` count (annulled → no
+  lines); rows whose net is below one unit are not stored (clamp at 0).
 - No FK on item_id: the ERP mirror may hold an item productos_erp lacks.
 - BACKFILL runs unchanged on Postgres and on the SQLite test schema
   (tests/unit/test_erp_matching_service.py).
@@ -32,21 +34,41 @@ down_revision: Union[str, None] = "20261103_pedidos_fecha_factura"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+# Same query as erp_matching_service._LINEAS_ORIGEN_SQL (all pedidos), inlined
+# so the migration does not import app code.
 BACKFILL = """
 INSERT INTO pedido_compra_lineas_facturadas (pedido_id, item_id, cantidad)
-SELECT p.id, it.item_id, CAST(SUM(it.it_qty) AS INTEGER)
-FROM pedidos_compra p
-JOIN v_facturas_compra_vigentes v ON v.ct_transaction = p.ct_transaction_id
-JOIN tb_item_transactions it ON it.ct_transaction = p.ct_transaction_id
-WHERE p.ct_transaction_id IS NOT NULL
-  AND it.item_id IS NOT NULL
+SELECT d.pedido_id, it.item_id, CAST(SUM(it.it_qty * v.sd_plusorminus) AS INTEGER)
+FROM (
+  SELECT p.id AS pedido_id, p.ct_transaction_id AS ct
+  FROM pedidos_compra p
+  WHERE p.ct_transaction_id IS NOT NULL
+  UNION
+  SELECT p.id, n.ct
+  FROM pedidos_compra p
+  JOIN (
+    SELECT i.destino_tipo, i.destino_id,
+           CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS ct
+    FROM imputaciones i
+    LEFT JOIN notas_credito_local ncl ON i.origen_tipo = 'nota_credito_local' AND ncl.id = i.origen_id
+    WHERE i.origen_tipo IN ('nota_credito_erp', 'nota_credito_local')
+      AND i.es_reversal = false
+      AND NOT EXISTS (SELECT 1 FROM imputaciones r WHERE r.es_reversal = true AND r.reimputada_desde_id = i.id)
+  ) n ON (n.destino_tipo = 'pedido_compra' AND n.destino_id = p.id)
+      OR (n.destino_tipo = 'factura_erp' AND n.destino_id = p.ct_transaction_id)
+  JOIN v_facturas_compra_vigentes vn ON vn.ct_transaction = n.ct AND vn.clasificacion = 'NC'
+  WHERE p.ct_transaction_id IS NOT NULL
+) d
+JOIN v_facturas_compra_vigentes v ON v.ct_transaction = d.ct
+JOIN tb_item_transactions it ON it.ct_transaction = d.ct
+WHERE it.item_id IS NOT NULL
   AND NOT (
     COALESCE(it.it_isassociation, false) = true
     AND COALESCE(it.it_order, 1) <> 1
     AND it.it_isassociationgroup IS NOT NULL
   )
-GROUP BY p.id, it.item_id
-HAVING SUM(it.it_qty) >= 1
+GROUP BY d.pedido_id, it.item_id
+HAVING SUM(it.it_qty * v.sd_plusorminus) >= 1
 """
 
 
