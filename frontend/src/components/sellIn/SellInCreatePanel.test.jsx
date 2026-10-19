@@ -23,6 +23,13 @@ const MEZCLA = {
   response: { status: 422, data: { error: { code: 'VALIDATION_ERROR', message: 'Las operaciones son de distintos proveedores.' } } },
 };
 
+/** A promise and the function that settles it, to answer requests in a chosen order. */
+const diferido = () => {
+  let resolver;
+  const promise = new Promise((resolve) => (resolver = resolve));
+  return { promise, resolver };
+};
+
 const PROVEEDORES = { proveedores: [{ id: 7, nombre: 'TP-Link', cuit: '30-1' }], total: 1, page: 1, page_size: 10 };
 
 beforeEach(() => {
@@ -359,5 +366,61 @@ describe('SellInCreatePanel', () => {
     expect(await screen.findByLabelText('Cantidad de SW-16')).toHaveValue(7);
     expect(screen.getByText('TP-Link')).toBeInTheDocument();
     expect(screen.queryByText('Mercusys')).not.toBeInTheDocument();
+  });
+
+  it('an older prefill that answers after a newer one is dropped', async () => {
+    const user = userEvent.setup();
+    const viejo = diferido();
+    const nuevo = diferido();
+    sellInAPI.prefill.mockReturnValueOnce(viejo.promise).mockReturnValueOnce(nuevo.promise);
+    renderPanel();
+    await agregarOperacion(user, 15);
+    await agregarOperacion(user, 20);
+
+    nuevo.resolver({ data: PREFILL_MERCUSYS });
+    expect(await screen.findByText('Mercusys')).toBeInTheDocument();
+    viejo.resolver({ data: PREFILL });
+    await waitFor(() => expect(screen.getByLabelText('Cantidad de SW-16')).toHaveValue(7));
+    expect(screen.queryByText('TP-Link')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('');
+    expect(screen.queryByLabelText('Cantidad de SW-8')).not.toBeInTheDocument();
+  });
+
+  it('removing the last operation drops the pending confirmation and the currency suggestion', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await fillCompra(user);
+    await agregarOperacion(user, 15);
+    expect(await screen.findByText(/Ya hay productos cargados/)).toBeInTheDocument();
+    expect(screen.getByText('Las operaciones están en USD.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar operación 15' }));
+    expect(screen.queryByText(/Ya hay productos cargados/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Las operaciones están en USD.')).not.toBeInTheDocument();
+    // The lines were the user's: they stay.
+    expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(10);
+  });
+
+  it('Enter in the operation number adds it', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Pedido de compra (N°)'), '15{Enter}');
+    expect(screen.getByText('N° 15')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pedido de compra (N°)')).toHaveValue(null);
+    await waitFor(() => expect(sellInAPI.prefill).toHaveBeenCalledWith([15]));
+  });
+
+  it('links at most 50 operations, as the backend allows', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const numero = screen.getByLabelText('Pedido de compra (N°)');
+    for (let n = 1; n <= 50; n += 1) await user.type(numero, `${n}{Enter}`);
+    expect(screen.getAllByRole('button', { name: /Quitar operación/ })).toHaveLength(50);
+
+    await user.type(numero, '51');
+    expect(screen.getByRole('button', { name: 'Agregar operación' })).toBeDisabled();
+    await user.type(numero, '{Enter}');
+    expect(screen.queryByText('N° 51')).not.toBeInTheDocument();
+    expect(sellInAPI.prefill).toHaveBeenCalledTimes(50);
   });
 });
