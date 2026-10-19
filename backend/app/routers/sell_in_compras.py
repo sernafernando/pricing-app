@@ -18,7 +18,9 @@ lowers the cost of THAT purchase's units only. The math lives in
   legacy single `pedido_compra_id` still works): they must exist and share the
   supplier and currency, which the purchase must match. `GET /prefill` (needs
   `sell_in.gestionar`) suggests supplier, currency, receipt date and products
-  from them (`app.services.sell_in.prefill`).
+  from them (`app.services.sell_in.prefill`). `GET /operaciones` (same
+  permission, no Compras permission needed) searches them for the panel's
+  picker (`app.services.sell_in.operaciones`).
 - `GET /resumen` takes the same filters and returns exact aggregates over every
   matching purchase (bucket counts, amount per currency, units covered).
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
@@ -51,12 +53,14 @@ from app.schemas.sell_in import (
     SellInCompraListOut,
     SellInCompraOut,
     SellInCompraResumenOut,
+    SellInOperacionesOut,
     SellInPrefillOut,
     SellInPreviewIn,
     SellInPreviewOut,
 )
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import compras as service
+from app.services.sell_in import operaciones as operaciones_service
 from app.services.sell_in import prefill as prefill_service
 
 router = APIRouter(prefix="/sell-in/compras", tags=["Sell in"])
@@ -172,6 +176,19 @@ def prefill_compra(
         return prefill_service.prefill(db, pedido_compra_ids)
     except service.SellInError as exc:
         raise _unprocessable(exc) from exc
+
+
+@router.get("/operaciones", response_model=SellInOperacionesOut)
+def buscar_operaciones(
+    q: Optional[str] = Query(None, max_length=100, description="Operation number or id, supplier name or invoice"),
+    proveedor_id: Optional[int] = Query(None),
+    moneda: Optional[Moneda] = Query(None),
+    excluir: list[int] = Query(default_factory=list, max_length=PEDIDOS_MAX, description="Operations already linked"),
+    _user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The newest Compras operations matching the text, for the create panel's picker. Writes nothing."""
+    return {"items": operaciones_service.buscar_operaciones(db, q, proveedor_id, moneda, excluir)}
 
 
 @router.get("/{compra_id}", response_model=SellInCompraOut)

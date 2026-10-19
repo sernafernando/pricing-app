@@ -244,12 +244,6 @@
   gap: var(--space-2);
 }
 
-.inline {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -280,4 +274,40 @@
   border: none;
   cursor: pointer;
   text-decoration: underline;
+}
+
+/* Operation picker (SellInOperacionPicker): one option per Compras operation. */
+.opcion {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  font-size: 13px;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.opcion + .opcion {
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.opcion:hover,
+.opcionActiva {
+  background: var(--cf-bg-hover);
+}
+
+.opcionFila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.opcionProveedor {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

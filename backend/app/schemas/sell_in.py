@@ -137,6 +137,27 @@ class SellInPrefillOut(BaseModel):
     items: list[SellInPrefillItem]
 
 
+OPERACIONES_LIMITE = 20  # options in the operation picker of the create panel
+
+
+class SellInOperacionOut(BaseModel):
+    """One Compras operation (`pedidos_compra`) as the picker shows it: what the Compras list shows."""
+
+    id: int
+    numero: str
+    proveedor_id: int
+    proveedor_nombre: Optional[str]
+    fecha: date
+    moneda: Moneda
+    monto: Decimal
+    estado: str
+    numero_factura: Optional[str]
+
+
+class SellInOperacionesOut(BaseModel):
+    items: list[SellInOperacionOut]
+
+
 class SellInCompraListOut(BaseModel):
     items: list[SellInCompraOut]
     total: int

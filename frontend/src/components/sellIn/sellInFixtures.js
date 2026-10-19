@@ -2,7 +2,7 @@
  * Test fixtures for the sell-in screen, shaped exactly like the backend's
  * Pydantic responses (`backend/app/schemas/sell_in.py`: `SellInCompraOut`,
  * `SellInCompraListOut`, `SellInCompraResumenOut`, `SellInPreviewOut`,
- * `SellInPrefillOut`).
+ * `SellInPrefillOut`, `SellInOperacionesOut`).
  * Decimals travel as strings, as Pydantic serialises them.
  *
  * The values come from the backend's own tests
@@ -148,3 +148,65 @@ export const PREFILL = {
     { item_id: 4513, codigo: 'SW-16', descripcion: 'Switch 16 bocas', cantidad: 4 },
   ],
 };
+
+/**
+ * `GET /sell-in/compras/operaciones` (`SellInOperacionesOut`) items, newest first: operations 15 and 16 of
+ * TP-Link (7) in USD, the ones `PREFILL` reads, and 20 of Mercusys (9) in ARS. Shaped like the backend's
+ * `test_each_option_carries_what_identifies_the_operation`.
+ */
+export const OPERACIONES = [
+  {
+    id: 20,
+    numero: 'P-00020',
+    proveedor_id: 9,
+    proveedor_nombre: 'Mercusys',
+    fecha: '2026-10-08',
+    moneda: 'ARS',
+    monto: '850000.00',
+    estado: 'pagado',
+    numero_factura: null,
+  },
+  {
+    id: 16,
+    numero: 'P-00016',
+    proveedor_id: 7,
+    proveedor_nombre: 'TP-Link',
+    fecha: '2026-10-03',
+    moneda: 'USD',
+    monto: '5000.50',
+    estado: 'recibido',
+    numero_factura: 'A-0001-00001234',
+  },
+  {
+    id: 15,
+    numero: 'P-00015',
+    proveedor_id: 7,
+    proveedor_nombre: 'TP-Link',
+    fecha: '2026-10-02',
+    moneda: 'USD',
+    monto: '12000.00',
+    estado: 'aprobado',
+    numero_factura: null,
+  },
+];
+
+/**
+ * A fake of `GET /operaciones` over `OPERACIONES` with the backend's rules: text matches the id exactly or
+ * the number, supplier or invoice in part; filters by supplier, currency and the linked ones. Any other
+ * all-digit text is an operation of TP-Link in USD with that id, so a test can link as many as it needs.
+ */
+export function operacionesFake(params = {}) {
+  const q = (params.q ?? '').trim().toLowerCase();
+  const conocida = OPERACIONES.some((o) => String(o.id) === q);
+  const todas = /^\d+$/.test(q) && !conocida ? [{ ...OPERACIONES[2], id: Number(q), numero: `P-${q.padStart(5, '0')}` }] : OPERACIONES;
+  const items = todas.filter(
+    (o) =>
+      (!q ||
+        String(o.id) === q ||
+        [o.numero, o.proveedor_nombre, o.numero_factura].some((campo) => (campo ?? '').toLowerCase().includes(q))) &&
+      (params.proveedor_id == null || o.proveedor_id === params.proveedor_id) &&
+      (params.moneda == null || o.moneda === params.moneda) &&
+      !(params.excluir ?? []).includes(o.id),
+  );
+  return Promise.resolve({ data: { items } });
+}

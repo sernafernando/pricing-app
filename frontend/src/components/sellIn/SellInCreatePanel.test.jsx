@@ -3,11 +3,11 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { productosAPI } from '../../services/api';
 import { sellInAPI } from '../../services/sellInAPI';
-import { COMPRA_ARS, PREFILL, PREVIEW, PRODUCTOS } from './sellInFixtures';
+import { COMPRA_ARS, operacionesFake, PREFILL, PREVIEW, PRODUCTOS } from './sellInFixtures';
 import SellInCreatePanel from './SellInCreatePanel';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInAPI: { preview: vi.fn(), crear: vi.fn(), proveedores: vi.fn(), prefill: vi.fn() },
+  sellInAPI: { preview: vi.fn(), crear: vi.fn(), proveedores: vi.fn(), prefill: vi.fn(), operaciones: vi.fn() },
 }));
 
 // Operation 20 belongs to another supplier, Mercusys (9), with no receipt yet.
@@ -39,6 +39,7 @@ beforeEach(() => {
   sellInAPI.preview.mockResolvedValue({ data: PREVIEW });
   sellInAPI.crear.mockResolvedValue({ data: COMPRA_ARS });
   sellInAPI.prefill.mockResolvedValue({ data: PREFILL });
+  sellInAPI.operaciones.mockImplementation(operacionesFake);
 });
 
 const renderPanel = (props = {}) => {
@@ -48,10 +49,10 @@ const renderPanel = (props = {}) => {
   return { onCreated, onClose };
 };
 
-/** Links Compras operation `numero` to the sell in. */
+/** Links Compras operation `numero` to the sell in through the picker's typed-number fast path. */
 async function agregarOperacion(user, numero) {
-  await user.type(screen.getByLabelText('Pedido de compra (N°)'), String(numero));
-  await user.click(screen.getByRole('button', { name: 'Agregar operación' }));
+  await user.type(screen.getByLabelText('Pedido de compra (N°)'), `${numero}{Enter}`);
+  await screen.findByText(`N° ${numero}`, { selector: 'li > span' });
 }
 
 /** Fills an ARS purchase of 1000 over SW-8 x10 and SW-16 x10 (the backend tests' purchase). */
@@ -328,7 +329,7 @@ describe('SellInCreatePanel', () => {
     expect(screen.queryByLabelText(/Cantidad de/)).not.toBeInTheDocument();
   });
 
-  it("switching to another supplier's operations replaces the prefilled supplier, but not a date the user typed", async () => {
+  it("switching to another supplier's operation replaces the prefilled supplier, but not a date the user typed", async () => {
     const user = userEvent.setup();
     sellInAPI.prefill.mockImplementation((ids) => {
       if (ids.length === 1 && ids[0] === 15) return Promise.resolve({ data: PREFILL });
@@ -341,9 +342,9 @@ describe('SellInCreatePanel', () => {
     await user.clear(screen.getByLabelText('Fecha de ingreso'));
     await user.type(screen.getByLabelText('Fecha de ingreso'), '2026-10-09');
 
-    await agregarOperacion(user, 20);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Las operaciones son de distintos proveedores.');
+    // The picker offers only TP-Link's operations while 15 is linked: another supplier's comes after removing it.
     await user.click(screen.getByRole('button', { name: 'Quitar operación 15' }));
+    await agregarOperacion(user, 20);
 
     expect(await screen.findByText('Mercusys')).toBeInTheDocument();
     expect(screen.queryByText('TP-Link')).not.toBeInTheDocument();
@@ -375,8 +376,9 @@ describe('SellInCreatePanel', () => {
     sellInAPI.prefill.mockReturnValueOnce(viejo.promise).mockReturnValueOnce(nuevo.promise);
     renderPanel();
     await agregarOperacion(user, 15);
-    await agregarOperacion(user, 20);
+    await agregarOperacion(user, 16);
 
+    // Only the order matters: the newer answer just has to differ from the older one.
     nuevo.resolver({ data: PREFILL_MERCUSYS });
     expect(await screen.findByText('Mercusys')).toBeInTheDocument();
     viejo.resolver({ data: PREFILL });
@@ -401,26 +403,63 @@ describe('SellInCreatePanel', () => {
     expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(10);
   });
 
-  it('Enter in the operation number adds it', async () => {
+  it('Enter on a typed operation number still adds it', async () => {
     const user = userEvent.setup();
     renderPanel();
     await user.type(screen.getByLabelText('Pedido de compra (N°)'), '15{Enter}');
-    expect(screen.getByText('N° 15')).toBeInTheDocument();
-    expect(screen.getByLabelText('Pedido de compra (N°)')).toHaveValue(null);
+    expect(await screen.findByText('N° 15', { selector: 'li > span' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Pedido de compra (N°)')).toHaveValue('');
     await waitFor(() => expect(sellInAPI.prefill).toHaveBeenCalledWith([15]));
+  });
+
+  it('picking an operation from the search adds its chip and fills the panel from it', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Pedido de compra (N°)'), 'tp-link');
+    await user.click(await screen.findByRole('option', { name: /N° 16/ }));
+
+    expect(screen.getByText('N° 16', { selector: 'li > span' })).toBeInTheDocument();
+    await waitFor(() => expect(sellInAPI.prefill).toHaveBeenCalledWith([16]));
+    expect(await screen.findByText('TP-Link')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de ingreso')).toHaveValue('2026-10-05');
+    expect(screen.getByLabelText('Cantidad de SW-8')).toHaveValue(12);
+  });
+
+  it('after the first operation, offers only those of its supplier and currency that are not linked yet', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await agregarOperacion(user, 15);
+    expect(screen.getByText('Solo se ofrecen operaciones de TP-Link en USD.')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Pedido de compra (N°)'));
+    const opciones = await within(await screen.findByRole('listbox')).findAllByRole('option');
+    expect(opciones.map((o) => o.textContent)).toEqual([expect.stringContaining('N° 16')]);
+    expect(sellInAPI.operaciones).toHaveBeenLastCalledWith({ q: '', excluir: [15], proveedor_id: 7, moneda: 'USD' });
+
+    // Removing it lifts the restriction.
+    await user.click(screen.getByRole('button', { name: 'Quitar operación 15' }));
+    expect(screen.queryByText('Solo se ofrecen operaciones de TP-Link en USD.')).not.toBeInTheDocument();
+  });
+
+  it('the keyboard picks an operation: arrows, then Enter', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Pedido de compra (N°)'), 'p-');
+    await screen.findByRole('listbox');
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+
+    expect(screen.getByText('N° 16', { selector: 'li > span' })).toBeInTheDocument();
+    await waitFor(() => expect(sellInAPI.prefill).toHaveBeenCalledWith([16]));
   });
 
   it('links at most 50 operations, as the backend allows', async () => {
     const user = userEvent.setup();
     renderPanel();
-    const numero = screen.getByLabelText('Pedido de compra (N°)');
-    for (let n = 1; n <= 50; n += 1) await user.type(numero, `${n}{Enter}`);
+    // 101..150: generated TP-Link USD operations, so the supplier and currency rule never gets in the way.
+    for (let n = 101; n <= 150; n += 1) await agregarOperacion(user, n);
     expect(screen.getAllByRole('button', { name: /Quitar operación/ })).toHaveLength(50);
 
-    await user.type(numero, '51');
-    expect(screen.getByRole('button', { name: 'Agregar operación' })).toBeDisabled();
-    await user.type(numero, '{Enter}');
-    expect(screen.queryByText('N° 51')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Pedido de compra (N°)')).toBeDisabled();
     expect(sellInAPI.prefill).toHaveBeenCalledTimes(50);
   });
 });

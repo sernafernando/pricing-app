@@ -30,6 +30,14 @@ describe('sellInAPI', () => {
     expect(api.get).toHaveBeenCalledWith('/administracion/proveedores', { params: { search: 'tp', page_size: 10 } });
   });
 
+  it('searches Compras operations, sending the linked ones as a repeated query parameter', () => {
+    sellInAPI.operaciones({ q: 'tp', proveedor_id: 7, moneda: 'USD', excluir: [15, 16] });
+    expect(api.get).toHaveBeenCalledWith('/sell-in/compras/operaciones', {
+      params: { q: 'tp', proveedor_id: 7, moneda: 'USD', excluir: [15, 16] },
+      paramsSerializer: { indexes: null },
+    });
+  });
+
   it('asks the prefill of several operations as a repeated query parameter', () => {
     sellInAPI.prefill([15, 16]);
     expect(api.get).toHaveBeenCalledWith('/sell-in/compras/prefill', {
