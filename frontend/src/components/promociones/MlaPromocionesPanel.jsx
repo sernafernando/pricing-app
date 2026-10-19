@@ -77,6 +77,33 @@ function formatDateRange(startDate, finishDate) {
   return `${start} – ${finish}`;
 }
 
+// Mirror statuses in the words the PM sees elsewhere in the panel.
+const ML_STATUS_LABEL = {
+  candidate: 'candidata',
+  started: 'activa',
+  pending: 'en espera',
+  finished: 'finalizada',
+};
+
+function formatDateTime(isoString) {
+  const day = formatShortDate(isoString);
+  if (!day) return null;
+  const date = new Date(isoString);
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${day} ${hours}:${minutes}`;
+}
+
+// "pedida por X el dd/mm hh:mm" (without the user for a system write).
+function describeRequest({ usuario, fecha }) {
+  const when = formatDateTime(fecha);
+  return `pedida${usuario ? ` por ${usuario}` : ''}${when ? ` el ${when}` : ''}`;
+}
+
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /**
  * Level 2 panel: promotions of a single MLA.
  * `onApplied(result)` (optional) means "the data this write touches may have
@@ -309,11 +336,31 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
       Actualizando desde ML…
     </div>
   ) : null;
+  // Enrolls ML accepted but did not apply, for promos the panel has no row to badge.
+  const sinPromo = data?.escrituras_no_aplicadas_sin_promo || [];
+  const writesNotice =
+    sinPromo.length > 0 ? (
+      <div className={styles.staleNotice} role="alert">
+        ML no aplicó promociones pedidas:
+        <ul className={styles.writeWarningList}>
+          {sinPromo.map((w) => (
+            <li key={w.promotion_id}>
+              {`${w.promotion_id}: ${describeRequest(w)}; ${
+                w.mirror_status
+                  ? `ML la muestra como ${ML_STATUS_LABEL[w.mirror_status] || w.mirror_status}`
+                  : 'ML no la muestra'
+              }`}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
   const notices = (
     <>
       {refreshingNotice}
       {readOnlyNotice}
       {staleNotice}
+      {writesNotice}
     </>
   );
   // Apply/remove stay locked while the pull may still change the rows, and for a not-active publication.
@@ -341,12 +388,18 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
       );
     }
     if (!data?.refreshFailed && mlCheckState === 'checking') {
-      return <div className={styles.panelState}>Sin promociones en el espejo — confirmando con ML…</div>;
+      return (
+        <>
+          {writesNotice}
+          <div className={styles.panelState}>Sin promociones en el espejo — confirmando con ML…</div>
+        </>
+      );
     }
     if (data?.refreshFailed || mlCheckState !== 'confirmed') {
       return (
         <>
           {staleNotice}
+          {writesNotice}
           <div className={styles.staleNotice}>
             No se pudo confirmar con ML — datos posiblemente desactualizados.
             {promosEnMl > 0 ? ` ML informa ${promosEnMl} promociones para esta publicación.` : ''}
@@ -357,6 +410,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
     return (
       <>
         {staleNotice}
+        {writesNotice}
         <div className={styles.panelState}>Sin promociones habilitadas.</div>
       </>
     );
@@ -410,6 +464,16 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
               )}
               {promo.application_status === 'pending' && (
                 <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
+              )}
+              {promo.escritura_no_aplicada && (
+                <span
+                  className={`${styles.badge} ${styles.badgeNotApplied}`}
+                  title={`${capitalize(describeRequest(promo.escritura_no_aplicada))}; ML la sigue mostrando como ${
+                    ML_STATUS_LABEL[promo.status] || promo.status || 'sin estado'
+                  }`}
+                >
+                  {promo.escritura_no_aplicada.accion === 'remove' ? 'ML no la quitó' : 'ML no aplicó la promo'}
+                </span>
               )}
               <span className={styles.promoName}>
                 {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}

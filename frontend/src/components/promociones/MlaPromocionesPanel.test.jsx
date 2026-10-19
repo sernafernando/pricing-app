@@ -1136,3 +1136,146 @@ describe('the stale notice says WHY, not just that it failed', () => {
     expect(screen.queryByText(/No se pudo actualizar/)).not.toBeInTheDocument();
   });
 });
+
+// Mirrors the backend Pydantic schema `ItemPromotion` / `ItemPromotionsList` of
+// GET /promociones/item/{mla_id} (backend/app/routers/ml_promotions.py), field for field.
+function itemPromotion(overrides = {}) {
+  return {
+    mla: 'MLA001',
+    promotion_id: 'C-MLA1669550',
+    promotion_type: 'SELLER_CAMPAIGN',
+    sub_type: 'FLEXIBLE_PERCENTAGE',
+    status: 'candidate',
+    name: 'Campaña octubre',
+    original_price: 1200,
+    price: 0,
+    min_discounted_price: 900,
+    max_discounted_price: 1100,
+    suggested_discounted_price: 999,
+    payload: {},
+    updated_at: null,
+    start_date: null,
+    finish_date: null,
+    application_status: null,
+    nuestro_markup: 12.5,
+    escritura_no_aplicada: null,
+    ...overrides,
+  };
+}
+
+function itemPromotionsList(promotions, extra = {}) {
+  return {
+    mla: 'MLA001',
+    count: promotions.length,
+    promotions,
+    motivo_sin_actualizacion: null,
+    escrituras_no_aplicadas_sin_promo: [],
+    ...extra,
+  };
+}
+
+// A local date, so dd/mm hh:mm in the tooltip does not depend on the runner's timezone.
+const FECHA = new Date(2026, 9, 19, 14, 5).toISOString();
+
+describe('MlaPromocionesPanel — writes ML did not apply', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('badges an enroll ML left as candidate, with who asked and when', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: itemPromotionsList([
+        itemPromotion({ escritura_no_aplicada: { accion: 'enroll', fecha: FECHA, usuario: 'Ana PM', mirror_status: 'candidate' } }),
+      ]),
+    });
+
+    renderPanel({ pullOnOpen: false });
+
+    const badge = await screen.findByText('ML no aplicó la promo');
+    expect(badge).toHaveAttribute(
+      'title',
+      'Pedida por Ana PM el 19/10 14:05; ML la sigue mostrando como candidata',
+    );
+  });
+
+  it('badges a remove ML did not take effect on', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: itemPromotionsList([
+        itemPromotion({
+          status: 'started',
+          application_status: 'active',
+          escritura_no_aplicada: { accion: 'remove', fecha: FECHA, usuario: null, mirror_status: 'started' },
+        }),
+      ]),
+    });
+
+    renderPanel({ pullOnOpen: false });
+
+    const badge = await screen.findByText('ML no la quitó');
+    expect(badge).toHaveAttribute('title', 'Pedida el 19/10 14:05; ML la sigue mostrando como activa');
+  });
+
+  it('shows no warning badge when every write took effect', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: itemPromotionsList([itemPromotion()]) });
+
+    renderPanel({ pullOnOpen: false });
+
+    await screen.findByText('Campaña octubre');
+    expect(screen.queryByText('ML no aplicó la promo')).not.toBeInTheDocument();
+    expect(screen.queryByText(/ML no aplicó promociones pedidas/)).not.toBeInTheDocument();
+  });
+
+  it('warns at panel level about a not-applied enroll whose promo is not listed', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: itemPromotionsList([itemPromotion({ promotion_id: 'OTRA', name: 'Otra promo' })], {
+        escrituras_no_aplicadas_sin_promo: [
+          { accion: 'enroll', fecha: FECHA, usuario: 'Ana PM', promotion_id: 'C-GONE', mirror_status: 'finished' },
+          { accion: 'enroll', fecha: FECHA, usuario: '#42', promotion_id: 'C-NADA', mirror_status: null },
+        ],
+      }),
+    });
+
+    renderPanel({ pullOnOpen: false });
+
+    const aviso = await screen.findByRole('alert');
+    expect(aviso).toHaveTextContent('ML no aplicó promociones pedidas');
+    expect(aviso).toHaveTextContent('C-GONE: pedida por Ana PM el 19/10 14:05; ML la muestra como finalizada');
+    expect(aviso).toHaveTextContent('C-NADA: pedida por #42 el 19/10 14:05; ML no la muestra');
+  });
+
+  it('warns at panel level even when ML confirms the mirror has no promotions', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: itemPromotionsList([], {
+        escrituras_no_aplicadas_sin_promo: [
+          { accion: 'enroll', fecha: FECHA, usuario: 'Ana PM', promotion_id: 'C-GONE', mirror_status: null },
+        ],
+      }),
+    });
+
+    renderPanel({ pullOnOpen: false });
+
+    // Once ML confirms the empty mirror, not just while it is being asked.
+    await screen.findByText('Sin promociones habilitadas.');
+    const aviso = screen.getByRole('alert');
+    expect(aviso).toHaveTextContent('C-GONE: pedida por Ana PM el 19/10 14:05; ML no la muestra');
+  });
+
+  it('warns at panel level when the empty mirror could not be confirmed with ML', async () => {
+    promocionesAPI.confirmarSinPromosML.mockResolvedValueOnce({
+      data: { sin_promos_confirmado: false, promos_en_ml: null },
+    });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: itemPromotionsList([], {
+        escrituras_no_aplicadas_sin_promo: [
+          { accion: 'enroll', fecha: FECHA, usuario: 'Ana PM', promotion_id: 'C-GONE', mirror_status: null },
+        ],
+      }),
+    });
+
+    renderPanel({ pullOnOpen: false });
+
+    expect(await screen.findByText(/No se pudo confirmar con ML/)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('C-GONE: pedida por Ana PM el 19/10 14:05; ML no la muestra');
+  });
+});
