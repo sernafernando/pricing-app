@@ -139,7 +139,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Métricas ML (anterior)', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
         { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'ml_ops.ver', badge: 'Nuevo' },
         { label: 'Ventas ML', path: '/ml-ventas-listado', permiso: 'ml_ops.ver' },
-        { label: 'Divergencias ML Ventas', path: '/ml-ventas-divergencias', permiso: 'ml_ops.ver' },
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
         { label: 'Ventas por Fuera', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
         { label: 'Tienda Nube', path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },

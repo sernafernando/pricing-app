@@ -103,29 +103,6 @@
   border-radius: var(--radius-md);
 }
 
-/* The sales list omits an order that failed to write by definition — the
-   count itself is the only place this failure is visible on this page, so
-   it has to read as urgent, not as one more filter chip. */
-.ingestFailedBanner {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  margin-bottom: var(--spacing-md);
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  color: var(--tone-danger-fg);
-  background: var(--tone-danger-bg);
-  border: 1px solid var(--tone-danger-border);
-  border-radius: var(--radius-md);
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.ingestFailedBanner:hover {
-  opacity: 0.85;
-}
-
 /* ── Filter card ─────────────────────────────────────────── */
 
 /* ONE card, three bands (listado.jpg): what you search, which statuses,
