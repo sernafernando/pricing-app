@@ -254,6 +254,28 @@ class TestConfirmRecentWrites:
 
         assert seen == [0]
 
+    def test_a_write_made_after_the_mirror_read_waits_for_the_next_pass(self, pg) -> None:
+        # The mirror snapshot predates this write, so it cannot say whether ML applied it: stamping it now would
+        # record "not applied" for good (first wins). It stays unstamped until a pass reads a later mirror.
+        read_at = datetime.now(UTC)
+        later = _log(pg, "enroll", ago=-timedelta(seconds=30))
+
+        with (
+            mock.patch.object(confirmation, "_utcnow", return_value=read_at),
+            mock.patch.object(confirmation, "fetch_item_promotions", return_value=[]),
+        ):
+            assert confirmation.confirm_recent_writes(MLA) == 0
+
+        assert "confirmation" not in _payload(pg, later)
+
+        with (
+            mock.patch.object(confirmation, "_utcnow", return_value=read_at + timedelta(minutes=1)),
+            mock.patch.object(confirmation, "fetch_item_promotions", return_value=_mirror(C_MLA1669550="pending")),
+        ):
+            assert confirmation.confirm_recent_writes(MLA) == 1
+
+        assert _payload(pg, later)["confirmation"]["status"] == "applied"
+
     def test_a_failing_mirror_read_writes_nothing_and_does_not_raise(self, pg) -> None:
         row = _log(pg, "enroll", ago=timedelta(minutes=1))
 

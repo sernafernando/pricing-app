@@ -39,14 +39,15 @@ WARNING_LOOKBACK = timedelta(days=30)
 APPLIED = "applied"
 NOT_APPLIED = "not_applied"
 
-# Latest row per promotion of one MLA (`DISTINCT ON`, Postgres). Only rows written for a confirmed write exist:
-# `_record_write_log` skips rejected and AMBIGUOUS outcomes, so an ambiguous write has no row and is out of scope
-# here (its own reconciliation already reported it as such).
+# Latest row per promotion of one MLA (`DISTINCT ON`, Postgres) among the writes made in [since, until]. Only rows
+# written for a confirmed write exist: `_record_write_log` skips rejected and AMBIGUOUS outcomes, so an ambiguous
+# write has no row and is out of scope here (its own reconciliation already reported it as such).
 _LATEST_UNCONFIRMED_SQL = text(
     """
     SELECT DISTINCT ON (target_id) id, action, target_id, (payload -> 'confirmation') IS NOT NULL AS confirmed
     FROM ml_write_log
-    WHERE mla = :mla AND resource = :resource AND target_id IS NOT NULL AND created_at >= :since
+    WHERE mla = :mla AND resource = :resource AND target_id IS NOT NULL
+      AND created_at >= :since AND created_at <= :until
     ORDER BY target_id, created_at DESC, id DESC
     """
 )
@@ -88,25 +89,37 @@ def confirmation_for(action: str, mirror_status: Optional[str], checked_at: date
     }
 
 
+def _pending(sessions: Callable[[], Any], mla: str, since: datetime, until: datetime) -> List[Any]:
+    """The latest write per promotion made in [since, until], kept only when it has no confirmation yet."""
+    with sessions() as db:
+        rows = db.execute(
+            _LATEST_UNCONFIRMED_SQL,
+            {"mla": mla, "resource": RESOURCE_PROMOTION, "since": since, "until": until},
+        ).all()
+    return [row for row in rows if not row.confirmed]
+
+
 def confirm_recent_writes(mla: str, *, session_factory: Optional[Callable[[], Any]] = None) -> int:
     """Stamp a confirmation on the latest unconfirmed write per promotion of `mla` from the last `CONFIRM_WINDOW`.
 
+    Only writes made up to the mirror read are stamped: a later one is not reflected in that snapshot, and since
+    the first stamp wins, stamping it now would record "not applied" for good. It stays unstamped and a later
+    pass confirms it (the write re-queued the MLA for the drain).
+
     Returns how many rows were stamped. Never raises: a failure is logged and returns 0, and the drain that
-    calls it settles and counts exactly as without it. Two short sessions, none open during the mirror read."""
+    calls it settles and counts exactly as without it. Short sessions, none open during the mirror read."""
     sessions = session_factory or get_background_db
     try:
         now = _utcnow()
-        with sessions() as db:
-            rows = db.execute(
-                _LATEST_UNCONFIRMED_SQL,
-                {"mla": mla, "resource": RESOURCE_PROMOTION, "since": now - CONFIRM_WINDOW},
-            ).all()
-        pending = [row for row in rows if not row.confirmed]
-        if not pending:
+        since = now - CONFIRM_WINDOW
+        if not _pending(sessions, mla, since, now):
             return 0
+        read_at = _utcnow()  # taken just before the read: any write after it may be missing from the snapshot
         statuses = {promo.get("promotion_id"): promo.get("status") for promo in fetch_item_promotions(mla)}
         checked_at = _utcnow()
         stamped = 0
+        # Re-read the latest write per promotion as of `read_at`: the one the snapshot can actually speak for.
+        pending = _pending(sessions, mla, since, read_at)
         with sessions() as db:
             for row in pending:
                 value = confirmation_for(row.action, statuses.get(row.target_id), checked_at)

@@ -18,7 +18,8 @@ One pass (`drain`):
      quarantined (deleted, logged) at `MAX_ATTEMPTS`. A settle only touches the row while `due_at` still
      equals the lease, so a new write that re-queued the MLA during the call survives it.
   4. After a successful refresh, outside any session: `promo_write_confirmation.confirm_recent_writes` records
-     whether ML actually applied the MLA's recent writes. Best effort; it never changes the settle or the counts.
+     whether ML actually applied the MLA's recent writes. Best effort; it never changes the settle or the counts,
+     and it is skipped (counted in `confirm_skipped_deadline`) when the pass deadline is passed or too close.
 
 The lease replaces the old session-level advisory lock, which had to keep a connection open for the whole pass.
 """
@@ -50,6 +51,9 @@ STALE_AFTER = timedelta(hours=24)
 STALE_PURGE_BATCH = 1000
 # A claimed row is invisible to other passes for this long; a pass that dies mid-call frees it by expiry.
 CLAIM_LEASE_SECONDS = 300
+# The confirmation after a refresh (one mirror read, two short sessions) is skipped with less than this left before
+# the pass deadline.
+CONFIRM_DEADLINE_MARGIN = timedelta(seconds=5)
 
 
 def _utcnow() -> datetime:
@@ -197,6 +201,7 @@ def drain(
         "quarantined": 0,
         "superseded": 0,
         "errors": 0,
+        "confirm_skipped_deadline": 0,
         "capped": False,
     }
     # `get_background_db()` commits on a clean exit (app/core/database.py), so each block below is its own txn.
@@ -236,7 +241,12 @@ def drain(
             logger.error("promo_write.refresh: settling %s failed", claim.mla, exc_info=True)
             detail["errors"] += 1
         if outcome is not None and outcome.ok:
-            _confirm(claim.mla, sessions)
+            if deadline is not None and _utcnow() + CONFIRM_DEADLINE_MARGIN >= deadline:
+                # No time left for another remote read: the writes stay unconfirmed and a later refresh of this MLA
+                # confirms them while they are still within `CONFIRM_WINDOW`.
+                detail["confirm_skipped_deadline"] += 1
+            else:
+                _confirm(claim.mla, sessions)
     return detail
 
 

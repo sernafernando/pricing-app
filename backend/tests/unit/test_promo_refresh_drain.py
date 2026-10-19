@@ -225,3 +225,60 @@ class TestConfirmationAfterRefresh:
         assert result["refreshed"] == 1
         assert result["errors"] == 0
         assert "confirming writes for MLA1 failed" in caplog.text
+
+    def _clock(self, monkeypatch, start: datetime, after_refresh: datetime) -> None:
+        """The drain clock reads `start` until the refresh returns, then `after_refresh`."""
+        clock = [start]
+        monkeypatch.setattr(drain, "_utcnow", lambda: clock[0])
+
+        def refresh(mla):
+            clock[0] = after_refresh
+            return RefreshOutcome(ok=True)
+
+        monkeypatch.setattr(drain, "_refresh", refresh)
+
+    def test_a_deadline_passed_during_the_refresh_settles_but_skips_the_confirmation(
+        self, enabled, monkeypatch
+    ) -> None:
+        self._one(monkeypatch, RefreshOutcome(ok=True))
+        deadline = NOW + timedelta(seconds=10)
+        self._clock(monkeypatch, NOW, deadline + timedelta(seconds=1))
+
+        def settle(db, claim, outcome, detail):
+            detail["refreshed"] += 1
+
+        monkeypatch.setattr(drain, "_settle", settle)
+        confirm = mock.Mock(return_value=0)
+        monkeypatch.setattr(drain, "confirm_recent_writes", confirm)
+
+        result = drain.drain(deadline=deadline, session_factory=_session)
+
+        assert result["refreshed"] == 1
+        confirm.assert_not_called()
+        assert result["confirm_skipped_deadline"] == 1
+
+    def test_a_deadline_too_close_skips_the_confirmation(self, enabled, monkeypatch) -> None:
+        self._one(monkeypatch, RefreshOutcome(ok=True))
+        deadline = NOW + timedelta(seconds=10)
+        self._clock(monkeypatch, NOW, deadline - drain.CONFIRM_DEADLINE_MARGIN / 2)
+        monkeypatch.setattr(drain, "_settle", lambda db, claim, outcome, detail: None)
+        confirm = mock.Mock(return_value=0)
+        monkeypatch.setattr(drain, "confirm_recent_writes", confirm)
+
+        result = drain.drain(deadline=deadline, session_factory=_session)
+
+        confirm.assert_not_called()
+        assert result["confirm_skipped_deadline"] == 1
+
+    def test_a_deadline_still_ahead_runs_the_confirmation(self, enabled, monkeypatch) -> None:
+        self._one(monkeypatch, RefreshOutcome(ok=True))
+        deadline = NOW + timedelta(seconds=30)
+        self._clock(monkeypatch, NOW, NOW + timedelta(seconds=1))
+        monkeypatch.setattr(drain, "_settle", lambda db, claim, outcome, detail: None)
+        confirm = mock.Mock(return_value=0)
+        monkeypatch.setattr(drain, "confirm_recent_writes", confirm)
+
+        result = drain.drain(deadline=deadline, session_factory=_session)
+
+        confirm.assert_called_once_with("MLA1", session_factory=_session)
+        assert result["confirm_skipped_deadline"] == 0
