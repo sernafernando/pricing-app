@@ -684,3 +684,112 @@ class TestFechaFacturaEnMatching:
         db.refresh(pedido)
         assert pedido.ct_transaction_id == 970002
         assert pedido.fecha_factura == date(2026, 4, 1)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tests: refrescar_fechas_factura keeps fecha_factura in step with the ERP
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _refrescar(db) -> int:
+    from app.services.erp_matching_service import refrescar_fechas_factura  # noqa: PLC0415
+
+    count = refrescar_fechas_factura(db)
+    db.expire_all()
+    return count
+
+
+class TestRefrescarFechasFactura:
+    def _vinculado(self, db, proveedor, sd_factura, active_user, *, ct: int, docnumber: str) -> PedidoCompra:
+        _crear_ct(
+            db,
+            ct_transaction=ct,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber=docnumber,
+            sd_id=sd_factura.sd_id,
+        )
+        pedido = _crear_pedido(
+            db,
+            empresa_id=1,
+            proveedor_id=proveedor.id,
+            numero=f"P-REF-{ct}",
+            numero_factura=docnumber,
+            creado_por_id=active_user.id,
+            ct_transaction_id=ct,
+        )
+        pedido.fecha_factura = date(2026, 4, 1)
+        db.flush()
+        return pedido
+
+    def test_ct_date_cambiado_en_el_erp_se_actualiza(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = self._vinculado(db, proveedor, sd_factura, active_user, ct=980001, docnumber="REF-1")
+        db.query(CommercialTransaction).filter_by(ct_transaction=980001).update(
+            {"ct_date": datetime(2026, 4, 9, 1, 30, 0)}
+        )
+        db.flush()
+
+        assert _refrescar(db) == 1
+        assert pedido.fecha_factura == date(2026, 4, 9)
+
+    def test_factura_anulada_queda_en_null(self, db, empresa, proveedor, sd_factura, sd_anulacion, active_user):
+        pedido = self._vinculado(db, proveedor, sd_factura, active_user, ct=980002, docnumber="REF-2")
+        _crear_ct(
+            db,
+            ct_transaction=980003,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="REF-2",
+            sd_id=sd_anulacion.sd_id,
+        )
+
+        assert _refrescar(db) == 1
+        assert pedido.ct_transaction_id == 980002
+        assert pedido.fecha_factura is None
+
+    def test_vinculado_sin_fila_luego_aparece_se_completa(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-REF-LATE",
+            numero_factura="REF-LATE",
+            creado_por_id=active_user.id,
+            ct_transaction_id=980004,
+        )
+        assert _refrescar(db) == 0
+        _crear_ct(
+            db,
+            ct_transaction=980004,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="REF-LATE",
+            sd_id=sd_factura.sd_id,
+        )
+
+        assert _refrescar(db) == 1
+        assert pedido.fecha_factura == date(2026, 4, 1)
+
+    def test_filas_sin_cambios_no_se_tocan(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = self._vinculado(db, proveedor, sd_factura, active_user, ct=980005, docnumber="REF-5")
+
+        assert _refrescar(db) == 0
+        assert pedido.fecha_factura == date(2026, 4, 1)
+
+    def test_pedidos_sin_vincular_no_se_tocan(self, db, empresa, proveedor, sd_factura, active_user):
+        pedido = _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-REF-NOLINK",
+            numero_factura="REF-NOLINK",
+            creado_por_id=active_user.id,
+        )
+        pedido.fecha_factura = date(2025, 1, 1)
+        db.flush()
+
+        assert _refrescar(db) == 0
+        assert pedido.fecha_factura == date(2025, 1, 1)

@@ -298,6 +298,34 @@ def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: 
     pedido.fecha_factura = session.execute(_FECHA_FACTURA_SQL, {"ct": int(ct_transaction)}).scalar()
 
 
+_FECHA_VISTA_SQL = (
+    "(SELECT date(v.ct_date) FROM v_facturas_compra_vigentes v "
+    "WHERE v.ct_transaction = pedidos_compra.ct_transaction_id)"
+)
+# Core UPDATE on purpose: the ORM `onupdate` of updated_at does not fire, and
+# `IS DISTINCT FROM` makes an unchanged row a no-op (Postgres and SQLite 3.39+).
+_REFRESCAR_FECHAS_SQL = text(
+    f"UPDATE pedidos_compra SET fecha_factura = {_FECHA_VISTA_SQL} "
+    f"WHERE ct_transaction_id IS NOT NULL AND fecha_factura IS DISTINCT FROM {_FECHA_VISTA_SQL}"
+)
+
+
+def refrescar_fechas_factura(session: Session) -> int:
+    """Re-read `fecha_factura` of every linked pedido from the view.
+
+    `asignar_factura_erp` snapshots the date when the link is written; this
+    catches what the ERP changes later: an edited ct_date, an annulled invoice
+    (leaves the view → NULL) or a ct linked before it appeared in the view.
+    One set-based UPDATE that touches only rows whose value differs. NO commit.
+
+    Returns:
+        how many pedidos changed.
+    """
+    actualizados = session.execute(_REFRESCAR_FECHAS_SQL).rowcount or 0
+    logger.info("refrescar_fechas_factura: pedidos actualizados=%s", actualizados)
+    return actualizados
+
+
 def match_forward(
     session: Session,
     *,
