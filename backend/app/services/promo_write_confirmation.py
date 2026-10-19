@@ -79,6 +79,13 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _db_now(sessions: Callable[[], Any]) -> datetime:
+    """The database's current time. `ml_write_log.created_at` is stamped by Postgres, so a bound compared against
+    it must come from the same clock: an app clock running ahead would let a later write fall under the bound."""
+    with sessions() as db:
+        return db.execute(text("SELECT clock_timestamp()")).scalar_one()
+
+
 def confirmation_for(action: str, mirror_status: Optional[str], checked_at: datetime) -> Dict[str, Any]:
     """The `payload.confirmation` value for one write, given its promotion's status in a fresh mirror
     (None when the mirror has no row for it)."""
@@ -114,7 +121,7 @@ def confirm_recent_writes(mla: str, *, session_factory: Optional[Callable[[], An
         since = now - CONFIRM_WINDOW
         if not _pending(sessions, mla, since, now):
             return 0
-        read_at = _utcnow()  # taken just before the read: any write after it may be missing from the snapshot
+        read_at = _db_now(sessions)  # just before the read, on the DB clock: a write after it may be missing
         statuses = {promo.get("promotion_id"): promo.get("status") for promo in fetch_item_promotions(mla)}
         checked_at = _utcnow()
         stamped = 0

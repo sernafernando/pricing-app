@@ -270,11 +270,26 @@ class TestConfirmRecentWrites:
 
         with (
             mock.patch.object(confirmation, "_utcnow", return_value=read_at + timedelta(minutes=1)),
+            mock.patch.object(confirmation, "_db_now", return_value=read_at + timedelta(minutes=1)),
             mock.patch.object(confirmation, "fetch_item_promotions", return_value=_mirror(C_MLA1669550="pending")),
         ):
             assert confirmation.confirm_recent_writes(MLA) == 1
 
         assert _payload(pg, later)["confirmation"]["status"] == "applied"
+
+    def test_the_read_bound_uses_the_database_clock_not_the_app_clock(self, pg) -> None:
+        # `created_at` is stamped by Postgres, so the read bound must come from the same clock. With the app clock
+        # two minutes ahead, a write made after the real read would fall under an app-clock bound and be stamped
+        # "not applied" for good.
+        later = _log(pg, "enroll", ago=-timedelta(seconds=30))
+
+        with (
+            mock.patch.object(confirmation, "_utcnow", return_value=datetime.now(UTC) + timedelta(minutes=2)),
+            mock.patch.object(confirmation, "fetch_item_promotions", return_value=[]),
+        ):
+            assert confirmation.confirm_recent_writes(MLA) == 0
+
+        assert "confirmation" not in _payload(pg, later)
 
     def test_a_failing_mirror_read_writes_nothing_and_does_not_raise(self, pg) -> None:
         row = _log(pg, "enroll", ago=timedelta(minutes=1))
