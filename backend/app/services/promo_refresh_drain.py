@@ -51,7 +51,7 @@ STALE_AFTER = timedelta(hours=24)
 STALE_PURGE_BATCH = 1000
 # A claimed row is invisible to other passes for this long; a pass that dies mid-call frees it by expiry.
 CLAIM_LEASE_SECONDS = 300
-# The confirmation after a refresh (one mirror read, two short sessions) is skipped with less than this left before
+# The confirmation after a refresh (one mirror read plus up to five short DB sessions) is skipped with less than this left before
 # the pass deadline.
 CONFIRM_DEADLINE_MARGIN = timedelta(seconds=5)
 
