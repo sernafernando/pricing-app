@@ -185,11 +185,57 @@ def _audit(
 
 
 def _validar_referencias(db: Session, data: SellInCompraCreate) -> None:
-    """The supplier and purchase order, when given, must exist (a clear 422 instead of a foreign-key error)."""
+    """The supplier, when given, must exist (a clear 422 instead of a foreign-key error)."""
     if data.proveedor_id is not None and db.get(Proveedor, data.proveedor_id) is None:
         raise SellInError(f"El proveedor {data.proveedor_id} no existe")
-    if data.pedido_compra_id is not None and db.get(PedidoCompra, data.pedido_compra_id) is None:
-        raise SellInError(f"El pedido de compra {data.pedido_compra_id} no existe")
+
+
+def ids_pedidos(data: SellInCompraCreate) -> list[int]:
+    """The purchase's operations: `pedido_compra_ids` deduplicated in order, the legacy single
+    `pedido_compra_id` read as a one-element list. When both come, the single one must be in the list."""
+    ids = list(dict.fromkeys(data.pedido_compra_ids))
+    legado = data.pedido_compra_id
+    if legado is not None and not ids:
+        return [legado]
+    if legado is not None and legado not in ids:
+        raise SellInError(f"El pedido de compra {legado} no figura entre las operaciones indicadas")
+    return ids
+
+
+@dataclass(frozen=True)
+class Operaciones:
+    """Compras operations that may feed one sell in: they exist and share supplier and currency."""
+
+    pedidos: list[PedidoCompra]
+    proveedor_id: int
+    moneda: str
+
+
+def operaciones(db: Session, ids: list[int]) -> Optional[Operaciones]:
+    """Loads and checks the operations (`pedidos_compra`); None when there are none."""
+    if not ids:
+        return None
+    pedidos = {p.id: p for p in db.query(PedidoCompra).filter(PedidoCompra.id.in_(ids))}
+    faltante = next((i for i in ids if i not in pedidos), None)
+    if faltante is not None:
+        raise SellInError(f"El pedido de compra {faltante} no existe")
+    ordenados = [pedidos[i] for i in ids]
+    if len({p.proveedor_id for p in ordenados}) > 1:
+        raise SellInError("Las operaciones son de proveedores distintos: un sell in es de un solo proveedor")
+    monedas = sorted({p.moneda for p in ordenados})
+    if len(monedas) > 1:
+        raise SellInError(f"Las operaciones están en monedas distintas ({' y '.join(monedas)}): no se pueden combinar")
+    return Operaciones(ordenados, ordenados[0].proveedor_id, monedas[0])
+
+
+def _validar_contra_operaciones(data: SellInCompraCreate, ops: Operaciones) -> None:
+    """The purchase's own supplier (when given) and currency must be the operations' ones."""
+    if data.proveedor_id is not None and data.proveedor_id != ops.proveedor_id:
+        raise SellInError("El proveedor de la compra no coincide con el de las operaciones")
+    if data.moneda != ops.moneda:
+        raise SellInError(
+            f"La moneda de la compra ({data.moneda}) no coincide con la de las operaciones ({ops.moneda})"
+        )
 
 
 def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> SellInCompra:
@@ -203,13 +249,17 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     if data.cuenta_desde == "ingreso" and data.fecha_ingreso is None:
         raise SellInError("Para contar desde el ingreso hace falta la fecha de ingreso")
     _validar_referencias(db, data)
+    ids = ids_pedidos(data)
+    ops = operaciones(db, ids)
+    if ops is not None:
+        _validar_contra_operaciones(data, ops)
     try:
         calculo = _calcular(db, data)
     except SellInSplitError as exc:
         raise SellInError(str(exc)) from exc
 
     try:
-        compra, items = _guardar(db, data, calculo, usuario_id)
+        compra, items = _guardar(db, data, calculo, usuario_id, ids, ops)
     except IntegrityError as exc:
         db.rollback()
         raise SellInError(
@@ -230,13 +280,20 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
 
 
 def _guardar(
-    db: Session, data: SellInCompraCreate, calculo: _Calculo, usuario_id: int
+    db: Session,
+    data: SellInCompraCreate,
+    calculo: _Calculo,
+    usuario_id: int,
+    ids: list[int],
+    ops: Optional[Operaciones],
 ) -> Tuple[SellInCompra, List[SellInCompraItem]]:
-    """Writes the purchase, its lines and audit rows (flushed, not committed): every
-    `IntegrityError` it raises is about the purchase's own references."""
+    """Writes the purchase, its operation links, lines and audit rows (flushed, not committed): every
+    `IntegrityError` it raises is about the purchase's own references. Without a supplier of its own the
+    purchase takes the operations' one; the legacy `pedido_compra_id` column keeps the single id sent,
+    else the first operation (until the column is dropped)."""
     compra = SellInCompra(
-        proveedor_id=data.proveedor_id,
-        pedido_compra_id=data.pedido_compra_id,
+        proveedor_id=data.proveedor_id if data.proveedor_id is not None else (ops.proveedor_id if ops else None),
+        pedido_compra_id=data.pedido_compra_id if data.pedido_compra_id is not None else (ids[0] if ids else None),
         fecha_compra=data.fecha_compra,
         fecha_ingreso=data.fecha_ingreso,
         cuenta_desde=data.cuenta_desde,
@@ -250,7 +307,7 @@ def _guardar(
     )
     db.add(compra)
     db.flush()
-    _sincronizar_pedidos(db, compra)
+    _sincronizar_pedidos(db, compra, ids)
     items = [
         SellInCompraItem(
             compra_id=compra.id,
@@ -268,17 +325,21 @@ def _guardar(
     return compra, items
 
 
-def _sincronizar_pedidos(db: Session, compra: SellInCompra) -> None:
-    """Makes the purchase's link rows (`SellInCompraPedido`) match `pedido_compra_id`:
-    one row when it is set, none when it is not. Flushes, so a repeat call sees its own rows
-    even with autoflush off."""
-    deseado = compra.pedido_compra_id
+def _sincronizar_pedidos(db: Session, compra: SellInCompra, ids: Optional[list[int]] = None) -> None:
+    """Makes the purchase's link rows (`SellInCompraPedido`) match `ids`, or, without them, the
+    `pedido_compra_id` column (one row when it is set, none when it is not). Flushes, so a repeat
+    call sees its own rows even with autoflush off."""
+    if ids is None:
+        ids = [compra.pedido_compra_id] if compra.pedido_compra_id is not None else []
+    deseados = set(ids)
     existentes = db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == compra.id).all()
     for link in existentes:
-        if link.pedido_compra_id != deseado:
+        if link.pedido_compra_id not in deseados:
             db.delete(link)
-    if deseado is not None and all(link.pedido_compra_id != deseado for link in existentes):
-        db.add(SellInCompraPedido(compra_id=compra.id, pedido_compra_id=deseado))
+    tenidos = {link.pedido_compra_id for link in existentes}
+    for pedido_id in dict.fromkeys(ids):
+        if pedido_id not in tenidos:
+            db.add(SellInCompraPedido(compra_id=compra.id, pedido_compra_id=pedido_id))
     db.flush()
 
 
@@ -482,7 +543,8 @@ def resumir_compras(db: Session, filtros: FiltrosCompras) -> dict:
 
 
 def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
-    """Purchases with their lines, products, consumed units, supplier name and `aplica` (4 queries per page)."""
+    """Purchases with their lines, products, consumed units, supplier name, operations and `aplica`
+    (5 queries per page)."""
     if not compras:
         return []
     ids = [c.id for c in compras]
@@ -510,6 +572,13 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
         if items
         else {}
     )
+
+    # The column too, so a writer that skips the link sync still shows its operation.
+    pedidos: dict[int, set[int]] = {c.id: {c.pedido_compra_id} - {None} for c in compras}
+    for compra_id, pedido_id in db.query(SellInCompraPedido.compra_id, SellInCompraPedido.pedido_compra_id).filter(
+        SellInCompraPedido.compra_id.in_(ids)
+    ):
+        pedidos[compra_id].add(pedido_id)
 
     por_compra: dict[int, list[dict]] = {c.id: [] for c in compras}
     for item in items:
@@ -545,6 +614,7 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
                 **{col: getattr(compra, col) for col in _COLUMNAS_COMPRA},
                 "aplica": cabeceras[compra.id][0],
                 "proveedor_nombre": cabeceras[compra.id][1],
+                "pedido_compra_ids": sorted(pedidos[compra.id]),
                 "unidades_total": total,
                 "unidades_consumidas": usadas,
                 "unidades_restantes": total - usadas,
