@@ -360,12 +360,17 @@ WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
 # sd_plusorminus (what sale_document_classifier.signo_contable returns; -1 for
 # credit notes). Only documents still in v_facturas_compra_vigentes count
 # (annulled → no lines); a net below one unit is not stored (clamp at 0).
+# FLOOR, not ROUND: cantidad is invoiced units that pay a per-unit bonus, so a
+# fractional net (2.7) must count the whole units actually invoiced (2), never
+# over-pay. FLOOR is explicit because a bare CAST(numeric AS INTEGER) rounds on
+# PostgreSQL but truncates on SQLite (FLOOR exists there since 3.35, math
+# functions are enabled by default). Same expression in the migration backfill.
 # Combo components are left out and only the main line counts, as in the sales
 # metrics scripts (no purchase line had association flags on prod 2026-10-19;
 # the rule only guards against a future double count).
 _LINEAS_ORIGEN_SQL = (
     "SELECT d.pedido_id AS pedido_id, it.item_id AS item_id, "
-    "CAST(SUM(it.it_qty * v.sd_plusorminus) AS INTEGER) AS cantidad "
+    "CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER) AS cantidad "
     "FROM (" + _DOCUMENTOS_SQL + ") d "
     """JOIN v_facturas_compra_vigentes v ON v.ct_transaction = d.ct
 JOIN tb_item_transactions it ON it.ct_transaction = d.ct
@@ -386,15 +391,19 @@ _COPIAR_LINEAS_SQL = text(
     f"INSERT INTO {_T} (pedido_id, item_id, cantidad) SELECT :destino, item_id, cantidad FROM {_T} WHERE pedido_id = :origen"
 )
 _MATCH = f"s.pedido_id = {_T}.pedido_id AND s.item_id = {_T}.item_id"
-# Set difference against the snapshot: delete what the ERP no longer has,
-# update changed quantities, insert new items. Updating in place (never
-# delete + insert of the same item) keeps the UNIQUE(pedido_id, item_id) safe.
+# Set difference against the snapshot: delete what the ERP no longer has, then
+# upsert the rest. ON CONFLICT (not INSERT ... WHERE NOT EXISTS) makes two
+# concurrent reconciles of the same pedido safe under READ COMMITTED: the second
+# one waits for the first and updates its row instead of raising on
+# UNIQUE(pedido_id, item_id). The DO UPDATE ... WHERE skips unchanged rows, so
+# they do not count as changes. `WHERE true` is required by SQLite to parse an
+# upsert after INSERT ... SELECT. Supported by PostgreSQL and SQLite >= 3.24.
 _RECONCILIAR_SQL = (
     "WITH s AS ({origen}) DELETE FROM {t} WHERE {scope_t} AND NOT EXISTS (SELECT 1 FROM s WHERE {match})",
-    "WITH s AS ({origen}) UPDATE {t} SET cantidad = (SELECT s.cantidad FROM s WHERE {match}) "
-    "WHERE {scope_t} AND EXISTS (SELECT 1 FROM s WHERE {match} AND s.cantidad <> {t}.cantidad)",
     "WITH s AS ({origen}) INSERT INTO {t} (pedido_id, item_id, cantidad) "
-    "SELECT s.pedido_id, s.item_id, s.cantidad FROM s WHERE NOT EXISTS (SELECT 1 FROM {t} WHERE {match})",
+    "SELECT s.pedido_id, s.item_id, s.cantidad FROM s WHERE true "
+    "ON CONFLICT (pedido_id, item_id) DO UPDATE SET cantidad = excluded.cantidad "
+    "WHERE {t}.cantidad <> excluded.cantidad",
 )
 
 

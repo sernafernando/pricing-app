@@ -36,9 +36,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 # Same query as erp_matching_service._LINEAS_ORIGEN_SQL (all pedidos), inlined
 # so the migration does not import app code.
+# FLOOR, not a bare CAST: invoiced units pay a per-unit bonus, so a fractional
+# net never rounds up (CAST(numeric AS INTEGER) rounds on PostgreSQL).
 BACKFILL = """
 INSERT INTO pedido_compra_lineas_facturadas (pedido_id, item_id, cantidad)
-SELECT d.pedido_id, it.item_id, CAST(SUM(it.it_qty * v.sd_plusorminus) AS INTEGER)
+SELECT d.pedido_id, it.item_id, CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER)
 FROM (
   SELECT p.id AS pedido_id, p.ct_transaction_id AS ct
   FROM pedidos_compra p
