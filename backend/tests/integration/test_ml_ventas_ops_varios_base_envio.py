@@ -55,15 +55,23 @@ class TestTheBaseInTheDetail:
         assert iva["base_venta_sin_iva"] == pytest.approx(15165.29)  # the goods, untouched
         assert iva["base_varios"] == pytest.approx(15165.29 + 818.18)
 
-    def test_the_flex_pack_has_no_buyer_shipping_and_the_base_adds_the_599(
+    def test_the_flex_pack_exposes_the_buyer_shipping_from_cost_details_and_the_599(
         self, db, client, admin_auth_headers, rol_admin
     ):
+        """Pack 2000015400388457: no payment carries the shipping, but the ML
+        panel shows "Cargo por Envíos de Mercado Libre (a cargo del comprador)
+        $ 2.216,30", read from `raw_costs.receiver.cost_details`
+        (flex-envio-comprador). Base = goods + 2216.30/1.21 + 599/1.21."""
         seed_case(db, SELF_SERVICE_PACK)
 
         iva = _detail(db, client, admin_auth_headers, rol_admin, SELF_SERVICE_PACK)["iva_decomposicion"]
 
-        assert iva["envio_comprador"] is None
-        assert iva["base_varios"] == pytest.approx(87601.65 + 495.04)
+        assert iva["envio_comprador"] == {
+            "bruto": pytest.approx(2216.30),
+            "neto": pytest.approx(1831.65),
+            "iva": pytest.approx(384.65),
+        }
+        assert iva["base_varios"] == pytest.approx(87601.65 + 1831.65 + 495.04)
 
     def test_the_varios_line_is_the_percentage_of_that_base(self, db, client, admin_auth_headers, rol_admin):
         seed_case(db, FULFILLMENT_990)
