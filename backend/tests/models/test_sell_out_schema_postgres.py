@@ -35,9 +35,9 @@ _STUBS = [
 ]
 
 _INSERT = (
-    "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, moneda, tipo_cambio, "
+    "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, moneda, tc_modo, tipo_cambio, "
     "porcentaje, tope_unidades, tope_monto, usuario_id) VALUES ('Campaña TP-Link Q4', :desde, :hasta, :tipo, "
-    ":monto, :moneda, :tc, :pct, :tope_u, :tope_m, 7) RETURNING id"
+    ":monto, :moneda, :modo, :tc, :pct, :tope_u, :tope_m, 7) RETURNING id"
 )
 
 
@@ -48,6 +48,7 @@ def _row(**overrides) -> dict:
         "tipo": "por_unidad",
         "monto": "1500.00",
         "moneda": "ARS",
+        "modo": None,
         "tc": None,
         "pct": None,
         "tope_u": None,
@@ -193,9 +194,14 @@ class TestSellOutMigration:
             {"tipo": "porcentaje", "monto": "10.00", "pct": "5"},  # percentage carrying a unit amount too
             {"tipo": "bono"},
             {"hasta": "2026-10-31"},  # ends before it starts
-            {"moneda": "USD"},  # USD without its exchange rate
+            {"moneda": "USD"},  # USD without its FX mode
+            {"moneda": "USD", "modo": "fijo"},  # fixed mode without its rate
+            {"moneda": "USD", "modo": "dia_venta", "tc": "1450"},  # sale-day mode carrying a rate
+            {"moneda": "USD", "modo": "otro"},
+            {"modo": "fijo", "tc": "1450"},  # ARS carrying an FX mode
+            {"tc": "1450"},  # ARS carrying a rate
             {"moneda": "EUR"},
-            {"moneda": "USD", "tc": "0"},
+            {"moneda": "USD", "modo": "fijo", "tc": "0"},
             {"tope_u": 0},
             {"tope_m": "0"},
         ],
@@ -205,7 +211,36 @@ class TestSellOutMigration:
 
     def test_a_one_day_campaign_and_usd_with_rate_are_valid(self, engine) -> None:
         with engine.begin() as conn:
-            assert _new(conn, hasta="2026-11-01", moneda="USD", tc="1450.5", tope_u=500, tope_m="2000.00")
+            assert _new(conn, hasta="2026-11-01", moneda="USD", modo="fijo", tc="1450.5", tope_u=500, tope_m="2000.00")
+            assert _new(conn, moneda="USD", modo="dia_venta")
+            assert _new(conn, moneda="USD", modo="al_cobro")
+
+    def test_currency_defaults_to_usd(self, engine) -> None:
+        with engine.begin() as conn:
+            campana_id = conn.execute(
+                text(
+                    "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, tc_modo, "
+                    "usuario_id) VALUES ('X', DATE '2026-11-01', DATE '2026-11-30', 'por_unidad', 3, 'al_cobro', 7) "
+                    "RETURNING id"
+                )
+            ).scalar_one()
+            assert (
+                conn.execute(text("SELECT moneda FROM sell_out_campanas WHERE id = :i"), {"i": campana_id}).scalar_one()
+                == "USD"
+            )
+
+    def test_rate_set_at_payment_carries_when_it_was_set(self, engine) -> None:
+        """`tc_definido_en` is set exactly when an `al_cobro` campaign has its rate."""
+        with engine.begin() as conn:
+            campana_id = _new(conn, moneda="USD", modo="al_cobro")
+        set_rate = "UPDATE sell_out_campanas SET tipo_cambio = :tc, tc_definido_en = :en WHERE id = :i"
+        _rejects(engine, set_rate, {"tc": "1450", "en": None, "i": campana_id})
+        _rejects(engine, set_rate, {"tc": None, "en": "2026-12-05T10:00:00+00", "i": campana_id})
+        with engine.begin() as conn:
+            conn.execute(text(set_rate), {"tc": "1450", "en": "2026-12-05T10:00:00+00", "i": campana_id})
+        with engine.begin() as conn:
+            fijo = _new(conn, moneda="USD", modo="fijo", tc="1450")
+        _rejects(engine, "UPDATE sell_out_campanas SET tc_definido_en = now() WHERE id = :i", {"i": fijo})
 
     @pytest.mark.parametrize(("column", "value"), [("base_porcentaje", "precio_lista"), ("estado", "borrada")])
     def test_closed_sets(self, engine, column, value) -> None:

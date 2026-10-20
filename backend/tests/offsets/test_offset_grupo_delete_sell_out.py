@@ -37,7 +37,9 @@ def test_group_in_a_sell_out_campaign_is_not_deleted(client, db, editor, admin_u
         fecha_desde=date(2026, 11, 1),
         fecha_hasta=date(2026, 11, 30),
         tipo="por_unidad",
-        monto_unit=1500,
+        monto_unit=3,
+        moneda="USD",
+        tc_modo="al_cobro",
         usuario_id=admin_user.id,
     )
     db.add(campana)

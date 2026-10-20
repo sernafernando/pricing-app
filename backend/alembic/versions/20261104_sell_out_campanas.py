@@ -10,7 +10,9 @@ in use by a campaign cannot be deleted).
 
 Reading campaigns (`sell_out.ver`) and loading, editing or voiding them
 (`sell_out.gestionar`) are separate permissions, granted to ADMIN only like
-`20261025_sell_in_permisos`. `updated_at` is kept by its own BEFORE UPDATE
+`20261025_sell_in_permisos`. Currency defaults to USD; a USD campaign's FX
+mode (`tc_modo`: al_cobro, fijo, dia_venta) is documented in
+`app.models.sell_out`. `updated_at` is kept by its own BEFORE UPDATE
 trigger function, independent of the sell-in one.
 """
 
@@ -91,8 +93,10 @@ def upgrade() -> None:
         sa.Column("monto_unit", sa.Numeric(18, 2), nullable=True),
         sa.Column("porcentaje", sa.Numeric(7, 4), nullable=True),
         sa.Column("base_porcentaje", sa.String(16), nullable=False, server_default="costo"),
-        sa.Column("moneda", sa.String(3), nullable=False, server_default="ARS"),
+        sa.Column("moneda", sa.String(3), nullable=False, server_default="USD"),
+        sa.Column("tc_modo", sa.String(16), nullable=True),
         sa.Column("tipo_cambio", sa.Numeric(18, 6), nullable=True),
+        sa.Column("tc_definido_en", sa.DateTime(timezone=True), nullable=True),
         sa.Column("tope_unidades", sa.Integer(), nullable=True),
         sa.Column("tope_monto", sa.Numeric(18, 2), nullable=True),
         sa.Column("acumulable", sa.Boolean(), nullable=False, server_default=sa.true()),
@@ -110,7 +114,18 @@ def upgrade() -> None:
         sa.CheckConstraint("base_porcentaje IN ('costo', 'precio_neto')", name="ck_sell_out_campanas_base_porcentaje"),
         sa.CheckConstraint("fecha_hasta >= fecha_desde", name="ck_sell_out_campanas_fechas"),
         sa.CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_sell_out_campanas_moneda"),
-        sa.CheckConstraint("moneda <> 'USD' OR tipo_cambio IS NOT NULL", name="ck_sell_out_campanas_usd_con_tc"),
+        sa.CheckConstraint(
+            "(moneda = 'ARS' AND tc_modo IS NULL AND tipo_cambio IS NULL) OR "
+            "(moneda = 'USD' AND tc_modo IS NOT NULL AND ("
+            "(tc_modo = 'fijo' AND tipo_cambio IS NOT NULL) OR "
+            "(tc_modo = 'dia_venta' AND tipo_cambio IS NULL) OR "
+            "tc_modo = 'al_cobro'))",
+            name="ck_sell_out_campanas_tc_modo",
+        ),
+        sa.CheckConstraint(
+            "(tc_definido_en IS NOT NULL) = (COALESCE(tc_modo, '') = 'al_cobro' AND tipo_cambio IS NOT NULL)",
+            name="ck_sell_out_campanas_tc_definido_en",
+        ),
         sa.CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_sell_out_campanas_tc_positivo"),
         sa.CheckConstraint("tope_unidades IS NULL OR tope_unidades > 0", name="ck_sell_out_campanas_tope_unidades"),
         sa.CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_out_campanas_tope_monto"),
