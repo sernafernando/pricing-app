@@ -25,8 +25,8 @@ does a cost that is not a REAL cost once a product IS found: `NULL` OR
 writes `NULL` there (see `tiene_costo_propio`). A product with no cost row
 in the ERP -- a pack/combo/kit is the dominant case -- arrives as `0.0`,
 and freezing that zero would report the goods as free. Such a product is
-costed from its components instead when the ERP knows its bill of
-materials (`componentes_por_combo`), and left uncosted when it does not.
+costed from its components instead when its bill of materials is known
+(`componentes_por_combo`), and left uncosted when it does not.
 `Decimal(str(...))` conversion
 happens HERE, at the first read of `ProductoERP.costo`/`.iva` (both `Float`
 columns) -- never later in the chain (money-path Decimal discipline).
@@ -47,7 +47,7 @@ from app.models.item_cost_list import ItemCostList
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
-from app.models.tb_item_association import TbItemAssociation
+from app.services.combos.componentes import combos_disponibles, componentes_de
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
 from app.services.tn_publish_core.resolve import (
     latest_usd_rate_with_date,
@@ -76,7 +76,7 @@ FUENTE_BACKFILL_SKU = "hist_sku"
 # sitting in its cost history is a CONSEQUENCE of that, not a data-entry
 # oversight (measured: packs and combos account for 3.470 of the 4.249
 # sales the backfill could not cost). Its cost is the sum of its
-# components, resolved from `tb_item_association`. Stamped distinctly so a
+# components, resolved from `combo_componentes`. Stamped distinctly so a
 # reader can always tell a SUMMED cost from a READ one.
 FUENTE_BACKFILL_COMBO = "hist_combo"
 
@@ -259,61 +259,21 @@ def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[i
 def componentes_por_combo(db: Session, erp_ids: Sequence[int]) -> Dict[int, List[Tuple[int, Decimal]]]:
     """`{combo_item_id: [(component_item_id, qty), ...]}` for this batch of
     ERP item ids, in ONE query -- never one per item (same bulk rule
-    `_productos_por_item` documents).
+    `_productos_por_item` documents), components in item id order.
 
     SHARED between the backfill (`app/scripts/backfill_costo_congelado.py`)
     and the live path below -- both need the exact same "what is this
-    combo made of" answer, including the same refusal to sum across
-    companies. Moved here (rather than duplicated) so the day this bill-of-
-    materials rule changes, it changes in ONE place for both callers.
+    combo made of" answer. Moved here (rather than duplicated) so the day
+    this bill-of-materials rule changes, it changes in ONE place for both
+    callers.
 
-    `tb_item_association` is the ERP's bill of materials: `item_id` is the
-    parent, `item_id_1` the component, `iasso_qty` how many of it go in.
-    `iasso_qty > 0` is what `prearmado.buscar_combos` already uses to
-    decide "this is a combo", and this follows that definition rather than
-    inventing a second one."""
-    if not erp_ids:
-        return {}
-    rows = (
-        db.query(
-            TbItemAssociation.item_id,
-            TbItemAssociation.item_id_1,
-            TbItemAssociation.iasso_qty,
-            TbItemAssociation.comp_id,
-        )
-        .filter(
-            TbItemAssociation.item_id.in_(sorted(set(erp_ids))),
-            TbItemAssociation.iasso_qty > 0,
-        )
-        .all()
-    )
-    por_combo: Dict[int, List[Tuple[int, Decimal]]] = {}
-    empresas_por_combo: Dict[int, set] = {}
-    for combo_id, componente_id, qty, comp_id in rows:
-        if componente_id is None:
-            continue
-        por_combo.setdefault(combo_id, []).append((componente_id, Decimal(str(qty))))
-        empresas_por_combo.setdefault(combo_id, set()).add(comp_id)
-
-    # `comp_id` is the ERP's COMPANY, and it is part of this table's key.
-    # Summing across companies is REFUSED rather than silently attempted:
-    # `ProductoERP` carries no company of its own, so there is no way to
-    # tell which company's components belong to the combo being costed --
-    # a sum over both would be a number that corresponds to neither.
-    # Measured: production holds exactly ONE `comp_id` today, so this never
-    # fires; it exists so a second company SAYS SO instead of quietly
-    # summing both.
-    for combo_id, empresas in empresas_por_combo.items():
-        if len(empresas) > 1:
-            logger.warning(
-                "costeo_service.componentes_por_combo: combo item_id=%s has components in %s companies "
-                "(comp_id=%s) -- refusing to sum across companies",
-                combo_id,
-                len(empresas),
-                sorted(empresas),
-            )
-            por_combo.pop(combo_id, None)
-    return por_combo
+    The bill of materials is the app-owned `combo_componentes`
+    (`app.services.combos.componentes`), the same one `prearmado` reads:
+    only positive quantities, a pair the ERP listed twice stored once with
+    the sum. It has no ERP company: the sync refuses a snapshot from more
+    than one company (`app.services.combos.fuente_erp`), which is where the
+    old "never sum across companies" guard lives now."""
+    return {combo: sorted(componentes.items()) for combo, componentes in componentes_de(db, erp_ids).items()}
 
 
 def _precios_lista8(db: Session, erp_ids: Sequence[int]) -> Tuple[Dict[int, Tuple[Decimal, str]], set]:
@@ -505,7 +465,7 @@ def _resolve_cost(
 
     if tiene_costo_propio(producto):
         # The product's OWN cost comes first, even if it also happens to
-        # have `tb_item_association` rows -- a product the ERP actually
+        # have `combo_componentes` rows -- a product the ERP actually
         # prices is costed with that figure, never with a derived sum
         # (same order-of-preference the backfill's `_resolve_backfill_cost`
         # documents).
@@ -678,6 +638,17 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
         or (producto.item_id not in precios_lista8 and producto.item_id not in rechazados_lista8)
     }
     combos = componentes_por_combo(db, erp_ids_sin_costo)
+    if erp_ids_sin_costo and not combos and not combos_disponibles(db):
+        # Not synced yet is not "no combos". Nothing extra to do: with no
+        # components a combo already freezes no normal cost and a NULL TP
+        # cost, the same pending state as a combo with an uncosted component
+        # (re-costed by the next ingestion of the order, the TP fill and the
+        # backfills). Said once per call, never raised: ingestion goes on.
+        logger.warning(
+            "costeo_service.congelar: combo_componentes is empty (combos not synced yet) -- "
+            "order_id=%s: products without a cost of their own stay uncosted",
+            order_id,
+        )
     componente_ids = {componente_id for componentes in combos.values() for componente_id, _ in componentes}
     productos_componentes: Dict[int, ProductoERP] = {}
     if componente_ids:

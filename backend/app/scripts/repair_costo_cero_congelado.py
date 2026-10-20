@@ -124,6 +124,7 @@ from app.core.database import SessionLocal  # noqa: E402
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrderItemOps  # noqa: E402
 from app.models.producto import ProductoERP  # noqa: E402
+from app.services.combos.componentes import CombosNoSincronizados, exigir_combos_disponibles  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_COMBO,
     FUENTE_PUBLICACION,
@@ -339,6 +340,10 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
     result = RepairResult()
     db = SessionLocal()
     try:
+        # An empty bill of materials is "not synced yet": every combo would
+        # read as a plain item. Refuse before reading anything.
+        exigir_combos_disponibles(db)
+
         # Informational, separate population -- see the module docstring's
         # "WHY THIS SCRIPT DOES NOT ALSO REPAIR" section. Counted regardless
         # of dry-run/apply, never deleted, never recongelado.
@@ -536,7 +541,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args(argv)
 
-    result = run_repair(limit=args.limit, dry_run=not args.apply, batch_size=args.batch_size)
+    try:
+        result = run_repair(limit=args.limit, dry_run=not args.apply, batch_size=args.batch_size)
+    except CombosNoSincronizados as exc:
+        sys.exit(f"ERROR: {exc}")
 
     if result.examined_out_of_scope_iva_solo:
         logger.warning(

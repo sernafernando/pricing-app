@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.tipo_cambio import TipoCambio
+from app.services.combos.componentes import exigir_combos_disponibles
 from app.services.ml_orders_ingestion.costeo_service import (
     _MONEDA_POR_CURR_ID,
     TPLINK_COSLIS_ID,
@@ -284,7 +285,14 @@ class DatosLote:
 
 def leer_datos(db: Session, rows: Sequence[Any]) -> DatosLote:
     """READ phase: combo compositions, list-8 history (items and components)
-    and USD rates for every row, in three queries whatever the row count."""
+    and USD rates for every row, in a fixed number of queries whatever the
+    row count.
+
+    Raises `CombosNoSincronizados` while `combo_componentes` is empty: with no
+    components a combo would fall through to its own approximate first price,
+    and a TP cost once written is never rewritten. Nothing is read or written
+    past this point, so the caller can retry later."""
+    exigir_combos_disponibles(db)
     erp_ids = {row.producto_item_id for row in rows if row.producto_item_id is not None}
     combos = componentes_por_combo(db, erp_ids)
     componentes = {componente_id for comps in combos.values() for componente_id, _ in comps}

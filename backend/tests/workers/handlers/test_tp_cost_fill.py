@@ -22,8 +22,9 @@ from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
-from app.models.tb_item_association import TbItemAssociation
+from app.models.combo_componente import ComboComponente
 from app.models.tipo_cambio import TipoCambio
+from app.services.combos.componentes import CombosNoSincronizados
 from app.services.ml_orders_ingestion import tp_cost_resolver as resolver
 from app.services.ml_orders_ingestion import tp_cost_fill
 from app.workers.context import WorkerContext
@@ -36,10 +37,11 @@ _TABLES = [
     MlOrderItemCosto.__table__,
     ItemCostList.__table__,
     ItemCostListHistory.__table__,
-    TbItemAssociation.__table__,
+    ComboComponente.__table__,
     TipoCambio.__table__,
 ]
 _ids = itertools.count(1)
+_COMBO_AJENO = 99_000
 
 
 def _install_queue(engine: Engine) -> bool:
@@ -89,6 +91,11 @@ def pg_tp_engine() -> Iterator[Engine]:
 @pytest.fixture(autouse=True)
 def _db(monkeypatch: pytest.MonkeyPatch, pg_tp_engine: Engine) -> Iterator[None]:
     monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=pg_tp_engine))
+    # The combos sync has run: an empty `combo_componentes` makes the fill
+    # refuse (see `TestBomNotSynced`). An unrelated combo no test touches.
+    with _session(pg_tp_engine) as s:
+        s.add(ComboComponente(combo_item_id=_COMBO_AJENO, componente_item_id=_COMBO_AJENO + 1, cantidad=1))
+        s.commit()
     yield
     with pg_tp_engine.begin() as conn:
         for table in [*_TABLES, "tp_cost_fill_queue"]:
@@ -287,8 +294,8 @@ class TestHandler:
     def test_a_combo_containing_the_queued_component_is_filled(self, pg_tp_engine: Engine) -> None:
         with _session(pg_tp_engine) as s:
             _venta(s, 5, 900)
-            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=901, iasso_qty=2))
-            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=902, iasso_qty=1))
+            s.add(ComboComponente(combo_item_id=900, componente_item_id=901, cantidad=2))
+            s.add(ComboComponente(combo_item_id=900, componente_item_id=902, cantidad=1))
             _hist(s, 902, 5, date(2026, 9, 1))
             s.commit()
         _clear_queue(pg_tp_engine)
@@ -497,7 +504,7 @@ class TestBrokenCombo:
         with _session(pg_tp_engine) as s:
             _venta(s, 300, 901)  # the component's own sale
             _venta(s, 301, 900)  # a sale of the combo that contains it
-            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=901, iasso_qty=1))
+            s.add(ComboComponente(combo_item_id=900, componente_item_id=901, cantidad=1))
             _hist(s, 901, 30, date(2026, 9, 1))
             s.commit()
         _poison(monkeypatch, 900, after_writing=True)
@@ -517,7 +524,7 @@ class TestRowsResolvedOnce:
         with _session(pg_tp_engine) as s:
             _venta(s, 400, 900)  # a sale of the combo
             _venta(s, 401, 901)  # a sale of its component
-            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=901, iasso_qty=1))
+            s.add(ComboComponente(combo_item_id=900, componente_item_id=901, cantidad=1))
             _hist(s, 900, 50, date(2026, 9, 1))  # queues the combo itself
             _hist(s, 901, 30, date(2026, 9, 1))  # queues the component
             s.commit()
@@ -556,7 +563,7 @@ class TestClaimedItemsFirst:
         with _session(pg_tp_engine) as s:
             _venta(s, 500, 500)  # the component's own sale
             _venta(s, 501, 900)  # a sale of the combo, which is queued too
-            s.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=900, item_id_1=500, iasso_qty=1))
+            s.add(ComboComponente(combo_item_id=900, componente_item_id=500, cantidad=1))
             _hist(s, 500, 30, date(2026, 9, 1))
             _hist(s, 900, 50, date(2026, 9, 1))
             s.commit()
@@ -611,3 +618,56 @@ class TestBoundedReads:
         assert reads(small) == reads(large)
         assert cost_updates(small) == 2
         assert cost_updates(large) == 6
+
+
+@pytest.mark.postgres
+class TestBomNotSynced:
+    """An empty `combo_componentes` is "not synced yet", not "no combos": the
+    resolver would freeze a combo at its own approximate first price instead
+    of its component sum, and a TP cost is never rewritten. The fill writes
+    nothing and leaves the queue as it was, uncharged, for the next wake."""
+
+    def test_an_empty_bom_writes_nothing_and_keeps_the_item_queued(self, pg_tp_engine: Engine) -> None:
+        with pg_tp_engine.begin() as conn:
+            conn.execute(text("DELETE FROM combo_componentes"))
+        with _session(pg_tp_engine) as s:
+            _venta(s, 1, 500)
+            _hist(s, 500, 80, date(2026, 10, 15))  # a later first price: the approximate path
+            s.commit()
+
+        result = handler.run(_ctx())
+
+        assert _tp(pg_tp_engine, 1) == (None, None)
+        assert _queued(pg_tp_engine) == [500]
+        assert tuple(_queue_row(pg_tp_engine, 500)) == (0, None)
+        assert result.detail["written"] == 0
+
+        # Once the sync fills the table, the next run fills the item.
+        with _session(pg_tp_engine) as s:
+            s.add(ComboComponente(combo_item_id=_COMBO_AJENO, componente_item_id=_COMBO_AJENO + 1, cantidad=1))
+            s.commit()
+        handler.run(_ctx())
+        assert _tp(pg_tp_engine, 1) == (Decimal("80.0000"), resolver.FUENTE_TP_PRIMER_PRECIO)
+        assert _queued(pg_tp_engine) == []
+
+    def test_a_bom_wiped_between_the_reads_is_the_same_uncharged_skip(
+        self, pg_tp_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The reverse lookup saw rows, then `leer_datos` finds the table empty
+        (wiped in between): still a skip, never an error charged to the item."""
+
+        def _vaciada(db, rows):
+            raise CombosNoSincronizados()
+
+        monkeypatch.setattr(tp_cost_fill, "leer_datos", _vaciada)
+        with _session(pg_tp_engine) as s:
+            _venta(s, 1, 500)
+            _hist(s, 500, 80, date(2026, 9, 1))
+            s.commit()
+
+        result = handler.run(_ctx())
+
+        assert _tp(pg_tp_engine, 1) == (None, None)
+        assert _queued(pg_tp_engine) == [500]
+        assert tuple(_queue_row(pg_tp_engine, 500)) == (0, None)
+        assert result.success and result.detail["failed"] == 0

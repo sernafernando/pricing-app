@@ -23,8 +23,17 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
-from app.models.tb_item_association import TbItemAssociation
+from app.models.combo_componente import ComboComponente
+from app.services.combos.componentes import CombosNoSincronizados
 from app.scripts import repair_costo_cero_congelado as script
+
+
+@pytest.fixture(autouse=True)
+def _combos_sincronizados(db):
+    """The combos sync has run: with an empty `combo_componentes` the script
+    refuses (see `TestEmptyBomRefuses`). An unrelated combo no test touches."""
+    db.add(ComboComponente(combo_item_id=99_000, componente_item_id=99_001, cantidad=1))
+    db.flush()
 
 
 @pytest.fixture(autouse=True)
@@ -431,7 +440,7 @@ class TestUncostableHoleIsVisible:
 class TestHoleDiagnosisChecksComboComponentsAreCosteable:
     def test_combo_with_uncostable_component_is_labeled_sin_costo_ni_combo(self, db):
         """A combo product (`item_id=800`) has NO cost of its own but DOES
-        have a declared `tb_item_association` composition -- so a naive
+        have a declared `combo_componentes` composition -- so a naive
         check (`combos.get(item_id)` truthy) thinks it "has a combo" and
         never re-checks whether that combo can actually be COSTED. Here the
         single component (`item_id=801`) ALSO has no real cost, so
@@ -444,7 +453,7 @@ class TestHoleDiagnosisChecksComboComponentsAreCosteable:
         _producto(db, item_id=800, costo=0.0, iva=21.0)
         _producto(db, item_id=801, costo=0.0, iva=21.0)
         _publicacion(db, mla="MLA1", item_id=800)
-        row = TbItemAssociation(comp_id=1, itema_id=1, item_id=800, item_id_1=801, iasso_qty=1)
+        row = ComboComponente(combo_item_id=800, componente_item_id=801, cantidad=1)
         db.add(row)
         _frozen_row(db, order_id=800, item_id="MLA1", costo_unitario_ars=0.0, iva_pct=21.0, producto_item_id=800)
         db.commit()
@@ -485,3 +494,24 @@ class TestDeleteAndRefreezeAreOneTransaction:
         filas = db.query(MlOrderItemCosto).filter_by(order_id=301).all()
         assert len(filas) == 1
         assert float(filas[0].costo_unitario_ars) == 0.0
+
+
+class TestEmptyBomRefuses:
+    """Without a synced bill of materials every combo would read as a plain
+    item; the script refuses with a clear error instead of guessing."""
+
+    def test_run_raises(self, db):
+        db.query(ComboComponente).delete()
+        db.commit()
+
+        with pytest.raises(CombosNoSincronizados):
+            script.run_repair(limit=None, dry_run=False)
+
+    def test_main_exits_with_an_error(self, db):
+        db.query(ComboComponente).delete()
+        db.commit()
+
+        with pytest.raises(SystemExit) as exc:
+            script.main(["--apply"])
+
+        assert "combos" in str(exc.value.code)

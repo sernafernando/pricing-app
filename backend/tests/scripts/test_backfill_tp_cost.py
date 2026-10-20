@@ -19,7 +19,8 @@ from app.models.item_cost_list import ItemCostList
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
-from app.models.tb_item_association import TbItemAssociation
+from app.models.combo_componente import ComboComponente
+from app.services.combos.componentes import CombosNoSincronizados
 from app.models.tipo_cambio import TipoCambio
 from app.scripts import backfill_tp_cost as script
 from app.services.ml_orders_ingestion import tp_cost_resolver as resolver
@@ -48,6 +49,15 @@ def _session_local(db, monkeypatch):
 
 
 _ids = iter(range(1, 10_000))
+
+
+@pytest.fixture(autouse=True)
+def _combos_sincronizados(db):
+    """The combos sync has run: an empty `combo_componentes` makes the
+    resolver refuse (see `test_an_empty_bom_refuses_and_writes_nothing`).
+    An unrelated combo no test touches."""
+    db.add(ComboComponente(combo_item_id=99_000, componente_item_id=99_001, cantidad=1))
+    db.flush()
 
 
 def _venta(db, order_id: int, producto_item_id: int = 500, when: date = date(2026, 7, 15), **tp) -> None:
@@ -86,7 +96,7 @@ def _hist(db, item_id: int, price, when: date, curr_id: int = ARS, comp_id: int 
 
 
 def _componente(db, combo_id: int, componente_id: int, qty: float) -> None:
-    db.add(TbItemAssociation(comp_id=1, itema_id=next(_ids), item_id=combo_id, item_id_1=componente_id, iasso_qty=qty))
+    db.add(ComboComponente(combo_item_id=combo_id, componente_item_id=componente_id, cantidad=qty))
     db.flush()
 
 
@@ -616,3 +626,29 @@ class TestOneBadRowNeverAbortsTheBatch:
 
         assert result.skipped[resolver.SKIP_ERROR] == 1
         assert result.written == 1
+
+
+def test_an_empty_bom_refuses_and_writes_nothing(db) -> None:
+    """Without a synced bill of materials a combo would be frozen at its own
+    approximate first price; the backfill refuses instead of guessing."""
+    db.query(ComboComponente).delete()
+    _venta(db, 1)
+    _hist(db, 500, 80, date(2026, 8, 1))  # a later first price: the approximate path
+    db.commit()
+
+    with pytest.raises(CombosNoSincronizados):
+        script.run_backfill(limit=None, dry_run=False)
+
+    assert _row(db, 1).costo_tp_unitario_ars is None
+
+
+def test_main_exits_with_an_error_on_an_empty_bom(db) -> None:
+    db.query(ComboComponente).delete()
+    _venta(db, 1)
+    _hist(db, 500, 80, date(2026, 8, 1))
+    db.commit()
+
+    with pytest.raises(SystemExit) as exc:
+        script.main([])
+
+    assert "combos" in str(exc.value.code)

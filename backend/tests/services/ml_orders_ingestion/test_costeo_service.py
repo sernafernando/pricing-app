@@ -11,13 +11,14 @@ letting a `coalesce(..., 0)` stand in for "unknown").
 from __future__ import annotations
 
 from datetime import date
+import logging
 from decimal import Decimal
 
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
-from app.models.tb_item_association import TbItemAssociation
+from app.models.combo_componente import ComboComponente
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_orders_ingestion.costeo_service import FUENTE_COMBO, FUENTE_PUBLICACION, FUENTE_SKU, congelar
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
@@ -63,14 +64,9 @@ def _publicacion(db, mla: str = "MLA1", item_id: int = 500) -> PublicacionML:
     return publicacion
 
 
-def _componente(
-    db, combo_id: int, componente_id: int, qty: float, itema_id: int, comp_id: int = 1
-) -> TbItemAssociation:
-    """One line of a combo's bill of materials in `tb_item_association`,
-    same shape the backfill's own tests already use."""
-    row = TbItemAssociation(
-        comp_id=comp_id, itema_id=itema_id, item_id=combo_id, item_id_1=componente_id, iasso_qty=qty
-    )
+def _componente(db, combo_id: int, componente_id: int, qty: float) -> ComboComponente:
+    """One line of a combo's bill of materials in `combo_componentes`."""
+    row = ComboComponente(combo_item_id=combo_id, componente_item_id=componente_id, cantidad=qty)
     db.add(row)
     db.flush()
     return row
@@ -389,8 +385,8 @@ class TestComboLiveCosting:
         db.add(componente_a)
         db.add(componente_b)
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=2, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=2)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         db.commit()
 
         congelar(db, order_id=7001, items=[_item()])
@@ -425,8 +421,8 @@ class TestComboLiveCosting:
         db.add(componente_a)
         db.add(componente_sin_costo)
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         db.commit()
 
         congelar(db, order_id=7002, items=[_item()])
@@ -459,8 +455,8 @@ class TestComboLiveCosting:
         db.add(componente_a)
         db.add(componente_b)
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         rate = TipoCambio(fecha=date(2026, 9, 1), moneda="USD", compra=900.0, venta=950.0)
         db.add(rate)
         db.commit()
@@ -500,8 +496,8 @@ class TestComboLiveCosting:
         db.add(componente_a)
         db.add(componente_b)
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         rate = TipoCambio(fecha=date(2026, 9, 1), moneda="USD", compra=900.0, venta=950.0)
         db.add(rate)
         db.commit()
@@ -552,8 +548,8 @@ class TestComboLiveCosting:
         db.add(componente_a)
         db.add(componente_b)
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=2, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=2)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         db.commit()
 
         congelar(db, order_id=7006, items=[_item()])
@@ -566,7 +562,7 @@ class TestComboLiveCosting:
 
     def test_a_plain_product_with_zero_cost_and_no_components_freezes_nothing(self, db):
         """A `costo=0.0` product with NO bill-of-materials rows in
-        `tb_item_association` is a hole in the ERP, not a product that
+        `combo_componentes` is a hole in the ERP, not a product that
         became free. `congelar()` must not freeze `costo_unitario_ars == 0`
         for it -- "unknown is not zero" applies to the live path exactly
         like it already applies to the backfill's `_tiene_precio`.
@@ -612,8 +608,8 @@ class TestComboLiveCosting:
         db.add(componente_a)
         db.add(componente_cero)
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         db.commit()
 
         congelar(db, order_id=7008, items=[_item()])
@@ -623,7 +619,7 @@ class TestComboLiveCosting:
 
     def test_a_plain_product_with_its_own_cost_is_never_treated_as_a_combo(self, db):
         """A product that has BOTH its own cost and (incidentally) rows in
-        `tb_item_association` is costed with its own figure -- same order-
+        `combo_componentes` is costed with its own figure -- same order-
         of-preference the backfill documents for `_resolve_backfill_cost`."""
         _producto(db, item_id=500, costo=100.0, iva=21.0)
         componente_a = ProductoERP(
@@ -636,7 +632,7 @@ class TestComboLiveCosting:
         )
         db.add(componente_a)
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
         db.commit()
 
         congelar(db, order_id=7004, items=[_item()])
@@ -645,3 +641,74 @@ class TestComboLiveCosting:
         row = db.query(MlOrderItemCosto).filter_by(order_id=7004, item_id="MLA1").one()
         assert row.costo_unitario_ars == Decimal("100.0")
         assert row.fuente == FUENTE_PUBLICACION
+
+
+class TestEmptyBomNeverFreezesACombo:
+    """An empty `combo_componentes` (the combos sync has not run) must not
+    stop order ingestion, and must not freeze a combo as if it were a plain
+    item: the combo is left in the same "not costed yet" state as a combo
+    with an uncosted component, with one warning per call."""
+
+    def _combos(self, db):
+        for item_id, codigo in ((500, "PACK-1"), (501, "PACK-2")):
+            db.add(ProductoERP(item_id=item_id, codigo=codigo, descripcion=codigo, costo=0.0, iva=21.0))
+        for item_id, codigo, costo in ((901, "COMP-A", 40.0), (902, "COMP-B", 10.0)):
+            db.add(
+                ProductoERP(
+                    item_id=item_id,
+                    codigo=codigo,
+                    descripcion=codigo,
+                    costo=costo,
+                    moneda_costo=TipoMoneda.ARS,
+                    iva=21.0,
+                )
+            )
+        _publicacion(db, mla="MLA1", item_id=500)
+        _publicacion(db, mla="MLA2", item_id=501)
+        db.commit()
+
+    def test_freezes_nothing_warns_once_and_costs_it_once_the_bom_is_synced(self, db, caplog):
+        self._combos(db)
+        items = [_item("MLA1", seller_sku="PACK-1"), _item("MLA2", seller_sku="PACK-2")]
+
+        with caplog.at_level(logging.WARNING, logger="app.services.ml_orders_ingestion.costeo_service"):
+            congelar(db, order_id=7100, items=items)
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=7100).count() == 0
+        avisos = [r for r in caplog.records if "combo_componentes" in r.getMessage()]
+        assert len(avisos) == 1
+
+        # The sync fills the table; the next ingestion of the order (congelar
+        # is insert-only, so the missing rows are simply inserted) costs it.
+        _componente(db, combo_id=500, componente_id=901, qty=2)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
+        db.commit()
+        congelar(db, order_id=7100, items=items)
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=7100, item_id="MLA1").one()
+        assert row.costo_unitario_ars == Decimal("90.0000")
+        assert row.fuente == FUENTE_COMBO
+
+    def test_a_plain_item_is_still_frozen_with_an_empty_bom(self, db):
+        """Ingestion goes on: an item with its own cost never needed a bill
+        of materials."""
+        _producto(db, item_id=500, costo=100.0)
+        _publicacion(db)
+        db.commit()
+
+        congelar(db, order_id=7101, items=[_item()])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=7101).one().costo_unitario_ars == Decimal("100.0000")
+
+    def test_no_warning_once_the_bom_is_synced(self, db, caplog):
+        self._combos(db)
+        _componente(db, combo_id=99_000, componente_id=99_001, qty=1)  # an unrelated combo
+        db.commit()
+
+        with caplog.at_level(logging.WARNING, logger="app.services.ml_orders_ingestion.costeo_service"):
+            congelar(db, order_id=7102, items=[_item("MLA1", seller_sku="PACK-1")])
+
+        assert not [r for r in caplog.records if "combo_componentes" in r.getMessage()]

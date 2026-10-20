@@ -19,7 +19,7 @@ from app.models.item_cost_list import ItemCostList
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
-from app.models.tb_item_association import TbItemAssociation
+from app.models.combo_componente import ComboComponente
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_orders_ingestion.costeo_service import (
     FUENTE_PUBLICACION,
@@ -71,8 +71,8 @@ def _lista8(db, item_id: int, price, curr_id: int = CURR_ARS, coslis_id: int = 8
     db.flush()
 
 
-def _componente(db, combo_id: int, componente_id: int, qty: float, itema_id: int) -> None:
-    db.add(TbItemAssociation(comp_id=1, itema_id=itema_id, item_id=combo_id, item_id_1=componente_id, iasso_qty=qty))
+def _componente(db, combo_id: int, componente_id: int, qty: float) -> None:
+    db.add(ComboComponente(combo_item_id=combo_id, componente_item_id=componente_id, cantidad=qty))
     db.flush()
 
 
@@ -232,8 +232,8 @@ class TestTpCostCombos:
         _producto(db, item_id=901, costo=40.0, codigo="COMP-A")
         _producto(db, item_id=902, costo=10.0, codigo="COMP-B")
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=2, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=2)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
 
     def test_combo_without_own_list8_price_sums_its_components(self, db):
         """The combo HAS a normal cost of its own but NO list-8 price: the TP
@@ -312,7 +312,7 @@ class TestBatchedLookups:
         for combo_id, base in ((502, 900), (503, 910)):
             for j in range(2):
                 _producto(db, item_id=base + j, costo=5.0, codigo=f"C-{base + j}")
-                _componente(db, combo_id=combo_id, componente_id=base + j, qty=1, itema_id=base + j)
+                _componente(db, combo_id=combo_id, componente_id=base + j, qty=1)
                 _lista8(db, item_id=base + j, price=3)
         _rate(db)
         db.commit()
@@ -331,7 +331,7 @@ class TestBatchedLookups:
 
         lista8_queries = [s for s in statements if "tb_item_cost_list" in s]
         assert len(lista8_queries) <= 2
-        combo_queries = [s for s in statements if "tb_item_association" in s]
+        combo_queries = [s for s in statements if "combo_componentes" in s]
         assert len(combo_queries) == 1
 
         rows = {r.item_id: r for r in db.query(MlOrderItemCosto).filter_by(order_id=30)}
@@ -426,7 +426,7 @@ class TestMultiCompanyList8:
         _producto(db, item_id=500, costo=100.0)
         _producto(db, item_id=901, costo=40.0, codigo="COMP-A")
         _publicacion(db, item_id=500)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
         _lista8(db, item_id=901, price=30)
         for kwargs in precio_rechazado["filas"]:
             _lista8(db, item_id=500, **kwargs)
@@ -477,3 +477,23 @@ class TestTpRateOnlyForUsd:
             costo_tp_fuente=FUENTE_TP_COMBO,
             costo_tp_at=datetime.now(timezone.utc),
         )
+
+
+class TestTpCostWithAnEmptyBom:
+    def test_a_combo_without_own_list8_price_stays_tp_null(self, db):
+        """With `combo_componentes` empty the combo's TP cost is NOT its own
+        normal cost or any other figure: it stays NULL ("Total TP
+        incomplete"), the state the TP fill and `backfill_tp_cost` pick up."""
+        _producto(db, item_id=500, costo=100.0)
+        _producto(db, item_id=901, costo=40.0, codigo="COMP-A")
+        _publicacion(db, item_id=500)
+        _lista8(db, item_id=901, price=30, curr_id=CURR_ARS)
+        db.commit()
+
+        congelar(db, order_id=40, items=[_item()])
+        db.commit()
+
+        row = _row(db, 40)
+        assert row.costo_unitario_ars == Decimal("100")
+        assert row.costo_tp_unitario_ars is None
+        assert row.costo_tp_fuente is None
