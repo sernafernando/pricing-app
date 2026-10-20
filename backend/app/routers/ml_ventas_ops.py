@@ -2690,7 +2690,7 @@ def obtener_operacion(
         claim=ClaimSummary.model_validate(claim) if claim else None,
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
-        breakdown=_con_importe_de_bonificacion(OperationBreakdownSummary.from_domain(breakdown), order_descomposicion),
+        breakdown=_con_importe_fuera_del_pago(OperationBreakdownSummary.from_domain(breakdown), order_descomposicion),
         total_gauss=float(order_metrics.total_gauss) if order_metrics.total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
         cadena_total_gauss=CadenaTotalGaussSummary.from_stored(
@@ -2703,7 +2703,7 @@ def obtener_operacion(
     return _tp_json(_tp_operation(db, response)) if tp_solo else response
 
 
-def _con_importe_de_bonificacion(resumen: OperationBreakdownSummary, descomposicion) -> OperationBreakdownSummary:
+def _con_importe_fuera_del_pago(resumen: OperationBreakdownSummary, descomposicion) -> OperationBreakdownSummary:
     """Gives the breakdown lines that are outside the payment -- the Flex
     bonificación and the Flex buyer-paid shipping no payment carries
     (flex-envio-comprador) -- their gross / net / IVA, read from the SAME

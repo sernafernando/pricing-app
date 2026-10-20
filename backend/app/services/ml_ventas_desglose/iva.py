@@ -139,19 +139,7 @@ IVA_CUPON_VENDEDOR_PCT = Decimal("0")
 # discipline of never discarding an unrecognised name.
 CONCEPTO_IVA_NO_DETERMINADO = "IVA no determinado"
 
-# Positive term that is INSIDE `net_received_amount` but is not the goods:
-# the shipping the seller charges the buyer. Decomposing only the items made
-# every such order fail to reconcile, and `neto_sin_iva` went silently
-# None. It carries ML's 21%, same as every other ML-side figure.
-#
-# An ML-funded coupon is deliberately NOT a component. The frozen
-# `unit_price` is the full price, equal to `transaction_amount`, so ML's
-# share of the coupon is already inside the goods line. Adding
-# `coupon_amount` on top counted it twice and the split missed by exactly
-# that amount (production order 2000018567320906).
-# `CONCEPTO_ENVIO_COMPRADOR` itself is defined in `breakdown_service` (its Flex
-# fallback line carries the same label) and imported here, so
-# `iva.CONCEPTO_ENVIO_COMPRADOR` keeps working.
+# `CONCEPTO_ENVIO_COMPRADOR` (the buyer's shipping component) lives in `breakdown_service`, re-exported here.
 
 # The débitos/créditos tax paid a SECOND time on withdrawal from Mercado
 # Pago (ml-ventas-neto-iibb-varios R2). Carries no IVA (it is a tax, not a
@@ -537,19 +525,11 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                 )
             )
 
-        # ventas-ml-bonificacion-en-neto: what ML pays the seller for the Flex
-        # shipping it delivers is part of the operation's neto. At ML's 21%
-        # like every ML-side figure (`IVA_ML_PCT`) -- the maintainer's own rule,
-        # 8990 -> 7429,75. It is a REAL component (it adds to `neto_sin_iva`
-        # and its IVA is a real part of the split), but it is NOT inside
-        # `net_received_amount`: `fuera_del_pago` keeps it out of the payment
-        # reconciliation below, which is therefore as exact as before.
-        # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
-        # so a pack's components add up to ONE bonificación.
         # flex-envio-comprador: the Flex shipping the buyer paid that NO payment
         # of the shipment carries (`envio_comprador.py`). Same 21%, same label
         # as the payment's, but outside `net_received_amount`, so it is
-        # `fuera_del_pago` exactly like the bonificación below. The resolver
+        # `fuera_del_pago` exactly like the bonificación below. Appended before
+        # the bonificación, so the component order stays envío, bonificación. The resolver
         # never yields it when a payment carries the shipping, so the two
         # sources can never both count.
         envio_flex = envio_flex_by_order.get(order_id)
@@ -569,6 +549,15 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
 
         envio_comprador = EnvioCompradorOrden(bruto=envio_bruto, neto=envio_neto) if envio_bruto > 0 else None
 
+        # ventas-ml-bonificacion-en-neto: what ML pays the seller for the Flex
+        # shipping it delivers is part of the operation's neto. At ML's 21%
+        # like every ML-side figure (`IVA_ML_PCT`) -- the maintainer's own rule,
+        # 8990 -> 7429,75. It is a REAL component (it adds to `neto_sin_iva`
+        # and its IVA is a real part of the split), but it is NOT inside
+        # `net_received_amount`: `fuera_del_pago` keeps it out of the payment
+        # reconciliation below, which is therefore as exact as before.
+        # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
+        # so a pack's components add up to ONE bonificación.
         bonificacion = bonificacion_by_order.get(order_id)
         if bonificacion is not None:
             componentes.append(

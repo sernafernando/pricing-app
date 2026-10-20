@@ -901,6 +901,17 @@ CONCEPTO_CUPON_VENDEDOR = "Cupón a cargo del vendedor"
 # The shipping the buyer paid. Named here for the same reason: the breakdown's
 # line for the Flex fallback (`envio_comprador.py`) and `iva.py`'s component
 # carry one label, and `iva.py` re-exports it.
+#
+# In `iva.py` it is a positive term INSIDE `net_received_amount` that is not
+# the goods: the shipping the seller charges the buyer. Decomposing only the
+# items made every such order fail to reconcile, and `neto_sin_iva` went
+# silently None. It carries ML's 21%, same as every other ML-side figure.
+#
+# An ML-funded coupon is deliberately NOT a component. The frozen
+# `unit_price` is the full price, equal to `transaction_amount`, so ML's
+# share of the coupon is already inside the goods line. Adding
+# `coupon_amount` on top counted it twice and the split missed by exactly
+# that amount (production order 2000018567320906).
 CONCEPTO_ENVIO_COMPRADOR = "Envío cobrado al comprador"
 
 

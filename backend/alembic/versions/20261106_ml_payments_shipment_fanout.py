@@ -43,11 +43,15 @@ BEGIN
         ids := ARRAY[NEW.order_id];
     END IF;
     -- Every order sharing the shipment of those orders (flex-envio-comprador).
-    ids := ids || ARRAY(
-        SELECT sibling.order_id
-        FROM ml_orders_ops AS own
-        JOIN ml_orders_ops AS sibling ON sibling.shipping_id = own.shipping_id
-        WHERE own.order_id = ANY(ids) AND own.shipping_id IS NOT NULL
+    -- The self-join also returns the payment's own order(s): DISTINCT keeps
+    -- each id once, so the enqueue never sees a duplicate.
+    ids := ARRAY(
+        SELECT DISTINCT x FROM unnest(ids || ARRAY(
+            SELECT sibling.order_id
+            FROM ml_orders_ops AS own
+            JOIN ml_orders_ops AS sibling ON sibling.shipping_id = own.shipping_id
+            WHERE own.order_id = ANY(ids) AND own.shipping_id IS NOT NULL
+        )) AS x
     );
     PERFORM order_metrics_enqueue(
         ids,
