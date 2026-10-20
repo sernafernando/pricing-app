@@ -346,9 +346,11 @@ class BreakdownLineSummary(BaseModel):
     monto: float
     origen: str = "api"
     # Gross / net / IVA of the line when it has a fiscal breakdown to show
-    # (today only the Flex bonificación, `origen="bonificacion"`, whose `monto`
-    # is the NEGATIVE gross: money ML pays, it adds to the neto). `None` for
-    # every other line: their `monto` already is the whole story.
+    # (the lines outside the payment: the Flex bonificación,
+    # `origen="bonificacion"`, and the Flex buyer-paid shipping no payment
+    # carries, `origen="envio_comprador"`; their `monto` is the NEGATIVE gross:
+    # money we collect, it adds to the neto). `None` for every other line:
+    # their `monto` already is the whole story.
     importe: Optional[ImporteDesglosadoSummary] = None
 
 
