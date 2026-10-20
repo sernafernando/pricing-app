@@ -41,8 +41,14 @@ History of the value:
   re-enqueues every stored row so it gets them; an order whose items have no
   TP cost yet stores `tp_incompleto = True`, and the TP backfill recomputes it
   later through the `ml_order_item_costos` trigger.
+- 8: flex-envio-comprador. On a Flex (`self_service`) shipment whose payments
+  carry no `shipping_amount`, the shipping the buyer paid to the seller is
+  read from `raw_costs.receiver.cost_details` (split across the pack's orders)
+  and enters `neto` (gross), `neto_sin_iva` and the "% de varios" base (without
+  IVA), outside the payment reconciliation. The bump re-enqueues every stored
+  row so `neto`, the Total Gauss and the sale lines are recomputed.
 """
 
 from __future__ import annotations
 
-CURRENT_FORMULA_VERSION = 7
+CURRENT_FORMULA_VERSION = 8

@@ -7,10 +7,20 @@ from __future__ import annotations
 
 from app.services.order_metrics import constants
 from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
+from app.services.order_metrics.sale_lines_store import TP_FORMULA_VERSION
+
+# The exact current version: an accidental bump or a skipped one fails here.
+# 8 = flex-envio-comprador (documented in `constants.__doc__`).
+EXPECTED_FORMULA_VERSION = 8
 
 
-def test_the_tp_columns_bumped_the_formula_version() -> None:
-    assert CURRENT_FORMULA_VERSION == 7
+def test_the_formula_version_is_pinned_exactly() -> None:
+    assert CURRENT_FORMULA_VERSION == EXPECTED_FORMULA_VERSION
+
+
+def test_the_tp_columns_exist_from_version_7_on() -> None:
+    assert TP_FORMULA_VERSION == 7
+    assert CURRENT_FORMULA_VERSION >= TP_FORMULA_VERSION
 
 
 def test_the_bump_is_documented_in_the_history() -> None:

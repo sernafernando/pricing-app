@@ -526,6 +526,55 @@ class TestPaymentsOpsAndChargesTriggers:
         finally:
             _clear_orders(session, order_id)
 
+    def test_payment_shipping_change_enqueues_every_order_sharing_the_shipment(self, clean_slate) -> None:
+        """flex-envio-comprador: the Flex buyer-paid shipping fallback of an
+        order depends on whether ANY payment of its shipment carries the
+        shipping, so a sibling's payment write must recompute it too.
+        MUTATION: the payment function without the sibling fan-out leaves
+        `order_b` clean."""
+        session = clean_slate
+        order_a, order_b, order_other = 320101, 320102, 320103
+        shipment_id = 800000101
+        payment_id = 900000101
+        try:
+            _insert_order(session, order_a, shipping_id=shipment_id)
+            _insert_order(session, order_b, shipping_id=shipment_id)
+            _insert_order(session, order_other, shipping_id=shipment_id + 1)
+            session.execute(
+                text(
+                    "INSERT INTO ml_payments_ops (payment_id, order_id, status, shipping_amount) "
+                    "VALUES (:payment_id, :order_id, 'approved', 0)"
+                ),
+                {"payment_id": payment_id, "order_id": order_a},
+            )
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text("UPDATE ml_payments_ops SET shipping_amount = 5990 WHERE payment_id = :payment_id"),
+                {"payment_id": payment_id},
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_a) is not None
+            assert _dirty_row(session, order_b) is not None
+            assert _dirty_row(session, order_other) is None
+            _clear_dirty(session)
+
+            session.execute(
+                text("DELETE FROM ml_payments_ops WHERE payment_id = :payment_id"), {"payment_id": payment_id}
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_a) is not None
+            assert _dirty_row(session, order_b) is not None
+        finally:
+            session.execute(
+                text("DELETE FROM ml_payments_ops WHERE payment_id = :payment_id"), {"payment_id": payment_id}
+            )
+            session.commit()
+            _clear_orders(session, order_a, order_b, order_other)
+
     def test_payment_charges_resolve_order_id_through_payment(self, clean_slate) -> None:
         session = clean_slate
         order_id = 320002

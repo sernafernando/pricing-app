@@ -63,6 +63,13 @@ BONIFICACION = {
     ORDER_ID: (GROSS, NET_OF_IVA),
     SELF_SERVICE_PACK: (D("599"), D("495.04")),
 }
+# flex-envio-comprador: the Flex buyer-paid shipping no payment carries (gross,
+# net of IVA). The pack's ML panel shows "Cargo por Envíos ... (a cargo del
+# comprador)" $2.216,30; `BEFORE` predates it, so it is added on top here and,
+# unlike the bonificación, it DOES raise the Total Gauss: it is new income.
+ENVIO_FLEX = {
+    SELF_SERVICE_PACK: (D("2216.30"), D("1831.65")),
+}
 
 
 def _seed(db, order_id: int) -> None:
@@ -107,12 +114,13 @@ class TestEveryCapturedCase:
         _seed(db, order_id)
         neto_antes, sin_iva_antes, gauss_antes = BEFORE[order_id]
         bruto, neto = BONIFICACION.get(order_id, (D("0"), D("0")))
+        envio_bruto, envio_neto = ENVIO_FLEX.get(order_id, (D("0"), D("0")))
 
         metrics = compute_order_metrics(db, [order_id])[order_id]
 
-        assert metrics.total_gauss == gauss_antes
-        assert metrics.neto == neto_antes + bruto
-        assert metrics.neto_sin_iva == sin_iva_antes + neto
+        assert metrics.total_gauss == gauss_antes + envio_neto
+        assert metrics.neto == neto_antes + bruto + envio_bruto
+        assert metrics.neto_sin_iva == sin_iva_antes + neto + envio_neto
         assert metrics.iva_reconcilia is True
         assert "bonificacion_envio" not in [code for code, _m, _c in metrics.lineas]
 
@@ -182,7 +190,13 @@ class TestTheTwoPathsAndThePackAgree:
         bulk = compute_neto_by_order_ids(db, [order_id])[order_id]
         breakdown = compute_breakdown(db, [order_id])
 
-        assert breakdown.neto == bulk == BEFORE[order_id][0] + BONIFICACION.get(order_id, (D("0"), D("0")))[0]
+        assert (
+            breakdown.neto
+            == bulk
+            == BEFORE[order_id][0]
+            + BONIFICACION.get(order_id, (D("0"), D("0")))[0]
+            + ENVIO_FLEX.get(order_id, (D("0"), D("0")))[0]
+        )
 
     def test_the_breakdown_carries_the_line_and_the_deposit_excludes_it(self, db) -> None:
         seed_capture(db)

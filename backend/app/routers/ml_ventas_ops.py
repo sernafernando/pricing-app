@@ -64,6 +64,7 @@ from app.services.ml_orders_ingestion.operation_status import (
 )
 from app.services.ml_ventas_desglose.breakdown_service import (
     CONCEPTO_BONIFICACION_ENVIO,
+    CONCEPTO_ENVIO_COMPRADOR,
     RELEVANT_PAYMENT_STATUSES,
     bonificacion_bruta_by_order_ids,
     compute_breakdown,
@@ -331,7 +332,9 @@ class BreakdownLineSummary(BaseModel):
 
     `"bonificacion"` (ventas-ml-bonificacion-en-neto) is the Flex "Bonificación
     por envío" ML pays for the operation: it IS part of Neto, as a negative
-    charge (it adds), next to the charges ML takes.
+    charge (it adds), next to the charges ML takes. `"envio_comprador"`
+    (flex-envio-comprador) is the Flex shipping the buyer paid that no payment
+    carries: also part of Neto, also a negative charge.
 
     `"recuperable"` (ml-ventas-neto-iibb-varios D2) is another value: a
     SIRTAC withholding, shown so the operator can see it, but NOT part of
@@ -343,9 +346,11 @@ class BreakdownLineSummary(BaseModel):
     monto: float
     origen: str = "api"
     # Gross / net / IVA of the line when it has a fiscal breakdown to show
-    # (today only the Flex bonificación, `origen="bonificacion"`, whose `monto`
-    # is the NEGATIVE gross: money ML pays, it adds to the neto). `None` for
-    # every other line: their `monto` already is the whole story.
+    # (the lines outside the payment: the Flex bonificación,
+    # `origen="bonificacion"`, and the Flex buyer-paid shipping no payment
+    # carries, `origen="envio_comprador"`; their `monto` is the NEGATIVE gross:
+    # money we collect, it adds to the neto). `None` for every other line:
+    # their `monto` already is the whole story.
     importe: Optional[ImporteDesglosadoSummary] = None
 
 
@@ -2687,7 +2692,7 @@ def obtener_operacion(
         claim=ClaimSummary.model_validate(claim) if claim else None,
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
-        breakdown=_con_importe_de_bonificacion(OperationBreakdownSummary.from_domain(breakdown), order_descomposicion),
+        breakdown=_con_importe_fuera_del_pago(OperationBreakdownSummary.from_domain(breakdown), order_descomposicion),
         total_gauss=float(order_metrics.total_gauss) if order_metrics.total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
         cadena_total_gauss=CadenaTotalGaussSummary.from_stored(
@@ -2700,18 +2705,23 @@ def obtener_operacion(
     return _tp_json(_tp_operation(db, response)) if tp_solo else response
 
 
-def _con_importe_de_bonificacion(resumen: OperationBreakdownSummary, descomposicion) -> OperationBreakdownSummary:
-    """Gives the bonificación line of the breakdown its gross / net / IVA, read
-    from the SAME `iva.py` component the IVA section shows -- one source, so
-    the line and the section cannot disagree."""
+def _con_importe_fuera_del_pago(resumen: OperationBreakdownSummary, descomposicion) -> OperationBreakdownSummary:
+    """Gives the breakdown lines that are outside the payment -- the Flex
+    bonificación and the Flex buyer-paid shipping no payment carries
+    (flex-envio-comprador) -- their gross / net / IVA, read from the SAME
+    `iva.py` component the IVA section shows -- one source, so the line and the
+    section cannot disagree."""
+    origen_por_concepto = {CONCEPTO_BONIFICACION_ENVIO: "bonificacion", CONCEPTO_ENVIO_COMPRADOR: "envio_comprador"}
     for componente in descomposicion.componentes:
-        if componente.concepto == CONCEPTO_BONIFICACION_ENVIO:
-            importe = ImporteDesglosadoSummary(
-                bruto=float(componente.bruto), neto=float(componente.base), iva=float(componente.iva)
-            )
-            for linea in resumen.lines:
-                if linea.origen == "bonificacion":
-                    linea.importe = importe
+        origen = origen_por_concepto.get(componente.concepto)
+        if origen is None or not componente.fuera_del_pago:
+            continue
+        importe = ImporteDesglosadoSummary(
+            bruto=float(componente.bruto), neto=float(componente.base), iva=float(componente.iva)
+        )
+        for linea in resumen.lines:
+            if linea.origen == origen:
+                linea.importe = importe
     return resumen
 
 
