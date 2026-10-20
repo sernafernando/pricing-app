@@ -276,3 +276,22 @@ class TestSellOutMigration:
                 r[0] for r in conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()"))
             }
         assert not tables & set(TABLES)
+        with engine.connect() as conn:
+            funciones = "SELECT count(*) FROM pg_proc WHERE proname = 'sell_out_set_updated_at'"
+            assert conn.execute(text(funciones)).scalar_one() == 0
+            triggers = "SELECT count(*) FROM pg_trigger WHERE tgname = 'sell_out_campanas_updated_at'"
+            assert conn.execute(text(triggers)).scalar_one() == 0
+
+    def test_a_raw_sql_update_moves_updated_at(self, engine) -> None:
+        """The BEFORE UPDATE trigger, not the ORM, keeps `updated_at` (now() is per transaction: two of them)."""
+        with engine.begin() as conn:
+            campana_id = _new(conn)
+            antes = conn.execute(
+                text("SELECT updated_at FROM sell_out_campanas WHERE id = :i"), {"i": campana_id}
+            ).scalar_one()
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE sell_out_campanas SET nombre = 'Renombrada' WHERE id = :i"), {"i": campana_id})
+            despues = conn.execute(
+                text("SELECT updated_at FROM sell_out_campanas WHERE id = :i"), {"i": campana_id}
+            ).scalar_one()
+        assert despues > antes
