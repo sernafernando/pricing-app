@@ -1,4 +1,4 @@
-"""Migration `20261104_sell_out_campanas`: sell-out campaigns, their groups and permissions.
+"""Migration `20261105_sell_out_campanas`: sell-out campaigns, their groups and permissions.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references, and proves the CHECK/UNIQUE/FK
@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.database import Base
 
-_MIGRATION = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20261104_sell_out_campanas.py"
+_MIGRATION = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20261105_sell_out_campanas.py"
 TABLES = ("sell_out_campanas", "sell_out_campana_grupos")
 
 _STUBS = [

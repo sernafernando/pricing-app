@@ -1,7 +1,7 @@
 """sell out: campaigns, their product groups and the sell_out.* permissions
 
-Revision ID: 20261104_sell_out_campanas
-Revises: 20261102_sell_in_compra_pedidos
+Revision ID: 20261105_sell_out_campanas
+Revises: 20261104_pedido_lineas_facturadas
 Create Date: 2026-11-04
 
 Sell in / sell out, T6. New tables only; legacy offsets are untouched (a
@@ -21,8 +21,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "20261104_sell_out_campanas"
-down_revision: Union[str, None] = "20261102_sell_in_compra_pedidos"
+revision: str = "20261105_sell_out_campanas"
+down_revision: Union[str, None] = "20261104_pedido_lineas_facturadas"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
