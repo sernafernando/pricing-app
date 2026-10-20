@@ -793,3 +793,356 @@ class TestRefrescarFechasFactura:
 
         assert _refrescar(db) == 0
         assert pedido.fecha_factura == date(2025, 1, 1)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tests: pedido_compra_lineas_facturadas — invoiced units snapshot
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _linea_erp(db, *, it: int, ct: int, item_id: int | None, qty: str, **flags) -> None:
+    from app.models.item_transaction import ItemTransaction  # noqa: PLC0415
+
+    db.add(ItemTransaction(it_transaction=it, ct_transaction=ct, item_id=item_id, it_qty=Decimal(qty), **flags))
+    db.flush()
+
+
+def _unidades(db, pedido_id: int) -> dict[int, int]:
+    from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada  # noqa: PLC0415
+
+    db.expire_all()
+    rows = db.query(PedidoCompraLineaFacturada).filter_by(pedido_id=pedido_id).all()
+    return {r.item_id: r.cantidad for r in rows}
+
+
+def _refrescar_lineas(db) -> None:
+    from app.services.erp_matching_service import reconciliar_lineas_facturadas  # noqa: PLC0415
+
+    reconciliar_lineas_facturadas(db)
+
+
+class _ConFacturaYPedido:
+    """Shared fixtures: invoice 990001 (501 x 3+2, 502 x 7, one NULL item) and an unlinked pedido."""
+
+    @pytest.fixture
+    def factura(self, db, empresa, proveedor, sd_factura):
+        _crear_ct(
+            db,
+            ct_transaction=990001,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="LIN-1",
+            sd_id=sd_factura.sd_id,
+        )
+        _linea_erp(db, it=1, ct=990001, item_id=501, qty="3")
+        _linea_erp(db, it=2, ct=990001, item_id=501, qty="2")
+        _linea_erp(db, it=3, ct=990001, item_id=502, qty="7")
+        _linea_erp(db, it=4, ct=990001, item_id=None, qty="1")
+        return 990001
+
+    @pytest.fixture
+    def pedido(self, db, empresa, proveedor, active_user):
+        return _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-LIN-1",
+            numero_factura="LIN-1",
+            creado_por_id=active_user.id,
+        )
+
+
+class TestLineasFacturadas(_ConFacturaYPedido):
+    def test_vincular_snapshotea_unidades_por_item(self, db, factura, pedido):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+
+        assert _unidades(db, pedido.id) == {501: 5, 502: 7}
+
+    def test_desvincular_borra_las_lineas(self, db, factura, pedido):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+        asignar_factura_erp(db, pedido, None)
+
+        assert _unidades(db, pedido.id) == {}
+
+    def test_componentes_de_combo_no_se_cuentan(self, db, factura, pedido):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        _linea_erp(db, it=5, ct=factura, item_id=503, qty="1", it_isassociation=True, it_order=1)
+        _linea_erp(
+            db, it=6, ct=factura, item_id=504, qty="2", it_isassociation=True, it_isassociationgroup=True, it_order=2
+        )
+        asignar_factura_erp(db, pedido, factura)
+
+        assert _unidades(db, pedido.id) == {501: 5, 502: 7, 503: 1}
+
+    def test_refresco_aplica_diferencia_de_conjuntos(self, db, factura, pedido):
+        from app.models.item_transaction import ItemTransaction  # noqa: PLC0415
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+        # ERP edits: item 502 removed, 501 changes, a late line for 505 arrives.
+        db.query(ItemTransaction).filter_by(item_id=502).delete()
+        db.query(ItemTransaction).filter_by(it_transaction=2).update({"it_qty": Decimal("10")})
+        _linea_erp(db, it=7, ct=factura, item_id=505, qty="4")
+
+        _refrescar_lineas(db)
+
+        assert _unidades(db, pedido.id) == {501: 13, 505: 4}
+
+    def test_factura_anulada_vacia_el_snapshot(self, db, factura, pedido, proveedor, sd_anulacion):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+        _crear_ct(
+            db,
+            ct_transaction=990002,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber="LIN-1",
+            sd_id=sd_anulacion.sd_id,
+        )
+
+        _refrescar_lineas(db)
+
+        assert _unidades(db, pedido.id) == {}
+
+    def test_backfill_de_la_migracion_snapshotea_los_vinculados(
+        self, db, factura, pedido, empresa, proveedor, active_user
+    ):
+        import importlib.util  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        migration = (
+            Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20261104_pedido_lineas_facturadas.py"
+        )
+        spec = importlib.util.spec_from_file_location("pedido_lineas_facturadas", migration)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        pedido.ct_transaction_id = factura
+        sin_vincular = _crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            numero="P-LIN-2",
+            numero_factura=None,
+            creado_por_id=active_user.id,
+        )
+        db.flush()
+
+        db.execute(text(module.BACKFILL))
+
+        assert _unidades(db, pedido.id) == {501: 5, 502: 7}
+        assert _unidades(db, sin_vincular.id) == {}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Tests: purchase credit notes imputed to the operation reduce invoiced units
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestLineasFacturadasConNotasDeCredito(_ConFacturaYPedido):
+    @pytest.fixture
+    def sd_nc(self, db) -> SaleDocument:
+        sd = SaleDocument(
+            sd_id=103,
+            sd_desc="Nota de crédito compra",
+            sd_ispurchase=True,
+            sd_iscreditnote=True,
+            sd_plusorminus=-1,
+            hacc_group=10001,
+        )
+        db.add(sd)
+        db.flush()
+        return sd
+
+    @pytest.fixture
+    def vinculado(self, db, factura, pedido):
+        from app.services.erp_matching_service import asignar_factura_erp  # noqa: PLC0415
+
+        asignar_factura_erp(db, pedido, factura)
+        return pedido
+
+    def _nc(self, db, proveedor, sd_nc, *, ct: int, lineas: dict[int, str]) -> int:
+        _crear_ct(
+            db,
+            ct_transaction=ct,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber=f"NC-{ct}",
+            sd_id=sd_nc.sd_id,
+        )
+        for n, (item_id, qty) in enumerate(lineas.items()):
+            _linea_erp(db, it=ct * 10 + n, ct=ct, item_id=item_id, qty=qty)
+        return ct
+
+    def _imputar(self, db, proveedor, active_user, *, origen: tuple[str, int], destino: tuple[str, int], **kw):
+        from app.services.imputaciones_service import crear_imputacion  # noqa: PLC0415
+
+        return crear_imputacion(
+            db,
+            origen_tipo=origen[0],
+            origen_id=origen[1],
+            destino_tipo=destino[0],
+            destino_id=destino[1],
+            monto_imputado=Decimal("10"),
+            moneda_imputada="ARS",
+            monto_origen=Decimal("10"),
+            moneda_origen="ARS",
+            proveedor_id=proveedor.id,
+            creado_por_id=active_user.id,
+            **kw,
+        )
+
+    def test_nc_imputada_al_pedido_resta_unidades(self, db, vinculado, proveedor, sd_nc, active_user):
+        nc = self._nc(db, proveedor, sd_nc, ct=990010, lineas={501: "2"})
+
+        self._imputar(
+            db, proveedor, active_user, origen=("nota_credito_erp", nc), destino=("pedido_compra", vinculado.id)
+        )
+
+        assert _unidades(db, vinculado.id) == {501: 3, 502: 7}
+
+    def test_nc_imputada_a_la_factura_resta_unidades_una_sola_vez(self, db, vinculado, proveedor, sd_nc, active_user):
+        nc = self._nc(db, proveedor, sd_nc, ct=990011, lineas={502: "3"})
+
+        self._imputar(db, proveedor, active_user, origen=("nota_credito_erp", nc), destino=("factura_erp", 990001))
+        self._imputar(
+            db, proveedor, active_user, origen=("nota_credito_erp", nc), destino=("pedido_compra", vinculado.id)
+        )
+
+        assert _unidades(db, vinculado.id) == {501: 5, 502: 4}
+
+    def test_imputacion_revertida_no_resta(self, db, vinculado, proveedor, sd_nc, active_user):
+        nc = self._nc(db, proveedor, sd_nc, ct=990012, lineas={501: "2"})
+        destino = ("pedido_compra", vinculado.id)
+        imp = self._imputar(db, proveedor, active_user, origen=("nota_credito_erp", nc), destino=destino)
+
+        self._imputar(
+            db,
+            proveedor,
+            active_user,
+            origen=("nota_credito_erp", nc),
+            destino=destino,
+            es_reversal=True,
+            reimputada_desde_id=imp.id,
+        )
+
+        assert _unidades(db, vinculado.id) == {501: 5, 502: 7}
+
+    def test_nc_mayor_que_la_factura_queda_en_cero(self, db, vinculado, proveedor, sd_nc, active_user):
+        nc = self._nc(db, proveedor, sd_nc, ct=990013, lineas={502: "9", 509: "1"})
+
+        self._imputar(
+            db, proveedor, active_user, origen=("nota_credito_erp", nc), destino=("pedido_compra", vinculado.id)
+        )
+
+        assert _unidades(db, vinculado.id) == {501: 5}
+
+    def test_nc_anulada_no_resta(self, db, vinculado, proveedor, sd_nc, sd_anulacion, active_user):
+        nc = self._nc(db, proveedor, sd_nc, ct=990014, lineas={501: "2"})
+        self._imputar(
+            db, proveedor, active_user, origen=("nota_credito_erp", nc), destino=("pedido_compra", vinculado.id)
+        )
+        _crear_ct(
+            db,
+            ct_transaction=990015,
+            comp_id=1,
+            bra_id=1,
+            supp_id=proveedor.supp_id,
+            ct_docnumber=f"NC-{nc}",
+            sd_id=sd_anulacion.sd_id,
+        )
+
+        _refrescar_lineas(db)
+
+        assert _unidades(db, vinculado.id) == {501: 5, 502: 7}
+
+    def test_nc_local_vinculada_al_erp_resta_unidades(self, db, vinculado, empresa, proveedor, sd_nc, active_user):
+        from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
+
+        nc = self._nc(db, proveedor, sd_nc, ct=990016, lineas={501: "1"})
+        nc_local = NotaCreditoLocal(
+            numero="NCL-LIN-1",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("10"),
+            fecha_emision=date(2026, 4, 2),
+            motivo="devolución",
+            tipo="credito",
+            estado="aprobado",
+            creado_por_id=active_user.id,
+            ct_transaction_id=nc,
+        )
+        db.add(nc_local)
+        db.flush()
+
+        self._imputar(
+            db,
+            proveedor,
+            active_user,
+            origen=("nota_credito_local", nc_local.id),
+            destino=("pedido_compra", vinculado.id),
+        )
+
+        assert _unidades(db, vinculado.id) == {501: 4, 502: 7}
+
+    def test_backfill_de_la_migracion_resta_las_nc(self, db, factura, pedido, proveedor, sd_nc, active_user):
+        import importlib.util  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        from app.models.imputacion import Imputacion  # noqa: PLC0415
+
+        migration = (
+            Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20261104_pedido_lineas_facturadas.py"
+        )
+        spec = importlib.util.spec_from_file_location("pedido_lineas_facturadas", migration)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        pedido.ct_transaction_id = factura
+        nc = self._nc(db, proveedor, sd_nc, ct=990017, lineas={502: "2"})
+        db.add(
+            Imputacion(
+                origen_tipo="nota_credito_erp",
+                origen_id=nc,
+                destino_tipo="pedido_compra",
+                destino_id=pedido.id,
+                monto_imputado=Decimal("10"),
+                moneda_imputada="ARS",
+                monto_origen=Decimal("10"),
+                moneda_origen="ARS",
+                proveedor_id=proveedor.id,
+                creado_por_id=active_user.id,
+            )
+        )
+        db.flush()
+
+        db.execute(text(module.BACKFILL))
+
+        assert _unidades(db, pedido.id) == {501: 5, 502: 5}
+
+    def test_falla_de_la_reconciliacion_no_bloquea_la_imputacion(
+        self, db, vinculado, proveedor, sd_nc, active_user, monkeypatch
+    ):
+        from app.models.imputacion import Imputacion  # noqa: PLC0415
+        from app.services import erp_matching_service  # noqa: PLC0415
+
+        def _boom(session, pedido_id=None):
+            raise RuntimeError("mirror unavailable")
+
+        monkeypatch.setattr(erp_matching_service, "reconciliar_lineas_facturadas", _boom)
+        nc = self._nc(db, proveedor, sd_nc, ct=990018, lineas={501: "2"})
+
+        imp = self._imputar(
+            db, proveedor, active_user, origen=("nota_credito_erp", nc), destino=("pedido_compra", vinculado.id)
+        )
+
+        assert db.get(Imputacion, imp.id) is not None
+        assert _unidades(db, vinculado.id) == {501: 5, 502: 7}

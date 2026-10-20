@@ -282,6 +282,34 @@ class TestCorregirPedido:
         assert p.fecha_factura is None
         assert clon.fecha_factura == date(2026, 4, 15)
 
+    def test_lineas_facturadas_pasan_del_original_al_clon(self, db, empresa, proveedor, active_user) -> None:
+        from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada  # noqa: PLC0415
+
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user)
+        p.ct_transaction_id = 99_888_779
+        db.add_all(
+            [
+                PedidoCompraLineaFacturada(pedido_id=p.id, item_id=501, cantidad=5),
+                PedidoCompraLineaFacturada(pedido_id=p.id, item_id=502, cantidad=7),
+            ]
+        )
+        db.flush()
+        clon = pedidos_service.corregir_pedido(
+            db,
+            pedido_original_id=p.id,
+            cambios={"observaciones": "transferencia lineas"},
+            motivo_correccion="prueba transferencia lineas",
+            user_id=active_user.id,
+        )
+
+        def unidades(pedido_id: int) -> dict[int, int]:
+            rows = db.query(PedidoCompraLineaFacturada).filter_by(pedido_id=pedido_id).all()
+            return {r.item_id: r.cantidad for r in rows}
+
+        db.expire_all()
+        assert unidades(p.id) == {}
+        assert unidades(clon.id) == {501: 5, 502: 7}
+
     def test_clon_hereda_adjuntos_con_mismo_path(self, db, empresa, proveedor, active_user) -> None:
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user)
         # Crear 2 adjuntos en el original

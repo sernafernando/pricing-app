@@ -77,6 +77,7 @@ from app.models.ml_group_metrics import MlGroupMetrics  # noqa: F401 — registe
 from app.models.worker_job_state import WorkerJobState  # noqa: F401 — registers table for create_all
 from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: F401 — registers table for create_all
 from app.models.pedido_compra_oc import PedidoCompraOc  # noqa: F401 — registers table for create_all
+from app.models.item_transaction import ItemTransaction  # noqa: F401 — registers table for create_all
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam
@@ -408,8 +409,6 @@ def pg_engine():
         )
 
     eng = create_engine(POSTGRES_TEST_URL)
-    from app.models.item_transaction import ItemTransaction
-
     ItemTransaction.__table__.create(bind=eng, checkfirst=True)
     yield eng
     ItemTransaction.__table__.drop(bind=eng, checkfirst=True)

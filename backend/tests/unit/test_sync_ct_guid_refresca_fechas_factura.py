@@ -47,6 +47,7 @@ class _FakeClient:
 def calls(monkeypatch) -> list[str]:
     calls: list[str] = []
     monkeypatch.setattr(sync_mod.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(erp_matching_service, "reconciliar_lineas_facturadas", lambda db: calls.append("lineas") or 0)
     monkeypatch.setattr(erp_matching_service, "validar_catalogo_populado", lambda db: None)
     monkeypatch.setattr(
         erp_matching_service,
@@ -91,4 +92,33 @@ def test_falla_del_refresco_no_deshace_el_matching_ni_el_sync(calls, monkeypatch
 
     assert resultado == {"nuevos": 1, "actualizados": 0, "errores": 0}
     # The matching committed before the refresh ran; only the refresh rolls back.
-    assert calls[calls.index("match_backward") :] == ["match_backward", "commit", "refrescar", "rollback"]
+    assert calls[calls.index("match_backward") :] == [
+        "match_backward",
+        "commit",
+        "refrescar",
+        "rollback",
+        "lineas",
+        "commit",
+    ]
+
+
+def test_hook_reconcilia_lineas_facturadas_despues_de_las_fechas(calls, monkeypatch) -> None:
+    monkeypatch.setattr(erp_matching_service, "refrescar_fechas_factura", lambda db: calls.append("refrescar") or 0)
+
+    asyncio.run(sync_mod.sync_commercial_transactions_guid(_db(calls)))
+
+    assert calls[calls.index("refrescar") :] == ["refrescar", "commit", "lineas", "commit"]
+
+
+def test_falla_de_las_lineas_no_deshace_las_fechas(calls, monkeypatch) -> None:
+    def _boom(db):
+        calls.append("lineas")
+        raise RuntimeError("mirror unavailable")
+
+    monkeypatch.setattr(erp_matching_service, "refrescar_fechas_factura", lambda db: calls.append("refrescar") or 0)
+    monkeypatch.setattr(erp_matching_service, "reconciliar_lineas_facturadas", _boom)
+
+    resultado = asyncio.run(sync_mod.sync_commercial_transactions_guid(_db(calls)))
+
+    assert resultado == {"nuevos": 1, "actualizados": 0, "errores": 0}
+    assert calls[calls.index("refrescar") :] == ["refrescar", "commit", "lineas", "rollback"]

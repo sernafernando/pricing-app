@@ -287,15 +287,20 @@ def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: 
     """Single write path for a pedido's ERP invoice link.
 
     Sets `ct_transaction_id` and its app-side `fecha_factura` together (None
-    clears both). A ct missing from `v_facturas_compra_vigentes` still links,
-    with `fecha_factura` NULL. NO flush, NO commit.
+    clears both) and reconciles the invoiced-units snapshot of a persisted
+    pedido (flushes). A ct missing from `v_facturas_compra_vigentes` still
+    links, with `fecha_factura` NULL and no lines. NO commit.
     """
     if ct_transaction is None:
         pedido.ct_transaction_id = None
         pedido.fecha_factura = None
+        if pedido.id is not None:
+            session.execute(_BORRAR_LINEAS_SQL, {"pid": pedido.id})
         return
     pedido.ct_transaction_id = int(ct_transaction)
     pedido.fecha_factura = session.execute(_FECHA_FACTURA_SQL, {"ct": int(ct_transaction)}).scalar()
+    if pedido.id is not None:
+        reconciliar_lineas_facturadas(session, pedido.id)
 
 
 _FECHA_VISTA_SQL = (
@@ -324,6 +329,131 @@ def refrescar_fechas_factura(session: Session) -> int:
     actualizados = session.execute(_REFRESCAR_FECHAS_SQL).rowcount or 0
     logger.info("refrescar_fechas_factura: pedidos actualizados=%s", actualizados)
     return actualizados
+
+
+# ERP documents that make up a linked pedido's invoiced units: its invoice
+# plus every purchase credit note with a VIGENTE imputación (not a reversal and
+# never reversed) to the pedido, to a pedido it was corrected from, or to its
+# invoice — an ERP NC directly (origen_id = ct) or a local NC through its
+# matched ct_transaction_id. UNION counts an NC imputed several times only once.
+#
+# Why the correction chain (`cadena`): a financial `corregir_pedido` leaves the
+# clone pending while the imputaciones stay frozen on the original until the
+# clone is approved (or forever, if it is rejected or cancelled); approval
+# reverses them on the original and re-creates them on the clone. Following
+# every `corregido_desde_id` hop therefore counts each credit note exactly once
+# in every state: frozen → through the ancestor; transferred → the ancestor's
+# copy is reversed (not vigente) and the clone's own counts. The whole chain,
+# not one hop, because `crear_imputacion` does not guard the destination
+# pedido's estado, so a credit note can still land on a cancelled ancestor.
+# The cancelled original keeps no lines: it has no ct_transaction_id.
+_DOCUMENTOS_SQL = """
+SELECT p.id AS pedido_id, p.ct_transaction_id AS ct
+FROM pedidos_compra p
+WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+UNION
+SELECT p.id, n.ct
+FROM pedidos_compra p
+JOIN (
+  WITH RECURSIVE cadena(pedido_id, ancestro_id) AS (
+    SELECT p.id, p.id FROM pedidos_compra p WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+    UNION
+    SELECT c.pedido_id, a.corregido_desde_id
+    FROM cadena c JOIN pedidos_compra a ON a.id = c.ancestro_id
+    WHERE a.corregido_desde_id IS NOT NULL
+  )
+  SELECT pedido_id, ancestro_id FROM cadena
+) cad ON cad.pedido_id = p.id
+JOIN (
+  SELECT i.destino_tipo, i.destino_id,
+         CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS ct
+  FROM imputaciones i
+  LEFT JOIN notas_credito_local ncl ON i.origen_tipo = 'nota_credito_local' AND ncl.id = i.origen_id
+  WHERE i.origen_tipo IN ('nota_credito_erp', 'nota_credito_local')
+    AND i.es_reversal = false
+    AND NOT EXISTS (SELECT 1 FROM imputaciones r WHERE r.es_reversal = true AND r.reimputada_desde_id = i.id)
+) n ON (n.destino_tipo = 'pedido_compra' AND n.destino_id = cad.ancestro_id)
+    OR (n.destino_tipo = 'factura_erp' AND n.destino_id = p.ct_transaction_id)
+JOIN v_facturas_compra_vigentes vn ON vn.ct_transaction = n.ct AND vn.clasificacion = 'NC'
+WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+"""
+# Net units per item: it_qty is stored positive, the sign is the document's
+# sd_plusorminus (what sale_document_classifier.signo_contable returns; -1 for
+# credit notes). Only documents still in v_facturas_compra_vigentes count
+# (annulled → no lines); a net below one unit is not stored (clamp at 0).
+# FLOOR, not ROUND: cantidad is invoiced units that pay a per-unit bonus, so a
+# fractional net (2.7) must count the whole units actually invoiced (2), never
+# over-pay. FLOOR is explicit because a bare CAST(numeric AS INTEGER) rounds on
+# PostgreSQL but truncates on SQLite (FLOOR exists there since 3.35, math
+# functions are enabled by default). Same expression in the migration backfill.
+# Combo components are left out and only the main line counts, as in the sales
+# metrics scripts (no purchase line had association flags on prod 2026-10-19;
+# the rule only guards against a future double count).
+_LINEAS_ORIGEN_SQL = (
+    "SELECT d.pedido_id AS pedido_id, it.item_id AS item_id, "
+    "CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER) AS cantidad "
+    "FROM (" + _DOCUMENTOS_SQL + ") d "
+    """JOIN v_facturas_compra_vigentes v ON v.ct_transaction = d.ct
+JOIN tb_item_transactions it ON it.ct_transaction = d.ct
+WHERE it.item_id IS NOT NULL
+  AND NOT (
+    COALESCE(it.it_isassociation, false) = true
+    AND COALESCE(it.it_order, 1) <> 1
+    AND it.it_isassociationgroup IS NOT NULL
+  )
+GROUP BY d.pedido_id, it.item_id
+HAVING SUM(it.it_qty * v.sd_plusorminus) >= 1
+"""
+)
+_T = "pedido_compra_lineas_facturadas"
+_BORRAR_LINEAS_SQL = text(f"DELETE FROM {_T} WHERE pedido_id = :pid")
+# The corrected clone inherits the original's link and lines as-is.
+_COPIAR_LINEAS_SQL = text(
+    f"INSERT INTO {_T} (pedido_id, item_id, cantidad) SELECT :destino, item_id, cantidad FROM {_T} WHERE pedido_id = :origen"
+)
+_MATCH = f"s.pedido_id = {_T}.pedido_id AND s.item_id = {_T}.item_id"
+# Set difference against the snapshot: delete what the ERP no longer has, then
+# upsert the rest. ON CONFLICT (not INSERT ... WHERE NOT EXISTS) makes two
+# concurrent reconciles of the same pedido safe under READ COMMITTED: the second
+# one waits for the first and updates its row instead of raising on
+# UNIQUE(pedido_id, item_id). The DO UPDATE ... WHERE skips unchanged rows, so
+# they do not count as changes. `WHERE true` is required by SQLite to parse an
+# upsert after INSERT ... SELECT. Supported by PostgreSQL and SQLite >= 3.24.
+_RECONCILIAR_SQL = (
+    "WITH s AS ({origen}) DELETE FROM {t} WHERE {scope_t} AND NOT EXISTS (SELECT 1 FROM s WHERE {match})",
+    "WITH s AS ({origen}) INSERT INTO {t} (pedido_id, item_id, cantidad) "
+    "SELECT s.pedido_id, s.item_id, s.cantidad FROM s WHERE true "
+    "ON CONFLICT (pedido_id, item_id) DO UPDATE SET cantidad = excluded.cantidad "
+    "WHERE {t}.cantidad <> excluded.cantidad",
+)
+
+
+def copiar_lineas_facturadas(session: Session, *, origen_id: int, destino_id: int) -> None:
+    """Copy a pedido's invoiced-units snapshot to another one (corregir_pedido). NO commit."""
+    session.execute(_COPIAR_LINEAS_SQL, {"origen": origen_id, "destino": destino_id})
+
+
+def reconciliar_lineas_facturadas(session: Session, pedido_id: Optional[int] = None) -> int:
+    """Bring `pedido_compra_lineas_facturadas` in step with the ERP mirror.
+
+    One pedido (`pedido_id`) or every pedido (None, the ERP sync hook). Flushes
+    first because it reads `pedidos_compra.ct_transaction_id` from SQL. A pedido
+    without a link, or whose invoice left the view, ends with no lines. NO commit.
+
+    Returns:
+        how many snapshot rows were deleted, updated or inserted.
+    """
+    session.flush()
+    params = {"pid": pedido_id}
+    scope_pedido = "p.id = :pid" if pedido_id is not None else "1 = 1"
+    scope_t = f"{_T}.pedido_id = :pid" if pedido_id is not None else "1 = 1"
+    origen = _LINEAS_ORIGEN_SQL.format(scope_pedido=scope_pedido)
+    cambios = sum(
+        session.execute(text(sql.format(origen=origen, t=_T, scope_t=scope_t, match=_MATCH)), params).rowcount or 0
+        for sql in _RECONCILIAR_SQL
+    )
+    logger.info("reconciliar_lineas_facturadas: pedido_id=%s filas cambiadas=%s", pedido_id, cambios)
+    return cambios
 
 
 def match_forward(
@@ -900,9 +1030,11 @@ def _cancelar_ncs_locales_por_erp_cancelado(
 
 __all__ = [
     "asignar_factura_erp",
+    "copiar_lineas_facturadas",
     "match_backward",
     "match_forward",
     "match_ncs_backward",
+    "reconciliar_lineas_facturadas",
     "refrescar_fechas_factura",
     "validar_catalogo_populado",
 ]
