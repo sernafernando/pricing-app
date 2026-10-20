@@ -117,6 +117,7 @@ class PedidoCompraResponse(PedidoCompraBase):
     id: int
     numero: str
     ct_transaction_id: int | None = None
+    fecha_factura: date | None = None
     # Batch J — OC link columns (nullable when not linked). Header = first-link cache.
     oc_comp_id: int | None = None
     oc_bra_id: int | None = None

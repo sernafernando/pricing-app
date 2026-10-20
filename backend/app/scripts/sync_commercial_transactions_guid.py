@@ -336,6 +336,7 @@ async def sync_commercial_transactions_guid(
             from app.services.erp_matching_service import (  # noqa: PLC0415
                 match_backward,
                 match_ncs_backward,
+                refrescar_fechas_factura,
                 validar_catalogo_populado,
             )
 
@@ -357,6 +358,19 @@ async def sync_commercial_transactions_guid(
                     resumen_match["errores"],
                     resumen_ncs["errores"],
                 )
+                # fecha_factura follows ct_date changes/annulments of already
+                # linked invoices. Own scope after the matching commit, so a
+                # failure here rolls back only the refresh.
+                try:
+                    refrescar_fechas_factura(db)
+                    db.commit()
+                except Exception as refresco_exc:  # noqa: BLE001 — nunca tumbar el sync
+                    db.rollback()
+                    logger.error(
+                        "[compras.matching] Refresco de fecha_factura falló — el sync sigue OK: %s",
+                        refresco_exc,
+                        exc_info=True,
+                    )
         except RuntimeError as mismatch_exc:
             # Catálogo vacío — aborta ruidoso pero NO tumba el sync.
             # Creamos una notificación de admin para que alguien lo vea.

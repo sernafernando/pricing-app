@@ -19,6 +19,7 @@ Cubre:
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -263,6 +264,23 @@ class TestCorregirPedido:
         db.refresh(clon)
         assert p.ct_transaction_id is None
         assert clon.ct_transaction_id == 99_888_777
+
+    def test_fecha_factura_se_transfiere_original_a_clon(self, db, empresa, proveedor, active_user) -> None:
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user)
+        p.ct_transaction_id = 99_888_778
+        p.fecha_factura = date(2026, 4, 15)
+        db.flush()
+        clon = pedidos_service.corregir_pedido(
+            db,
+            pedido_original_id=p.id,
+            cambios={"observaciones": "transferencia fecha_factura"},
+            motivo_correccion="prueba transferencia fecha",
+            user_id=active_user.id,
+        )
+        db.refresh(p)
+        db.refresh(clon)
+        assert p.fecha_factura is None
+        assert clon.fecha_factura == date(2026, 4, 15)
 
     def test_clon_hereda_adjuntos_con_mismo_path(self, db, empresa, proveedor, active_user) -> None:
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user)

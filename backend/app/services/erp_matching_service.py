@@ -37,7 +37,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import Date, text
 from sqlalchemy.orm import Session
 
 from app.core.compras_empresa_erp_map import resolver_comp_bra
@@ -275,6 +275,57 @@ def _registrar_evento_match(
 # ──────────────────────────────────────────────────────────────────────────
 
 
+# `ct_date` is the ERP's naive wall-clock document date (stored as parsed, no
+# zone), so its date part is the invoice date as-is; no UTC→local shift.
+# `date(...)` works in Postgres and SQLite; `.columns` types the SQLite string.
+_FECHA_FACTURA_SQL = text(
+    "SELECT date(ct_date) AS fecha FROM v_facturas_compra_vigentes WHERE ct_transaction = :ct"
+).columns(fecha=Date)
+
+
+def asignar_factura_erp(session: Session, pedido: PedidoCompra, ct_transaction: Optional[int]) -> None:
+    """Single write path for a pedido's ERP invoice link.
+
+    Sets `ct_transaction_id` and its app-side `fecha_factura` together (None
+    clears both). A ct missing from `v_facturas_compra_vigentes` still links,
+    with `fecha_factura` NULL. NO flush, NO commit.
+    """
+    if ct_transaction is None:
+        pedido.ct_transaction_id = None
+        pedido.fecha_factura = None
+        return
+    pedido.ct_transaction_id = int(ct_transaction)
+    pedido.fecha_factura = session.execute(_FECHA_FACTURA_SQL, {"ct": int(ct_transaction)}).scalar()
+
+
+_FECHA_VISTA_SQL = (
+    "(SELECT date(v.ct_date) FROM v_facturas_compra_vigentes v "
+    "WHERE v.ct_transaction = pedidos_compra.ct_transaction_id)"
+)
+# Core UPDATE on purpose: the ORM `onupdate` of updated_at does not fire, and
+# `IS DISTINCT FROM` makes an unchanged row a no-op (Postgres and SQLite 3.39+).
+_REFRESCAR_FECHAS_SQL = text(
+    f"UPDATE pedidos_compra SET fecha_factura = {_FECHA_VISTA_SQL} "
+    f"WHERE ct_transaction_id IS NOT NULL AND fecha_factura IS DISTINCT FROM {_FECHA_VISTA_SQL}"
+)
+
+
+def refrescar_fechas_factura(session: Session) -> int:
+    """Re-read `fecha_factura` of every linked pedido from the view.
+
+    `asignar_factura_erp` snapshots the date when the link is written; this
+    catches what the ERP changes later: an edited ct_date, an annulled invoice
+    (leaves the view → NULL) or a ct linked before it appeared in the view.
+    One set-based UPDATE that touches only rows whose value differs. NO commit.
+
+    Returns:
+        how many pedidos changed.
+    """
+    actualizados = session.execute(_REFRESCAR_FECHAS_SQL).rowcount or 0
+    logger.info("refrescar_fechas_factura: pedidos actualizados=%s", actualizados)
+    return actualizados
+
+
 def match_forward(
     session: Session,
     *,
@@ -365,7 +416,7 @@ def match_forward(
         )
         return None
 
-    pedido.ct_transaction_id = ct_transaction
+    asignar_factura_erp(session, pedido, ct_transaction)
     _registrar_evento_match(
         session,
         pedido=pedido,
@@ -490,7 +541,7 @@ def match_backward(
                 )
                 continue
 
-            pedido.ct_transaction_id = int(ct_transaction)
+            asignar_factura_erp(session, pedido, int(ct_transaction))
             _registrar_evento_match(
                 session,
                 pedido=pedido,
@@ -848,8 +899,10 @@ def _cancelar_ncs_locales_por_erp_cancelado(
 
 
 __all__ = [
+    "asignar_factura_erp",
     "match_backward",
     "match_forward",
     "match_ncs_backward",
+    "refrescar_fechas_factura",
     "validar_catalogo_populado",
 ]
