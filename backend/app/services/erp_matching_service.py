@@ -333,9 +333,20 @@ def refrescar_fechas_factura(session: Session) -> int:
 
 # ERP documents that make up a linked pedido's invoiced units: its invoice
 # plus every purchase credit note with a VIGENTE imputación (not a reversal and
-# never reversed) to the pedido or to its invoice — an ERP NC directly
-# (origen_id = ct) or a local NC through its matched ct_transaction_id. UNION
-# counts an NC imputed several times only once.
+# never reversed) to the pedido, to a pedido it was corrected from, or to its
+# invoice — an ERP NC directly (origen_id = ct) or a local NC through its
+# matched ct_transaction_id. UNION counts an NC imputed several times only once.
+#
+# Why the correction chain (`cadena`): a financial `corregir_pedido` leaves the
+# clone pending while the imputaciones stay frozen on the original until the
+# clone is approved (or forever, if it is rejected or cancelled); approval
+# reverses them on the original and re-creates them on the clone. Following
+# every `corregido_desde_id` hop therefore counts each credit note exactly once
+# in every state: frozen → through the ancestor; transferred → the ancestor's
+# copy is reversed (not vigente) and the clone's own counts. The whole chain,
+# not one hop, because `crear_imputacion` does not guard the destination
+# pedido's estado, so a credit note can still land on a cancelled ancestor.
+# The cancelled original keeps no lines: it has no ct_transaction_id.
 _DOCUMENTOS_SQL = """
 SELECT p.id AS pedido_id, p.ct_transaction_id AS ct
 FROM pedidos_compra p
@@ -344,6 +355,16 @@ UNION
 SELECT p.id, n.ct
 FROM pedidos_compra p
 JOIN (
+  WITH RECURSIVE cadena(pedido_id, ancestro_id) AS (
+    SELECT p.id, p.id FROM pedidos_compra p WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
+    UNION
+    SELECT c.pedido_id, a.corregido_desde_id
+    FROM cadena c JOIN pedidos_compra a ON a.id = c.ancestro_id
+    WHERE a.corregido_desde_id IS NOT NULL
+  )
+  SELECT pedido_id, ancestro_id FROM cadena
+) cad ON cad.pedido_id = p.id
+JOIN (
   SELECT i.destino_tipo, i.destino_id,
          CASE WHEN i.origen_tipo = 'nota_credito_erp' THEN i.origen_id ELSE ncl.ct_transaction_id END AS ct
   FROM imputaciones i
@@ -351,7 +372,7 @@ JOIN (
   WHERE i.origen_tipo IN ('nota_credito_erp', 'nota_credito_local')
     AND i.es_reversal = false
     AND NOT EXISTS (SELECT 1 FROM imputaciones r WHERE r.es_reversal = true AND r.reimputada_desde_id = i.id)
-) n ON (n.destino_tipo = 'pedido_compra' AND n.destino_id = p.id)
+) n ON (n.destino_tipo = 'pedido_compra' AND n.destino_id = cad.ancestro_id)
     OR (n.destino_tipo = 'factura_erp' AND n.destino_id = p.ct_transaction_id)
 JOIN v_facturas_compra_vigentes vn ON vn.ct_transaction = n.ct AND vn.clasificacion = 'NC'
 WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}

@@ -31,7 +31,7 @@ from app.services.erp_matching_service import reconciliar_lineas_facturadas
 pytestmark = pytest.mark.postgres
 
 _DDL = """
-CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, ct_transaction_id BIGINT);
+CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, ct_transaction_id BIGINT, corregido_desde_id BIGINT);
 CREATE TABLE notas_credito_local (id BIGINT PRIMARY KEY, ct_transaction_id BIGINT);
 CREATE TABLE imputaciones (
   id BIGINT PRIMARY KEY, origen_tipo TEXT, origen_id BIGINT, destino_tipo TEXT, destino_id BIGINT,
@@ -194,3 +194,20 @@ def test_migration_backfill_floors_a_fractional_net(pg_lf_engine):
         conn.execute(text(module.BACKFILL))
 
     assert _lineas(pg_lf_engine) == [(501, 2), (502, 4)]
+
+
+def test_clone_subtracts_a_credit_note_frozen_on_its_corrected_from_pedido(pg_lf_engine):
+    # Pedido 1 still holds the credit note; corregir_pedido moved the invoice
+    # link to clone 2, and 2 was later corrected into 3: a two-hop chain.
+    with pg_lf_engine.begin() as conn:
+        _seed(conn, lineas=[(1, 501, "10")], nc_lineas=[(2, 501, "1")])
+        conn.execute(text("INSERT INTO pedidos_compra VALUES (2, NULL, 1), (3, 100, 2)"))
+        conn.execute(text("UPDATE pedidos_compra SET ct_transaction_id = NULL WHERE id = 1"))
+
+    with Session(pg_lf_engine) as session:
+        reconciliar_lineas_facturadas(session)
+        session.commit()
+
+    with pg_lf_engine.connect() as conn:
+        filas = conn.execute(text("SELECT pedido_id, item_id, cantidad FROM pedido_compra_lineas_facturadas")).all()
+    assert [tuple(f) for f in filas] == [(3, 501, 9)]
