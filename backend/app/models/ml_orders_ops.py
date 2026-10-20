@@ -9,9 +9,10 @@ Design decisions (see design doc, obs #1823):
 - Natural key is the ML `order_id`, never the ERP `mlo_id`.
 - `ml_order_items_ops` carries ZERO cost columns; a later change joins ERP
   cost onto `(seller_sku, item_id)` from a separate table/view.
-- `ml_ops_divergence` is reused by slice 3/6 for the out-of-window update
-  counter via `kind='out_of_window_update'` — no dedicated counter table
-  (cross-slice contract, obs #1828).
+- `ml_ops_divergence` is legacy: the divergences board and its alarm
+  writers are gone; only the cost-sync give-up counters and the
+  `activity_unresolved` debts still use it, until they move and the table
+  is dropped.
 """
 
 from __future__ import annotations
@@ -371,31 +372,12 @@ class MlOpsSyncCursor(Base):
     activity_cursor = Column(Text, nullable=True)
 
 
-# `window_not_enumerable` (module docstring "cross-slice contract",
-# obs #1828): the sweep (`sweep_service.py`), the divergence detector
-# (`divergence_service.py`), and the dashboard router all need this
-# literal, and it describes a value of THIS table's `kind` column, so it
-# lives here rather than being imported sideways from a service module
-# (which used to pull the whole ingestion service into the router's
-# import graph for one string constant).
-UNENUMERABLE_KIND = "window_not_enumerable"
-
-# Cost-sync give-up counters (the payments/costs backfill). Like
-# `UNENUMERABLE_KIND` these live on the model rather than in the writer,
-# because the reader -- `DivergenceSummary.from_row` -- has to recognize
-# them to avoid rendering the `order_id=0` sentinel as a real ML order.
-# They reuse the generic `unknown` kind: the CHECK constraint on `kind`
-# has no dedicated value and adding one is a migration of its own.
+# Cost-sync give-up counters (the payments/costs backfill). They reuse the
+# generic `unknown` kind: the CHECK constraint on `kind` has no dedicated
+# value and adding one is a migration of its own.
 COST_SYNC_KIND = "unknown"
 COST_SYNC_FIELD_PREFIX = "cost_sync:"
 COST_SYNC_SENTINEL_ORDER_ID = 0
-
-# Per-order write-failure quarantine (2026-09-14 incident: a `status_detail`
-# dict payload poisoned the batch transaction and stalled ingestion for
-# four days). Distinct from `UNENUMERABLE_KIND`/`COST_SYNC_KIND`: this one
-# names a REAL order that failed to WRITE, not a give-up sentinel -- the
-# dashboard renders it as an actual order, not `order_id=0`.
-INGEST_FAILED_KIND = "ingest_failed"
 
 
 class MlOrdersOpsCuarentena(Base):
@@ -423,14 +405,12 @@ class MlOrdersOpsCuarentena(Base):
 
 
 class MlOpsDivergence(Base):
-    """One row per open divergence between ML-sourced and GBP-sourced data.
+    """LEGACY table, kept until its last two writers move (then dropped).
 
-    Writer of record: divergence job (detection) + dashboard endpoint
-    (state/note/assignee only — never the ML data itself).
-
-    Also reused (cross-slice contract, obs #1828) by the sweep's
-    out-of-window update counter via `kind='out_of_window_update'` — no
-    dedicated counter table.
+    Still written by: the payments/costs backfill's cost-sync give-up
+    counters (`COST_SYNC_*`) and the activity receiver's
+    `activity_unresolved` debts. The divergences board, its endpoints, the
+    detector and every alarm writer are gone.
     """
 
     __tablename__ = "ml_ops_divergence"
@@ -456,10 +436,9 @@ class MlOpsDivergence(Base):
             "state IN ('open', 'acknowledged', 'resolved', 'ignored')",
             name="ck_ml_ops_divergence_state",
         ),
-        # The dashboard's real access pattern (`routers/ml_ventas_ops.py`):
-        # filter by `kind` and/or `state`, order by `detected_at` DESC.
-        # Neither column was indexed -- only `id`/`order_id` -- which is a
-        # guaranteed sequential scan on a table with unbounded growth.
+        # The former dashboard's access pattern: filter by `kind` and/or
+        # `state`, order by `detected_at` DESC (kept in sync with the
+        # migration until the table is dropped).
         Index(
             "ix_ml_ops_divergence_kind_state_detected_at",
             "kind",

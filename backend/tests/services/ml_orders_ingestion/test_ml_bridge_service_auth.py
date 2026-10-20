@@ -149,11 +149,7 @@ class TestServiceTokenDeniedOutsideGrantedScope:
     def test_403_on_ml_ops_gestionar_route(self, client: TestClient, db):
         bridge = _make_bridge_user(db)
 
-        resp = client.patch(
-            "/api/ml-ventas-ops/divergences/999999",
-            json={"state": "resolved"},
-            headers=_bridge_headers(bridge),
-        )
+        resp = client.post("/api/ml-ops/order-metrics/divergence/run", headers=_bridge_headers(bridge))
 
         assert resp.status_code == 403
 

@@ -17,9 +17,8 @@ prove with a test):
   is retried on the next run.
 - An order ML reports as updated whose own `date_created` falls outside
   the configured rolling window is a HARD EXCLUSION -- never ingested --
-  but IS counted, via `ml_ops_divergence.kind='out_of_window_update'`
-  (obs #1824 deferred-decision instrumentation, obs #1828 cross-slice
-  schema contract).
+  counted in the pass result (`orders_out_of_window`) and logged with its
+  `order_id` at the exclusion site.
 
 Memory and checkpointing (post-review fix, GGA pre-push round 1): a cold
 start with no cursor spans the FULL rolling window (90-180 days). Orders
@@ -34,13 +33,21 @@ still holds: a failed leaf's own writes/checkpoint never happen, so the
 cursor never jumps past a leaf that failed.
 
 Unenumerable windows (post-review fix): a leaf that still reports more
-rows than the offset cap even at the minimum bisectable span cannot be
-enumerated at all. Previously this raised and wedged the sweep on that
-exact leaf forever (retried identically every run, no operational way out
-short of editing the database). It is now recorded --
-`ml_ops_divergence.kind='window_not_enumerable'` -- and the sweep moves
-past it, exactly like an out-of-window order: hard exclusion +
-instrumentation instead of a silent permanent stall.
+than `SEARCH_PAGE_SIZE_CAP` (950) orders even at `MIN_BISECT_SPAN` (one
+minute) cannot be enumerated through `search_orders` at all. Previously
+this raised and wedged the sweep on that exact leaf forever (retried
+identically every run, no operational way out short of editing the
+database). Holding the cursor at that leaf instead would only clear if
+ML re-updated enough of its orders to move them out of that minute; the
+ones never updated again keep it over the cap forever, so it would be
+the same permanent stall. The leaf is therefore counted
+(`windows_unenumerable`), logged at ERROR with its exact bounds
+(`log_unenumerable_window`), and the sweep moves past it. The backfill
+walks the same search with the same one-minute floor, so it cannot list
+that leaf either; its orders reach `ml_orders_ops` through the
+`orders_v2` activity drain, or through the sweep once ML updates each of
+them again (that moves `date_last_updated` into a later, listable
+window).
 
 Concurrency (post-review fix): `ml_ops_sync_cursor.state` is 'running' for
 the ENTIRE duration of a pass (not just at checkpoint time), so an
@@ -84,8 +91,6 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_orders_ops import (
-    UNENUMERABLE_KIND,
-    MlOpsDivergence,
     MlOpsSyncCursor,
     MlOrdersOps,
     MlShipmentOps,
@@ -211,10 +216,6 @@ def _pass_deadline_reached(started_at: Optional[datetime]) -> bool:
 
 
 CURSOR_NAME = "sweep"
-OUT_OF_WINDOW_KIND = "out_of_window_update"
-# UNENUMERABLE_KIND now lives on the model (app/models/ml_orders_ops.py) --
-# it describes a value of that table's `kind` column, and the divergence
-# detector/dashboard router need it too. Imported above, not redefined.
 
 
 class WindowFetchError(Exception):
@@ -342,77 +343,24 @@ def iter_window_events(
     yield ("checkpoint", date_to)
 
 
-def _record_out_of_window(db, order_id: int) -> None:
-    """Records (never ingests) an order ML reports as updated whose own
-    `date_created` falls outside the rolling window (obs #1824): hard
-    exclusion + instrumentation, reusing `ml_ops_divergence` with
-    `kind='out_of_window_update'` (obs #1828 cross-slice contract).
-    Re-detection updates `detected_at`; the unique `(order_id, kind,
-    field)` (NULLS NOT DISTINCT) constraint prevents duplication."""
-    existing = (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.order_id == order_id,
-            MlOpsDivergence.kind == OUT_OF_WINDOW_KIND,
-            MlOpsDivergence.field.is_(None),
-        )
-        .first()
+def log_unenumerable_window(date_from: datetime, date_to: datetime, *, source: str) -> None:
+    """Logs a leaf window that cannot be enumerated at all and is skipped
+    (see the module docstring). Nothing else records it -- the cursor
+    moves past it -- so it is an ERROR with the exact bounds. `source`
+    names who skipped it (`sweep`, `backfill`, `backfill(dry-run)`).
+
+    No backfill command can recover it: the backfill hits the same
+    one-minute floor. The message says what does."""
+    logger.error(
+        "%s: [%s, %s) has more than %d orders updated in it even at the %s minimum bisect span; "
+        "search_orders cannot list it and it was skipped. A backfill hits the same limit: its orders "
+        "land only through the orders_v2 activity drain or the sweep after ML updates each one again",
+        source,
+        date_from.isoformat(),
+        date_to.isoformat(),
+        SEARCH_PAGE_SIZE_CAP,
+        MIN_BISECT_SPAN,
     )
-    now = datetime.now(timezone.utc)
-    if existing is not None:
-        existing.detected_at = now
-    else:
-        db.add(MlOpsDivergence(order_id=order_id, kind=OUT_OF_WINDOW_KIND, detected_at=now))
-
-
-def _unenumerable_field_key(date_from: datetime, date_to: datetime) -> str:
-    """Dedup key for an unenumerable leaf, as epoch seconds. ISO bounds
-    would be 51 characters against a `String(40)` column -- which SQLite
-    ignores and Postgres rejects, inside the one code path whose purpose
-    is to keep the sweep running."""
-    return f"{int(date_from.timestamp())}|{int(date_to.timestamp())}"
-
-
-def record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> None:
-    """Escape hatch for a leaf window that cannot be enumerated at all
-    (finding 3): recorded, never ingested, never silently dropped. There
-    is no single order to key this on -- `order_id=0` is a sentinel (the
-    column is NOT NULL) and the leaf's own bounds are the dedup key via
-    `field`, so a repeat detection of the SAME leaf updates `detected_at`
-    instead of duplicating (unique `(order_id, kind, field)`).
-
-    UNBOUNDED GROWTH, on purpose, for now: a dense region bisected to the
-    one-minute floor yields one row per minute, and since the checkpoint
-    advances, later passes produce fresh bounds rather than matching these.
-    Nothing collapses or expires them. That is acceptable while this is the
-    only signal that a window could not be read at all, but the slice that
-    builds the divergence dashboard MUST (a) filter or label the
-    `order_id=0` sentinel so it is not rendered as an order, and (b) decide
-    a retention or collapse policy for these rows."""
-    field_key = _unenumerable_field_key(date_from, date_to)
-    existing = (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.order_id == 0,
-            MlOpsDivergence.kind == UNENUMERABLE_KIND,
-            MlOpsDivergence.field == field_key,
-        )
-        .first()
-    )
-    now = datetime.now(timezone.utc)
-    if existing is not None:
-        existing.detected_at = now
-    else:
-        db.add(
-            MlOpsDivergence(
-                order_id=0,
-                kind=UNENUMERABLE_KIND,
-                field=field_key,
-                ml_value=date_from.isoformat(),
-                gbp_value=date_to.isoformat(),
-                detected_at=now,
-            )
-        )
 
 
 def _fetch_shipments(
@@ -552,36 +500,14 @@ def _fetch_payments(
     return payments
 
 
-PAYMENTS_KEY_MISSING_FIELD = "payments_key_missing"
-
-
-def _record_payments_key_missing(db, order_id: int) -> None:
+def _log_payments_key_missing(order_id: int) -> None:
     """ML's own order payload omitted `payments[]` entirely -- not the
     same fact as `payments: []` (see `sync_payments_for_order`'s
     docstring). This only ever runs for a raw order FRESH off
     `search_orders`/`get_order`, so the omission IS ML's own answer and
-    it is safe to treat as "no payments" -- but that must stay VISIBLE
-    instead of silently vanishing into a seal, exactly like
-    `record_unenumerable_window`'s escape hatch for a leaf that cannot be
-    enumerated. Reuses the generic `kind='unknown'` bucket: the CHECK
-    constraint on `ml_ops_divergence.kind` has no dedicated value for
-    this and a migration is out of scope for this fix. Re-detection
-    updates `detected_at`, deduped by the `(order_id, kind, field)`
-    unique constraint."""
-    existing = (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.order_id == order_id,
-            MlOpsDivergence.kind == "unknown",
-            MlOpsDivergence.field == PAYMENTS_KEY_MISSING_FIELD,
-        )
-        .first()
-    )
-    now = datetime.now(timezone.utc)
-    if existing is not None:
-        existing.detected_at = now
-    else:
-        db.add(MlOpsDivergence(order_id=order_id, kind="unknown", field=PAYMENTS_KEY_MISSING_FIELD, detected_at=now))
+    it is safe to treat as "no payments" -- but it is logged instead of
+    silently vanishing into a seal."""
+    logger.warning("sweep: order_id=%s came without a `payments` key; sealed as no payments", order_id)
 
 
 def sync_payments_for_order(
@@ -612,7 +538,7 @@ def sync_payments_for_order(
     way -- UNLESS the caller can vouch that `raw_order` is genuinely
     fresh off ML (`missing_key_is_empty=True`), in which case the
     omission itself IS ML's answer and sealing is correct (the sweep's
-    `process_batch` also records `_record_payments_key_missing` first, so
+    `process_batch` also logs `_log_payments_key_missing` first, so
     this stays visible rather than silently vanishing).
 
     The default (`missing_key_is_empty=False`) is for a `raw_order` NOT
@@ -1412,8 +1338,13 @@ def process_batch(
     with get_background_db() as db:
         for raw_order, mapped in classified:
             if mapped.date_created is not None and mapped.date_created < window_from_floor:
-                _record_out_of_window(db, mapped.order_id)
                 out_of_window += 1
+                logger.warning(
+                    "sweep: order_id=%s created %s is out of window (floor %s); not ingested",
+                    mapped.order_id,
+                    mapped.date_created.isoformat(),
+                    window_from_floor.isoformat(),
+                )
                 continue
 
             outcome = upsert_order(db, raw_order, mapped=mapped)
@@ -1474,11 +1405,11 @@ def process_batch(
                 # `raw_order` here is fresh off THIS pass's `search_orders`
                 # call (design D5's single source of truth), so an absent
                 # `payments` key is ML's own answer, not an unknown --
-                # `missing_key_is_empty=True` -- but it is recorded first
+                # `missing_key_is_empty=True` -- but it is logged first
                 # so it stays visible instead of silently vanishing into a
                 # seal.
                 if raw_order.get("payments") is None:
-                    _record_payments_key_missing(db, mapped.order_id)
+                    _log_payments_key_missing(mapped.order_id)
                 order_synced, sealed = sync_payments_for_order(
                     db, mapped.order_id, raw_order, payments_payload, missing_key_is_empty=True
                 )
@@ -1816,8 +1747,7 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 break
             elif kind == "unenumerable":
                 _, leaf_from, leaf_to = event
-                with get_background_db() as db:
-                    record_unenumerable_window(db, leaf_from, leaf_to)
+                log_unenumerable_window(leaf_from, leaf_to, source="sweep")
                 result.windows_unenumerable += 1
             elif kind == "checkpoint":
                 _, leaf_to = event

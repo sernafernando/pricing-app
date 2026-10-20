@@ -11,6 +11,7 @@ sealing are the exact same functions the sweep uses -- not a second copy.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
@@ -688,6 +689,23 @@ class TestShipmentCostSyncGivesUpAfterRepeatedFailure:
         assert result.shipment_candidates == 0
         get_costs.assert_not_called()
 
+    def test_giving_up_is_logged_once_as_an_error_with_the_shipment_and_attempts(self, db, monkeypatch, caplog) -> None:
+        """Nothing reads the give-up counter, so the moment a shipment
+        is excluded must reach the log as an ERROR -- once, not once per
+        later run."""
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._always_fails)
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(service.MAX_COST_SYNC_ATTEMPTS + 2):
+                service.run_backfill(limit=10)
+
+        gave_up = [r for r in caplog.records if "shipment_id=700 " in r.getMessage() and "gave up" in r.getMessage()]
+        assert len(gave_up) == 1
+        assert gave_up[0].levelno == logging.ERROR
+        assert f"after {service.MAX_COST_SYNC_ATTEMPTS} attempt" in gave_up[0].getMessage()
+
     def test_a_shipment_that_eventually_succeeds_never_gives_up(self, db, monkeypatch) -> None:
         """The escape hatch must not fire on a shipment that is simply
         slow to settle -- only on one that never resolves within the
@@ -1027,42 +1045,36 @@ class TestCostTruncationMeasuresWhatWasNeverReached:
 class TestAFreshPayloadStillMissingPaymentsStaysVisible:
     """Sealing on an omitted `payments` key is correct once the payload is
     fresh off ML -- the omission IS ML's answer. But it is the same fact
-    the sweep records a divergence for, and it must not disappear into
-    the seal just because it arrived through the backfill instead."""
+    the sweep logs, and it must not disappear into the seal just because it
+    arrived through the backfill instead."""
 
-    def test_the_omission_is_recorded_before_sealing(self, db, monkeypatch) -> None:
+    _MESSAGE = "came without a `payments` key"
+
+    def test_the_omission_is_logged_before_sealing(self, db, monkeypatch, caplog) -> None:
         now = datetime.now(timezone.utc)
         db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=now, raw_order=_raw_order(1, payment_ids=None)))
         db.commit()
         # The refetch SUCCEEDS, and what comes back still has no key.
         monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value={"id": 1}))
 
-        result = service.run_backfill(limit=10)
+        with caplog.at_level(logging.WARNING, logger=sweep_service.logger.name):
+            result = service.run_backfill(limit=10)
 
         assert result.orders_sealed == 1
         assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is not None
-        recorded = (
-            db.query(MlOpsDivergence)
-            .filter(
-                MlOpsDivergence.order_id == 1,
-                MlOpsDivergence.field == sweep_service.PAYMENTS_KEY_MISSING_FIELD,
-            )
-            .one_or_none()
-        )
-        assert recorded is not None
+        assert [r for r in caplog.records if self._MESSAGE in r.getMessage() and "order_id=1 " in r.getMessage()]
+        assert db.query(MlOpsDivergence).count() == 0
 
-    def test_an_order_that_does_have_payments_records_nothing(self, db, monkeypatch) -> None:
+    def test_an_order_that_does_have_payments_logs_nothing(self, db, monkeypatch, caplog) -> None:
         now = datetime.now(timezone.utc)
         db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=now, raw_order=_raw_order(1, payment_ids=[9])))
         db.commit()
         monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(9, 1)))
 
-        service.run_backfill(limit=10)
+        with caplog.at_level(logging.WARNING, logger=sweep_service.logger.name):
+            service.run_backfill(limit=10)
 
-        assert (
-            db.query(MlOpsDivergence).filter(MlOpsDivergence.field == sweep_service.PAYMENTS_KEY_MISSING_FIELD).count()
-            == 0
-        )
+        assert not [r for r in caplog.records if self._MESSAGE in r.getMessage()]
 
 
 class TestASuccessClearsTheGiveUpStreak:

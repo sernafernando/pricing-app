@@ -137,7 +137,7 @@ class Settings(BaseSettings):
     PXQ_WRITE_ENABLED: bool = False
     # Kill-switch for the ML operations source-of-truth ingestion layer
     # (ml_orders_ops/ml_order_items_ops/ml_shipments_ops + sweep + link
-    # resolver + divergence job). Default OFF, following the
+    # resolver). Default OFF, following the
     # PROMOS_WRITE_ENABLED precedent -- flip on per environment once the
     # full slice chain has landed.
     ML_ORDERS_OPS_ENABLED: bool = False
@@ -149,11 +149,6 @@ class Settings(BaseSettings):
     # Bounded so a typo in .env cannot silently trigger a huge cold
     # start; a year is already far past what the ops layer needs.
     ML_ORDERS_OPS_WINDOW_DAYS: int = Field(default=180, ge=1, le=365)
-    # Retention (days) for `ml_ops_divergence.kind='window_not_enumerable'`
-    # rows (the `order_id=0` sentinel) -- purged by the divergence
-    # detection job; the leaf they describe is re-attempted by the next
-    # sweep pass regardless (obs #1824 debt slice 6 must pay off).
-    ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS: int = Field(default=30, ge=1, le=365)
     # Kill-switch for the ML billing daily sweep (ml-ventas-desglose-costos,
     # corte 3). Default OFF, same PROMOS_WRITE_ENABLED precedent -- billing
     # carries a hard account-wide rate limit of 5 requests/minute, shared

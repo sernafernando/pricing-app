@@ -476,6 +476,25 @@ class TestAnUnresolvedOrderLeavesVisibleDebt:
         rows = self._unresolved_rows(db)
         assert [r.order_id for r in rows] == [2]
 
+    def test_a_new_miss_is_logged_once_with_its_order_id(self, db, monkeypatch, caplog):
+        """No screen reads the debt row, so the first miss of an order is
+        logged with its id; a repeated miss of the same order only
+        refreshes the row and does not log again."""
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=None))
+
+        with caplog.at_level("WARNING"):
+            for cursor in ("c1", "c2"):
+                monkeypatch.setattr(
+                    ml_webhook_client,
+                    "get_activity",
+                    AsyncMock(return_value=_page([_event(2)], has_more=False, next_cursor=cursor)),
+                )
+                service.drain_activity()
+
+        logged = [r for r in caplog.records if "order_id=2 " in r.getMessage() and "unresolved" in r.getMessage()]
+        assert len(logged) == 1
+        assert logged[0].levelname == "WARNING"
+
     def test_the_cursor_still_advances_so_one_dead_order_cannot_wedge_the_feed(self, db, monkeypatch):
         monkeypatch.setattr(
             ml_webhook_client,

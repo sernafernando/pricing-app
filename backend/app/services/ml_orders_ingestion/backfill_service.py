@@ -67,8 +67,8 @@ from app.services.ml_orders_ingestion.sweep_service import (
     ensure_cursor_row,
     iter_window_events,
     load_cursor,
+    log_unenumerable_window,
     process_batch,
-    record_unenumerable_window,
     release_lock_as_error,
     release_lock_as_idle,
     try_acquire_run_lock,
@@ -208,11 +208,7 @@ def _dry_run_count_window(
             )
             break
         elif kind == "unenumerable":
-            logger.warning(
-                "backfill(dry-run): [%s, %s) is not enumerable even at the minimum bisect span",
-                event[1].isoformat(),
-                event[2].isoformat(),
-            )
+            log_unenumerable_window(event[1], event[2], source="backfill(dry-run)")
     logger.info(
         "backfill(dry-run): window [%s, %s) would fetch %d order(s) -- no writes performed",
         day_from.isoformat(),
@@ -245,7 +241,7 @@ def _process_day(
     being walked. `process_batch` uses it to decide what falls outside the
     window, and an order created long before the day it was updated on is
     exactly what a backfill exists to fetch -- passing `day_from` here
-    excluded almost everything and filed a divergence row for each."""
+    excluded almost everything."""
     pending: list = []
     day_completed = True
 
@@ -274,18 +270,8 @@ def _process_day(
                 pending = pending[BATCH_SIZE:]
         elif kind == "unenumerable":
             _, leaf_from, leaf_to = event
-            # Same instrumentation the sweep persists (finding 1, round
-            # 3): a leaf that cannot be enumerated even at the minimum
-            # bisect span leaves a `ml_ops_divergence` row, not just a
-            # local counter that dies with this function's stack frame.
-            with get_background_db() as db:
-                record_unenumerable_window(db, leaf_from, leaf_to)
             result.windows_unenumerable += 1
-            logger.warning(
-                "backfill: [%s, %s) is not enumerable even at the minimum bisect span -- recorded, skipped",
-                leaf_from.isoformat(),
-                leaf_to.isoformat(),
-            )
+            log_unenumerable_window(leaf_from, leaf_to, source="backfill")
         elif kind == "budget_exhausted":
             # `break` below, like run_sweep: draining the generator emits one
             # warning per remaining sub-window and floods the log in an
@@ -343,8 +329,7 @@ def run_backfill(
     # order is too OLD to ingest is the rolling window, exactly as in the
     # sweep. Using the requested range for both threw away every order created
     # before it -- an order created a month ago and updated yesterday is the
-    # very thing a backfill is for, and it was being discarded and filed as a
-    # divergence.
+    # very thing a backfill is for, and it was being discarded.
     window_from_floor = now - timedelta(days=settings.ML_ORDERS_OPS_WINDOW_DAYS)
 
     result = BackfillResult(ran=True, dry_run=dry_run)

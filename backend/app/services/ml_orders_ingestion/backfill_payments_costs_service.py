@@ -49,12 +49,14 @@ shipment on a partial `get_shipment_costs` payload (design decision,
 the head of `shipment_id DESC` forever, spending one real HTTP fetch on
 it every single run while blocking every shipment behind it. Attempts
 are counted in `ml_ops_divergence` (`kind='unknown'`,
-`field='cost_sync:<shipment_id>'`, `order_id=0` sentinel, same pattern
-`sweep_service.record_unenumerable_window` already uses for a leaf that
-cannot be enumerated); once `MAX_COST_SYNC_ATTEMPTS` is reached, that
-shipment is excluded from future candidate queries -- visible in the
-existing divergence dashboard, never silently dropped, never spending
-budget on it again.
+`field='cost_sync:<shipment_id>'`, `order_id=0` sentinel); once
+`MAX_COST_SYNC_ATTEMPTS` is reached, that shipment is excluded from future
+candidate queries and never spends budget again. Nothing reads that
+counter any more (the divergences screen is gone), so the give-up itself
+is logged once, at ERROR, with the shipment id and the attempt count --
+the log is the only place it surfaces. The counter is working state, not
+an alarm; D2 of remove-ml-divergences moves it off `ml_ops_divergence`
+into a column on `ml_shipments_ops`.
 
 Ordering: NEWEST candidates first (`date_created DESC` /
 `shipment_id DESC`, the closest available proxy for shipment recency).
@@ -127,7 +129,7 @@ from app.services.ml_orders_ingestion.sweep_service import (
     MAX_PAYMENT_FETCHES_PER_PASS,
     _extract_payment_ids,
     _fetch_payments,
-    _record_payments_key_missing,
+    _log_payments_key_missing,
     _sync_shipment_costs,
     release_lock_as_error,
     release_lock_as_idle,
@@ -171,9 +173,8 @@ MAX_COST_SYNC_ATTEMPTS = 5
 
 _COST_SYNC_DIVERGENCE_KIND = COST_SYNC_KIND
 _COST_SYNC_FIELD_PREFIX = COST_SYNC_FIELD_PREFIX
-# Sentinel `order_id`, same convention as
-# `sweep_service.record_unenumerable_window`: there is no single ML
-# order this divergence is "about", it is about a shipment.
+# Sentinel `order_id`: there is no single ML order this counter is
+# "about", it is about a shipment.
 _COST_SYNC_SENTINEL_ORDER_ID = COST_SYNC_SENTINEL_ORDER_ID
 
 
@@ -253,8 +254,7 @@ def _record_cost_sync_attempt(db, shipment_id: int) -> int:
     whose cost sync did not fully resolve this run. Returns the new
     count, CLAMPED at `MAX_COST_SYNC_ATTEMPTS` so that "gave up" is a
     single exact stored value `_gave_up_shipment_ids` can filter on in
-    SQL. Dedup via the `(order_id, kind, field)` unique constraint, same
-    as `record_unenumerable_window`."""
+    SQL. Dedup via the `(order_id, kind, field)` unique constraint."""
     field = _cost_sync_field(shipment_id)
     existing = (
         db.query(MlOpsDivergence)
@@ -508,7 +508,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                     # key is correct here (this payload is fresh off ML),
                     # but the omission must stay VISIBLE instead of
                     # disappearing into the seal.
-                    _record_payments_key_missing(db, order_id)
+                    _log_payments_key_missing(order_id)
                 synced, sealed = sync_payments_for_order(
                     db, order_id, raw_order, payments_payload, missing_key_is_empty=True
                 )
@@ -557,9 +557,11 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                 _clear_cost_sync_attempts(db, attempted_shipment_ids - unresolved_ids)
                 for shipment_id in unresolved_ids:
                     attempts = _record_cost_sync_attempt(db, shipment_id)
+                    # `>=` and the clamp make this fire exactly once: the
+                    # next run excludes the shipment from the candidates.
                     if attempts >= MAX_COST_SYNC_ATTEMPTS:
                         result.shipments_gave_up += 1
-                        logger.warning(
+                        logger.error(
                             "backfill_ml_payments_costs: shipment_id=%s gave up on cost sync after "
                             "%d attempt(s); excluded from future candidate queries",
                             shipment_id,

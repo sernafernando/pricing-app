@@ -420,14 +420,12 @@ class TestDryRunPredictsTheRealRun:
         assert dry.orders_mapping_error == real.orders_mapping_error
 
 
-class TestUnenumerableWindowIsRecordedLikeTheSweep:
+class TestUnenumerableWindowIsCounted:
     """Finding 1 (round 3): a day leaf that cannot be enumerated even at
-    the minimum bisect span must leave the SAME divergence row the sweep
-    leaves (`ml_ops_divergence.kind='window_not_enumerable'`), and the
-    count must be visible on the result -- not just a local counter that
-    dies with the stack frame."""
+    the minimum bisect span is counted on the result and logged -- no
+    alarm row."""
 
-    def test_unenumerable_day_is_recorded_in_divergence_and_on_the_result(self, db, monkeypatch):
+    def test_unenumerable_day_is_counted_on_the_result(self, db, monkeypatch):
         async def always_over_cap(seller_id, date_from, date_to, offset=0):
             return {"results": [], "paging": {"total": 5000}}
 
@@ -437,8 +435,7 @@ class TestUnenumerableWindowIsRecordedLikeTheSweep:
 
         assert result.error is None
         assert result.windows_unenumerable > 0
-        rows = db.query(MlOpsDivergence).filter_by(kind="window_not_enumerable").all()
-        assert len(rows) == result.windows_unenumerable
+        assert db.query(MlOpsDivergence).count() == 0
 
 
 class TestCountersSurviveAMidDayFailure:
@@ -642,3 +639,34 @@ class TestBackfillRangeIsAboutUpdatesNotAge:
 
         assert result.orders_upserted == 0
         assert result.orders_out_of_window == 1
+
+
+class TestASkippedLeafUsesTheSharedErrorLog:
+    """The backfill skips an unenumerable leaf exactly like the sweep, so
+    it logs it through the same helper: ERROR, exact bounds, labelled
+    with who skipped it."""
+
+    @pytest.mark.parametrize("dry_run, label", [(False, "backfill:"), (True, "backfill(dry-run):")])
+    def test_the_skipped_leaf_is_logged_at_error_with_its_exact_bounds(self, db, monkeypatch, caplog, dry_run, label):
+        leaves = []
+
+        def fake_events(seller_id, date_from, date_to, budget=None, started_at=None):
+            leaf = (date_from, date_from + sweep_service.MIN_BISECT_SPAN)
+            leaves.append(leaf)
+            yield ("unenumerable", *leaf)
+            yield ("checkpoint", date_to)
+
+        monkeypatch.setattr(backfill_service, "iter_window_events", fake_events)
+
+        with caplog.at_level("WARNING"):
+            result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1, dry_run=dry_run)
+
+        assert result.error is None
+        assert leaves
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert len(errors) == len(leaves)
+        for (leaf_from, leaf_to), record in zip(leaves, errors):
+            message = record.getMessage()
+            assert message.startswith(label)
+            assert leaf_from.isoformat() in message
+            assert leaf_to.isoformat() in message

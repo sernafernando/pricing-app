@@ -1034,8 +1034,8 @@ def pg_order_metrics_divergence_engine():
         if isinstance(constraint, CheckConstraint):
             divergence_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
         elif isinstance(constraint, UniqueConstraint):
-            # `_open_divergence_record` (PR6) relies on this constraint as
-            # the ON CONFLICT arbiter -- the plain Column copy above does
+            # The mirror must keep the real table's unique key while the
+            # table exists -- the plain Column copy above does
             # NOT carry table-level constraints, so it must be copied
             # explicitly, `postgresql_nulls_not_distinct` included (`field`
             # is nullable, and the real table's constraint treats two NULLs
