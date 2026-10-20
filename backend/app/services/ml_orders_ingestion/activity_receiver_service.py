@@ -418,9 +418,8 @@ def drain_activity() -> ActivityDrainResult:
 
     now = datetime.now(timezone.utc)
     # Identical to `run_sweep`'s own floor (`sweep_service.py:1135`):
-    # passing `now()` here would make every real order look out-of-window
-    # and fabricate one `ml_ops_divergence` row per event `process_batch`
-    # touches.
+    # passing `now()` here would make `process_batch` log every real order
+    # as out-of-window and ingest none.
     window_from_floor = now - timedelta(days=settings.ML_ORDERS_OPS_WINDOW_DAYS)
 
     with get_background_db() as db:
