@@ -13,6 +13,7 @@ from app.workers.handlers.order_metrics import divergence, drain, reconcile
 from app.workers.handlers.promo_refresh import promo_write_refresh
 from app.workers.handlers.rrhh_horas_extras import horas_extras
 from app.workers.handlers.sell_drain import drain as sell_drain
+from app.workers.handlers.sell_in_bono import bono as sell_in_bono
 from app.workers.handlers.tp_cost_fill import fill as tp_cost_fill
 
 
@@ -27,6 +28,7 @@ class TestExistingRegistryIsUntouched:
             combos_sync,
             horas_extras,
             quarantine_retry,
+            sell_in_bono,
         ]
         assert [h.name for h in registry.REGISTRY] == [
             "order_metrics.drain",
@@ -37,6 +39,7 @@ class TestExistingRegistryIsUntouched:
             "combos.sync",
             "rrhh.horas_extras",
             "ml_orders.quarantine_retry",
+            "sell_in.bono",
         ]
 
     def test_no_ml_publications_handler_leaks_into_the_default_registry(self) -> None:
