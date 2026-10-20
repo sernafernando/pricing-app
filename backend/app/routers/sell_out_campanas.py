@@ -11,6 +11,9 @@ price, and that credit is added to profit. The rules live in
   a day the campaign covers (`vigente_en`), free text (`q`) and group.
 - `PUT /{id}` replaces an active campaign (409 once voided). There is no
   delete: `POST /{id}/anular` voids it, once (409 on a second call).
+- `POST /{id}/tipo-cambio` sets or changes the rate of a USD `al_cobro`
+  campaign when the brand pays, also after it ended (audited; 409 once voided).
+  Until then its ARS figures are estimates at the current BNA rate (T7).
 - Business-rule errors are a 422 with one readable Spanish message; an
   unknown campaign is a 404.
 """
@@ -33,6 +36,7 @@ from app.schemas.sell_out import (
     SellOutCampanaIn,
     SellOutCampanaListOut,
     SellOutCampanaOut,
+    SellOutTipoCambioIn,
     Tipo,
 )
 from app.services.permisos_service import verificar_permiso
@@ -127,6 +131,23 @@ def anular_campana(
     """Void the campaign (the reason goes to the audit row). A second call is a 409."""
     try:
         campana = service.anular_campana(db, campana_id, user.id, data.motivo if data else None)
+    except service.SellOutError as exc:
+        raise _error(db, exc) from exc
+    if campana is None:
+        raise _no_existe(campana_id)
+    return service.serializar(db, [campana])[0]
+
+
+@router.post("/{campana_id}/tipo-cambio", response_model=SellOutCampanaOut)
+def definir_tipo_cambio(
+    campana_id: int,
+    data: SellOutTipoCambioIn,
+    user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Set the rate the brand paid at for an `al_cobro` campaign; it can be changed later."""
+    try:
+        campana = service.definir_tipo_cambio(db, campana_id, data.tipo_cambio, user.id)
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
     if campana is None:

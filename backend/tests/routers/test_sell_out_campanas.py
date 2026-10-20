@@ -65,7 +65,7 @@ def _crear(client, headers, grupos, **overrides) -> dict:
 
 # ── Permissions ─────────────────────────────────────────────────────
 
-ESCRITURAS = [("post", BASE), ("put", f"{BASE}/1"), ("post", f"{BASE}/1/anular")]
+ESCRITURAS = [("post", BASE), ("put", f"{BASE}/1"), ("post", f"{BASE}/1/anular"), ("post", f"{BASE}/1/tipo-cambio")]
 LECTURAS = [("get", BASE), ("get", f"{BASE}/1")]
 
 
@@ -94,11 +94,12 @@ def test_every_endpoint_requires_authentication(client, grupos, method, url) -> 
 
 
 def test_create_per_unit_campaign_with_defaults(client, gestor, grupos, db, admin_user) -> None:
-    out = _crear(client, gestor, grupos, moneda="USD", tipo_cambio="1450.5", monto_unit="3", tope_unidades=500)
+    out = _crear(client, gestor, grupos, monto_unit="3", tope_unidades=500)
     assert out["estado"] == "activa"
     assert out["acumulable"] is True
     assert out["base_porcentaje"] == "costo"
     assert (out["moneda"], out["tope_unidades"], out["tope_monto"]) == ("USD", 500, None)
+    assert (out["tc_modo"], out["tipo_cambio"], out["tc_definido_en"]) == ("al_cobro", None, None)
     assert out["usuario_id"] == admin_user.id
     assert out["grupos"] == [{"id": grupos[0], "nombre": "TP-Link redes"}]
     audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_CREADA).one()
@@ -134,8 +135,12 @@ def test_create_percentage_campaign_on_net_price_not_stackable(client, gestor, g
         ({"tipo": "porcentaje", "monto_unit": None, "porcentaje": "100.5"}, "porcentaje"),
         ({"tipo": "porcentaje", "porcentaje": "5"}, "no lleva monto"),
         ({"fecha_hasta": "2026-10-31"}, "fecha hasta"),
-        ({"moneda": "USD"}, "tipo de cambio"),
-        ({"tipo_cambio": "0"}, "tipo de cambio"),
+        ({"tc_modo": "fijo"}, "tipo de cambio fijo"),
+        ({"tc_modo": "fijo", "tipo_cambio": "0"}, "mayor a 0"),
+        ({"tc_modo": "dia_venta", "tipo_cambio": "1450"}, "día de venta"),
+        ({"tipo_cambio": "1450"}, "al cobro"),  # al_cobro (the USD default) never takes a preset rate
+        ({"moneda": "ARS", "tc_modo": "fijo", "tipo_cambio": "1450"}, "pesos"),
+        ({"moneda": "ARS", "tipo_cambio": "1450"}, "pesos"),
         ({"tope_unidades": 0}, "tope"),
         ({"tope_monto": "-1"}, "tope"),
         ({"nombre": "  "}, "nombre"),
@@ -148,6 +153,20 @@ def test_create_rejects_inconsistent_campaigns(client, gestor, grupos, db, overr
     assert resp.status_code == 422, resp.text
     assert fragment in _message(resp)
     assert db.query(SellOutCampana).count() == 0
+
+
+@pytest.mark.parametrize(
+    "overrides,esperado",
+    [
+        ({"tc_modo": "fijo", "tipo_cambio": "1450.5"}, ("USD", "fijo", "1450.500000")),
+        ({"tc_modo": "dia_venta"}, ("USD", "dia_venta", None)),
+        ({"moneda": "ARS"}, ("ARS", None, None)),
+    ],
+)
+def test_create_with_each_fx_mode(client, gestor, grupos, overrides, esperado) -> None:
+    out = _crear(client, gestor, grupos, **overrides)
+    assert (out["moneda"], out["tc_modo"], out["tipo_cambio"]) == esperado
+    assert out["tc_definido_en"] is None
 
 
 def test_repeated_groups_link_once(client, gestor, grupos, db) -> None:
@@ -227,3 +246,58 @@ def test_void_once_with_reason_then_no_edit(client, gestor, grupos, db) -> None:
 @pytest.mark.parametrize("method,url", [("put", f"{BASE}/999999"), ("post", f"{BASE}/999999/anular")])
 def test_unknown_campaign_writes_are_404(client, gestor, grupos, method, url) -> None:
     assert getattr(client, method)(url, json=_body(grupos), headers=gestor).status_code == 404
+
+
+# ── FX rate set at payment (`al_cobro`) ─────────────────────────────
+
+
+def test_rate_is_set_after_the_campaign_ended_and_can_change(client, gestor, grupos, db) -> None:
+    out = _crear(client, gestor, grupos, fecha_desde="2026-01-01", fecha_hasta="2026-01-31")
+    url = f"{BASE}/{out['id']}/tipo-cambio"
+    resp = client.post(url, json={"tipo_cambio": "1450.5"}, headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tipo_cambio"] == "1450.500000"
+    assert resp.json()["tc_definido_en"] is not None
+    assert client.post(url, json={"tipo_cambio": "1460"}, headers=gestor).json()["tipo_cambio"] == "1460.000000"
+    audits = (
+        db.query(Auditoria)
+        .filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO)
+        .order_by(Auditoria.id)
+        .all()
+    )
+    assert [a.valores_anteriores["tipo_cambio"] for a in audits] == [None, "1450.500000"]
+    assert audits[-1].valores_nuevos["tipo_cambio"] == "1460.000000"
+
+
+def test_editing_keeps_the_rate_set_at_payment(client, gestor, grupos) -> None:
+    out = _crear(client, gestor, grupos)
+    tc = client.post(f"{BASE}/{out['id']}/tipo-cambio", json={"tipo_cambio": "1450"}, headers=gestor).json()
+    for eco in (None, "1450.000000"):
+        resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="Otra", tipo_cambio=eco), headers=gestor)
+        assert resp.status_code == 200, resp.text
+        assert (resp.json()["tipo_cambio"], resp.json()["tc_definido_en"]) == ("1450.000000", tc["tc_definido_en"])
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, tipo_cambio="1500"), headers=gestor)
+    assert resp.status_code == 422  # the payment rate changes only through its endpoint
+
+
+@pytest.mark.parametrize(
+    "campana,tc,code",
+    [
+        ({"tc_modo": "fijo", "tipo_cambio": "1450"}, "1500", 422),
+        ({"tc_modo": "dia_venta"}, "1500", 422),
+        ({"moneda": "ARS"}, "1500", 422),
+        ({}, "0", 422),
+    ],
+)
+def test_rate_endpoint_only_for_payment_mode_and_positive(client, gestor, grupos, campana, tc, code) -> None:
+    out = _crear(client, gestor, grupos, **campana)
+    resp = client.post(f"{BASE}/{out['id']}/tipo-cambio", json={"tipo_cambio": tc}, headers=gestor)
+    assert resp.status_code == code, resp.text
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["tipo_cambio"] == out["tipo_cambio"]
+
+
+def test_rate_endpoint_on_void_or_unknown_campaign(client, gestor, grupos) -> None:
+    out = _crear(client, gestor, grupos)
+    client.post(f"{BASE}/{out['id']}/anular", json={}, headers=gestor)
+    assert client.post(f"{BASE}/{out['id']}/tipo-cambio", json={"tipo_cambio": "1"}, headers=gestor).status_code == 409
+    assert client.post(f"{BASE}/999999/tipo-cambio", json={"tipo_cambio": "1"}, headers=gestor).status_code == 404

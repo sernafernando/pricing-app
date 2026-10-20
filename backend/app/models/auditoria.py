@@ -37,6 +37,7 @@ class TipoAccion(str, enum.Enum):
     SELL_OUT_CAMPANA_CREADA = "sell_out_campana_creada"
     SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"
     SELL_OUT_CAMPANA_ANULADA = "sell_out_campana_anulada"
+    SELL_OUT_CAMPANA_TC_DEFINIDO = "sell_out_campana_tc_definido"
 
 
 class Auditoria(Base):

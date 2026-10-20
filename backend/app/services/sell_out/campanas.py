@@ -6,14 +6,17 @@ an integrity error. A campaign is edited by full replace while it is `activa`;
 it is never deleted, only voided (`anulada`), once. Every load, edit and void
 writes one audit row (`item_id` NULL, `campana_id` in the values).
 
-Consumption, the shared cap and stacking are applied by the allocator (T7);
-this module only stores them.
+Consumption, the shared cap, stacking and the ARS conversion (including the
+current-BNA estimate of an `al_cobro` campaign whose rate is not set yet) are
+applied by the allocator (T7); this module only stores them. The payment rate
+of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import or_
@@ -25,6 +28,8 @@ from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
 from app.schemas.sell_out import SellOutCampanaIn
 from app.services.sell_in.compras import contiene
 
+TC_PRECISION = Decimal("0.000001")  # `tipo_cambio` is NUMERIC(18, 6)
+
 _CAMPOS = (
     "nombre",
     "descripcion",
@@ -35,6 +40,7 @@ _CAMPOS = (
     "porcentaje",
     "base_porcentaje",
     "moneda",
+    "tc_modo",
     "tipo_cambio",
     "tope_unidades",
     "tope_monto",
@@ -50,8 +56,32 @@ class SellOutYaAnulada(SellOutError):
     """The campaign was already voided."""
 
 
-def validar(db: Session, data: SellOutCampanaIn) -> list[int]:
-    """Raise `SellOutError` on the first broken rule; return the campaign's distinct group ids, in order."""
+def _validar_tc(data: SellOutCampanaIn, actual: Optional[SellOutCampana]) -> None:
+    """FX rules (see `app.models.sell_out`); `data.tc_modo` is already resolved."""
+    if data.moneda == "ARS":
+        if data.tc_modo is not None or data.tipo_cambio is not None:
+            raise SellOutError("Una campaña en pesos no lleva tipo de cambio")
+        return
+    if data.tipo_cambio is not None and data.tipo_cambio <= 0:
+        raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
+    if data.tc_modo == "fijo" and data.tipo_cambio is None:
+        raise SellOutError("Con tipo de cambio fijo hay que indicar el tipo de cambio")
+    if data.tc_modo == "dia_venta" and data.tipo_cambio is not None:
+        raise SellOutError("Con tipo de cambio del día de venta no se indica un tipo de cambio")
+    if data.tc_modo == "al_cobro" and data.tipo_cambio is not None:
+        # An edit may echo the rate already set at payment; changing it goes through its own endpoint.
+        ya_definido = actual is not None and actual.tc_modo == "al_cobro" and actual.tipo_cambio == data.tipo_cambio
+        if not ya_definido:
+            raise SellOutError(
+                "Con tipo de cambio al cobro, el tipo de cambio se define cuando la marca paga, desde su propia acción"
+            )
+
+
+def validar(db: Session, data: SellOutCampanaIn, actual: Optional[SellOutCampana] = None) -> list[int]:
+    """Raise `SellOutError` on the first broken rule; return the campaign's distinct group ids, in order.
+
+    A USD campaign without `tc_modo` gets `al_cobro` (the default), set on `data` in place.
+    """
     if not data.nombre.strip():
         raise SellOutError("El nombre es obligatorio")
     if data.fecha_hasta < data.fecha_desde:
@@ -66,10 +96,9 @@ def validar(db: Session, data: SellOutCampanaIn) -> list[int]:
             raise SellOutError("El porcentaje tiene que ser mayor a 0 y hasta 100")
         if data.monto_unit is not None:
             raise SellOutError("Una campaña por porcentaje no lleva monto por unidad")
-    if data.moneda == "USD" and data.tipo_cambio is None:
-        raise SellOutError("Una campaña en USD necesita el tipo de cambio")
-    if data.tipo_cambio is not None and data.tipo_cambio <= 0:
-        raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
+    if data.moneda == "USD" and data.tc_modo is None:
+        data.tc_modo = "al_cobro"
+    _validar_tc(data, actual)
     if data.tope_unidades is not None and data.tope_unidades <= 0:
         raise SellOutError("El tope de unidades tiene que ser mayor a 0")
     if data.tope_monto is not None and data.tope_monto <= 0:
@@ -77,7 +106,7 @@ def validar(db: Session, data: SellOutCampanaIn) -> list[int]:
 
     grupo_ids = list(dict.fromkeys(data.grupo_ids))
     if not grupo_ids:
-        raise SellOutError("Elegí al menos un grupo de productos")
+        raise SellOutError("Seleccione al menos un grupo de productos")
     existentes = {gid for (gid,) in db.query(OffsetGrupo.id).filter(OffsetGrupo.id.in_(grupo_ids))}
     for gid in grupo_ids:
         if gid not in existentes:
@@ -90,7 +119,14 @@ def _valores(campana: SellOutCampana, grupo_ids: list[int]) -> dict:
     for campo, valor in valores.items():
         if valor is not None and not isinstance(valor, (bool, int, str)):
             valores[campo] = str(valor)  # dates and decimals, JSON-safe
-    return {"campana_id": campana.id, **valores, "estado": campana.estado, "grupo_ids": grupo_ids}
+    definido = campana.tc_definido_en.isoformat() if campana.tc_definido_en else None
+    return {
+        "campana_id": campana.id,
+        **valores,
+        "tc_definido_en": definido,
+        "estado": campana.estado,
+        "grupo_ids": grupo_ids,
+    }
 
 
 def _grupo_ids(db: Session, campana_id: int) -> list[int]:
@@ -114,8 +150,13 @@ def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict]
 
 
 def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo_ids: list[int]) -> None:
+    previo = (campana.tc_modo, campana.tipo_cambio, campana.tc_definido_en)
     for campo in _CAMPOS:
         setattr(campana, campo, getattr(data, campo))
+    if campana.tc_modo == "al_cobro" and previo[0] == "al_cobro":
+        campana.tipo_cambio, campana.tc_definido_en = previo[1], previo[2]  # an edit keeps the payment rate
+    else:
+        campana.tc_definido_en = None
     campana.nombre = data.nombre.strip()
     db.flush()
     db.query(SellOutCampanaGrupo).filter(
@@ -149,7 +190,7 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     campana = _bloquear(db, campana_id)
     if campana is None:
         return None
-    grupo_ids = validar(db, data)
+    grupo_ids = validar(db, data, campana)
     antes = _valores(campana, _grupo_ids(db, campana_id))
     _asignar(db, campana, data, grupo_ids)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, _valores(campana, grupo_ids))
@@ -167,6 +208,30 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
     _audit(
         db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, _valores(campana, _grupo_ids(db, campana_id)), motivo
     )
+    db.commit()
+    db.refresh(campana)
+    return campana
+
+
+def definir_tipo_cambio(
+    db: Session, campana_id: int, tipo_cambio: Decimal, usuario_id: int
+) -> Optional[SellOutCampana]:
+    """Set (or change) the rate of an `al_cobro` campaign when the brand pays, also after it ended.
+
+    None when it does not exist; `SellOutYaAnulada` when voided. Every change is audited; T7 recomputes.
+    """
+    campana = _bloquear(db, campana_id)
+    if campana is None:
+        return None
+    if campana.tc_modo != "al_cobro":
+        raise SellOutError("Solo las campañas en USD con tipo de cambio al cobro definen el tipo de cambio después")
+    if tipo_cambio <= 0:
+        raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
+    grupo_ids = _grupo_ids(db, campana_id)
+    antes = _valores(campana, grupo_ids)
+    campana.tipo_cambio = tipo_cambio.quantize(TC_PRECISION)
+    campana.tc_definido_en = datetime.now(timezone.utc)
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO, usuario_id, antes, _valores(campana, grupo_ids))
     db.commit()
     db.refresh(campana)
     return campana
@@ -226,7 +291,14 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
     salida = []
     for c in campanas:
         fila = {campo: getattr(c, campo) for campo in _CAMPOS}
-        fila.update(id=c.id, estado=c.estado, usuario_id=c.usuario_id, created_at=c.created_at, updated_at=c.updated_at)
+        fila.update(
+            tc_definido_en=c.tc_definido_en,
+            id=c.id,
+            estado=c.estado,
+            usuario_id=c.usuario_id,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+        )
         fila["grupos"] = grupos[c.id]
         salida.append(fila)
     return salida

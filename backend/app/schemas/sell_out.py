@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 Tipo = Literal["por_unidad", "porcentaje"]
 BasePorcentaje = Literal["costo", "precio_neto"]
 Moneda = Literal["ARS", "USD"]
+TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Estado = Literal["activa", "anulada"]
 
 NOMBRE_MAX = 200
@@ -36,8 +37,10 @@ class SellOutCampanaIn(BaseModel):
     monto_unit: Optional[Decimal] = None  # per unit, in `moneda`; only for `por_unidad`
     porcentaje: Optional[Decimal] = None  # only for `porcentaje`
     base_porcentaje: BasePorcentaje = "costo"
-    moneda: Moneda = "ARS"
-    tipo_cambio: Optional[Decimal] = None  # ARS per USD, fixed for the campaign; required in USD
+    moneda: Moneda = "USD"
+    # USD only; None means `al_cobro`. ARS campaigns send neither field.
+    tc_modo: Optional[TcModo] = None
+    tipo_cambio: Optional[Decimal] = None  # ARS per USD: required for `fijo`, never sent otherwise
     tope_unidades: Optional[int] = None  # cap shared by every product of the campaign
     tope_monto: Optional[Decimal] = None  # same, in `moneda`
     acumulable: bool = True
@@ -46,6 +49,10 @@ class SellOutCampanaIn(BaseModel):
 
 class SellOutAnularIn(BaseModel):
     motivo: Optional[str] = Field(default=None, max_length=MOTIVO_MAX)
+
+
+class SellOutTipoCambioIn(BaseModel):
+    tipo_cambio: Decimal  # ARS per USD, the rate the brand paid at
 
 
 class SellOutGrupoOut(BaseModel):
@@ -66,7 +73,9 @@ class SellOutCampanaOut(BaseModel):
     porcentaje: Optional[Decimal]
     base_porcentaje: BasePorcentaje
     moneda: Moneda
+    tc_modo: Optional[TcModo]
     tipo_cambio: Optional[Decimal]
+    tc_definido_en: Optional[datetime]  # when an `al_cobro` rate was set
     tope_unidades: Optional[int]
     tope_monto: Optional[Decimal]
     acumulable: bool
