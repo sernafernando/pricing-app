@@ -340,3 +340,12 @@ async def get_admin_or_localhost(
         raise api_error(403, ErrorCode.INSUFFICIENT_PERMISSIONS, "Solo administradores pueden realizar esta acción")
 
     return usuario
+
+
+def exigir_combos_sincronizados(db: Session) -> None:
+    """503 while `combo_componentes` is empty: an unsynced table would call every
+    real combo a plain item (prearmado) or let combos back into rankings."""
+    from app.services.combos.componentes import DETALLE_COMBOS_NO_SINCRONIZADOS, combos_disponibles
+
+    if not combos_disponibles(db):
+        raise HTTPException(status_code=503, detail=DETALLE_COMBOS_NO_SINCRONIZADOS)

@@ -26,7 +26,6 @@ from app.api.deps import require_permiso
 from app.core.database import get_background_db, get_db
 from app.models.prearmado import Prearmado, PrearmadoSerial
 from app.models.tb_item import TBItem
-from app.models.tb_item_association import TbItemAssociation
 from app.models.tb_item_serials import TbItemSerial
 from app.models.usuario import Usuario
 from app.schemas.prearmado import (
@@ -45,6 +44,8 @@ from app.schemas.prearmado import (
     ValidateSerialRequest,
     ValidateSerialResponse,
 )
+from app.api.deps import exigir_combos_sincronizados
+from app.services.combos.componentes import es_combo
 from app.services.prearmado_helpers import generar_codigo_prearmado, parse_windows_suffix
 from app.services.prearmado_matcher import match_prearmados_with_sales_orders
 
@@ -379,6 +380,12 @@ def _get_prearmado_or_404(db: Session, prearmado_id: int) -> Prearmado:
     return p
 
 
+# The ERP company the combo bill of materials belongs to. The old search joined
+# the mirror on comp_id and the mirror only ever held company 1; `combo_componentes`
+# has no company, so the catalog side keeps that scope explicitly.
+COMP_ID_BOM = 1
+
+
 # --- Endpoints ---
 
 
@@ -395,10 +402,11 @@ def buscar_combos(
     """
     Búsqueda de combos del catálogo (`tb_item`) por código o descripción (ILIKE parcial).
 
-    Solo retorna items que son combos: tienen al menos un row en `tb_item_association`
-    como `item_id` (padre) con `iasso_qty > 0`. Independiente del cache de pedidos
+    Solo retorna items que son combos: tienen al menos un componente en
+    `combo_componentes` (la BOM propia de la app). Independiente del cache de pedidos
     pendientes — permite prearmar cualquier combo del catálogo aunque no tenga pedido.
     """
+    exigir_combos_sincronizados(db)
     search_pattern = f"%{q}%"
     rows = (
         db.execute(
@@ -406,17 +414,14 @@ def buscar_combos(
                 """
                 SELECT DISTINCT ti.item_id, ti.item_code, ti.item_desc
                 FROM tb_item ti
-                INNER JOIN tb_item_association ia
-                    ON ia.item_id = ti.item_id
-                    AND ia.comp_id = ti.comp_id
-                    AND ia.iasso_qty > 0
-                WHERE ti.item_code ILIKE :search
-                   OR ti.item_desc ILIKE :search
+                WHERE ti.comp_id = :comp_id
+                  AND EXISTS (SELECT 1 FROM combo_componentes cc WHERE cc.combo_item_id = ti.item_id)
+                  AND (ti.item_code ILIKE :search OR ti.item_desc ILIKE :search)
                 ORDER BY ti.item_code
                 LIMIT :limit
                 """
             ),
-            {"search": search_pattern, "limit": limit},
+            {"search": search_pattern, "limit": limit, "comp_id": COMP_ID_BOM},
         )
         .mappings()
         .all()
@@ -441,52 +446,45 @@ def obtener_componentes_para_prearmado(
     db: Session = Depends(get_db),
 ) -> ComponentesForCombo:
     """
-    Devuelve la BOM del combo filtrada por `iasso_qty > 0`, con `requiere_serie`
+    Devuelve la BOM del combo (`combo_componentes`), con `requiere_serie`
     leído desde `tb_item.item_expser` (flag del ERP, default TRUE si NULL).
 
     Detecta sufijo `WH`/`WP` del item_code del combo y retorna metadata
     `incluye_windows` ('home' | 'pro' | None). Win11 NO se agrega como componente:
     se maneja como info derivada en el FE.
     """
-    combo: Optional[TBItem] = db.query(TBItem).filter(TBItem.item_id == combo_item_id).first()
+    combo: Optional[TBItem] = (
+        db.query(TBItem).filter(TBItem.item_id == combo_item_id, TBItem.comp_id == COMP_ID_BOM).first()
+    )
     if not combo:
         raise HTTPException(status_code=404, detail="Item no encontrado")
 
-    es_combo = (
-        db.query(TbItemAssociation)
-        .filter(
-            TbItemAssociation.item_id == combo_item_id,
-            TbItemAssociation.iasso_qty > 0,
-        )
-        .first()
-    )
-    if not es_combo:
+    exigir_combos_sincronizados(db)
+    if not es_combo(db, combo_item_id):
         raise HTTPException(
             status_code=400,
             detail="El item no es un combo (sin componentes positivos en BOM)",
         )
 
-    # En tb_item_association: item_id = COMBO (padre), item_id_1 = COMPONENTE (hijo).
-    # itema_id es PK interno de la tabla, NO el id del combo.
+    # combo_componentes no tiene empresa: el componente se busca en tb_item con la del combo.
     rows = (
         db.execute(
             text(
                 """
             SELECT
-                ia.item_id_1 AS item_id,
+                cc.componente_item_id AS item_id,
                 COALESCE(ti.item_code, '') AS item_code,
                 COALESCE(ti.item_desc, '') AS item_desc,
-                ia.iasso_qty,
+                cc.cantidad AS iasso_qty,
                 COALESCE(ti.item_expser, TRUE) AS requiere_serie
-            FROM tb_item_association ia
+            FROM combo_componentes cc
             LEFT JOIN tb_item ti
-                ON ti.item_id = ia.item_id_1 AND ti.comp_id = ia.comp_id
-            WHERE ia.item_id = :combo_id
-              AND ia.iasso_qty > 0
-            ORDER BY ia.item_id_1
+                ON ti.item_id = cc.componente_item_id AND ti.comp_id = :comp_id
+            WHERE cc.combo_item_id = :combo_id
+            ORDER BY cc.componente_item_id
             """
             ),
-            {"combo_id": combo_item_id},
+            {"combo_id": combo_item_id, "comp_id": COMP_ID_BOM},
         )
         .mappings()
         .all()
@@ -536,19 +534,14 @@ def crear_prearmado(
     current_user: Usuario = Depends(require_permiso(PERMISO)),
 ) -> PrearmadoDetail:
     """Crea cabecera de prearmado para un combo existente."""
-    combo: Optional[TBItem] = db.query(TBItem).filter(TBItem.item_id == body.combo_item_id).first()
+    combo: Optional[TBItem] = (
+        db.query(TBItem).filter(TBItem.item_id == body.combo_item_id, TBItem.comp_id == COMP_ID_BOM).first()
+    )
     if not combo:
         raise HTTPException(status_code=404, detail="Item del combo no encontrado")
 
-    es_combo = (
-        db.query(TbItemAssociation)
-        .filter(
-            TbItemAssociation.item_id == body.combo_item_id,
-            TbItemAssociation.iasso_qty > 0,
-        )
-        .first()
-    )
-    if not es_combo:
+    exigir_combos_sincronizados(db)
+    if not es_combo(db, body.combo_item_id):
         raise HTTPException(
             status_code=400,
             detail="El item no es un combo (sin componentes positivos en BOM)",

@@ -20,9 +20,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
-from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.models.rol import Rol
-
+from app.models.usuario import AuthProvider, RolUsuario, Usuario
+from tests.integration.combos_mock import con_chequeo_de_combos, es_chequeo_de_combos
 
 # ---------------------------------------------------------------------------
 # Shared patch helpers
@@ -95,7 +95,7 @@ def _make_ranking_mock_db() -> MagicMock:
     mock_db = MagicMock()
     # First call → data query (fetchall), second call → count query (fetchone).
     mock_db.execute.side_effect = [items_result, count_result]
-    return mock_db
+    return con_chequeo_de_combos(mock_db)
 
 
 def _make_single_row_mock_db(row: MagicMock) -> MagicMock:
@@ -151,7 +151,9 @@ _DEAD_STOCK_CLAUSE = "tct_m.ct_date >= NOW()::date - INTERVAL '365 days'"
 
 
 def _all_sql(mock_db: MagicMock) -> list[str]:
-    return [str(c.args[0]) for c in mock_db.execute.call_args_list if c.args]
+    # The combo readiness check is not one of the endpoint's product queries.
+    sqls = (str(c.args[0]) for c in mock_db.execute.call_args_list if c.args)
+    return [sql for sql in sqls if not es_chequeo_de_combos(sql)]
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +165,10 @@ class TestRankingSoloMuerto:
     """solo_muerto filter on GET /ranking."""
 
     def _client_with_mock(self, mock_db: MagicMock):
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         def _override_get_db():
             yield mock_db
@@ -296,9 +299,10 @@ class TestKpisSoloMuerto:
     """solo_muerto filter on GET /ranking/kpis."""
 
     def _client_with_mock(self, mock_db: MagicMock):
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         def _override_get_db():
             yield mock_db
@@ -374,9 +378,10 @@ class TestResumenSoloMuerto:
     """solo_muerto filter on GET /ranking/resumen."""
 
     def _client_with_mock(self, mock_db: MagicMock):
+        from starlette.testclient import TestClient
+
         from app.core.database import get_async_db, get_db
         from app.main import app
-        from starlette.testclient import TestClient
 
         def _override_get_db():
             yield mock_db
@@ -392,7 +397,7 @@ class TestResumenSoloMuerto:
         rows_result, totales_result = _resumen_rows_and_totals()
         mock_db = MagicMock()
         mock_db.execute.side_effect = [rows_result, totales_result]
-        return mock_db
+        return con_chequeo_de_combos(mock_db)
 
     def test_solo_muerto_true_injects_clause_in_resumen(self, user_muerto):
         """solo_muerto=true → resumen SQL contains the NOT EXISTS dead-stock clause."""

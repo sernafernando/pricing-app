@@ -36,6 +36,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_algun_permiso
 from app.core.database import get_db
 from app.models.usuario import Usuario
+from app.api.deps import exigir_combos_sincronizados
+from app.services.combos.componentes import sql_no_es_combo
 from app.services.permisos_service import PermisosService
 from app.services.pm_scope import scope_exists_sql
 from app.core.logging import get_logger
@@ -435,7 +437,7 @@ async def get_ranking(
     ),
     incluir_combos: bool = Query(
         default=False,
-        description="Si True, incluye combos/producción (productos padre en tb_item_association).",
+        description="Si True, incluye combos/producción (productos con componentes en combo_componentes).",
     ),
     solo_muerto: bool = Query(
         default=False,
@@ -512,11 +514,10 @@ async def get_ranking(
     if not incluir_sin_stock:
         filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
 
-    # incluir_combos=False → exclude products that are parents in tb_item_association (ADR-8)
+    # incluir_combos=False → exclude combos: products with components in combo_componentes (ADR-8)
     if not incluir_combos:
-        filter_clauses.append(
-            "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
-        )
+        exigir_combos_sincronizados(db)
+        filter_clauses.append(sql_no_es_combo("pe.item_id"))
 
     # solo_muerto=True → restrict to dead stock: no sale in the last DIAS_MUERTO_UMBRAL days.
     # NOT EXISTS is self-contained (references pe.item_id only) — works in both data and count queries.
@@ -782,7 +783,7 @@ async def get_ranking_resumen(
     ),
     incluir_combos: bool = Query(
         default=False,
-        description="Si True, incluye combos/producción (productos padre en tb_item_association).",
+        description="Si True, incluye combos/producción (productos con componentes en combo_componentes).",
     ),
     solo_muerto: bool = Query(
         default=False,
@@ -852,9 +853,8 @@ async def get_ranking_resumen(
         filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
 
     if not incluir_combos:
-        filter_clauses.append(
-            "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
-        )
+        exigir_combos_sincronizados(db)
+        filter_clauses.append(sql_no_es_combo("pe.item_id"))
 
     if solo_muerto:
         filter_clauses.append(
@@ -1074,7 +1074,7 @@ async def get_ranking_kpis(
     ),
     incluir_combos: bool = Query(
         default=False,
-        description="Si True, incluye combos/producción (productos padre en tb_item_association).",
+        description="Si True, incluye combos/producción (productos con componentes en combo_componentes).",
     ),
     solo_muerto: bool = Query(
         default=False,
@@ -1142,9 +1142,8 @@ async def get_ranking_kpis(
         filter_clauses.append("COALESCE(stk.total_stock, 0) > 0")
 
     if not incluir_combos:
-        filter_clauses.append(
-            "NOT EXISTS (SELECT 1 FROM tb_item_association ia WHERE ia.item_id = pe.item_id AND ia.iasso_qty > 0)"
-        )
+        exigir_combos_sincronizados(db)
+        filter_clauses.append(sql_no_es_combo("pe.item_id"))
 
     if solo_muerto:
         filter_clauses.append(
