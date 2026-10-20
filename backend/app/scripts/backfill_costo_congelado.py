@@ -77,6 +77,7 @@ from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps  # noqa: E402
 from app.models.producto import ProductoERP  # noqa: E402
 from app.models.tipo_cambio import TipoCambio  # noqa: E402
+from app.services.combos.componentes import CombosNoSincronizados, exigir_combos_disponibles  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_BACKFILL_PUBLICACION,
     FUENTE_BACKFILL_COMBO,
@@ -393,6 +394,9 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
     result = BackfillResult()
     db = SessionLocal()
     try:
+        # An empty bill of materials is "not synced yet": every combo would
+        # read as a plain item. Refuse before reading anything.
+        exigir_combos_disponibles(db)
         consulta = _candidate_query(db)
         if limit is not None:
             consulta = consulta.limit(limit)
@@ -553,7 +557,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args(argv)
 
-    result = run_backfill(limit=args.limit, dry_run=args.dry_run, batch_size=args.batch_size)
+    try:
+        result = run_backfill(limit=args.limit, dry_run=args.dry_run, batch_size=args.batch_size)
+    except CombosNoSincronizados as exc:
+        sys.exit(f"ERROR: {exc}")
 
     skipped_total = sum(result.skipped.values())
     logger.info(

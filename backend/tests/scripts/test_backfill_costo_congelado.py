@@ -20,6 +20,8 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
+from app.models.combo_componente import ComboComponente
+from app.services.combos.componentes import CombosNoSincronizados
 from app.models.tb_item_association import TbItemAssociation
 from app.models.tipo_cambio import TipoCambio
 from app.scripts import backfill_costo_congelado as script
@@ -28,6 +30,14 @@ from app.services.ml_orders_ingestion.costeo_service import (
     FUENTE_BACKFILL_PUBLICACION,
     FUENTE_BACKFILL_SKU,
 )
+
+
+@pytest.fixture(autouse=True)
+def _combos_sincronizados(db):
+    """The combos sync has run: with an empty `combo_componentes` the script
+    refuses (see `TestEmptyBomRefuses`). An unrelated combo no test touches."""
+    db.add(ComboComponente(combo_item_id=99_000, componente_item_id=99_001, cantidad=1))
+    db.flush()
 
 
 @pytest.fixture(autouse=True)
@@ -87,9 +97,9 @@ def _producto(db, item_id: int = 500, iva: float = 21.0) -> ProductoERP:
     return producto
 
 
-def _componente(db, combo_id: int, componente_id: int, qty: float, itema_id: int) -> TbItemAssociation:
-    """One line of a combo's bill of materials in `tb_item_association`."""
-    row = TbItemAssociation(comp_id=1, itema_id=itema_id, item_id=combo_id, item_id_1=componente_id, iasso_qty=qty)
+def _componente(db, combo_id: int, componente_id: int, qty: float) -> ComboComponente:
+    """One line of a combo's bill of materials in `combo_componentes`."""
+    row = ComboComponente(combo_item_id=combo_id, componente_item_id=componente_id, cantidad=qty)
     db.add(row)
     db.flush()
     return row
@@ -535,8 +545,8 @@ class TestACombosCostIsTheSumOfItsComponents:
         as one unit) turns this red -- 2x100 + 1x50 is 250, not 150."""
         _producto(db, item_id=500)
         _publicacion(db)
-        _componente(db, combo_id=500, componente_id=901, qty=2, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=2)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         # The combo's own history carries only the zero the ERP leaves there.
         _history(db, item_id=500, price=0.0, when=date(2026, 5, 1), iclh_id=1)
         _history(db, item_id=901, price=100.0, when=date(2026, 5, 1), iclh_id=2)
@@ -562,8 +572,8 @@ class TestACombosCostIsTheSumOfItsComponents:
         the margin, the worst direction to be wrong in."""
         _producto(db, item_id=500)
         _publicacion(db)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         _history(db, item_id=901, price=100.0, when=date(2026, 5, 1), iclh_id=1)
         # 902's only cost arrives AFTER the sale.
         _history(db, item_id=902, price=50.0, when=date(2026, 9, 1), iclh_id=2)
@@ -582,8 +592,8 @@ class TestACombosCostIsTheSumOfItsComponents:
         the sale -- never today's."""
         _producto(db, item_id=500)
         _publicacion(db)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
-        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1)
         _history(db, item_id=901, price=100.0, when=date(2026, 5, 1), iclh_id=1)
         _history(db, item_id=902, price=10.0, when=date(2026, 5, 1), iclh_id=2, curr_id=2)
         db.add(TipoCambio(fecha=date(2026, 5, 1), moneda="USD", compra=900.0, venta=950.0))
@@ -605,7 +615,7 @@ class TestACombosCostIsTheSumOfItsComponents:
         prices would replace a MEASURED figure with a derived one."""
         _producto(db, item_id=500)
         _publicacion(db)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
         _history(db, item_id=500, price=777.0, when=date(2026, 5, 1), iclh_id=1)
         _history(db, item_id=901, price=100.0, when=date(2026, 5, 1), iclh_id=2)
         db.add(_order(4004, datetime(2026, 7, 15, tzinfo=timezone.utc)))
@@ -635,39 +645,30 @@ class TestACombosCostIsTheSumOfItsComponents:
         assert result.skipped[script.SKIP_COMBO_COMPONENT_NO_COST] == 0
 
 
-class TestACombosBomNeverCrossesCompanies:
-    def test_components_in_two_companies_refuse_to_be_summed(self, db):
-        """`comp_id` is the ERP's company and part of `tb_item_association`'s
-        key; `prearmado`'s own queries join on it. `ProductoERP` carries no
-        company, so nothing here can correlate a combo to one -- the choice
-        is between summing across companies (silently wrong money) and
-        refusing. It refuses, loudly.
+class TestACombosBomComesFromTheAppTable:
+    def test_a_component_only_the_erp_mirror_lists_is_not_costed(self, db):
+        """The bill of materials is `combo_componentes`; a stale row the ERP
+        mirror `tb_item_association` still holds (902) is not a component.
+        Costed from the mirror the combo would cost 150, not 100.
 
-        Production holds exactly one `comp_id` today, so this never fires
-        there. The test exists so the day it does, the behaviour is the one
-        that was chosen rather than the one nobody looked at.
-
-        MUTATION-VERIFIED: dropping the company guard turns this red -- the
-        combo gets costed at 150 by summing one company's component with
-        the other's.
-        """
+        The old company guard lives in the sync now: a snapshot from more
+        than one ERP company is refused before it reaches the table
+        (`app.services.combos.fuente_erp`)."""
         _producto(db, item_id=500)
         _publicacion(db)
-        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
-        otra_empresa = TbItemAssociation(comp_id=2, itema_id=2, item_id=500, item_id_1=902, iasso_qty=1)
-        db.add(otra_empresa)
+        _componente(db, combo_id=500, componente_id=901, qty=1)
+        db.add(TbItemAssociation(comp_id=1, itema_id=1, item_id=500, item_id_1=901, iasso_qty=1))
+        db.add(TbItemAssociation(comp_id=1, itema_id=2, item_id=500, item_id_1=902, iasso_qty=1))
         _history(db, item_id=901, price=100.0, when=date(2026, 5, 1), iclh_id=1)
         _history(db, item_id=902, price=50.0, when=date(2026, 5, 1), iclh_id=2)
         db.add(_order(4006, datetime(2026, 7, 15, tzinfo=timezone.utc)))
         db.add(_item(4006))
         db.commit()
 
-        result = script.run_backfill(limit=None, dry_run=False)
+        script.run_backfill(limit=None, dry_run=False)
 
-        assert db.query(MlOrderItemCosto).filter_by(order_id=4006).count() == 0
-        # Not a combo any more as far as the resolver is concerned, so it
-        # falls through to the plain "no dated cost" path.
-        assert result.skipped[script.SKIP_NO_HISTORY] == 1
+        row = db.query(MlOrderItemCosto).filter_by(order_id=4006).one()
+        assert float(row.costo_unitario_ars) == 100.0
 
 
 class TestKnownZeroIvaIsSkippedNotBackfilled:
@@ -694,3 +695,24 @@ class TestKnownZeroIvaIsSkippedNotBackfilled:
 
         assert db.query(MlOrderItemCosto).filter_by(order_id=1050).count() == 0
         assert result.skipped[script.SKIP_NO_IVA] == 1
+
+
+class TestEmptyBomRefuses:
+    """Without a synced bill of materials every combo would read as a plain
+    item; the script refuses with a clear error instead of guessing."""
+
+    def test_run_raises(self, db):
+        db.query(ComboComponente).delete()
+        db.commit()
+
+        with pytest.raises(CombosNoSincronizados):
+            script.run_backfill(limit=None, dry_run=False)
+
+    def test_main_exits_with_an_error(self, db):
+        db.query(ComboComponente).delete()
+        db.commit()
+
+        with pytest.raises(SystemExit) as exc:
+            script.main([])
+
+        assert "combos" in str(exc.value.code)

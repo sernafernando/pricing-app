@@ -67,6 +67,7 @@ from app.core.database import SessionLocal  # noqa: E402
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrdersOps  # noqa: E402
 from app.services.ml_orders_ingestion.tp_cost_resolver import BackfillTpResult, procesar_lote  # noqa: E402
+from app.services.combos.componentes import CombosNoSincronizados  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,12 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> None:
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args(argv)
-    result = run_backfill(limit=args.limit, dry_run=args.dry_run, batch_size=args.batch_size, after_id=args.after_id)
+    try:
+        result = run_backfill(
+            limit=args.limit, dry_run=args.dry_run, batch_size=args.batch_size, after_id=args.after_id
+        )
+    except CombosNoSincronizados as exc:
+        sys.exit(f"ERROR: {exc}")
     logger.info(
         "backfill_tp_cost: complete (dry_run=%s, limit=%s) -- examined=%s resolved=%s written=%s "
         "batches=%s last_id=%s resolved_by_fuente=%s written_by_fuente=%s skipped_total=%s skipped_breakdown=%s",

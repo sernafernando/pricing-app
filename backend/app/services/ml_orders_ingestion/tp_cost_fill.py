@@ -48,7 +48,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrdersOps
-from app.models.tb_item_association import TbItemAssociation
+from app.services.combos.componentes import CombosNoSincronizados, combos_que_contienen, exigir_combos_disponibles
 from app.services.ml_orders_ingestion.tp_cost_resolver import (
     SKIP_ERROR,
     BackfillTpResult,
@@ -152,17 +152,18 @@ class FillBatch:
     failed: List[int] = field(default_factory=list)
     combo_failed: List[int] = field(default_factory=list)
     result: BackfillTpResult = field(default_factory=BackfillTpResult)
+    # Set when `combo_componentes` is empty: nothing was resolved or written
+    # and the claimed items stay queued, uncharged (`items` is 0, so the
+    # handler stops this run and the next wake or safety poll retries).
+    combos_no_sincronizados: bool = False
 
 
 def _combos_de(db: Session, items: Sequence[int]) -> Dict[int, Set[int]]:
-    """`{component: {combos containing it}}` for the whole batch, one query."""
-    combos: Dict[int, Set[int]] = {}
-    for combo_id, componente_id in db.query(TbItemAssociation.item_id, TbItemAssociation.item_id_1).filter(
-        TbItemAssociation.item_id_1.in_(items), TbItemAssociation.iasso_qty > 0
-    ):
-        if combo_id is not None:
-            combos.setdefault(componente_id, set()).add(combo_id)
-    return combos
+    """`{component: {combos containing it}}` for the whole batch, one query.
+    Raises `CombosNoSincronizados` while `combo_componentes` is empty: an empty
+    reverse lookup would silently skip every combo of the batch."""
+    exigir_combos_disponibles(db)
+    return combos_que_contienen(db, items)
 
 
 def _sumar(total: BackfillTpResult, parcial: BackfillTpResult) -> None:
@@ -201,6 +202,17 @@ def _llenar(
     _sumar(total, parcial)
 
 
+def _sin_combos(items: Sequence[int]) -> FillBatch:
+    """The retryable skip for an empty `combo_componentes`: reported as an empty
+    batch, the claimed items stay queued and uncharged."""
+    logger.warning(
+        "tp_cost.fill: combo_componentes is empty (combos not synced yet) -- "
+        "%s claimed item(s) left queued, nothing written",
+        len(items),
+    )
+    return FillBatch(items=0, combos_no_sincronizados=True)
+
+
 def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBatch:
     """Claims up to `limit` queued items and fills the NULL TP cost of their
     sales and of the sales of combos containing them. Does not commit.
@@ -223,6 +235,11 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
     A cost row belongs to exactly one product, so the two passes never touch
     the same row. An error outside any savepoint (claim, reads) propagates:
     the caller's transaction rolls back and the queue is unchanged.
+
+    An empty `combo_componentes` (the combos sync has not filled it yet) is
+    not an error but a retryable skip: the reads refuse before anything is
+    written, the claimed items stay queued without an attempt charged, and
+    the batch reports `items=0` with `combos_no_sincronizados`.
     """
     batch = FillBatch(items=0)
     items = [
@@ -233,10 +250,13 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
     ]
     if not items:
         return batch
+    try:
+        combos = _combos_de(db, items)
+    except CombosNoSincronizados:
+        return _sin_combos(items)
     batch.items = len(items)
 
     reclamados = set(items)
-    combos = _combos_de(db, items)
     derivados: Dict[int, Set[int]] = {}  # combo -> claimed components that reach it
     for componente_id, contenedores in combos.items():
         for combo_id in contenedores - reclamados:
@@ -254,7 +274,11 @@ def fill_batch(db: Session, limit: int, excluded: Iterable[int] = ()) -> FillBat
         .order_by(MlOrderItemCosto.id)
         .all()
     )
-    datos = leer_datos(db, rows)
+    try:
+        datos = leer_datos(db, rows)
+    except CombosNoSincronizados:
+        # Wiped between the two reads: still nothing written, same skip.
+        return _sin_combos(items)
 
     # Grouped once (rows arrive ordered by id, and keep that order per product).
     filas_por_producto: Dict[int, List[Any]] = {}
