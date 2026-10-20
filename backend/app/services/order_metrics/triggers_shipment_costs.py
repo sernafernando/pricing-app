@@ -17,10 +17,19 @@ unwatched: no formula reads them. The `WHEN` guard keeps the no-op rule of
 design D3 rev 5 -- the sweep re-stores the payload on every retry, and an
 identical rewrite (`IS DISTINCT FROM` on jsonb) enqueues nothing.
 
+flex-envio-comprador: the Flex buyer-paid shipping fallback
+(`envio_comprador.py`) of an order is read only when NO payment of ANY order
+of its shipment carries the shipping. So a payment write must also recompute
+every order sharing the payment's shipment, not only the payment's own order:
+`order_metrics_enqueue_payments_ops` is replaced (`CREATE OR REPLACE
+FUNCTION`, idempotent) with a body that adds those siblings. The trigger
+itself (`triggers.py`) is untouched.
+
 Migration immutability contract (`triggers.py`): this module is the LIVE
-definition for fixtures and future migrations; the migration
-`20261008_ml_shipments_raw_costs_trigger.py` inlines its own FROZEN copy and
-is never re-synced. `triggers.py`'s own statements stay untouched.
+definition for fixtures and future migrations; the migrations
+`20261008_ml_shipments_raw_costs_trigger.py` and
+`20261106_ml_payments_shipment_fanout.py` inline their own FROZEN copies and
+are never re-synced. `triggers.py`'s own statements stay untouched.
 """
 
 from __future__ import annotations
@@ -41,13 +50,48 @@ FOR EACH ROW WHEN (
 )
 EXECUTE FUNCTION order_metrics_enqueue_shipments_ops()
 """,
+    """
+CREATE OR REPLACE FUNCTION order_metrics_enqueue_payments_ops() RETURNS TRIGGER AS $trg$
+DECLARE
+    ids BIGINT[];
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        ids := ARRAY[OLD.order_id];
+    ELSIF TG_OP = 'UPDATE' AND OLD.order_id IS DISTINCT FROM NEW.order_id THEN
+        ids := ARRAY[OLD.order_id, NEW.order_id];
+    ELSE
+        ids := ARRAY[NEW.order_id];
+    END IF;
+    -- Every order sharing the shipment of those orders (flex-envio-comprador).
+    ids := ids || ARRAY(
+        SELECT sibling.order_id
+        FROM ml_orders_ops AS own
+        JOIN ml_orders_ops AS sibling ON sibling.shipping_id = own.shipping_id
+        WHERE own.order_id = ANY(ids) AND own.shipping_id IS NOT NULL
+    );
+    PERFORM order_metrics_enqueue(
+        ids,
+        CASE
+            WHEN TG_OP = 'DELETE' THEN 'ml_payments_ops_delete'
+            WHEN TG_OP = 'INSERT' THEN 'ml_payments_ops_insert'
+            ELSE 'ml_payments_ops_update'
+        END
+    );
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$trg$ LANGUAGE plpgsql
+""",
 ]
 
 
 def create_shipment_costs_trigger(connection: Connection) -> None:
     """Replaces PR4's shipment UPDATE trigger with one that also watches
-    `raw_costs`. Must run AFTER `create_triggers` (which defines the
-    function and the original trigger). Idempotent: `DROP ... IF EXISTS`
-    first, so re-applying never collides on `CREATE TRIGGER`."""
+    `raw_costs`, and the payments function with one that fans out to the
+    orders sharing the shipment. Must run AFTER `create_triggers` (which
+    defines both functions and the original trigger). Idempotent: `DROP ...
+    IF EXISTS` first, so re-applying never collides on `CREATE TRIGGER`."""
     for statement in _CREATE_STATEMENTS:
         connection.exec_driver_sql(statement)
