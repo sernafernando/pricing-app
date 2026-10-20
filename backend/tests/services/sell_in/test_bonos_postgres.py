@@ -20,7 +20,7 @@ from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.sell_in import SellInBonoMarca
-from app.services.sell_in import bonos
+from app.services.sell_in import bonos, compras
 from tests.services.sell_in import _bono_world as b
 from tests.services.sell_in import _world as w
 
@@ -541,3 +541,18 @@ class TestConsumption:
         _reconciliar(engine, pedido_ids=[pedido])
 
         assert [(c[4], c[5]) for c in w.consumos(engine)] == [(2, Decimal("2.00"))]
+
+
+@pytest.mark.postgres
+class TestManualVoidRefused:
+    def test_a_generated_purchase_cannot_be_voided_by_hand(self, engine: Engine) -> None:
+        bono = b.bono(engine)
+        pedido = b.pedido(engine, {2964: 1})
+        _reconciliar(engine, bono_ids=[bono])
+        compra = b.compra_id(engine, bono, pedido)
+
+        with sessionmaker(bind=engine)() as db:
+            with pytest.raises(compras.SellInGenerada, match="bono de marca"):
+                compras.anular_compra(db, compra, 7, None)
+
+        assert b.generadas(engine)[0][2] == "activa"
