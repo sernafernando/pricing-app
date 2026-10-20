@@ -8,6 +8,7 @@ from datetime import time, timedelta
 from app.workers import registry
 from app.workers.handlers import ml_ads, ml_billing, ml_publications
 from app.workers.handlers.combos_sync import sync as combos_sync
+from app.workers.handlers.ml_orders_quarantine import quarantine_retry
 from app.workers.handlers.order_metrics import divergence, drain, reconcile
 from app.workers.handlers.promo_refresh import promo_write_refresh
 from app.workers.handlers.rrhh_horas_extras import horas_extras
@@ -25,6 +26,7 @@ class TestExistingRegistryIsUntouched:
             sell_drain,
             combos_sync,
             horas_extras,
+            quarantine_retry,
         ]
         assert [h.name for h in registry.REGISTRY] == [
             "order_metrics.drain",
@@ -34,6 +36,7 @@ class TestExistingRegistryIsUntouched:
             "sell.drain",
             "combos.sync",
             "rrhh.horas_extras",
+            "ml_orders.quarantine_retry",
         ]
 
     def test_no_ml_publications_handler_leaks_into_the_default_registry(self) -> None:

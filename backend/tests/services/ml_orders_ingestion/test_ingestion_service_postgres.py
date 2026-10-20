@@ -19,7 +19,10 @@ down with it.
 
 from __future__ import annotations
 
+import select
+
 import pytest
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOpsDivergence, MlOrderItemOps, MlOrdersOps, MlOrdersOpsCuarentena
@@ -111,8 +114,7 @@ class TestQuarantineIsolationOnRealPostgres:
         # The payload is stored WHOLE, poison field included.
         assert quarantined.raw_order["currency_id"] == too_long
 
-        divergence = db.query(MlOpsDivergence).filter_by(order_id=1002, kind="ingest_failed").one()
-        assert divergence.state == "open"
+        assert db.query(MlOpsDivergence).count() == 0
 
     def test_committing_after_a_write_error_actually_persists_the_healthy_orders(self, pg_orders_ops_db):
         """The strongest possible proof: an ACTUAL commit to the real
@@ -199,3 +201,59 @@ class TestSoldSkuIsKeptOnReingestion:
 
         item = self._item(db, 3005)
         assert (item.seller_sku, item.seller_sku_vendido) == ("1215", "1215")
+
+
+def _listener(engine):
+    raw = engine.raw_connection()
+    raw.driver_connection.set_isolation_level(0)  # autocommit: LISTEN takes effect at once
+    cur = raw.driver_connection.cursor()
+    cur.execute(f"LISTEN {ingestion_service.QUARANTINE_CHANNEL}")
+    cur.close()
+    return raw
+
+
+def _notified(raw, timeout: float = 1.0) -> bool:
+    conn = raw.driver_connection
+    select.select([conn], [], [], timeout)
+    conn.poll()
+    hit = any(n.channel == ingestion_service.QUARANTINE_CHANNEL for n in conn.notifies)
+    conn.notifies.clear()
+    return hit
+
+
+@pytest.mark.postgres
+class TestQuarantineWakesTheRetryWorker:
+    """`_quarantine_order` notifies `ml_orders_quarantine` inside the SAME
+    transaction as the quarantine row, so the worker wakes only once the row
+    is committed -- and never for a row that was rolled back."""
+
+    def _quarantine(self, engine, order_id: int, *, commit: bool) -> None:
+        with Session(bind=engine) as session:
+            upsert_order(session, _order_payload(order_id=order_id, currency_id="PESOS-ARGENTINOS"))
+            if commit:
+                session.commit()
+            else:
+                session.rollback()
+
+    def _cleanup(self, engine, order_id: int) -> None:
+        with Session(bind=engine) as session:
+            session.query(MlOrdersOpsCuarentena).filter_by(order_id=order_id).delete()
+            session.commit()
+
+    def test_a_committed_quarantine_notifies_the_channel(self, pg_orders_ops_engine):
+        raw = _listener(pg_orders_ops_engine)
+        try:
+            self._quarantine(pg_orders_ops_engine, 3001, commit=True)
+            assert _notified(raw) is True
+        finally:
+            raw.close()
+            self._cleanup(pg_orders_ops_engine, 3001)
+
+    def test_a_rolled_back_quarantine_notifies_nothing(self, pg_orders_ops_engine):
+        raw = _listener(pg_orders_ops_engine)
+        try:
+            self._quarantine(pg_orders_ops_engine, 3002, commit=False)
+            assert _notified(raw, timeout=0.3) is False
+        finally:
+            raw.close()
+            self._cleanup(pg_orders_ops_engine, 3002)

@@ -78,6 +78,20 @@ Audience: On-call / solo developer
 
 - Owner: Integration maintainer.
 
+### ML orders that failed to write (quarantine)
+
+An ML order whose write fails is kept in `ml_orders_ops_cuarentena` with its
+raw payload and retried automatically by the `ml_orders.quarantine_retry`
+worker handler (woken by `pg_notify('ml_orders_quarantine')` and on every
+safety poll), with a backoff of `min(1 min * 2^attempts, 6 h)`. Transient
+failures (pool, connection, timeouts, locks, deadlocks; stored as
+`[transient] ...`) are retried forever. Any other failure (`[permanent] ...`)
+is a bug: it stops after 5 attempts and logs one `stopped retrying
+order_id=...` error. To see what is waiting:
+`SELECT order_id, intentos, ultimo_intento_at, left(error, 120) FROM ml_orders_ops_cuarentena ORDER BY ultimo_intento_at;`
+Once the bug is fixed, reset the counter (`UPDATE ml_orders_ops_cuarentena SET intentos = 1 WHERE order_id = ...;`)
+and the worker picks it up within a few minutes.
+
 ---
 
 ## 3) ML Questions Bot (Auto-Responder)
