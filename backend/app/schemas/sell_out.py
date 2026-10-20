@@ -5,6 +5,12 @@ schemas. The rules that mirror the database CHECKs (amount by type, percentage
 range, dates, FX rate, caps, at least one existing group) live in
 `app.services.sell_out.campanas.validar`, so they come back as a 422 with one
 readable Spanish message.
+
+Numbers are bounded to their column types (`app.models.sell_out`), so a value
+the database cannot hold is a 422 here instead of an error at commit. A value
+with more decimals than its column keeps is rejected, not rounded: these are
+amounts the brand owes, and a silent rounding would store a different amount
+than the operator typed.
 """
 
 from __future__ import annotations
@@ -24,6 +30,12 @@ Estado = Literal["activa", "anulada"]
 NOMBRE_MAX = 200
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 GRUPOS_MAX = 50
+INT_MIN, INT_MAX = -(2**31), 2**31 - 1  # INTEGER
+
+# Each NUMERIC(precision, scale) column as (max_digits, decimal_places).
+MONTO = {"max_digits": 18, "decimal_places": 2}  # monto_unit, tope_monto: NUMERIC(18, 2)
+PORCENTAJE = {"max_digits": 7, "decimal_places": 4}  # NUMERIC(7, 4)
+TIPO_CAMBIO = {"max_digits": 18, "decimal_places": 6}  # NUMERIC(18, 6)
 
 
 class SellOutCampanaIn(BaseModel):
@@ -34,15 +46,17 @@ class SellOutCampanaIn(BaseModel):
     fecha_desde: date
     fecha_hasta: date  # inclusive
     tipo: Tipo
-    monto_unit: Optional[Decimal] = None  # per unit, in `moneda`; only for `por_unidad`
-    porcentaje: Optional[Decimal] = None  # only for `porcentaje`
+    monto_unit: Optional[Decimal] = Field(default=None, **MONTO)  # per unit, in `moneda`; only for `por_unidad`
+    porcentaje: Optional[Decimal] = Field(default=None, **PORCENTAJE)  # only for `porcentaje`
     base_porcentaje: BasePorcentaje = "costo"
     moneda: Moneda = "USD"
     # USD only; None means `al_cobro`. ARS campaigns send neither field.
     tc_modo: Optional[TcModo] = None
-    tipo_cambio: Optional[Decimal] = None  # ARS per USD: required for `fijo`, never sent otherwise
-    tope_unidades: Optional[int] = None  # cap shared by every product of the campaign
-    tope_monto: Optional[Decimal] = None  # same, in `moneda`
+    # ARS per USD: required for `fijo`, never sent otherwise
+    tipo_cambio: Optional[Decimal] = Field(default=None, **TIPO_CAMBIO)
+    # cap shared by every product of the campaign
+    tope_unidades: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
+    tope_monto: Optional[Decimal] = Field(default=None, **MONTO)  # same, in `moneda`
     acumulable: bool = True
     grupo_ids: list[int] = Field(default_factory=list, max_length=GRUPOS_MAX)
 
@@ -52,7 +66,7 @@ class SellOutAnularIn(BaseModel):
 
 
 class SellOutTipoCambioIn(BaseModel):
-    tipo_cambio: Decimal  # ARS per USD, the rate the brand paid at
+    tipo_cambio: Decimal = Field(**TIPO_CAMBIO)  # ARS per USD, the rate the brand paid at
 
 
 class SellOutGrupoOut(BaseModel):

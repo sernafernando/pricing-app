@@ -301,3 +301,106 @@ def test_rate_endpoint_on_void_or_unknown_campaign(client, gestor, grupos) -> No
     client.post(f"{BASE}/{out['id']}/anular", json={}, headers=gestor)
     assert client.post(f"{BASE}/{out['id']}/tipo-cambio", json={"tipo_cambio": "1"}, headers=gestor).status_code == 409
     assert client.post(f"{BASE}/999999/tipo-cambio", json={"tipo_cambio": "1"}, headers=gestor).status_code == 404
+
+
+# ── Numeric bounds (the column types) ───────────────────────────────
+
+
+def _schema_error_on(resp, campo: str) -> None:
+    """A 422 from the request schema (not a business rule) that names `campo`."""
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert isinstance(detail, list), resp.text
+    assert any(error["loc"][-1] == campo for error in detail), resp.text
+
+
+_TC_FIJO = {"tc_modo": "fijo"}
+_PCT = {"tipo": "porcentaje", "monto_unit": None}
+LIMITES = {
+    "monto_unit": "9999999999999999.99",
+    "tope_unidades": 2147483647,
+    "tope_monto": "9999999999999999.99",
+    "tc_modo": "fijo",
+    "tipo_cambio": "999999999999.999999",
+}
+
+
+@pytest.mark.parametrize(
+    "campo,valor,extra",
+    [
+        # NUMERIC(18, 2): 16 whole digits, 2 decimals
+        ("monto_unit", "10000000000000000", {}),
+        ("monto_unit", "1E+16", {}),
+        ("monto_unit", "1.005", {}),
+        # NUMERIC(7, 4): 3 whole digits, 4 decimals
+        ("porcentaje", "1000", _PCT),
+        ("porcentaje", "1E+30", _PCT),
+        ("porcentaje", "2.12345", _PCT),
+        # NUMERIC(18, 6): 12 whole digits, 6 decimals
+        ("tipo_cambio", "1000000000000", _TC_FIJO),
+        ("tipo_cambio", "1E+30", _TC_FIJO),
+        ("tipo_cambio", "1450.1234567", _TC_FIJO),
+        # INTEGER
+        ("tope_unidades", 2147483648, {}),
+        ("tope_unidades", -2147483649, {}),
+        # NUMERIC(18, 2)
+        ("tope_monto", "10000000000000000", {}),
+        ("tope_monto", "0.001", {}),
+    ],
+)
+def test_create_and_edit_reject_numbers_the_column_cannot_hold(client, gestor, grupos, db, campo, valor, extra) -> None:
+    body = _body(grupos, **extra, **{campo: valor})
+    _schema_error_on(client.post(BASE, json=body, headers=gestor), campo)
+    assert db.query(SellOutCampana).count() == 0
+    out = _crear(client, gestor, grupos)
+    _schema_error_on(client.put(f"{BASE}/{out['id']}", json=body, headers=gestor), campo)
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json() == out
+
+
+def test_the_largest_numbers_the_columns_hold_are_accepted(client, gestor, grupos) -> None:
+    """Accepted only; SQLite stores NUMERIC as a float, so the exact values are proven on Postgres
+    (`tests/services/sell_out/test_campanas_postgres.py`)."""
+    _crear(client, gestor, grupos, **LIMITES)
+    _crear(client, gestor, grupos, **_PCT, porcentaje="99.9999")
+
+
+@pytest.mark.parametrize("valor", ["1000000000000", "1E+30", "1450.1234567"])
+def test_rate_endpoint_rejects_rates_the_column_cannot_hold(client, gestor, grupos, valor) -> None:
+    out = _crear(client, gestor, grupos)
+    resp = client.post(f"{BASE}/{out['id']}/tipo-cambio", json={"tipo_cambio": valor}, headers=gestor)
+    _schema_error_on(resp, "tipo_cambio")
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json() == out
+
+
+# ── The audit records what the API returns ──────────────────────────
+
+_DECIMALES = ("monto_unit", "porcentaje", "tipo_cambio", "tope_monto")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"monto_unit": "3", "tope_monto": "200000", "tc_modo": "fijo", "tipo_cambio": "1450.5"},
+        {**_PCT, "porcentaje": "2.5", "tope_monto": "1E+3"},
+    ],
+)
+def test_create_and_edit_audit_the_stored_decimals(client, gestor, grupos, db, overrides) -> None:
+    out = _crear(client, gestor, grupos, **overrides)
+    creada = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_CREADA).one()
+    assert {c: creada.valores_nuevos[c] for c in _DECIMALES} == {c: out[c] for c in _DECIMALES}
+
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, **overrides, nombre="Otra"), headers=gestor)
+    assert resp.status_code == 200, resp.text
+    editada = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_EDITADA).one()
+    assert {c: editada.valores_nuevos[c] for c in _DECIMALES} == {c: resp.json()[c] for c in _DECIMALES}
+    assert {c: editada.valores_anteriores[c] for c in _DECIMALES} == {c: out[c] for c in _DECIMALES}
+
+
+def test_rate_audit_records_the_set_time_as_the_api_returns_it(client, gestor, grupos, db) -> None:
+    out = _crear(client, gestor, grupos)
+    resp = client.post(f"{BASE}/{out['id']}/tipo-cambio", json={"tipo_cambio": "1450.5"}, headers=gestor)
+    assert resp.status_code == 200, resp.text
+    audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO).one()
+    assert audit.valores_nuevos["tc_definido_en"] == resp.json()["tc_definido_en"]
+    assert audit.valores_nuevos["tipo_cambio"] == resp.json()["tipo_cambio"]
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["tc_definido_en"] == resp.json()["tc_definido_en"]

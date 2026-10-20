@@ -19,7 +19,8 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import or_
+from pydantic import TypeAdapter
+from sqlalchemy import Numeric, or_
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -28,7 +29,13 @@ from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
 from app.schemas.sell_out import SellOutCampanaIn
 from app.services.sell_in.compras import contiene
 
-TC_PRECISION = Decimal("0.000001")  # `tipo_cambio` is NUMERIC(18, 6)
+# Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
+_QUANTUM = {
+    column.name: Decimal(1).scaleb(-column.type.scale)
+    for column in SellOutCampana.__table__.columns
+    if isinstance(column.type, Numeric)
+}
+_INSTANTE = TypeAdapter(datetime)
 
 _CAMPOS = (
     "nombre",
@@ -114,12 +121,29 @@ def validar(db: Session, data: SellOutCampanaIn, actual: Optional[SellOutCampana
     return grupo_ids
 
 
+def _a_escala(campo: str, valor):
+    """`valor` rounded to its column's scale, as the database stores it (exact: the schema caps decimals)."""
+    if campo in _QUANTUM and valor is not None:
+        return valor.quantize(_QUANTUM[campo])
+    return valor
+
+
+def _utc(instante: Optional[datetime]) -> Optional[datetime]:
+    """A `timestamptz` value in UTC; a naive one (SQLite drops the zone) is already UTC."""
+    if instante is None:
+        return None
+    if instante.tzinfo is None:
+        return instante.replace(tzinfo=timezone.utc)
+    return instante.astimezone(timezone.utc)
+
+
 def _valores(campana: SellOutCampana, grupo_ids: list[int]) -> dict:
     valores = {campo: getattr(campana, campo) for campo in _CAMPOS}
     for campo, valor in valores.items():
         if valor is not None and not isinstance(valor, (bool, int, str)):
             valores[campo] = str(valor)  # dates and decimals, JSON-safe
-    definido = campana.tc_definido_en.isoformat() if campana.tc_definido_en else None
+    # Serialized exactly as the API returns it (see `serializar`).
+    definido = _INSTANTE.dump_python(_utc(campana.tc_definido_en), mode="json") if campana.tc_definido_en else None
     return {
         "campana_id": campana.id,
         **valores,
@@ -152,7 +176,7 @@ def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict]
 def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo_ids: list[int]) -> None:
     previo = (campana.tc_modo, campana.tipo_cambio, campana.tc_definido_en)
     for campo in _CAMPOS:
-        setattr(campana, campo, getattr(data, campo))
+        setattr(campana, campo, _a_escala(campo, getattr(data, campo)))
     if campana.tc_modo == "al_cobro" and previo[0] == "al_cobro":
         campana.tipo_cambio, campana.tc_definido_en = previo[1], previo[2]  # an edit keeps the payment rate
     else:
@@ -229,7 +253,7 @@ def definir_tipo_cambio(
         raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
     grupo_ids = _grupo_ids(db, campana_id)
     antes = _valores(campana, grupo_ids)
-    campana.tipo_cambio = tipo_cambio.quantize(TC_PRECISION)
+    campana.tipo_cambio = _a_escala("tipo_cambio", tipo_cambio)
     campana.tc_definido_en = datetime.now(timezone.utc)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO, usuario_id, antes, _valores(campana, grupo_ids))
     db.commit()
@@ -292,7 +316,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
     for c in campanas:
         fila = {campo: getattr(c, campo) for campo in _CAMPOS}
         fila.update(
-            tc_definido_en=c.tc_definido_en,
+            tc_definido_en=_utc(c.tc_definido_en),
             id=c.id,
             estado=c.estado,
             usuario_id=c.usuario_id,
