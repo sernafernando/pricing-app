@@ -12,7 +12,6 @@ sealing are the exact same functions the sweep uses -- not a second copy.
 from __future__ import annotations
 
 import logging
-
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
