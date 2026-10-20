@@ -20,6 +20,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
+from app.services.sell_in import bono_queue
 from tests.models import test_sell_in_schema_postgres as base
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -67,10 +68,33 @@ _COMPRA_COLUMNS = (
 
 
 class TestMigrationGraph:
-    def test_single_head_is_this_revision_chained_on_the_previous_head(self) -> None:
-        scripts = _scripts()
-        assert scripts.get_heads() == [_REVISION]
-        assert scripts.get_revision(_REVISION).down_revision == "20261106_ml_payments_shipment_fanout"
+    def test_this_revision_chains_on_the_previous_one(self) -> None:
+        # Not `get_heads() == [this]`: a later revision must not break this test.
+        revision = _scripts().get_revision(_REVISION)
+        assert revision is not None
+        assert revision.down_revision == "20261106_ml_payments_shipment_fanout"
+
+
+class TestFrozenTriggerCopy:
+    """The migration carries a frozen copy of `bono_queue`'s trigger SQL. The queue
+    tests run the module's SQL, so the copy must equal it or they prove nothing
+    about what this migration installs."""
+
+    _DRIFT = (
+        "app/services/sell_in/bono_queue.py {} differs from the frozen copy in {}: changing the module's "
+        "trigger SQL requires a NEW migration that installs it (then point this test at that migration)"
+    )
+
+    def test_the_upgrade_installs_exactly_the_module_trigger_sql(self) -> None:
+        migration = base._load_migration(base._MIGRATIONS[1])
+        frozen = [s for s in migration._TRIGGERS_UP if "sell_in_bonos_marca_set_updated_at" not in s]
+        assert frozen == bono_queue.UPGRADE_SQL, self._DRIFT.format("UPGRADE_SQL", _REVISION)
+
+    def test_the_downgrade_drops_exactly_the_module_trigger_sql(self) -> None:
+        migration = base._load_migration(base._MIGRATIONS[1])
+        frozen = [s for s in migration._TRIGGERS_DOWN if "sell_in_bonos_marca_updated_at" not in s]
+        frozen = [s for s in frozen if "sell_in_bonos_marca_set_updated_at" not in s]
+        assert frozen == bono_queue.DOWNGRADE_SQL, self._DRIFT.format("DOWNGRADE_SQL", _REVISION)
 
 
 @pytest.mark.postgres
@@ -127,6 +151,7 @@ class TestSellInBonosMarcaMigration:
             )
             conn.execute(text("UPDATE pedidos_compra SET estado = 'cancelado' WHERE id = 900"))
             conn.execute(text("UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 1"))
+            conn.execute(text("DELETE FROM productos_erp WHERE item_id = 1"))
             queued = conn.execute(text("SELECT count(*) FROM sell_in_bono_dirty")).scalar_one()
         assert queued == 0
 

@@ -247,6 +247,26 @@ class TestProductosTrigger:
         assert b.queued(engine) == [("pedido", pedido)]
         _sql(engine, "DELETE FROM productos_erp WHERE item_id = 4001")
 
+    def test_a_product_removed_from_the_catalog_queues_the_operations_invoicing_it(
+        self, engine: Engine, bono: int
+    ) -> None:
+        """The deleted product no longer matches its old brand: the operation must be reconciled."""
+        _sql(
+            engine, "INSERT INTO productos_erp (item_id, codigo, descripcion, marca) VALUES (4002, 'N', 'N', 'TP-LINK')"
+        )
+        _sql(
+            engine,
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca) VALUES (4003, 'N', 'N', 'MERCUSYS')",
+        )
+        uno = b.pedido(engine, {4002: 2, 950: 1})
+        b.pedido(engine, {4003: 1})  # MERCUSYS has no bonus
+        b.pedido(engine, {4002: 1}, D(2026, 12, 1))  # out of the bonus's range
+        b.clear_queue(engine)
+
+        _sql(engine, "DELETE FROM productos_erp WHERE item_id IN (4002, 4003)")
+
+        assert b.queued(engine) == [("pedido", uno)]
+
 
 @pytest.mark.postgres
 def test_the_trigger_notifies_the_channel(engine: Engine) -> None:

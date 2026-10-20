@@ -15,9 +15,10 @@ exists (and a key is only queued when some active bonus can care about it):
   UPDATE that changes `pedido_id`, `item_id` or `cantidad`, queue the operation
   under the same date rule (a line deleted by its operation's cascade is
   covered by the operation's own DELETE);
-- `productos_erp`: a new product, or one whose `marca` changes, queues the
-  operations invoicing it when an active bonus of its old or new brand covers
-  their invoice date.
+- `productos_erp`: a new product, one whose `marca` changes, or a deleted one
+  (its invoiced units no longer match its old brand) queues the operations
+  invoicing it when an active bonus of its old or new brand covers their
+  invoice date.
 
 The gate is `sell_in_bono_cubre(fecha[, marca])`: one indexed EXISTS over the
 (few) bonuses. A trigger does no reconcile work. `UPGRADE_SQL`/`DOWNGRADE_SQL`
@@ -103,14 +104,21 @@ $trg$ LANGUAGE plpgsql
 """,
     f"""
 CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_producto() RETURNS TRIGGER AS $trg$
+DECLARE
+    item productos_erp.item_id%TYPE;
 BEGIN
+    IF TG_OP = 'DELETE' THEN
+        item := OLD.item_id;
+    ELSE
+        item := NEW.item_id;
+    END IF;
     INSERT INTO sell_in_bono_dirty (tipo, ref)
     SELECT DISTINCT 'pedido', l.pedido_id
     FROM pedido_compra_lineas_facturadas AS l
     JOIN pedidos_compra AS p ON p.id = l.pedido_id
-    WHERE l.item_id = NEW.item_id
-      AND (sell_in_bono_cubre(p.fecha_factura, NEW.marca)
-           OR (TG_OP = 'UPDATE' AND sell_in_bono_cubre(p.fecha_factura, OLD.marca)))
+    WHERE l.item_id = item
+      AND ((TG_OP <> 'DELETE' AND sell_in_bono_cubre(p.fecha_factura, NEW.marca))
+           OR (TG_OP <> 'INSERT' AND sell_in_bono_cubre(p.fecha_factura, OLD.marca)))
     ORDER BY 2
     ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     IF FOUND THEN
@@ -171,9 +179,15 @@ AFTER UPDATE OF marca ON productos_erp
 FOR EACH ROW WHEN (OLD.marca IS DISTINCT FROM NEW.marca)
 EXECUTE FUNCTION sell_in_bono_enqueue_producto()
 """,
+    """
+CREATE TRIGGER trg_sell_in_bono_productos_delete
+AFTER DELETE ON productos_erp
+FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_producto()
+""",
 ]
 
 DOWNGRADE_SQL: List[str] = [
+    "DROP TRIGGER IF EXISTS trg_sell_in_bono_productos_delete ON productos_erp",
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_productos_marca ON productos_erp",
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_productos_insert ON productos_erp",
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_lineas_update ON pedido_compra_lineas_facturadas",
