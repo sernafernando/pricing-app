@@ -585,8 +585,8 @@ export default function VentasML() {
     cargarKpis();
   }, [cargarKpis]);
 
-  // Best-effort and independent of the list (same stance as the ingest-failed
-  // banner below): losing this indicator must never cost the operator the list.
+  // Best-effort and independent of the list: losing this indicator must never
+  // cost the operator the list.
   const cargarSyncStatus = useCallback(async () => {
     if (!puedeVer) return;
     try {
