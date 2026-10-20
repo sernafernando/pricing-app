@@ -137,7 +137,14 @@ def upgrade() -> None:
         sa.Column(
             "campana_id", sa.BigInteger(), sa.ForeignKey("sell_out_campanas.id", ondelete="CASCADE"), nullable=False
         ),
-        sa.Column("grupo_id", sa.Integer(), sa.ForeignKey("offset_grupos.id", ondelete="RESTRICT"), nullable=False),
+        # Same name as app.models.sell_out.FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID (the group-delete endpoint
+        # matches it); the schema-vs-ORM test guards that the two stay equal.
+        sa.Column(
+            "grupo_id",
+            sa.Integer(),
+            sa.ForeignKey("offset_grupos.id", ondelete="RESTRICT", name="fk_sell_out_campana_grupos_grupo_id"),
+            nullable=False,
+        ),
         sa.UniqueConstraint("campana_id", "grupo_id", name="uq_sell_out_campana_grupos_campana_grupo"),
     )
     op.create_index("ix_sell_out_campana_grupos_grupo_id", "sell_out_campana_grupos", ["grupo_id"])

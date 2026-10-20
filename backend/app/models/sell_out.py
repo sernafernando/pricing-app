@@ -45,6 +45,9 @@ from sqlalchemy.sql import func, true
 
 from app.core.database import Base
 
+# Named so the group-delete endpoint can tell this RESTRICT violation from any other IntegrityError.
+FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID = "fk_sell_out_campana_grupos_grupo_id"
+
 
 class SellOutCampana(Base):
     __tablename__ = "sell_out_campanas"
@@ -114,4 +117,8 @@ class SellOutCampanaGrupo(Base):
 
     id = Column(BigInteger, primary_key=True)
     campana_id = Column(BigInteger, ForeignKey("sell_out_campanas.id", ondelete="CASCADE"), nullable=False)
-    grupo_id = Column(Integer, ForeignKey("offset_grupos.id", ondelete="RESTRICT"), nullable=False)
+    grupo_id = Column(
+        Integer,
+        ForeignKey("offset_grupos.id", ondelete="RESTRICT", name=FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID),
+        nullable=False,
+    )

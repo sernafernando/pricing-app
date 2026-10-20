@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
-from app.models.sell_out import SellOutCampanaGrupo
+from app.models.sell_out import FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID, SellOutCampanaGrupo
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
@@ -19,6 +19,18 @@ router = APIRouter()
 _GRUPO_EN_SELL_OUT = (
     "El grupo está asignado a una campaña de sell out. Quite el grupo de la campaña antes de eliminarlo."
 )
+
+
+def _viola_fk_sell_out(exc: IntegrityError) -> bool:
+    """True only when the violated constraint is the sell-out campaign FK to the group.
+
+    Postgres (psycopg2) names it in `diag.constraint_name`; without it (e.g. SQLite) the
+    constraint name has to appear in the driver message.
+    """
+    constraint_name = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+    if constraint_name is not None:
+        return constraint_name == FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID
+    return FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID in str(exc.orig)
 
 
 @router.get("/offset-grupos", response_model=List[OffsetGrupoResponse])
@@ -126,7 +138,10 @@ def eliminar_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: U
     try:
         db.commit()
     except IntegrityError as exc:
-        # A campaign linked between the check above and this commit: the RESTRICT FK stops it.
         db.rollback()
+        # A campaign linked between the check above and this commit: the RESTRICT FK stops it.
+        # Any other constraint is a real error, not a sell-out conflict.
+        if not _viola_fk_sell_out(exc):
+            raise
         raise HTTPException(400, _GRUPO_EN_SELL_OUT) from exc
     return {"mensaje": "Grupo eliminado"}
