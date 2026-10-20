@@ -6,7 +6,7 @@ price, and that credit is added to profit. The rules live in
 `app.services.sell_out.campanas`; this module is HTTP only.
 
 - Reads need `sell_out.ver`; load, edit and void need `sell_out.gestionar`
-  (migration `20261104_sell_out_campanas`). The author comes from the token.
+  (migration `20261105_sell_out_campanas`). The author comes from the token.
 - `GET ""` is paginated, latest start date first, filtered by estado, tipo,
   a day the campaign covers (`vigente_en`), free text (`q`) and group.
 - `PUT /{id}` replaces an active campaign (409 once voided). There is no
