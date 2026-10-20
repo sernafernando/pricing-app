@@ -144,8 +144,8 @@ BEGIN
     FROM pedido_compra_lineas_facturadas AS l
     JOIN pedidos_compra AS p ON p.id = l.pedido_id
     WHERE l.item_id = item
-      AND ((TG_OP <> 'DELETE' AND sell_in_bono_cubre(p.fecha_factura, NEW.marca))
-           OR (TG_OP <> 'INSERT' AND sell_in_bono_cubre(p.fecha_factura, OLD.marca)))
+      AND ((TG_OP <> 'DELETE' AND NEW.marca IS NOT NULL AND sell_in_bono_cubre(p.fecha_factura, NEW.marca))
+           OR (TG_OP <> 'INSERT' AND OLD.marca IS NOT NULL AND sell_in_bono_cubre(p.fecha_factura, OLD.marca)))
     ORDER BY 2
     ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     IF FOUND THEN

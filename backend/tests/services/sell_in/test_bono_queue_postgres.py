@@ -247,6 +247,30 @@ class TestProductosTrigger:
         assert b.queued(engine) == [("pedido", pedido)]
         _sql(engine, "DELETE FROM productos_erp WHERE item_id = 4001")
 
+    def test_a_product_without_brand_queues_nothing_while_another_brand_has_a_bonus(
+        self, engine: Engine, bono: int
+    ) -> None:
+        """A NULL brand is no brand: it must not read as "any brand" in the gate."""
+        b.pedido(engine, {4006: 1, 4007: 1})  # 4006 and 4007 arrive later
+        b.pedido(engine, {950: 1})
+        b.clear_queue(engine)
+
+        _sql(engine, "INSERT INTO productos_erp (item_id, codigo, descripcion) VALUES (4006, 'N', 'N')")
+        _sql(engine, "INSERT INTO productos_erp (item_id, codigo, descripcion, marca) VALUES (4007, 'N', 'N', NULL)")
+        _sql(engine, "UPDATE productos_erp SET marca = NULL WHERE item_id = 950")  # MERCUSYS has no bonus
+        _sql(engine, "UPDATE productos_erp SET marca = 'MERCUSYS' WHERE item_id = 950")
+        _sql(engine, "DELETE FROM productos_erp WHERE item_id IN (4006, 4007)")
+
+        assert b.queued(engine) == []
+
+    def test_a_product_leaving_a_bonus_brand_for_none_still_queues(self, engine: Engine, bono: int) -> None:
+        pedido = b.pedido(engine, {2964: 1})
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = NULL WHERE item_id = 2964")
+
+        assert b.queued(engine) == [("pedido", pedido)]
+
     def test_a_product_removed_from_the_catalog_queues_the_operations_invoicing_it(
         self, engine: Engine, bono: int
     ) -> None:

@@ -18,7 +18,13 @@ exists (and a key is only queued when some active bonus can care about it):
 - `productos_erp`: a new product, one whose `marca` changes, or a deleted one
   (its invoiced units no longer match its old brand) queues the operations
   invoicing it when an active bonus of its old or new brand covers their
-  invoice date.
+  invoice date. A NULL brand is no brand: that side never consults the gate
+  (`sell_in_bono_cubre(fecha, NULL)` means "any brand").
+
+The `pedidos_compra` and invoiced-line triggers gate on the invoice date only,
+not on the brands of the operation's items: a deliberate over-queue (an
+operation covered by some active bonus but holding none of its brands is
+queued) that keeps those triggers cheap; the worker reconciles it as a no-op.
 
 The gate is `sell_in_bono_cubre(fecha[, marca])`: one indexed EXISTS over the
 (few) bonuses. A trigger does no reconcile work. `UPGRADE_SQL`/`DOWNGRADE_SQL`
@@ -117,8 +123,8 @@ BEGIN
     FROM pedido_compra_lineas_facturadas AS l
     JOIN pedidos_compra AS p ON p.id = l.pedido_id
     WHERE l.item_id = item
-      AND ((TG_OP <> 'DELETE' AND sell_in_bono_cubre(p.fecha_factura, NEW.marca))
-           OR (TG_OP <> 'INSERT' AND sell_in_bono_cubre(p.fecha_factura, OLD.marca)))
+      AND ((TG_OP <> 'DELETE' AND NEW.marca IS NOT NULL AND sell_in_bono_cubre(p.fecha_factura, NEW.marca))
+           OR (TG_OP <> 'INSERT' AND OLD.marca IS NOT NULL AND sell_in_bono_cubre(p.fecha_factura, OLD.marca)))
     ORDER BY 2
     ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     IF FOUND THEN
