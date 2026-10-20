@@ -17,7 +17,8 @@ prove with a test):
   is retried on the next run.
 - An order ML reports as updated whose own `date_created` falls outside
   the configured rolling window is a HARD EXCLUSION -- never ingested --
-  only counted in the pass result (`orders_out_of_window`).
+  counted in the pass result (`orders_out_of_window`) and logged with its
+  `order_id` at the exclusion site.
 
 Memory and checkpointing (post-review fix, GGA pre-push round 1): a cold
 start with no cursor spans the FULL rolling window (90-180 days). Orders
@@ -32,13 +33,21 @@ still holds: a failed leaf's own writes/checkpoint never happen, so the
 cursor never jumps past a leaf that failed.
 
 Unenumerable windows (post-review fix): a leaf that still reports more
-rows than the offset cap even at the minimum bisectable span cannot be
-enumerated at all. Previously this raised and wedged the sweep on that
-exact leaf forever (retried identically every run, no operational way out
-short of editing the database). It is now logged and counted
-(`windows_unenumerable`) and the sweep moves past it, exactly like an
-out-of-window order: hard exclusion + instrumentation instead of a silent
-permanent stall.
+than `SEARCH_PAGE_SIZE_CAP` (950) orders even at `MIN_BISECT_SPAN` (one
+minute) cannot be enumerated through `search_orders` at all. Previously
+this raised and wedged the sweep on that exact leaf forever (retried
+identically every run, no operational way out short of editing the
+database). Holding the cursor at that leaf instead would only clear if
+ML re-updated enough of its orders to move them out of that minute; the
+ones never updated again keep it over the cap forever, so it would be
+the same permanent stall. The leaf is therefore counted
+(`windows_unenumerable`), logged at ERROR with its exact bounds
+(`log_unenumerable_window`), and the sweep moves past it. The backfill
+walks the same search with the same one-minute floor, so it cannot list
+that leaf either; its orders reach `ml_orders_ops` through the
+`orders_v2` activity drain, or through the sweep once ML updates each of
+them again (that moves `date_last_updated` into a later, listable
+window).
 
 Concurrency (post-review fix): `ml_ops_sync_cursor.state` is 'running' for
 the ENTIRE duration of a pass (not just at checkpoint time), so an
@@ -334,14 +343,23 @@ def iter_window_events(
     yield ("checkpoint", date_to)
 
 
-def log_unenumerable_window(date_from: datetime, date_to: datetime) -> None:
-    """Escape hatch for a leaf window that cannot be enumerated at all
-    (finding 3): skipped, never ingested, never silently dropped -- logged
-    with its bounds so the gap can be backfilled by hand."""
-    logger.warning(
-        "sweep: [%s, %s) is not enumerable even at the minimum bisect span -- skipped",
+def log_unenumerable_window(date_from: datetime, date_to: datetime, *, source: str) -> None:
+    """Logs a leaf window that cannot be enumerated at all and is skipped
+    (see the module docstring). Nothing else records it -- the cursor
+    moves past it -- so it is an ERROR with the exact bounds. `source`
+    names who skipped it (`sweep`, `backfill`, `backfill(dry-run)`).
+
+    No backfill command can recover it: the backfill hits the same
+    one-minute floor. The message says what does."""
+    logger.error(
+        "%s: [%s, %s) has more than %d orders updated in it even at the %s minimum bisect span; "
+        "search_orders cannot list it and it was skipped. A backfill hits the same limit: its orders "
+        "land only through the orders_v2 activity drain or the sweep after ML updates each one again",
+        source,
         date_from.isoformat(),
         date_to.isoformat(),
+        SEARCH_PAGE_SIZE_CAP,
+        MIN_BISECT_SPAN,
     )
 
 
@@ -1321,6 +1339,12 @@ def process_batch(
         for raw_order, mapped in classified:
             if mapped.date_created is not None and mapped.date_created < window_from_floor:
                 out_of_window += 1
+                logger.warning(
+                    "sweep: order_id=%s created %s is out of window (floor %s); not ingested",
+                    mapped.order_id,
+                    mapped.date_created.isoformat(),
+                    window_from_floor.isoformat(),
+                )
                 continue
 
             outcome = upsert_order(db, raw_order, mapped=mapped)
@@ -1723,7 +1747,7 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 break
             elif kind == "unenumerable":
                 _, leaf_from, leaf_to = event
-                log_unenumerable_window(leaf_from, leaf_to)
+                log_unenumerable_window(leaf_from, leaf_to, source="sweep")
                 result.windows_unenumerable += 1
             elif kind == "checkpoint":
                 _, leaf_to = event

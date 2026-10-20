@@ -690,6 +690,23 @@ class TestShipmentCostSyncGivesUpAfterRepeatedFailure:
         assert result.shipment_candidates == 0
         get_costs.assert_not_called()
 
+    def test_giving_up_is_logged_once_as_an_error_with_the_shipment_and_attempts(self, db, monkeypatch, caplog) -> None:
+        """Nothing reads the give-up counter, so the moment a shipment
+        is excluded must reach the log as an ERROR -- once, not once per
+        later run."""
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._always_fails)
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(service.MAX_COST_SYNC_ATTEMPTS + 2):
+                service.run_backfill(limit=10)
+
+        gave_up = [r for r in caplog.records if "shipment_id=700 " in r.getMessage() and "gave up" in r.getMessage()]
+        assert len(gave_up) == 1
+        assert gave_up[0].levelno == logging.ERROR
+        assert f"after {service.MAX_COST_SYNC_ATTEMPTS} attempt" in gave_up[0].getMessage()
+
     def test_a_shipment_that_eventually_succeeds_never_gives_up(self, db, monkeypatch) -> None:
         """The escape hatch must not fire on a shipment that is simply
         slow to settle -- only on one that never resolves within the

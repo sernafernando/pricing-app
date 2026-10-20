@@ -92,6 +92,44 @@ order_id=...` error. To see what is waiting:
 Once the bug is fixed, reset the counter (`UPDATE ml_orders_ops_cuarentena SET intentos = 1 WHERE order_id = ...;`)
 and the worker picks it up within a few minutes.
 
+### ML ingestion gaps that only reach the log
+
+The divergences screen is gone, so these cases are reported only in the
+logs of the sweep, the backfills and the activity drain. Search for the
+quoted text:
+
+- **Unenumerable window** (`sweep:` / `backfill:` ERROR, `... has more than
+  950 orders updated in it even at the 0:01:00 minimum bisect span`): ML's
+  search cannot list more than 950 orders for one window, and the sweep
+  stops splitting at one minute. That minute is skipped and the cursor
+  moves on (holding it would stall the sweep forever, because orders that
+  ML never updates again keep it over the cap). The log line carries the
+  exact bounds. `backfill_ml_orders_ops` cannot recover it: it walks the
+  same search with the same floor. Its orders land through the `orders_v2`
+  activity drain, or through the sweep once ML updates each one again.
+  The count per pass is `windows_unenumerable`.
+- **Out-of-window order** (`sweep: order_id=... is out of window`
+  WARNING): ML reported an update for an order created before the rolling
+  window. It is never ingested, by design.
+- **Cost sync given up** (`backfill_ml_payments_costs: shipment_id=... gave
+  up on cost sync after 5 attempt(s)` ERROR, logged once per shipment):
+  ML never settled that shipment's costs, and it is no longer a candidate.
+  The counter still lives in `ml_ops_divergence` (`field = 'cost_sync:<id>'`);
+  D2 of remove-ml-divergences moves it to a column on `ml_shipments_ops`.
+- **Unresolved activity order** (`activity_receiver: order_id=... unresolved`
+  WARNING, logged on the first miss): `get_order` returned nothing for an
+  activity event. The debt row (`field = 'activity_unresolved'`) is cleared
+  when the sweep ingests the order. D2 moves it off `ml_ops_divergence`
+  into a column/quarantine of its own.
+
+**Existing `ml_ops_divergence` rows.** Every other row in that table (the
+old alarms) no longer has a reader, and nothing writes, resolves or purges
+them any more: the detector is gone, and so is the 30-day purge of
+`window_not_enumerable` rows (`ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS`).
+The rows are inert and harmless; they stay until D3 drops the table. Do not clean them by
+hand: the `cost_sync:` and `activity_unresolved` rows above are still
+working state.
+
 ---
 
 ## 3) ML Questions Bot (Auto-Responder)
@@ -934,7 +972,9 @@ in the same transaction that stores an order's metrics, and the board reads it w
    needs `ml_ops.gestionar`; it also runs daily at 04:00 and every 2 minutes while a lap is
    unfinished) and wait for `last_divergence.complete = true`. Then
    `last_divergence.lines_divergent_count` should be 0, or fall to 0 on the next lap (the
-   mismatches are re-enqueued, which is the self-heal). Re-enqueued orders:
+   mismatches are re-enqueued, which is the self-heal). `lines_divergent_count` is the real
+   signal. The queue only shows re-enqueues still pending; it empties as the drain
+   recomputes them, so an empty result does not mean the lap found nothing:
    `SELECT order_id FROM ml_order_metrics_dirty WHERE reason = 'divergence';`
 5. Flip the flag: set `METRICAS_SALE_LINES_ENABLED=true` in the API's environment and
    restart the API (the board reads it per request from the settings). Turning it OFF again is

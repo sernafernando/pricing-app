@@ -51,9 +51,12 @@ it every single run while blocking every shipment behind it. Attempts
 are counted in `ml_ops_divergence` (`kind='unknown'`,
 `field='cost_sync:<shipment_id>'`, `order_id=0` sentinel); once
 `MAX_COST_SYNC_ATTEMPTS` is reached, that shipment is excluded from future
-candidate queries -- never silently dropped, never spending budget on it
-again. (Working state, not an alarm: it moves off `ml_ops_divergence` in a
-later change.)
+candidate queries and never spends budget again. Nothing reads that
+counter any more (the divergences screen is gone), so the give-up itself
+is logged once, at ERROR, with the shipment id and the attempt count --
+the log is the only place it surfaces. The counter is working state, not
+an alarm; D2 of remove-ml-divergences moves it off `ml_ops_divergence`
+into a column on `ml_shipments_ops`.
 
 Ordering: NEWEST candidates first (`date_created DESC` /
 `shipment_id DESC`, the closest available proxy for shipment recency).
@@ -554,9 +557,11 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                 _clear_cost_sync_attempts(db, attempted_shipment_ids - unresolved_ids)
                 for shipment_id in unresolved_ids:
                     attempts = _record_cost_sync_attempt(db, shipment_id)
+                    # `>=` and the clamp make this fire exactly once: the
+                    # next run excludes the shipment from the candidates.
                     if attempts >= MAX_COST_SYNC_ATTEMPTS:
                         result.shipments_gave_up += 1
-                        logger.warning(
+                        logger.error(
                             "backfill_ml_payments_costs: shipment_id=%s gave up on cost sync after "
                             "%d attempt(s); excluded from future candidate queries",
                             shipment_id,

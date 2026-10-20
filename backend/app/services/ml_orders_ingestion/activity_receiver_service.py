@@ -290,8 +290,12 @@ def _record_unresolved_order(db, order_id: int) -> None:
     single permanently-dead order, which is precisely the bug fixed in
     `9cc60ef7` for the payments/costs backfill (a row that never settled
     blocked every candidate behind it). Recording the debt keeps the
-    stream moving AND keeps the miss recorded, and the audit sweep re-ingesting the
-    order is what actually settles it -- `_clear_resolved_unresolved_debts`
+    stream moving AND keeps the miss recorded. No screen reads the debt
+    row any more (the divergences screen is gone), so the FIRST miss of an order
+    is logged with its id; a repeated miss only refreshes the row. D2 of
+    remove-ml-divergences moves this debt off `ml_ops_divergence` into a
+    column/quarantine of its own. The audit sweep re-ingesting the order
+    is still what settles it -- `_clear_resolved_unresolved_debts`
     below is the function that closes the ticket once that re-ingest
     lands (this docstring used to just say "the audit sweep re-ingests
     the order on its next window pass" and stop there, which was true but
@@ -314,6 +318,11 @@ def _record_unresolved_order(db, order_id: int) -> None:
     if existing is not None:
         existing.detected_at = now
     else:
+        logger.warning(
+            "activity_receiver: order_id=%s unresolved (get_order returned nothing); "
+            "recorded as debt, the audit sweep re-ingests it",
+            order_id,
+        )
         db.add(MlOpsDivergence(order_id=order_id, kind="unknown", field=UNRESOLVED_FIELD, detected_at=now))
 
 

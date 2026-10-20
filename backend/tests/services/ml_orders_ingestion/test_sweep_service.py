@@ -1452,3 +1452,61 @@ class TestSweepPassClearsShipmentIdDebts:
 
         assert result.error is None
         assert [d.order_id for d in db.query(MlOpsDivergence).all()] == [48999999999]
+
+
+class TestASkippedWindowIsLoggedAsAnError:
+    """The cursor moves past an unenumerable leaf, and no table records it,
+    so the log line is the only trace of that gap. It has to be an ERROR
+    carrying the exact bounds, not a warning that rotates away unseen."""
+
+    def test_the_skipped_leaf_is_logged_at_error_with_its_exact_bounds(self, db, monkeypatch, caplog):
+        leaf_from = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+        leaf_to = leaf_from + sweep_service.MIN_BISECT_SPAN
+
+        def fake_events(seller_id, date_from, date_to, budget=None, started_at=None):
+            yield ("unenumerable", leaf_from, leaf_to)
+            yield ("checkpoint", date_to)
+
+        monkeypatch.setattr(sweep_service, "iter_window_events", fake_events)
+
+        with caplog.at_level("WARNING"):
+            result = sweep_service.run_sweep(seller_id=999, window_days=1)
+
+        assert result.windows_unenumerable == 1
+        errors = [r for r in caplog.records if r.levelname == "ERROR" and leaf_from.isoformat() in r.getMessage()]
+        assert len(errors) == 1
+        assert leaf_to.isoformat() in errors[0].getMessage()
+        assert errors[0].getMessage().startswith("sweep:")
+
+
+class TestAnExcludedOrderIsLogged:
+    """An order created before the rolling window is never ingested. The
+    counter alone says how many; the log says which."""
+
+    def test_the_excluded_order_id_is_logged(self, db, monkeypatch, caplog):
+        now = datetime.now(timezone.utc)
+        recent_update = now - timedelta(days=1)
+        old_created = now - timedelta(days=400)
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "search_orders",
+            AsyncMock(return_value=_page([_order(42, 999, recent_update, old_created)])),
+        )
+
+        with caplog.at_level("WARNING"):
+            sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        logged = [r for r in caplog.records if "order_id=42 " in r.getMessage() and "out of window" in r.getMessage()]
+        assert len(logged) == 1
+        assert logged[0].levelname == "WARNING"
+
+    def test_an_order_inside_the_window_logs_no_exclusion(self, db, monkeypatch, caplog):
+        recent = datetime.now(timezone.utc) - timedelta(days=1)
+        monkeypatch.setattr(
+            ml_webhook_client, "search_orders", AsyncMock(return_value=_page([_order(7, 999, recent, recent)]))
+        )
+
+        with caplog.at_level("WARNING"):
+            sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert not [r for r in caplog.records if "out of window" in r.getMessage()]

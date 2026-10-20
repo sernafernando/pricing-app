@@ -67,6 +67,7 @@ from app.services.ml_orders_ingestion.sweep_service import (
     ensure_cursor_row,
     iter_window_events,
     load_cursor,
+    log_unenumerable_window,
     process_batch,
     release_lock_as_error,
     release_lock_as_idle,
@@ -207,11 +208,7 @@ def _dry_run_count_window(
             )
             break
         elif kind == "unenumerable":
-            logger.warning(
-                "backfill(dry-run): [%s, %s) is not enumerable even at the minimum bisect span",
-                event[1].isoformat(),
-                event[2].isoformat(),
-            )
+            log_unenumerable_window(event[1], event[2], source="backfill(dry-run)")
     logger.info(
         "backfill(dry-run): window [%s, %s) would fetch %d order(s) -- no writes performed",
         day_from.isoformat(),
@@ -274,11 +271,7 @@ def _process_day(
         elif kind == "unenumerable":
             _, leaf_from, leaf_to = event
             result.windows_unenumerable += 1
-            logger.warning(
-                "backfill: [%s, %s) is not enumerable even at the minimum bisect span -- skipped",
-                leaf_from.isoformat(),
-                leaf_to.isoformat(),
-            )
+            log_unenumerable_window(leaf_from, leaf_to, source="backfill")
         elif kind == "budget_exhausted":
             # `break` below, like run_sweep: draining the generator emits one
             # warning per remaining sub-window and floods the log in an
