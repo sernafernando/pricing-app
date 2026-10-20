@@ -26,8 +26,9 @@ not on the brands of the operation's items: a deliberate over-queue (an
 operation covered by some active bonus but holding none of its brands is
 queued) that keeps those triggers cheap; the worker reconciles it as a no-op.
 
-The gate is `sell_in_bono_cubre(fecha[, marca])`: one indexed EXISTS over the
-(few) bonuses. A trigger does no reconcile work. `UPGRADE_SQL`/`DOWNGRADE_SQL`
+The gate is `sell_in_bono_cubre(fecha[, marca])`: one EXISTS over the (few)
+bonuses, indexed by brand when a brand is given and a scan of that small table
+when it is not. A trigger does no reconcile work. `UPGRADE_SQL`/`DOWNGRADE_SQL`
 are the live definition; the migration `20261107_sell_in_bonos_marca` carries a
 frozen copy and owns the table (`app.models.sell_in.SellInBonoDirty`).
 """
