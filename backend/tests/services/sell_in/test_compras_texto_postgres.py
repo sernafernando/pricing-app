@@ -26,7 +26,13 @@ _STUBS = [
     "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY, codigo VARCHAR(100), descripcion VARCHAR(500),"
     " marca VARCHAR(100))",
 ]
-_SELL_IN_TABLES = ("sell_in_compras", "sell_in_compra_items", "sell_in_compra_pedidos", "sell_in_consumos")
+_SELL_IN_TABLES = (
+    "sell_in_bonos_marca",
+    "sell_in_compras",
+    "sell_in_compra_items",
+    "sell_in_compra_pedidos",
+    "sell_in_consumos",
+)
 
 # (supplier name, product description, purchase reference)
 _COMPRAS = {

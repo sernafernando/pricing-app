@@ -1,0 +1,265 @@
+"""`sell_in_bono_dirty` triggers (sell-in-sell-out T3c-3): a change that can
+move a brand bonus's generated purchases queues its key and notifies
+`sell_in_bono_dirty`, ONLY when an active bonus can care about it; changes that
+cannot move them queue nothing. With no active bonus the queue stays empty.
+
+Postgres only (plpgsql triggers, `pg_notify`). Runs in a throwaway schema.
+"""
+
+from __future__ import annotations
+
+import select
+from datetime import date
+from decimal import Decimal
+from typing import Iterator
+
+import pytest
+from sqlalchemy import Engine, text
+
+from app.services.sell_in import bono_queue
+from tests.services.sell_in import _bono_world as b
+
+D = date
+
+
+@pytest.fixture(scope="module")
+def engine() -> Iterator[Engine]:
+    with b.world("sell_in_bono_queue") as engine:
+        yield engine
+
+
+@pytest.fixture(autouse=True)
+def _clean(engine: Engine) -> Iterator[None]:
+    yield
+    b.clean(engine)
+
+
+@pytest.fixture()
+def bono(engine: Engine) -> int:
+    """An active TP-LINK bonus over October 2026, with its own queue row cleared."""
+    bono_id = b.bono(engine)
+    b.clear_queue(engine)
+    return bono_id
+
+
+def _sql(engine: Engine, statement: str, **params) -> None:
+    with engine.begin() as conn:
+        conn.execute(text(statement), params)
+
+
+@pytest.mark.postgres
+class TestGate:
+    def test_without_any_bonus_nothing_is_ever_queued(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {2964: 3})
+        b.set_lineas(engine, pedido, {2964: 1, 950: 2})
+        b.update_pedido(engine, pedido, estado="cancelado", fecha_factura=D(2026, 10, 11))
+        _sql(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964")
+        _sql(engine, "DELETE FROM pedidos_compra WHERE id = :p", p=pedido)
+
+        assert b.queued(engine) == []
+
+    def test_a_voided_bonus_gates_nothing_in(self, engine: Engine) -> None:
+        b.bono(engine, estado="anulada")
+
+        b.pedido(engine, {2964: 3})
+
+        assert b.queued(engine) == []
+
+    def test_an_operation_invoiced_outside_every_active_range_is_not_queued(self, engine: Engine, bono: int) -> None:
+        fuera = b.pedido(engine, {2964: 3}, D(2026, 11, 1))
+        b.pedido(engine, {2964: 3}, None)
+
+        b.update_pedido(engine, fuera, estado="cancelado")
+
+        assert b.queued(engine) == []
+
+
+@pytest.mark.postgres
+class TestLineasTrigger:
+    def test_new_changed_and_removed_invoiced_units_queue_the_operation(self, engine: Engine, bono: int) -> None:
+        pedido = b.pedido(engine, {2964: 3})
+        assert b.queued(engine) == [("pedido", pedido)]
+
+        b.clear_queue(engine)
+        b.set_lineas(engine, pedido, {2964: 2})
+        assert b.queued(engine) == [("pedido", pedido)]
+
+        b.clear_queue(engine)
+        b.set_lineas(engine, pedido, {})
+        assert b.queued(engine) == [("pedido", pedido)]
+
+    def test_rewriting_the_same_units_queues_nothing(self, engine: Engine, bono: int) -> None:
+        pedido = b.pedido(engine, {2964: 3})
+        b.clear_queue(engine)
+
+        b.set_lineas(engine, pedido, {2964: 3})  # the T3c-2 upsert rewrites every row on each sync
+
+        assert b.queued(engine) == []
+
+    def test_a_requeue_resets_a_failed_row(self, engine: Engine, bono: int) -> None:
+        pedido = b.pedido(engine, {2964: 3})
+        _sql(engine, "UPDATE sell_in_bono_dirty SET attempts = 5, last_error = 'boom'")
+
+        b.set_lineas(engine, pedido, {2964: 1})
+
+        assert b.queue_rows(engine) == [("pedido", pedido, 0, None)]
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("via", ["pedido", "bono", "producto"])
+def test_every_trigger_requeue_resets_a_failed_row(engine: Engine, bono: int, via: str) -> None:
+    """A new change is a fresh chance: attempts and the last error go back to zero."""
+    pedido = b.pedido(engine, {2964: 3})
+    _sql(engine, "UPDATE sell_in_bono_dirty SET attempts = 5, last_error = 'boom'")
+    b.update_bono(engine, bono, monto_unit=Decimal("7.00"))  # queues the bonus too
+    _sql(engine, "UPDATE sell_in_bono_dirty SET attempts = 5, last_error = 'boom'")
+
+    if via == "pedido":
+        b.update_pedido(engine, pedido, proveedor_id=32)
+    elif via == "producto":
+        _sql(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964")
+    else:
+        b.update_bono(engine, bono, monto_unit=Decimal("8.00"))
+
+    rows = {(tipo, ref): (attempts, error) for tipo, ref, attempts, error in b.queue_rows(engine)}
+    assert rows[("bono", bono) if via == "bono" else ("pedido", pedido)] == (0, None)
+
+
+@pytest.mark.postgres
+class TestPedidosTrigger:
+    @pytest.mark.parametrize(
+        "cambio",
+        [
+            {"fecha_factura": D(2026, 10, 20)},
+            {"fecha_factura": None},  # unlinked: the old date was covered
+            {"fecha_factura": D(2026, 11, 20)},  # leaves the range: the old date was covered
+            {"estado": "cancelado"},
+            {"tipo_cambio": Decimal("1500")},
+            {"proveedor_id": 32},
+        ],
+    )
+    def test_a_change_the_bonus_reads_queues_the_operation(self, engine: Engine, bono: int, cambio: dict) -> None:
+        pedido = b.pedido(engine, {})
+        b.clear_queue(engine)
+
+        b.update_pedido(engine, pedido, **cambio)
+
+        assert b.queued(engine) == [("pedido", pedido)]
+
+    def test_an_operation_entering_the_range_is_queued(self, engine: Engine, bono: int) -> None:
+        pedido = b.pedido(engine, {}, None)
+        assert b.queued(engine) == []
+
+        b.update_pedido(engine, pedido, fecha_factura=D(2026, 10, 3))
+
+        assert b.queued(engine) == [("pedido", pedido)]
+
+    def test_other_changes_and_same_value_rewrites_queue_nothing(self, engine: Engine, bono: int) -> None:
+        pedido = b.pedido(engine, {})
+        b.clear_queue(engine)
+
+        b.update_pedido(engine, pedido, observaciones="llamar al proveedor", fecha_factura=D(2026, 10, 10))
+
+        assert b.queued(engine) == []
+
+    def test_a_covered_operation_queues_on_insert_and_delete_an_uninvoiced_one_does_not(
+        self, engine: Engine, bono: int
+    ) -> None:
+        facturado = b.pedido(engine, {})
+        sin_factura = b.pedido(engine, {}, None)
+        assert b.queued(engine) == [("pedido", facturado)]
+
+        b.clear_queue(engine)
+        _sql(engine, "DELETE FROM pedidos_compra WHERE id IN (:a, :b)", a=facturado, b=sin_factura)
+
+        assert b.queued(engine) == [("pedido", facturado)]
+
+
+@pytest.mark.postgres
+class TestBonosTrigger:
+    def test_a_new_active_bonus_and_a_change_to_what_it_pays_queue_it(self, engine: Engine) -> None:
+        bono = b.bono(engine)
+        assert b.queued(engine) == [("bono", bono)]
+
+        for cambio in (
+            {"monto_unit": Decimal("3.00")},
+            {"marca": b.MERCUSYS},
+            {"moneda": "ARS"},
+            {"fecha_desde": D(2026, 9, 1)},
+            {"fecha_hasta": D(2026, 12, 1)},
+            {"usuario_id": 8},
+            {"estado": "anulada"},  # the void itself is queued: what it generated must go
+        ):
+            b.clear_queue(engine)
+            b.update_bono(engine, bono, **cambio)
+            assert b.queued(engine) == [("bono", bono)], cambio
+
+    def test_a_voided_bonus_is_not_queued_again(self, engine: Engine) -> None:
+        bono = b.bono(engine, estado="anulada")
+        assert b.queued(engine) == []
+
+        b.update_bono(engine, bono, monto_unit=Decimal("9.00"))
+
+        assert b.queued(engine) == []
+
+    def test_a_description_only_edit_queues_nothing(self, engine: Engine, bono: int) -> None:
+        b.update_bono(engine, bono, descripcion="Acuerdo Q4")
+
+        assert b.queued(engine) == []
+
+
+@pytest.mark.postgres
+class TestProductosTrigger:
+    def test_a_brand_change_queues_the_operations_invoicing_the_product(self, engine: Engine, bono: int) -> None:
+        uno, otro = b.pedido(engine, {2964: 1}), b.pedido(engine, {2964: 2, 950: 1})
+        b.pedido(engine, {950: 1})
+        b.pedido(engine, {2964: 1}, D(2026, 12, 1))  # out of the bonus's range
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964")  # leaves TP-LINK
+
+        assert b.queued(engine) == [("pedido", uno), ("pedido", otro)]
+
+    def test_a_brand_change_between_brands_without_bonus_queues_nothing(self, engine: Engine, bono: int) -> None:
+        b.pedido(engine, {950: 1})
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 950")  # MERCUSYS has no bonus
+
+        assert b.queued(engine) == []
+
+    def test_a_product_rewrite_without_brand_change_queues_nothing(self, engine: Engine, bono: int) -> None:
+        b.pedido(engine, {2964: 1})
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = 'TP-LINK', costo = 50 WHERE item_id = 2964")
+
+        assert b.queued(engine) == []
+
+    def test_a_product_arriving_after_its_invoice_queues_its_operations(self, engine: Engine, bono: int) -> None:
+        pedido = b.pedido(engine, {4001: 7})  # the catalog sync has not brought 4001 yet
+        b.clear_queue(engine)
+
+        _sql(
+            engine, "INSERT INTO productos_erp (item_id, codigo, descripcion, marca) VALUES (4001, 'N', 'N', 'TP-LINK')"
+        )
+
+        assert b.queued(engine) == [("pedido", pedido)]
+        _sql(engine, "DELETE FROM productos_erp WHERE item_id = 4001")
+
+
+@pytest.mark.postgres
+def test_the_trigger_notifies_the_channel(engine: Engine) -> None:
+    raw = engine.raw_connection()
+    try:
+        raw.driver_connection.autocommit = True
+        cursor = raw.cursor()
+        cursor.execute(f"LISTEN {bono_queue.CHANNEL}")
+        b.bono(engine)
+        select.select([raw.driver_connection], [], [], 5)
+        raw.driver_connection.poll()
+        channels = [n.channel for n in raw.driver_connection.notifies]
+    finally:
+        raw.invalidate()  # never hand an autocommit connection back to the pool
+
+    assert bono_queue.CHANNEL in channels

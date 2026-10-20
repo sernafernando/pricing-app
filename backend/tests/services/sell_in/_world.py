@@ -27,7 +27,7 @@ from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
 from app.models.sell_dirty import SellDirty
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
+from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
@@ -41,6 +41,7 @@ STUBS = [
 ]
 TABLES = [
     ProductoERP.__table__,
+    SellInBonoMarca.__table__,  # referenced by a generated purchase's bono_id
     SellInCompra.__table__,
     SellInCompraItem.__table__,
     SellInCompraPedido.__table__,

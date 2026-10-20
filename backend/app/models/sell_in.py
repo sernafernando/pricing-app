@@ -5,6 +5,13 @@ and the formula used to split it across its items (`SellInCompraItem`). Every
 sold unit that uses up part of an item's discount is recorded as a consumption
 (`SellInConsumo`), so the discount applies only to that purchase's units.
 
+A brand bonus (`SellInBonoMarca`) pays an amount per invoiced unit of one
+brand over a supplier-invoice date range. It is not a purchase itself: the
+`sell_in.bono` worker generates and maintains one `SellInCompra` per (bonus,
+Compras operation) from the operation's invoiced lines (`origen =
+'bono_marca'`, `bono_id`, `bono_pedido_id`); manual purchases have `origen =
+'manual'` and are never touched by it. `SellInBonoDirty` is its work queue.
+
 `SellInConsumo.venta_ref` has NO foreign key on purpose: `ml_sale_lines` is
 deleted and reinserted on every store, so a physical FK would either block the
 store or cascade the consumptions away. The allocator owns that reference.
@@ -24,14 +31,71 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.core.database import Base
+
+
+class SellInBonoMarca(Base):
+    """X per invoiced unit of a brand's products, for the Compras operations whose supplier invoice date
+    (`pedidos_compra.fecha_factura`) falls in [`fecha_desde`, `fecha_hasta`]. Never deleted: voided."""
+
+    __tablename__ = "sell_in_bonos_marca"
+    __table_args__ = (
+        CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_sell_in_bonos_marca_moneda"),
+        CheckConstraint("monto_unit > 0", name="ck_sell_in_bonos_marca_monto_positivo"),
+        CheckConstraint("fecha_desde <= fecha_hasta", name="ck_sell_in_bonos_marca_rango"),
+        CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_in_bonos_marca_estado"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    marca = Column(String(100), nullable=False, index=True)  # productos_erp.marca, exact
+    monto_unit = Column(Numeric(18, 2), nullable=False)  # per invoiced unit, in `moneda`
+    moneda = Column(String(3), nullable=False)
+    fecha_desde = Column(Date, nullable=False)  # supplier invoice date, inclusive
+    fecha_hasta = Column(Date, nullable=False)  # inclusive
+    descripcion = Column(Text, nullable=True)
+    estado = Column(String(16), nullable=False, default="activa", server_default="activa")
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Also kept current by the `sell_in_bonos_marca_updated_at` trigger.
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class SellInBonoDirty(Base):
+    """What the `sell_in.bono` worker must reconcile: a bonus (`tipo = 'bono'`, `ref` = its id) or a
+    Compras operation (`tipo = 'pedido'`, `ref` = `pedidos_compra.id`). Filled by row triggers
+    (`app.services.sell_in.bono_queue`); a new change re-queues a row in place (attempts reset)."""
+
+    __tablename__ = "sell_in_bono_dirty"
+    __table_args__ = (CheckConstraint("tipo IN ('bono', 'pedido')", name="ck_sell_in_bono_dirty_tipo"),)
+
+    tipo = Column(String(8), primary_key=True)
+    ref = Column(BigInteger, primary_key=True, autoincrement=False)
+    enqueued_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    attempts = Column(Integer, nullable=False, server_default=text("0"))
+    last_error = Column(Text, nullable=True)
 
 
 class SellInCompra(Base):
     __tablename__ = "sell_in_compras"
     __table_args__ = (
+        CheckConstraint("origen IN ('manual', 'bono_marca')", name="ck_sell_in_compras_origen"),
+        CheckConstraint(
+            "(origen = 'manual' AND bono_id IS NULL AND bono_pedido_id IS NULL) "
+            "OR (origen = 'bono_marca' AND bono_id IS NOT NULL)",
+            name="ck_sell_in_compras_origen_bono",
+        ),
+        # One generated purchase per (bonus, operation). An operation deleted later leaves
+        # `bono_pedido_id` NULL (the worker voids that orphan), so NULLs never collide.
+        Index(
+            "uq_sell_in_compras_bono_pedido",
+            "bono_id",
+            "bono_pedido_id",
+            unique=True,
+            postgresql_where=text("bono_id IS NOT NULL"),
+            sqlite_where=text("bono_id IS NOT NULL"),
+        ),
         CheckConstraint("cuenta_desde IN ('compra', 'ingreso')", name="ck_sell_in_compras_cuenta_desde"),
         CheckConstraint(
             "cuenta_desde <> 'ingreso' OR fecha_ingreso IS NOT NULL", name="ck_sell_in_compras_ingreso_con_fecha"
@@ -58,6 +122,11 @@ class SellInCompra(Base):
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
     descripcion = Column(Text, nullable=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    # 'manual' (loaded by an operator) or 'bono_marca' (generated by the `sell_in.bono` worker).
+    origen = Column(String(16), nullable=False, default="manual", server_default="manual")
+    bono_id = Column(BigInteger, ForeignKey("sell_in_bonos_marca.id", ondelete="RESTRICT"), nullable=True)
+    # The operation a generated purchase belongs to; its own column (not `pedido_compra_id`, due to be dropped).
+    bono_pedido_id = Column(BigInteger, ForeignKey("pedidos_compra.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_in_compras_updated_at` trigger, so raw SQL updates refresh it too.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
