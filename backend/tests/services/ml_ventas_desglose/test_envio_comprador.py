@@ -6,11 +6,13 @@ the buyer + the Flex bonificación) / 1.21. The shipping counts GROSS -- even
 when ML charges it back (+990 / -990) -- and its IVA is never subtracted as an
 expense.
 
-ONE source for the shipping: `payment.shipping_amount`, the explicit ML field
-and the one the visible IVA line already reads. Not `paid_amount -
-total_amount` (it would also catch a financing surcharge) and not
-`raw_costs.receiver.cost` (ML annulled the Flex pack's 2216.30 and it still
-says so). Every fixture is a REAL capture (`_envio_comprador_capture.py`).
+First source for the shipping: `payment.shipping_amount`, the explicit ML
+field and the one the visible IVA line already reads. Not `paid_amount -
+total_amount` (it would also catch a financing surcharge). On a Flex shipment
+no payment carries, `raw_costs.receiver.cost_details` toward the seller is the
+fallback (flex-envio-comprador, `test_envio_comprador_flex.py`): the Flex
+pack's 2216.30 was NOT annulled, its ML panel shows it. Every fixture is a
+REAL capture (`_envio_comprador_capture.py`).
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from ._envio_comprador_capture import (
     CROSS_DOCKING,
     FULFILLMENT_3990,
     FULFILLMENT_990,
+    PACK_OTHER_SHIPMENT,
     SELF_SERVICE_4990,
     SELF_SERVICE_PACK,
     THREE_PAYMENTS,
@@ -105,10 +108,11 @@ class TestVariosOverTheNewBase:
 
         assert _varios_line(metrics) == Decimal("319.67")
 
-    def test_the_flex_pack_is_the_goods_plus_the_599_bonificacion_and_no_buyer_shipping(self, db) -> None:
-        """Pack 2000015400388457: the buyer's 2216.30 was annulled (adds 0),
-        ML's bonificación is 599, not the 3773.7 `ratio` subsidy. Base =
-        105998/1.21 + 599/1.21 = 87601.65 + 495.04. 2% = 1761.93."""
+    def test_the_flex_pack_is_the_goods_plus_the_buyer_shipping_and_the_599_bonificacion(self, db) -> None:
+        """Pack 2000015400388457: no payment carries the buyer's 2216.30, its
+        `cost_details` does (the ML panel shows it); ML's bonificación is 599,
+        not the 3773.7 `ratio` subsidy. Base = 105998/1.21 + 2216.30/1.21 +
+        599/1.21 = 87601.65 + 1831.65 + 495.04. 2% = 1798.57."""
         seed_case(db, SELF_SERVICE_PACK)
         _varios(db, "2.00")
 
@@ -116,9 +120,12 @@ class TestVariosOverTheNewBase:
         metrics = compute_order_metrics(db, [SELF_SERVICE_PACK])[SELF_SERVICE_PACK]
 
         assert desc.base_venta_sin_iva == Decimal("87601.65")
-        assert desc.base_varios == Decimal("87601.65") + Decimal("495.04")
-        assert [c.concepto for c in desc.componentes if c.fuera_del_pago] == ["Bonificación por envío"]
-        assert _varios_line(metrics) == Decimal("1761.93")
+        assert desc.base_varios == Decimal("87601.65") + Decimal("1831.65") + Decimal("495.04")
+        assert [c.concepto for c in desc.componentes if c.fuera_del_pago] == [
+            CONCEPTO_ENVIO_COMPRADOR,
+            "Bonificación por envío",
+        ]
+        assert _varios_line(metrics) == Decimal("1798.57")
 
     def test_buyer_shipping_and_bonificacion_both_enter_once_each(self, db) -> None:
         """No captured sale has both. The mechanics are proved on the 4990
@@ -163,7 +170,9 @@ class TestVariosOverTheNewBase:
         assert desc.reconcilia is True
 
     def test_no_shipping_paid_means_no_line(self, db) -> None:
-        seed_case(db, SELF_SERVICE_PACK)
+        """The pack with its Flex cost payload removed: no payment carries the
+        shipping and nothing else says the buyer paid any."""
+        seed_case(db, SELF_SERVICE_PACK, raw_costs=None)
 
         desc = descomponer_neto(db, [SELF_SERVICE_PACK])[SELF_SERVICE_PACK]
 
@@ -176,13 +185,15 @@ class TestVariosOverTheNewBase:
             (CROSS_DOCKING, "4699.09"),
             (FULFILLMENT_3990, "3990"),
             (SELF_SERVICE_4990, "4990"),
-            (SELF_SERVICE_PACK, None),
+            (SELF_SERVICE_PACK, "2216.30"),
             (THREE_PAYMENTS, "5373.7"),
+            (PACK_OTHER_SHIPMENT, None),
         ],
     )
     def test_the_captured_cases_and_the_line_and_the_base_agree(self, db, case, bruto) -> None:
         """The three payments of `THREE_PAYMENTS` (one rejected, one without
-        shipping) count the shipping ONCE; the annulled Flex pack has none."""
+        shipping) count the shipping ONCE; the Flex pack's comes from its
+        `cost_details` (no payment carries it)."""
         seed_case(db, case)
 
         desc = descomponer_neto(db, [case])[case]

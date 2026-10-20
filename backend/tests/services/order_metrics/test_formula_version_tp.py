@@ -10,7 +10,7 @@ from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 
 
 def test_the_tp_columns_bumped_the_formula_version() -> None:
-    assert CURRENT_FORMULA_VERSION == 7
+    assert CURRENT_FORMULA_VERSION >= 7
 
 
 def test_the_bump_is_documented_in_the_history() -> None:

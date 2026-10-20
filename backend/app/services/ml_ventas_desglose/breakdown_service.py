@@ -898,6 +898,11 @@ CONCEPTO_BONIFICACION_ENVIO = "Bonificación por envío"
 # reason: the breakdown's line and `iva.py`'s component carry one label.
 CONCEPTO_CUPON_VENDEDOR = "Cupón a cargo del vendedor"
 
+# The shipping the buyer paid. Named here for the same reason: the breakdown's
+# line for the Flex fallback (`envio_comprador.py`) and `iva.py`'s component
+# carry one label, and `iva.py` re-exports it.
+CONCEPTO_ENVIO_COMPRADOR = "Envío cobrado al comprador"
+
 
 @dataclass(frozen=True)
 class BreakdownLine:
@@ -1010,6 +1015,22 @@ def bonificacion_bruta_by_order_ids(db: Session, order_ids: Sequence[int]) -> Di
     }
 
 
+def envio_comprador_flex_bruto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int, Decimal]:
+    """Per-order GROSS Flex buyer-paid shipping that no payment carries
+    (flex-envio-comprador, `envio_comprador.py`), for the orders that have it.
+    Like the bonificación, it is outside the payment and inside `neto`, and
+    this is the single place every `neto` path reads it from.
+
+    Imported locally: `envio_comprador` imports this module (`resolve_modes`)."""
+    from app.services.ml_ventas_desglose.envio_comprador import resolve_envio_comprador_flex_by_order_ids
+    from app.services.ml_ventas_desglose.iva import IVA_ML_DIVISOR
+
+    return {
+        order_id: share.bruto
+        for order_id, share in resolve_envio_comprador_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR).items()
+    }
+
+
 def payment_effective_net(
     payment: MlPaymentOps,
     seller_charges: Sequence[MlPaymentCharge],
@@ -1088,6 +1109,8 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
     # ventas-ml-bonificacion-en-neto: ML pays the Flex bonificación for the
     # operation, outside the payment, so it is part of the neto.
     bonificacion_by_order = bonificacion_bruta_by_order_ids(db, list(payments_by_order))
+    # flex-envio-comprador: the Flex buyer-paid shipping no payment carries.
+    envio_flex_by_order = envio_comprador_flex_bruto_by_order_ids(db, list(payments_by_order))
 
     for order_id, order_payments in payments_by_order.items():
         order_relevant = [p for p in order_payments if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -1105,7 +1128,9 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
             neto += payment_effective_net(payment, seller_charges, coupon_fees=_coupon_fees(payment_charges))
-        result[order_id] = neto + bonificacion_by_order.get(order_id, Decimal("0"))
+        result[order_id] = (
+            neto + bonificacion_by_order.get(order_id, Decimal("0")) + envio_flex_by_order.get(order_id, Decimal("0"))
+        )
 
     return result
 
@@ -1142,12 +1167,18 @@ def compute_neto_desglose_by_order_ids(
     for charge in charges:
         charges_by_payment.setdefault(charge.payment_id, []).append(charge)
 
+    # flex-envio-comprador: ML collects the Flex buyer-paid shipping for us in
+    # the same operation, outside the payment row, so it is deposited money
+    # and the tooltip identity `neto == depositado + retenciones +
+    # bonificación` keeps holding.
+    envio_flex_by_order = envio_comprador_flex_bruto_by_order_ids(db, list(payments_by_order))
+
     for order_id, order_payments in payments_by_order.items():
         order_relevant = [p for p in order_payments if p.status in RELEVANT_PAYMENT_STATUSES]
         if not order_relevant:
             result[order_id] = (None, None)
             continue
-        depositado = Decimal("0")
+        depositado = envio_flex_by_order.get(order_id, Decimal("0"))
         recuperable = Decimal("0")
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
@@ -1220,6 +1251,11 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     orders_with_money = {p.order_id for p in relevant_payments}
     bonificacion_total = sum(bonificacion_bruta_by_order_ids(db, sorted(orders_with_money)).values(), Decimal("0"))
     neto += bonificacion_total
+    # flex-envio-comprador: same set of orders, same reason.
+    envio_flex_total = sum(
+        envio_comprador_flex_bruto_by_order_ids(db, sorted(orders_with_money)).values(), Decimal("0")
+    )
+    neto += envio_flex_total
 
     seller_charges_all = [c for c in charges if is_seller_charge(c.type, c.name)]
 
@@ -1482,6 +1518,12 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         lines.append(
             BreakdownLine(concepto=CONCEPTO_BONIFICACION_ENVIO, monto=-bonificacion_total, origen="bonificacion")
         )
+    if envio_flex_total != 0:
+        # Same sign convention: money that ADDS to the neto (the Flex shipping
+        # the buyer paid and no payment carries; see `envio_comprador.py`).
+        lines.append(
+            BreakdownLine(concepto=CONCEPTO_ENVIO_COMPRADOR, monto=-envio_flex_total, origen="envio_comprador")
+        )
 
     neto_final = neto if relevant_payments else None
 
@@ -1501,8 +1543,9 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         item_lines_reconcilia=item_lines_reconcilia,
         item_lines_razon=item_lines_razon,
         retenciones_recuperables=retenciones_recuperables_total,
-        # What ML deposited: the payment alone, without the SIRTAC add-back
-        # and without the bonificación (which is not in the payment).
+        # What ML deposited: the payment (plus the Flex buyer-paid shipping ML
+        # collects outside it), without the SIRTAC add-back and without the
+        # bonificación.
         neto_depositado=(
             (neto_final - retenciones_recuperables_total - bonificacion_total) if neto_final is not None else None
         ),

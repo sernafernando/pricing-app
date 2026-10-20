@@ -70,6 +70,11 @@ bonificación is its own component (`fuera_del_pago=True`) that adds its gross
 to `neto` and its base to `neto_sin_iva`. A gap in the payment can never be
 absorbed by the bonificación, and no tolerance is introduced.
 
+The Flex shipping the buyer paid when NO payment of the shipment carries it
+(flex-envio-comprador, `envio_comprador.py`) follows the same rule: a
+`fuera_del_pago` "Envío cobrado al comprador" component, gross in `neto`,
+base in `neto_sin_iva` and in the "% de varios" base.
+
 ## The seller-funded coupon is a charge without IVA
 
 `coupon_fee` (`type == 'coupon'`) is the part of a buyer's coupon the seller
@@ -100,6 +105,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
     CONCEPTO_BONIFICACION_ENVIO,
     CONCEPTO_CUPON_VENDEDOR,
+    CONCEPTO_ENVIO_COMPRADOR,
     RELEVANT_PAYMENT_STATUSES,
     debitos_creditos_total,
     is_recoverable_withholding,
@@ -110,7 +116,11 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     shipping_label,
     tax_label,
 )
-from app.services.ml_ventas_desglose.envio_comprador import EnvioCompradorOrden, envio_comprador_de_pago
+from app.services.ml_ventas_desglose.envio_comprador import (
+    EnvioCompradorOrden,
+    envio_comprador_de_pago,
+    resolve_envio_comprador_flex_by_order_ids,
+)
 
 # ML's own IVA rate on its fees and freight -- authoritative per the
 # maintainer, not a measurement. One edit here if it ever moves.
@@ -139,7 +149,9 @@ CONCEPTO_IVA_NO_DETERMINADO = "IVA no determinado"
 # share of the coupon is already inside the goods line. Adding
 # `coupon_amount` on top counted it twice and the split missed by exactly
 # that amount (production order 2000018567320906).
-CONCEPTO_ENVIO_COMPRADOR = "Envío cobrado al comprador"
+# `CONCEPTO_ENVIO_COMPRADOR` itself is defined in `breakdown_service` (its Flex
+# fallback line carries the same label) and imported here, so
+# `iva.CONCEPTO_ENVIO_COMPRADOR` keeps working.
 
 # The débitos/créditos tax paid a SECOND time on withdrawal from Mercado
 # Pago (ml-ventas-neto-iibb-varios R2). Carries no IVA (it is a tax, not a
@@ -178,7 +190,8 @@ class ComponenteIVA:
     informativo: bool = False
     # ventas-ml-bonificacion-en-neto: the component is part of the neto and of
     # `neto_sin_iva`, but it is NOT inside the payment's `net_received_amount`
-    # (today only the Flex bonificación: ML pays it for the operation, outside
+    # (the Flex bonificación, and the Flex buyer-paid shipping no payment
+    # carries -- flex-envio-comprador: ML pays both for the operation, outside
     # the payment). The payment-side reconciliation leaves it out and checks it
     # on its own, so it can never absorb a gap in the payment.
     fuera_del_pago: bool = False
@@ -229,7 +242,9 @@ class DescomposicionNeto:
     # twice.
     base_varios: Optional[Decimal] = None
     # The shipping the buyer paid, gross / net, for the API's gross-net-IVA
-    # breakdown (IVA books). `None` = the buyer paid none (or it is unreadable).
+    # breakdown (IVA books): the payments' `shipping_amount`, or the Flex
+    # fallback when no payment carries it. `None` = the buyer paid none (or it
+    # is unreadable).
     envio_comprador: Optional[EnvioCompradorOrden] = None
 
 
@@ -296,6 +311,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         items_by_order[it.order_id] = items_by_order.get(it.order_id, 0) + 1
 
     bonificacion_by_order = resolve_bonificacion_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
+    envio_flex_by_order = resolve_envio_comprador_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
 
     for order_id in order_ids:
         order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -530,6 +546,27 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # reconciliation below, which is therefore as exact as before.
         # Per-order SHARE of the shipment's amount (see `bonificacion_flex`),
         # so a pack's components add up to ONE bonificación.
+        # flex-envio-comprador: the Flex shipping the buyer paid that NO payment
+        # of the shipment carries (`envio_comprador.py`). Same 21%, same label
+        # as the payment's, but outside `net_received_amount`, so it is
+        # `fuera_del_pago` exactly like the bonificación below. The resolver
+        # never yields it when a payment carries the shipping, so the two
+        # sources can never both count.
+        envio_flex = envio_flex_by_order.get(order_id)
+        if envio_flex is not None:
+            componentes.append(
+                ComponenteIVA(
+                    concepto=CONCEPTO_ENVIO_COMPRADOR,
+                    alicuota=IVA_ML_PCT,
+                    bruto=envio_flex.bruto,
+                    base=envio_flex.neto,
+                    iva=envio_flex.bruto - envio_flex.neto,
+                    fuera_del_pago=True,
+                )
+            )
+            envio_bruto += envio_flex.bruto
+            envio_neto += envio_flex.neto
+
         envio_comprador = EnvioCompradorOrden(bruto=envio_bruto, neto=envio_neto) if envio_bruto > 0 else None
 
         bonificacion = bonificacion_by_order.get(order_id)
