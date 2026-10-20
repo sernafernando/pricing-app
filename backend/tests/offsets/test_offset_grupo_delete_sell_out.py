@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.models.offset_grupo import OffsetGrupo
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
@@ -58,3 +59,22 @@ def test_group_without_campaigns_is_still_deleted(client, db, editor) -> None:
     grupo_id = _grupo(db, "Sin campañas")
     assert client.delete(f"/api/offset-grupos/{grupo_id}", headers=editor).status_code == 200
     assert db.get(OffsetGrupo, grupo_id) is None
+
+
+def test_a_campaign_linked_between_check_and_commit_still_gets_the_clear_error(client, db, editor, monkeypatch) -> None:
+    """Race: the check saw no campaign, but one was linked before the commit (FK RESTRICT violation)."""
+    grupo_id = _grupo(db, "Carrera")
+
+    commit_real = db.commit
+
+    def commit_con_fk_violada() -> None:
+        # Only the commit that deletes the group fails; the request's other commits run normally.
+        if any(isinstance(obj, OffsetGrupo) for obj in db.deleted):
+            raise IntegrityError("DELETE FROM offset_grupos", {}, Exception("fk_sell_out_campana_grupos_grupo_id"))
+        commit_real()
+
+    monkeypatch.setattr(db, "commit", commit_con_fk_violada)
+    resp = client.delete(f"/api/offset-grupos/{grupo_id}", headers=editor)
+
+    assert resp.status_code == 400, resp.text
+    assert "campaña de sell out" in resp.json()["error"]["message"]

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -14,6 +15,10 @@ from app.services.permisos_service import verificar_permiso
 from ._schemas import OffsetGrupoCreate, OffsetGrupoResponse
 
 router = APIRouter()
+
+_GRUPO_EN_SELL_OUT = (
+    "El grupo está asignado a una campaña de sell out. Quite el grupo de la campaña antes de eliminarlo."
+)
 
 
 @router.get("/offset-grupos", response_model=List[OffsetGrupoResponse])
@@ -114,12 +119,14 @@ def eliminar_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: U
 
     # sell_out_campana_grupos points here with RESTRICT: answer clearly instead of a database error
     if db.query(SellOutCampanaGrupo).filter(SellOutCampanaGrupo.grupo_id == grupo_id).first() is not None:
-        raise HTTPException(
-            400,
-            "El grupo está asignado a una campaña de sell out. Quite el grupo de la campaña antes de eliminarlo.",
-        )
+        raise HTTPException(400, _GRUPO_EN_SELL_OUT)
 
     # Los filtros se eliminan automáticamente por el cascade
     db.delete(grupo)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # A campaign linked between the check above and this commit: the RESTRICT FK stops it.
+        db.rollback()
+        raise HTTPException(400, _GRUPO_EN_SELL_OUT) from exc
     return {"mensaje": "Grupo eliminado"}
