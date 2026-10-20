@@ -72,7 +72,6 @@ export const SCREENS = [
   // dashboard_ml.py, ventas_ml.py operaciones and /rentabilidad (TabRentabilidad) -> pm_scope.
   { path: '/dashboard-metricas-ml', label: 'Métricas ML (anterior)', section: 'Reportes', permisos: ['ventas_ml.ver_dashboard'], scope: 'data' },
   { path: '/ml-ventas-listado', label: 'Ventas ML', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
-  { path: '/ml-ventas-divergencias', label: 'Divergencias ML Ventas', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
   { path: '/dashboard-tplink', label: 'Dashboard TP-Link', section: 'Reportes', permisos: ['dashboard_tplink.ver'], scope: 'permiso' },
   { path: '/dashboard-ventas-fuera', label: 'Ventas por Fuera', section: 'Reportes', permisos: ['ventas_fuera.ver_dashboard'], scope: 'permiso' },
   { path: '/dashboard-tienda-nube', label: 'Tienda Nube', section: 'Reportes', permisos: ['ventas_tn.ver_dashboard'], scope: 'permiso' },

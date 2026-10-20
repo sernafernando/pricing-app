@@ -101,7 +101,6 @@ beforeEach(() => {
       });
     }
     if (url === '/ml-ventas-ops/sales/kpis') return Promise.resolve({ data: KPI_TP });
-    if (url === '/ml-ventas-ops/divergences') return Promise.reject({ response: { status: 403 } });
     if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
     return Promise.resolve({ data: {} });
   });
@@ -130,14 +129,6 @@ describe('Ventas ML in TP mode', () => {
     await waitFor(() => expect(within(table).getByText('incompleto')).toBeInTheDocument());
     const row = within(table).getByText('incompleto').closest('tr');
     expect(row).toHaveTextContent('—');
-  });
-
-  it('never asks for the divergences, which answer 403 for this user', async () => {
-    await renderWithRouter(<VentasML />);
-    await screen.findByRole('table');
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything()));
-    expect(api.get.mock.calls.some(([url]) => url.startsWith('/ml-ventas-ops/divergences'))).toBe(false);
-    expect(screen.queryByText(/Ver divergencias/)).not.toBeInTheDocument();
   });
 
   it('offers only the TP stores the facet returned', async () => {

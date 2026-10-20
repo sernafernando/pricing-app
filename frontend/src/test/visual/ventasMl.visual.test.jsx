@@ -85,7 +85,6 @@ const routeGet = (url) => {
   if (url === '/ml-ventas-ops/sales/sync-status') {
     return { data: { last_synced_at: new Date(Date.now() - 3 * 60 * 1000).toISOString() } };
   }
-  if (url === '/ml-ventas-ops/divergences') return { data: { total: 0, items: [] } };
   if (url.startsWith('/ml-ventas-ops/orders/')) return { data: ORDER_DETAIL_RESPONSE };
   if (url.startsWith('/ml-ventas-ops/packs/')) return { data: PACK_DETAIL_RESPONSE };
   if (url === '/usuarios/pms') return { data: [] };

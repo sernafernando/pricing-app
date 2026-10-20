@@ -50,7 +50,6 @@ const Rma = lazy(() => import('./pages/Rma'));
 const ControlDeposito = lazy(() => import('./pages/ControlDeposito'));
 const ClaimsDashboard = lazy(() => import('./pages/ClaimsDashboard'));
 const MLQuestions = lazy(() => import('./pages/MLQuestions'));
-const DivergenciasML = lazy(() => import('./pages/DivergenciasML'));
 const VentasML = lazy(() => import('./pages/VentasML'));
 const MetricasML = lazy(() => import('./pages/MetricasML'));
 const SellIn = lazy(() => import('./pages/SellIn'));
@@ -149,7 +148,6 @@ const protectedRoutes = [
   { path: '/control-deposito', component: ControlDeposito, permiso: 'rma.control_deposito' },
   { path: '/claims', component: ClaimsDashboard, permiso: 'rma.ver' },
   { path: '/ml-preguntas', component: MLQuestions, permiso: 'ml_bot.ver' },
-  { path: '/ml-ventas-divergencias', component: DivergenciasML, permiso: 'ml_ops.ver' },
   { path: '/ml-ventas-listado', component: VentasML, permiso: 'ml_ops.ver' },
   // Hidden until go-live: reachable by URL only (no Sidebar item, SmartRedirect entry or novedad yet).
   { path: '/ml-publicaciones', component: PublicacionesML, permiso: 'ml_ops.ver' },

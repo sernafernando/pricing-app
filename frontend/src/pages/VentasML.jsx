@@ -3,8 +3,8 @@
  *
  * Consumes GET /ml-ventas-ops/sales (merged backend, ml-ventas-listado-api).
  * Read access needs `ml_ops.ver`. No invoices, no costs, no metrics on this
- * page — those were explicitly deferred; see `MLQuestions.jsx`/
- * `DivergenciasML.jsx` for the sibling ML dashboards this page mirrors.
+ * page — those were explicitly deferred; see `MLQuestions.jsx` for a
+ * sibling ML dashboard this page mirrors.
  *
  * Two axes are the whole point of this page, and they stay independent on
  * purpose:
@@ -48,9 +48,8 @@
  */
 
 import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { ShieldAlert, AlertTriangle, Download, RefreshCw } from 'lucide-react';
+import { ShieldAlert, Download, RefreshCw } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
@@ -138,13 +137,6 @@ export default function VentasML() {
   // failures the operator needs to tell apart — never collapsed into one
   // generic error message.
   const [errorKind, setErrorKind] = useState(null); // 'forbidden' | 'disabled' | 'generic' | null
-
-  // Ingestion failures (`ingest_failed` divergences) are surfaced here on
-  // purpose: an order that never got written stays invisible in this list
-  // by definition, so a silent failure looks identical to a quiet day. This
-  // count is best-effort — a failure here must never break the sales list
-  // itself, only skip the warning banner (see the catch block below).
-  const [failedIngestCount, setFailedIngestCount] = useState(0);
 
   // ventas-ml-kpi-strip T5: the four `include_*` toggles. Defaulted to
   // `true` (show everything) to match the LIST endpoint's own legacy
@@ -593,8 +585,8 @@ export default function VentasML() {
     cargarKpis();
   }, [cargarKpis]);
 
-  // Best-effort and independent of the list (same stance as the ingest-failed
-  // banner below): losing this indicator must never cost the operator the list.
+  // Best-effort and independent of the list: losing this indicator must never
+  // cost the operator the list.
   const cargarSyncStatus = useCallback(async () => {
     if (!puedeVer) return;
     try {
@@ -619,31 +611,6 @@ export default function VentasML() {
   useEffect(() => {
     cargarVentas();
   }, [cargarVentas]);
-
-  // Independent of `cargarVentas` on purpose: this banner is additional
-  // information, never a reason for the sales list itself to fail. Only
-  // `limit: 1` is requested — `total` is all this banner needs, not the
-  // rows themselves.
-  useEffect(() => {
-    // A TP-only user may not read divergences (403): no request, no banner.
-    if (!puedeVer || tpSolo) return;
-    let cancelled = false;
-    api
-      .get('/ml-ventas-ops/divergences', {
-        params: { kind: 'ingest_failed', state: 'open', limit: 1 },
-      })
-      .then(({ data }) => {
-        if (!cancelled) setFailedIngestCount(data.total ?? 0);
-      })
-      .catch(() => {
-        // Best-effort: an operator who cannot see the banner must still see
-        // the sales list. Silently keep the banner hidden.
-        if (!cancelled) setFailedIngestCount(0);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [puedeVer, tpSolo]);
 
   if (!puedeVer) {
     return null;
@@ -743,16 +710,6 @@ export default function VentasML() {
         <div className={styles.errorBar}>
           <ShieldAlert size={16} /> Error al cargar las ventas.
         </div>
-      )}
-
-      {!tpSolo && failedIngestCount > 0 && (
-        <Link to="/ml-ventas-divergencias" className={styles.ingestFailedBanner}>
-          <AlertTriangle size={16} />
-          {failedIngestCount === 1
-            ? '1 venta no pudo ingresar — el total de esta lista está incompleto.'
-            : `${failedIngestCount} ventas no pudieron ingresar — el total de esta lista está incompleto.`}
-          {' '}Ver divergencias
-        </Link>
       )}
 
       {/* ONE filter card, three bands (Stitch `listado`): search, statuses,

@@ -193,7 +193,6 @@ describe('Ventas ML in TP mode (visual)', () => {
       );
       expect(incompleto).toBeTruthy();
       expect(document.body.textContent).not.toMatch(/gauss/i);
-      expect(api.get.mock.calls.some(([url]) => url.startsWith('/ml-ventas-ops/divergences'))).toBe(false);
       screen.unmount();
     });
   }
