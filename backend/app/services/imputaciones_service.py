@@ -254,11 +254,29 @@ def _validar_saldo_destino_id(destino_tipo: str, destino_id: Optional[int]) -> N
 _ORIGENES_NC: Final[frozenset[str]] = frozenset({"nota_credito_erp", "nota_credito_local"})
 
 
+def _con_clones_descendientes(session: Session, pedido_ids: list[int]) -> list[int]:
+    """`pedido_ids` plus every pedido corrected from them, through all hops."""
+    from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
+
+    vistos = list(dict.fromkeys(pedido_ids))
+    frontera = list(vistos)
+    while frontera:
+        clones = session.execute(select(PedidoCompra.id).where(PedidoCompra.corregido_desde_id.in_(frontera))).scalars()
+        frontera = [c for c in clones if c not in vistos]
+        vistos.extend(frontera)
+    return vistos
+
+
 def _reconciliar_lineas_facturadas_del_destino(session: Session, destino_tipo: str, destino_id: int) -> None:
     """Best-effort: a failure rolls back only its SAVEPOINT, never the imputación.
 
     The ERP sync hook reconciles every linked pedido anyway, so a miss here is
     corrected on the next sync.
+
+    Every clone corrected from a touched pedido (all `corregido_desde_id` hops)
+    is reconciled too: a credit note frozen on a corrected-from pedido counts
+    for its clones (see erp_matching_service._DOCUMENTOS_SQL), so imputing or
+    reversing it there changes their invoiced units at once.
     """
     from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
     from app.services.erp_matching_service import reconciliar_lineas_facturadas  # noqa: PLC0415
@@ -273,7 +291,7 @@ def _reconciliar_lineas_facturadas_del_destino(session: Session, destino_tipo: s
                         select(PedidoCompra.id).where(PedidoCompra.ct_transaction_id == destino_id)
                     ).scalars()
                 )
-            for pedido_id in pedido_ids:
+            for pedido_id in _con_clones_descendientes(session, pedido_ids):
                 reconciliar_lineas_facturadas(session, pedido_id)
     except Exception as exc:  # noqa: BLE001 — never block the imputación
         logger.error(

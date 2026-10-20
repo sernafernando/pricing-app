@@ -229,3 +229,31 @@ def test_migration_backfill_subtracts_the_credit_note_frozen_on_the_original(db,
     db.execute(text(module.BACKFILL))
 
     assert _unidades(db, clon.id) == {501: 9}
+
+
+# An imputación on a corrected-from pedido must reach every descendant clone's
+# snapshot at once, without waiting for the next ERP sync.
+
+
+def test_credit_note_imputed_to_a_grandparent_reaches_the_clone_at_once(
+    db, pedido_con_nc, proveedor, sd_nc, active_user
+):
+    segundo = _corregir_monto(db, pedido_con_nc.id, "1200", active_user)
+    pedidos_service.transicionar(db, pedido_id=segundo.id, accion="aprobar", user_id=active_user.id)
+    tercero = _corregir_monto(db, segundo.id, "1300", active_user)
+    nc2 = _ct(db, proveedor, sd_nc, ct=990204, lineas={501: "2"})
+
+    _imputar_nc(db, proveedor, active_user, nc=nc2, pedido_id=pedido_con_nc.id)
+
+    assert _unidades(db, tercero.id) == {501: 7}
+
+
+def test_reversed_credit_note_frozen_on_the_original_stops_counting_for_the_clone(db, pedido_con_nc, active_user):
+    from app.models.imputacion import Imputacion  # noqa: PLC0415
+
+    clon = _corregir_monto(db, pedido_con_nc.id, "1200", active_user)
+    congelada = db.query(Imputacion).filter_by(destino_tipo="pedido_compra", destino_id=pedido_con_nc.id).one()
+
+    imputaciones_service.desimputar(db, imputacion_id=congelada.id, user_id=active_user.id, motivo="error de carga")
+
+    assert _unidades(db, clon.id) == {501: 10}
