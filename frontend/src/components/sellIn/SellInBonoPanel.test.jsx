@@ -35,7 +35,7 @@ const llenar = async (user) => {
 };
 
 describe('SellInBonoPanel — new bonus', () => {
-  it('does not let "Cancelar" close the panel while the bonus is being saved', async () => {
+  it('does not let "Cancelar" or "Cerrar" close the panel while the bonus is being saved', async () => {
     const user = userEvent.setup();
     let resolver;
     sellInBonosAPI.crear.mockReturnValueOnce(new Promise((resolve) => (resolver = resolve)));
@@ -45,6 +45,7 @@ describe('SellInBonoPanel — new bonus', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
 
     expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cerrar' })).toBeDisabled();
     resolver({ data: { ...BONO, id: 9 } });
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(onClose).not.toHaveBeenCalled();

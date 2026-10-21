@@ -109,7 +109,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
           {/* A timestamptz with its offset: formatted on the user's local (Argentina) day, never the UTC one. */}
           {bono?.created_at && <p className={styles.hint}>Creado el {formatDateOnly(bono.created_at)}</p>}
         </div>
-        <button type="button" className={styles.close} aria-label="Cerrar" onClick={onClose}>
+        <button type="button" className={styles.close} aria-label="Cerrar" onClick={onClose} disabled={busy}>
           <X size={18} />
         </button>
       </header>
