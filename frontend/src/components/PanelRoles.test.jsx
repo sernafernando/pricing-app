@@ -82,6 +82,23 @@ async function abrirRol(user, nombre) {
   return drawer(nombre);
 }
 
+describe('PanelRoles layout', () => {
+  // The drawer shares a row with the role cards only, so the matrix below keeps
+  // the full width (and on a phone the bottom sheet never sits inside the matrix).
+  it('renders the drawer inside the cards row, before the matrix section', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    const panel = await abrirRol(user, 'Ventas');
+    const fila = panel.parentElement;
+    const matriz = screen.getByRole('region', { name: 'Permisos por rol' });
+
+    expect(within(fila).getByRole('heading', { name: 'Roles' })).toBeInTheDocument();
+    expect(fila.contains(matriz)).toBe(false);
+    expect(panel.compareDocumentPosition(matriz) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 describe('PanelRoles create role', () => {
   it('posts the new role with the uppercased code and the next order, then reloads', async () => {
     const user = userEvent.setup();

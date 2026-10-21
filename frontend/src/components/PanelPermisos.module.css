@@ -492,6 +492,11 @@
   color: var(--cf-text-primary);
 }
 
+/* Focused by script on the phone switch (tabIndex -1), not a control. */
+.usuarioNombre:focus {
+  outline: none;
+}
+
 .usuarioMeta {
   display: flex;
   align-items: center;

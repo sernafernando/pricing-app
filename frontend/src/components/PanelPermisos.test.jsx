@@ -473,6 +473,55 @@ describe('PanelPermisos', () => {
       expect(volver()).toBeInTheDocument();
     });
 
+    describe('focus on the phone switch', () => {
+      // Phone layout: CSS hides the inactive pane; jsdom has no CSS, so the
+      // stub reports the hidden column as `display: none`. Plain DOM checks
+      // only: role queries call getComputedStyle themselves.
+      const original = window.getComputedStyle.bind(window);
+      const marcarTelefono = () =>
+        vi.spyOn(window, 'getComputedStyle').mockImplementation((el, ...rest) => {
+          const panel = el.closest?.('[data-vista-movil]');
+          const columna = panel && el.parentElement === panel ? el : null;
+          if (!columna) return original(el, ...rest);
+          const esLista = columna.querySelector('h3')?.textContent === 'Usuarios del sistema';
+          const oculta = esLista === (panel.dataset.vistaMovil === 'detalle');
+          return oculta ? { display: 'none' } : original(el, ...rest);
+        });
+
+      afterEach(() => vi.restoreAllMocks());
+
+      it('moves focus to the user name in the detail after a pick', async () => {
+        marcarTelefono();
+        const user = userEvent.setup();
+        renderPanel();
+
+        await user.click(await screen.findByText('Ana Pérez'));
+
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Ana Pérez' })));
+      });
+
+      it('moves focus back to the selected user row after "Usuarios"', async () => {
+        marcarTelefono();
+        const user = userEvent.setup();
+        renderPanel();
+        await user.click(await screen.findByText('Ana Pérez'));
+
+        await user.click(volver());
+
+        await waitFor(() => expect(document.activeElement).toBe(filaUsuario('Ana Pérez')));
+      });
+
+      it('leaves focus on the clicked row on desktop, where both columns show', async () => {
+        const user = userEvent.setup();
+        renderPanel();
+
+        await user.click(await screen.findByText('Ana Pérez'));
+        await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+
+        expect(document.activeElement).toBe(filaUsuario('Ana Pérez'));
+      });
+    });
+
     describe('scrolling the detail into view', () => {
       // jsdom computes no layout: the phone layout (list hidden by CSS) and the
       // scroll position are stubbed; the exact originals are put back afterwards.
