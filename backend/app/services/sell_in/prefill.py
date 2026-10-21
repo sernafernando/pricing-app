@@ -18,6 +18,8 @@ the ERP mirror afterwards.
   (`pedido_compra_ingresos`, sentinel arrival rows included): its
   `fecha_ingreso` when typed, else the Buenos Aires date of `created_at` (the
   reception service does not fill `fecha_ingreso`). None without receipts.
+- `productos_operacion`: the same product rows for ONE operation, with the
+  received units too, for the picker's hover popover (T3f).
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
+from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.pedido_compra_oc import triples_for_pedido
 from app.models.producto import ProductoERP
@@ -54,38 +57,60 @@ def _fecha_ingreso(db: Session, pedido_ids: list[int]) -> Optional[date]:
     return min(fechas, default=None)
 
 
-def _items(db: Session, pedidos) -> list[dict]:
+def _unidades(cantidad: Decimal) -> int:
+    return int(cantidad.quantize(Decimal("1"), rounding=ROUND_HALF_UP))  # a sell-in line counts whole units
+
+
+def _lineas(db: Session, pedidos) -> list[dict]:
+    """One row per product of the operations' OC lines: ordered (`pod_qty`) and received
+    (`pod_confirmedqty`) whole units, in the order of their first line; products with no
+    ordered units are left out. Two queries whatever the number of lines."""
     triples = list(dict.fromkeys(t for pedido in pedidos for t in triples_for_pedido(db, pedido)))
     if not triples:
         return []
     d = PurchaseOrderDetail
     lineas = (
-        db.query(d.item_id, d.pod_qty)
+        db.query(d.item_id, d.pod_qty, d.pod_confirmedqty)
         .filter(
             or_(*(and_(d.comp_id == c, d.bra_id == b, d.poh_id == p) for c, b, p in triples)),
             d.item_id.isnot(None),
         )
         .order_by(d.comp_id, d.bra_id, d.poh_id, d.pod_id)
     )
-    cantidades: dict[int, Decimal] = {}
-    for item_id, qty in lineas:
-        cantidades[item_id] = cantidades.get(item_id, Decimal("0")) + Decimal(str(qty or 0))
-    productos = {p.item_id: p for p in db.query(ProductoERP).filter(ProductoERP.item_id.in_(list(cantidades)))}
-    items = []
-    for item_id, total in cantidades.items():
-        cantidad = int(total.quantize(Decimal("1"), rounding=ROUND_HALF_UP))  # a sell-in line counts whole units
-        if cantidad <= 0:
+    sumas: dict[int, list[Decimal]] = {}
+    for item_id, qty, recibida in lineas:
+        suma = sumas.setdefault(item_id, [Decimal("0"), Decimal("0")])
+        suma[0] += Decimal(str(qty or 0))
+        suma[1] += Decimal(str(recibida or 0))
+    productos = {p.item_id: p for p in db.query(ProductoERP).filter(ProductoERP.item_id.in_(list(sumas)))}
+    filas = []
+    for item_id, (pedida, recibida) in sumas.items():
+        if _unidades(pedida) <= 0:
             continue
         producto = productos.get(item_id)
-        items.append(
+        filas.append(
             {
                 "item_id": item_id,
                 "codigo": producto.codigo if producto else None,
                 "descripcion": producto.descripcion if producto else None,
-                "cantidad": cantidad,
+                "pedida": _unidades(pedida),
+                "recibida": _unidades(recibida),
             }
         )
-    return items
+    return filas
+
+
+def _items(db: Session, pedidos) -> list[dict]:
+    return [
+        {"item_id": f["item_id"], "codigo": f["codigo"], "descripcion": f["descripcion"], "cantidad": f["pedida"]}
+        for f in _lineas(db, pedidos)
+    ]
+
+
+def productos_operacion(db: Session, pedido_id: int) -> Optional[list[dict]]:
+    """The products of one Compras operation with ordered and received units; None when it does not exist."""
+    pedido = db.get(PedidoCompra, pedido_id)
+    return None if pedido is None else _lineas(db, [pedido])
 
 
 def prefill(db: Session, pedido_compra_ids: list[int]) -> dict:

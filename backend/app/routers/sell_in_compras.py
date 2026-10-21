@@ -20,7 +20,8 @@ lowers the cost of THAT purchase's units only. The math lives in
   `sell_in.gestionar`) suggests supplier, currency, receipt date and products
   from them (`app.services.sell_in.prefill`). `GET /operaciones` (same
   permission, no Compras permission needed) searches them for the panel's
-  picker (`app.services.sell_in.operaciones`).
+  picker (`app.services.sell_in.operaciones`); `GET /operaciones/{id}/productos`
+  (`sell_in.ver`) lists one operation's products for the picker's popover.
 - `GET /resumen` takes the same filters and returns exact aggregates over every
   matching purchase (bucket counts, amount per currency, units covered).
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
@@ -54,6 +55,7 @@ from app.schemas.sell_in import (
     SellInCompraOut,
     SellInCompraResumenOut,
     SellInOperacionesOut,
+    SellInOperacionProductosOut,
     SellInPrefillOut,
     SellInPreviewIn,
     SellInPreviewOut,
@@ -189,6 +191,19 @@ def buscar_operaciones(
 ) -> dict:
     """The newest Compras operations matching the text, for the create panel's picker. Writes nothing."""
     return {"items": operaciones_service.buscar_operaciones(db, q, proveedor_id, moneda, excluir)}
+
+
+@router.get("/operaciones/{pedido_id}/productos", response_model=SellInOperacionProductosOut)
+def productos_operacion(
+    pedido_id: int,
+    _user: Usuario = Depends(requiere_ver),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The products of one Compras operation (ordered and received units), for the picker's popover."""
+    items = prefill_service.productos_operacion(db, pedido_id)
+    if items is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"La operación {pedido_id} no existe")
+    return {"items": items}
 
 
 @router.get("/{compra_id}", response_model=SellInCompraOut)
