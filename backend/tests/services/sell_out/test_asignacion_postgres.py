@@ -217,7 +217,7 @@ class TestAsignacion:
 
 
 class TestTipoDeCambio:
-    def test_a_usd_row_freezes_the_bna_rate_of_its_sale_day(self, engine: Engine) -> None:
+    def test_a_sale_day_row_carries_its_day_bna_and_follows_a_correction(self, engine: Engine) -> None:
         w.tipo_cambio(engine, D(2026, 10, 30), 1400)
         w.tipo_cambio(engine, D(2026, 11, 3), 1450.5)
         w.tipo_cambio(engine, D(2026, 11, 3), 99999, moneda="EUR")
@@ -228,10 +228,48 @@ class TestTipoDeCambio:
         _recalcular(engine, campana)
         assert [(r[2], r[7]) for r in w.consumos(engine)] == [(lunes, Decimal("1400")), (martes, Decimal("1450.5"))]
 
-        # Frozen: a corrected rate does not rewrite a row that did not change.
+        # A corrected rate is a change: the rows take it (owner: dynamic follows BNA).
         w.execute(engine, "UPDATE tipo_cambio SET venta = 1 WHERE moneda = 'USD'")
-        assert _recalcular(engine, campana).inserted == 0
-        assert [r[7] for r in w.consumos(engine)] == [Decimal("1400"), Decimal("1450.5")]
+        assert _recalcular(engine, campana).inserted == 2
+        assert [r[7] for r in w.consumos(engine)] == [Decimal("1"), Decimal("1")]
+        assert _recalcular(engine, campana).inserted == 0  # and then it is stable
+
+    def test_a_sale_day_row_written_before_its_day_rate_takes_it_when_it_arrives(self, engine: Engine) -> None:
+        w.tipo_cambio(engine, D(2026, 11, 1), 500)
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="dia_venta")
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 3))
+        _recalcular(engine, campana)
+        assert [r[7] for r in w.consumos(engine)] == [Decimal("500")]  # the latest on or before its day
+
+        w.tipo_cambio(engine, D(2026, 11, 3), 1000)  # the sale day's BNA is published later
+        _recalcular(engine, campana)
+
+        assert [r[7] for r in w.consumos(engine)] == [Decimal("1000")]
+
+    def test_an_al_cobro_row_follows_the_latest_bna_until_the_rate_is_set_then_takes_it(self, engine: Engine) -> None:
+        w.tipo_cambio(engine, D(2026, 11, 1), 500)
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="al_cobro")
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+        _recalcular(engine, campana)
+        assert [(r[6], r[7]) for r in w.consumos(engine)] == [(Decimal("10.00"), Decimal("500"))]
+
+        w.tipo_cambio(engine, D(2026, 11, 25), 2000)  # a newer BNA, after the sale day
+        _recalcular(engine, campana)
+        assert [(r[6], r[7]) for r in w.consumos(engine)] == [(Decimal("10.00"), Decimal("2000"))]
+
+        w.execute(
+            engine, "UPDATE sell_out_campanas SET tipo_cambio = 4000, tc_definido_en = now() WHERE id = :c", c=campana
+        )
+        _recalcular(engine, campana)
+        assert [r[7] for r in w.consumos(engine)] == [Decimal("4000")]
+
+    def test_a_rate_with_more_decimals_than_stored_does_not_rewrite_the_row_every_time(self, engine: Engine) -> None:
+        w.tipo_cambio(engine, D(2026, 11, 1), 1450.1234567)
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="dia_venta")
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+        _recalcular(engine, campana)
+
+        assert (_recalcular(engine, campana).inserted, _recalcular(engine, campana).deleted) == (0, 0)
 
     def test_a_sale_day_campaign_without_a_rate_is_refused(self, engine: Engine) -> None:
         campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="dia_venta")
@@ -342,7 +380,7 @@ class TestPorcentaje:
             c=campana,
         )
         _recalcular(engine, campana)
-        assert [(r[6], r[7]) for r in w.consumos(engine)] == [(Decimal("0.50"), Decimal("500"))]
+        assert [(r[6], r[7]) for r in w.consumos(engine)] == [(Decimal("0.50"), Decimal("4000"))]
 
     def test_the_money_cap_applies_to_the_percentage_amounts(self, engine: Engine) -> None:
         campana = _porcentaje(engine, "costo", tope_monto="150.00")
