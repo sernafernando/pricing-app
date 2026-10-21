@@ -1267,6 +1267,23 @@ describe('PanelRoles selected role in the matrix', () => {
       expect(scrollTo.mock.contexts[0]).toBe(scrollerDeLaTabla());
     });
 
+    it('scrolls to the selected column once the table comes back after a search with no rows', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+      const buscador = screen.getByPlaceholderText('Buscá un permiso por código o nombre…');
+
+      await user.type(buscador, 'zzz');
+      expect(screen.getByText('No hay permisos que coincidan.')).toBeInTheDocument();
+      await abrirRol(user, 'Ventas');
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      await user.clear(buscador);
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo.mock.contexts[0]).toBe(scrollerDeLaTabla());
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 420 }));
+    });
+
     it('does not scroll when the selected column is already visible', async () => {
       const user = userEvent.setup();
       await renderMatriz();

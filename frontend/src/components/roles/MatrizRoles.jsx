@@ -68,10 +68,6 @@ export default function MatrizRoles({
   const scrollRef = useRef(null);
   const rolSeleccionadoId = rolSeleccionado?.id ?? null;
 
-  useEffect(() => {
-    if (rolSeleccionadoId !== null) mostrarColumnaSeleccionada(scrollRef.current);
-  }, [rolSeleccionadoId]);
-
   // A role whose permissions are unknown cannot be filtered by them.
   const filtrable = rolSeleccionado !== null && !sinCargar(rolSeleccionado);
   const filtrando = filtrable && soloDelRol;
@@ -91,6 +87,13 @@ export default function MatrizRoles({
       ),
     }))
     .filter((grupo) => grupo.visibles.length > 0);
+  const hayFilas = grupos.length > 0;
+
+  // Re-runs when the table mounts again (a search or the filter left no rows), so a role
+  // selected meanwhile still gets its column scrolled into view.
+  useEffect(() => {
+    if (rolSeleccionadoId !== null && hayFilas) mostrarColumnaSeleccionada(scrollRef.current);
+  }, [rolSeleccionadoId, hayFilas]);
 
   return (
     <div className={styles.wrapper}>
@@ -114,7 +117,7 @@ export default function MatrizRoles({
         </label>
       )}
 
-      {grupos.length === 0 ? (
+      {!hayFilas ? (
         <div className={styles.vacio}>{mensajeVacio(q, filtrando)}</div>
       ) : (
         <div ref={scrollRef} className={styles.scroll}>
