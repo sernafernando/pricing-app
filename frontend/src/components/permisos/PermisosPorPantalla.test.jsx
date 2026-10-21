@@ -54,10 +54,11 @@ function payload(rol = 'PRICING') {
     usuario_id: USUARIO_ID,
     rol,
     permisos_detallados: {
-      productos: [delRol('productos.ver')],
+      productos: [delRol('productos.ver'), permiso('productos.editar_precios')],
       ventas_ml: [delRol('ml_metricas.ver')],
       administracion: [permiso('admin.ver_panel', { es_critico: true }), permiso('admin.sincronizar')],
       consultas: [delRol('traza.ver')],
+      reportes: [permiso('reportes.exportar')],
     },
   };
 }
@@ -213,11 +214,49 @@ describe('PermisosPorPantalla', () => {
     expect(screen.queryByText('/productos', { selector: 'code' })).not.toBeInTheDocument();
   });
 
-  it('keeps permissions without a screen editable', async () => {
+  it('keeps permissions without any screen editable under "Otros permisos"', async () => {
     renderPanel();
-    const sueltos = screen.getByRole('region', { name: 'Permisos sin pantalla' });
-    expect(within(sueltos).getByText('admin.sincronizar')).toBeInTheDocument();
-    expect(within(sueltos).getByRole('button', { name: 'Conceder admin.sincronizar' })).toBeInTheDocument();
+    const otros = screen.getByRole('region', { name: 'Otros permisos' });
+    expect(within(otros).getByText('reportes.exportar')).toBeInTheDocument();
+    expect(within(otros).getByRole('button', { name: 'Conceder reportes.exportar' })).toBeInTheDocument();
+  });
+
+  describe('extra permissions (Permisos adicionales)', () => {
+    it('lists productos.editar_precios under Productos with its action, not under "Otros"', async () => {
+      const user = userEvent.setup();
+      const { onActualizado } = renderPanel();
+
+      const productos = fila('/productos');
+      expect(within(productos).getByText('+1 adicional')).toBeInTheDocument();
+      await user.click(within(productos).getByRole('button', { expanded: false }));
+
+      const adicionales = within(productos).getByRole('list', { name: 'Permisos adicionales' });
+      expect(within(adicionales).getByText('productos.editar_precios')).toBeInTheDocument();
+      expect(within(adicionales).getByText('Falta permiso')).toBeInTheDocument();
+      await user.click(within(adicionales).getByRole('button', { name: 'Conceder productos.editar_precios' }));
+      expect(api.post).toHaveBeenCalledWith('/permisos/override', expect.objectContaining({
+        permiso_codigo: 'productos.editar_precios',
+        concedido: true,
+      }));
+      await waitFor(() => expect(onActualizado).toHaveBeenCalled());
+
+      expect(within(screen.getByRole('region', { name: 'Otros permisos' })).queryByText('productos.editar_precios'))
+        .not.toBeInTheDocument();
+    });
+
+    it('does not change the screen status when an extra is missing', () => {
+      renderPanel();
+      expect(within(fila('/productos')).getByText('Accede')).toBeInTheDocument();
+    });
+
+    it('finds the screen by searching one of its extras', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.type(screen.getByPlaceholderText(/Buscá una pantalla o permiso/), 'editar_precios');
+      expect(screen.getByText('/productos', { selector: 'code' })).toBeInTheDocument();
+      expect(screen.queryByText('/traza', { selector: 'code' })).not.toBeInTheDocument();
+    });
   });
 
   it('shows everything as accessible and actions only for opt-in codes on a SUPERADMIN target', async () => {
@@ -319,8 +358,8 @@ describe('PermisosPorPantalla', () => {
     });
   });
 
-  describe('"Permisos sin pantalla" group', () => {
-    const sueltos = () => screen.queryByRole('region', { name: 'Permisos sin pantalla' });
+  describe('"Otros permisos" group', () => {
+    const sueltos = () => screen.queryByRole('region', { name: 'Otros permisos' });
     // Rows on screen = screen rows + loose permission rows (none expanded).
     const filasVisibles = () => screen.getAllByRole('listitem').length;
     const conteoChip = (nombre) =>
@@ -331,7 +370,7 @@ describe('PermisosPorPantalla', () => {
       renderPanel();
 
       await user.click(screen.getByRole('button', { name: /^Sin acceso/ }));
-      expect(within(sueltos()).getByText('admin.sincronizar')).toBeInTheDocument();
+      expect(within(sueltos()).getByText('reportes.exportar')).toBeInTheDocument();
       expect(conteoChip('Sin acceso')).toBe(filasVisibles());
     });
 
@@ -348,8 +387,8 @@ describe('PermisosPorPantalla', () => {
       const user = userEvent.setup();
       renderPanel();
 
-      await user.type(screen.getByPlaceholderText(/Buscá una pantalla o permiso/), 'sincronizar');
-      expect(within(sueltos()).getByText('admin.sincronizar')).toBeInTheDocument();
+      await user.type(screen.getByPlaceholderText(/Buscá una pantalla o permiso/), 'reportes.exportar');
+      expect(within(sueltos()).getByText('reportes.exportar')).toBeInTheDocument();
       expect(screen.queryByText('/productos', { selector: 'code' })).not.toBeInTheDocument();
       expect(conteoChip('Todas')).toBe(filasVisibles());
     });

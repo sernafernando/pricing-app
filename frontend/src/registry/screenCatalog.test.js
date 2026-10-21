@@ -11,8 +11,10 @@ import {
   SCREENS,
   EXCLUDED_ROUTES,
   CATEGORIAS_PERMISO,
+  PERMISOS_ADICIONALES,
   nombreCategoria,
 } from './screenCatalog';
+import { pantallasDeAdicional } from './permisosAcceso';
 
 function parseProtectedRoutes(source) {
   const start = source.indexOf('const protectedRoutes = [');
@@ -200,5 +202,57 @@ describe('permission category labels', () => {
     expect(nombreCategoria('ventas_ml')).toBe('Ventas MercadoLibre');
     expect(nombreCategoria('nueva_area_x')).toBe('Nueva area x');
     expect(nombreCategoria('')).toBe('Sin categoría');
+  });
+});
+
+describe('extra permissions map (PERMISOS_ADICIONALES)', () => {
+  const paths = new Set(SCREENS.map((s) => s.path));
+  const prefijo = (codigo) => codigo.split('.')[0];
+  const accesos = new Set(SCREENS.flatMap((s) => s.permisos));
+  const donde = (codigo) => pantallasDeAdicional(codigo, SCREENS, PERMISOS_ADICIONALES);
+
+  it('only points at catalog screens', () => {
+    const destinos = [
+      ...Object.values(PERMISOS_ADICIONALES.prefijos).flat(),
+      ...Object.keys(PERMISOS_ADICIONALES.porPantalla),
+    ];
+    expect(destinos.filter((path) => !paths.has(path))).toEqual([]);
+  });
+
+  it('never lists an access permission as an extra', () => {
+    const codigos = Object.values(PERMISOS_ADICIONALES.porPantalla).flat();
+    expect(codigos.filter((codigo) => accesos.has(codigo))).toEqual([]);
+  });
+
+  it('decides every prefix that opens more than one screen, so none spreads by accident', () => {
+    const pantallasPorPrefijo = new Map();
+    for (const screen of SCREENS) {
+      for (const codigo of screen.permisos) {
+        const p = prefijo(codigo);
+        if (!pantallasPorPrefijo.has(p)) pantallasPorPrefijo.set(p, new Set());
+        pantallasPorPrefijo.get(p).add(screen.path);
+      }
+    }
+    const ambiguos = [...pantallasPorPrefijo].filter(([, set]) => set.size > 1).map(([p]) => p);
+    expect(ambiguos.filter((p) => !(p in PERMISOS_ADICIONALES.prefijos))).toEqual([]);
+  });
+
+  it('places the extras where the frontend checks them', () => {
+    expect(donde('productos.editar_precios')).toEqual(['/productos']);
+    expect(donde('tienda.editar_precio_gremio')).toEqual(['/tienda']);
+    expect(donde('admin.ver_tn_reconciliacion')).toEqual(['/items-sin-mla']);
+    expect(donde('admin.gestionar_permisos')).toEqual(['/admin']);
+    expect(donde('envios_flex.asignar_turbo')).toEqual(['/pedidos-preparacion']);
+    expect(donde('rma.gestionar')).toEqual(['/rma', '/claims']);
+    expect(donde('rrhh.liquidar_horas_extras')).toEqual(['/rrhh/horas-extras']);
+    expect(donde('administracion.gestionar_ordenes_compra')).toEqual(['/administracion/compras']);
+    expect(donde('ml_ops.gestionar')).toEqual(['/ml-publicaciones']);
+    expect(donde('promos.escribir')).toEqual(['/productos', '/ml-publicaciones']);
+    expect(donde('deposito.despachar_retiro')).toEqual(['/administracion/compras']);
+  });
+
+  it('leaves only codes with no screen at all for "Otros"', () => {
+    expect(donde('reportes.exportar')).toEqual([]);
+    expect(donde('tplink.tema')).toEqual([]);
   });
 });
