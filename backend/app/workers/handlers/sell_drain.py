@@ -45,7 +45,6 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -60,7 +59,7 @@ logger = logging.getLogger(__name__)
 Claimed = Tuple[str, int, Optional[int]]
 
 # How long the sell-out fan-out waits for a campaign's queue row held by a running `sell_out.drain` batch.
-SELL_OUT_LOCK_TIMEOUT = "2s"
+SELL_OUT_LOCK_TIMEOUT = sell_out_queue.LOCK_TIMEOUT
 
 # deadlock, serialization failure, lock_not_available; plus class 08 (connection exceptions).
 # Not 57014 (query_canceled / statement_timeout): it can be a product's own, permanent fault.
@@ -156,13 +155,10 @@ def _fan_out_sell_out(db: Session, lines: List[queue.Line]) -> None:
     sell in. Waiting longer than `SELL_OUT_LOCK_TIMEOUT` for a queue row (a long `sell_out.drain` batch
     holds it) raises 55P03, transient: the whole batch rolls back uncharged and the next wake retries,
     so the signal is not lost. Any other error is rolled back to the savepoint and logged; the sell-in
-    batch commits. `SET LOCAL` inside the savepoint is restored before it is released."""
+    batch commits (`sell_out_queue.lock_timeout`)."""
     try:
-        with db.begin_nested():
-            previo = db.execute(text("SELECT current_setting('lock_timeout')")).scalar()
-            db.execute(text("SELECT set_config('lock_timeout', :t, true)"), {"t": SELL_OUT_LOCK_TIMEOUT})
+        with sell_out_queue.lock_timeout(db, SELL_OUT_LOCK_TIMEOUT):
             sell_out_queue.enqueue_ventas(db, lines)
-            db.execute(text("SELECT set_config('lock_timeout', :t, true)"), {"t": previo})
     except Exception as exc:
         if is_transient(exc):
             raise

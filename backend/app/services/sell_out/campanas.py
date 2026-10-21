@@ -24,6 +24,7 @@ from typing import Optional
 
 from pydantic import TypeAdapter
 from sqlalchemy import Numeric, or_
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -66,6 +67,23 @@ class SellOutError(ValueError):
 
 class SellOutYaAnulada(SellOutError):
     """The campaign was already voided."""
+
+
+class SellOutRecalculando(SellOutError):
+    """A `sell_out.drain` batch is rebuilding the campaign; nothing was stored, retry shortly."""
+
+
+def _encolar(db: Session, campana_ids: list[int]) -> None:
+    """Queues the campaigns, waiting at most `queue.LOCK_TIMEOUT` for a queue row a running
+    `sell_out.drain` batch holds; then the whole change is rolled back and refused, never left waiting."""
+    try:
+        with queue.lock_timeout(db, queue.LOCK_TIMEOUT):
+            queue.enqueue(db, campana_ids)
+    except DBAPIError as exc:
+        if getattr(exc.orig, "pgcode", None) != "55P03":
+            raise
+        db.rollback()
+        raise SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.") from exc
 
 
 def _validar_tc(data: SellOutCampanaIn, actual: Optional[SellOutCampana]) -> None:
@@ -207,7 +225,7 @@ def crear_campana(db: Session, data: SellOutCampanaIn, usuario_id: int) -> SellO
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, _valores(campana, grupo_ids))
-    queue.enqueue(db, [campana.id])
+    _encolar(db, [campana.id])
     db.commit()
     db.refresh(campana)
     return campana
@@ -230,7 +248,7 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, _valores(campana, grupo_ids))
-    queue.enqueue(db, [campana_id, *compartian])
+    _encolar(db, [campana_id, *compartian])
     db.commit()
     db.refresh(campana)
     return campana
@@ -245,7 +263,7 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
     _audit(
         db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, _valores(campana, _grupo_ids(db, campana_id)), motivo
     )
-    queue.enqueue(db, [campana_id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
+    _encolar(db, [campana_id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
     db.commit()
     db.refresh(campana)
     return campana
@@ -270,7 +288,7 @@ def definir_tipo_cambio(
     campana.tipo_cambio = _a_escala("tipo_cambio", tipo_cambio)
     campana.tc_definido_en = datetime.now(timezone.utc)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO, usuario_id, antes, _valores(campana, grupo_ids))
-    queue.enqueue(db, [campana_id])
+    _encolar(db, [campana_id])
     db.commit()
     db.refresh(campana)
     return campana

@@ -49,7 +49,7 @@ SELL_OUT_TABLES = [
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    with throwaway_schema("sell_drain", [*w.TABLES, *SELL_OUT_TABLES], w.STUBS, after=w._install) as engine:
+    with throwaway_schema("sell_drain", [*w.TABLES, *SELL_OUT_TABLES], w.STUBS, after=w.install) as engine:
         yield engine
 
 

@@ -28,8 +28,9 @@ no-op, like the worker itself.
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import func, or_, text, tuple_
 from sqlalchemy.orm import Session
@@ -43,6 +44,8 @@ CHANNEL = "sell_out_dirty"
 BATCH_SIZE = 50
 # A campaign is retried on later wakes until it fails this many times; a new change re-queues it with attempts = 0.
 MAX_ATTEMPTS = 5
+# How long a writer waits for a campaign's queue row held by a running `sell_out.drain` batch.
+LOCK_TIMEOUT = "2s"
 
 Line = Tuple[str, int]  # (canal, venta_ref)
 
@@ -90,6 +93,22 @@ def _postgres(db: Session) -> bool:
     return db.get_bind().dialect.name == "postgresql"
 
 
+@contextmanager
+def lock_timeout(db: Session, timeout: str) -> Iterator[None]:
+    """A savepoint whose statements wait at most `timeout` for a lock (then 55P03, lock_not_available);
+    the session's previous `lock_timeout` is restored before it is released (`SET LOCAL` would otherwise
+    last until the transaction ends). An error rolls back to the savepoint and propagates. Off Postgres
+    (where the writers are no-ops) it only runs the block."""
+    if not _postgres(db):
+        yield
+        return
+    with db.begin_nested():
+        previo = db.execute(text("SELECT current_setting('lock_timeout')")).scalar()
+        db.execute(text("SELECT set_config('lock_timeout', :t, true)"), {"t": timeout})
+        yield
+        db.execute(text("SELECT set_config('lock_timeout', :t, true)"), {"t": previo})
+
+
 def enqueue(db: Session, campana_ids: Iterable[int]) -> None:
     """Queues the given campaigns (ids that no longer exist are ignored) and notifies the drain.
     Does not commit; a no-op for no ids or off Postgres."""
@@ -128,13 +147,15 @@ def enqueue_ventas(db: Session, lines: Sequence[Line]) -> None:
 
 def enqueue_por_bna(db: Session, fecha: date) -> None:
     """Queues the active USD campaigns a new BNA rate dated `fecha` can move: the `al_cobro` ones
-    without their rate (they follow the latest BNA) and the ones still running on or after `fecha`
-    (a sale converts at the latest rate on or before its day). Does not commit."""
+    without their rate (they follow the latest BNA) and the `dia_venta` ones still running on or after
+    `fecha` (a sale converts at the latest rate on or before its day). `fijo` and a defined `al_cobro`
+    convert at their own rate. Does not commit."""
     if not _postgres(db):
         return
     c = SellOutCampana
     sin_tasa = (c.tc_modo == "al_cobro") & c.tipo_cambio.is_(None)
-    rows = db.query(c.id).filter(c.estado == "activa", c.moneda == "USD", or_(sin_tasa, c.fecha_hasta >= fecha))
+    dia_venta = (c.tc_modo == "dia_venta") & (c.fecha_hasta >= fecha)
+    rows = db.query(c.id).filter(c.estado == "activa", c.moneda == "USD", or_(sin_tasa, dia_venta))
     enqueue(db, [cid for (cid,) in rows])
 
 

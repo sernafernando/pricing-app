@@ -12,11 +12,13 @@ from decimal import Decimal
 from typing import Iterator
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import sessionmaker
 
 from app.schemas.sell_out import SellOutCampanaIn
 from app.services.sell_out import campanas as service
+from app.services.sell_out import queue
 from tests.services.sell_out import _world as w
 
 pytestmark = pytest.mark.postgres
@@ -99,3 +101,47 @@ def test_a_refused_change_queues_nothing(engine: Engine) -> None:
         service.editar_campana(db, cid, _data([g], fecha_hasta=date(2026, 10, 1)), USUARIO)
 
     assert _queued(engine) == []
+
+
+@pytest.mark.parametrize("cambio", ["editar", "anular", "tipo_cambio"])
+def test_a_campaign_being_rebuilt_refuses_the_change_cleanly_without_storing_it(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, cambio: str
+) -> None:
+    monkeypatch.setattr(queue, "LOCK_TIMEOUT", "100ms")
+    g = w.grupo(engine, [ROUTERS])
+    cid = w.campana(engine, [g], moneda="USD", tc_modo="al_cobro")
+    w.execute(engine, "INSERT INTO sell_out_dirty (campana_id) VALUES (:c)", c=cid)
+    holder = engine.connect()  # a running `sell_out.drain` batch holds the campaign's queue row
+    try:
+        holder.execute(text("SELECT 1 FROM sell_out_dirty WHERE campana_id = :c FOR UPDATE"), {"c": cid})
+        with sessionmaker(bind=engine)() as db:
+            db.execute(text("SET statement_timeout = '3s'"))  # without the lock timeout: fail, never hang
+            with pytest.raises(service.SellOutRecalculando, match="se está recalculando"):
+                if cambio == "editar":
+                    service.editar_campana(db, cid, _data([g], nombre="Otra"), USUARIO)
+                elif cambio == "anular":
+                    service.anular_campana(db, cid, USUARIO, "baja")
+                else:
+                    service.definir_tipo_cambio(db, cid, Decimal("1450"), USUARIO)
+            assert db.execute(text("SELECT 1")).scalar() == 1  # the session is usable again
+            db.commit()  # and holds nothing of the refused change
+    finally:
+        holder.rollback()
+        holder.close()
+
+    with engine.connect() as conn:
+        row = conn.execute(text("SELECT nombre, estado, tipo_cambio FROM sell_out_campanas WHERE id = :c"), {"c": cid})
+        assert tuple(row.one()) == ("Campaña", "activa", None)  # nothing stored
+        assert conn.execute(text("SELECT count(*) FROM auditoria")).scalar() == 0
+
+
+def test_any_other_queue_error_propagates_as_is(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    cid = w.campana(engine, [w.grupo(engine, [ROUTERS])])
+
+    def _rota(db, ids):
+        db.execute(text("SELECT * FROM tabla_que_no_existe"))
+
+    monkeypatch.setattr(queue, "enqueue", _rota)
+
+    with sessionmaker(bind=engine)() as db, pytest.raises(ProgrammingError):
+        service.anular_campana(db, cid, USUARIO, "baja")

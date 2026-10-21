@@ -78,6 +78,16 @@ class TestEnqueue:
             listener.invalidate()  # never hand an autocommit connection back to the pool
 
 
+class TestLockTimeout:
+    def test_the_previous_lock_timeout_is_restored_after_the_block(self, engine: Engine) -> None:
+        with sessionmaker(bind=engine)() as db:
+            db.execute(text("SET LOCAL lock_timeout = '5s'"))
+            with queue.lock_timeout(db, "100ms"):
+                assert db.execute(text("SHOW lock_timeout")).scalar() == "100ms"
+
+            assert db.execute(text("SHOW lock_timeout")).scalar() == "5s"
+
+
 class TestFanOut:
     def test_a_sale_queues_the_active_campaigns_reaching_its_product_and_day(self, engine: Engine) -> None:
         routers = w.grupo(engine, [ROUTERS])
@@ -188,7 +198,7 @@ class TestFanOut:
 
 
 class TestBna:
-    def test_queues_unrated_al_cobro_and_usd_campaigns_still_running(self, engine: Engine) -> None:
+    def test_queues_unrated_al_cobro_and_sale_day_campaigns_still_running(self, engine: Engine) -> None:
         g = w.grupo(engine, [ROUTERS])
         usd = {"moneda": "USD"}
         sin_tasa = w.campana(engine, [g], desde=D(2026, 10, 1), hasta=D(2026, 10, 31), tc_modo="al_cobro", **usd)
@@ -208,6 +218,10 @@ class TestBna:
         )  # over before the rate
         w.campana(engine, [g])  # ARS
         w.campana(engine, [g], tc_modo="al_cobro", estado="anulada", **usd)
+        w.campana(engine, [g], tc_modo="fijo", tipo_cambio="1400", **usd)  # running, but its rate is its own
+        w.campana(
+            engine, [g], tc_modo="al_cobro", tipo_cambio="1400", tc_definido_en="2026-11-01 10:00+00", **usd
+        )  # running, rate defined: BNA no longer moves it
 
         with sessionmaker(bind=engine)() as db:
             queue.enqueue_por_bna(db, D(2026, 11, 10))
