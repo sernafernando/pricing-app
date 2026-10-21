@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import api from '../services/api';
-import { exportVentasCsv, filenameFromDisposition } from './ventasMlExport';
+import { exportVentasCsv, fetchCsvText, filenameFromDisposition } from './ventasMlExport';
 
 describe('filenameFromDisposition', () => {
   it('reads the server filename', () => {
@@ -53,5 +53,29 @@ describe('exportVentasCsv', () => {
   it('uses a generic message when the failure has no readable body', async () => {
     api.get.mockRejectedValue(new Error('network'));
     await expect(exportVentasCsv({})).rejects.toThrow('No se pudo exportar las ventas.');
+  });
+});
+
+describe('fetchCsvText', () => {
+  beforeEach(() => {
+    api.get.mockReset();
+  });
+
+  it('reads the export as text, with the server filename unless one is given', async () => {
+    api.get.mockResolvedValue({ data: new Blob(['A;B\n1;2\n']), headers: { 'content-disposition': 'attachment; filename="m.csv"' } });
+    await expect(fetchCsvText('/x/export', { a: 1 })).resolves.toEqual({ text: 'A;B\n1;2\n', filename: 'm.csv' });
+    expect(api.get).toHaveBeenCalledWith('/x/export', { params: { a: 1 }, responseType: 'blob' });
+    await expect(fetchCsvText('/x/export', {}, { filename: 'own.csv' })).resolves.toMatchObject({ filename: 'own.csv' });
+  });
+
+  it('fails with the backend message, like the download', async () => {
+    const body = JSON.stringify({ detail: 'consulta_lenta' });
+    api.get.mockRejectedValue({ response: { status: 503, data: new Blob([body]) } });
+    await expect(fetchCsvText('/x/export', {}, { genericError: 'Falló.' })).rejects.toThrow('consulta_lenta');
+  });
+
+  it('falls back to the given generic message', async () => {
+    api.get.mockRejectedValue(new Error('network'));
+    await expect(fetchCsvText('/x/export', {}, { genericError: 'Falló.' })).rejects.toThrow('Falló.');
   });
 });
