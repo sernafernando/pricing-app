@@ -122,10 +122,22 @@ def resolver_costo_envio(
     # Step 2: fetch shipping costs from mlwebhook DB
     costs = _fetch_list_cost_by_mla(active_mla_ids)
 
-    if not costs:
-        return float(producto.envio or 0.0)
-
     # Step 3: MAX in Python (cross-DB GROUP BY is not possible)
+    return costo_envio_maximo(costs, producto.envio)
+
+
+def costos_envio_por_mla(mla_ids: Sequence[str]) -> dict[str, float]:
+    """{mla: list_cost} (ARS, with IVA) for the given MLAs, in ONE cross-DB read; `{}` on any error.
+
+    MLAs without a usable cost are absent. Public face of the read `resolver_costo_envio` does, for a caller that
+    needs each publication's own cost instead of the MAX."""
+    return _fetch_list_cost_by_mla(list(mla_ids))
+
+
+def costo_envio_maximo(costs: Mapping[str, float], fallback: Optional[float]) -> float:
+    """The resolved shipping cost of a product from its active MLAs' costs: their MAX, else the ERP `envio`."""
+    if not costs:
+        return float(fallback or 0.0)
     return max(costs.values())
 
 
