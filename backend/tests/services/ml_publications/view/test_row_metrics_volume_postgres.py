@@ -23,7 +23,7 @@ from tests.services.ml_daily_metrics import test_board_volume_postgres as volume
 from tests.services.ml_daily_metrics.conftest import board_pg_engine  # noqa: F401
 from tests.services.ml_daily_metrics.test_board_sale_lines_postgres import populate_sale_lines
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.volume]
 
 
 @pytest.fixture(scope="module")

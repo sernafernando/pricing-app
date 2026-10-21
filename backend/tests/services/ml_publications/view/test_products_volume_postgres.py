@@ -21,16 +21,17 @@ from app.core.config import settings
 from app.services.ml_publications.view import products
 from app.services.ml_publications.view.filters import parse_filter
 from tests.services.ml_daily_metrics import test_board_volume_postgres as volume
-from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view.test_metrics_sort_volume_postgres import run as run_list
 from tests.services.ml_publications.view.test_metrics_sort_volume_postgres import world as unlinked_world  # noqa: F401
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.volume]
 
 
-@pytest.fixture()
-def world(unlinked_world, env):  # noqa: F811
-    """The volume seed with its publications linked: one in ten has no product, the rest spread over the 2.000."""
+@pytest.fixture(scope="module")
+def world(unlinked_world):  # noqa: F811
+    """The volume seed with its publications linked: one in ten has no product, the rest spread over the 2.000.
+    Once per module, like the seed it builds on (this module's own copy of it): every test only reads."""
+    env = unlinked_world.get_bind()
     with env.begin() as conn:
         conn.execute(
             text(

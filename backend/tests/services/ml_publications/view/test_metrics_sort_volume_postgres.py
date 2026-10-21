@@ -7,8 +7,6 @@ prints the timings (`-s`) of page 1 and a deep page on both lines sources -- rec
 wall-clock bound would be flaky on a shared CI box).
 """
 
-# ruff: noqa: F811 -- the fixtures are imported and used by name
-
 from __future__ import annotations
 
 import time
@@ -23,44 +21,50 @@ from app.services.ml_publications.view import listing
 from app.services.ml_publications.view.filters import parse_filter
 from tests.services.ml_daily_metrics import test_board_volume_postgres as volume
 from tests.services.ml_daily_metrics.test_board_sale_lines_postgres import populate_sale_lines
-from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
+from tests.services.ml_publications.conftest import module_env
 from tests.services.ml_publications.view import seed
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.volume]
 
 STORE = 25_000
 
 
-@pytest.fixture()
-def world(env):
+@pytest.fixture(scope="module")
+def world():
+    """Seeded once per module: every test only reads it, and `run` rolls the reader back after each request.
+    `reader.get_bind()` is the engine of the schema."""
     from app.models.ml_sale_line import MlSaleLine
 
-    seed.create_board_tables(env)
-    MlSaleLine.__table__.create(bind=env)
-    session = sessionmaker(bind=env)()
-    started = time.perf_counter()
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(settings, "ML_USER_ID", 999)
-        volume._seed(session)
-        session.execute(
-            text(
-                "INSERT INTO ml_items (item_id, title, status, last_trigger_received_at) "
-                "SELECT CASE WHEN i <= :sold THEN 'MLA77' || lpad(i::text, 6, '0') ELSE 'MLA88' || lpad(i::text, 6, '0') "
-                "END, 'Publicacion ' || i, (ARRAY['active','active','paused'])[1 + i % 3], now() - (i || ' s')::interval "
-                "FROM generate_series(1, :store) AS i"
-            ),
-            {"sold": volume.PUBLICATIONS, "store": STORE},
-        )
-        populate_sale_lines(session)
-    session.commit()
-    with env.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        for name in ("ml_items", "ml_sale_lines"):
-            conn.execute(text(f"ANALYZE {name}"))
-    print(f"\nvolume seeded in {time.perf_counter() - started:.1f} s")
-    reader = sessionmaker(bind=env)()
-    yield reader
-    reader.rollback()
-    reader.close()
+    with module_env() as env:
+        seed.create_board_tables(env)
+        MlSaleLine.__table__.create(bind=env)
+        session = sessionmaker(bind=env)()
+        started = time.perf_counter()
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(settings, "ML_USER_ID", 999)
+            volume._seed(session)
+            session.execute(
+                text(
+                    "INSERT INTO ml_items (item_id, title, status, last_trigger_received_at) "
+                    "SELECT CASE WHEN i <= :sold THEN 'MLA77' || lpad(i::text, 6, '0') "
+                    "ELSE 'MLA88' || lpad(i::text, 6, '0') "
+                    "END, 'Publicacion ' || i, (ARRAY['active','active','paused'])[1 + i % 3], "
+                    "now() - (i || ' s')::interval "
+                    "FROM generate_series(1, :store) AS i"
+                ),
+                {"sold": volume.PUBLICATIONS, "store": STORE},
+            )
+            populate_sale_lines(session)
+        session.commit()
+        session.close()
+        with env.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            for name in ("ml_items", "ml_sale_lines"):
+                conn.execute(text(f"ANALYZE {name}"))
+        print(f"\nvolume seeded in {time.perf_counter() - started:.1f} s")
+        reader = sessionmaker(bind=env)()
+        yield reader
+        reader.rollback()
+        reader.close()
 
 
 @pytest.fixture(autouse=True)
