@@ -18,7 +18,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
-from app.services.sell_out import asignacion
+from app.services.sell_out import asignacion, campanas
 from app.services.sell_out import queue as so_queue
 from app.workers.context import WorkerContext
 from app.workers.handlers.sell_out_drain import ERROR_MAX
@@ -91,6 +91,22 @@ class TestDrain:
         assert [(r[0], r[2], r[5], r[6]) for r in w.consumos(engine)] == [(cid, ref, 2, Decimal("20.00"))]
         assert w.queued(engine) == []
         assert detail == {"campanas": 1, "batches": 1, "inserted": 1, "deleted": 0, "pendientes_base": 0, "failed": 0}
+
+    def test_a_voided_campaign_drops_its_rows_and_frees_its_units_for_the_campaign_behind(self, engine: Engine) -> None:
+        g = w.grupo(engine, [ROUTERS])
+        delante = w.campana(engine, [g], acumulable=False)  # lower id: takes precedence, does not stack
+        detras = w.campana(engine, [g])
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2))
+        _queue(engine, delante, detras)
+        _drain()
+        assert [(r[0], r[2], r[5]) for r in w.consumos(engine)] == [(delante, ref, 2)]
+
+        with sessionmaker(bind=engine)() as db:
+            campanas.anular_campana(db, delante, 7, "la marca la dio de baja")
+        _drain()
+
+        assert [(r[0], r[2], r[5]) for r in w.consumos(engine)] == [(detras, ref, 2)]
+        assert w.queued(engine) == []
 
     def test_an_empty_queue_does_nothing(self) -> None:
         assert _drain() == {"campanas": 0, "batches": 0, "inserted": 0, "deleted": 0, "pendientes_base": 0, "failed": 0}
