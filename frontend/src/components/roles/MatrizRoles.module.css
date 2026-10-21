@@ -224,7 +224,8 @@
 
 .barra {
   position: sticky;
-  bottom: 0;
+  /* Raised above the role bottom sheet on narrow screens (PanelRoles sets it). */
+  bottom: var(--barra-cambios-bottom, 0);
   z-index: var(--z-sticky);
   display: flex;
   align-items: center;
@@ -279,5 +280,16 @@
 
   .celda {
     padding: var(--space-1) var(--space-2);
+  }
+
+  /* The count and the two buttons do not fit one phone row. */
+  .barra {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .barraTexto {
+    font-size: var(--font-sm);
   }
 }

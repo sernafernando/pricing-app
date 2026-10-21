@@ -114,6 +114,9 @@
   }
 
   .layoutConDrawer {
+    /* The pending-changes bar sticks above the sheet, not under it. */
+    --barra-cambios-bottom: var(--drawer-rol-alto-movil);
+
     padding-bottom: var(--drawer-rol-alto-movil);
   }
 }

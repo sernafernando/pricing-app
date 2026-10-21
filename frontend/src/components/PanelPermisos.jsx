@@ -36,6 +36,9 @@ export default function PanelPermisos() {
   const [vistaMovil, setVistaMovil] = useState('lista');
   const columnaUsuariosRef = useRef(null);
   const columnaDetalleRef = useRef(null);
+  const nombreDetalleRef = useRef(null);
+  // Set by "← Usuarios": the next switch to the list returns focus to the row.
+  const volverAListaRef = useRef(false);
   // In-flight override per user ({ [usuarioId]: codigo }), owned here so the
   // one-action-at-a-time lock survives switching between views.
   const [overridesEnCurso, setOverridesEnCurso] = useState({});
@@ -243,15 +246,26 @@ export default function PanelPermisos() {
 
   useEffect(() => () => clearTimeout(mensajeTimerRef.current), []);
 
-  // Phone: picking a user low in the list leaves the page scrolled past the top
-  // of the detail that replaces it. Only when CSS hid the list (one pane at a
-  // time); on desktop both columns are shown and nothing moves.
+  // Phone (CSS shows one pane at a time): the pane that just appeared takes the
+  // focus, which would otherwise stay on a control that was hidden. Picking a
+  // user moves it to the user's name (and scrolls the detail into view if the
+  // pick left the page past its top); "← Usuarios" moves it back to the user's
+  // row. On desktop both columns show and nothing moves.
   const usuarioSeleccionadoId = usuarioSeleccionado?.id;
   useEffect(() => {
     const lista = columnaUsuariosRef.current;
     const detalle = columnaDetalleRef.current;
-    if (vistaMovil !== 'detalle' || !usuarioSeleccionadoId || !lista || !detalle) return;
+    if (!usuarioSeleccionadoId || !lista || !detalle) return;
+    if (vistaMovil === 'lista') {
+      if (!volverAListaRef.current) return;
+      volverAListaRef.current = false;
+      if (window.getComputedStyle(detalle).display !== 'none') return;
+      // Missing when the list search hides the selected user: the search box then.
+      (lista.querySelector('[aria-pressed="true"]') ?? lista.querySelector('input'))?.focus();
+      return;
+    }
     if (window.getComputedStyle(lista).display !== 'none') return;
+    nombreDetalleRef.current?.focus({ preventScroll: true });
     if (detalle.getBoundingClientRect().top < 0) detalle.scrollIntoView({ block: 'start' });
   }, [vistaMovil, usuarioSeleccionadoId]);
 
@@ -371,7 +385,10 @@ export default function PanelPermisos() {
               <button
                 type="button"
                 className={styles.volverLista}
-                onClick={() => setVistaMovil('lista')}
+                onClick={() => {
+                  volverAListaRef.current = true;
+                  setVistaMovil('lista');
+                }}
                 aria-label="Volver a la lista de usuarios"
               >
                 <ArrowLeft size={16} aria-hidden="true" />
@@ -386,7 +403,9 @@ export default function PanelPermisos() {
                       <AvatarIniciales nombre={usuarioSeleccionado.nombre} className={styles.avatar} />
                       <div className={styles.usuarioDatos}>
                         <div className={styles.usuarioLinea}>
-                          <h3 className={styles.usuarioNombre}>{usuarioSeleccionado.nombre}</h3>
+                          <h3 ref={nombreDetalleRef} tabIndex={-1} className={styles.usuarioNombre}>
+                            {usuarioSeleccionado.nombre}
+                          </h3>
                           <StatusPill tone={(permisosUsuario?.rol || usuarioSeleccionado.rol) === 'SUPERADMIN' ? 'warning' : 'info'}>
                             {permisosUsuario?.rol || usuarioSeleccionado.rol}
                           </StatusPill>
