@@ -54,7 +54,8 @@ class SellInYaAnulada(SellInError):
     """The purchase was already voided."""
 
 
-def _moneda(value) -> str:
+def moneda(value) -> str:
+    """An ORM or enum currency as its code; ARS when empty."""
     return getattr(value, "value", value) or "ARS"
 
 
@@ -102,7 +103,7 @@ def _calcular(db: Session, data: SellInPreviewIn) -> _Calculo:
             raise SellInError(f"El item {linea.item_id} no tiene costo cargado: indicá el costo base a mano")
         else:
             costo = costo_en_moneda(
-                Decimal(str(producto.costo)), _moneda(producto.moneda_costo), data.moneda, data.tipo_cambio
+                Decimal(str(producto.costo)), moneda(producto.moneda_costo), data.moneda, data.tipo_cambio
             )
         lines.append(Line(linea.item_id, linea.cantidad, costo, linea.monto_manual))
 
@@ -151,7 +152,7 @@ def calcular_preview(db: Session, data: SellInPreviewIn) -> dict:
     }
 
 
-def _audit(
+def audit(
     db: Session,
     compra: SellInCompra,
     items: list[SellInCompraItem],
@@ -317,7 +318,7 @@ def _guardar(
     ]
     db.add_all(items)
     db.flush()
-    _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id)
+    audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, usuario_id)
     db.flush()  # the audit rows too, so their errors are raised here and not by the recompute's autoflush
     return compra, items
 
@@ -348,7 +349,7 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     items = list(
         db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
     )
-    _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
+    audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
     db.flush()
     # Its units are released in the same transaction: later purchases take those sales over.
     try:

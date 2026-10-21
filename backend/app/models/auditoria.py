@@ -33,6 +33,9 @@ class TipoAccion(str, enum.Enum):
     # line's product, `compra_id` travels in the values). Same VARCHAR(50) column: no DDL.
     SELL_IN_COMPRA_CREADA = "sell_in_compra_creada"
     SELL_IN_COMPRA_ANULADA = "sell_in_compra_anulada"
+    # brand bonus: one row per change the `sell_in.bono` worker makes to a purchase it generated
+    # (`item_id` NULL, the lines before and after). Same VARCHAR(50) column: no DDL.
+    SELL_IN_COMPRA_BONO_ACTUALIZADA = "sell_in_compra_bono_actualizada"
     # sell out: one row per campaign load, edit or void (`item_id` is NULL, `campana_id` travels in the values).
     SELL_OUT_CAMPANA_CREADA = "sell_out_campana_creada"
     SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"
