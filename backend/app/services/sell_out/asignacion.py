@@ -31,7 +31,8 @@ price is stripped of its product's VAT). A sale whose base is unknown (an ML
 order not settled yet, a sale without its cost) is skipped: it holds no units,
 so the cap goes on to the next sale, and it is counted in `pendientes_base`.
 Once it settles, its campaign is rebuilt (S3) and it takes its place in sale
-order. A missing rate or VAT rate is configuration, not transient data: it fails. A USD campaign converts the ARS base with its own `tc_modo`: `fijo`
+order. A missing rate or VAT rate is configuration, not transient data: it fails.
+A USD campaign converts the ARS base with its own `tc_modo`: `fijo`
 at its `tipo_cambio`; `dia_venta` at the sale day's BNA; `al_cobro` at its
 `tipo_cambio` once set, before that at the CURRENT BNA (the latest `tipo_cambio`
 row), so its amounts move with BNA: S3 queues `al_cobro` campaigns when BNA
@@ -60,7 +61,7 @@ from sqlalchemy.orm import Session
 
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.models.tipo_cambio import TipoCambio
-from app.services.sell_in.bonos import _tasas_bna
+from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_out import alcance, tope
 
 # First key of the two-key advisory lock; the second is the campaign id. Sell-in costing uses 0x5E11 (item ids)
@@ -204,7 +205,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
 
 def _tasas(db: Session, activas: List[SellOutCampana], ventas: List[alcance.Venta]) -> _Tasas:
     usd = [c for c in activas if c.moneda == "USD"]
-    por_dia = _tasas_bna(db, {v.fecha for v in ventas if v.unidades > 0} if usd else set())
+    por_dia = tasas_bna_por_fecha(db, {v.fecha for v in ventas if v.unidades > 0} if usd else set())
     actual = None
     if any(c.tipo == "porcentaje" and c.tc_modo == "al_cobro" and c.tipo_cambio is None for c in usd):
         fila = (
@@ -228,7 +229,8 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
     # Again under the lock, and ONLY for the locked ones: a campaign linked while this call waited is
     # rebuilt by the call its own change queues.
     campanas, productos, vinculadas = _vinculadas(db, ids)
-    cierre = [i for i in vinculadas if i in set(bloqueadas)]
+    con_lock = set(bloqueadas)
+    cierre = [i for i in vinculadas if i in con_lock]
     activas = [campanas[i] for i in cierre if i in campanas and campanas[i].estado == "activa"]
     items = {item for c in activas for item in productos.get(c.id, {})}
     ventas = []

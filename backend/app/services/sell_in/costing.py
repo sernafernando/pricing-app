@@ -92,7 +92,7 @@ _LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(:ns, i) FROM (SELECT DISTINCT i FROM unnest(CAST(:ids AS integer[])) AS t(i) "
     "ORDER BY i) AS ordered"
 )
-_VENTAS_FACTURADAS = (("fuera", VentaFueraMLMetrica), ("tn", VentaTiendaNubeMetrica))
+VENTAS_FACTURADAS = (("fuera", VentaFueraMLMetrica), ("tn", VentaTiendaNubeMetrica))
 
 
 @dataclass
@@ -116,7 +116,7 @@ class SellInCosting(Protocol):
         ...
 
 
-def _utc_date(value) -> date:
+def utc_date(value) -> date:
     if isinstance(value, datetime):
         if value.tzinfo is not None:
             value = value.astimezone(timezone.utc)
@@ -124,11 +124,11 @@ def _utc_date(value) -> date:
     return value
 
 
-def _unidades(signo, cantidad) -> int:
+def unidades_firmadas(signo, cantidad) -> int:
     return int(Decimal(cantidad) * (signo if signo is not None else 1))
 
 
-def _objetivos(db: Session, model, devoluciones: List[tuple]) -> Dict[int, int]:
+def resolver_objetivos(db: Session, model, devoluciones: List[tuple]) -> Dict[int, int]:
     """`{return ref: the sale it reverses}` for the returns whose customer has EXACTLY ONE
     earlier sale of the product: same `cust_id` and `item_id`, earlier by
     `(fecha_venta, it_transaction)`, over the whole history (a sale before the
@@ -145,8 +145,8 @@ def _objetivos(db: Session, model, devoluciones: List[tuple]) -> Dict[int, int]:
     for ref, item_id, cust_id, fecha, signo, cantidad in rows.filter(
         model.item_id.in_(items), model.cust_id.in_(clientes), model.fecha_venta <= hasta
     ):
-        if _unidades(signo, cantidad) > 0:
-            candidatas[(item_id, cust_id)].append((_utc_date(fecha), ref))
+        if unidades_firmadas(signo, cantidad) > 0:
+            candidatas[(item_id, cust_id)].append((utc_date(fecha), ref))
     objetivos: Dict[int, int] = {}
     for ref, item_id, fecha, _, cust_id in con_cliente:
         previas = [c for c in candidatas.get((item_id, cust_id), []) if c < (fecha, ref)]
@@ -256,18 +256,18 @@ class FifoPurchaseCosting:
         for ref, item_id, dia, qty in ml:
             ventas[item_id].append(Venta("ml", ref, dia, int(qty)))
         inicio = datetime.combine(desde, time(0), tzinfo=timezone.utc)
-        for canal, model in _VENTAS_FACTURADAS:
+        for canal, model in VENTAS_FACTURADAS:
             rows = db.query(
                 model.it_transaction, model.item_id, model.fecha_venta, model.signo, model.cantidad, model.cust_id
             ).filter(model.item_id.in_(ids), model.fecha_venta >= inicio)
             devoluciones = []
             for ref, item_id, fecha, signo, cantidad, cust_id in rows:
-                unidades = _unidades(signo, cantidad)
+                unidades = unidades_firmadas(signo, cantidad)
                 if unidades > 0:
-                    ventas[item_id].append(Venta(canal, ref, _utc_date(fecha), unidades))
+                    ventas[item_id].append(Venta(canal, ref, utc_date(fecha), unidades))
                 elif unidades < 0:
-                    devoluciones.append((ref, item_id, _utc_date(fecha), unidades, cust_id))
-            objetivos = _objetivos(db, model, devoluciones)
+                    devoluciones.append((ref, item_id, utc_date(fecha), unidades, cust_id))
+            objetivos = resolver_objetivos(db, model, devoluciones)
             for ref, item_id, fecha, unidades, _ in devoluciones:
                 objetivo = objetivos.get(ref)
                 ventas[item_id].append(Venta(canal, ref, fecha, unidades, (canal, objetivo) if objetivo else None))

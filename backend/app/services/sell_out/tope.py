@@ -24,7 +24,7 @@ return they are the returned units given back to that campaign instead.
 Returns mirror sell in (`sell_in.fifo`, owner's decision 2026-10-17): a return
 (`unidades < 0`) frees its units, in order, from
 1. its `objetivo`, the sale it reverses (resolved by the caller, like
-   `sell_in.costing._objetivos`), up to what that sale still holds here;
+   `sell_in.costing.resolver_objetivos`), up to what that sale still holds here;
 2. then the most recent earlier sale OF THE SAME PRODUCT still holding units.
 Freed units and money go to LATER sales, in order. A return finding nothing to
 free frees nothing. A sale whose units all go back leaves no row.

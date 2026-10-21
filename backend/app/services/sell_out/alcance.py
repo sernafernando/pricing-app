@@ -11,7 +11,7 @@ Sales: every channel, all app-owned (`ml_sale_lines`, `ventas_fuera_ml_metricas`
 `ventas_tienda_nube_metricas`; ERP independence, owner 2026-10-17), read the way
 the sell-in allocation reads them (`sell_in.costing`): ML `item_row_id`, `day`,
 `qty`; fuera / TN `it_transaction`, the UTC date of `fecha_venta` and `signo *
-cantidad`, a return's original sale resolved by `costing._objetivos`. A sale
+cantidad`, a return's original sale resolved by `costing.resolver_objetivos`. A sale
 belongs to a campaign when it is dated inside its inclusive range, and so does a
 return: only a return dated inside it frees units (`tope.asignar`). A return
 dated after the end keeps the credit of its sale (owner, 2026-10-21: "si el
@@ -42,7 +42,7 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
-from app.services.sell_in.costing import _VENTAS_FACTURADAS, _objetivos, _unidades, _utc_date
+from app.services.sell_in.costing import VENTAS_FACTURADAS, resolver_objetivos, unidades_firmadas, utc_date
 
 
 @dataclass(frozen=True)
@@ -144,7 +144,7 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
     ]
     inicio = datetime.combine(desde, time(0), tzinfo=timezone.utc)
     fin = datetime.combine(hasta, time.max, tzinfo=timezone.utc)
-    for canal, model in _VENTAS_FACTURADAS:
+    for canal, model in VENTAS_FACTURADAS:
         rows = db.query(
             model.it_transaction,
             model.item_id,
@@ -161,14 +161,14 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
         )
         devoluciones = []
         for ref, item_id, fecha, signo, cantidad, cust_id, monto, costo in rows:
-            unidades = _unidades(signo, cantidad)
+            unidades = unidades_firmadas(signo, cantidad)
             if unidades > 0:
                 costo_unit = _por_unidad(costo, unidades, _positivo)
                 precio_unit = _por_unidad(monto, unidades, _no_negativo)
-                salida.append(Venta(canal, ref, item_id, _utc_date(fecha), unidades, None, costo_unit, precio_unit))
+                salida.append(Venta(canal, ref, item_id, utc_date(fecha), unidades, None, costo_unit, precio_unit))
             elif unidades < 0:
-                devoluciones.append((ref, item_id, _utc_date(fecha), unidades, cust_id))
-        objetivos = _objetivos(db, model, devoluciones)
+                devoluciones.append((ref, item_id, utc_date(fecha), unidades, cust_id))
+        objetivos = resolver_objetivos(db, model, devoluciones)
         for ref, item_id, fecha, unidades, _ in devoluciones:
             objetivo = objetivos.get(ref)
             salida.append(Venta(canal, ref, item_id, fecha, unidades, (canal, objetivo) if objetivo else None))
