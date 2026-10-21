@@ -151,7 +151,6 @@ class SellOutConsumo(Base):
         CheckConstraint("monto >= 0", name="ck_sell_out_consumos_monto_no_negativo"),
         CheckConstraint("tc_venta IS NULL OR tc_venta > 0", name="ck_sell_out_consumos_tc_venta_positivo"),
         Index("ix_sell_out_consumos_canal_venta", "canal", "venta_ref"),
-        Index("ix_sell_out_consumos_campana_id", "campana_id"),
     )
 
     id = Column(BigInteger, primary_key=True)

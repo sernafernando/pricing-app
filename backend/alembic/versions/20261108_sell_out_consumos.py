@@ -55,7 +55,6 @@ def upgrade() -> None:
         sa.CheckConstraint("tc_venta IS NULL OR tc_venta > 0", name="ck_sell_out_consumos_tc_venta_positivo"),
     )
     op.create_index("ix_sell_out_consumos_canal_venta", "sell_out_consumos", ["canal", "venta_ref"])
-    op.create_index("ix_sell_out_consumos_campana_id", "sell_out_consumos", ["campana_id"])
     op.create_table(
         "sell_out_dirty",
         sa.Column(
@@ -73,7 +72,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("sell_out_dirty")
-    op.drop_index("ix_sell_out_consumos_campana_id", table_name="sell_out_consumos")
     op.drop_index("ix_sell_out_consumos_canal_venta", table_name="sell_out_consumos")
     op.drop_table("sell_out_consumos")
     op.drop_column("sell_out_campanas", "monto_incluye_iva")
