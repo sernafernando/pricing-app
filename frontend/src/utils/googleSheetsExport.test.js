@@ -106,20 +106,17 @@ describe('parseCsvExport', () => {
   });
 });
 
-describe('toPasteText', () => {
-  it('quotes only the cells that need it', () => {
-    expect(mod.toPasteText([['a;b', 'c"d', 'e'], ['1,5', '', 'x\ny']])).toBe('"a;b";"c""d";e\n1,5;;"x\ny"');
-  });
-});
+// A Sheets date-time serial: days since 1899-12-30, the time as the fraction of the day (DateTimeRenderOption).
+const serial = (y, m, d, h = 0, mi = 0, sec = 0) => Date.UTC(y, m - 1, d, h, mi, sec) / 86_400_000 + 25_569;
 
-describe('buildFormatRequests', () => {
+describe('buildSheetRequests', () => {
   const header = ['Producto', 'SKU', 'Unidades', 'Facturado', 'Markup %', 'Última venta', 'Variación pp'];
   const rows = [
     header,
     ['Router', '000123', '3', '1234,50', '12,50', '2026-10-19 22:30:00', '-1,25'],
     ['Switch', '000124', '', '99,00', '', '', '0,00'],
   ];
-  const ofKind = (kind) => mod.buildFormatRequests({ sheetId: 7, rows, notes: [] }).filter((r) => r[kind]).map((r) => r[kind]);
+  const ofKind = (kind) => mod.buildSheetRequests({ sheetId: 7, rows, notes: [] }).filter((r) => r[kind]).map((r) => r[kind]);
   const numberFormatOf = (column) =>
     ofKind('repeatCell').find((r) => r.range.startColumnIndex === column && r.fields === 'userEnteredFormat.numberFormat')
       ?.cell.userEnteredFormat.numberFormat;
@@ -136,10 +133,16 @@ describe('buildFormatRequests', () => {
     expect(head.fields).toBe('userEnteredFormat(backgroundColorStyle,horizontalAlignment,wrapStrategy,textFormat)');
   });
 
-  it('freezes the header row and filters the data range', () => {
-    expect(ofKind('updateSheetProperties')).toEqual([
-      { properties: { sheetId: 7, gridProperties: { frozenRowCount: 1 } }, fields: 'gridProperties.frozenRowCount' },
-    ]);
+  it('first sizes the grid to the data and freezes the header row, then filters the data range', () => {
+    const [first] = mod.buildSheetRequests({ sheetId: 7, rows, notes: [] });
+    expect(first).toEqual({
+      updateSheetProperties: {
+        properties: { sheetId: 7, gridProperties: { rowCount: 3, columnCount: 7, frozenRowCount: 1 } },
+        fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
+      },
+    });
+    const [withNotes] = mod.buildSheetRequests({ sheetId: 7, rows, notes: ['a', 'b'] });
+    expect(withNotes.updateSheetProperties.properties.gridProperties.rowCount).toBe(6); // a blank row, then the notes
     expect(ofKind('setBasicFilter')).toEqual([
       { filter: { range: { sheetId: 7, startRowIndex: 0, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 7 } } },
     ]);
@@ -162,20 +165,28 @@ describe('buildFormatRequests', () => {
     expect(numberFormatOf(3)).toEqual({ type: 'NUMBER', pattern: '#,##0.00' });
     // The CSV writes percentage POINTS ("12,50" is 12.5 %): a literal sign, never PERCENT (which multiplies by 100).
     expect(numberFormatOf(4)).toEqual({ type: 'NUMBER', pattern: '#,##0.00"%"' });
-    expect(numberFormatOf(5)).toEqual({ type: 'DATE', pattern: 'dd/mm/yyyy' });
+    // A date-time keeps its time on screen.
+    expect(numberFormatOf(5)).toEqual({ type: 'DATE_TIME', pattern: 'dd/mm/yyyy hh:mm:ss' });
     expect(numberFormatOf(6)).toEqual({ type: 'NUMBER', pattern: '#,##0.00' });
     const facturado = ofKind('repeatCell').find((r) => r.range.startColumnIndex === 3);
     expect(facturado.range).toEqual({ sheetId: 7, startRowIndex: 1, endRowIndex: 3, startColumnIndex: 3, endColumnIndex: 4 });
   });
 
+  it('a column of dates without time is a DATE', () => {
+    const dated = mod.buildSheetRequests({ sheetId: 7, rows: [['Desde'], ['2026-10-20']], notes: [] });
+    const format = dated.find((r) => r.repeatCell?.fields === 'userEnteredFormat.numberFormat').repeatCell;
+    expect(format.cell.userEnteredFormat.numberFormat).toEqual({ type: 'DATE', pattern: 'dd/mm/yyyy' });
+    expect(dated.find((r) => r.updateCells).updateCells.rows[1].values[0]).toEqual({ userEnteredValue: { numberValue: serial(2026, 10, 20) } });
+  });
+
   it('a column with one non-number value gets no number format', () => {
-    const mixed = mod.buildFormatRequests({ sheetId: 0, rows: [['Stock'], ['3'], ['n/d']], notes: [] });
+    const mixed = mod.buildSheetRequests({ sheetId: 0, rows: [['Stock'], ['3'], ['n/d']], notes: [] });
     expect(mixed.some((r) => r.repeatCell?.fields === 'userEnteredFormat.numberFormat')).toBe(false);
   });
 
   it('fits every column to its content, capping the ones with long text', () => {
     const long = 'x'.repeat(80);
-    const fitted = mod.buildFormatRequests({ sheetId: 7, rows: [['Título', 'Stock'], [long, '1']], notes: [] });
+    const fitted = mod.buildSheetRequests({ sheetId: 7, rows: [['Título', 'Stock'], [long, '1']], notes: [] });
     const resizeAt = fitted.findIndex((r) => r.autoResizeDimensions);
     expect(fitted[resizeAt].autoResizeDimensions).toEqual({ dimensions: { sheetId: 7, dimension: 'COLUMNS', startIndex: 0, endIndex: 2 } });
     const caps = fitted.filter((r) => r.updateDimensionProperties);
@@ -191,25 +202,75 @@ describe('buildFormatRequests', () => {
     expect(fitted.indexOf(caps[0])).toBeGreaterThan(resizeAt);
   });
 
-  it('writes the notes two rows below the data, AFTER the fit, in gray italics', () => {
-    const withNotes = mod.buildFormatRequests({ sheetId: 7, rows, notes: ['AVISO: sin publicidad; reintente.'] });
-    const pasteAt = withNotes.findIndex((r) => r.pasteData);
-    expect(pasteAt).toBeGreaterThan(withNotes.findIndex((r) => r.autoResizeDimensions));
-    // A tab never appears in a note, so a ";" in it stays in one cell.
-    expect(withNotes[pasteAt].pasteData).toEqual({
-      coordinate: { sheetId: 7, rowIndex: 4, columnIndex: 0 },
-      data: 'AVISO: sin publicidad; reintente.',
-      type: 'PASTE_NORMAL',
-      delimiter: '\t',
+  it('writes the notes two rows below the data, AFTER the fit, as text in gray italics', () => {
+    const withNotes = mod.buildSheetRequests({ sheetId: 7, rows, notes: ['AVISO: sin publicidad; reintente.', '=1+1'] });
+    const writes = withNotes.filter((r) => r.updateCells);
+    const noteAt = withNotes.indexOf(writes.at(-1));
+    expect(noteAt).toBeGreaterThan(withNotes.findIndex((r) => r.autoResizeDimensions));
+    expect(writes.at(-1).updateCells).toEqual({
+      start: { sheetId: 7, rowIndex: 4, columnIndex: 0 },
+      rows: [
+        { values: [{ userEnteredValue: { stringValue: 'AVISO: sin publicidad; reintente.' } }] },
+        { values: [{ userEnteredValue: { stringValue: '=1+1' } }] },
+      ],
+      fields: 'userEnteredValue',
     });
     const style = withNotes.at(-1).repeatCell;
-    expect(style.range).toEqual({ sheetId: 7, startRowIndex: 4, endRowIndex: 5, startColumnIndex: 0, endColumnIndex: 1 });
+    expect(style.range).toEqual({ sheetId: 7, startRowIndex: 4, endRowIndex: 6, startColumnIndex: 0, endColumnIndex: 1 });
     expect(style.cell.userEnteredFormat.textFormat).toMatchObject({ italic: true });
     expect(style.fields).toBe('userEnteredFormat.textFormat');
   });
 
+  describe('the cells, as typed values (never parsed by Sheets)', () => {
+    const cellsOf = (data) => mod.buildSheetRequests({ sheetId: 7, rows: data, notes: [] }).find((r) => r.updateCells).updateCells;
+
+    it('writes every row from A1, right after sizing the grid', () => {
+      const requests = mod.buildSheetRequests({ sheetId: 7, rows, notes: [] });
+      expect(requests[1].updateCells.start).toEqual({ sheetId: 7, rowIndex: 0, columnIndex: 0 });
+      expect(requests[1].updateCells.fields).toBe('userEnteredValue');
+      expect(requests[1].updateCells.rows).toHaveLength(3);
+      expect(requests.some((r) => r.pasteData)).toBe(false);
+    });
+
+    it('numbers of numeric columns are numberValue; codes, text and the header are stringValue', () => {
+      const [head, first, second] = cellsOf(rows).rows.map((row) => row.values);
+      expect(head[1]).toEqual({ userEnteredValue: { stringValue: 'SKU' } });
+      expect(first).toEqual([
+        { userEnteredValue: { stringValue: 'Router' } },
+        { userEnteredValue: { stringValue: '000123' } }, // the leading zeros stay
+        { userEnteredValue: { numberValue: 3 } },
+        { userEnteredValue: { numberValue: 1234.5 } },
+        { userEnteredValue: { numberValue: 12.5 } },
+        { userEnteredValue: { numberValue: serial(2026, 10, 19, 22, 30) } },
+        { userEnteredValue: { numberValue: -1.25 } },
+      ]);
+      expect(second[2]).toEqual({}); // an empty cell stays empty
+    });
+
+    it('a number in a column that is not all numbers stays the text it was', () => {
+      const [, three] = cellsOf([['Stock'], ['3'], ['n/d']]).rows;
+      expect(three.values[0]).toEqual({ userEnteredValue: { stringValue: '3' } });
+    });
+
+    it('text that looks like a formula is a string, never a formula', () => {
+      const [, row] = cellsOf([['Título', 'Marca'], ['=HYPERLINK("http://x","y")', '@SUM(A1)']]).rows;
+      expect(row.values).toEqual([
+        { userEnteredValue: { stringValue: '=HYPERLINK("http://x","y")' } },
+        { userEnteredValue: { stringValue: '@SUM(A1)' } },
+      ]);
+    });
+
+    it('drops the quote the CSV adds to defuse a formula: a string needs none', () => {
+      const [, row] = cellsOf([['Título', 'Nota'], ["'=IMPORTXML(A1)", "'hola"]]).rows;
+      expect(row.values).toEqual([
+        { userEnteredValue: { stringValue: '=IMPORTXML(A1)' } },
+        { userEnteredValue: { stringValue: "'hola" } }, // only a defused formula loses its quote
+      ]);
+    });
+  });
+
   it('a file with only the header gets no banding and no number formats', () => {
-    const empty = mod.buildFormatRequests({ sheetId: 7, rows: [['A', 'B']], notes: [] });
+    const empty = mod.buildSheetRequests({ sheetId: 7, rows: [['A', 'B']], notes: [] });
     expect(empty.some((r) => r.addBanding)).toBe(false);
     expect(empty.some((r) => r.repeatCell?.fields === 'userEnteredFormat.numberFormat')).toBe(false);
   });
@@ -226,23 +287,20 @@ describe('exportarCsvASheets', () => {
     expect(tokenClientConfigs[0]).toMatchObject({ client_id: 'client-123', scope: 'https://www.googleapis.com/auth/drive.file' });
   });
 
-  it('fetches the CSV with the same params, creates the sheet titled as the file, pastes, formats and opens it', async () => {
+  it('fetches the CSV with the same params, creates the sheet titled as the file, writes and formats it, and opens it', async () => {
     csvResponse(CSV);
     const result = await run();
 
     expect(api.get).toHaveBeenCalledWith('/ml-metricas/board/export', { params: { sort: 'gross' }, responseType: 'blob' });
-    const [create, paste, format] = sheetsCalls();
+    const [create, batch] = sheetsCalls();
     expect(create.url).toBe('https://sheets.googleapis.com/v4/spreadsheets?fields=spreadsheetId,spreadsheetUrl,sheets.properties.sheetId');
     expect(create.init).toMatchObject({ method: 'POST', headers: { Authorization: 'Bearer tok-1', 'Content-Type': 'application/json' } });
     expect(create.body).toEqual({ properties: { title: 'metricas-ml-2026-10-01-2026-10-21', locale: 'es_AR' } });
-    expect(paste.url).toBe('https://sheets.googleapis.com/v4/spreadsheets/sid:batchUpdate');
-    expect(paste.body).toEqual({
-      requests: [
-        { pasteData: { coordinate: { sheetId: 7, rowIndex: 0, columnIndex: 0 }, data: 'Producto;Unidades\nRouter;3', type: 'PASTE_NORMAL', delimiter: ';' } },
-      ],
+    expect(batch.url).toBe('https://sheets.googleapis.com/v4/spreadsheets/sid:batchUpdate');
+    expect(batch.body).toEqual({
+      requests: mod.buildSheetRequests({ sheetId: 7, rows: [['Producto', 'Unidades'], ['Router', '3']], notes: ['AVISO: sin publicidad.'] }),
     });
-    expect(format.body.requests.find((r) => r.pasteData).pasteData.data).toBe('AVISO: sin publicidad.');
-    expect(sheetsCalls()).toHaveLength(3);
+    expect(sheetsCalls()).toHaveLength(2);
     // No token yet: the Google popup took the click, so the sheet opens in a tab of its own at the end.
     expect(window.open).toHaveBeenCalledWith(CREATED.spreadsheetUrl, '_blank');
     expect(result).toEqual({ url: CREATED.spreadsheetUrl, opened: true });
@@ -253,7 +311,7 @@ describe('exportarCsvASheets', () => {
     await run();
     await run();
     expect(tokenClientConfigs).toHaveLength(1);
-    expect(batchBodies()).toHaveLength(4);
+    expect(batchBodies()).toHaveLength(2);
   });
 
   it('asks again once the token is about to expire', async () => {

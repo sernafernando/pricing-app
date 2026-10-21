@@ -8,6 +8,8 @@ import { fetchCsvText, METRICAS_EXPORT_URL } from './ventasMlExport';
  *   Sheets: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/create
  *           https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate
  *           https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/request
+ *           https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/other#ExtendedValue
+ *           https://developers.google.com/workspace/sheets/api/reference/rest/v4/DateTimeRenderOption
  */
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
@@ -120,11 +122,7 @@ export function parseCsvExport(text) {
   return { rows, notes };
 }
 
-/** Rows back to `;`-delimited text for `pasteData`, quoting only the cells that need it. */
-export const toPasteText = (rows) =>
-  rows.map((row) => row.map((c) => (/[;"\n\r]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(';')).join('\n');
-
-// ── The format ──────────────────────────────────────────────────
+// ── The sheet ───────────────────────────────────────────────────
 
 const rgb = (red, green, blue) => ({ rgbColor: { red, green, blue } });
 const HEADER_BG = rgb(0.149, 0.196, 0.247); // #26323f, a sober slate
@@ -139,22 +137,48 @@ const IDENTIFIER = /^(sku|c[oó]digo|mla|publicaci[oó]n)$/i;
 const PERCENT_POINTS = /%|markup|margen|rentabilidad/i;
 const INTEGER = /^-?\d+$/;
 const DECIMAL = /^-?\d+(,\d+)?$/;
-const DATE = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/;
+const DATE = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}):(\d{2}))?$/;
+// What the export's `csv_text` puts before text that would start a formula. A stringValue is never a formula, so the
+// quote would only show.
+const DEFUSED_FORMULA = /^'[=+\-@\t\r]/;
 
 function numberFormatOf(header, values) {
   if (IDENTIFIER.test(header.trim()) || !values.length) return null;
   const all = (re) => values.every((v) => re.test(v));
-  if (all(DATE)) return { type: 'DATE', pattern: 'dd/mm/yyyy' };
+  if (all(DATE)) {
+    return values.some((v) => v.includes(' '))
+      ? { type: 'DATE_TIME', pattern: 'dd/mm/yyyy hh:mm:ss' }
+      : { type: 'DATE', pattern: 'dd/mm/yyyy' };
+  }
   if (!all(DECIMAL)) return null;
   if (PERCENT_POINTS.test(header)) return { type: 'NUMBER', pattern: '#,##0.00"%"' };
   return { type: 'NUMBER', pattern: all(INTEGER) ? '#,##0' : '#,##0.00' };
 }
 
+// A date (the operator's wall clock, see `localDateTime`) as a Sheets serial: days since 1899-12-30, the time as the
+// fraction of the day.
+function dateSerial(value) {
+  const [, y, m, d, h = 0, mi = 0, sec = 0] = DATE.exec(value);
+  return Date.UTC(+y, m - 1, +d, +h, +mi, +sec) / 86_400_000 + 25_569;
+}
+
+// A typed value, which Sheets stores as is: a stringValue is never read as a number, a date or a formula, so codes
+// keep their leading zeros and a title like "=HYPERLINK(...)" stays text. Numbers only where the column is numeric.
+function cellOf(value, numberFormat) {
+  if (value === '') return {};
+  if (numberFormat?.type === 'NUMBER') return { userEnteredValue: { numberValue: Number(value.replace(',', '.')) } };
+  if (numberFormat) return { userEnteredValue: { numberValue: dateSerial(value) } };
+  return { userEnteredValue: { stringValue: DEFUSED_FORMULA.test(value) ? value.slice(1) : value } };
+}
+
+const textRow = (text) => ({ values: [{ userEnteredValue: { stringValue: text } }] });
+
 /**
- * The one `batchUpdate` that makes the pasted CSV readable: `rows` is the header plus the data as pasted at A1,
- * `notes` the file's trailing notes. Pure: every request shape follows the Sheets API v4 `Request` reference.
+ * The one `batchUpdate` that writes the export to the sheet and makes it readable: `rows` is the header plus the data,
+ * written at A1 as typed values (never pasted text, which Sheets would parse), `notes` the file's trailing notes.
+ * Pure: every request shape follows the Sheets API v4 `Request` reference.
  */
-export function buildFormatRequests({ sheetId, rows, notes }) {
+export function buildSheetRequests({ sheetId, rows, notes }) {
   const [header, ...data] = rows;
   const width = header.length;
   const span = (startRowIndex, endRowIndex, startColumnIndex = 0, endColumnIndex = width) => ({
@@ -165,7 +189,27 @@ export function buildFormatRequests({ sheetId, rows, notes }) {
     endColumnIndex,
   });
   const columns = (startIndex, endIndex) => ({ sheetId, dimension: 'COLUMNS', startIndex, endIndex });
+  const valuesOf = (c) => data.map((row) => row[c] ?? '').filter((v) => v !== '');
+  const formats = header.map((name, c) => numberFormatOf(name, valuesOf(c)));
+  const noteRow = rows.length + 1;
   const requests = [
+    // Exactly the rows written (a new sheet may have fewer than an export's 10,000), the header frozen.
+    {
+      updateSheetProperties: {
+        properties: {
+          sheetId,
+          gridProperties: { rowCount: notes.length ? noteRow + notes.length : rows.length, columnCount: width, frozenRowCount: 1 },
+        },
+        fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
+      },
+    },
+    {
+      updateCells: {
+        start: { sheetId, rowIndex: 0, columnIndex: 0 },
+        rows: rows.map((row, r) => ({ values: header.map((_, c) => cellOf(row[c] ?? '', r ? formats[c] : null)) })),
+        fields: 'userEnteredValue',
+      },
+    },
     {
       repeatCell: {
         range: span(0, 1),
@@ -180,7 +224,6 @@ export function buildFormatRequests({ sheetId, rows, notes }) {
         fields: 'userEnteredFormat(backgroundColorStyle,horizontalAlignment,wrapStrategy,textFormat)',
       },
     },
-    { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1 } }, fields: 'gridProperties.frozenRowCount' } },
     { setBasicFilter: { filter: { range: span(0, rows.length) } } },
   ];
   if (data.length) {
@@ -188,9 +231,7 @@ export function buildFormatRequests({ sheetId, rows, notes }) {
       addBanding: { bandedRange: { range: span(1, rows.length), rowProperties: { firstBandColorStyle: WHITE, secondBandColorStyle: BAND } } },
     });
   }
-  const valuesOf = (c) => data.map((row) => row[c] ?? '').filter((v) => v !== '');
-  header.forEach((name, c) => {
-    const numberFormat = numberFormatOf(name, valuesOf(c));
+  formats.forEach((numberFormat, c) => {
     if (numberFormat) {
       requests.push({
         repeatCell: { range: span(1, rows.length, c, c + 1), cell: { userEnteredFormat: { numberFormat } }, fields: 'userEnteredFormat.numberFormat' },
@@ -204,10 +245,9 @@ export function buildFormatRequests({ sheetId, rows, notes }) {
     }
   });
   if (notes.length) {
-    // Pasted after the fit, so a long note does not widen column A; it overflows into the empty cells instead.
-    const noteRow = rows.length + 1;
+    // Written after the fit, so a long note does not widen column A; it overflows into the empty cells instead.
     requests.push(
-      { pasteData: { coordinate: { sheetId, rowIndex: noteRow, columnIndex: 0 }, data: notes.join('\n'), type: 'PASTE_NORMAL', delimiter: '\t' } },
+      { updateCells: { start: { sheetId, rowIndex: noteRow, columnIndex: 0 }, rows: notes.map(textRow), fields: 'userEnteredValue' } },
       {
         repeatCell: {
           range: span(noteRow, noteRow + notes.length, 0, 1),
@@ -263,11 +303,9 @@ export async function exportarCsvASheets(url, params, { filename, genericError }
       { properties: { title: csv.filename.replace(/\.csv$/i, ''), locale: 'es_AR' } },
     );
     const sheetId = created.sheets?.[0]?.properties?.sheetId ?? 0;
-    const batchUrl = `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`;
-    await sheetsRequest(accessToken, batchUrl, {
-      requests: [{ pasteData: { coordinate: { sheetId, rowIndex: 0, columnIndex: 0 }, data: toPasteText(rows), type: 'PASTE_NORMAL', delimiter: ';' } }],
+    await sheetsRequest(accessToken, `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`, {
+      requests: buildSheetRequests({ sheetId, rows, notes }),
     });
-    await sheetsRequest(accessToken, batchUrl, { requests: buildFormatRequests({ sheetId, rows, notes }) });
 
     if (tab) {
       tab.location.href = created.spreadsheetUrl;
