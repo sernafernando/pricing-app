@@ -167,13 +167,6 @@ class TestAsignacion:
         assert w.consumos(engine) == []
         assert result.deleted == 1
 
-    def test_a_percentage_campaign_is_refused_until_its_base_is_decided(self, engine: Engine) -> None:
-        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], tipo="porcentaje", monto_unit=None, porcentaje="5")
-        w.venta(engine, "ml", 2964, 2, D(2026, 11, 2))
-
-        with pytest.raises(SellOutAsignacionError):
-            _recalcular(engine, campana)
-
 
 class TestTipoDeCambio:
     def test_a_usd_row_freezes_the_bna_rate_of_its_sale_day(self, engine: Engine) -> None:
@@ -199,13 +192,126 @@ class TestTipoDeCambio:
         with pytest.raises(SellOutAsignacionError):
             _recalcular(engine, campana)
 
-    def test_an_al_cobro_row_without_a_rate_keeps_it_empty(self, engine: Engine) -> None:
-        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="al_cobro")
-        ref = w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+    @pytest.mark.parametrize("tc_modo", ["fijo", "al_cobro"])
+    def test_a_usd_row_without_a_bna_rate_is_refused_whatever_the_mode(self, engine: Engine, tc_modo: str) -> None:
+        tc = {"tipo_cambio": "1000"} if tc_modo == "fijo" else {}
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo=tc_modo, **tc)
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+
+        with pytest.raises(SellOutAsignacionError):
+            _recalcular(engine, campana)
+
+
+def _ml(engine: Engine, item: int, qty: int, dia: date, gross: str, mcosto: str) -> int:
+    ref = w.venta(engine, "ml", item, qty, dia)
+    w.execute(
+        engine, "UPDATE ml_sale_lines SET gross = :g, mcosto = :c WHERE item_row_id = :r", g=gross, c=mcosto, r=ref
+    )
+    return ref
+
+
+def _fuera(engine: Engine, item: int, qty: int, dia: date, monto: str, costo: str) -> int:
+    ref = w.venta(engine, "fuera", item, qty, dia)
+    w.execute(
+        engine,
+        "UPDATE ventas_fuera_ml_metricas SET monto_total = :m, costo_total = :c WHERE it_transaction = :r",
+        m=monto,
+        c=costo,
+        r=ref,
+    )
+    return ref
+
+
+def _porcentaje(engine: Engine, base: str, **values) -> int:
+    grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
+    return w.campana(
+        engine, [grupo], tipo="porcentaje", monto_unit=None, porcentaje="10", base_porcentaje=base, **values
+    )
+
+
+class TestPorcentaje:
+    """A percentage of a base per unit without VAT (owner 2026-10-20): the cost recorded on the sale
+    (`costo`) or its net price (`precio_neto`), converted with the campaign's own `tc_modo`."""
+
+    def test_cost_base_in_pesos_is_the_cost_recorded_on_each_sale(self, engine: Engine) -> None:
+        campana = _porcentaje(engine, "costo")
+        fuera = _fuera(engine, 2964, 2, D(2026, 11, 2), monto="9999.00", costo="1000.00")
+        ml = _ml(engine, 2270, 2, D(2026, 11, 3), gross="9999", mcosto="30")
 
         _recalcular(engine, campana)
 
-        assert [(r[2], r[7]) for r in w.consumos(engine)] == [(ref, None)]
+        assert _filas(engine, campana) == [("fuera", fuera, 2, Decimal("100.00")), ("ml", ml, 2, Decimal("3.00"))]
+
+    def test_net_price_base_strips_vat_from_ml_and_takes_the_net_amount_elsewhere(self, engine: Engine) -> None:
+        campana = _porcentaje(engine, "precio_neto")
+        fuera = _fuera(engine, 2964, 2, D(2026, 11, 2), monto="2000.00", costo="1.00")
+        router = _ml(engine, 2964, 2, D(2026, 11, 3), gross="242", mcosto="1")  # VAT 21
+        switch = _ml(engine, 2270, 1, D(2026, 11, 4), gross="221", mcosto="1")  # VAT 10.5
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [
+            ("fuera", fuera, 2, Decimal("200.00")),
+            ("ml", router, 2, Decimal("20.00")),
+            ("ml", switch, 1, Decimal("20.00")),
+        ]
+
+    def test_usd_fixed_rate_converts_at_the_campaign_rate(self, engine: Engine) -> None:
+        w.tipo_cambio(engine, D(2026, 11, 1), 500)
+        campana = _porcentaje(engine, "costo", moneda="USD", tc_modo="fijo", tipo_cambio="1000")
+        ref = _fuera(engine, 2964, 2, D(2026, 11, 2), monto="1.00", costo="20000.00")
+
+        _recalcular(engine, campana)
+
+        assert [(r[2], r[6], r[7]) for r in w.consumos(engine)] == [(ref, Decimal("2.00"), Decimal("500"))]
+
+    def test_usd_sale_day_converts_at_each_sale_day_bna(self, engine: Engine) -> None:
+        w.tipo_cambio(engine, D(2026, 11, 1), 500)
+        w.tipo_cambio(engine, D(2026, 11, 3), 1000)
+        campana = _porcentaje(engine, "precio_neto", moneda="USD", tc_modo="dia_venta")
+        a = _fuera(engine, 2964, 1, D(2026, 11, 2), monto="10000.00", costo="1.00")
+        b = _fuera(engine, 2964, 1, D(2026, 11, 3), monto="10000.00", costo="1.00")
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("fuera", a, 1, Decimal("2.00")), ("fuera", b, 1, Decimal("1.00"))]
+
+    def test_usd_al_cobro_follows_the_latest_bna_until_its_rate_is_set(self, engine: Engine) -> None:
+        w.tipo_cambio(engine, D(2026, 11, 1), 500)
+        w.tipo_cambio(engine, D(2026, 11, 20), 1000)
+        campana = _porcentaje(engine, "costo", moneda="USD", tc_modo="al_cobro")
+        ref = _fuera(engine, 2964, 1, D(2026, 11, 2), monto="1.00", costo="20000.00")
+        _recalcular(engine, campana)
+        assert _filas(engine, campana) == [("fuera", ref, 1, Decimal("2.00"))]
+
+        w.tipo_cambio(engine, D(2026, 11, 25), 2000)  # BNA moves: the estimate moves with it
+        _recalcular(engine, campana)
+        assert _filas(engine, campana) == [("fuera", ref, 1, Decimal("1.00"))]
+
+        w.execute(
+            engine,
+            "UPDATE sell_out_campanas SET tipo_cambio = 4000, tc_definido_en = now() WHERE id = :c",
+            c=campana,
+        )
+        _recalcular(engine, campana)
+        assert [(r[6], r[7]) for r in w.consumos(engine)] == [(Decimal("0.50"), Decimal("500"))]
+
+    def test_the_money_cap_applies_to_the_percentage_amounts(self, engine: Engine) -> None:
+        campana = _porcentaje(engine, "costo", tope_monto="150.00")
+        a = _fuera(engine, 2964, 1, D(2026, 11, 2), monto="1.00", costo="1000.00")
+        b = _fuera(engine, 2964, 1, D(2026, 11, 3), monto="1.00", costo="1000.00")
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("fuera", a, 1, Decimal("100.00")), ("fuera", b, 1, Decimal("50.00"))]
+
+    @pytest.mark.parametrize("base", ["costo", "precio_neto"])
+    def test_a_sale_whose_base_is_unknown_is_refused(self, engine: Engine, base: str) -> None:
+        campana = _porcentaje(engine, base)
+        _ml(engine, 2964, 1, D(2026, 11, 2), gross="0", mcosto="0")  # unsettled: no gross, no cost
+
+        with pytest.raises(SellOutAsignacionError):
+            _recalcular(engine, campana)
 
 
 class TestExclusividad:
@@ -274,6 +380,32 @@ class TestExclusividad:
         assert _filas(engine, exclusiva) == [("ml", siguiente, 2, Decimal("20.00"))]
         assert _filas(engine, segunda) == [("ml", siguiente, 2, Decimal("2.00"))]
         assert vendida not in [f[1] for f in _filas(engine, segunda)]
+
+    def test_stackable_campaigns_before_an_exclusive_one_share_the_same_units(self, engine: Engine) -> None:
+        routers = w.grupo(engine, [TP_ROUTERS])
+        una = w.campana(engine, [routers], tope_unidades=1)
+        otra = w.campana(engine, [routers], tope_unidades=1)
+        exclusiva = w.campana(engine, [routers], acumulable=False, monto_unit="1.00")
+        ref = w.venta(engine, "ml", 2964, 3, D(2026, 11, 2))
+
+        _recalcular(engine, exclusiva)
+
+        # `una` and `otra` stack: both credit the SAME unit, so 2 of the 3 are still free.
+        assert [_filas(engine, c) for c in (una, otra)] == [[("ml", ref, 1, Decimal("10.00"))]] * 2
+        assert _filas(engine, exclusiva) == [("ml", ref, 2, Decimal("2.00"))]
+
+    def test_an_exclusive_and_a_stackable_campaign_before_it_hold_different_units(self, engine: Engine) -> None:
+        routers = w.grupo(engine, [TP_ROUTERS])
+        primera = w.campana(engine, [routers], acumulable=False, tope_unidades=1)
+        segunda = w.campana(engine, [routers], tope_unidades=1)
+        tercera = w.campana(engine, [routers], acumulable=False, monto_unit="1.00")
+        ref = w.venta(engine, "ml", 2964, 3, D(2026, 11, 2))
+
+        _recalcular(engine, tercera)
+
+        assert _filas(engine, primera) == [("ml", ref, 1, Decimal("10.00"))]
+        assert _filas(engine, segunda) == [("ml", ref, 1, Decimal("10.00"))]
+        assert _filas(engine, tercera) == [("ml", ref, 1, Decimal("1.00"))]
 
     def test_voiding_the_exclusive_campaign_hands_its_units_to_the_other(self, engine: Engine) -> None:
         routers = w.grupo(engine, [TP_ROUTERS])

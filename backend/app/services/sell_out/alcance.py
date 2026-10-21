@@ -13,8 +13,17 @@ the sell-in allocation reads them (`sell_in.costing`): ML `item_row_id`, `day`,
 `qty`; fuera / TN `it_transaction`, the UTC date of `fecha_venta` and `signo *
 cantidad`, a return's original sale resolved by `costing._objetivos`. A sale
 belongs to a campaign when it is dated inside its inclusive range; a return from
-the campaign's first day on, with no end, so a credited unit returned after the
-campaign ends loses its credit (`tope.asignar` frees it from its sale).
+the campaign's first day on, with no end: a credited unit returned after the
+campaign ends loses its credit (`tope.asignar` frees it from its sale; owner
+rule "every return frees its units", confirmed for sell out 2026-10-21).
+
+Each sale also carries, per unit and in ARS, what a percentage campaign needs,
+as recorded ON THE SALE (never the current `productos_erp.costo`); None when
+unknown:
+- cost without VAT: ML `mcosto / qty` (the line's share of the order's frozen
+  cost of goods; 0 means unknown), fuera / TN `costo_total / units`;
+- price: ML `gross / qty` (unit price x qty, WITH VAT; 0 means unknown: an
+  unsettled or non-ARS order), fuera / TN `monto_total / units` (without VAT).
 """
 
 from __future__ import annotations
@@ -43,6 +52,21 @@ class Venta:
     fecha: date
     unidades: int  # negative: a return
     objetivo: Optional[Tuple[str, int]] = None  # a return's original sale, when resolved
+    costo_unit: Optional[Decimal] = None  # ARS, without VAT
+    precio_unit: Optional[Decimal] = None  # ARS; with VAT when `precio_con_iva`
+    precio_con_iva: bool = False
+
+
+def _positivo(x: Decimal) -> bool:
+    return x > 0
+
+
+def _no_negativo(x: Decimal) -> bool:
+    return x >= 0
+
+
+def _por_unidad(total, unidades: int, conocido) -> Optional[Decimal]:
+    return Decimal(total) / unidades if total is not None and conocido(Decimal(total)) else None
 
 
 def _texto(columna, producto):
@@ -99,26 +123,49 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
         return []
     ids = sorted(item_ids)
     salida = [
-        Venta("ml", ref, item_id, dia, int(qty))
-        for ref, item_id, dia, qty in db.query(
-            MlSaleLine.item_row_id, MlSaleLine.product, MlSaleLine.day, MlSaleLine.qty
+        Venta(
+            "ml",
+            ref,
+            item_id,
+            dia,
+            int(qty),
+            costo_unit=_por_unidad(mcosto, qty, _positivo),
+            precio_unit=_por_unidad(gross, qty, _positivo),
+            precio_con_iva=True,
+        )
+        for ref, item_id, dia, qty, gross, mcosto in db.query(
+            MlSaleLine.item_row_id,
+            MlSaleLine.product,
+            MlSaleLine.day,
+            MlSaleLine.qty,
+            MlSaleLine.gross,
+            MlSaleLine.mcosto,
         ).filter(MlSaleLine.product.in_(ids), MlSaleLine.day.between(desde, hasta), MlSaleLine.qty > 0)
     ]
     inicio = datetime.combine(desde, time(0), tzinfo=timezone.utc)
     fin = datetime.combine(hasta, time.max, tzinfo=timezone.utc)
     for canal, model in _VENTAS_FACTURADAS:
         rows = db.query(
-            model.it_transaction, model.item_id, model.fecha_venta, model.signo, model.cantidad, model.cust_id
+            model.it_transaction,
+            model.item_id,
+            model.fecha_venta,
+            model.signo,
+            model.cantidad,
+            model.cust_id,
+            model.monto_total,
+            model.costo_total,
         ).filter(
             model.item_id.in_(ids),
             model.fecha_venta >= inicio,
             or_(model.fecha_venta <= fin, func.coalesce(model.signo, 1) * model.cantidad < 0),
         )
         devoluciones = []
-        for ref, item_id, fecha, signo, cantidad, cust_id in rows:
+        for ref, item_id, fecha, signo, cantidad, cust_id, monto, costo in rows:
             unidades = _unidades(signo, cantidad)
             if unidades > 0:  # the query only reads positive lines up to `hasta`
-                salida.append(Venta(canal, ref, item_id, _utc_date(fecha), unidades))
+                costo_unit = _por_unidad(costo, unidades, _positivo)
+                precio_unit = _por_unidad(monto, unidades, _no_negativo)
+                salida.append(Venta(canal, ref, item_id, _utc_date(fecha), unidades, None, costo_unit, precio_unit))
             elif unidades < 0:
                 devoluciones.append((ref, item_id, _utc_date(fecha), unidades, cust_id))
         objetivos = _objetivos(db, model, devoluciones)
