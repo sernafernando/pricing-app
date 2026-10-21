@@ -90,3 +90,4 @@ Vitest for the touched components + css-guard, eslint, stylelint, `pnpm build`, 
     | `deposito`, `tesoreria` | prefix default (/administracion/compras) |
 
   - Leftovers in "Otros" (from the ~192 codes extracted from alembic + catalog): `reportes.exportar`, `reportes.ver_auditoria`, `tplink.tema` (no frontend check, or a global theme flag).
+- 2026-10-21 T1 review follow-up (2 R3 suggestions on a5fc94667): added tests for Quitar/Resetear on an extra row, an extra on two screens (rma.gestionar on /rma and /claims) and the pinned "Otros" set (exactly reportes.exportar, reportes.ver_auditoria, tplink.tema); all passed on the first run (coverage, not RED), `vitest run src/registry src/components/permisos` 113/113, eslint clean.

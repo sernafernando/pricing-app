@@ -14,7 +14,7 @@ import {
   PERMISOS_ADICIONALES,
   nombreCategoria,
 } from './screenCatalog';
-import { pantallasDeAdicional } from './permisosAcceso';
+import { otrosPermisos, pantallasDeAdicional } from './permisosAcceso';
 
 function parseProtectedRoutes(source) {
   const start = source.indexOf('const protectedRoutes = [');
@@ -249,6 +249,31 @@ describe('extra permissions map (PERMISOS_ADICIONALES)', () => {
     expect(donde('ml_ops.gestionar')).toEqual(['/ml-publicaciones']);
     expect(donde('promos.escribir')).toEqual(['/productos', '/ml-publicaciones']);
     expect(donde('deposito.despachar_retiro')).toEqual(['/administracion/compras']);
+  });
+
+  it('pins the "Otros permisos" set for a realistic payload: one code per mapped prefix plus the known leftovers', () => {
+    const codigos = [
+      'productos.editar_precios', 'productos.gestionar_markups_tienda', 'tienda.editar_precio_gremio',
+      'admin.gestionar_permisos', 'admin.gestionar_banlist', 'admin.ver_tn_reconciliacion',
+      'administracion.gestionar_ordenes_compra', 'administracion.consultar_afip', 'administracion.gestionar_caja',
+      'administracion.sincronizar_caja', 'rma.eliminar', 'rma.gestionar', 'rma.control_deposito_no_baja',
+      'ml_ops.gestionar', 'ml_metricas.ver_ganancia', 'ventas_ml.ver_todas_marcas', 'tplink.solo',
+      'produccion.ver_preparacion', 'seguimiento_envios.flag', 'documentos.imprimir',
+      'rrhh.config', 'rrhh.gestionar', 'rrhh.liquidar_horas_extras',
+      'reportes.recibir_notificaciones_markup', 'tickets.gestionar', 'config.editar_constantes',
+      'envios_flex.asignar_turbo', 'pedidos.ver_pendientes', 'promos.escribir', 'pxq.ver', 'sell_out.ver',
+      'equipos.gestionar_global', 'deposito.despachar_retiro',
+      // Hypothetical future codes of prefixes whose access codes exist but that have no extras today.
+      'ordenes.exportar', 'alertas.exportar',
+      'reportes.exportar', 'reportes.ver_auditoria', 'tplink.tema',
+    ];
+    const detallados = {
+      todos: codigos.map((codigo) => ({ codigo, nombre: codigo, override: null, efectivo: false, origen: 'sin_permiso' })),
+    };
+    const otros = otrosPermisos(detallados, SCREENS, PERMISOS_ADICIONALES).map((p) => p.codigo);
+    expect(otros).toEqual(['reportes.exportar', 'reportes.ver_auditoria', 'tplink.tema']);
+    const sinPantalla = codigos.filter((codigo) => !otros.includes(codigo) && donde(codigo).length === 0);
+    expect(sinPantalla).toEqual([]);
   });
 
   it('leaves only codes with no screen at all for "Otros"', () => {

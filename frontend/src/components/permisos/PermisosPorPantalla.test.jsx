@@ -244,6 +244,58 @@ describe('PermisosPorPantalla', () => {
         .not.toBeInTheDocument();
     });
 
+    const conAdicionales = (extra) => {
+      const datos = payload();
+      Object.assign(datos.permisos_detallados, extra);
+      return datos;
+    };
+
+    it('removes an extra the role grants', async () => {
+      const user = userEvent.setup();
+      renderPanel({
+        permisosUsuario: conAdicionales({ productos: [delRol('productos.ver'), delRol('productos.editar_precios')] }),
+      });
+
+      await user.click(within(fila('/productos')).getByRole('button', { expanded: false }));
+      const adicionales = within(fila('/productos')).getByRole('list', { name: 'Permisos adicionales' });
+      await user.click(within(adicionales).getByRole('button', { name: 'Quitar productos.editar_precios' }));
+      expect(api.post).toHaveBeenCalledWith('/permisos/override', expect.objectContaining({
+        permiso_codigo: 'productos.editar_precios',
+        concedido: false,
+      }));
+    });
+
+    it('resets an extra that has an override', async () => {
+      const user = userEvent.setup();
+      renderPanel({
+        permisosUsuario: conAdicionales({
+          productos: [
+            delRol('productos.ver'),
+            permiso('productos.editar_precios', { override: true, efectivo: true, origen: 'override_agregado' }),
+          ],
+        }),
+      });
+
+      await user.click(within(fila('/productos')).getByRole('button', { expanded: false }));
+      const adicionales = within(fila('/productos')).getByRole('list', { name: 'Permisos adicionales' });
+      await user.click(within(adicionales).getByRole('button', { name: 'Resetear productos.editar_precios' }));
+      expect(api.delete).toHaveBeenCalledWith(`/permisos/override/${USUARIO_ID}/productos.editar_precios`);
+    });
+
+    it('lists an extra mapped to two screens under both, acting on the same codigo', async () => {
+      const user = userEvent.setup();
+      renderPanel({ permisosUsuario: conAdicionales({ rma: [delRol('rma.ver'), permiso('rma.gestionar')] }) });
+
+      for (const path of ['/rma', '/claims']) {
+        expect(within(fila(path)).getByText('+1 adicional')).toBeInTheDocument();
+        await user.click(within(fila(path)).getByRole('button', { expanded: false }));
+        const adicionales = within(fila(path)).getByRole('list', { name: 'Permisos adicionales' });
+        await user.click(within(adicionales).getByRole('button', { name: 'Conceder rma.gestionar' }));
+      }
+      const concedidos = api.post.mock.calls.map(([, body]) => body.permiso_codigo);
+      expect(concedidos).toEqual(['rma.gestionar', 'rma.gestionar']);
+    });
+
     it('does not change the screen status when an extra is missing', () => {
       renderPanel();
       expect(within(fila('/productos')).getByText('Accede')).toBeInTheDocument();
