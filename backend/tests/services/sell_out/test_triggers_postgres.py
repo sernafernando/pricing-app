@@ -15,7 +15,9 @@ from datetime import date, datetime, time, timezone
 from typing import Iterator, List
 
 import pytest
+from psycopg2.errors import LockNotAvailable
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import OperationalError
 
 from app.services.sell_out import triggers
 from tests.services.sell_out import _world as w
@@ -413,6 +415,51 @@ def _esperar_bloqueado(engine: Engine, pid: list) -> None:
                     return
         time_module.sleep(0.05)
     raise AssertionError("the sync never waited on the writer's lock")
+
+
+class TestSaleEarlyExit:
+    """A sales statement that changes neither `cust_id` nor `costo_total` (the daily sync rewrites
+    `fecha_calculo` on every row) returns before the reach query. Observed through a lock: another
+    transaction holds `sell_out_consumos` exclusively, which the reach query would have to wait for."""
+
+    @pytest.mark.parametrize("canal, tabla", CANALES)
+    def test_an_irrelevant_statement_skips_the_reach_query_and_leaves_the_queue_untouched(
+        self, engine: Engine, canal, tabla
+    ) -> None:
+        cid = w.campana(engine, [w.grupo(engine, [TPLINK_ROUTERS])], **PORCENTAJE_COSTO)
+        ref = w.venta(engine, canal, 2964, 1, D(2026, 11, 10))
+        w.execute(engine, "INSERT INTO sell_out_dirty (campana_id, attempts, last_error) VALUES (:c, 5, 'roto')", c=cid)
+
+        _con_consumos_bloqueados(
+            engine,
+            f"UPDATE {tabla} SET fecha_calculo = DATE '2026-11-11', cliente = 'Otro' WHERE it_transaction = {ref}",
+        )
+
+        assert w.queued(engine) == [(cid, 5, "roto")]
+
+    def test_a_relevant_statement_does_run_the_reach_query(self, engine: Engine) -> None:
+        """Control: the lock does guard the reach query (otherwise the test above proves nothing)."""
+        w.campana(engine, [w.grupo(engine, [TPLINK_ROUTERS])], **PORCENTAJE_COSTO)
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+
+        with pytest.raises(OperationalError) as caught:
+            _con_consumos_bloqueados(
+                engine, f"UPDATE ventas_fuera_ml_metricas SET cust_id = 999 WHERE it_transaction = {ref}"
+            )
+        assert isinstance(caught.value.orig, LockNotAvailable)
+
+
+def _con_consumos_bloqueados(engine: Engine, statement: str) -> None:
+    """Runs `statement` (lock_timeout 1s) while another transaction holds `sell_out_consumos` exclusively."""
+    with engine.connect() as dueno:
+        tx = dueno.begin()
+        dueno.exec_driver_sql("LOCK TABLE sell_out_consumos IN ACCESS EXCLUSIVE MODE")
+        try:
+            with engine.begin() as conn:
+                conn.exec_driver_sql("SET LOCAL lock_timeout = '1s'")
+                conn.exec_driver_sql(statement)
+        finally:
+            tx.rollback()
 
 
 class TestQueueSemantics:

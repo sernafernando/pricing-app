@@ -84,6 +84,20 @@ _PRODUCTOS_SELECT = """
         JOIN sell_out_campanas AS c ON c.id = a.campana_id
         WHERE NOT s.solo_iva OR c.monto_incluye_iva OR (c.tipo = 'porcentaje' AND c.base_porcentaje = 'precio_neto')"""
 
+# The daily sync rewrites every sale (`fecha_calculo`) one UPDATE per row: a statement where no
+# `cust_id` / `costo_total` changed returns before the reach query (measured locally, 1 active
+# campaign, 20k one-row UPDATEs: +64% without this exit, +22% with it). It MUST be a FULL JOIN:
+# transition tables have no statistics, and an inner JOIN was planned as a nested loop (40 s for
+# one 20k-row UPDATE); a FULL JOIN can only be a hash or merge join.
+_VENTAS_SIN_CAMBIO = """
+    IF NOT EXISTS (
+        SELECT 1 FROM viejas AS o FULL JOIN nuevas AS n ON n.id = o.id
+        WHERE o.id IS NULL OR n.id IS NULL
+           OR (o.cust_id, o.costo_total) IS DISTINCT FROM (n.cust_id, n.costo_total)
+    ) THEN
+        RETURN NULL;
+    END IF;"""
+
 _VENTAS_SELECT = """
         SELECT y.campana_id FROM (
             WITH lados AS (
@@ -219,7 +233,7 @@ $trg$ LANGUAGE plpgsql
 """,
     f"""
 CREATE OR REPLACE FUNCTION sell_out_enqueue_ventas() RETURNS TRIGGER AS $trg$
-BEGIN{_GATE}
+BEGIN{_GATE}{_VENTAS_SIN_CAMBIO}
 {_ENQUEUE.format(select=_VENTAS_SELECT)}
 END;
 $trg$ LANGUAGE plpgsql
