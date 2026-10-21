@@ -1,6 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { buildColumns } from './columns';
+import { PRODUCT_FIGURES } from './productFigures';
 import { describeLoadError } from './loadErrors';
 import MarkupCell from './MarkupCell';
 import { UnitsCell } from './MetricsCells';
@@ -19,19 +20,6 @@ const describeError = (error) =>
     forbidden: 'No tiene permiso para ver este producto.',
     fallback: 'No se pudo cargar el producto.',
   });
-
-// The columns whose cell reads only `metrics`: the same ones a product row of ProductoTable draws.
-const PRODUCT_FIGURES = new Set([
-  'unidades_7d',
-  'unidades_30d',
-  'units_trend',
-  'markup_30d',
-  'markup_trend',
-  'facturado_30d',
-  'total_gauss_30d',
-  'last_sale',
-  'ageing',
-]);
 
 const publicationsLabel = (n) => `${n} ${n === 1 ? 'publicación' : 'publicaciones'}`;
 

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { TableShell } from '../kit';
+import { PRODUCT_FIGURES } from './productFigures';
 import VariationRows from './VariationRows';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
 import { SelectionCheckbox } from './ProductCheckbox';
@@ -20,19 +21,6 @@ import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
  * publications. With `selection` (`{ checked, onToggle }`) a product row leads
  * with its product's checkbox, for the bulk pricing actions.
  */
-// The columns whose cell reads only `metrics`: a product draws them with the publications' own cells.
-const PRODUCT_FIGURES = new Set([
-  'unidades_7d',
-  'unidades_30d',
-  'units_trend',
-  'markup_30d',
-  'markup_trend',
-  'facturado_30d',
-  'total_gauss_30d',
-  'last_sale',
-  'ageing',
-]);
-
 export default function ProductoTable({
   tree,
   columns,
