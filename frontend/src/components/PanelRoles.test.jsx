@@ -1018,3 +1018,114 @@ describe('PanelRoles role drawer', () => {
     expect(drawer('Ventas')).toBeInTheDocument();
   });
 });
+
+describe('PanelRoles selected role in the matrix', () => {
+  const tabla = () => screen.getByRole('table', { name: 'Matriz de roles y permisos' });
+  const encabezado = (nombre) => within(tabla()).getByRole('columnheader', { name: nombre });
+  const td = (permisoNombre, rolNombre) => celda(permisoNombre, rolNombre).closest('td');
+  const soloDelRol = () => screen.queryByRole('checkbox', { name: /^Solo los permisos de este rol/ });
+  const fila = (permisoNombre) => within(tabla()).queryByRole('rowheader', { name: new RegExp(`^${permisoNombre}`) });
+
+  it('marks the header and every cell of the selected role column, granted cells more strongly', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+
+    expect(encabezado('Ventas (seleccionado)')).toHaveAttribute('aria-current', 'true');
+    expect(td('Ver productos', 'Ventas').className).toMatch(/celdaSeleccionada/);
+    expect(td('Ver productos', 'Ventas').className).toMatch(/celdaConcedida/);
+    expect(td('Editar precios', 'Ventas').className).toMatch(/celdaSeleccionada/);
+    expect(td('Editar precios', 'Ventas').className).not.toMatch(/celdaConcedida/);
+    expect(td('Ver panel de administración', 'Ventas').className).toMatch(/celdaSeleccionada/);
+  });
+
+  it('leaves the other columns unmarked', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+
+    expect(encabezado('Administrador')).not.toHaveAttribute('aria-current');
+    expect(encabezado('Super Admin')).not.toHaveAttribute('aria-current');
+    for (const permisoNombre of ['Ver productos', 'Editar precios', 'Ver panel de administración']) {
+      expect(td(permisoNombre, 'Administrador').className).not.toMatch(/celdaSeleccionada|celdaConcedida/);
+      expect(td(permisoNombre, 'Super Admin').className).not.toMatch(/celdaSeleccionada|celdaConcedida/);
+    }
+  });
+
+  it('hides the role filter toggle while no role is selected', async () => {
+    await renderMatriz();
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(within(tabla()).queryByRole('columnheader', { name: /seleccionado/ })).not.toBeInTheDocument();
+  });
+
+  it('filters the rows to the role permissions, counting a pending change, and hides empty categories', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeChecked();
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (1)');
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (2)');
+
+    await user.click(soloDelRol());
+
+    expect(soloDelRol()).toBeChecked();
+    expect(fila('Ver productos')).toBeInTheDocument();
+    expect(fila('Editar precios')).toBeInTheDocument();
+    expect(fila('Ver panel de administración')).not.toBeInTheDocument();
+    expect(within(tabla()).getByText('Productos')).toBeInTheDocument();
+    expect(within(tabla()).queryByText('Administración del sistema')).not.toBeInTheDocument();
+
+    await user.click(soloDelRol());
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+  });
+
+  it('keeps the filter on when switching to another role and applies it to that role', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await abrirRol(user, 'Administrador');
+
+    expect(soloDelRol()).toBeChecked();
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (2)');
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+    expect(encabezado('Administrador (seleccionado)')).toHaveAttribute('aria-current', 'true');
+    expect(encabezado('Ventas')).not.toHaveAttribute('aria-current');
+  });
+
+  it('clears the highlight and resets the filter when the drawer closes', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(screen.getByRole('button', { name: 'Cerrar panel del rol' }));
+
+    expect(queryDrawer()).not.toBeInTheDocument();
+    expect(encabezado('Ventas')).not.toHaveAttribute('aria-current');
+    expect(td('Ver productos', 'Ventas').className).not.toMatch(/celdaSeleccionada|celdaConcedida/);
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeChecked();
+  });
+
+  it('turns the filter on from the permission count in the role detail', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    const admin = await abrirRol(user, 'Administrador');
+    await user.click(within(admin).getByRole('button', { name: 'Ver solo los 2 permisos de Administrador en la matriz' }));
+
+    expect(soloDelRol()).toBeChecked();
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+  });
+});

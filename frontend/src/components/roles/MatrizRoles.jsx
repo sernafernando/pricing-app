@@ -16,23 +16,50 @@ function tituloColumna(rol, soloLectura, noCargado) {
   return rol.codigo;
 }
 
+function claseCelda({ pendiente, seleccionada, concedida }) {
+  return [
+    pendiente ? styles.pendiente : styles.celda,
+    seleccionada && styles.celdaSeleccionada,
+    seleccionada && concedida && styles.celdaConcedida,
+  ].filter(Boolean).join(' ');
+}
+
+function mensajeVacio(q, soloDelRol) {
+  if (q) return 'No hay permisos que coincidan.';
+  if (soloDelRol) return 'Este rol no tiene permisos.';
+  return 'No hay permisos para mostrar.';
+}
+
 /**
  * Roles x permissions matrix: one row per catalog permission (grouped by
  * category), one checkbox column per role. Purely presentational: the cell
  * state, the pending mark and the toggle come from `PanelRoles`. A role whose
  * saved permissions could not be loaded (`sinCargar`) gets a locked column.
+ *
+ * `rolSeleccionado` (the role open in the drawer, or null) gets a highlighted
+ * column, and a "Solo los permisos de este rol" toggle (`soloDelRol`) that keeps
+ * only the rows it has, pending changes included (same `tienePermiso` as the cells).
  */
 export default function MatrizRoles({
   catalogo, roles, esSoloLectura, tienePermiso, esPendiente, sinCargar, onToggle, deshabilitado,
+  rolSeleccionado = null, soloDelRol = false, onSoloDelRolChange,
 }) {
   const [busqueda, setBusqueda] = useState('');
+
+  // A role whose permissions are unknown cannot be filtered by them.
+  const filtrable = rolSeleccionado !== null && !sinCargar(rolSeleccionado);
+  const filtrando = filtrable && soloDelRol;
+  const delRol = (p) => tienePermiso(rolSeleccionado, p.codigo);
+  const cantidadDelRol = filtrable
+    ? Object.values(catalogo || {}).flat().filter(delRol).length
+    : 0;
 
   const q = normalizar(busqueda).trim();
   const grupos = Object.entries(catalogo || {})
     .map(([categoria, permisos]) => ({
       categoria,
       nombre: nombreCategoria(categoria),
-      visibles: (permisos || []).filter((p) => coincide(p, q)),
+      visibles: (permisos || []).filter((p) => coincide(p, q) && (!filtrando || delRol(p))),
     }))
     .filter((grupo) => grupo.visibles.length > 0);
 
@@ -46,26 +73,41 @@ export default function MatrizRoles({
         className={styles.search}
       />
 
+      {filtrable && (
+        <label className={styles.soloRol}>
+          <input
+            type="checkbox"
+            className={styles.casilla}
+            checked={soloDelRol}
+            onChange={(e) => onSoloDelRolChange(e.target.checked)}
+          />
+          Solo los permisos de este rol ({cantidadDelRol})
+        </label>
+      )}
+
       {grupos.length === 0 ? (
-        <div className={styles.vacio}>
-          {q ? 'No hay permisos que coincidan.' : 'No hay permisos para mostrar.'}
-        </div>
+        <div className={styles.vacio}>{mensajeVacio(q, filtrando)}</div>
       ) : (
         <div className={styles.scroll}>
           <table className={styles.tabla} aria-label="Matriz de roles y permisos">
             <thead>
               <tr>
                 <th scope="col" className={styles.colPermiso}>Permiso</th>
-                {roles.map((rol) => (
-                  <th
-                    key={rol.id}
-                    scope="col"
-                    className={styles.colRol}
-                    title={tituloColumna(rol, esSoloLectura(rol), sinCargar(rol))}
-                  >
-                    {rol.nombre}
-                  </th>
-                ))}
+                {roles.map((rol) => {
+                  const seleccionado = rol.id === rolSeleccionado?.id;
+                  return (
+                    <th
+                      key={rol.id}
+                      scope="col"
+                      className={seleccionado ? styles.colRolSeleccionado : styles.colRol}
+                      title={tituloColumna(rol, esSoloLectura(rol), sinCargar(rol))}
+                      aria-current={seleccionado ? 'true' : undefined}
+                    >
+                      {rol.nombre}
+                      {seleccionado && <>{' '}<span className={styles.srOnly}>(seleccionado)</span></>}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             {grupos.map((grupo) => (
@@ -90,13 +132,15 @@ export default function MatrizRoles({
                       const soloLectura = esSoloLectura(rol);
                       const noCargado = sinCargar(rol);
                       const pendiente = esPendiente(rol, permiso.codigo);
+                      const concedida = tienePermiso(rol, permiso.codigo);
+                      const seleccionada = rol.id === rolSeleccionado?.id;
                       return (
-                        <td key={rol.id} className={pendiente ? styles.pendiente : styles.celda}>
+                        <td key={rol.id} className={claseCelda({ pendiente, seleccionada, concedida })}>
                           <input
                             type="checkbox"
                             className={styles.casilla}
                             aria-label={`${permiso.nombre} para ${rol.nombre}`}
-                            checked={tienePermiso(rol, permiso.codigo)}
+                            checked={concedida}
                             onChange={() => onToggle(rol, permiso.codigo)}
                             title={noCargado ? AVISO_SIN_CARGAR : undefined}
                             disabled={deshabilitado || soloLectura || noCargado}

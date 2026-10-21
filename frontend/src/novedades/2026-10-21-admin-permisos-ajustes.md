@@ -21,3 +21,20 @@ Qué tenés que saber:
 3. Hacé clic en el nombre de la pantalla: abajo de los permisos de acceso aparece **Permisos adicionales**, cada uno con su descripción, si es **crítico**, de dónde viene y los botones **Conceder**, **Quitar** o **Resetear**.
 
 > Si un permiso de una pantalla aparece en **Otros permisos**, avisá: significa que todavía no sabemos a qué pantalla pertenece.
+
+## Roles: el rol que elegís se destaca en la matriz
+
+En **Gestión → Admin → Roles**, al hacer clic en un rol ahora su columna queda **marcada en la matriz de permisos**: el encabezado y todas sus casillas se ven resaltados, y los permisos que tiene se ven más fuertes que los que no tiene. Así ves de un vistazo qué tiene habilitado, sin recorrer la matriz entera.
+
+- **Solo los permisos de este rol:** arriba de la matriz aparece una casilla que deja solo las filas de los permisos que tiene el rol, con la cantidad entre paréntesis. Las categorías que quedan vacías se ocultan.
+- **Cuenta los cambios sin guardar:** si marcás o desmarcás una casilla del rol, el filtro y la cantidad lo tienen en cuenta antes de guardar.
+- **Sigue prendido al cambiar de rol:** si elegís otro rol, el filtro pasa a mostrar los permisos del nuevo.
+- **Al cerrar el panel del rol** se quita el resaltado y se apaga el filtro.
+- **Desde el panel del rol:** el número de **Permisos** es un enlace que prende el filtro directamente.
+
+### Cómo se usa
+
+1. Entrá a **Gestión → Admin**, pestaña **Roles**.
+2. Hacé clic en la tarjeta de un rol: se abre su panel y su columna queda resaltada en la matriz.
+3. Tildá **Solo los permisos de este rol** (o hacé clic en el número de **Permisos** del panel) para ver solo lo que tiene.
+4. Cerrá el panel para volver a ver la matriz completa.

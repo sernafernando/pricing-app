@@ -55,6 +55,8 @@ export default function PanelRoles() {
 
   // Role drawer: the role whose detail it shows, or the create form (mostrarFormRol without editandoRol).
   const [rolAbiertoId, setRolAbiertoId] = useState(null);
+  // "Solo los permisos de este rol" in the matrix: kept on across role switches, off once no role is open.
+  const [soloDelRol, setSoloDelRol] = useState(false);
 
   // Estados para crear/editar rol
   const [mostrarFormRol, setMostrarFormRol] = useState(false);
@@ -299,6 +301,7 @@ export default function PanelRoles() {
 
       mostrarMensaje({ tipo: 'success', texto: 'Rol eliminado correctamente' });
       setRolAbiertoId((abierto) => (abierto === rol.id ? null : abierto));
+      if (rolAbiertoId === rol.id) setSoloDelRol(false);
       setPendientes((prev) => Object.fromEntries(Object.entries(prev).filter(([rolId]) => rolId !== String(rol.id))));
       cargarDatos();
     } catch (error) {
@@ -361,6 +364,7 @@ export default function PanelRoles() {
 
   const abrirNuevoRol = () => {
     setRolAbiertoId(null);
+    setSoloDelRol(false);
     setEditandoRol(null);
     setFormRol({ ...FORM_ROL_VACIO, orden: roles.length });
     setMostrarFormRol(true);
@@ -373,6 +377,7 @@ export default function PanelRoles() {
     if (!puedeCerrarDrawer) return;
     cerrarFormRol();
     setRolAbiertoId(null);
+    setSoloDelRol(false);
   };
 
   const rolAbierto = roles.find((rol) => rol.id === rolAbiertoId) ?? null;
@@ -453,6 +458,9 @@ export default function PanelRoles() {
               sinCargar={sinCargar}
               onToggle={togglePermiso}
               deshabilitado={matrizBloqueada}
+              rolSeleccionado={rolAbierto}
+              soloDelRol={soloDelRol}
+              onSoloDelRolChange={setSoloDelRol}
             />
             <BarraCambios
               cantidad={cantidadPendientes}
@@ -485,6 +493,7 @@ export default function PanelRoles() {
                 onEditar={() => iniciarEdicion(rolAbierto)}
                 onClonar={() => setRolAClonar(rolAbierto)}
                 onEliminar={() => pedirEliminarRol(rolAbierto)}
+                onVerPermisos={() => setSoloDelRol(true)}
               />
             )}
           </DrawerRol>
