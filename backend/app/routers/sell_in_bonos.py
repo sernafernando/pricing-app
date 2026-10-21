@@ -13,6 +13,10 @@ is HTTP only over `app.services.sell_in.bonos_crud`.
 - Edit is a full replace (`PUT /{id}`) of an active bonus; a voided one is a 409.
 - There is no delete: a bonus is voided (`POST /{id}/anular`, optional reason
   kept in the audit row; 409 if it already was), which voids what it generated.
+- `GET /{id}/alcance` (`sell_in.ver`) answers what the bonus reaches for its
+  panel: generated purchases, brand operations pending an invoice, and brand
+  operations invoiced outside the range (`bonos_alcance`), each capped with
+  its count.
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
   bonus is a 404.
 """
@@ -28,7 +32,17 @@ from app.core.database import get_db
 from app.models.sell_in import SellInBonoMarca
 from app.models.usuario import Usuario
 from app.routers.sell_in_compras import requiere_gestionar, requiere_ver
-from app.schemas.sell_in_bonos import Estado, SellInBonoAnularIn, SellInBonoIn, SellInBonoListOut, SellInBonoOut
+from app.schemas.sell_in_bonos import (
+    ALCANCE_LIMITE,
+    ALCANCE_LIMITE_MAX,
+    Estado,
+    SellInBonoAlcanceOut,
+    SellInBonoAnularIn,
+    SellInBonoIn,
+    SellInBonoListOut,
+    SellInBonoOut,
+)
+from app.services.sell_in import bonos_alcance
 from app.services.sell_in import bonos_crud as service
 
 router = APIRouter(prefix="/sell-in/bonos", tags=["Sell in"])
@@ -77,6 +91,20 @@ def obtener_bono(bono_id: int, _user: Usuario = Depends(requiere_ver), db: Sessi
     if bono is None:
         raise _no_existe(bono_id)
     return service.serializar(db, [bono])[0]
+
+
+@router.get("/{bono_id}/alcance", response_model=SellInBonoAlcanceOut)
+def alcance_bono(
+    bono_id: int,
+    limite: int = Query(ALCANCE_LIMITE, ge=1, le=ALCANCE_LIMITE_MAX),
+    _user: Usuario = Depends(requiere_ver),
+    db: Session = Depends(get_db),
+) -> dict:
+    """What the bonus reaches: generated purchases, operations pending an invoice, and out of range."""
+    bono = db.get(SellInBonoMarca, bono_id)
+    if bono is None:
+        raise _no_existe(bono_id)
+    return bonos_alcance.alcance(db, bono, limite)
 
 
 @router.put("/{bono_id}", response_model=SellInBonoOut)
