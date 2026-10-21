@@ -26,7 +26,7 @@ failure sequence.
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import BigInteger, text
+from sqlalchemy import BigInteger, create_engine, text
 
 from app.models.ml_orders_ops import MlOrdersOps
 from tests.conftest import _PRISTINE_PG_COLUMN_TYPES, _patch_pg_types_for_sqlite, _restore_pristine_pg_types
@@ -101,4 +101,74 @@ def test_pg_payments_engine_builds_bigint_ids_after_the_sqlite_patch(engine, pg_
         "ml_payments_ops.payment_id": "bigint",
         "ml_payments_ops.order_id": "bigint",
         "ml_payment_charges.id": "bigint",
+    }
+
+
+# The four module-scoped `pg_order_metrics*` fixtures drop `ml_payments_ops`,
+# `ml_payment_charges` and `ml_orders_ops` unconditionally on teardown, while
+# `pg_payments_engine`/`pg_orders_ops_engine` build them ONCE per session. On
+# the same xdist worker, a later user of the session engine found them gone.
+# These fixtures simulate that teardown: they run AFTER the session engine
+# was built (higher scope instantiates first) and BEFORE the function-scoped
+# engine the test receives, via a raw engine so they never touch ours.
+@pytest.fixture()
+def _payments_tables_dropped_by_a_module_teardown():
+    from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
+
+    if not _postgres_reachable():
+        pytest.skip("PostgreSQL not reachable")
+    eng = create_engine(POSTGRES_TEST_URL)
+    with eng.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS ml_payment_charges, ml_payments_ops CASCADE"))
+    eng.dispose()
+
+
+@pytest.fixture()
+def _orders_ops_table_dropped_by_a_module_teardown():
+    from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
+
+    if not _postgres_reachable():
+        pytest.skip("PostgreSQL not reachable")
+    eng = create_engine(POSTGRES_TEST_URL)
+    with eng.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
+    eng.dispose()
+
+
+def _column_types(eng, pairs: str) -> dict[str, str]:
+    with eng.connect() as conn:
+        return dict(
+            conn.execute(
+                text(
+                    "SELECT table_name || '.' || column_name, data_type FROM information_schema.columns "
+                    f"WHERE table_schema = current_schema() AND (table_name, column_name) IN ({pairs})"
+                )
+            ).all()
+        )
+
+
+@pytest.mark.postgres
+def test_pg_payments_engine_recreates_tables_a_module_fixture_dropped(
+    engine, _payments_tables_dropped_by_a_module_teardown, pg_payments_engine
+) -> None:
+    """A module fixture's teardown dropping the session tables must not
+    strand the next `pg_payments_engine` user -- and the recreated tables keep
+    production's BIGINT ids even though the SQLite `engine` already ran."""
+    assert _column_types(
+        pg_payments_engine,
+        "('ml_payments_ops', 'payment_id'), ('ml_payments_ops', 'order_id'), ('ml_payment_charges', 'id')",
+    ) == {
+        "ml_payments_ops.payment_id": "bigint",
+        "ml_payments_ops.order_id": "bigint",
+        "ml_payment_charges.id": "bigint",
+    }
+
+
+@pytest.mark.postgres
+def test_pg_orders_ops_engine_recreates_the_table_a_module_fixture_dropped(
+    engine, _orders_ops_table_dropped_by_a_module_teardown, pg_orders_ops_engine
+) -> None:
+    """Same race as above, for `ml_orders_ops` (16-digit ML order ids)."""
+    assert _column_types(pg_orders_ops_engine, "('ml_orders_ops', 'order_id')") == {
+        "ml_orders_ops.order_id": "bigint",
     }
