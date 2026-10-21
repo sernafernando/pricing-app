@@ -3,7 +3,8 @@ import styles from './DetalleRol.module.css';
 /**
  * Role detail inside the role drawer, plus its management actions. System roles
  * cannot be edited or deleted; SUPERADMIN (`soloLectura`) cannot be cloned.
- * `cantidadPermisos` is the saved count, or null when it could not be loaded.
+ * `cantidadPermisos` is the role's current count (pending changes included, the same number
+ * as the matrix filter), or null when its permissions could not be loaded.
  * `bloqueado` disables the actions while a matrix save is in flight.
  * A loaded count is a button (`onVerPermisos`) that filters the matrix to the role.
  */
@@ -17,6 +18,7 @@ export default function DetalleRol({
       <button
         type="button"
         onClick={onVerPermisos}
+        disabled={bloqueado}
         aria-label={`Ver solo los ${cantidadPermisos} permisos de ${rol.nombre} en la matriz`}
         title="Ver solo sus permisos en la matriz"
         className={styles.verPermisos}

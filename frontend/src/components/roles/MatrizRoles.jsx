@@ -59,10 +59,11 @@ function mensajeVacio(q, soloDelRol) {
  * `rolSeleccionado` (the role open in the drawer, or null) gets a highlighted
  * column, and a "Solo los permisos de este rol" toggle (`soloDelRol`) that keeps
  * only the rows it has, pending changes included (same `tienePermiso` as the cells).
+ * `cantidadDelRol` is that count, computed by `PanelRoles` so the role drawer shows the same number.
  */
 export default function MatrizRoles({
   catalogo, roles, esSoloLectura, tienePermiso, esPendiente, sinCargar, onToggle, deshabilitado,
-  rolSeleccionado = null, soloDelRol = false, onSoloDelRolChange,
+  rolSeleccionado = null, cantidadDelRol = null, soloDelRol = false, onSoloDelRolChange,
 }) {
   const [busqueda, setBusqueda] = useState('');
   const scrollRef = useRef(null);
@@ -72,9 +73,6 @@ export default function MatrizRoles({
   const filtrable = rolSeleccionado !== null && !sinCargar(rolSeleccionado);
   const filtrando = filtrable && soloDelRol;
   const delRol = (p) => tienePermiso(rolSeleccionado, p.codigo);
-  const cantidadDelRol = filtrable
-    ? Object.values(catalogo || {}).flat().filter(delRol).length
-    : 0;
 
   const q = normalizar(busqueda).trim();
   const grupos = Object.entries(catalogo || {})

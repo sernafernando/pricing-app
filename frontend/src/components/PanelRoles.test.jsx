@@ -1213,9 +1213,15 @@ describe('PanelRoles selected role in the matrix', () => {
     let scrollTo;
 
     const nombreColumna = (el) => el.firstChild?.textContent;
+    // jsdom may or may not define these: keep the exact originals and put them back.
+    const MIEMBROS_STUB = ['scrollTo', 'scrollIntoView'];
+    let originales;
     const rect = (left, width) => ({ left, right: left + width, width, top: 0, bottom: 40, height: 40, x: left, y: 0 });
 
     beforeEach(() => {
+      originales = Object.fromEntries(
+        MIEMBROS_STUB.map((nombre) => [nombre, Object.getOwnPropertyDescriptor(Element.prototype, nombre)]),
+      );
       scrollLeft = 0;
       scrollTo = vi.fn();
       Element.prototype.scrollTo = scrollTo;
@@ -1233,8 +1239,11 @@ describe('PanelRoles selected role in the matrix', () => {
     });
 
     afterEach(() => {
-      delete Element.prototype.scrollTo;
-      delete Element.prototype.scrollIntoView;
+      vi.restoreAllMocks();
+      for (const [nombre, descriptor] of Object.entries(originales)) {
+        if (descriptor) Object.defineProperty(Element.prototype, nombre, descriptor);
+        else delete Element.prototype[nombre];
+      }
     });
 
     const scrollerDeLaTabla = () => tabla().parentElement;
@@ -1292,6 +1301,35 @@ describe('PanelRoles selected role in the matrix', () => {
 
       expect(scrollTo).not.toHaveBeenCalled();
     });
+  });
+
+  it('disables the permission count button in the role detail while a matrix save is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.put.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    const ventas = await abrirRol(user, 'Ventas');
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(within(ventas).getByRole('button', { name: /^Ver solo los \d+ permisos de Ventas/ })).toBeDisabled();
+
+    await act(async () => resolver({ data: { success: true } }));
+    expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
+    expect(within(ventas).getByRole('button', { name: /^Ver solo los \d+ permisos de Ventas/ })).toBeEnabled();
+  });
+
+  it('shows the same permission count in the role detail as the toggle, unsaved changes included', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    const ventas = await abrirRol(user, 'Ventas');
+    await user.click(celda('Editar precios', 'Ventas'));
+
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (2)');
+    const contador = within(ventas).getByRole('button', { name: 'Ver solo los 2 permisos de Ventas en la matriz' });
+    expect(contador).toHaveTextContent('2');
   });
 
   it('turns the filter on from the permission count in the role detail', async () => {

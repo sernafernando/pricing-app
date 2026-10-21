@@ -52,6 +52,12 @@
   cursor: pointer;
 }
 
-.verPermisos:hover {
+.verPermisos:hover:not(:disabled) {
   color: var(--cf-accent-blue-hover);
+}
+
+.verPermisos:disabled {
+  color: var(--cf-text-tertiary);
+  text-decoration: none;
+  cursor: not-allowed;
 }

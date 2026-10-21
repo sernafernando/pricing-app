@@ -162,6 +162,12 @@ export default function PanelRoles() {
 
   const sinCargar = (rol) => !esSoloLectura(rol) && !permisosPorRol[rol.id];
 
+  /** Catalog permissions the role has now, pending changes included; null when unknown. */
+  const cantidadDelRol = (rol) => {
+    if (!rol || sinCargar(rol)) return null;
+    return Object.values(catalogo).flat().filter((p) => tienePermiso(rol, p.codigo)).length;
+  };
+
   const togglePermiso = (rol, codigo) => {
     if (esSoloLectura(rol) || sinCargar(rol) || matrizBloqueada) return;
     const nuevo = !tienePermiso(rol, codigo);
@@ -460,6 +466,7 @@ export default function PanelRoles() {
               onToggle={togglePermiso}
               deshabilitado={matrizBloqueada}
               rolSeleccionado={rolAbierto}
+              cantidadDelRol={cantidadDelRol(rolAbierto)}
               soloDelRol={soloDelRol}
               onSoloDelRolChange={setSoloDelRol}
             />
@@ -489,7 +496,7 @@ export default function PanelRoles() {
               <DetalleRol
                 rol={rolAbierto}
                 soloLectura={esSoloLectura(rolAbierto)}
-                cantidadPermisos={permisosPorRol[rolAbierto.id]?.length ?? null}
+                cantidadPermisos={cantidadDelRol(rolAbierto)}
                 bloqueado={guardandoPermisos}
                 onEditar={() => iniciarEdicion(rolAbierto)}
                 onClonar={() => setRolAClonar(rolAbierto)}
