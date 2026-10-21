@@ -234,7 +234,7 @@ export const BONO = {
   descripcion: 'Bono TP-Link USD 3/u',
   estado: 'activa',
   usuario_id: 1,
-  created_at: '2026-08-28T12:00:00',
+  created_at: '2026-08-28T12:00:00-03:00',
   updated_at: '2026-08-28T12:00:00',
   compras_activas: 18,
   unidades: 1040,
