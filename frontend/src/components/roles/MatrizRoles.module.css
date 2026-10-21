@@ -32,7 +32,10 @@
 
 .tabla {
   width: 100%;
-  border-collapse: collapse;
+  /* Separate borders: each cell paints its own, so the sticky cells cover what
+     scrolls under them (collapsed borders are painted by the table and bleed). */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--font-sm);
   color: var(--cf-text-primary);
 }
@@ -72,8 +75,11 @@
   composes: colRol;
   color: var(--tone-info-fg);
   background: linear-gradient(var(--tone-info-bg), var(--tone-info-bg)), var(--cf-bg-card);
-  border-inline: 2px solid var(--cf-accent-blue);
-  border-top: 2px solid var(--cf-accent-blue);
+  /* Inset shadows, not borders: painted inside the cell, so nothing reaches past it. */
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -2px 0 0 var(--cf-accent-blue),
+    inset 0 2px 0 var(--cf-accent-blue);
 }
 
 .srOnly {
@@ -174,7 +180,9 @@
    keeps its warning tint inside it. */
 .celdaSeleccionada {
   background: var(--tone-info-bg);
-  border-inline: 2px solid var(--cf-accent-blue);
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -2px 0 0 var(--cf-accent-blue);
 }
 
 /* Its unchecked cells fade, so the granted ones stand out at a glance. */
@@ -191,6 +199,14 @@
   composes: celda;
   background: var(--tone-warning-bg);
   box-shadow: inset 0 0 0 1px var(--tone-warning-border);
+}
+
+/* A pending cell inside the selected column keeps both marks. */
+.pendiente.celdaSeleccionada {
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -2px 0 0 var(--cf-accent-blue),
+    inset 0 0 0 3px var(--tone-warning-border);
 }
 
 .casilla {

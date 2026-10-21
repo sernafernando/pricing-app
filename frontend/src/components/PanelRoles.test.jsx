@@ -1138,13 +1138,16 @@ describe('PanelRoles selected role in the matrix', () => {
   });
 
   describe('horizontal scroll to the selected column', () => {
-    // jsdom has no layout: fake one where the "Permiso" column is 260px wide, every role
-    // column 120px, the scroller 600px wide, and Ventas at 900px (off to the right).
-    const IZQUIERDA = { Permiso: 0, 'Super Admin': 260, Administrador: 380, Ventas: 900 };
+    // jsdom has no layout: fake the live rects. The scroller sits at x=100 and shows 600px;
+    // "Permiso" is sticky (always 100..360); role columns are 120px wide at these content
+    // offsets and move left as the scroller scrolls. Ventas starts off to the right.
+    const IZQUIERDA = { 'Super Admin': 260, Administrador: 380, Ventas: 900 };
+    const SCROLLER_X = 100;
     let scrollLeft;
     let scrollTo;
 
     const nombreColumna = (el) => el.firstChild?.textContent;
+    const rect = (left, width) => ({ left, right: left + width, width, top: 0, bottom: 40, height: 40, x: left, y: 0 });
 
     beforeEach(() => {
       scrollLeft = 0;
@@ -1152,12 +1155,12 @@ describe('PanelRoles selected role in the matrix', () => {
       Element.prototype.scrollTo = scrollTo;
       Element.prototype.scrollIntoView = vi.fn();
       vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-      vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function offsetLeft() {
-        return this.tagName === 'TH' ? IZQUIERDA[nombreColumna(this)] ?? 0 : 0;
-      });
-      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function offsetWidth() {
-        if (this.tagName !== 'TH') return 0;
-        return nombreColumna(this) === 'Permiso' ? 260 : 120;
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
+        if (this.tagName === 'DIV' && this.firstElementChild?.tagName === 'TABLE') return rect(SCROLLER_X, 600);
+        if (this.tagName === 'TH' && nombreColumna(this) === 'Permiso') return rect(SCROLLER_X, 260);
+        const izquierda = this.tagName === 'TH' ? IZQUIERDA[nombreColumna(this)] : undefined;
+        if (izquierda !== undefined) return rect(SCROLLER_X + izquierda - scrollLeft, 120);
+        return rect(0, 0);
       });
       vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(600);
       vi.spyOn(Element.prototype, 'scrollLeft', 'get').mockImplementation(() => scrollLeft);

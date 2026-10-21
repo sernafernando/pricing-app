@@ -27,17 +27,21 @@ function claseCelda({ pendiente, seleccionada, concedida }) {
 /**
  * Scrolls `scroller` horizontally (never the page) so the selected header is in
  * view, clear of the sticky "Permiso" column on the left. No-op when visible.
+ * Measures live rects: the sticky cell's right edge is where the view really starts.
  */
 function mostrarColumnaSeleccionada(scroller) {
   const th = scroller?.querySelector('th[aria-current="true"]');
-  if (!th) return;
-  const fija = scroller.querySelector('thead th')?.offsetWidth ?? 0;
-  const inicio = th.offsetLeft - fija;
-  const fin = th.offsetLeft + th.offsetWidth;
-  let left = null;
-  if (inicio < scroller.scrollLeft) left = inicio;
-  else if (fin > scroller.scrollLeft + scroller.clientWidth) left = fin - scroller.clientWidth;
-  if (left !== null && typeof scroller.scrollTo === 'function') scroller.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  const fija = scroller?.querySelector('thead th');
+  if (!th || !fija || typeof scroller.scrollTo !== 'function') return;
+  const columna = th.getBoundingClientRect();
+  const inicioVisible = fija.getBoundingClientRect().right;
+  const finVisible = scroller.getBoundingClientRect().left + scroller.clientWidth;
+  let desplazamiento = 0;
+  if (columna.left < inicioVisible) desplazamiento = columna.left - inicioVisible;
+  else if (columna.right > finVisible) desplazamiento = columna.right - finVisible;
+  if (desplazamiento !== 0) {
+    scroller.scrollTo({ left: Math.max(0, scroller.scrollLeft + desplazamiento), behavior: 'smooth' });
+  }
 }
 
 function mensajeVacio(q, soloDelRol) {
