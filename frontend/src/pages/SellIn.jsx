@@ -196,6 +196,7 @@ export default function SellIn() {
                 bonos.recargar();
                 cargar();
               }}
+              onVerCompra={verCompra}
               onClose={cerrarPanel}
             />
           ) : panel ? (
@@ -204,6 +205,7 @@ export default function SellIn() {
               compraId={panel.id}
               puedeGestionar={puedeGestionar}
               onChanged={cargar}
+              onVerBono={verBono}
               onClose={cerrarPanel}
             />
           ) : null
@@ -288,6 +290,7 @@ export default function SellIn() {
             compras={lista?.items ?? []}
             selectedId={panel?.tipo === 'detalle' ? panel.id : null}
             onSelect={verCompra}
+            onVerBono={verBono}
           />
         )}
 

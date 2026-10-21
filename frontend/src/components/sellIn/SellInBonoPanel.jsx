@@ -3,6 +3,7 @@ import { Settings2, X } from 'lucide-react';
 import { sellInBonosAPI } from '../../services/sellInAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
+import SellInBonoAlcance from './SellInBonoAlcance';
 import SellInBonoForm from './SellInBonoForm';
 import { BONO_VACIO, bodyDeBono, valoresDeBono } from './sellInBonoValores';
 import { apiMessage, formatEntero, formatMonto } from './sellInFormat';
@@ -14,15 +15,19 @@ const completo = (v) => Boolean(v.marca && Number(v.montoUnit) > 0 && v.fechaDes
 
 /**
  * A brand bonus in the right side panel (Stitch `03`), no modals. With no
- * `bonoId` it loads a new one; otherwise it reads the bonus, and with
- * `sell_in.gestionar` an active one can be edited (a full replace) or voided
- * after an inline confirmation. The backend's messages (422/409/404) show inline.
+ * `bonoId` it loads a new one; otherwise it reads the bonus and what it
+ * reaches, and with `sell_in.gestionar` an active one can be edited (a full
+ * replace) or voided after an inline confirmation. The backend's messages
+ * (422/409/404) show inline. The worker applies the bonus by itself, so what
+ * it reaches is read again after every save.
  */
-export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar, onSaved, onClose, modoSwitch = null }) {
+export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar, onSaved, onClose, onVerCompra, modoSwitch = null }) {
   const id = useId();
   const nuevo = bonoId === null;
   const [bono, setBono] = useState(null);
   const [valores, setValores] = useState(BONO_VACIO);
+  const [alcance, setAlcance] = useState(null);
+  const [alcanceError, setAlcanceError] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
@@ -39,14 +44,27 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
     [bonoId],
   );
 
+  // What the bonus reaches: on load and after every save (the worker re-applies it by itself).
+  const leerAlcance = useCallback(
+    (activo = () => true) => {
+      setAlcanceError(null);
+      return sellInBonosAPI
+        .alcance(bonoId)
+        .then(({ data }) => activo() && setAlcance(data))
+        .catch((err) => activo() && setAlcanceError(apiMessage(err, 'No se pudo leer qué compras alcanza el bono.')));
+    },
+    [bonoId],
+  );
+
   useEffect(() => {
     if (nuevo) return undefined;
     let active = true;
     leerBono(() => active).catch((err) => active && setError(apiMessage(err, 'No se pudo cargar el bono.')));
+    leerAlcance(() => active);
     return () => {
       active = false;
     };
-  }, [nuevo, leerBono]);
+  }, [nuevo, leerBono, leerAlcance]);
 
   const aplicar = (data) => {
     setBono(data);
@@ -69,6 +87,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
         return;
       }
       aplicar(data);
+      leerAlcance();
     } catch (err) {
       setError(apiMessage(err, 'No se pudo guardar el bono.'));
       if (!nuevo && err?.response?.status === 409) leerBono().catch(() => {});
@@ -84,6 +103,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       const { data } = await sellInBonosAPI.anular(bonoId, motivo);
       setConfirmando(false);
       aplicar(data);
+      leerAlcance();
     } catch (err) {
       setError(apiMessage(err, 'No se pudo anular el bono.'));
     } finally {
@@ -135,6 +155,12 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             )}
           </section>
         )}
+        {alcanceError && (
+          <p className={styles.error} role="alert">
+            {alcanceError}
+          </p>
+        )}
+        {bono && alcance && <SellInBonoAlcance alcance={alcance} onVerCompra={onVerCompra} />}
       </div>
 
       {editable && (

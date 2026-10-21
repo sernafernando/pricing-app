@@ -1,0 +1,80 @@
+/* Brand bonus reach (Stitch `03`): one card per group, the pending group on
+   the warning tone, dense table for the reached purchases. Tokens only. */
+
+.titulo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.conteo {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-accent-blue);
+}
+
+.warning {
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.warning .titulo {
+  color: var(--tone-warning-fg);
+}
+
+.scroller {
+  overflow-x: auto;
+  background: var(--cf-bg-card);
+  border: var(--border-1) solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.table th {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  vertical-align: middle;
+  border-top: var(--border-1) solid var(--cf-border-default);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pedido {
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: var(--border-1) solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}

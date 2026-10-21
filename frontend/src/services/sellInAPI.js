@@ -32,6 +32,8 @@ const BONOS = '/sell-in/bonos';
 export const sellInBonosAPI = {
   listar: (params) => api.get(BONOS, { params }),
   detalle: (id) => api.get(`${BONOS}/${id}`),
+  // Generated purchases, brand operations pending an invoice and out of range, each capped with its count.
+  alcance: (id) => api.get(`${BONOS}/${id}/alcance`),
   crear: (body) => api.post(BONOS, body),
   editar: (id, body) => api.put(`${BONOS}/${id}`, body),
   anular: (id, motivo) => api.post(`${BONOS}/${id}/anular`, { motivo: motivo?.trim() || null }),

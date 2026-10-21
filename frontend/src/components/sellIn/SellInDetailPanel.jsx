@@ -15,9 +15,9 @@ const CUENTA_DESDE = { compra: 'Fecha de compra', ingreso: 'Fecha de ingreso' };
  * `sell_in.gestionar` an active purchase can be voided after an inline
  * confirmation (no modal); there is no edit: a wrong one is voided and loaded again.
  * One a brand bonus generated (`origen = 'bono_marca'`) only changes through its
- * bonus, so it is marked and offers no void (the backend answers 409).
+ * bonus: it links to it (`onVerBono`) and offers no void (the backend answers 409).
  */
-export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged, onClose }) {
+export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged, onClose, onVerBono }) {
   const id = useId();
   const [compra, setCompra] = useState(null);
   const [error, setError] = useState(null);
@@ -103,7 +103,16 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
               <StatusPill tone={compra.aplica ? 'success' : 'neutral'}>{compra.aplica ? 'Aplica' : 'No aplica'}</StatusPill>
               {generada && <StatusPill tone="purple">Bono de marca</StatusPill>}
             </div>
-            {generada && <p className={styles.hint}>La generó un bono de marca: se actualiza sola y se anula desde su bono.</p>}
+            {generada && (
+              <p className={styles.hint}>
+                La generó un bono de marca: se actualiza sola y se anula desde su bono.{' '}
+                {onVerBono && (
+                  <button type="button" className={styles.linkButton} onClick={() => onVerBono(compra.bono_id)}>
+                    {`Ver bono #${compra.bono_id}`}
+                  </button>
+                )}
+              </p>
+            )}
             <dl className={styles.campos}>
               {campos.map(([label, value]) => (
                 <div key={label} className={styles.campo}>

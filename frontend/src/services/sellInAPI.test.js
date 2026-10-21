@@ -51,15 +51,17 @@ describe('sellInAPI', () => {
     expect(api.post).toHaveBeenCalledWith('/sell-in/compras/5/anular', { motivo: null });
   });
 
-  it('lists, reads, creates, edits and voids brand bonuses', () => {
+  it('lists, reads, creates, edits and voids brand bonuses, and reads what one reaches', () => {
     sellInBonosAPI.listar({ page: 2, page_size: 10 });
     sellInBonosAPI.detalle(3);
+    sellInBonosAPI.alcance(3);
     sellInBonosAPI.crear({ marca: 'TP-LINK' });
     sellInBonosAPI.editar(3, { marca: 'TP-LINK' });
     sellInBonosAPI.anular(3, '  mal cargado ');
     sellInBonosAPI.anular(4, '   ');
     expect(api.get).toHaveBeenCalledWith('/sell-in/bonos', { params: { page: 2, page_size: 10 } });
     expect(api.get).toHaveBeenCalledWith('/sell-in/bonos/3');
+    expect(api.get).toHaveBeenCalledWith('/sell-in/bonos/3/alcance');
     expect(api.post).toHaveBeenCalledWith('/sell-in/bonos', { marca: 'TP-LINK' });
     expect(api.put).toHaveBeenCalledWith('/sell-in/bonos/3', { marca: 'TP-LINK' });
     expect(api.post).toHaveBeenCalledWith('/sell-in/bonos/3/anular', { motivo: 'mal cargado' });
