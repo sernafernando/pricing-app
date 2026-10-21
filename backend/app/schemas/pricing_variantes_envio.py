@@ -17,11 +17,17 @@ class VarianteEnvio(BaseModel):
     logistica: Optional[str]  # flex | colecta | full; None when the logistic type is unknown or unmapped
     costo_envio: Optional[float]  # list_cost (ARS, with IVA); None when mlwebhook has none for the MLA
     sin_costo_envio: bool
+    sin_precio_motivo: Optional[str]  # sin_comision | sin_costo_envio; None when priced
     comision_base_pct: Optional[float]
-    markup_pct: Optional[float]  # None without a shipping cost or a configured commission
+    markup_pct: Optional[float]  # None when sin_precio_motivo is set
     ganancia: Optional[float]
     markup_pct_actual: Optional[float]  # the same publication priced with today's MAX shipping cost
     unidades_vendidas: int
+
+
+class PublicacionSinPrecio(BaseModel):
+    mla: str
+    motivo: str  # sin_comision | sin_costo_envio
 
 
 class PromedioSimple(BaseModel):
@@ -60,6 +66,7 @@ class VariantesEnvioResponse(BaseModel):
     ponderacion: str
     variantes: list[VarianteEnvio]
     publicaciones_sin_costo_envio: list[str]
+    publicaciones_sin_precio: list[PublicacionSinPrecio]
     promedio_simple: Optional[PromedioSimple]
     promedio_ponderado: Optional[PromedioPonderado]
     actual: MarkupActual

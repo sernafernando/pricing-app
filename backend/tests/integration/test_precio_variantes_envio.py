@@ -262,3 +262,101 @@ class TestEndpoint:
         with query_counter() as many:
             get(client, auth_headers, ABOVE)
         assert many.total == few.total
+
+
+class TestSinPrecio:
+    def test_without_list_cost_below_the_threshold_it_is_priced(self, client, auth_headers, producto, db, asked):
+        seed_three(db)
+        add_pub(db, "MLA-SIN-COSTO")
+        body = get(client, auth_headers, BELOW).json()
+        row = by_mla(body)["MLA-SIN-COSTO"]
+        markup, ganancia = expected(BELOW, 12.0, 0.0)
+
+        assert row["sin_costo_envio"] is True and row["costo_envio"] is None
+        assert (row["markup_pct"], row["ganancia"]) == (round(markup, 2), round(ganancia, 2))
+        assert row["sin_precio_motivo"] is None
+        assert body["publicaciones_sin_precio"] == []
+        assert body["promedio_simple"]["publicaciones"] == 4
+
+    def test_without_list_cost_above_the_threshold_it_is_not_priced(self, client, auth_headers, producto, db, asked):
+        seed_three(db)
+        add_pub(db, "MLA-SIN-COSTO")
+        body = get(client, auth_headers, ABOVE).json()
+        assert by_mla(body)["MLA-SIN-COSTO"]["sin_precio_motivo"] == "sin_costo_envio"
+        assert body["publicaciones_sin_precio"] == [{"mla": "MLA-SIN-COSTO", "motivo": "sin_costo_envio"}]
+
+    def test_without_commission_the_reason_is_given(self, client, auth_headers, producto, db, asked, monkeypatch):
+        COSTS_EXTRA = {**COSTS, "MLA-SIN-LISTA": 3000.0, "MLA-LISTA-RARA": 3000.0}
+        monkeypatch.setattr(envio_real_service, "_fetch_list_cost_by_mla", lambda ids: {m: COSTS_EXTRA[m] for m in ids})
+        seed_three(db)
+        db.add(PublicacionML(mla="MLA-SIN-LISTA", item_id=ITEM, codigo="C", item_title="t", pricelist_id=None))
+        db.flush()
+        add_pub(db, "MLA-LISTA-RARA", pricelist_id=99)
+        with patch_comision_none_for(99):
+            body = get(client, auth_headers, ABOVE).json()
+        rows = by_mla(body)
+
+        for mla in ("MLA-SIN-LISTA", "MLA-LISTA-RARA"):
+            assert rows[mla]["costo_envio"] == 3000.0 and rows[mla]["sin_costo_envio"] is False
+            assert rows[mla]["markup_pct"] is None and rows[mla]["sin_precio_motivo"] == "sin_comision"
+        assert rows["MLA-FLEX"]["sin_precio_motivo"] is None
+        assert body["publicaciones_sin_precio"] == [
+            {"mla": "MLA-LISTA-RARA", "motivo": "sin_comision"},
+            {"mla": "MLA-SIN-LISTA", "motivo": "sin_comision"},
+        ]
+        assert body["promedio_simple"]["publicaciones"] == 3
+
+
+def patch_comision_none_for(pricelist_id: int):
+    """`obtener_comision_base` with no commission for one price list (pricelist 99 would otherwise fall back to
+    the base rate, as unknown lists do)."""
+    from unittest.mock import patch
+
+    from app.services import precio_variantes_envio as svc
+
+    real = svc.obtener_comision_base
+    return patch.object(svc, "obtener_comision_base", lambda db, pl, g: None if pl == pricelist_id else real(db, pl, g))
+
+
+class TestUmbral:
+    def test_exactly_at_the_threshold_shipping_counts(self, client, auth_headers, producto, db, asked):
+        seed_three(db)
+        body = get(client, auth_headers, 33000.0).json()
+        markup, _ = expected(33000.0, 12.0, COSTS["MLA-FLEX"])
+        assert body["envio_aplica"] is True
+        assert by_mla(body)["MLA-FLEX"]["markup_pct"] == round(markup, 2)
+
+    def test_just_below_the_threshold_shipping_does_not_count(self, client, auth_headers, producto, db, asked):
+        seed_three(db)
+        assert get(client, auth_headers, 32999.99).json()["envio_aplica"] is False
+
+
+class TestEndpointParams:
+    def test_usd_cost_is_converted_with_todays_rate(self, client, auth_headers, producto, db, asked):
+        from app.models.tipo_cambio import TipoCambio
+
+        producto.moneda_costo = "USD"
+        producto.costo = 50.0
+        db.add(TipoCambio(moneda="USD", fecha=date.today(), compra=990.0, venta=1000.0))
+        db.flush()
+        seed_three(db)
+        body = get(client, auth_headers, ABOVE).json()
+
+        assert body["tipo_cambio"] == 1000.0 and body["costo_ars"] == COSTO  # 50 USD x 1000
+        markup, _ = expected(ABOVE, 12.0, COSTS["MLA-FLEX"])
+        assert by_mla(body)["MLA-FLEX"]["markup_pct"] == round(markup, 2)
+
+    def test_usd_without_exchange_rate_is_400(self, client, auth_headers, producto, db, asked):
+        producto.moneda_costo = "USD"
+        db.flush()
+        resp = get(client, auth_headers, ABOVE)
+        assert resp.status_code == 400
+        assert resp.json()["error"]["message"] == "No hay tipo de cambio disponible"
+
+    def test_pricelist_id_selects_todays_commission(self, client, auth_headers, producto, db, asked):
+        seed_three(db)
+        body = get(client, auth_headers, ABOVE, pricelist_id=17).json()
+        markup, _ = expected(ABOVE, 17.0, max(COSTS.values()))
+        assert body["actual"]["pricelist_id"] == 17
+        assert body["actual"]["comision_base_pct"] == 17.0
+        assert body["actual"]["markup_pct"] == round(markup, 2)

@@ -292,6 +292,14 @@ def calcular_comision_ml_total(
     }
 
 
+def envio_cuenta(precio: float, constantes: Optional[Dict] = None) -> bool:
+    """Whether the seller pays shipping at this price (free-shipping threshold `monto_tier3`, else MONTOT3).
+
+    The single predicate `calcular_limpio` uses to subtract the shipping cost."""
+    MONTOT3_val = constantes["monto_tier3"] if constantes else MONTOT3
+    return precio >= MONTOT3_val
+
+
 def calcular_limpio(
     precio: float,
     iva: float,
@@ -319,12 +327,10 @@ def calcular_limpio(
     if constantes is None and db is not None:
         constantes = obtener_constantes_pricing(db)
 
-    MONTOT3_val = constantes["monto_tier3"] if constantes else MONTOT3
-
     precio_sin_iva = precio / (1 + iva / 100)
 
     # Si el precio >= MONTOT3 (envío gratis), restar el costo de envío
-    if precio >= MONTOT3_val:
+    if envio_cuenta(precio, constantes):
         # Si el producto no tiene costo de envío asignado pero tenemos grupo_id,
         # usar el envío promedio del grupo
         if costo_envio == 0 and grupo_id is not None and db is not None:

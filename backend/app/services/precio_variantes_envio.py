@@ -33,6 +33,7 @@ from app.services.pricing_calculator import (
     calcular_comision_ml_total,
     calcular_limpio,
     calcular_markup,
+    envio_cuenta,
     obtener_comision_base,
     obtener_constantes_pricing,
     obtener_grupo_subcategoria,
@@ -41,6 +42,8 @@ from app.services.pricing_calculator import (
 VENTANA_DIAS = 30
 PONDERACION = "unidades_vendidas"
 PRICELIST_CLASICA = 4
+MOTIVO_SIN_COMISION = "sin_comision"
+MOTIVO_SIN_COSTO_ENVIO = "sin_costo_envio"
 
 # `ml_items.logistic_type` values the code documents as observed (`mode_resolution.py`); any other value
 # passes through raw with no label.
@@ -121,6 +124,15 @@ def _promedios(variantes: list[dict[str, Any]]) -> tuple[Optional[dict], Optiona
     return simple, ponderado
 
 
+def _motivo(comision: Optional[float], costo_envio: Optional[float]) -> Optional[str]:
+    """Why a publication has no markup: no commission for its price list, or no shipping cost where it counts."""
+    if comision is None:
+        return MOTIVO_SIN_COMISION
+    if costo_envio is None:
+        return MOTIVO_SIN_COSTO_ENVIO
+    return None
+
+
 def _round(value: Optional[float]) -> Optional[float]:
     return None if value is None else round(value, 2)
 
@@ -150,6 +162,7 @@ def calcular_variantes_envio(
     comisiones = {pl: obtener_comision_base(db, pl, grupo_id) for pl in sorted(listas)}
 
     envio_actual = costo_envio_maximo(costos, producto.envio)
+    envio_aplica = envio_cuenta(precio, constantes)
     comun = {"precio": precio, "iva": iva, "costo_ars": costo_ars, "constantes": constantes, "grupo_id": grupo_id}
 
     variantes: list[dict[str, Any]] = []
@@ -157,7 +170,9 @@ def calcular_variantes_envio(
         listing, logistic = datos.get(mla, (None, None))
         comision = comisiones.get(pricelist_id) if pricelist_id is not None else None
         costo_envio = costos.get(mla)
-        markup, ganancia = _precio_con_envio(db, comision_base_pct=comision, costo_envio=costo_envio, **comun)
+        # Below the threshold shipping never reaches the markup, so a missing cost does not block pricing.
+        envio_para_precio = costo_envio if costo_envio is not None or envio_aplica else 0.0
+        markup, ganancia = _precio_con_envio(db, comision_base_pct=comision, costo_envio=envio_para_precio, **comun)
         markup_actual, _ = _precio_con_envio(db, comision_base_pct=comision, costo_envio=envio_actual, **comun)
         variantes.append(
             {
@@ -168,6 +183,7 @@ def calcular_variantes_envio(
                 "logistica": LOGISTICA_POR_TIPO.get(logistic) if logistic else None,
                 "costo_envio": costo_envio,
                 "sin_costo_envio": costo_envio is None,
+                "sin_precio_motivo": _motivo(comision, envio_para_precio),
                 "comision_base_pct": comision,
                 "markup_pct": _round(markup),
                 "ganancia": _round(ganancia),
@@ -188,11 +204,14 @@ def calcular_variantes_envio(
 
     return {
         "umbral_envio_gratis": constantes["monto_tier3"],
-        "envio_aplica": precio >= constantes["monto_tier3"],
+        "envio_aplica": envio_aplica,
         "ventana_dias": VENTANA_DIAS,
         "ponderacion": PONDERACION,
         "variantes": variantes,
         "publicaciones_sin_costo_envio": [v["mla"] for v in variantes if v["sin_costo_envio"]],
+        "publicaciones_sin_precio": [
+            {"mla": v["mla"], "motivo": v["sin_precio_motivo"]} for v in variantes if v["sin_precio_motivo"]
+        ],
         "promedio_simple": promedio_simple,
         "promedio_ponderado": promedio_ponderado,
         "actual": {
