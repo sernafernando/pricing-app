@@ -78,6 +78,7 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
 
   const cerrar = () => {
     setApuntada(null);
+    setMostrada(null); // a reopened list measures its options again
     setAbierto(false);
     setError(false);
     setCargado(false);

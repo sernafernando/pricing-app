@@ -327,6 +327,20 @@ describe('SellInOperacionPicker', () => {
       expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
     });
 
+    it('after closing the list, resting on the same operation again measures it anew instead of reusing the old card', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      const opcion = (await abrirLista(user, input))[1];
+      await user.hover(opcion);
+      await screen.findByRole('tooltip');
+      await user.keyboard('{Escape}');
+
+      await user.hover((await abrirLista(user, input))[1]);
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument(); // not at once, with a stale position
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('N° 16');
+    });
+
     it('reopening the list from the keyboard does not bring back the last hovered card', async () => {
       const user = userEvent.setup();
       const { input } = renderPicker();
