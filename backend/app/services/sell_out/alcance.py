@@ -12,10 +12,11 @@ Sales: every channel, all app-owned (`ml_sale_lines`, `ventas_fuera_ml_metricas`
 the sell-in allocation reads them (`sell_in.costing`): ML `item_row_id`, `day`,
 `qty`; fuera / TN `it_transaction`, the UTC date of `fecha_venta` and `signo *
 cantidad`, a return's original sale resolved by `costing._objetivos`. A sale
-belongs to a campaign when it is dated inside its inclusive range; a return from
-the campaign's first day on, with no end: a credited unit returned after the
-campaign ends loses its credit (`tope.asignar` frees it from its sale; owner
-rule "every return frees its units", confirmed for sell out 2026-10-21).
+belongs to a campaign when it is dated inside its inclusive range, and so does a
+return: only a return dated inside it frees units (`tope.asignar`). A return
+dated after the end keeps the credit of its sale (owner, 2026-10-21: "si el
+producto se devuelve después del cierre de la campaña computa como venta").
+Every campaign has an end (`fecha_hasta` is NOT NULL).
 
 Each sale also carries, per unit and in ARS, what a percentage campaign needs,
 as recorded ON THE SALE (never the current `productos_erp.costo`); None when
@@ -111,14 +112,13 @@ def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Op
 
 
 def en_campana(campana: SellOutCampana, venta: Venta) -> bool:
-    if venta.unidades < 0:
-        return venta.fecha >= campana.fecha_desde
+    """Sales and returns alike: inside the campaign's inclusive range (module docstring)."""
     return campana.fecha_desde <= venta.fecha <= campana.fecha_hasta
 
 
 def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Venta]:
-    """The sales of `item_ids` dated `desde`..`hasta` and their returns from `desde` on, every
-    channel: one query per channel plus one per channel with returns (their original sales)."""
+    """The sales and returns of `item_ids` dated `desde`..`hasta`, every channel: one query per
+    channel plus one per channel with returns (their original sales)."""
     if not item_ids:
         return []
     ids = sorted(item_ids)
@@ -157,12 +157,12 @@ def ventas(db: Session, item_ids: Set[int], desde: date, hasta: date) -> List[Ve
         ).filter(
             model.item_id.in_(ids),
             model.fecha_venta >= inicio,
-            or_(model.fecha_venta <= fin, func.coalesce(model.signo, 1) * model.cantidad < 0),
+            model.fecha_venta <= fin,
         )
         devoluciones = []
         for ref, item_id, fecha, signo, cantidad, cust_id, monto, costo in rows:
             unidades = _unidades(signo, cantidad)
-            if unidades > 0:  # the query only reads positive lines up to `hasta`
+            if unidades > 0:
                 costo_unit = _por_unidad(costo, unidades, _positivo)
                 precio_unit = _por_unidad(monto, unidades, _no_negativo)
                 salida.append(Venta(canal, ref, item_id, _utc_date(fecha), unidades, None, costo_unit, precio_unit))

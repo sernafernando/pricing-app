@@ -132,18 +132,44 @@ class TestAsignacion:
         assert _filas(engine, campana) == [("ml", siguiente, 2, Decimal("20.00"))]
         assert (result.inserted, result.deleted) == (1, 1)
 
-    def test_a_return_frees_units_for_later_sales_even_after_the_campaign(self, engine: Engine) -> None:
+    def test_a_return_after_the_campaign_ends_counts_as_a_sale(self, engine: Engine) -> None:
+        """Owner 2026-10-21: "si el producto se devuelve después del cierre de la campaña computa como venta"."""
         campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], tope_unidades=2)
         vendida = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2), cliente=55)
         w.venta(engine, "fuera", 2964, 1, D(2026, 11, 3), signo=-1, cliente=55)
         siguiente = w.venta(engine, "ml", 2964, 3, D(2026, 11, 4))
-        w.venta(engine, "fuera", 2964, 1, D(2026, 12, 15), signo=-1, cliente=55)  # after the campaign
+        w.venta(engine, "fuera", 2964, 1, D(2026, 12, 1), signo=-1, cliente=55)  # the day after the end
 
         _recalcular(engine, campana)
 
-        # The first return frees 1 for the next sale; the late one takes the credit back from its own sale.
-        assert _filas(engine, campana) == [("ml", siguiente, 1, Decimal("10.00"))]
-        assert vendida not in [f[1] for f in _filas(engine, campana)]
+        # The return inside the window frees 1 for the next sale; the late one keeps the credit.
+        assert _filas(engine, campana) == [
+            ("fuera", vendida, 1, Decimal("10.00")),
+            ("ml", siguiente, 1, Decimal("10.00")),
+        ]
+
+    def test_a_return_after_one_campaign_but_inside_a_linked_one_frees_only_the_linked_one(
+        self, engine: Engine
+    ) -> None:
+        routers = w.grupo(engine, [TP_ROUTERS])
+        noviembre = w.campana(engine, [routers])
+        larga = w.campana(engine, [routers], hasta=D(2026, 12, 31), monto_unit="1.00")
+        vendida = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2), cliente=55)
+        w.venta(engine, "fuera", 2964, 2, D(2026, 12, 1), signo=-1, cliente=55)
+
+        _recalcular(engine, noviembre)
+
+        assert _filas(engine, noviembre) == [("fuera", vendida, 2, Decimal("20.00"))]
+        assert _filas(engine, larga) == []
+
+    def test_a_return_on_the_last_day_of_the_campaign_frees_its_units(self, engine: Engine) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])])
+        w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2), cliente=55)
+        w.venta(engine, "fuera", 2964, 2, D(2026, 11, 30), signo=-1, cliente=55)
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == []
 
     def test_an_amount_with_vat_is_applied_net_of_each_product_own_vat(self, engine: Engine) -> None:
         campana = w.campana(
