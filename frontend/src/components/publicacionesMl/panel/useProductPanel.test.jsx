@@ -105,6 +105,22 @@ describe('useProductPanel', () => {
     expect(result.current.hasMore).toBe(false);
   });
 
+  it('two "loadMore" calls in the same tick ask for the next page once', async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([PRODUCT]) });
+    publicacionesMlAPI.items
+      .mockResolvedValueOnce(itemsPage(ids(0, 100), 150))
+      .mockResolvedValueOnce(itemsPage(ids(100, 50), 150));
+    const { result } = setup(PRODUCT.key);
+
+    await waitFor(() => expect(result.current.items).toHaveLength(100));
+    act(() => {
+      result.current.loadMore();
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(150));
+    expect(publicacionesMlAPI.items).toHaveBeenCalledTimes(2);
+  });
+
   it("drops a late answer about the product it showed before", async () => {
     const old = deferred();
     publicacionesMlAPI.products.mockReturnValueOnce(old.promise).mockResolvedValueOnce({ data: productsResponse([WITHOUT_PRODUCT]) });

@@ -96,7 +96,10 @@ export default function useProductPanel(filters, productKey) {
   const hasMore = state.summary !== null && state.items.length < state.total;
   const loadMore = useCallback(() => {
     const { summary, items, total, status } = latest.current.state;
-    if (summary && status === 'ready' && items.length < total) fetchItems(summary, items.length);
+    if (!summary || status !== 'ready' || items.length >= total) return;
+    // Marked at once: a second call before the next render must not ask for the same page again.
+    latest.current = { ...latest.current, state: { ...latest.current.state, status: 'more' } };
+    fetchItems(summary, items.length);
   }, [fetchItems]);
 
   return {
