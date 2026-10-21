@@ -113,6 +113,37 @@ describe('writing the URL', () => {
     expect(params.get('estado')).toBe('paused');
   });
 
+  it('reads and writes the product panel (`prod`) like the selection', () => {
+    const { result } = setup('/?estado=active');
+    expect(result.current.hook.filters.prod).toBe('');
+    act(() => result.current.hook.setFilters({ prod: '4101' }));
+    expect(result.current.hook.filters.prod).toBe('4101');
+    expect(new URLSearchParams(result.current.search).get('prod')).toBe('4101');
+    act(() => result.current.hook.setFilters({ prod: '' }));
+    expect(new URLSearchParams(result.current.search).has('prod')).toBe(false);
+  });
+
+  it('changing a filter closes the product panel and the selection; the page keeps both', () => {
+    const { result } = setup('/?estado=active&prod=4101&sel=MLA1');
+    act(() => result.current.hook.setFilters({ pagina: 2 }));
+    let params = new URLSearchParams(result.current.search);
+    expect([params.get('prod'), params.get('sel')]).toEqual(['4101', 'MLA1']);
+    act(() => result.current.hook.setFilters({ estado: ['paused'] }));
+    params = new URLSearchParams(result.current.search);
+    expect(params.has('prod')).toBe(false);
+    expect(params.has('sel')).toBe(false);
+  });
+
+  it('opening a product keeps the selection, and a filter change written with `prod` keeps it', () => {
+    const { result } = setup('/?estado=active&sel=MLA1');
+    act(() => result.current.hook.setFilters({ prod: '0' }));
+    expect(new URLSearchParams(result.current.search).get('sel')).toBe('MLA1');
+    act(() => result.current.hook.setFilters({ estado: ['paused'], prod: '0' }));
+    const params = new URLSearchParams(result.current.search);
+    expect(params.get('prod')).toBe('0');
+    expect(params.has('sel')).toBe(false);
+  });
+
   it('changing the page keeps the filters and the selection', () => {
     const { result } = setup('/?estado=active&sel=MLA1');
     act(() => result.current.hook.setFilters({ pagina: 2 }));

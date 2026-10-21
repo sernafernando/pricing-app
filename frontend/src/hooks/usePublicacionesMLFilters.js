@@ -12,7 +12,8 @@ import { useSearchParams } from 'react-router-dom';
  *  - FILTERS (`FILTER_KEYS`): what the list is made of. Changing one goes back
  *    to page 1 and closes the selection, and asks the backend for fresh facet
  *    counts.
- *  - VIEW state (`pagina`, `sel`, `tab`): moves inside the same result set.
+ *  - VIEW state (`pagina`, `sel`, `tab`, `prod`): moves inside the same result set.
+ *    `prod` is the product row whose panel is open (`/view/products` `key`, `0` = "Sin producto").
  *    The sort (`orden`, `dir`) and the page size (`limite`) also go back to
  *    page 1 but need no new facets.
  *    `vista` (`producto` = the product rows, `agrupado` = the tree) and `familias` (family nodes in the tree)
@@ -71,7 +72,7 @@ export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria', 'tienda
 const SHAPE_KEYS = ['vista', 'familias', 'agrupar'];
 const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
-const VIEW_KEYS = ['pagina', 'sel', 'tab'];
+const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod'];
 
 /**
  * The sorts of the list. A column sort's key IS the backend's `orden`; `DEFAULT_DIRECTION` mirrors the backend's
@@ -166,6 +167,7 @@ function readFilters(params) {
   filters.limite = PAGE_SIZES.includes(limite) ? limite : PAGE_SIZE;
   filters.sel = params.get('sel') ?? '';
   filters.tab = params.get('tab') ?? '';
+  filters.prod = params.get('prod') ?? '';
   return filters;
 }
 
@@ -174,7 +176,7 @@ const isEmpty = (value) => value === null || value === undefined || value === ''
 /**
  * The `GET /ml-publications/view/items` query for these filters. The URL keeps
  * the store chips' vocabulary (`sin_tienda`); the backend's is `none`.
- * `vista`, `sel`, `tab` and `pagina` never reach the backend as such.
+ * `vista`, `sel`, `tab`, `prod` and `pagina` never reach the backend as such.
  *
  * The markup filters and the margin sorts are sent only with `canSeeMargin`
  * (`ml_metricas.ver_ganancia`), the Métricas sorts only with `canSeeSales`
