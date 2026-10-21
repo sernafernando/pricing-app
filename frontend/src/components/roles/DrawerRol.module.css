@@ -1,6 +1,7 @@
-/* Role side panel (Roles tab). A sticky column next to the matrix on wide
-   screens; a bottom sheet over the page on narrow ones. Never modal: no
-   backdrop, the matrix behind stays usable. Tokens only. */
+/* Role side panel (Roles tab). A column next to the role cards on wide
+   screens (the matrix below keeps the full width); a bottom sheet over the
+   page on narrow ones. Never modal: no backdrop, the matrix stays usable.
+   Tokens only. */
 
 .drawer {
   position: sticky;
