@@ -31,13 +31,28 @@ bonuses, indexed by brand when a brand is given and a scan of that small table
 when it is not. A trigger does no reconcile work. `UPGRADE_SQL`/`DOWNGRADE_SQL`
 are the live definition; the migration `20261107_sell_in_bonos_marca` carries a
 frozen copy and owns the table (`app.models.sell_in.SellInBonoDirty`).
+
+The `sell_in.bono` worker drains it. A claimed row is locked (`FOR UPDATE SKIP
+LOCKED`) for the drain's short transaction: a trigger re-queueing it waits and
+then lands as a fresh row, so a change made while it is being reconciled is
+never lost. The claim and the work share one transaction, so no lease token is
+needed (unlike `order_metrics`, whose compute runs outside the claiming one).
 """
 
 from __future__ import annotations
 
-from typing import List
+from datetime import datetime
+from typing import Iterable, List, Optional, Tuple
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 CHANNEL = "sell_in_bono_dirty"
+BATCH_SIZE = 50
+# A key is retried on later wakes until it fails this many times; a new change re-queues it with attempts = 0.
+MAX_ATTEMPTS = 5
+
+Key = Tuple[str, int]  # (tipo, ref)
 
 _UPSERT = (
     "INSERT INTO sell_in_bono_dirty (tipo, ref) VALUES ({tipo}, {ref}) "
@@ -209,3 +224,91 @@ DOWNGRADE_SQL: List[str] = [
     "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_bono()",
     "DROP FUNCTION IF EXISTS sell_in_bono_cubre(DATE, TEXT)",
 ]
+
+# The oldest queued keys, fresh ones first, skipping what another drain holds, parked keys and the
+# keys that already failed in this run. Locked until the batch's transaction ends.
+_CLAIM_SQL = text(
+    """
+SELECT tipo, ref FROM sell_in_bono_dirty AS d
+WHERE attempts < :max_attempts
+  AND NOT EXISTS (
+    SELECT 1 FROM unnest(CAST(:x_tipos AS text[]), CAST(:x_refs AS bigint[])) AS x(tipo, ref)
+    WHERE x.tipo = d.tipo AND x.ref = d.ref
+  )
+ORDER BY attempts, enqueued_at, tipo, ref
+LIMIT :limit
+FOR UPDATE SKIP LOCKED
+"""
+)
+
+# One given key with the version claimed (`enqueued_at`, moved by every re-queue): the one-by-one retry.
+_CLAIM_ONE_SQL = text(
+    "SELECT enqueued_at FROM sell_in_bono_dirty WHERE tipo = :tipo AND ref = :ref AND attempts < :max_attempts "
+    "FOR UPDATE SKIP LOCKED"
+)
+
+_DONE_SQL = text(
+    """
+DELETE FROM sell_in_bono_dirty AS d
+USING unnest(CAST(:tipos AS text[]), CAST(:refs AS bigint[])) AS k(tipo, ref)
+WHERE d.tipo = k.tipo AND d.ref = k.ref
+"""
+)
+
+_FAILED_SQL = text(
+    """
+UPDATE sell_in_bono_dirty AS d SET attempts = d.attempts + 1, last_error = f.error
+FROM unnest(CAST(:tipos AS text[]), CAST(:refs AS bigint[]), CAST(:errors AS text[])) AS f(tipo, ref, error)
+WHERE d.tipo = f.tipo AND d.ref = f.ref
+RETURNING d.tipo, d.ref, d.attempts
+"""
+)
+
+# Charges a key only while it is still the version that failed: a re-queue that landed after the
+# failed transaction rolled back is a fresh change.
+_CHARGE_SQL = text(
+    "UPDATE sell_in_bono_dirty SET attempts = attempts + 1, last_error = :error "
+    "WHERE tipo = :tipo AND ref = :ref AND enqueued_at = :enqueued_at RETURNING attempts"
+)
+
+
+def _arrays(keys: Iterable[Key]) -> Tuple[list, list]:
+    ordered = sorted(set(keys))
+    return [t for t, _ in ordered], [r for _, r in ordered]
+
+
+def claim_batch(db: Session, limit: int, excluded: Iterable[Key] = ()) -> List[Key]:
+    """Claims up to `limit` queued keys, locked until the transaction ends. Does not commit."""
+    x_tipos, x_refs = _arrays(excluded)
+    params = {"max_attempts": MAX_ATTEMPTS, "x_tipos": x_tipos, "x_refs": x_refs, "limit": limit}
+    return [(row[0], int(row[1])) for row in db.execute(_CLAIM_SQL, params)]
+
+
+def claim_one(db: Session, key: Key) -> Optional[datetime]:
+    """Claims one queued key and returns the version claimed; None when it is gone, parked or held."""
+    tipo, ref = key
+    row = db.execute(_CLAIM_ONE_SQL, {"tipo": tipo, "ref": ref, "max_attempts": MAX_ATTEMPTS}).first()
+    return row[0] if row is not None else None
+
+
+def settle(db: Session, done: Iterable[Key], failed: dict) -> List[Key]:
+    """Acks `done`, charges `failed` (`{key: error}`) in the claiming transaction; returns the keys
+    that park with this charge. Does not commit."""
+    tipos, refs = _arrays(done)
+    if tipos:
+        db.execute(_DONE_SQL, {"tipos": tipos, "refs": refs})
+    if not failed:
+        return []
+    ordered = sorted(failed)
+    rows = db.execute(
+        _FAILED_SQL,
+        {"tipos": [t for t, _ in ordered], "refs": [r for _, r in ordered], "errors": [failed[k] for k in ordered]},
+    )
+    return [(t, int(r)) for t, r, attempts in rows if attempts >= MAX_ATTEMPTS]
+
+
+def charge(db: Session, key: Key, error: str, enqueued_at: datetime) -> Optional[int]:
+    """Charges one key if it is still the version claimed; returns its attempts, or None. Does not commit."""
+    tipo, ref = key
+    row = db.execute(_CHARGE_SQL, {"tipo": tipo, "ref": ref, "error": error, "enqueued_at": enqueued_at}).first()
+    return row[0] if row is not None else None
