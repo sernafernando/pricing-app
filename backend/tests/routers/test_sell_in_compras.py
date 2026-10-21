@@ -18,7 +18,7 @@ from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
+from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.services.sell_in import compras as compras_service
 
 BASE = "/api/sell-in/compras"
@@ -863,3 +863,28 @@ def test_anular_without_body(client, gestor, productos):
 
 def test_anular_unknown_is_404(client, gestor):
     assert client.post(f"{BASE}/424242/anular", json={}, headers=gestor).status_code == 404
+
+
+def test_anular_a_purchase_generated_by_a_brand_bonus_is_409(client, gestor, productos, admin_user, db):
+    """Only the bonus (edit or void) changes what it generated; the worker would revive it anyway."""
+    bono = SellInBonoMarca(
+        marca="TP-LINK",
+        monto_unit=D("2"),
+        moneda="ARS",
+        fecha_desde=date(2026, 10, 1),
+        fecha_hasta=date(2026, 10, 31),
+        usuario_id=admin_user.id,
+    )
+    db.add(bono)
+    db.flush()
+    data = _crear(client, gestor)
+    compra = db.get(SellInCompra, data["id"])
+    compra.origen, compra.bono_id = "bono_marca", bono.id
+    db.flush()
+
+    resp = client.post(f"{BASE}/{data['id']}/anular", json={}, headers=gestor)
+
+    assert resp.status_code == 409
+    assert "bono de marca" in _message(resp)
+    db.expire_all()
+    assert db.get(SellInCompra, data["id"]).estado == "activa"

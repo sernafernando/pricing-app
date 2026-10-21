@@ -108,6 +108,9 @@ class SellInCompraOut(BaseModel):
     estado: Estado
     descripcion: Optional[str]
     usuario_id: int
+    # 'manual', or 'bono_marca' with the bonus that generated it (only that bonus changes it).
+    origen: Literal["manual", "bono_marca"] = "manual"
+    bono_id: Optional[int] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
     proveedor_nombre: Optional[str] = None
