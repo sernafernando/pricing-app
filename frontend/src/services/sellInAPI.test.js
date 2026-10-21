@@ -38,6 +38,11 @@ describe('sellInAPI', () => {
     });
   });
 
+  it("reads one Compras operation's products for the picker's popover", () => {
+    sellInAPI.operacionProductos(16);
+    expect(api.get).toHaveBeenCalledWith('/sell-in/compras/operaciones/16/productos');
+  });
+
   it('asks the prefill of several operations as a repeated query parameter', () => {
     sellInAPI.prefill([15, 16]);
     expect(api.get).toHaveBeenCalledWith('/sell-in/compras/prefill', {

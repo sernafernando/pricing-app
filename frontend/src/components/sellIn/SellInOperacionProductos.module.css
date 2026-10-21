@@ -1,0 +1,104 @@
+.card {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 360px;
+  max-height: 320px;
+  overflow: hidden;
+  padding: var(--space-3);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+.titulo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.numero {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--cf-text-tertiary);
+}
+
+.nota {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.spin {
+  animation: girar 1s linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-xs);
+  color: var(--cf-text-primary);
+}
+
+.tabla th {
+  padding: 0 0 var(--space-1);
+  font-weight: 500;
+  text-align: left;
+  color: var(--cf-text-tertiary);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tabla td {
+  padding: var(--space-1) 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.producto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.codigo {
+  font-family: var(--font-mono);
+}
+
+.descripcion {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+  color: var(--cf-text-secondary);
+}
+
+.tabla .num {
+  padding-left: var(--space-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

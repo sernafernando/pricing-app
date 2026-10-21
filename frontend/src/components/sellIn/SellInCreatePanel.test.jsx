@@ -7,7 +7,7 @@ import { COMPRA_ARS, operacionesFake, PREFILL, PREVIEW, PRODUCTOS } from './sell
 import SellInCreatePanel from './SellInCreatePanel';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInAPI: { preview: vi.fn(), crear: vi.fn(), proveedores: vi.fn(), prefill: vi.fn(), operaciones: vi.fn() },
+  sellInAPI: { preview: vi.fn(), crear: vi.fn(), proveedores: vi.fn(), prefill: vi.fn(), operaciones: vi.fn(), operacionProductos: vi.fn() },
 }));
 
 // Operation 20 belongs to another supplier, Mercusys (9), with no receipt yet.

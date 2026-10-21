@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import SellInNuevoPanel from './SellInNuevoPanel';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInAPI: { operaciones: vi.fn().mockResolvedValue({ data: { items: [] } }) },
+  sellInAPI: { operaciones: vi.fn().mockResolvedValue({ data: { items: [] } }), operacionProductos: vi.fn() },
   sellInBonosAPI: { crear: vi.fn() },
 }));
 

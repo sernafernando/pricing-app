@@ -2,6 +2,7 @@
  * Sell in — the create panel sits BESIDE the list, never over it (DESIGN.md:
  * "the page stays visible on the left, no modal"), in both themes, at a
  * laptop width and a wide one. Real Chromium geometry: jsdom does no layout.
+ * The picker's products card (resting on an operation) stays inside the viewport.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -11,7 +12,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { setTheme } from './visualHelpers';
 import SellIn from '../../pages/SellIn';
 import { sellInAPI, sellInBonosAPI } from '../../services/sellInAPI';
-import { BONOS_LISTA, LISTA, RESUMEN } from '../../components/sellIn/sellInFixtures';
+import { BONOS_LISTA, LISTA, PRODUCTOS_OPERACION, RESUMEN, operacionesFake } from '../../components/sellIn/sellInFixtures';
 
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
@@ -32,6 +33,8 @@ vi.mock('../../services/sellInAPI', () => ({
     crear: vi.fn(),
     anular: vi.fn(),
     proveedores: vi.fn(),
+    operaciones: vi.fn(),
+    operacionProductos: vi.fn(),
   },
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
 }));
@@ -40,6 +43,8 @@ beforeEach(() => {
   sellInAPI.listar.mockResolvedValue({ data: LISTA });
   sellInAPI.resumen.mockResolvedValue({ data: RESUMEN });
   sellInBonosAPI.listar.mockResolvedValue({ data: BONOS_LISTA });
+  sellInAPI.operaciones.mockImplementation(operacionesFake);
+  sellInAPI.operacionProductos.mockResolvedValue({ data: PRODUCTOS_OPERACION });
 });
 
 const Shell = ({ children }) => (
@@ -72,5 +77,16 @@ describe.each([
     expect(panelBox.left).toBeGreaterThanOrEqual(tableBox.right - 0.5);
     expect(panelBox.right).toBeLessThanOrEqual(width + 0.5);
     expect(document.querySelector('[role="dialog"], [aria-modal="true"]')).toBeNull();
+
+    await screen.getByLabelText('Pedido de compra (N°)').click();
+    await screen.getByRole('option', { name: /N° 16/ }).hover();
+    await expect.element(screen.getByRole('row', { name: /SW-8/ })).toBeVisible();
+    const card = document.querySelector('[role="tooltip"]').getBoundingClientRect();
+    expect(card.left).toBeGreaterThanOrEqual(0);
+    expect(card.top).toBeGreaterThanOrEqual(0);
+    expect(card.right).toBeLessThanOrEqual(width + 0.5);
+    expect(card.bottom).toBeLessThanOrEqual(height + 0.5);
+    const lista = document.querySelector('[role="listbox"]').getBoundingClientRect();
+    expect(card.right).toBeLessThanOrEqual(lista.left + 0.5); // beside the options: the picker stays usable
   });
 });
