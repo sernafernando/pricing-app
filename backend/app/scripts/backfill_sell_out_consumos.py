@@ -138,6 +138,16 @@ def _positive_int(value: str) -> int:
     return number
 
 
+def _non_negative_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {value!r}") from None
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0: {value!r}")
+    return number
+
+
 def _ids(value: str) -> list[int]:
     try:
         ids = sorted({int(part) for part in value.split(",") if part.strip()})
@@ -152,7 +162,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Rebuild the sell-out allocation (sell_out_consumos).")
     parser.add_argument("--limit", type=_positive_int, default=None, help="Stop after this many campaigns.")
     parser.add_argument("--batch-size", type=_positive_int, default=DEFAULT_BATCH_SIZE, help="Campaigns per commit.")
-    parser.add_argument("--after-campana", type=int, default=0, help="Resume after this campaign id.")
+    parser.add_argument("--after-campana", type=_non_negative_int, default=0, help="Resume after this campaign id.")
     parser.add_argument("--campanas", type=_ids, default=None, help="Rebuild exactly these campaigns (CSV of ids).")
     parser.add_argument("--dry-run", action="store_true", help="Compute and report in one rolled-back transaction.")
     return parser

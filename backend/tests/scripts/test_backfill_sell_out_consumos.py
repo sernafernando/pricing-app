@@ -162,3 +162,13 @@ def test_main_exits_1_when_a_campaign_failed(monkeypatch: pytest.MonkeyPatch) ->
 def test_invalid_bounds_are_refused() -> None:
     with pytest.raises(ValueError):
         script.run_backfill(limit=0, dry_run=True)
+
+
+def test_a_negative_resume_id_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    def never(**kwargs):
+        raise AssertionError("the backfill must not run with an invalid --after-campana")
+
+    monkeypatch.setattr(script, "run_backfill", never)
+
+    with pytest.raises(SystemExit):
+        script.main(["--dry-run", "--after-campana", "-5"])
