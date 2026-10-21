@@ -1,5 +1,9 @@
 """Migration `20261105_sell_out_campanas`: sell-out campaigns, their groups and permissions.
 
+The schema is built by every sell-out migration in order (`_MIGRATIONS`), so the
+parity test also covers `20261108_sell_out_consumos`, whose own rules are proven
+in `tests/unit/test_migration_sell_out_consumos.py`.
+
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references, and proves the CHECK/UNIQUE/FK
 rules at the database, plus the permission seed and its downgrade.
@@ -18,8 +22,11 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.database import Base
 
-_MIGRATION = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20261105_sell_out_campanas.py"
-TABLES = ("sell_out_campanas", "sell_out_campana_grupos")
+_MIGRATIONS = [
+    Path(__file__).resolve().parents[2] / "alembic" / "versions" / f"{revision}.py"
+    for revision in ("20261105_sell_out_campanas", "20261108_sell_out_consumos")
+]
+TABLES = ("sell_out_campanas", "sell_out_campana_grupos", "sell_out_consumos", "sell_out_dirty")
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
@@ -58,8 +65,8 @@ def _row(**overrides) -> dict:
     return row
 
 
-def _load_migration():
-    spec = importlib.util.spec_from_file_location("sell_out_campanas_migration", _MIGRATION)
+def _load_migration(path: Path):
+    spec = importlib.util.spec_from_file_location(f"{path.stem}_migration", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -69,11 +76,11 @@ def _run(engine, step: str) -> None:
     from alembic.operations import Operations
     from alembic.runtime.migration import MigrationContext
 
-    migration = _load_migration()
-    with engine.connect() as conn:
-        ctx = MigrationContext.configure(conn)
-        with ctx.begin_transaction(), Operations.context(ctx):
-            getattr(migration, step)()
+    for path in _MIGRATIONS if step == "upgrade" else reversed(_MIGRATIONS):
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            with ctx.begin_transaction(), Operations.context(ctx):
+                getattr(_load_migration(path), step)()
 
 
 @contextmanager

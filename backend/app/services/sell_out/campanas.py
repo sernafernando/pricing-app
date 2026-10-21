@@ -52,6 +52,7 @@ _CAMPOS = (
     "tope_unidades",
     "tope_monto",
     "acumulable",
+    "monto_incluye_iva",
 )
 
 

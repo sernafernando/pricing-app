@@ -58,6 +58,8 @@ class SellOutCampanaIn(BaseModel):
     tope_unidades: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
     tope_monto: Optional[Decimal] = Field(default=None, **MONTO)  # same, in `moneda`
     acumulable: bool = True
+    # Whether `monto_unit` includes VAT: each sale then gets it net of its product's own VAT.
+    monto_incluye_iva: bool = False
     grupo_ids: list[int] = Field(default_factory=list, max_length=GRUPOS_MAX)
 
 
@@ -93,6 +95,7 @@ class SellOutCampanaOut(BaseModel):
     tope_unidades: Optional[int]
     tope_monto: Optional[Decimal]
     acumulable: bool
+    monto_incluye_iva: bool
     estado: Estado
     usuario_id: int
     created_at: datetime

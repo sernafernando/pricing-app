@@ -22,8 +22,22 @@ FX (`tc_modo`, USD campaigns only; an ARS campaign has `tc_modo` and
 - `fijo`: the rate is entered with the campaign and required.
 - `dia_venta`: each sale converts at its own day's rate; `tipo_cambio` is NULL.
 
+VAT (owner, 2026-10-20): sell out applies against the net without VAT.
+`monto_incluye_iva` says whether `monto_unit` was loaded with VAT; when it was,
+each sale's amount is divided by its own product's VAT rate (T7,
+`app.services.sell_out.tope`).
+
 Campaigns on the same product and dates stack unless one of them is not
 `acumulable`. A campaign is never deleted: it is voided (`anulada`).
+
+`SellOutConsumo` holds what each sale takes from a campaign's cap, rebuilt per
+campaign by the T7 allocator; `SellOutDirty` queues the campaigns to rebuild.
+`SellOutConsumo.venta_ref` has NO foreign key on purpose, like
+`SellInConsumo.venta_ref`: `ml_sale_lines` is deleted and reinserted on every
+store, so a physical FK would either block the store or cascade the
+consumptions away. The allocator owns that reference; its keyspace is the
+channel's (`ml`: `ml_sale_lines.item_row_id`; `fuera` / `tn`: the
+`it_transaction` of `ventas_fuera_ml_metricas` / `ventas_tienda_nube_metricas`).
 """
 
 from sqlalchemy import (
@@ -41,7 +55,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.sql import func, true
+from sqlalchemy.sql import false, func, text, true
 
 from app.core.database import Base
 
@@ -99,6 +113,8 @@ class SellOutCampana(Base):
     tope_unidades = Column(Integer, nullable=True)
     tope_monto = Column(Numeric(18, 2), nullable=True)
     acumulable = Column(Boolean, nullable=False, default=True, server_default=true())
+    # Whether `monto_unit` includes VAT; see the module docstring.
+    monto_incluye_iva = Column(Boolean, nullable=False, default=False, server_default=false())
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -122,3 +138,43 @@ class SellOutCampanaGrupo(Base):
         ForeignKey("offset_grupos.id", ondelete="RESTRICT", name=FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID),
         nullable=False,
     )
+
+
+class SellOutConsumo(Base):
+    """What one sale takes from one campaign's cap (T7). See the module docstring."""
+
+    __tablename__ = "sell_out_consumos"
+    __table_args__ = (
+        UniqueConstraint("campana_id", "canal", "venta_ref", name="uq_sell_out_consumos_campana_canal_venta"),
+        CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_out_consumos_canal"),
+        CheckConstraint("unidades > 0", name="ck_sell_out_consumos_unidades_positivas"),
+        CheckConstraint("monto >= 0", name="ck_sell_out_consumos_monto_no_negativo"),
+        CheckConstraint("tc_venta IS NULL OR tc_venta > 0", name="ck_sell_out_consumos_tc_venta_positivo"),
+        Index("ix_sell_out_consumos_canal_venta", "canal", "venta_ref"),
+        Index("ix_sell_out_consumos_campana_id", "campana_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    campana_id = Column(BigInteger, ForeignKey("sell_out_campanas.id", ondelete="CASCADE"), nullable=False)
+    canal = Column(String(8), nullable=False)
+    venta_ref = Column(BigInteger, nullable=False)  # no FK: see module docstring
+    item_id = Column(Integer, nullable=False)  # copy of the sale's product, for lookups by product
+    fecha_venta = Column(Date, nullable=False)
+    unidades = Column(Integer, nullable=False)
+    monto = Column(Numeric(18, 2), nullable=False)  # in the campaign's `moneda`
+    # BNA rate (ARS per USD) of the sale day, frozen when the row is written; ARS is computed on read.
+    tc_venta = Column(Numeric(18, 6), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SellOutDirty(Base):
+    """A campaign waiting for its allocation to be rebuilt (T7). Nothing fills it yet."""
+
+    __tablename__ = "sell_out_dirty"
+
+    campana_id = Column(
+        BigInteger, ForeignKey("sell_out_campanas.id", ondelete="CASCADE"), primary_key=True, autoincrement=False
+    )
+    enqueued_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    attempts = Column(Integer, nullable=False, server_default=text("0"))
+    last_error = Column(Text, nullable=True)

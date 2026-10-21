@@ -226,6 +226,24 @@ def test_update_replaces_fields_and_groups(client, gestor, grupos, db) -> None:
     assert audit.valores_anteriores["nombre"] == "Campaña TP-Link noviembre"
 
 
+def test_vat_flag_defaults_off_and_is_stored_edited_and_audited(client, gestor, grupos, db) -> None:
+    assert _crear(client, gestor, grupos)["monto_incluye_iva"] is False
+    out = _crear(client, gestor, grupos, monto_incluye_iva=True)
+    assert out["monto_incluye_iva"] is True
+    creadas = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_CREADA)
+    creada = creadas.order_by(Auditoria.id.desc()).first()
+    assert creada.valores_nuevos["monto_incluye_iva"] is True
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, monto_incluye_iva=False), headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["monto_incluye_iva"] is False
+    editada = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_EDITADA).one()
+    assert (editada.valores_anteriores["monto_incluye_iva"], editada.valores_nuevos["monto_incluye_iva"]) == (
+        True,
+        False,
+    )
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["monto_incluye_iva"] is False
+
+
 def test_update_validates_like_create(client, gestor, grupos) -> None:
     out = _crear(client, gestor, grupos)
     resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, fecha_hasta="2026-10-01"), headers=gestor)
