@@ -380,6 +380,151 @@ describe('PanelPermisos', () => {
     });
   });
 
+  // Phone layout: the list and the detail are two panes and CSS shows only the
+  // one named by `data-vista-movil` (desktop ignores it and shows both).
+  describe('phone list/detail switch', () => {
+    const layout = () => document.querySelector('[data-vista-movil]');
+    const volver = () => screen.queryByRole('button', { name: 'Volver a la lista de usuarios' });
+    const filaUsuario = (nombre) =>
+      within(screen.getByRole('list', { name: 'Usuarios del sistema' })).getByRole('button', {
+        name: new RegExp(nombre),
+      });
+
+    it('shows the list and no back button while no user is selected', async () => {
+      renderPanel();
+      await screen.findByText('Ana Pérez');
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'lista');
+      expect(volver()).not.toBeInTheDocument();
+    });
+
+    it('shows the detail with a back button once a user is selected', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'detalle');
+      expect(volver()).toBeInTheDocument();
+    });
+
+    it('goes back to the list keeping the user selected, and shows the detail again on the next pick', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+
+      await user.click(volver());
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'lista');
+      expect(filaUsuario('Ana Pérez')).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(filaUsuario('Beto Gómez'));
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'detalle');
+      expect(await screen.findByRole('heading', { name: 'Beto Gómez' })).toBeInTheDocument();
+    });
+
+    // Selecting never refuses (no guard in seleccionarUsuario, list rows never
+    // disabled): the only "no new selection" case is tapping the same user.
+    it('tapping the already selected user after going back shows its detail again', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(volver());
+
+      await user.click(filaUsuario('Ana Pérez'));
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'detalle');
+      expect(volver()).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument();
+    });
+
+    it('does not jump to the detail when a save reselects the user after going back', async () => {
+      const user = userEvent.setup();
+      api.patch.mockResolvedValue({ data: {} });
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+      await user.click(screen.getByRole('button', { name: 'Editar' }));
+      await user.click(await screen.findByRole('button', { name: /Guardar/ }));
+      await waitFor(() => expect(api.patch).toHaveBeenCalled());
+
+      // Back to the list before the delayed reselect after the save lands.
+      await user.click(volver());
+      await waitFor(
+        () => expect(api.get.mock.calls.filter(([url]) => url === '/permisos/usuario/7').length).toBeGreaterThanOrEqual(2),
+        { timeout: 2000 },
+      );
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'lista');
+    });
+
+    // No path clears the selection (deactivating keeps the user selected), so
+    // the layout only goes back to the list through the back button.
+    it('keeps the detail and its back button when the selected user is deactivated', async () => {
+      const user = userEvent.setup();
+      api.patch.mockResolvedValue({ data: {} });
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+
+      await user.click(screen.getByRole('button', { name: 'Desactivar' }));
+
+      expect(await screen.findByRole('button', { name: 'Activar' })).toBeInTheDocument();
+      expect(layout()).toHaveAttribute('data-vista-movil', 'detalle');
+      expect(volver()).toBeInTheDocument();
+    });
+
+    describe('scrolling the detail into view', () => {
+      // jsdom computes no layout: the phone layout (list hidden by CSS) and the
+      // scroll position are stubbed; the exact originals are put back afterwards.
+      let originalScrollIntoView;
+      let scrollIntoView;
+      // Plain DOM checks: role queries call getComputedStyle themselves.
+      const columnaLista = (el) =>
+        el.matches?.('[data-vista-movil] > *') && el.querySelector('h3')?.textContent === 'Usuarios del sistema';
+      const columnaDetalle = () => layout().lastElementChild;
+
+      beforeEach(() => {
+        originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+        scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+        vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+          top: -300, bottom: 200, left: 0, right: 390, width: 390, height: 500, x: 0, y: -300,
+        });
+      });
+
+      afterEach(() => {
+        vi.restoreAllMocks();
+        if (originalScrollIntoView) Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView);
+        else delete Element.prototype.scrollIntoView;
+      });
+
+      it('scrolls the detail into view once on a phone when its top is above the viewport', async () => {
+        const original = window.getComputedStyle.bind(window);
+        vi.spyOn(window, 'getComputedStyle').mockImplementation((el, ...rest) =>
+          columnaLista(el) ? { display: 'none' } : original(el, ...rest),
+        );
+        const user = userEvent.setup();
+        renderPanel();
+
+        await user.click(await screen.findByText('Ana Pérez'));
+        await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+        expect(scrollIntoView.mock.contexts[0]).toBe(columnaDetalle());
+      });
+
+      it('does not scroll on desktop, where the list stays visible', async () => {
+        const user = userEvent.setup();
+        renderPanel();
+
+        await user.click(await screen.findByText('Ana Pérez'));
+        await screen.findByPlaceholderText(/Buscá una pantalla o permiso/);
+
+        expect(scrollIntoView).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   describe('user modal', () => {
     const ROLES = [
       { id: 1, codigo: 'VENTAS', nombre: 'Ventas' },

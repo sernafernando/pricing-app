@@ -54,6 +54,7 @@
 
 .tarjetaNombre {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   font-weight: var(--font-semibold);
@@ -90,7 +91,14 @@
   text-align: center;
 }
 
-/* Drawer open: the tab content and the drawer side by side; stacked on narrow screens, drawer first. */
+/* Drawer open: the role cards and the drawer side by side in one row; the
+   matrix below spans the full width. */
+.layoutConDrawer {
+  composes: layout;
+  /* Height of the role drawer as a bottom sheet; DrawerRol (a descendant) reads it. */
+  --drawer-rol-alto-movil: 60vh;
+}
+
 .conDrawer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
@@ -98,9 +106,15 @@
   align-items: start;
 }
 
+/* Narrow: the drawer is a bottom sheet (DrawerRol); the padding lets the
+   cards and the matrix scroll above it. */
 @media (max-width: 1023px) {
   .conDrawer {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .layoutConDrawer {
+    padding-bottom: var(--drawer-rol-alto-movil);
   }
 }
 

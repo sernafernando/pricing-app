@@ -414,8 +414,10 @@ export default function PanelRoles() {
         </div>
       )}
 
-      <div className={drawerAbierto ? styles.conDrawer : undefined}>
-        <div className={styles.layout}>
+      {/* Cards and drawer share a row (the drawer is a bottom sheet on narrow screens);
+          the matrix spans the full width below them, drawer open or not. */}
+      <div className={drawerAbierto ? styles.layoutConDrawer : styles.layout}>
+        <div className={drawerAbierto ? styles.conDrawer : undefined}>
           {/* Roles: cada tarjeta abre su panel lateral, donde se edita, clona o elimina */}
           <div className={adminStyles.section}>
             <div className={styles.encabezado}>
@@ -453,59 +455,59 @@ export default function PanelRoles() {
             </div>
           </div>
 
-          {/* Matriz roles x permisos */}
-          <section className={adminStyles.section} aria-label="Permisos por rol">
-            <h3 className={styles.titulo}>Permisos por rol</h3>
-            <MatrizRoles
-              catalogo={catalogo}
-              roles={roles}
-              esSoloLectura={esSoloLectura}
-              tienePermiso={tienePermiso}
-              esPendiente={esPendiente}
-              sinCargar={sinCargar}
-              onToggle={togglePermiso}
-              deshabilitado={matrizBloqueada}
-              rolSeleccionado={rolAbierto}
-              cantidadDelRol={cantidadDelRol(rolAbierto)}
-              soloDelRol={soloDelRol}
-              onSoloDelRolChange={setSoloDelRol}
-            />
-            <BarraCambios
-              cantidad={cantidadPendientes}
-              guardando={guardandoPermisos}
-              bloqueado={gestionandoRoles}
-              onDescartar={() => setPendientes({})}
-              onGuardar={guardarCambios}
-            />
-          </section>
+          {drawerAbierto && (
+            <DrawerRol key={sujetoDrawer} titulo={tituloDrawer} puedeCerrar={puedeCerrarDrawer} onCerrar={cerrarDrawer}>
+              {mostrarFormRol ? (
+                <FormularioRol
+                  form={formRol}
+                  onChange={setFormRol}
+                  esEdicion={!!editandoRol}
+                  guardando={guardando}
+                  bloqueado={guardandoPermisos}
+                  onGuardar={editandoRol ? actualizarRol : crearRol}
+                  onCancelar={cerrarFormRol}
+                />
+              ) : (
+                <DetalleRol
+                  rol={rolAbierto}
+                  soloLectura={esSoloLectura(rolAbierto)}
+                  cantidadPermisos={cantidadDelRol(rolAbierto)}
+                  bloqueado={guardandoPermisos}
+                  onEditar={() => iniciarEdicion(rolAbierto)}
+                  onClonar={() => setRolAClonar(rolAbierto)}
+                  onEliminar={() => pedirEliminarRol(rolAbierto)}
+                  onVerPermisos={() => setSoloDelRol(true)}
+                />
+              )}
+            </DrawerRol>
+          )}
         </div>
 
-        {drawerAbierto && (
-          <DrawerRol key={sujetoDrawer} titulo={tituloDrawer} puedeCerrar={puedeCerrarDrawer} onCerrar={cerrarDrawer}>
-            {mostrarFormRol ? (
-              <FormularioRol
-                form={formRol}
-                onChange={setFormRol}
-                esEdicion={!!editandoRol}
-                guardando={guardando}
-                bloqueado={guardandoPermisos}
-                onGuardar={editandoRol ? actualizarRol : crearRol}
-                onCancelar={cerrarFormRol}
-              />
-            ) : (
-              <DetalleRol
-                rol={rolAbierto}
-                soloLectura={esSoloLectura(rolAbierto)}
-                cantidadPermisos={cantidadDelRol(rolAbierto)}
-                bloqueado={guardandoPermisos}
-                onEditar={() => iniciarEdicion(rolAbierto)}
-                onClonar={() => setRolAClonar(rolAbierto)}
-                onEliminar={() => pedirEliminarRol(rolAbierto)}
-                onVerPermisos={() => setSoloDelRol(true)}
-              />
-            )}
-          </DrawerRol>
-        )}
+        {/* Matriz roles x permisos */}
+        <section className={adminStyles.section} aria-label="Permisos por rol">
+          <h3 className={styles.titulo}>Permisos por rol</h3>
+          <MatrizRoles
+            catalogo={catalogo}
+            roles={roles}
+            esSoloLectura={esSoloLectura}
+            tienePermiso={tienePermiso}
+            esPendiente={esPendiente}
+            sinCargar={sinCargar}
+            onToggle={togglePermiso}
+            deshabilitado={matrizBloqueada}
+            rolSeleccionado={rolAbierto}
+            cantidadDelRol={cantidadDelRol(rolAbierto)}
+            soloDelRol={soloDelRol}
+            onSoloDelRolChange={setSoloDelRol}
+          />
+          <BarraCambios
+            cantidad={cantidadPendientes}
+            guardando={guardandoPermisos}
+            bloqueado={gestionandoRoles}
+            onDescartar={() => setPendientes({})}
+            onGuardar={guardarCambios}
+          />
+        </section>
       </div>
 
       {rolAClonar && (
