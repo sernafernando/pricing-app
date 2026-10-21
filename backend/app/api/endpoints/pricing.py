@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from app.api.deps import get_current_user, require_algun_permiso
 from app.core.database import get_db
 from app.services.envio_real_service import resolver_costo_envio
+from app.services.precio_variantes_envio import calcular_variantes_envio
+from app.schemas.pricing_variantes_envio import VariantesEnvioResponse
 
 logger = logging.getLogger(__name__)
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
@@ -217,6 +219,42 @@ def calcular_markup_get(
         "comision_total": round(comisiones["comision_total"], 2),
         "limpio": round(limpio, 2),
         "markup": round(markup_resultante * 100, 2),
+    }
+
+
+@router.get("/precios/variantes-envio", response_model=VariantesEnvioResponse)
+def variantes_envio(
+    item_id: int,
+    precio: float = Query(..., gt=0),
+    pricelist_id: int = 4,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Markup and profit of `precio` per active ML publication, each with its own shipping cost, plus a simple
+    average, an average weighted by recent units sold, and today's MAX-based markup for `pricelist_id`.
+    Read-only: it changes no stored markup.
+    """
+    producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+    if not producto:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    tipo_cambio = None
+    if producto.moneda_costo == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+        if not tipo_cambio:
+            raise HTTPException(400, "No hay tipo de cambio disponible")
+
+    costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+    resultado = calcular_variantes_envio(db, producto, precio, costo_ars, pricelist_actual=pricelist_id)
+    return {
+        "item_id": producto.item_id,
+        "codigo": producto.codigo,
+        "descripcion": producto.descripcion,
+        "precio": precio,
+        "costo_ars": round(costo_ars, 2),
+        "tipo_cambio": tipo_cambio,
+        **resultado,
     }
 
 

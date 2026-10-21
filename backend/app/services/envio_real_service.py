@@ -36,12 +36,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _fetch_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
+def _query_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
     """
-    Query ml_seller_shipping_costs in the mlwebhook DB for the given MLA IDs.
+    Query ml_seller_shipping_costs in the mlwebhook DB for the given MLA IDs; RAISES on any error.
 
     Returns {mla_id: list_cost} for rows where list_cost > 0 and currency_id = 'ARS'.
-    Returns an empty dict on any error (DB unreachable, table missing, etc.).
 
     list_cost is stored WITH IVA — returned as-is; caller decides what to do with it.
 
@@ -52,28 +51,33 @@ def _fetch_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
     if not mla_ids:
         return result
 
+    engine = get_mlwebhook_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT mla_id, list_cost
+                FROM ml_seller_shipping_costs
+                WHERE mla_id = ANY(ARRAY(SELECT jsonb_array_elements_text(CAST(:ids AS jsonb))))
+                  AND list_cost IS NOT NULL
+                  AND list_cost > 0
+                  AND currency_id = 'ARS'
+                """
+            ),
+            {"ids": json.dumps(mla_ids)},
+        ).fetchall()
+    for row in rows:
+        result[row.mla_id] = float(row.list_cost)
+    return result
+
+
+def _fetch_list_cost_by_mla(mla_ids: list[str]) -> dict[str, float]:
+    """`_query_list_cost_by_mla`, returning an empty dict on any error (DB unreachable, table missing, etc.)."""
     try:
-        engine = get_mlwebhook_engine()
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT mla_id, list_cost
-                    FROM ml_seller_shipping_costs
-                    WHERE mla_id = ANY(ARRAY(SELECT jsonb_array_elements_text(CAST(:ids AS jsonb))))
-                      AND list_cost IS NOT NULL
-                      AND list_cost > 0
-                      AND currency_id = 'ARS'
-                    """
-                ),
-                {"ids": json.dumps(mla_ids)},
-            ).fetchall()
-        for row in rows:
-            result[row.mla_id] = float(row.list_cost)
+        return _query_list_cost_by_mla(mla_ids)
     except Exception as exc:
         logger.warning("No se pudo consultar ml_seller_shipping_costs: %s", exc)
-
-    return result
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -122,10 +126,22 @@ def resolver_costo_envio(
     # Step 2: fetch shipping costs from mlwebhook DB
     costs = _fetch_list_cost_by_mla(active_mla_ids)
 
-    if not costs:
-        return float(producto.envio or 0.0)
-
     # Step 3: MAX in Python (cross-DB GROUP BY is not possible)
+    return costo_envio_maximo(costs, producto.envio)
+
+
+def costos_envio_por_mla(mla_ids: Sequence[str]) -> dict[str, float]:
+    """{mla: list_cost} (ARS, with IVA) for the given MLAs, in ONE cross-DB read; RAISES when the read fails.
+
+    MLAs without a usable cost are absent. Public face of the read `resolver_costo_envio` does, for a caller that
+    needs each publication's own cost instead of the MAX and must tell a failed read from missing data."""
+    return _query_list_cost_by_mla(list(mla_ids))
+
+
+def costo_envio_maximo(costs: Mapping[str, float], fallback: Optional[float]) -> float:
+    """The resolved shipping cost of a product from its active MLAs' costs: their MAX, else the ERP `envio`."""
+    if not costs:
+        return float(fallback or 0.0)
     return max(costs.values())
 
 
