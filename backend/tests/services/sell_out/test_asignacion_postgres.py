@@ -263,6 +263,17 @@ class TestTipoDeCambio:
         _recalcular(engine, campana)
         assert [r[7] for r in w.consumos(engine)] == [Decimal("4000")]
 
+    def test_a_seventh_decimal_tie_rounds_half_up_like_postgres_and_is_then_stable(self, engine: Engine) -> None:
+        w.tipo_cambio(engine, D(2026, 11, 1), 1450.1234565)
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="dia_venta")
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+        _recalcular(engine, campana)
+
+        with engine.connect() as conn:
+            postgres = conn.execute(text("SELECT CAST(CAST('1450.1234565' AS numeric) AS numeric(18, 6))")).scalar()
+        assert [r[7] for r in w.consumos(engine)] == [postgres] == [Decimal("1450.123457")]
+        assert (_recalcular(engine, campana).inserted, _recalcular(engine, campana).deleted) == (0, 0)
+
     def test_a_rate_with_more_decimals_than_stored_does_not_rewrite_the_row_every_time(self, engine: Engine) -> None:
         w.tipo_cambio(engine, D(2026, 11, 1), 1450.1234567)
         campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="dia_venta")

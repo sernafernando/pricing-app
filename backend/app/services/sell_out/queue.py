@@ -11,7 +11,7 @@ Writers (all in the transaction of the change):
   range moves the cap, `alcance`). A settled ML order arrives this way too.
 - the campaigns API (`campanas`): a load, an edit (the campaign and the ones
   that shared products with it BEFORE the edit), a void and a payment rate.
-- the BNA update (`tipo_cambio_service.actualizar_tipo_cambio_bna`,
+- the BNA update (`tipo_cambio_service.guardar_cotizacion_bna`, in a savepoint,
   `enqueue_por_bna`).
 
 A queued campaign re-queued while the drain holds it (`FOR UPDATE SKIP LOCKED`

@@ -42,9 +42,11 @@ Rate: every USD row carries `tc_venta`, the rate it converts at NOW (S3, owner:
 "cuando está en dinámico se calcula en cuanto se actualiza bna"): `al_cobro`
 its `tipo_cambio` once set, before that the latest BNA; `fijo` its
 `tipo_cambio` (no BNA needed); `dia_venta` the BNA of the sale day
-(`tipo_cambio`, USD `venta`, the latest on or before it). A changed rate is a change: the row is rewritten. ARS amounts are computed
-on read (S5). A USD row or
-conversion with no rate fails the campaign: never a guessed nor an empty rate.
+(`tipo_cambio`, USD `venta`, the latest on or before it). A changed rate is a
+change: the row is rewritten. The rate is rounded to the column's 6 decimals
+half up, as Postgres rounds NUMERIC. ARS amounts are computed on read (S5). A
+USD row or conversion with no rate fails the campaign: never a guessed nor an
+empty rate.
 A campaign loaded with VAT reaching a product without `iva` fails too.
 
 Concurrency: `pg_advisory_xact_lock(LOCK_NAMESPACE, campana_id)` for every
@@ -56,7 +58,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import delete, insert, or_, text
@@ -234,7 +236,8 @@ def _tc_fila(c: SellOutCampana, x: tope.Consumo, tasas: _Tasas) -> Optional[Deci
     """The rate a USD row carries: the one it converts at (`_tasa`, module docstring); None for ARS."""
     if c.moneda != "USD":
         return None
-    return _tasa(c, x.fecha_venta, tasas).quantize(_TC_ESCALA)  # as stored, so an unchanged rate compares equal
+    # Rounded as Postgres stores it (half away from zero), so an unchanged rate compares equal.
+    return _tasa(c, x.fecha_venta, tasas).quantize(_TC_ESCALA, rounding=ROUND_HALF_UP)
 
 
 def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:

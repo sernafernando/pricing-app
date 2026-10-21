@@ -47,7 +47,9 @@ def actualizar_tipo_cambio_bna(db: Session) -> dict:
         guardar_cotizacion_bna(db, compra, venta)
         return {"status": "success", "compra": compra, "venta": venta, "fuente": "BNA"}
     except Exception as e:
-        db.rollback()  # never leave the caller's session in a failed transaction
+        # Session contract: callers pass a dedicated session with nothing pending (sync endpoint, sync scripts),
+        # so rolling back discards only this update and never leaves the session in a failed transaction.
+        db.rollback()
         return {"status": "error", "message": str(e)}
 
 
