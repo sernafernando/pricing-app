@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { AlertTriangle, Clock, Download, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -28,6 +28,7 @@ import { currentMonthRange } from '../utils/dateRangePresets';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
+import { exportMetricasSheets, isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { timeAgo } from '../utils/ventasMlFormat';
 import {
   AGEING_BUCKET_TONES,
@@ -180,6 +181,13 @@ export default function MetricasML() {
   const [columnVisibility, setColumnVisibility] = useState({});
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
+  const [exportingSheets, setExportingSheets] = useState(false);
+  // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link of a blocked tab.
+  const [sheetsNotice, setSheetsNotice] = useState(null);
+  const sheetsEnabled = isSheetsExportEnabled();
+  useEffect(() => {
+    if (sheetsEnabled) loadGoogleIdentity().catch(() => {}); // ready before the click; a failure shows on the click
+  }, [sheetsEnabled]);
 
   const filterParams = useMemo(
     () => ({
@@ -360,18 +368,37 @@ export default function MetricasML() {
     setOffset(0);
   }, []);
 
-  const handleExport = useCallback(async () => {
+  // The CSV follows the board's "Publicidad" position and "Costos TP" (filterParams carries each only when on).
+  const exportParams = { ...filterParams, sort: sortKey, sort_dir: sort.desc ? 'desc' : 'asc' };
+
+  const handleExport = async () => {
     setExporting(true);
     setExportError(null);
+    setSheetsNotice(null);
     try {
-      // The CSV follows the board's "Publicidad" position and "Costos TP" (filterParams carries each only when on).
-      await exportMetricasCsv({ ...filterParams, sort: sortKey, sort_dir: sort.desc ? 'desc' : 'asc' });
+      await exportMetricasCsv(exportParams);
     } catch (err) {
       setExportError(err.message);
     } finally {
       setExporting(false);
     }
-  }, [filterParams, sortKey, sort.desc]);
+  };
+
+  // The same file, as a new Google Sheet. Called straight from the click: the Google popup needs it.
+  const handleSheetsExport = async () => {
+    setExportingSheets(true);
+    setExportError(null);
+    setSheetsNotice(null);
+    try {
+      const { url, opened } = await exportMetricasSheets(exportParams);
+      if (!opened) setSheetsNotice({ url });
+    } catch (err) {
+      if (err.cancelled) setSheetsNotice({ text: err.message });
+      else setExportError(err.message);
+    } finally {
+      setExportingSheets(false);
+    }
+  };
 
   const clearFilters = () => {
     setRange({ ...defaultRange(), filtro: DEFAULT_PRESET });
@@ -478,6 +505,12 @@ export default function MetricasML() {
             <Download size={14} />
             {exporting ? 'Exportando…' : 'Exportar CSV'}
           </button>
+          {sheetsEnabled && (
+            <button type="button" className="btn-tesla outline sm" onClick={handleSheetsExport} disabled={exportingSheets}>
+              <FileSpreadsheet size={14} />
+              {exportingSheets ? 'Exportando a Sheets…' : 'Exportar a Sheets'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -505,6 +538,17 @@ export default function MetricasML() {
         <div className={styles.errorBar} role="alert">
           <ShieldAlert size={16} /> {exportError}
         </div>
+      )}
+      {sheetsNotice && (
+        <p className={styles.description} role="status">
+          {sheetsNotice.url ? (
+            <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
+              Abrir la hoja en Google Sheets
+            </a>
+          ) : (
+            sheetsNotice.text
+          )}
+        </p>
       )}
 
       <section className={styles.filterCard} aria-label="Filtros">

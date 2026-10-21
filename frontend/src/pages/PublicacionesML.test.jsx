@@ -3,14 +3,15 @@
  * `/ml-publications/view/items` for and what it does with the answer. Layout is
  * the visual suite's job (`src/test/visual/publicacionesMl.visual.test.jsx`).
  */
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
 import { publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
-import { exportPublicacionesCsv } from '../utils/publicacionesMlExport';
+import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
+import { loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
 import {
   BRAND_NODES,
@@ -53,6 +54,11 @@ vi.mock('../utils/mlSidePanel', async (importOriginal) => ({
 vi.mock('../utils/publicacionesMlExport', async (importOriginal) => ({
   ...(await importOriginal()),
   exportPublicacionesCsv: vi.fn(),
+  exportPublicacionesSheets: vi.fn(),
+}));
+vi.mock('../utils/googleSheetsExport', async (importOriginal) => ({
+  ...(await importOriginal()),
+  loadGoogleIdentity: vi.fn(() => Promise.resolve(true)),
 }));
 
 // Everything is allowed except the margin, which each test grants on purpose.
@@ -1394,5 +1400,97 @@ describe('CSV export of the current view (S7)', () => {
     refuse(new Error('Son 12000 publicaciones (máximo 10000). Acotá los filtros.'));
     expect(await screen.findByRole('button', { name: /Exportar CSV/ })).toBeEnabled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('Exportar a Sheets', () => {
+  const sheetsButton = () => screen.getByRole('button', { name: 'Exportar a Sheets' });
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'client-123');
+    exportPublicacionesCsv.mockReset();
+    exportPublicacionesCsv.mockResolvedValue(undefined);
+    exportPublicacionesSheets.mockReset();
+    exportPublicacionesSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: true });
+    loadGoogleIdentity.mockClear();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('is not offered without a Google client id', async () => {
+    vi.stubEnv('VITE_GOOGLE_CLIENT_ID', '');
+    await page();
+    expect(screen.queryByRole('button', { name: /Sheets/ })).not.toBeInTheDocument();
+    expect(loadGoogleIdentity).not.toHaveBeenCalled();
+  });
+
+  it('is not offered in the Agrupado view, like the CSV', async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await screen.findByText('EPSON');
+    expect(screen.queryByRole('button', { name: /Sheets/ })).not.toBeInTheDocument();
+  });
+
+  it('sends exactly the view and request of "Exportar CSV"', async () => {
+    canSeeMargin = true;
+    await page('/ml-publicaciones?q=router&orden=markup&dir=asc&pagina=3');
+    expect(loadGoogleIdentity).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
+    await userEvent.click(sheetsButton());
+    expect(exportPublicacionesSheets).toHaveBeenCalledTimes(1);
+    expect(exportPublicacionesSheets.mock.calls[0]).toEqual(exportPublicacionesCsv.mock.calls[0]);
+    expect(exportPublicacionesSheets.mock.calls[0][0]).toBe('publicacion');
+  });
+
+  it('says "Exportando a Sheets…" while it works', async () => {
+    let finish;
+    exportPublicacionesSheets.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await page();
+    await userEvent.click(sheetsButton());
+    expect(screen.getByRole('button', { name: 'Exportando a Sheets…' })).toBeDisabled();
+    finish({ url: 'u', opened: true });
+    expect(await screen.findByRole('button', { name: 'Exportar a Sheets' })).toBeEnabled();
+  });
+
+  it('shows a refusal like the CSV export does', async () => {
+    exportPublicacionesSheets.mockRejectedValue(new Error('La consulta tardó demasiado.'));
+    await page();
+    await userEvent.click(sheetsButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent('La consulta tardó demasiado.');
+  });
+
+  it('a cancelled Google popup is a quiet note, not an error', async () => {
+    exportPublicacionesSheets.mockRejectedValue(Object.assign(new Error('Exportación cancelada'), { cancelled: true }));
+    await page();
+    await userEvent.click(sheetsButton());
+    expect(await screen.findByText('Exportación cancelada')).toHaveAttribute('role', 'status');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('when the browser blocked the new tab, links to the sheet', async () => {
+    exportPublicacionesSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: false });
+    await page();
+    await userEvent.click(sheetsButton());
+    const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
+  });
+
+  it('a filter change drops the note about the previous list', async () => {
+    exportPublicacionesSheets.mockRejectedValue(Object.assign(new Error('Exportación cancelada'), { cancelled: true }));
+    await page();
+    await userEvent.click(sheetsButton());
+    await screen.findByText('Exportación cancelada');
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(screen.queryByText('Exportación cancelada')).not.toBeInTheDocument());
+  });
+
+  it('a popup closed after a filter change says nothing under the new list', async () => {
+    let cancel;
+    exportPublicacionesSheets.mockReturnValue(new Promise((_, reject) => (cancel = reject)));
+    await page();
+    await userEvent.click(sheetsButton());
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await act(async () => cancel(Object.assign(new Error('Exportación cancelada'), { cancelled: true })));
+    expect(screen.queryByText('Exportación cancelada')).not.toBeInTheDocument();
   });
 });
