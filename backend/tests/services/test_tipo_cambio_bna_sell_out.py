@@ -9,11 +9,12 @@ requirements; `tests.services.sell_out._world`.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from typing import Iterator
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.services import tipo_cambio_service
@@ -66,3 +67,37 @@ def test_the_same_rate_again_queues_nothing_and_a_changed_one_does(engine: Engin
 
     _actualizar(engine, 1460.0)
     assert [row[0] for row in w.queued(engine)] == [cid]
+
+
+def _tasas(engine: Engine) -> list:
+    with engine.connect() as conn:
+        return [r[0] for r in conn.execute(text("SELECT venta FROM tipo_cambio WHERE moneda = 'USD'"))]
+
+
+def test_the_rate_is_stored_even_when_queueing_fails(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def _rota(db, fecha):
+        db.execute(text("SELECT * FROM tabla_que_no_existe"))  # aborts the transaction without a savepoint
+
+    monkeypatch.setattr(tipo_cambio_service.sell_out_queue, "enqueue_por_bna", _rota)
+
+    with caplog.at_level(logging.ERROR, logger=tipo_cambio_service.__name__):
+        _actualizar(engine)
+
+    assert _tasas(engine) == [1450.0]
+    assert any("sell-out" in r.getMessage() for r in caplog.records)
+
+
+def test_a_failed_update_leaves_the_session_usable(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _caida(*args, **kwargs):
+        raise RuntimeError("BNA caído")
+
+    monkeypatch.setattr(tipo_cambio_service.requests, "post", _caida)
+    with sessionmaker(bind=engine)() as db:
+        with pytest.raises(Exception):
+            db.execute(text("SELECT * FROM tabla_que_no_existe"))  # a statement failed before the update
+
+        assert tipo_cambio_service.actualizar_tipo_cambio_bna(db)["status"] == "error"
+
+        assert db.execute(text("SELECT 1")).scalar() == 1  # rolled back, not left aborted
