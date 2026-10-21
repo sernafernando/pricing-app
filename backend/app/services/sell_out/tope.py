@@ -24,7 +24,7 @@ return they are the returned units given back to that campaign instead.
 Returns mirror sell in (`sell_in.fifo`, owner's decision 2026-10-17): a return
 (`unidades < 0`) frees its units, in order, from
 1. its `objetivo`, the sale it reverses (resolved by the caller, like
-   `sell_in.costing._objetivos`), up to what that sale still holds here;
+   `sell_in.costing.resolver_objetivos`), up to what that sale still holds here;
 2. then the most recent earlier sale OF THE SAME PRODUCT still holding units.
 Freed units and money go to LATER sales, in order. A return finding nothing to
 free frees nothing. A sale whose units all go back leaves no row.
@@ -44,6 +44,11 @@ add up to more than `tope_monto`. When a return shrinks a row, its amount
 becomes its remaining units' rounded worth. That is never more than it held: a
 capped row holds at most `ceil(money / unit amount)` units, so all but one of
 them are worth less than its money.
+
+`por_linea`, when given, receives `{(canal, venta_ref): units}` for every line
+with units available here: what a sale took when its turn came (a later return
+does not change it) and what a return freed. The allocator passes it on as
+`ocupadas` to the campaigns this one takes precedence over.
 
 Inputs are checked, never repaired: anything inconsistent raises `ValueError`.
 """
@@ -143,8 +148,8 @@ def _validar(campana: Campana, lineas: List[Linea]) -> None:
             raise ValueError(f"sale {clave} has a negative base")
 
 
-def asignar(campana: Campana, lineas: Iterable[Linea]) -> List[Consumo]:
-    """The consumption rows of ONE campaign, in sale order."""
+def asignar(campana: Campana, lineas: Iterable[Linea], por_linea: Optional[Dict[Clave, int]] = None) -> List[Consumo]:
+    """The consumption rows of ONE campaign, in sale order; see the module docstring for `por_linea`."""
     lineas = sorted(lineas, key=lambda x: (x.fecha, x.unidades < 0, x.canal, x.venta_ref))
     _validar(campana, lineas)
     unidades_libres = campana.tope_unidades  # None: no unit cap
@@ -174,6 +179,8 @@ def asignar(campana: Campana, lineas: Iterable[Linea]) -> List[Consumo]:
                 unidades_libres -= toma
             tenencia[clave] = [toma, monto, unitario]
             ventas[clave] = linea
+            if por_linea is not None:
+                por_linea[clave] = toma
             continue
         # A return: its target first, then the latest earlier holder of the same product.
         mismo_producto = [c for c in reversed(tenencia) if ventas[c].item_id == linea.item_id]
@@ -193,6 +200,8 @@ def asignar(campana: Campana, lineas: Iterable[Linea]) -> List[Consumo]:
                 unidades_libres += suelta
             if monto_libre is not None:
                 monto_libre += monto - nuevo_monto
+        if por_linea is not None:
+            por_linea[clave] = disponibles - falta
     return [
         Consumo(
             canal=clave[0],

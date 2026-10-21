@@ -291,3 +291,28 @@ def test_invalid_campaigns_are_refused(overrides) -> None:
     # The line carries a valid base, so only the campaign itself can be refused.
     with pytest.raises(ValueError):
         asignar(_campana(**overrides), [_linea(1, 1, base_unit=D("100"))])
+
+
+# ── What each line took or freed (for the campaigns it takes precedence over) ──
+
+
+def test_por_linea_reports_what_each_sale_took_on_its_turn_and_each_return_freed() -> None:
+    # Return 3 frees 4: 2 from its target, 2 from the latest earlier holder; return 4 finds nothing.
+    lineas = [
+        _linea(1, 2),
+        _linea(2, 3, dia=2),
+        _linea(3, -4, dia=3, objetivo=("ml", 1)),
+        _linea(4, -1, dia=4, item=2),
+        _linea(5, 1, dia=5, ocupadas=1),
+    ]
+    por_linea: dict = {}
+    consumos = asignar(_campana(tope_unidades=4), lineas, por_linea=por_linea)
+    assert por_linea == {("ml", 1): 2, ("ml", 2): 2, ("ml", 3): 4, ("ml", 4): 0}
+    assert _filas(consumos) == []
+
+
+def test_por_linea_counts_the_units_not_given_back_to_an_exclusive_campaign() -> None:
+    lineas = [_linea(1, 3), _linea(2, -3, dia=2, ocupadas=1, objetivo=("ml", 1))]
+    por_linea: dict = {}
+    asignar(_campana(), lineas, por_linea=por_linea)
+    assert por_linea == {("ml", 1): 3, ("ml", 2): 2}

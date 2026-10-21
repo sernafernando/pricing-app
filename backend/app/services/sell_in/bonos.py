@@ -167,7 +167,7 @@ def _huerfanas(db: Session) -> List[SellInCompra]:
     )
 
 
-def _tasas_bna(db: Session, fechas: Set[date]) -> Dict[date, Optional[Decimal]]:
+def tasas_bna_por_fecha(db: Session, fechas: Set[date]) -> Dict[date, Optional[Decimal]]:
     """The BNA USD rate of each date (the latest positive one on or before it; on a tie of dates, the
     highest id), all in ONE read: the rows from the latest one on or before the earliest date through
     the latest date, bisected here."""
@@ -354,7 +354,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         items_por_compra[item.compra_id].append(item)
 
     tocados: Set[int] = set()
-    tasas_bna = _tasas_bna(
+    tasas_bna = tasas_bna_por_fecha(
         db, {p.fecha_factura for p in pedidos.values() if p.tipo_cambio is None and p.fecha_factura is not None}
     )
     for compra in huerfanas:
