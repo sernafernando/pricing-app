@@ -380,6 +380,51 @@ describe('PanelPermisos', () => {
     });
   });
 
+  // Phone layout: the list and the detail are two panes and CSS shows only the
+  // one named by `data-vista-movil` (desktop ignores it and shows both).
+  describe('phone list/detail switch', () => {
+    const layout = () => document.querySelector('[data-vista-movil]');
+    const volver = () => screen.queryByRole('button', { name: 'Volver a la lista de usuarios' });
+    const filaUsuario = (nombre) =>
+      within(screen.getByRole('list', { name: 'Usuarios del sistema' })).getByRole('button', {
+        name: new RegExp(nombre),
+      });
+
+    it('shows the list and no back button while no user is selected', async () => {
+      renderPanel();
+      await screen.findByText('Ana Pérez');
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'lista');
+      expect(volver()).not.toBeInTheDocument();
+    });
+
+    it('shows the detail with a back button once a user is selected', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByText('Ana Pérez'));
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'detalle');
+      expect(volver()).toBeInTheDocument();
+    });
+
+    it('goes back to the list keeping the user selected, and shows the detail again on the next pick', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(await screen.findByText('Ana Pérez'));
+
+      await user.click(volver());
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'lista');
+      expect(filaUsuario('Ana Pérez')).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(filaUsuario('Beto Gómez'));
+
+      expect(layout()).toHaveAttribute('data-vista-movil', 'detalle');
+      expect(await screen.findByRole('heading', { name: 'Beto Gómez' })).toBeInTheDocument();
+    });
+  });
+
   describe('user modal', () => {
     const ROLES = [
       { id: 1, codigo: 'VENTAS', nombre: 'Ventas' },

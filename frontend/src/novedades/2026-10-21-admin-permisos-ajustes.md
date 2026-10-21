@@ -38,3 +38,15 @@ En **Gestión → Admin → Roles**, al hacer clic en un rol ahora su columna qu
 2. Hacé clic en la tarjeta de un rol: se abre su panel y su columna queda resaltada en la matriz.
 3. Tildá **Solo los permisos de este rol** (o hacé clic en el número de **Permisos** del panel) para ver solo lo que tiene.
 4. Cerrá el panel para volver a ver la matriz completa.
+
+## Admin a todo el ancho y usable en el celular
+
+**Gestión → Admin** ahora usa **todo el ancho de la pantalla** en todas sus pestañas: la matriz de **Roles** muestra más columnas sin tener que desplazarse.
+
+En el **celular**:
+
+- **Las pestañas se deslizan de costado** en vez de ensanchar la página: ya no hay que mover la pantalla de lado a lado.
+- **Usuarios muestra la lista o el usuario, no las dos cosas apiladas:** al tocar un usuario se abre su detalle, y el botón **← Usuarios** vuelve a la lista. El nombre, el rol y el estado se leen completos y los botones **Editar**, **Password** y **Desactivar** quedan debajo.
+- **La matriz de roles deja ver los roles:** la columna **Permiso** es más angosta (sin el código) y queda fija a la izquierda, así entran al menos dos roles al lado.
+- **El panel del rol se abre desde abajo** por encima de la matriz, sin empujarla hacia abajo. Se cierra con la **X**.
+- **Menos márgenes**, para aprovechar el ancho del teléfono.

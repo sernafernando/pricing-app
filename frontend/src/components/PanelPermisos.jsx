@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Lock } from 'lucide-react';
+import { ArrowLeft, Lock } from 'lucide-react';
 import api from '../services/api';
 import adminStyles from '../pages/Admin.module.css';
 import PermisosPorPantalla from './permisos/PermisosPorPantalla';
@@ -31,6 +31,11 @@ export default function PanelPermisos() {
   const [usuarioActual, setUsuarioActual] = useState(null);
   // Permissions view; kept while switching users.
   const [vista, setVista] = useState('pantalla');
+  // Phone layout only: which pane is on screen ('lista' or 'detalle'). CSS reads
+  // it under the phone breakpoint; desktop always shows both columns.
+  const [vistaMovil, setVistaMovil] = useState('lista');
+  const columnaUsuariosRef = useRef(null);
+  const columnaDetalleRef = useRef(null);
   // In-flight override per user ({ [usuarioId]: codigo }), owned here so the
   // one-action-at-a-time lock survives switching between views.
   const [overridesEnCurso, setOverridesEnCurso] = useState({});
@@ -235,6 +240,18 @@ export default function PanelPermisos() {
 
   useEffect(() => () => clearTimeout(mensajeTimerRef.current), []);
 
+  // Phone: picking a user low in the list leaves the page scrolled past the top
+  // of the detail that replaces it. Only when CSS hid the list (one pane at a
+  // time); on desktop both columns are shown and nothing moves.
+  const usuarioSeleccionadoId = usuarioSeleccionado?.id;
+  useEffect(() => {
+    const lista = columnaUsuariosRef.current;
+    const detalle = columnaDetalleRef.current;
+    if (vistaMovil !== 'detalle' || !usuarioSeleccionadoId || !lista || !detalle) return;
+    if (getComputedStyle(lista).display !== 'none') return;
+    if (detalle.getBoundingClientRect().top < 0) detalle.scrollIntoView({ block: 'start' });
+  }, [vistaMovil, usuarioSeleccionadoId]);
+
   // Messages from the permissions view belong to the user they were raised
   // for: a success that lands after switching users is dropped so it never
   // shows over someone else's permissions. Errors still show (a failed change
@@ -325,9 +342,9 @@ export default function PanelPermisos() {
         </div>
       )}
 
-      <div className={styles.layout}>
+      <div className={styles.layout} data-vista-movil={usuarioSeleccionado ? vistaMovil : 'lista'}>
         {/* Panel izquierdo: Lista de usuarios */}
-        <div className={`${adminStyles.section} ${styles.columnaUsuarios}`}>
+        <div ref={columnaUsuariosRef} className={`${adminStyles.section} ${styles.columnaUsuarios}`}>
           <div className={styles.columnaHeader}>
             <h3 className={styles.columnaTitulo}>Usuarios del sistema</h3>
             <button onClick={iniciarCreacion} className="btn-tesla outline-subtle-primary sm">
@@ -339,14 +356,27 @@ export default function PanelPermisos() {
             usuarios={usuarios}
             seleccionadoId={usuarioSeleccionado?.id}
             overridesSeleccionado={overridesSeleccionado}
-            onSeleccionar={seleccionarUsuario}
+            onSeleccionar={(usuario) => {
+              setVistaMovil('detalle');
+              seleccionarUsuario(usuario);
+            }}
           />
         </div>
 
         {/* Panel derecho: Detalles y permisos */}
-        <div className={`${adminStyles.section} ${styles.columnaDetalle}`}>
+        <div ref={columnaDetalleRef} className={`${adminStyles.section} ${styles.columnaDetalle}`}>
           {usuarioSeleccionado ? (
             <>
+              {/* Shown only on a phone, where the list and the detail are separate panes. */}
+              <button
+                type="button"
+                className={styles.volverLista}
+                onClick={() => setVistaMovil('lista')}
+                aria-label="Volver a la lista de usuarios"
+              >
+                <ArrowLeft size={16} aria-hidden="true" />
+                Usuarios
+              </button>
               {/* Header sticky con info del usuario */}
               <section className={styles.detalleHeader} aria-label="Usuario seleccionado">
                 {/* Info del usuario y acciones */}

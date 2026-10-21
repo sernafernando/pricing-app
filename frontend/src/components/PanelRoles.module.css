@@ -92,15 +92,21 @@
 
 /* Drawer open: the tab content and the drawer side by side; stacked on narrow screens, drawer first. */
 .conDrawer {
+  /* Height of the role drawer as a bottom sheet; DrawerRol (a child) reads it. */
+  --drawer-rol-alto-movil: 60vh;
+
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: var(--space-4);
   align-items: start;
 }
 
+/* Narrow: the drawer is a bottom sheet (DrawerRol); the padding lets the
+   cards and the matrix scroll above it. */
 @media (max-width: 1023px) {
   .conDrawer {
     grid-template-columns: minmax(0, 1fr);
+    padding-bottom: var(--drawer-rol-alto-movil);
   }
 }
 

@@ -123,3 +123,10 @@
   background: transparent;
   border-color: var(--cf-border-subtle);
 }
+
+/* Stacked layout: the list is its own pane, so the page scrolls instead of the list. */
+@media (max-width: 900px) {
+  .lista {
+    max-height: none;
+  }
+}
