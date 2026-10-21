@@ -107,6 +107,11 @@ function parseDelimited(text) {
   return rows;
 }
 
+// The exports' trailing lines, written right after the last row with no blank line before:
+// `# ERROR: ...` when a page failed (backend/app/routers/ml_metricas.py:923,
+// backend/app/services/ml_publications/view/export.py:171) and `# AVISO: ...` (ADS_NOTE, export.py:183).
+const NOTE_LINE = /^# (ERROR|AVISO): /;
+
 /**
  * The export file as rows of cells plus its trailing `#` notes (without the mark). A `# ERROR` line means the file is
  * incomplete: it throws with that line, so a partial export never becomes a sheet.
@@ -115,8 +120,8 @@ export function parseCsvExport(text) {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
   while (lines.length && lines.at(-1) === '') lines.pop();
   const notes = [];
-  while (lines.length && lines.at(-1).startsWith('#')) notes.unshift(lines.pop().replace(/^#\s*/, ''));
-  const error = notes.find((note) => note.startsWith('ERROR'));
+  while (lines.length && NOTE_LINE.test(lines.at(-1))) notes.unshift(lines.pop().slice(2));
+  const error = notes.find((note) => note.startsWith('ERROR: '));
   if (error) throw new Error(error);
   const rows = parseDelimited(lines.join('\n')).map((row) => row.map(localDateTime));
   return { rows, notes };

@@ -35,10 +35,10 @@ export async function exportVentasCsv(params) {
   await downloadCsv('/ml-ventas-ops/sales/export', params);
 }
 
-/** Métricas ML board CSV (`GET /ml-metricas/board/export`): same download
- * and error handling, params from `buildMetricasMLParams`. */
 export const METRICAS_EXPORT_URL = '/ml-metricas/board/export';
 
+/** Métricas ML board CSV (`GET /ml-metricas/board/export`): same download
+ * and error handling, params from `buildMetricasMLParams`. */
 export async function exportMetricasCsv(params) {
   await downloadCsv(METRICAS_EXPORT_URL, params);
 }

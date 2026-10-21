@@ -93,6 +93,16 @@ describe('parseCsvExport', () => {
     expect(notes).toEqual(['AVISO: el markup no descuenta la publicidad.']);
   });
 
+  it('a last data row whose first cell starts with "#" stays a data row', () => {
+    const { rows, notes } = mod.parseCsvExport(`${BOM}Producto;Stock\n#1 Router;3\n# AVISO: sin publicidad.\n`);
+    expect(rows).toEqual([
+      ['Producto', 'Stock'],
+      ['#1 Router', '3'],
+    ]);
+    expect(notes).toEqual(['AVISO: sin publicidad.']);
+    expect(mod.parseCsvExport(`${BOM}Producto\n# ERRORES varios\n`).rows).toEqual([['Producto'], ['# ERRORES varios']]);
+  });
+
   it('refuses a file that says it is incomplete, with the line itself as the message', () => {
     expect(() => mod.parseCsvExport(`${BOM}A\n1\n# ERROR: exportación incompleta — 5 de 10 filas exportadas.\n`)).toThrow(
       'ERROR: exportación incompleta — 5 de 10 filas exportadas.',
