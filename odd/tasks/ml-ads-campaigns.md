@@ -55,5 +55,14 @@ a `campaigns` ledger source run through `schedule._run_account_level`, one `camp
 
 - PR A, branch `feat/ml-ads-campaigns` from origin/main: T1. RED observed (4 migration tests failing before the
   migration/models existed), GREEN after; alembic stamp/upgrade/downgrade/upgrade checked on a scratch DB.
-- PR B prepared on local branch `feat/ml-ads-campaigns-ingest` (stacked on PR A): T2-T3 tests RED then GREEN;
-  focused suites `tests/services/ml_ads` + `tests/workers/handlers/test_ml_ads.py`: 266 passed.
+- PR A #1592 merged (merge commit `3f38a2dc`).
+- PR B, branch `feat/ml-ads-campaigns-ingest-2` from origin/main (A's commits dropped): T2-T3 in `aad727ab`
+  (store + ingestion) and `ad0bac2f` (a campaign repeated across listing pages is kept once; upserting it twice
+  in one statement failed in Postgres and stopped the day from closing). RED observed on main without B's code
+  (6 failed: `map_campaigns` missing, 0 rows stored) and for the repeated campaign (CardinalityViolation), GREEN
+  after; focused suites `tests/services/ml_ads` + `tests/workers/handlers/test_ml_ads.py`: 267 passed. Alembic
+  untouched by B.
+
+## Next step
+
+PR C (T4): backfill of the closed days D-15..D-90.
