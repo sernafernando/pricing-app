@@ -657,6 +657,7 @@ describe('Exportar a Sheets', () => {
     exportMetricasSheets.mockReset();
     exportMetricasSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: true });
     exportMetricasCsv.mockClear();
+    loadGoogleIdentity.mockClear();
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -710,5 +711,14 @@ describe('Exportar a Sheets', () => {
     const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
     expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('a CSV export afterwards drops the link to the previous sheet', async () => {
+    exportMetricasSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: false });
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await sheetsButton());
+    await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Abrir la hoja en Google Sheets' })).not.toBeInTheDocument());
   });
 });

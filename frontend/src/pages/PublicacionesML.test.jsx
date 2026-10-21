@@ -1412,6 +1412,7 @@ describe('Exportar a Sheets', () => {
     exportPublicacionesCsv.mockResolvedValue(undefined);
     exportPublicacionesSheets.mockReset();
     exportPublicacionesSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: true });
+    loadGoogleIdentity.mockClear();
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -1470,5 +1471,15 @@ describe('Exportar a Sheets', () => {
     await userEvent.click(sheetsButton());
     const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
     expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
+  });
+
+  it('a filter change drops the note about the previous list', async () => {
+    exportPublicacionesSheets.mockRejectedValue(Object.assign(new Error('Exportación cancelada'), { cancelled: true }));
+    await page();
+    await userEvent.click(sheetsButton());
+    await screen.findByText('Exportación cancelada');
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(screen.queryByText('Exportación cancelada')).not.toBeInTheDocument());
   });
 });

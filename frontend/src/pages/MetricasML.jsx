@@ -374,6 +374,7 @@ export default function MetricasML() {
   const handleExport = async () => {
     setExporting(true);
     setExportError(null);
+    setSheetsNotice(null);
     try {
       await exportMetricasCsv(exportParams);
     } catch (err) {

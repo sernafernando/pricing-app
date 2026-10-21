@@ -260,6 +260,7 @@ export default function PublicacionesML() {
   useEffect(() => {
     currentExportList.current = exportList;
     setExportError(null);
+    setSheetsNotice(null);
   }, [exportList]);
   // The CSV of the view on screen, with the list's own filters and sort (the Agrupado tree has no export).
   // "Exportar a Sheets" sends the same view and request to a new Google Sheet, straight from the click (the Google
