@@ -1,4 +1,6 @@
 """Migration `20261024_sell_in_tables`: purchases, their items and consumptions.
+Followed by `20261107_sell_in_bonos_marca` (brand bonus, the purchases' origin
+columns and the bonus queue), so the parity check covers the tables as they are now.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references (usuarios, proveedores,
@@ -21,17 +23,24 @@ from app.core.database import Base
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
-_MIGRATION = _BACKEND_ROOT / "alembic" / "versions" / "20261024_sell_in_tables.py"
+_MIGRATIONS = [
+    _BACKEND_ROOT / "alembic" / "versions" / f"{revision}.py"
+    for revision in ("20261024_sell_in_tables", "20261107_sell_in_bonos_marca")
+]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
+BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty"}
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY)",
-    "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY)",
-    "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY)",
+    "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, proveedor_id INTEGER, estado VARCHAR(24), "
+    "tipo_cambio NUMERIC(18, 6), fecha_factura DATE)",
+    "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY, marca VARCHAR(100))",
+    "CREATE TABLE pedido_compra_lineas_facturadas (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT, item_id INTEGER, "
+    "cantidad INTEGER)",
     "INSERT INTO usuarios VALUES (7)",
     "INSERT INTO proveedores VALUES (3)",
-    "INSERT INTO pedidos_compra VALUES (900)",
+    "INSERT INTO pedidos_compra (id) VALUES (900)",
     "INSERT INTO productos_erp VALUES (4512), (4513)",
 ]
 
@@ -65,8 +74,8 @@ def _compra(**overrides) -> dict:
     return row
 
 
-def _load_migration():
-    spec = importlib.util.spec_from_file_location("sell_in_tables_migration", _MIGRATION)
+def _load_migration(path: Path):
+    spec = importlib.util.spec_from_file_location(f"{path.stem}_migration", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -115,7 +124,7 @@ def orm_engine():
     """
     from tests.conftest import _restore_pristine_pg_types
 
-    tables = [Base.metadata.tables[name] for name in sorted(TABLES)]
+    tables = [Base.metadata.tables[name] for name in sorted(TABLES | BONO_TABLES)]
     found = {column: column.type for table in tables for column in table.columns}
 
     def build(eng) -> None:
@@ -134,11 +143,11 @@ def _run(engine, step: str) -> None:
     from alembic.operations import Operations
     from alembic.runtime.migration import MigrationContext
 
-    migration = _load_migration()
-    with engine.connect() as conn:
-        ctx = MigrationContext.configure(conn)
-        with ctx.begin_transaction(), Operations.context(ctx):
-            getattr(migration, step)()
+    for path in _MIGRATIONS if step == "upgrade" else reversed(_MIGRATIONS):
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            with ctx.begin_transaction(), Operations.context(ctx):
+                getattr(_load_migration(path), step)()
 
 
 def _rejects(engine, statement: str, params: dict) -> None:
@@ -401,5 +410,5 @@ class TestSellInMigration:
                     "AND proname = 'sell_in_set_updated_at'"
                 )
             ).scalar_one()
-        assert not (TABLES & tables)
+        assert not ((TABLES | BONO_TABLES) & tables)
         assert functions == 0
