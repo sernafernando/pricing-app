@@ -128,6 +128,22 @@ class TestDayPipelinePersistsCampaigns:
         assert (pages[1]["offset"], pages[1]["limit"], "metrics_summary" in pages[1]) == ("10", "50", False)
         assert _count(pg_ads_db, MlAdsCampaignDay) == 16
 
+    def test_a_campaign_repeated_across_pages_is_stored_once(self, session_factory, pg_ads_db, monkeypatch) -> None:
+        day = gauss_day()
+        whole = day["summary"]["results"]
+        # DERIVED: the listing shifted between pages, so the second page repeats the first page's last campaign.
+        day["summary"]["results"] = whole[:10]
+        day["summary"]["paging"] = {"offset": 0, "total": 16, "limit": 10}
+        second = {"paging": {"offset": 10, "total": 16, "limit": 50}, "results": whole[9:]}
+        replay = Replay(FakeClock(), {GAUSS: day})
+        replay.inject = lambda _, request: (
+            httpx.Response(200, json=second)
+            if SUMMARY_RE.search(request.url.path) and request.url.params.get("offset") == "10"
+            else None
+        )
+        assert _run(session_factory, replay, monkeypatch).outcome == "closed"
+        assert (_count(pg_ads_db, MlAdsCampaign), _count(pg_ads_db, MlAdsCampaignDay)) == (16, 16)
+
     def test_verify_refreshes_the_day_and_drops_a_campaign_ml_no_longer_lists(
         self, session_factory, pg_ads_db, monkeypatch
     ) -> None:

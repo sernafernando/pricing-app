@@ -184,13 +184,15 @@ def map_campaigns(
     """`(catalog rows, day rows)` of every listed campaign, keyed by the REPORTING advertiser (ADS-3).
 
     Every campaign gets a day row, zero metrics included: the listing is ML's whole answer for the day.
-    An entry without an integer `id` is ignored.
+    An entry without an integer `id` is ignored; a campaign listed twice (pages shifted) keeps its last entry.
     """
-    campaigns, days = [], []
+    listed: dict[int, Mapping[str, Any]] = {}
     for raw in results:
         campaign_id = raw.get("id") if isinstance(raw, Mapping) else None
-        if not isinstance(campaign_id, int) or isinstance(campaign_id, bool):
-            continue
+        if isinstance(campaign_id, int) and not isinstance(campaign_id, bool):
+            listed[campaign_id] = raw
+    campaigns, days = [], []
+    for campaign_id, raw in listed.items():
         key = {"advertiser_id": advertiser_id, "campaign_id": campaign_id}
         event = raw.get("salesforce_event_id")
         campaigns.append(
