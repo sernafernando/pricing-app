@@ -44,26 +44,27 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
     [bonoId],
   );
 
-  const leerAlcance = useCallback(() => {
-    setAlcanceError(null);
-    return sellInBonosAPI
-      .alcance(bonoId)
-      .then(({ data }) => setAlcance(data))
-      .catch((err) => setAlcanceError(apiMessage(err, 'No se pudo leer qué compras alcanza el bono.')));
-  }, [bonoId]);
+  // What the bonus reaches: on load and after every save (the worker re-applies it by itself).
+  const leerAlcance = useCallback(
+    (activo = () => true) => {
+      setAlcanceError(null);
+      return sellInBonosAPI
+        .alcance(bonoId)
+        .then(({ data }) => activo() && setAlcance(data))
+        .catch((err) => activo() && setAlcanceError(apiMessage(err, 'No se pudo leer qué compras alcanza el bono.')));
+    },
+    [bonoId],
+  );
 
   useEffect(() => {
     if (nuevo) return undefined;
     let active = true;
     leerBono(() => active).catch((err) => active && setError(apiMessage(err, 'No se pudo cargar el bono.')));
-    sellInBonosAPI
-      .alcance(bonoId)
-      .then(({ data }) => active && setAlcance(data))
-      .catch((err) => active && setAlcanceError(apiMessage(err, 'No se pudo leer qué compras alcanza el bono.')));
+    leerAlcance(() => active);
     return () => {
       active = false;
     };
-  }, [bonoId, nuevo, leerBono]);
+  }, [nuevo, leerBono, leerAlcance]);
 
   const aplicar = (data) => {
     setBono(data);

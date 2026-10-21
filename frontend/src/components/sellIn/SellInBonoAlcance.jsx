@@ -34,7 +34,8 @@ function Pedido({ pedido, detalle }) {
  * What a brand bonus reaches (Stitch `03`), from `GET /sell-in/bonos/{id}/alcance`:
  * the purchases it generated, the brand's operations still waiting for their
  * invoice, and the ones invoiced outside the range. Each group is capped by
- * the backend and shows its full count.
+ * the backend and shows its full count. A reached purchase opens with
+ * `onVerCompra` when given; without it its number is plain text.
  */
 export default function SellInBonoAlcance({ alcance, onVerCompra }) {
   const { alcanzadas, pendientes, fuera_de_rango: fuera } = alcance;
@@ -60,9 +61,13 @@ export default function SellInBonoAlcance({ alcance, onVerCompra }) {
                 {alcanzadas.items.map((c) => (
                   <tr key={c.compra_id}>
                     <td>
-                      <button type="button" className={panel.linkButton} onClick={() => onVerCompra(c.compra_id)}>
-                        {c.numero ?? `Sell in #${c.compra_id}`}
-                      </button>
+                      {onVerCompra ? (
+                        <button type="button" className={panel.linkButton} onClick={() => onVerCompra(c.compra_id)}>
+                          {c.numero ?? `Sell in #${c.compra_id}`}
+                        </button>
+                      ) : (
+                        (c.numero ?? `Sell in #${c.compra_id}`)
+                      )}
                     </td>
                     <td>{c.proveedor_nombre ?? '—'}</td>
                     <td className={panel.mono}>{c.numero_factura ?? '—'}</td>

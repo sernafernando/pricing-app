@@ -133,6 +133,13 @@ describe('SellInBonoPanel — existing bonus', () => {
     expect(onVerCompra).toHaveBeenCalledWith(41);
   });
 
+  it('without onVerCompra a reached purchase is plain text, not a dead button', async () => {
+    renderPanel({ onVerCompra: undefined });
+    const alcanzadas = await screen.findByRole('region', { name: 'Compras alcanzadas (18)' });
+    expect(within(alcanzadas).getByText('OC-2026-01722')).toBeInTheDocument();
+    expect(within(alcanzadas).queryByRole('button', { name: 'OC-2026-01722' })).not.toBeInTheDocument();
+  });
+
   it('saves an edit as a full replace and reloads what it reaches', async () => {
     const user = userEvent.setup();
     const { onSaved } = renderPanel();
