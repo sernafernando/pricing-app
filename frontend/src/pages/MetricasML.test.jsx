@@ -3,7 +3,7 @@
  * the board endpoint for, and what it does with the answer. Layout is the
  * visual suite's job (`src/test/visual/metricasMl.visual.test.jsx`).
  */
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
@@ -11,10 +11,22 @@ import MetricasML from './MetricasML';
 import api, { productosAPI } from '../services/api';
 import { BOARD_RESPONSE, EPSON_PUBLICATIONS } from '../test/visual/metricasMlFixtures';
 import { seedTiendasOficiales, resetTiendasOficiales } from '../test/tiendasOficialesFixtures';
+import { exportMetricasCsv } from '../utils/ventasMlExport';
+import { exportMetricasSheets, loadGoogleIdentity } from '../utils/googleSheetsExport';
 
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
   PermisosProvider: ({ children }) => children,
+}));
+
+vi.mock('../utils/ventasMlExport', async (importOriginal) => ({
+  ...(await importOriginal()),
+  exportMetricasCsv: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('../utils/googleSheetsExport', async (importOriginal) => ({
+  ...(await importOriginal()),
+  exportMetricasSheets: vi.fn(),
+  loadGoogleIdentity: vi.fn(() => Promise.resolve(true)),
 }));
 
 let board = BOARD_RESPONSE;
@@ -634,5 +646,69 @@ describe('MetricasML period limit', () => {
 
     expect(await screen.findByText(/El período no puede superar 366 días/)).toBeInTheDocument();
     expect(screen.queryByText(/Error al cargar las métricas/)).not.toBeInTheDocument();
+  });
+});
+
+describe('Exportar a Sheets', () => {
+  const sheetsButton = () => screen.findByRole('button', { name: 'Exportar a Sheets' });
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'client-123');
+    exportMetricasSheets.mockReset();
+    exportMetricasSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: true });
+    exportMetricasCsv.mockClear();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('is not offered when no Google client id is configured', async () => {
+    vi.stubEnv('VITE_GOOGLE_CLIENT_ID', '');
+    await renderWithRouter(<MetricasML />);
+    await screen.findByRole('button', { name: /Exportar CSV/ });
+    expect(screen.queryByRole('button', { name: /Sheets/ })).not.toBeInTheDocument();
+    expect(loadGoogleIdentity).not.toHaveBeenCalled();
+  });
+
+  it('sends exactly the request of "Exportar CSV" and preloads Google', async () => {
+    await renderWithRouter(<MetricasML />);
+    expect(loadGoogleIdentity).toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole('button', { name: /Exportar CSV/ }));
+    await userEvent.click(await sheetsButton());
+    await waitFor(() => expect(exportMetricasSheets).toHaveBeenCalledTimes(1));
+    expect(exportMetricasSheets.mock.calls[0][0]).toEqual(exportMetricasCsv.mock.calls[0][0]);
+    expect(exportMetricasSheets.mock.calls[0][0]).toMatchObject({ sort: 'gross', sort_dir: 'desc' });
+  });
+
+  it('says "Exportando a Sheets…" while it works', async () => {
+    let finish;
+    exportMetricasSheets.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await sheetsButton());
+    expect(screen.getByRole('button', { name: 'Exportando a Sheets…' })).toBeDisabled();
+    finish({ url: 'u', opened: true });
+    expect(await sheetsButton()).toBeEnabled();
+  });
+
+  it('shows a refusal like the CSV export does', async () => {
+    exportMetricasSheets.mockRejectedValue(new Error('Son más de 10000 filas.'));
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await sheetsButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent('Son más de 10000 filas.');
+  });
+
+  it('a cancelled Google popup is a quiet note, not an error', async () => {
+    exportMetricasSheets.mockRejectedValue(Object.assign(new Error('Exportación cancelada'), { cancelled: true }));
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await sheetsButton());
+    expect(await screen.findByRole('status')).toHaveTextContent('Exportación cancelada');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('when the browser blocked the new tab, links to the sheet', async () => {
+    exportMetricasSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: false });
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await sheetsButton());
+    const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
+    expect(link).toHaveAttribute('target', '_blank');
   });
 });

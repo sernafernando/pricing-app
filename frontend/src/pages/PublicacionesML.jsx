@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FilterX, ShieldAlert } from 'lucide-react';
+import { Download, FileSpreadsheet, FilterX, ShieldAlert } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -35,7 +35,8 @@ import {
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
-import { canExportVista, exportPublicacionesCsv } from '../utils/publicacionesMlExport';
+import { canExportVista, exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
+import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import styles from './PublicacionesML.module.css';
 
@@ -245,6 +246,13 @@ export default function PublicacionesML() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
+  const [exportingSheets, setExportingSheets] = useState(false);
+  // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link of a blocked tab.
+  const [sheetsNotice, setSheetsNotice] = useState(null);
+  const sheetsEnabled = isSheetsExportEnabled();
+  useEffect(() => {
+    if (sheetsEnabled) loadGoogleIdentity().catch(() => {}); // ready before the click; a failure shows on the click
+  }, [sheetsEnabled]);
   // A refusal belongs to the list it was asked for: narrowing the filters or changing the view clears it, and a
   // refusal that arrives after the operator left that list is dropped (the file of a success is still the one asked for).
   const exportList = `${filters.vista}|${filterKey}`;
@@ -254,18 +262,25 @@ export default function PublicacionesML() {
     setExportError(null);
   }, [exportList]);
   // The CSV of the view on screen, with the list's own filters and sort (the Agrupado tree has no export).
-  const handleExport = async () => {
+  // "Exportar a Sheets" sends the same view and request to a new Google Sheet, straight from the click (the Google
+  // popup needs it); a cancelled popup and the link of a blocked tab are notes, not refusals.
+  const runExport = async (exporter, setBusy) => {
     const askedFor = exportList;
-    setExporting(true);
+    setBusy(true);
     setExportError(null);
+    setSheetsNotice(null);
     try {
-      await exportPublicacionesCsv(filters.vista, buildExportParams(filters, { canSeeMargin, canSeeSales }));
+      const result = await exporter(filters.vista, buildExportParams(filters, { canSeeMargin, canSeeSales }));
+      if (result && !result.opened) setSheetsNotice({ url: result.url });
     } catch (err) {
-      if (askedFor === currentExportList.current) setExportError(err.message);
+      if (err.cancelled) setSheetsNotice({ text: err.message });
+      else if (askedFor === currentExportList.current) setExportError(err.message);
     } finally {
-      setExporting(false);
+      setBusy(false);
     }
   };
+  const handleExport = () => runExport(exportPublicacionesCsv, setExporting);
+  const handleSheetsExport = () => runExport(exportPublicacionesSheets, setExportingSheets);
 
   const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
   const productRows = useProductRows({ filters, pageSize, canSeeSales, canSeeMargin, enabled: producto });
@@ -418,6 +433,12 @@ export default function PublicacionesML() {
               {exporting ? 'Exportando…' : 'Exportar CSV'}
             </button>
           )}
+          {sheetsEnabled && canExportVista(filters.vista) && (
+            <button type="button" className="btn-tesla outline sm" onClick={handleSheetsExport} disabled={exportingSheets}>
+              <FileSpreadsheet size={14} />
+              {exportingSheets ? 'Exportando a Sheets…' : 'Exportar a Sheets'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -426,6 +447,17 @@ export default function PublicacionesML() {
           <ShieldAlert size={16} aria-hidden="true" />
           <span className={styles.errorText}>{exportError}</span>
         </div>
+      )}
+      {sheetsNotice && (
+        <p className={styles.description} role="status">
+          {sheetsNotice.url ? (
+            <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
+              Abrir la hoja en Google Sheets
+            </a>
+          ) : (
+            sheetsNotice.text
+          )}
+        </p>
       )}
 
       <StateBanner dataState={data?.data_state} />
