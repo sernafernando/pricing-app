@@ -12,7 +12,10 @@ bonus; `--dry-run` runs them all in one transaction rolled back at the end and
 reports what the real run would change.
 Pairs that cannot be reconciled (a USD bonus on an operation with no rate and
 no BNA rate for its invoice date) are left as they were and listed in the
-summary's `fallidas`; the exit code is then 1, else 0.
+summary's `fallidas`; the exit code is then 1, else 0. Any other error stops a
+real run partway: the bonuses reconciled before it stay committed, the failing
+one is rolled back and the rest are not touched. Re-running is safe, since the
+reconcile is idempotent: it finishes what is missing and rewrites nothing else.
 
 Run from `backend/` with `-m` (the settings read `backend/.env` from there):
     cd /var/www/html/pricing-app/backend && ./venv/bin/python -m app.scripts.reconcile_sell_in_bonos --dry-run

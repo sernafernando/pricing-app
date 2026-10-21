@@ -150,6 +150,22 @@ class TestExchangeRate:
 
         assert b.generadas(engine)[0][5] == Decimal("1425.500000")
 
+    def test_several_invoice_dates_in_one_call_each_take_their_own_bna_rate(self, engine: Engine) -> None:
+        bono = b.bono(engine, moneda="USD")
+        b.tipo_cambio(engine, D(2026, 9, 29), 900.0)  # before every invoice date: still the one for 1/10
+        b.tipo_cambio(engine, D(2026, 9, 30), 0.0)  # no rate: it does not hide the one above
+        b.tipo_cambio(engine, D(2026, 10, 5), 1100.0)
+        b.tipo_cambio(engine, D(2026, 10, 5), 1150.0)  # same day, loaded later: this one
+        b.tipo_cambio(engine, D(2026, 10, 6), 0.0)  # no rate: skipped
+        b.tipo_cambio(engine, D(2026, 10, 20), 1200.0)
+        fechas = [D(2026, 10, 1), D(2026, 10, 5), D(2026, 10, 7), D(2026, 10, 25)]
+        pedidos = [b.pedido(engine, {2964: 1}, f, moneda="ARS", tipo_cambio=None) for f in fechas]
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        tasas = {g[1]: g[5] for g in b.generadas(engine)}
+        assert [tasas[p] for p in pedidos] == [Decimal(t) for t in ("900", "1150", "1150", "1200")]
+
     def test_no_rate_at_all_fails_that_operation_and_writes_nothing_for_it(self, engine: Engine) -> None:
         bono = b.bono(engine, moneda="USD")
         sin_tc = b.pedido(engine, {2964: 1}, moneda="ARS", tipo_cambio=None)
@@ -429,7 +445,7 @@ class TestConcurrency:
 @pytest.mark.postgres
 class TestQueryCount:
     def test_the_reads_of_a_call_do_not_grow_with_its_bonuses_operations_and_orphans(self, engine: Engine) -> None:
-        """Pairs, BNA rates (one per invoice date) and the orphans' items are read in batches."""
+        """Pairs, BNA rates (all invoice dates at once) and the orphans' items are read in batches."""
         assert _selects_de_un_reconcile(engine, 1) == _selects_de_un_reconcile(engine, 4)
 
 
@@ -439,8 +455,9 @@ def _selects_de_un_reconcile(engine: Engine, n: int) -> int:
     b.clean(engine)
     b.tipo_cambio(engine, D(2026, 10, 1), 1000)
     bono_ids = [b.bono(engine, monto="1.00") for _ in range(n)]
-    vivos = [b.pedido(engine, {2964: 1}, tipo_cambio=None) for _ in range(n)]
-    muertos = [b.pedido(engine, {2964: 1}, tipo_cambio=None) for _ in range(n)]
+    # Every operation on its own invoice date: the BNA rates of all of them are one read.
+    vivos = [b.pedido(engine, {2964: 1}, D(2026, 10, 1 + i), tipo_cambio=None) for i in range(n)]
+    muertos = [b.pedido(engine, {2964: 1}, D(2026, 10, 15 + i), tipo_cambio=None) for i in range(n)]
     _reconciliar(engine, bono_ids=bono_ids)
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM pedidos_compra WHERE id = ANY(:ids)"), {"ids": muertos})

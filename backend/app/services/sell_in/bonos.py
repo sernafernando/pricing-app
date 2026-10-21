@@ -60,13 +60,14 @@ locks come after, in the same order everywhere.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import and_, or_, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -166,15 +167,26 @@ def _huerfanas(db: Session) -> List[SellInCompra]:
     )
 
 
-def _tasa_bna(db: Session, fecha: date) -> Optional[Decimal]:
-    venta = (
-        db.query(TipoCambio.venta)
-        .filter(TipoCambio.moneda == "USD", TipoCambio.fecha <= fecha, TipoCambio.venta > 0)
-        .order_by(TipoCambio.fecha.desc(), TipoCambio.id.desc())
-        .limit(1)
-        .scalar()
+def _tasas_bna(db: Session, fechas: Set[date]) -> Dict[date, Optional[Decimal]]:
+    """The BNA USD rate of each date (the latest positive one on or before it; on a tie of dates, the
+    highest id), all in ONE read: the rows from the latest one on or before the earliest date through
+    the latest date, bisected here."""
+    if not fechas:
+        return {}
+    usd = and_(TipoCambio.moneda == "USD", TipoCambio.venta > 0)
+    desde = db.query(func.max(TipoCambio.fecha)).filter(usd, TipoCambio.fecha <= min(fechas)).scalar_subquery()
+    filas = (
+        db.query(TipoCambio.fecha, TipoCambio.venta)
+        .filter(usd, TipoCambio.fecha >= func.coalesce(desde, min(fechas)), TipoCambio.fecha <= max(fechas))
+        .order_by(TipoCambio.fecha, TipoCambio.id)
+        .all()
     )
-    return Decimal(str(venta)) if venta is not None else None
+    dias = [f for f, _ in filas]
+    tasas: Dict[date, Optional[Decimal]] = {}
+    for fecha in fechas:
+        i = bisect_right(dias, fecha)  # the last row on or before `fecha` (the highest id of its day)
+        tasas[fecha] = Decimal(str(filas[i - 1][1])) if i else None
+    return tasas
 
 
 def _deseada(
@@ -185,7 +197,7 @@ def _deseada(
     tasas_bna: Dict[date, Optional[Decimal]],
 ) -> Optional[_Deseada]:
     """The purchase the pair must have, or None when the bonus does not apply to it. Raises `SellInError`
-    when it applies but its USD amount has no rate to convert at. `tasas_bna` caches the BNA rate per
+    when it applies but its USD amount has no rate to convert at. `tasas_bna` holds the BNA rate per
     invoice date for the whole call."""
     if bono.estado != "activa" or pedido is None or pedido.estado in ESTADOS_EXCLUIDOS:
         return None
@@ -198,9 +210,7 @@ def _deseada(
         return None
     tasa = pedido.tipo_cambio
     if tasa is None:
-        if fecha not in tasas_bna:
-            tasas_bna[fecha] = _tasa_bna(db, fecha)
-        tasa = tasas_bna[fecha]
+        tasa = tasas_bna.get(fecha)
     if bono.moneda == "USD" and tasa is None:
         raise SellInError(
             f"El pedido {pedido.id} no tiene tipo de cambio y no hay cotización del dólar al {fecha.isoformat()}"
@@ -345,7 +355,9 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         items_por_compra[item.compra_id].append(item)
 
     tocados: Set[int] = set()
-    tasas_bna: Dict[date, Optional[Decimal]] = {}
+    tasas_bna = _tasas_bna(
+        db, {p.fecha_factura for p in pedidos.values() if p.tipo_cambio is None and p.fecha_factura is not None}
+    )
     for compra in huerfanas:
         actuales = items_por_compra.get(compra.id, [])
         compra.estado = "anulada"
