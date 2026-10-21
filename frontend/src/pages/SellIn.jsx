@@ -2,18 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { productosAPI } from '../services/api';
-import { sellInAPI } from '../services/sellInAPI';
+import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
 import { FacetChips, Pagination, SplitPanelLayout } from '../components/kit';
-import SellInCreatePanel from '../components/sellIn/SellInCreatePanel';
+import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
+import SellInBonosTable from '../components/sellIn/SellInBonosTable';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
+import SellInNuevoPanel from '../components/sellIn/SellInNuevoPanel';
 import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
 import { buildSellInParams } from '../components/sellIn/sellInFormat';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const BONOS_PAGE_SIZES = [10, 25, 50];
+const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
 const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '' };
 
@@ -34,6 +38,30 @@ function useMarcas(enabled) {
   return marcas;
 }
 
+/** The brand bonuses page by page (`GET /sell-in/bonos`, newest first); `recargar` asks again. */
+function useBonos(enabled) {
+  const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState(BONOS_PAGE_SIZES[0]);
+  const [lista, setLista] = useState(null);
+  const [error, setError] = useState(null);
+  const requestRef = useRef(0);
+  const recargar = useCallback(async () => {
+    if (!enabled) return;
+    const requestId = ++requestRef.current;
+    setError(null);
+    try {
+      const { data } = await sellInBonosAPI.listar({ page: Math.floor(offset / pageSize) + 1, page_size: pageSize });
+      if (requestId === requestRef.current) setLista(data);
+    } catch {
+      if (requestId === requestRef.current) setError('No se pudieron cargar los bonos de marca.');
+    }
+  }, [enabled, offset, pageSize]);
+  useEffect(() => {
+    recargar();
+  }, [recargar]);
+  return { lista, error, offset, setOffset, pageSize, setPageSize, recargar };
+}
+
 /**
  * Sell in: purchase discounts that lower the cost of that purchase's units
  * (feature sell-in-sell-out T3). Lists the sell-in purchases with their
@@ -44,6 +72,7 @@ export default function SellIn() {
   const puedeVer = tienePermiso('sell_in.ver');
   const puedeGestionar = tienePermiso('sell_in.gestionar');
   const marcas = useMarcas(puedeVer);
+  const bonos = useBonos(puedeVer);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -52,9 +81,11 @@ export default function SellIn() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const requestRef = useRef(0);
-  // The side panel: `{ tipo: 'crear' }` or `{ tipo: 'detalle', id }`; null when closed.
+  // The side panel: `{ tipo: 'crear' }`, `{ tipo: 'detalle', id }` (a purchase) or `{ tipo: 'bono', id }`; null when closed.
   const [panel, setPanel] = useState(null);
   const cerrarPanel = useCallback(() => setPanel(null), []);
+  const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
+  const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
 
   const params = useMemo(() => buildSellInParams({ ...filters, aplica: filters.aplica || 'todas' }), [filters]);
 
@@ -132,18 +163,41 @@ export default function SellIn() {
         open={Boolean(panel)}
         onClose={cerrarPanel}
         width="lg"
-        ariaLabel={panel?.tipo === 'crear' ? 'Nuevo sell in' : 'Detalle del sell in'}
+        ariaLabel={PANEL_LABELS[panel?.tipo] ?? 'Detalle del sell in'}
         panel={
           panel?.tipo === 'crear' ? (
-            <SellInCreatePanel
+            <SellInNuevoPanel
+              marcas={marcas}
               onClose={cerrarPanel}
               onCreated={(compra) => {
                 setPanel({ tipo: 'detalle', id: compra.id });
                 cargar();
               }}
+              onBonoCreado={(bono) => {
+                verBono(bono.id);
+                bonos.recargar();
+              }}
+            />
+          ) : panel?.tipo === 'bono' ? (
+            <SellInBonoPanel
+              key={`bono-${panel.id}`}
+              bonoId={panel.id}
+              marcas={marcas}
+              puedeGestionar={puedeGestionar}
+              onSaved={() => {
+                bonos.recargar();
+                cargar();
+              }}
+              onClose={cerrarPanel}
             />
           ) : panel ? (
-            <SellInDetailPanel key={panel.id} compraId={panel.id} puedeGestionar={puedeGestionar} onChanged={cargar} onClose={cerrarPanel} />
+            <SellInDetailPanel
+              key={panel.id}
+              compraId={panel.id}
+              puedeGestionar={puedeGestionar}
+              onChanged={cargar}
+              onClose={cerrarPanel}
+            />
           ) : null
         }
       >
@@ -225,7 +279,7 @@ export default function SellIn() {
           <SellInTable
             compras={lista?.items ?? []}
             selectedId={panel?.tipo === 'detalle' ? panel.id : null}
-            onSelect={(id) => setPanel({ tipo: 'detalle', id })}
+            onSelect={verCompra}
           />
         )}
 
@@ -243,6 +297,35 @@ export default function SellIn() {
             summary={<span>{lista.total} sell in</span>}
           />
         )}
+
+        <section className={styles.bonos} aria-labelledby="sell-in-bonos-titulo">
+          <h2 id="sell-in-bonos-titulo" className={styles.sectionTitle}>
+            Bonos de marca
+          </h2>
+          <p className={styles.description}>Un monto por unidad facturada de una marca, en un rango de fechas de factura. Se aplica solo a cada compra que alcanza.</p>
+          {bonos.error && (
+            <div className={styles.errorBar} role="alert">
+              <ShieldAlert size={16} /> {bonos.error}
+            </div>
+          )}
+          {bonos.lista && (
+            <>
+              <SellInBonosTable bonos={bonos.lista.items} selectedId={panel?.tipo === 'bono' ? panel.id : null} onSelect={verBono} />
+              <Pagination
+                total={bonos.lista.total}
+                offset={bonos.offset}
+                pageSize={bonos.pageSize}
+                onOffsetChange={bonos.setOffset}
+                onPageSizeChange={(size) => {
+                  bonos.setPageSize(size);
+                  bonos.setOffset(0);
+                }}
+                pageSizeOptions={BONOS_PAGE_SIZES}
+                summary={<span>{bonos.lista.total} bonos</span>}
+              />
+            </>
+          )}
+        </section>
       </SplitPanelLayout>
     </div>
   );

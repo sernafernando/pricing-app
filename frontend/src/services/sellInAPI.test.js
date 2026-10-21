@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import api from './api';
-import { sellInAPI } from './sellInAPI';
+import { sellInAPI, sellInBonosAPI } from './sellInAPI';
 
 describe('sellInAPI', () => {
   beforeEach(() => {
@@ -49,5 +49,20 @@ describe('sellInAPI', () => {
   it('voids without a reason as an empty one', () => {
     sellInAPI.anular(5, '  ');
     expect(api.post).toHaveBeenCalledWith('/sell-in/compras/5/anular', { motivo: null });
+  });
+
+  it('lists, reads, creates, edits and voids brand bonuses', () => {
+    sellInBonosAPI.listar({ page: 2, page_size: 10 });
+    sellInBonosAPI.detalle(3);
+    sellInBonosAPI.crear({ marca: 'TP-LINK' });
+    sellInBonosAPI.editar(3, { marca: 'TP-LINK' });
+    sellInBonosAPI.anular(3, '  mal cargado ');
+    sellInBonosAPI.anular(4, '   ');
+    expect(api.get).toHaveBeenCalledWith('/sell-in/bonos', { params: { page: 2, page_size: 10 } });
+    expect(api.get).toHaveBeenCalledWith('/sell-in/bonos/3');
+    expect(api.post).toHaveBeenCalledWith('/sell-in/bonos', { marca: 'TP-LINK' });
+    expect(api.put).toHaveBeenCalledWith('/sell-in/bonos/3', { marca: 'TP-LINK' });
+    expect(api.post).toHaveBeenCalledWith('/sell-in/bonos/3/anular', { motivo: 'mal cargado' });
+    expect(api.post).toHaveBeenCalledWith('/sell-in/bonos/4/anular', { motivo: null });
   });
 });
