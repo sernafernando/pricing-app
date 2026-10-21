@@ -57,7 +57,7 @@ _MODELS = {"fuera": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)
 
 
-def _install(engine: Engine) -> None:
+def install(engine: Engine) -> None:
     with engine.begin() as conn:
         for statement in queue.UPGRADE_SQL:
             conn.execute(text(statement))
@@ -70,7 +70,7 @@ def _install(engine: Engine) -> None:
 
 @contextmanager
 def world(prefix: str) -> Iterator[Engine]:
-    with throwaway_schema(prefix, TABLES, STUBS, after=_install) as engine:
+    with throwaway_schema(prefix, TABLES, STUBS, after=install) as engine:
         yield engine
 
 

@@ -16,12 +16,13 @@ from typing import Iterator, List, Optional, Sequence, Tuple
 
 from sqlalchemy import Engine, text
 
+from app.models.auditoria import Auditoria
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty
 from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
@@ -36,6 +37,8 @@ TABLES = [
     SellOutCampana.__table__,
     SellOutCampanaGrupo.__table__,
     SellOutConsumo.__table__,
+    SellOutDirty.__table__,
+    Auditoria.__table__,
     TipoCambio.__table__,
     VentaFueraMLMetrica.__table__,
     VentaTiendaNubeMetrica.__table__,
@@ -77,8 +80,20 @@ def clean(engine: Engine) -> None:
             "sell_out_campanas",
             "offset_grupos",
             "tipo_cambio",
+            "auditoria",
         ):
-            conn.execute(text(f"DELETE FROM {table}"))  # sale lines, links, filters and consumptions cascade
+            conn.execute(text(f"DELETE FROM {table}"))  # sale lines, links, filters, consumptions, queue cascade
+
+
+def queued(engine: Engine) -> List[Tuple[int, int, Optional[str]]]:
+    """`(campana_id, attempts, last_error)` of `sell_out_dirty`, by campaign."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT campana_id, attempts, last_error FROM sell_out_dirty ORDER BY campana_id"))
+        return [tuple(row) for row in rows]
+
+
+def clear_queue(engine: Engine) -> None:
+    execute(engine, "DELETE FROM sell_out_dirty")
 
 
 def grupo(engine: Engine, filtros: Sequence[dict]) -> int:

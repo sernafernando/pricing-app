@@ -161,13 +161,18 @@ class SellOutConsumo(Base):
     fecha_venta = Column(Date, nullable=False)
     unidades = Column(Integer, nullable=False)
     monto = Column(Numeric(18, 2), nullable=False)  # in the campaign's `moneda`
-    # BNA rate (ARS per USD) of the sale day, frozen when the row is written; ARS is computed on read.
+    # The rate (ARS per USD) the row converts at: `al_cobro` the latest BNA until the campaign's rate is
+    # defined, then that rate; `fijo` the campaign's rate; `dia_venta` the BNA on or before the sale day.
+    # Rewritten on recompute whenever it changes; NULL for ARS. ARS is computed on read.
     tc_venta = Column(Numeric(18, 6), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class SellOutDirty(Base):
-    """A campaign waiting for its allocation to be rebuilt (T7). Nothing fills it yet."""
+    """A campaign waiting for its allocation to be rebuilt (T7). Filled, in the transaction of each change,
+    by the campaigns service (load, edit, void, payment rate), the `sell.drain` fan-out of the sale lines it
+    drains and the BNA update (`tipo_cambio_service.guardar_cotizacion_bna`); drained by `sell_out.drain`
+    (`app.services.sell_out.queue`)."""
 
     __tablename__ = "sell_out_dirty"
 

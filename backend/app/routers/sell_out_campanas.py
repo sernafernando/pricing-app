@@ -14,6 +14,9 @@ price, and that credit is added to profit. The rules live in
 - `POST /{id}/tipo-cambio` sets or changes the rate of a USD `al_cobro`
   campaign when the brand pays, also after it ended (audited; 409 once voided).
   Until then its ARS figures are estimates at the current BNA rate (T7).
+- An edit, void or rate change while `sell_out.drain` is rebuilding the
+  campaign is a 409 ("La campaña se está recalculando. Reintentar en unos
+  segundos."); nothing is stored and the client can retry.
 - Business-rule errors are a 422 with one readable Spanish message; an
   unknown campaign is a 404.
 """
@@ -64,7 +67,8 @@ def _no_existe(campana_id: int) -> HTTPException:
 
 def _error(db: Session, exc: service.SellOutError) -> HTTPException:
     db.rollback()
-    code = status.HTTP_409_CONFLICT if isinstance(exc, service.SellOutYaAnulada) else 422
+    conflicto = (service.SellOutYaAnulada, service.SellOutRecalculando)
+    code = status.HTTP_409_CONFLICT if isinstance(exc, conflicto) else 422
     return HTTPException(status_code=code, detail=str(exc))
 
 

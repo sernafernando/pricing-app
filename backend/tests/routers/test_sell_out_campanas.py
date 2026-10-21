@@ -423,3 +423,33 @@ def test_rate_audit_records_the_set_time_as_the_api_returns_it(client, gestor, g
     assert audit.valores_nuevos["tc_definido_en"] == resp.json()["tc_definido_en"]
     assert audit.valores_nuevos["tipo_cambio"] == resp.json()["tipo_cambio"]
     assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["tc_definido_en"] == resp.json()["tc_definido_en"]
+
+
+@pytest.mark.parametrize(
+    "method,sufijo,body",
+    [
+        ("put", "", None),
+        ("post", "/anular", {}),
+        ("post", "/tipo-cambio", {"tipo_cambio": "1450"}),
+    ],
+)
+def test_a_campaign_being_recalculated_is_a_409_with_a_neutral_message_and_nothing_changes(
+    client, gestor, grupos, monkeypatch, method, sufijo, body
+):
+    from app.services.sell_out import campanas as service
+
+    out = _crear(client, gestor, grupos, moneda="USD", tc_modo="al_cobro")
+
+    def _recalculando(db, campana_ids):  # what the service raises when a sell_out.drain batch holds the queue row
+        db.rollback()
+        raise service.SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.")
+
+    monkeypatch.setattr(service, "_encolar", _recalculando)
+    json = _body(grupos, nombre="Otra", moneda="USD", tc_modo="al_cobro") if body is None else body
+
+    resp = getattr(client, method)(f"{BASE}/{out['id']}{sufijo}", json=json, headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == "La campaña se está recalculando. Reintentar en unos segundos."
+    actual = client.get(f"{BASE}/{out['id']}", headers=gestor).json()
+    assert (actual["nombre"], actual["estado"], actual["tipo_cambio"]) == (out["nombre"], "activa", None)

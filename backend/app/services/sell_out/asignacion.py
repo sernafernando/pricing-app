@@ -38,10 +38,15 @@ at its `tipo_cambio`; `dia_venta` at the sale day's BNA; `al_cobro` at its
 row), so its amounts move with BNA: S3 queues `al_cobro` campaigns when BNA
 updates. The money cap applies to those amounts.
 
-Rate: every USD row freezes `tc_venta`, the BNA rate (`tipo_cambio`, USD
-`venta`, the latest on or before the sale day) when it is written; a row that
-does not change keeps it. ARS amounts are computed on read (S5). A USD row or
-conversion with no rate fails the campaign: never a guessed nor an empty rate.
+Rate: every USD row carries `tc_venta`, the rate it converts at NOW (S3, owner:
+"cuando está en dinámico se calcula en cuanto se actualiza bna"): `al_cobro`
+its `tipo_cambio` once set, before that the latest BNA; `fijo` its
+`tipo_cambio` (no BNA needed); `dia_venta` the BNA of the sale day
+(`tipo_cambio`, USD `venta`, the latest on or before it). A changed rate is a
+change: the row is rewritten. The rate is rounded to the column's 6 decimals
+half up, as Postgres rounds NUMERIC. ARS amounts are computed on read (S5). A
+USD row or conversion with no rate fails the campaign: never a guessed nor an
+empty rate.
 A campaign loaded with VAT reaching a product without `iva` fails too.
 
 Concurrency: `pg_advisory_xact_lock(LOCK_NAMESPACE, campana_id)` for every
@@ -53,7 +58,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import delete, insert, or_, text
@@ -71,6 +76,8 @@ _LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(:ns, i) FROM (SELECT DISTINCT i FROM unnest(CAST(:ids AS integer[])) AS t(i) "
     "ORDER BY i) AS ordered"
 )
+
+_TC_ESCALA = Decimal("0.000001")  # `sell_out_consumos.tc_venta` is NUMERIC(18, 6)
 
 Clave = Tuple[str, int]  # (canal, venta_ref)
 Productos = Dict[int, Dict[int, Optional[Decimal]]]
@@ -112,6 +119,13 @@ def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana],
                 vistas.add(otra.id)
                 pendientes.append(otra.id)
     return campanas, productos, sorted(vistas)
+
+
+def vinculadas(db: Session, campana_ids: Iterable[int]) -> List[int]:
+    """The given campaigns plus every active one sharing a product with them, transitively, in id order:
+    what `recalcular` would rebuild right now. A group edit captures it BEFORE the edit (S3)."""
+    ids = sorted({int(i) for i in campana_ids})
+    return _vinculadas(db, ids)[2] if ids else []
 
 
 def _tope(c: SellOutCampana) -> tope.Campana:
@@ -207,7 +221,7 @@ def _tasas(db: Session, activas: List[SellOutCampana], ventas: List[alcance.Vent
     usd = [c for c in activas if c.moneda == "USD"]
     por_dia = tasas_bna_por_fecha(db, {v.fecha for v in ventas if v.unidades > 0} if usd else set())
     actual = None
-    if any(c.tipo == "porcentaje" and c.tc_modo == "al_cobro" and c.tipo_cambio is None for c in usd):
+    if any(c.tc_modo == "al_cobro" and c.tipo_cambio is None for c in usd):  # every such row carries it
         fila = (
             db.query(TipoCambio.venta)
             .filter(TipoCambio.moneda == "USD", TipoCambio.venta > 0)
@@ -216,6 +230,14 @@ def _tasas(db: Session, activas: List[SellOutCampana], ventas: List[alcance.Vent
         )
         actual = Decimal(str(fila[0])) if fila else None
     return _Tasas(por_dia, actual)
+
+
+def _tc_fila(c: SellOutCampana, x: tope.Consumo, tasas: _Tasas) -> Optional[Decimal]:
+    """The rate a USD row carries: the one it converts at (`_tasa`, module docstring); None for ARS."""
+    if c.moneda != "USD":
+        return None
+    # Rounded as Postgres stores it (half away from zero), so an unchanged rate compares equal.
+    return _tasa(c, x.fecha_venta, tasas).quantize(_TC_ESCALA, rounding=ROUND_HALF_UP)
 
 
 def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
@@ -242,25 +264,22 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
 
     guardados: Dict[Tuple[int, str, int], Tuple[int, tuple]] = {}
     t = SellOutConsumo
-    for rid, cid, canal, ref, item_id, fecha, unidades, monto in db.query(
-        t.id, t.campana_id, t.canal, t.venta_ref, t.item_id, t.fecha_venta, t.unidades, t.monto
+    for rid, cid, canal, ref, item_id, fecha, unidades, monto, tc in db.query(
+        t.id, t.campana_id, t.canal, t.venta_ref, t.item_id, t.fecha_venta, t.unidades, t.monto, t.tc_venta
     ).filter(t.campana_id.in_(cierre)):
-        guardados[(cid, canal, ref)] = (rid, (item_id, fecha, unidades, Decimal(monto)))
+        guardados[(cid, canal, ref)] = (rid, (item_id, fecha, unidades, Decimal(monto), tc))
+    por_id = {c.id: c for c in activas}
     nuevos = {
-        (cid, x.canal, x.venta_ref): (x.item_id, x.fecha_venta, x.unidades, x.monto)
+        (cid, x.canal, x.venta_ref): (x.item_id, x.fecha_venta, x.unidades, x.monto, _tc_fila(por_id[cid], x, tasas))
         for cid, consumos in deseados.items()
         for x in consumos
     }
     borrar = [rid for clave, (rid, valores) in guardados.items() if nuevos.get(clave) != valores]
     insertar = [clave for clave, valores in nuevos.items() if guardados.get(clave, (None, None))[1] != valores]
-    usd = {c.id for c in activas if c.moneda == "USD"}
     filas = []
     for clave in insertar:
         cid, canal, ref = clave
-        item_id, fecha, unidades, monto = nuevos[clave]
-        tasa = tasas.por_dia.get(fecha) if cid in usd else None
-        if tasa is None and cid in usd:
-            raise SellOutAsignacionError(f"campaign {cid}: no BNA rate on or before {fecha}")
+        item_id, fecha, unidades, monto, tasa = nuevos[clave]
         filas.append(
             {
                 "campana_id": cid,

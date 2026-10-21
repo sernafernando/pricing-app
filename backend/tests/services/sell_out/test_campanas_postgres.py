@@ -23,7 +23,15 @@ from app.services.sell_out import campanas as service
 
 pytestmark = pytest.mark.postgres
 
-TABLES = ("sell_out_campanas", "sell_out_campana_grupos", "auditoria")
+# The service queues each change (T7 S3); an edit reads the reach (filters, products) before applying it.
+TABLES = (
+    "sell_out_campanas",
+    "sell_out_campana_grupos",
+    "auditoria",
+    "sell_out_dirty",
+    "offset_grupo_filtros",
+    "productos_erp",
+)
 USUARIO = 7
 GRUPO = 1
 _STUBS = [
