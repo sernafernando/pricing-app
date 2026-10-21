@@ -124,6 +124,8 @@ class TestSellOutConsumosMigration:
         with engine.begin() as conn:
             campana_id = base._new(conn)
             conn.execute(text(_INSERT_CONSUMO), _consumo(campana_id, ref=9_000_000_000))
+            stored = conn.execute(text("SELECT venta_ref FROM sell_out_consumos")).scalar_one()
+        assert stored == 9_000_000_000
 
     def test_queue_defaults_and_one_row_per_campaign(self, engine: Engine) -> None:
         enqueue = "INSERT INTO sell_out_dirty (campana_id) VALUES (:c)"

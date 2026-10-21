@@ -104,6 +104,11 @@ def validar(db: Session, data: SellOutCampanaIn, actual: Optional[SellOutCampana
             raise SellOutError("El porcentaje tiene que ser mayor a 0 y hasta 100")
         if data.monto_unit is not None:
             raise SellOutError("Una campaña por porcentaje no lleva monto por unidad")
+        # The percentage applies to a base already without VAT, so the flag would do nothing.
+        if data.monto_incluye_iva:
+            raise SellOutError(
+                "Una campaña por porcentaje no lleva monto con IVA: el porcentaje se aplica sobre el neto sin IVA"
+            )
     if data.moneda == "USD" and data.tc_modo is None:
         data.tc_modo = "al_cobro"
     _validar_tc(data, actual)

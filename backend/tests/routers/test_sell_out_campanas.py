@@ -134,6 +134,7 @@ def test_create_percentage_campaign_on_net_price_not_stackable(client, gestor, g
         ({"tipo": "porcentaje", "monto_unit": None, "porcentaje": "0"}, "porcentaje"),
         ({"tipo": "porcentaje", "monto_unit": None, "porcentaje": "100.5"}, "porcentaje"),
         ({"tipo": "porcentaje", "porcentaje": "5"}, "no lleva monto"),
+        ({"tipo": "porcentaje", "monto_unit": None, "porcentaje": "5", "monto_incluye_iva": True}, "IVA"),
         ({"fecha_hasta": "2026-10-31"}, "fecha hasta"),
         ({"tc_modo": "fijo"}, "tipo de cambio fijo"),
         ({"tc_modo": "fijo", "tipo_cambio": "0"}, "mayor a 0"),
