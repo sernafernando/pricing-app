@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect as sa_inspect, text
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.volume]
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _VERSIONS = _BACKEND_ROOT / "alembic" / "versions"

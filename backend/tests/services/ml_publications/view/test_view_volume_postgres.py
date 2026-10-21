@@ -27,12 +27,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service, products
 from app.services.ml_publications.view.filters import MarkupFilter, build_base_select, parse_filter
-from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed as view_seed
 from tests.services.ml_publications.view.test_listing_postgres import STORES_DDL
 from tests.services.ml_publications.view.test_unit_markup import BASE_BY_GRUPO, make_ctx
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.volume]
 
 ITEMS = 25_000
 LINKED = 18_000
@@ -147,25 +146,38 @@ def _seed(conn) -> None:
         conn.execute(text(f"ANALYZE {table}"))
 
 
-@pytest.fixture()
-def session(env):  # noqa: F811
+def _apply_index_migration(engine) -> None:
+    """The REAL `ix_ml_items_last_trigger` migration, then the statistics the planner reads."""
     spec = importlib.util.spec_from_file_location("ml_items_last_trigger_index_volume", MIGRATION)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
-    started = time.perf_counter()
-    SubcategoriaGrupo.__table__.create(bind=env)  # the names of the subcategory nodes of the tree
-    with env.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        conn.execute(text(STORES_DDL))
-        conn.execute(text(view_seed.PRICING_DDL))
-        _seed(conn)
-    with env.connect() as conn:
+    with engine.connect() as conn:
         ctx = MigrationContext.configure(conn)
         with Operations.context(ctx), ctx.begin_transaction():
             migration.upgrade()
-    with env.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.execute(text("ANALYZE ml_items"))
-    print(f"\nvolume seeded in {time.perf_counter() - started:.1f} s ({ITEMS} items, {LINKED} links)")
-    session = sessionmaker(bind=env, autocommit=False, autoflush=False)()
+
+
+@pytest.fixture(scope="module")
+def seeded():
+    """The volume, seeded once per module. The tests read it through their own `session`; the one that drops the
+    index (`test_what_the_index_buys_the_default_page`) puts it back before the next test."""
+    with view_seed.module_env() as env:
+        started = time.perf_counter()
+        SubcategoriaGrupo.__table__.create(bind=env)  # the names of the subcategory nodes of the tree
+        with env.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text(STORES_DDL))
+            conn.execute(text(view_seed.PRICING_DDL))
+            _seed(conn)
+        _apply_index_migration(env)
+        print(f"\nvolume seeded in {time.perf_counter() - started:.1f} s ({ITEMS} items, {LINKED} links)")
+        yield env
+
+
+@pytest.fixture()
+def session(seeded):
+    session = sessionmaker(bind=seeded, autocommit=False, autoflush=False)()
     try:
         yield session
     finally:
@@ -253,10 +265,14 @@ class TestVolume:
         session.rollback()
         with session.get_bind().connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("DROP INDEX ix_ml_items_last_trigger"))
-        timed("default page WITHOUT the index", lambda: page(session))
-        plan = explain(session, page_statement(parse_filter()))
-        print("--- default page without the index\n" + "\n".join(plan.splitlines()[:4] + plan.splitlines()[-2:]))
-        assert "ix_ml_items_last_trigger" not in plan and "Sort Method" in plan  # the control: it sorts the table
+        try:
+            timed("default page WITHOUT the index", lambda: page(session))
+            plan = explain(session, page_statement(parse_filter()))
+            print("--- default page without the index\n" + "\n".join(plan.splitlines()[:4] + plan.splitlines()[-2:]))
+            assert "ix_ml_items_last_trigger" not in plan and "Sort Method" in plan  # the control: it sorts the table
+        finally:
+            session.rollback()
+            _apply_index_migration(session.get_bind())  # the seed is shared by the module: put the index back
 
     def test_timings(self, session) -> None:
         print("\n--- list service timings (service only, no HTTP), 25k publications")

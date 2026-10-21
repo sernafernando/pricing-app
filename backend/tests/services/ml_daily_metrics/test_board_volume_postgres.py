@@ -37,6 +37,10 @@ from app.core.config import settings
 from app.routers.ml_metricas import build_board_response
 from app.services.ml_daily_metrics import board, groups
 
+# The whole module seeds the 25k-row volume: CI runs it in its own job. The `postgres` marks stay on the classes
+# that carry them; the two option-list tests below have none and still get a database there.
+pytestmark = pytest.mark.volume
+
 TODAY = date(2026, 9, 30)
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
 PRODUCTS = 2000
