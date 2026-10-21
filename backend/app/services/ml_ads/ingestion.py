@@ -116,7 +116,11 @@ def verify_ads_day(
     now: Callable[[], datetime],
     deadline: Optional[datetime] = None,
 ) -> StepResult:
-    """ADS-6: one summary call. A figure that moved since the day closed reopens it (`refetch`)."""
+    """ADS-6: one summary call. A figure that moved since the day closed reopens it (`refetch`).
+
+    Not read-only: the call's campaigns (and any further page `paging.total` announces) are stored, so the
+    day's campaign rows take ML's latest answer.
+    """
     return _DayRun(session_factory, client, advertiser_id, day, now, deadline).verify()
 
 
