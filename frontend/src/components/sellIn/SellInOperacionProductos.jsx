@@ -5,7 +5,6 @@ import styles from './SellInOperacionProductos.module.css';
 
 const FILAS_MAX = 12; // a hover card cannot scroll: the rest is counted
 
-
 /**
  * Hover card of the operation picker: the products of one Compras operation (`GET
  * /sell-in/compras/operaciones/{id}/productos`), with ordered and received units, so the operator

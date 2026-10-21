@@ -11,7 +11,7 @@ Al buscar la operación de **Compras** en **Nuevo sell in**, ahora se puede ver 
 - **Sin demoras al recorrer la lista:** la tarjeta aparece cuando el mouse se detiene un instante sobre una operación; pasar rápido por varias no consulta cada una. Mientras se cargan los productos se muestra **Cargando productos…**, y una operación ya consultada se muestra al instante.
 - **Operaciones largas:** se muestran los primeros 12 productos y se indica cuántos más tiene, por ejemplo **y 3 productos más**.
 - **Sin productos:** si la operación no tiene productos en sus órdenes de compra, la tarjeta lo indica.
-- **Permisos:** alcanza con poder ver sell in; no hace falta tener acceso a **Compras**.
+- **Permisos:** alcanza con poder cargar sell in, igual que para buscar operaciones; no hace falta tener acceso a **Compras**.
 
 ## Cómo se usa
 

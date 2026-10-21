@@ -17,7 +17,7 @@ export const sellInAPI = {
   prefill: (ids) => api.get(`${BASE}/prefill`, { params: { pedido_compra_ids: ids }, paramsSerializer: { indexes: null } }),
   // The create panel's operation picker: `q`, optional `proveedor_id`/`moneda`, and `excluir` (ids already linked).
   operaciones: (params) => api.get(`${BASE}/operaciones`, { params, paramsSerializer: { indexes: null } }),
-  // One operation's products (ordered and received units), for the picker's hover card; needs `sell_in.ver`.
+  // One operation's products (ordered and received units), for the picker's hover card; needs `sell_in.gestionar`.
   operacionProductos: (id) => api.get(`${BASE}/operaciones/${id}/productos`),
   anular: (id, motivo) => api.post(`${BASE}/${id}/anular`, { motivo: motivo?.trim() || null }),
   // The supplier picker of the create panel (`GET /administracion/proveedores`, active ones by default).

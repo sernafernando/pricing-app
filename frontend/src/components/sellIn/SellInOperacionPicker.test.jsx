@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { sellInAPI } from '../../services/sellInAPI';
 import { operacionesFake, PRODUCTOS_OPERACION } from './sellInFixtures';
@@ -299,6 +299,30 @@ describe('SellInOperacionPicker', () => {
       await screen.findByRole('tooltip');
 
       await user.keyboard('{Escape}');
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+
+    it('closes when the list or the page scrolls, since its position would go stale', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await user.hover((await abrirLista(user, input))[1]);
+      await screen.findByRole('tooltip');
+
+      fireEvent.scroll(screen.getByRole('listbox')); // scroll does not bubble: only a capture listener sees it
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+      await pausa();
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+
+    it('closes when the window is resized', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await user.hover((await abrirLista(user, input))[1]);
+      await screen.findByRole('tooltip');
+
+      fireEvent(window, new Event('resize'));
 
       expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
     });

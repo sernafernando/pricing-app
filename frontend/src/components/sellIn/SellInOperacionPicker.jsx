@@ -151,6 +151,19 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objetivo?.id]);
   const card = objetivo && mostrada?.operacion.id === objetivo.id ? mostrada : null;
+  const hayCard = card !== null;
+  // The card's position is measured once, when it opens: any scroll (capture phase, so the list's own
+  // and the panel's count too) or resize would leave it stale, so it closes until the next rest.
+  useEffect(() => {
+    if (!hayCard) return undefined;
+    const ocultar = () => setMostrada(null);
+    window.addEventListener('scroll', ocultar, true);
+    window.addEventListener('resize', ocultar);
+    return () => {
+      window.removeEventListener('scroll', ocultar, true);
+      window.removeEventListener('resize', ocultar);
+    };
+  }, [hayCard]);
 
   return (
     <div className={styles.field}>

@@ -21,7 +21,7 @@ lowers the cost of THAT purchase's units only. The math lives in
   from them (`app.services.sell_in.prefill`). `GET /operaciones` (same
   permission, no Compras permission needed) searches them for the panel's
   picker (`app.services.sell_in.operaciones`); `GET /operaciones/{id}/productos`
-  (`sell_in.ver`) lists one operation's products for the picker's popover.
+  (same permission) lists one operation's products for the picker's popover.
 - `GET /resumen` takes the same filters and returns exact aggregates over every
   matching purchase (bucket counts, amount per currency, units covered).
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
@@ -196,7 +196,7 @@ def buscar_operaciones(
 @router.get("/operaciones/{pedido_id}/productos", response_model=SellInOperacionProductosOut)
 def productos_operacion(
     pedido_id: int,
-    _user: Usuario = Depends(requiere_ver),
+    _user: Usuario = Depends(requiere_gestionar),
     db: Session = Depends(get_db),
 ) -> dict:
     """The products of one Compras operation (ordered and received units), for the picker's popover."""
