@@ -21,6 +21,7 @@ from app.services.ml_publications.view import listing
 from app.services.ml_publications.view.filters import parse_filter
 from tests.services.ml_daily_metrics import test_board_volume_postgres as volume
 from tests.services.ml_daily_metrics.test_board_sale_lines_postgres import populate_sale_lines
+from tests.services.ml_publications.conftest import module_env
 from tests.services.ml_publications.view import seed
 
 pytestmark = [pytest.mark.postgres, pytest.mark.volume]
@@ -34,7 +35,7 @@ def world():
     `reader.get_bind()` is the engine of the schema."""
     from app.models.ml_sale_line import MlSaleLine
 
-    with seed.module_env() as env:
+    with module_env() as env:
         seed.create_board_tables(env)
         MlSaleLine.__table__.create(bind=env)
         session = sessionmaker(bind=env)()

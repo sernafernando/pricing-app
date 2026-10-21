@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import copy
 import json
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
@@ -73,8 +74,8 @@ def _create_publication_map(target, connection, **kwargs) -> None:
     PublicacionML.__table__.create(bind=connection)
 
 
-@pytest.fixture()
-def mlpub_pg(monkeypatch):
+@contextmanager
+def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     """Throwaway Postgres schema holding the REAL core, sub-resource and product-link migrations' tables, with
     `get_background_db()` (what the store's primitives use) pointed at it.
 
@@ -157,13 +158,33 @@ def mlpub_pg(monkeypatch):
         admin.dispose()
 
 
-@pytest.fixture()
-def env(mlpub_pg):
-    """The real link table plus a `productos_erp` table built from the real model."""
+def create_env_tables(engine) -> Any:
+    """The real link table plus a `productos_erp` table built from the real model, on `engine`'s schema."""
     from app.models.producto import ProductoERP
 
-    ProductoERP.__table__.create(bind=mlpub_pg)
-    return mlpub_pg
+    ProductoERP.__table__.create(bind=engine)
+    return engine
+
+
+@contextmanager
+def module_env() -> Iterator[Any]:
+    """`env` for a whole module: the same schema, `SessionLocal` patch and teardown, under a MonkeyPatch that
+    lives as long as the module. For the volume seeds (tens of thousands of rows) a module builds once."""
+    with pytest.MonkeyPatch.context() as patch, mlpub_schema(patch) as engine:
+        yield create_env_tables(engine)
+
+
+@pytest.fixture()
+def mlpub_pg(monkeypatch):
+    """`mlpub_schema` for one test."""
+    with mlpub_schema(monkeypatch) as engine:
+        yield engine
+
+
+@pytest.fixture()
+def env(mlpub_pg):
+    """`create_env_tables` on the test's `mlpub_pg` schema."""
+    return create_env_tables(mlpub_pg)
 
 
 @pytest.fixture()

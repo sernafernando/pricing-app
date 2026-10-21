@@ -9,9 +9,8 @@ from __future__ import annotations
 import itertools
 import json
 import os
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterator, Optional
+from typing import Any, Optional
 
 from sqlalchemy import text
 
@@ -379,25 +378,3 @@ def add_tn_variant(conn, item_id: int, variant_id: int, **columns: Any) -> None:
 
 def add_oferta(conn, mla: str, fecha_desde, fecha_hasta, **columns: Any) -> None:
     _insert(conn, "ofertas_ml", {"mla": mla, "fecha_desde": fecha_desde, "fecha_hasta": fecha_hasta, **columns})
-
-
-@contextmanager
-def module_env() -> Iterator[Any]:
-    """The `env` fixture's engine for a whole module, for the volume seeds (tens of thousands of rows, ~10 s each)
-    that a module builds once instead of once per test.
-
-    Drives the real fixtures (`mlpub_pg`, then `env`) through their undecorated functions under a MonkeyPatch that
-    lives as long as the module: the same migrated throwaway schema, the same `SessionLocal` patch and the same
-    teardown (schema dropped, SQLite column types put back), only with a module lifetime.
-    """
-    import pytest
-
-    from tests.services.ml_publications.conftest import env, mlpub_pg
-
-    with pytest.MonkeyPatch.context() as patch:
-        schema = mlpub_pg.__wrapped__(patch)
-        engine = next(schema)
-        try:
-            yield env.__wrapped__(engine)
-        finally:
-            next(schema, None)

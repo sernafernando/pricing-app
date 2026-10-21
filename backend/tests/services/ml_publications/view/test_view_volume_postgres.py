@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.comision_config import SubcategoriaGrupo
 from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service, products
 from app.services.ml_publications.view.filters import MarkupFilter, build_base_select, parse_filter
+from tests.services.ml_publications.conftest import module_env
 from tests.services.ml_publications.view import seed as view_seed
 from tests.services.ml_publications.view.test_listing_postgres import STORES_DDL
 from tests.services.ml_publications.view.test_unit_markup import BASE_BY_GRUPO, make_ctx
@@ -163,7 +164,7 @@ def _apply_index_migration(engine) -> None:
 def seeded():
     """The volume, seeded once per module. The tests read it through their own `session`; the one that drops the
     index (`test_what_the_index_buys_the_default_page`) puts it back before the next test."""
-    with view_seed.module_env() as env:
+    with module_env() as env:
         started = time.perf_counter()
         SubcategoriaGrupo.__table__.create(bind=env)  # the names of the subcategory nodes of the tree
         with env.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
