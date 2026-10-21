@@ -120,6 +120,19 @@ def test_a_database_error_in_one_campaign_does_not_poison_the_batch(
     assert [r[0] for r in w.consumos(engine)] == [sana]
 
 
+def test_the_summary_counts_each_waiting_sale_once_per_campaign(engine: Engine) -> None:
+    """Two linked campaigns: each rebuild covers both, yet each campaign counts its waiting sale once."""
+    grupo = w.grupo(engine, [ROUTERS])
+    pct = {"tipo": "porcentaje", "monto_unit": None, "porcentaje": "10", "base_porcentaje": "costo"}
+    ids = [w.campana(engine, [grupo], **pct) for _ in range(2)]
+    ref = w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+    w.execute(engine, "UPDATE ml_sale_lines SET gross = 0, mcosto = 0 WHERE item_row_id = :r", r=ref)
+
+    summary = script.run_backfill(limit=None, dry_run=False, batch_size=1, session_factory=sessionmaker(bind=engine))
+
+    assert (summary["pendientes_base"], summary["failed_campanas"], summary["last_campana_id"]) == (2, [], ids[-1])
+
+
 def test_limit_after_and_an_explicit_list_bound_the_run(engine: Engine) -> None:
     ids = _tres_campanas(engine)
     factory = sessionmaker(bind=engine)

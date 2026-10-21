@@ -6,7 +6,9 @@ rebuilt in its own savepoint together with the campaigns sharing products with
 it, so one that fails (a percentage campaign, a missing BNA rate) is rolled back
 alone and listed in `failed_campanas`; `--campanas` (a CSV of ids) reruns exactly
 those. Idempotent: a rebuild writes only the difference, so a re-run writes
-nothing.
+nothing. `pendientes_base` counts the percentage sales skipped because their base
+(an unsettled ML order, a sale without its cost) is not known yet: they are
+picked up when their campaign is rebuilt again.
 
 Bounded: `--batch-size` campaigns per transaction, each with a local
 `statement_timeout`; `--after-campana` (the `last_campana_id` of a previous
@@ -46,10 +48,12 @@ def _timeout(db: Session) -> None:
         db.execute(text(f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}"))
 
 
-def _rebuild(db: Session, batch: list[int]) -> tuple[int, int, dict[int, str]]:
-    """`(inserted, deleted, {campaign: error})` of one batch, each campaign in its own savepoint."""
+def _rebuild(db: Session, batch: list[int]) -> tuple[int, int, dict[int, str], dict[int, int]]:
+    """`(inserted, deleted, {campaign: error}, {campaign: sales waiting for their base})` of one batch,
+    each campaign in its own savepoint. A rebuild covers linked campaigns too: the latest count wins."""
     inserted = deleted = 0
     errors: dict[int, str] = {}
+    pendientes: dict[int, int] = {}
     for campana_id in batch:
         try:
             with db.begin_nested():
@@ -60,7 +64,8 @@ def _rebuild(db: Session, batch: list[int]) -> tuple[int, int, dict[int, str]]:
             continue
         inserted += result.inserted
         deleted += result.deleted
-    return inserted, deleted, errors
+        pendientes.update(result.pendientes_base)
+    return inserted, deleted, errors, pendientes
 
 
 def run_backfill(
@@ -82,11 +87,13 @@ def run_backfill(
         "inserted": 0,
         "deleted": 0,
         "failed_campanas": [],
+        "pendientes_base": 0,
         "errors": {},
         "last_campana_id": after_campana,
         "stopped_at_after_campana": None,
         "stop_error": None,
     }
+    por_campana: dict[int, int] = {}
     db = session_factory()
     try:
         _timeout(db)
@@ -98,7 +105,7 @@ def run_backfill(
                 batch = [c for c in wanted if c > summary["last_campana_id"]][:take]
             if not batch:
                 break
-            inserted, deleted, errors = _rebuild(db, batch)
+            inserted, deleted, errors, pendientes = _rebuild(db, batch)
             if not dry_run:
                 db.commit()
                 _timeout(db)
@@ -106,6 +113,8 @@ def run_backfill(
             summary["deleted"] += deleted
             summary["failed_campanas"].extend(errors)
             summary["errors"].update(errors)
+            por_campana.update(pendientes)
+            summary["pendientes_base"] = sum(por_campana.values())
             summary["campanas"] += len(batch)
             summary["batches"] += 1
             summary["last_campana_id"] = batch[-1]
