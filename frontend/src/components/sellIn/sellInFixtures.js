@@ -210,3 +210,15 @@ export function operacionesFake(params = {}) {
   );
   return Promise.resolve({ data: { items } });
 }
+
+/** A sell in a brand bonus generated (`origen = 'bono_marca'`): only its bonus changes or voids it. */
+export const COMPRA_BONO = {
+  ...COMPRA_ARS,
+  id: 41,
+  descripcion: 'Bono de marca TP-LINK (bono 3)',
+  moneda: 'USD',
+  tipo_cambio: '1450.000000',
+  formula: 'por_unidad',
+  origen: 'bono_marca',
+  bono_id: 3,
+};

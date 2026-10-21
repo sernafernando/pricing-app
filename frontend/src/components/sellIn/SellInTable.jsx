@@ -10,7 +10,8 @@ const COLUMNS = 9;
 
 /**
  * The sell-in purchases list. The chevron opens a row into its lines; a click
- * elsewhere on the row selects it (`onSelect`, the detail panel).
+ * elsewhere on the row selects it (`onSelect`, the detail panel). A purchase a
+ * brand bonus generated carries a "Bono de marca" badge.
  */
 export default function SellInTable({ compras, selectedId, onSelect }) {
   const [abiertas, setAbiertas] = useState(() => new Set());
@@ -62,7 +63,14 @@ export default function SellInTable({ compras, selectedId, onSelect }) {
                       {abierta ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </button>
                   </td>
-                  <td>{compra.descripcion || <span className={styles.muted}>Sin descripción</span>}</td>
+                  <td>
+                    <div>{compra.descripcion || <span className={styles.muted}>Sin descripción</span>}</div>
+                    {compra.origen === 'bono_marca' && (
+                      <div className={styles.origen}>
+                        <StatusPill tone="purple">Bono de marca</StatusPill>
+                      </div>
+                    )}
+                  </td>
                   <td>{compra.proveedor_nombre ?? <span className={styles.muted}>—</span>}</td>
                   <td>{formatDateOnly(compra.fecha_compra)}</td>
                   <td className={styles.num}>
