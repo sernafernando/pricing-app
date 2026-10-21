@@ -1,6 +1,6 @@
 .container {
-  max-width: 1200px;
-  margin: 0 auto;
+  /* Full width: the permission tabs (role matrix) need every column they can get. */
+  min-width: 0;
   padding: 24px;
   min-height: 100vh;
   background: var(--bg-secondary);
@@ -167,9 +167,15 @@
   gap: 8px;
   margin-bottom: 24px;
   border-bottom: 2px solid var(--border-primary);
+  /* Eight tabs do not fit a phone: the strip scrolls instead of widening the page. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 12px 24px;
   background: none;
   border: none;
@@ -329,4 +335,29 @@
   border-color: rgba(239, 68, 68, 0.6);
 }
 
+/* Phone: the container, the section and the panels each padded 24px left
+   about 96px less width for the content. */
+@media (max-width: 640px) {
+  .container {
+    padding: var(--space-3);
+  }
 
+  .title {
+    font-size: var(--font-2xl);
+    margin-bottom: var(--space-4);
+  }
+
+  .section {
+    padding: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .tabs {
+    gap: var(--space-1);
+    margin-bottom: var(--space-4);
+  }
+
+  .tab {
+    padding: var(--space-3) var(--space-4);
+  }
+}

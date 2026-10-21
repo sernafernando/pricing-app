@@ -357,9 +357,53 @@
   align-items: start;
 }
 
+/* Stacked: one pane at a time, the one named by `data-vista-movil` (set by the
+   panel: the detail once a user is picked, the list after "Usuarios"). */
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .layout[data-vista-movil='detalle'] .columnaUsuarios,
+  .layout[data-vista-movil='lista'] .columnaDetalle {
+    display: none;
+  }
+
+  /* Scrolled into view on a pick: clear of the fixed top bar. */
+  .columnaDetalle {
+    scroll-margin-top: calc(var(--cf-topbar-height) + var(--space-2));
+  }
+}
+
+/* Back to the user list: only where the list and the detail are separate panes. */
+.volverLista {
+  display: none;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--tone-info-fg);
+  background: transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.volverLista:hover {
+  background: var(--cf-bg-hover);
+}
+
+.volverLista:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+@media (max-width: 900px) {
+  .volverLista {
+    display: inline-flex;
   }
 }
 
@@ -442,6 +486,8 @@
 
 .usuarioNombre {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: var(--font-xl);
   color: var(--cf-text-primary);
 }
@@ -455,6 +501,11 @@
   color: var(--cf-text-secondary);
 }
 
+.usuarioMeta > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .usuarioAcciones {
   display: flex;
   flex-wrap: wrap;
@@ -466,4 +517,26 @@
 .vistaSelector {
   display: flex;
   margin-bottom: var(--space-3);
+}
+
+/* Phone: the actions go under the user instead of squeezing the name and its
+   pills into a sliver, and the header stops being sticky (with the additional
+   roles it would cover most of the screen). */
+@media (max-width: 640px) {
+  .detalleHeader {
+    position: static;
+  }
+
+  .detalleHeaderFila {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .usuarioAcciones {
+    justify-content: flex-start;
+  }
+
+  .usuarioNombre {
+    font-size: var(--font-lg);
+  }
 }

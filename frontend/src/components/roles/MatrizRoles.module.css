@@ -66,7 +66,9 @@
 
 .colRol {
   text-align: center;
-  white-space: nowrap;
+  /* Multi-word role names wrap only when the columns would not fit otherwise
+     (single words never break), so more roles fit without scrolling. */
+  white-space: normal;
 }
 
 /* The role open in the drawer. The tint is layered over the card colour: the
@@ -243,4 +245,39 @@
 .barraAcciones {
   display: flex;
   gap: var(--space-2);
+}
+
+/* Phone: a narrow, wrapping permission column so at least two role columns
+   fit next to it; the codigo line goes away (the name is enough to pick). */
+@media (max-width: 640px) {
+  .colPermiso,
+  .colRol {
+    padding: var(--space-2);
+  }
+
+  .colPermiso {
+    min-width: 132px;
+    width: 132px;
+  }
+
+  .permiso {
+    min-width: 132px;
+    max-width: 132px;
+    padding: var(--space-2);
+    font-size: var(--font-xs);
+    overflow-wrap: anywhere;
+  }
+
+  .permisoNombre {
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .codigo {
+    display: none;
+  }
+
+  .celda {
+    padding: var(--space-1) var(--space-2);
+  }
 }
