@@ -190,7 +190,6 @@ def _tasas_bna(db: Session, fechas: Set[date]) -> Dict[date, Optional[Decimal]]:
 
 
 def _deseada(
-    db: Session,
     bono: SellInBonoMarca,
     pedido: Optional[_Pedido],
     lineas: List[tuple],
@@ -368,7 +367,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         bono_id, pedido_id = par
         pedido = pedidos.get(pedido_id)
         try:
-            deseada = _deseada(db, bonos[bono_id], pedido, lineas.get(pedido_id, []), tasas_bna)
+            deseada = _deseada(bonos[bono_id], pedido, lineas.get(pedido_id, []), tasas_bna)
         except SellInError as exc:
             result.fallidas[par] = str(exc)
             continue
