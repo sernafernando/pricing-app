@@ -35,6 +35,21 @@ const llenar = async (user) => {
 };
 
 describe('SellInBonoPanel — new bonus', () => {
+  it('does not let "Cancelar" close the panel while the bonus is being saved', async () => {
+    const user = userEvent.setup();
+    let resolver;
+    sellInBonosAPI.crear.mockReturnValueOnce(new Promise((resolve) => (resolver = resolve)));
+    const { onSaved, onClose } = renderPanel({ bonoId: null });
+    await llenar(user);
+
+    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    resolver({ data: { ...BONO, id: 9 } });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('creates a bonus in USD by default with the brand, amount per unit and invoice range', async () => {
     const user = userEvent.setup();
     const { onSaved } = renderPanel({ bonoId: null });

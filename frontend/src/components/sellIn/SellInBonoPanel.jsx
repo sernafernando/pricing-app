@@ -165,7 +165,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             </div>
           ) : nuevo ? (
             <>
-              <button type="button" className="btn-tesla outline sm" onClick={onClose}>
+              <button type="button" className="btn-tesla outline sm" onClick={onClose} disabled={busy}>
                 Cancelar
               </button>
               <button type="button" className="btn-tesla primary sm" onClick={guardar} disabled={busy}>
