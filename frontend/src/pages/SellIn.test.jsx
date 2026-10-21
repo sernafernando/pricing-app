@@ -167,6 +167,15 @@ describe('SellIn page — list', () => {
 });
 
 describe('SellIn page — brand bonuses', () => {
+  it('"Actualizar" reloads the brand bonuses too', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByRole('region', { name: 'Bonos de marca' });
+    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
   it('lists the brand bonuses with what they generated, and opens one in the side panel', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);

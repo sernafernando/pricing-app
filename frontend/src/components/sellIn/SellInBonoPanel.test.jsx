@@ -163,4 +163,33 @@ describe('SellInBonoPanel — existing bonus', () => {
     renderPanel();
     expect(await screen.findByRole('alert')).toHaveTextContent('El bono 3 no existe');
   });
+
+  it('shows the creation date in the local (Argentina) day, not the UTC one', async () => {
+    sellInBonosAPI.detalle.mockResolvedValue({ data: { ...BONO, created_at: '2026-08-28T02:00:00+00:00' } });
+    renderPanel();
+    expect(await screen.findByText('Creado el 27/8/2026')).toBeInTheDocument();
+  });
+
+  it('cancelling the void confirmation clears the reason', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'Anular bono' }));
+    await user.type(screen.getByLabelText('Motivo (opcional)'), 'Acuerdo caído');
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await user.click(screen.getByRole('button', { name: 'Anular bono' }));
+    expect(screen.getByLabelText('Motivo (opcional)')).toHaveValue('');
+  });
+
+  it('a 409 on save (voided by someone else) reloads the bonus and shows it read-only', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.editar.mockRejectedValue(apiError(409, 'El bono 3 está anulado'));
+    sellInBonosAPI.detalle.mockResolvedValueOnce({ data: BONO }).mockResolvedValueOnce({ data: { ...BONO, estado: 'anulada' } });
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'Guardar cambios' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('El bono 3 está anulado');
+    expect(await screen.findByText('Anulado')).toBeInTheDocument();
+    expect(sellInBonosAPI.detalle).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText('Monto por unidad')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument();
+  });
 });

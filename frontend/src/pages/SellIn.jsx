@@ -142,7 +142,15 @@ export default function SellIn() {
           <p className={styles.description}>Descuentos de compra que bajan el costo de las unidades de esa compra.</p>
         </div>
         <div className={styles.headerActions}>
-          <button type="button" className="btn-tesla outline sm" onClick={cargar} disabled={loading}>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={() => {
+              cargar();
+              bonos.recargar();
+            }}
+            disabled={loading}
+          >
             <RefreshCw size={14} /> Actualizar
           </button>
           {puedeGestionar && (

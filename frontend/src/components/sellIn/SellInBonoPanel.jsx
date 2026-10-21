@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { Settings2, X } from 'lucide-react';
 import { sellInBonosAPI } from '../../services/sellInAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
@@ -28,21 +28,25 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState('');
 
+  // The bonus as stored: on load, and after a 409 (voided elsewhere) so the panel shows its real state.
+  const leerBono = useCallback(
+    (activo = () => true) =>
+      sellInBonosAPI.detalle(bonoId).then(({ data }) => {
+        if (!activo()) return;
+        setBono(data);
+        setValores(valoresDeBono(data));
+      }),
+    [bonoId],
+  );
+
   useEffect(() => {
     if (nuevo) return undefined;
     let active = true;
-    sellInBonosAPI
-      .detalle(bonoId)
-      .then(({ data }) => {
-        if (!active) return;
-        setBono(data);
-        setValores(valoresDeBono(data));
-      })
-      .catch((err) => active && setError(apiMessage(err, 'No se pudo cargar el bono.')));
+    leerBono(() => active).catch((err) => active && setError(apiMessage(err, 'No se pudo cargar el bono.')));
     return () => {
       active = false;
     };
-  }, [bonoId, nuevo]);
+  }, [nuevo, leerBono]);
 
   const aplicar = (data) => {
     setBono(data);
@@ -67,6 +71,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       aplicar(data);
     } catch (err) {
       setError(apiMessage(err, 'No se pudo guardar el bono.'));
+      if (!nuevo && err?.response?.status === 409) leerBono().catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -101,7 +106,8 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             </div>
           )}
           <h2>{titulo}</h2>
-          {bono?.created_at && <p className={styles.hint}>Creado el {formatDateOnly(bono.created_at.slice(0, 10))}</p>}
+          {/* A timestamptz with its offset: formatted on the user's local (Argentina) day, never the UTC one. */}
+          {bono?.created_at && <p className={styles.hint}>Creado el {formatDateOnly(bono.created_at)}</p>}
         </div>
         <button type="button" className={styles.close} aria-label="Cerrar" onClick={onClose}>
           <X size={18} />
@@ -141,7 +147,15 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
               </label>
               <p className={styles.hint}>Al anular el bono se anulan las compras que generó.</p>
               <div className={styles.confirmActions}>
-                <button type="button" className="btn-tesla outline sm" onClick={() => setConfirmando(false)} disabled={busy}>
+                <button
+                  type="button"
+                  className="btn-tesla outline sm"
+                  onClick={() => {
+                    setConfirmando(false);
+                    setMotivo('');
+                  }}
+                  disabled={busy}
+                >
                   Cancelar
                 </button>
                 <button type="button" className="btn-tesla danger sm" onClick={anular} disabled={busy}>
