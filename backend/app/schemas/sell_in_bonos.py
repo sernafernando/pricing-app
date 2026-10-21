@@ -62,3 +62,49 @@ class SellInBonoListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+ALCANCE_LIMITE = 20  # rows per group of the bonus panel (`GET /{id}/alcance`), by default
+ALCANCE_LIMITE_MAX = 100
+
+
+class SellInBonoAlcanzadaOut(BaseModel):
+    """An active purchase the worker generated for the bonus."""
+
+    compra_id: int
+    pedido_id: Optional[int]
+    numero: Optional[str]
+    proveedor_nombre: Optional[str]
+    numero_factura: Optional[str]
+    fecha_factura: Optional[date]
+    unidades: int
+    monto: Decimal
+    moneda: Moneda
+
+
+class SellInBonoPedidoOut(BaseModel):
+    """A Compras operation of the brand the bonus does not reach (yet)."""
+
+    pedido_id: int
+    numero: str
+    proveedor_nombre: Optional[str]
+    numero_factura: Optional[str]
+    fecha_factura: Optional[date]
+    unidades: int  # pending: received units; out of range: invoiced units (only the brand's)
+
+
+class SellInBonoAlcanzadasOut(BaseModel):
+    total: int
+    items: list[SellInBonoAlcanzadaOut]
+
+
+class SellInBonoPedidosOut(BaseModel):
+    total: int
+    items: list[SellInBonoPedidoOut]
+
+
+class SellInBonoAlcanceOut(BaseModel):
+    limite: int
+    alcanzadas: SellInBonoAlcanzadasOut
+    pendientes: SellInBonoPedidosOut
+    fuera_de_rango: SellInBonoPedidosOut
