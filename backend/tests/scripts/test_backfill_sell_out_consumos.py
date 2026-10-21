@@ -88,8 +88,9 @@ def test_a_dry_run_reports_in_one_transaction_and_writes_nothing(engine: Engine)
 
 def test_a_failing_campaign_is_listed_and_the_others_are_written(engine: Engine) -> None:
     grupo = w.grupo(engine, [ROUTERS])
-    mala = w.campana(engine, [grupo], tipo="porcentaje", monto_unit=None, porcentaje="5")
+    mala = w.campana(engine, [grupo], moneda="USD", tc_modo="dia_venta")  # no BNA rate loaded
     buena = w.campana(engine, [w.grupo(engine, [{"marca": "MERCUSYS"}])])
+    w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
     w.venta(engine, "ml", 950, 1, D(2026, 11, 2))
 
     summary = script.run_backfill(limit=None, dry_run=False, session_factory=sessionmaker(bind=engine))
