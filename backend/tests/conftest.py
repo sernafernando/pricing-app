@@ -650,7 +650,11 @@ def _pg_orders_ops_session():
 
     yield eng, ensure_tables
     local_metadata.drop_all(bind=eng)
-    Base.metadata.drop_all(bind=eng, tables=own_tables)
+    # Per-`Table.drop()`, NOT `Base.metadata.drop_all(tables=...)`: same
+    # `DROP TYPE rolusuario` hazard as `pg_payments_engine`'s teardown, while
+    # `pg_tickets_engine`'s `usuarios` is still alive on the same worker.
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
     eng.dispose()
 
 
