@@ -92,8 +92,11 @@ export default function PanelPermisos() {
     }
   };
 
-  const seleccionarUsuario = async (usuario) => {
+  // `mostrarDetalle`: a pick from the list, which on a phone switches to the
+  // detail together with the selection itself (a reselect after a save does not).
+  const seleccionarUsuario = async (usuario, { mostrarDetalle = false } = {}) => {
     setUsuarioSeleccionado(usuario);
+    if (mostrarDetalle) setVistaMovil('detalle');
     usuarioSeleccionadoIdRef.current = usuario.id;
     setPermisosUsuario(null);
     setCambiandoPassword(false);
@@ -248,7 +251,7 @@ export default function PanelPermisos() {
     const lista = columnaUsuariosRef.current;
     const detalle = columnaDetalleRef.current;
     if (vistaMovil !== 'detalle' || !usuarioSeleccionadoId || !lista || !detalle) return;
-    if (getComputedStyle(lista).display !== 'none') return;
+    if (window.getComputedStyle(lista).display !== 'none') return;
     if (detalle.getBoundingClientRect().top < 0) detalle.scrollIntoView({ block: 'start' });
   }, [vistaMovil, usuarioSeleccionadoId]);
 
@@ -356,10 +359,7 @@ export default function PanelPermisos() {
             usuarios={usuarios}
             seleccionadoId={usuarioSeleccionado?.id}
             overridesSeleccionado={overridesSeleccionado}
-            onSeleccionar={(usuario) => {
-              setVistaMovil('detalle');
-              seleccionarUsuario(usuario);
-            }}
+            onSeleccionar={(usuario) => seleccionarUsuario(usuario, { mostrarDetalle: true })}
           />
         </div>
 
