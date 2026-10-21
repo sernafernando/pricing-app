@@ -161,7 +161,9 @@ class SellOutConsumo(Base):
     fecha_venta = Column(Date, nullable=False)
     unidades = Column(Integer, nullable=False)
     monto = Column(Numeric(18, 2), nullable=False)  # in the campaign's `moneda`
-    # BNA rate (ARS per USD) of the sale day, frozen when the row is written; ARS is computed on read.
+    # The rate (ARS per USD) the row converts at: `al_cobro` the latest BNA until the campaign's rate is
+    # defined, then that rate; `fijo` the campaign's rate; `dia_venta` the BNA on or before the sale day.
+    # Rewritten on recompute whenever it changes; NULL for ARS. ARS is computed on read.
     tc_venta = Column(Numeric(18, 6), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

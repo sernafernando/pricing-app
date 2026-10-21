@@ -40,9 +40,9 @@ updates. The money cap applies to those amounts.
 
 Rate: every USD row carries `tc_venta`, the rate it converts at NOW (S3, owner:
 "cuando está en dinámico se calcula en cuanto se actualiza bna"): `al_cobro`
-its `tipo_cambio` once set, before that the latest BNA; `dia_venta` and `fijo`
-the BNA of the sale day (`tipo_cambio`, USD `venta`, the latest on or before
-it). A changed rate is a change: the row is rewritten. ARS amounts are computed
+its `tipo_cambio` once set, before that the latest BNA; `fijo` its
+`tipo_cambio` (no BNA needed); `dia_venta` the BNA of the sale day
+(`tipo_cambio`, USD `venta`, the latest on or before it). A changed rate is a change: the row is rewritten. ARS amounts are computed
 on read (S5). A USD row or
 conversion with no rate fails the campaign: never a guessed nor an empty rate.
 A campaign loaded with VAT reaching a product without `iva` fails too.
@@ -231,16 +231,10 @@ def _tasas(db: Session, activas: List[SellOutCampana], ventas: List[alcance.Vent
 
 
 def _tc_fila(c: SellOutCampana, x: tope.Consumo, tasas: _Tasas) -> Optional[Decimal]:
-    """The rate a USD row carries (module docstring); None for ARS. Fails without one."""
+    """The rate a USD row carries: the one it converts at (`_tasa`, module docstring); None for ARS."""
     if c.moneda != "USD":
         return None
-    if c.tc_modo == "al_cobro":
-        tasa = _tasa(c, x.fecha_venta, tasas)  # its rate once set, before that the latest BNA
-    else:
-        tasa = tasas.por_dia.get(x.fecha_venta)
-    if tasa is None:
-        raise SellOutAsignacionError(f"campaign {c.id}: no BNA rate on or before {x.fecha_venta}")
-    return Decimal(tasa).quantize(_TC_ESCALA)  # as stored, so an unchanged rate compares equal
+    return _tasa(c, x.fecha_venta, tasas).quantize(_TC_ESCALA)  # as stored, so an unchanged rate compares equal
 
 
 def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:

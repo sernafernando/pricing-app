@@ -278,14 +278,24 @@ class TestTipoDeCambio:
         with pytest.raises(SellOutAsignacionError):
             _recalcular(engine, campana)
 
-    @pytest.mark.parametrize("tc_modo", ["fijo", "al_cobro"])
-    def test_a_usd_row_without_a_bna_rate_is_refused_whatever_the_mode(self, engine: Engine, tc_modo: str) -> None:
-        tc = {"tipo_cambio": "1000"} if tc_modo == "fijo" else {}
-        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo=tc_modo, **tc)
+    def test_an_unrated_al_cobro_row_without_any_bna_rate_is_refused(self, engine: Engine) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="al_cobro")
         w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
 
         with pytest.raises(SellOutAsignacionError):
             _recalcular(engine, campana)
+
+    @pytest.mark.parametrize("tipo", ["por_unidad", "porcentaje"])
+    def test_a_fixed_rate_row_carries_the_campaign_rate_and_needs_no_bna(self, engine: Engine, tipo: str) -> None:
+        extra = {"tipo": "porcentaje", "monto_unit": None, "porcentaje": "5"} if tipo == "porcentaje" else {}
+        campana = w.campana(
+            engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="fijo", tipo_cambio="1000", **extra
+        )
+        _fuera(engine, 2964, 1, D(2026, 11, 2), monto="1.00", costo="20000.00")  # no BNA rate loaded at all
+
+        _recalcular(engine, campana)
+
+        assert [r[7] for r in w.consumos(engine)] == [Decimal("1000")]
 
 
 def _ml(engine: Engine, item: int, qty: int, dia: date, gross: str, mcosto: str) -> int:
@@ -349,7 +359,7 @@ class TestPorcentaje:
 
         _recalcular(engine, campana)
 
-        assert [(r[2], r[6], r[7]) for r in w.consumos(engine)] == [(ref, Decimal("2.00"), Decimal("500"))]
+        assert [(r[2], r[6], r[7]) for r in w.consumos(engine)] == [(ref, Decimal("2.00"), Decimal("1000"))]
 
     def test_usd_sale_day_converts_at_each_sale_day_bna(self, engine: Engine) -> None:
         w.tipo_cambio(engine, D(2026, 11, 1), 500)
