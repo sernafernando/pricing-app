@@ -131,3 +131,16 @@ class TestUpgradeDowngrade:
             finally:
                 tx.rollback()
         assert isinstance(caught.value.orig, LockNotAvailable)
+
+    @pytest.mark.parametrize("step", ["upgrade", "downgrade"])
+    def test_it_restores_the_lock_timeout_the_transaction_had(self, engine: Engine, step) -> None:
+        """`env.py` runs every pending revision in ONE transaction: a `SET LOCAL` left behind would leak into the
+        next revisions, and `= DEFAULT` would clobber what the caller set."""
+        if step == "downgrade":
+            _step(engine, "upgrade")
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            with ctx.begin_transaction(), Operations.context(ctx):
+                conn.exec_driver_sql("SET LOCAL lock_timeout = '7s'")
+                getattr(_module(), step)()
+                assert conn.exec_driver_sql("SHOW lock_timeout").scalar() == "7s"

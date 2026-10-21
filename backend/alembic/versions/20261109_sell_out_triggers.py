@@ -33,7 +33,10 @@ LOCK NOTE: CREATE/DROP TRIGGER takes a SHARE ROW EXCLUSIVE lock on
 `ventas_tienda_nube_metricas` (no rewrite, no scan). Behind an open writer
 (an ERP sync or ingest transaction) it would queue and block every new writer
 of the table, so upgrade and downgrade run with `lock_timeout = '5s'`: they
-fail fast (55P03, lock_not_available) and the deploy is retried.
+fail fast (55P03, lock_not_available) and the deploy is retried. `env.py`
+runs all pending revisions in ONE transaction (no `transaction_per_migration`),
+so the transaction-local setting is restored to its previous value afterwards
+instead of leaking into the next revisions.
 """
 
 from typing import List, Sequence, Union
@@ -242,10 +245,14 @@ def _is_postgres() -> bool:
 
 
 def _run(statements: List[str]) -> None:
-    op.execute(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'")
+    # `env.py` runs every pending revision in ONE transaction, so the previous value (session or
+    # transaction) is saved in a custom setting and restored, not reset to DEFAULT. Plain SQL, so it
+    # also works in offline (`--sql`) mode.
+    op.execute("SELECT set_config('sell_out.lock_timeout_previo', current_setting('lock_timeout'), true)")
+    op.execute(f"SELECT set_config('lock_timeout', '{LOCK_TIMEOUT}', true)")
     for statement in statements:
         op.execute(statement)
-    op.execute("SET LOCAL lock_timeout = DEFAULT")
+    op.execute("SELECT set_config('lock_timeout', current_setting('sell_out.lock_timeout_previo'), true)")
 
 
 def upgrade() -> None:

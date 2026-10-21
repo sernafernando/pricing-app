@@ -325,8 +325,20 @@ class TestStatementLevel:
     sorts): a bulk ERP sync touching products of campaigns 2 then 1 must not lock 2 before 1."""
 
     def test_a_bulk_update_does_not_deadlock_with_a_writer_locking_in_campaign_order(self, engine: Engine) -> None:
-        uno = w.campana(engine, [w.grupo(engine, [{"marca": "TP-LINK", "categoria": "Switches"}])])  # 2270
-        dos = w.campana(engine, [w.grupo(engine, [{"item_id": 2964}])])
+        for item_id in (5001, 5002):
+            w.execute(
+                engine,
+                "INSERT INTO productos_erp (item_id, codigo, descripcion, marca) VALUES (:i, :c, 'Bulk', 'ACME')",
+                i=item_id,
+                c=f"C{item_id}",
+            )
+        with engine.begin() as conn:
+            _solo_seq_scan(conn)
+            plan = "\n".join(r[0] for r in conn.exec_driver_sql(f"EXPLAIN {_BULK}"))
+            primero, segundo = [r[0] for r in conn.exec_driver_sql(_ORDEN_FISICO)]
+        assert "Seq Scan on productos_erp" in plan, plan  # the bulk statement visits rows in physical order...
+        uno = w.campana(engine, [w.grupo(engine, [{"item_id": segundo}])])
+        dos = w.campana(engine, [w.grupo(engine, [{"item_id": primero}])])  # ...so campaign 2's product first
         w.clear_queue(engine)
         upsert = text(
             "INSERT INTO sell_out_dirty (campana_id) VALUES (:c) "
@@ -335,12 +347,13 @@ class TestStatementLevel:
         errores: list = []
         pid: list = []
 
-        def sync() -> None:  # the ERP sync: one statement over 2964 (campaign 2) then 2270 (campaign 1)
+        def sync() -> None:  # the ERP sync: ONE statement over campaign 2's product, then campaign 1's
             try:
                 with engine.begin() as conn:
                     conn.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
+                    _solo_seq_scan(conn)
                     pid.append(conn.exec_driver_sql("SELECT pg_backend_pid()").scalar())
-                    conn.exec_driver_sql("UPDATE productos_erp SET marca = 'MERCUSYS' WHERE item_id IN (2964, 2270)")
+                    conn.exec_driver_sql(_BULK)
             except Exception as exc:  # noqa: BLE001 - asserted below
                 errores.append(exc)
 
@@ -358,6 +371,7 @@ class TestStatementLevel:
                 tx.rollback()
                 errores.append(exc)
             hilo.join(10)
+            assert not hilo.is_alive()
 
         assert errores == []
         assert _ids(engine) == [uno, dos]
@@ -377,6 +391,16 @@ class TestStatementLevel:
         )
 
         assert w.queued(engine) == [(cid, 5, "roto")]
+
+
+_BULK = "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id IN (5001, 5002)"
+_ORDEN_FISICO = "SELECT item_id FROM productos_erp WHERE item_id IN (5001, 5002) ORDER BY ctid"
+
+
+def _solo_seq_scan(conn) -> None:
+    """Forces a sequential scan: the bulk UPDATE then visits (and fires row triggers for) rows in ctid order."""
+    for plan in ("enable_indexscan", "enable_bitmapscan", "enable_indexonlyscan", "enable_tidscan"):
+        conn.exec_driver_sql(f"SET LOCAL {plan} = off")
 
 
 def _esperar_bloqueado(engine: Engine, pid: list) -> None:
