@@ -13,6 +13,9 @@ Writers (all in the transaction of the change):
   that shared products with it BEFORE the edit), a void and a payment rate.
 - the BNA update (`tipo_cambio_service.guardar_cotizacion_bna`, in a savepoint,
   `enqueue_por_bna`).
+- row triggers (`triggers`, T7 S4) for what never passes through the app:
+  offsets API group filters, `productos_erp` reach/VAT columns, and a sale's
+  `cust_id` / `costo_total` change.
 
 A queued campaign re-queued while the drain holds it (`FOR UPDATE SKIP LOCKED`
 for the drain's short transaction) waits for that transaction, then lands as a
