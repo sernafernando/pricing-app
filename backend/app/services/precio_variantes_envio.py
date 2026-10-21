@@ -18,6 +18,7 @@ handful of ML price lists, not by publications).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Mapping, Optional
 
@@ -36,13 +37,19 @@ from app.services.pricing_calculator import (
     envio_cuenta,
     obtener_comision_base,
     obtener_constantes_pricing,
+    obtener_envio_promedio_grupo,
     obtener_grupo_subcategoria,
 )
+
+logger = logging.getLogger(__name__)
 
 VENTANA_DIAS = 30
 PONDERACION = "unidades_vendidas"
 PRICELIST_CLASICA = 4
 MOTIVO_SIN_COMISION = "sin_comision"
+ORIGEN_MAX = "max_publicaciones"
+ORIGEN_ERP = "erp"
+ORIGEN_GRUPO_PROMEDIO = "grupo_promedio"
 MOTIVO_SIN_COSTO_ENVIO = "sin_costo_envio"
 
 # `ml_items.logistic_type` values the code documents as observed (`mode_resolution.py`); any other value
@@ -83,7 +90,6 @@ def _unidades_vendidas(db: Session, item_id: int, desde: datetime) -> dict[str, 
 
 
 def _precio_con_envio(
-    db: Session,
     *,
     precio: float,
     iva: float,
@@ -91,16 +97,16 @@ def _precio_con_envio(
     comision_base_pct: Optional[float],
     costo_envio: Optional[float],
     constantes: Mapping[str, float],
-    grupo_id: int,
 ) -> tuple[Optional[float], Optional[float]]:
     """(markup %, ganancia ARS) of `precio` with the given shipping cost, through the existing calculator, the
-    same calls `GET /precios/calcular-markup` makes. (None, None) when the cost or the commission is unknown."""
+    same calls `GET /precios/calcular-markup` makes. (None, None) when the cost or the commission is unknown.
+
+    `calcular_limpio` gets no session: its only use of one is the group-average fallback for a zero cost above
+    the threshold, which `_envio_actual` resolves ONCE per request instead of once per publication."""
     if costo_envio is None or comision_base_pct is None:
         return None, None
     comisiones = calcular_comision_ml_total(precio, comision_base_pct, iva, constantes=dict(constantes))
-    limpio = calcular_limpio(
-        precio, iva, costo_envio, comisiones["comision_total"], db=db, constantes=dict(constantes), grupo_id=grupo_id
-    )
+    limpio = calcular_limpio(precio, iva, costo_envio, comisiones["comision_total"], constantes=dict(constantes))
     return calcular_markup(limpio, costo_ars) * 100, limpio - costo_ars
 
 
@@ -133,6 +139,28 @@ def _motivo(comision: Optional[float], costo_envio: Optional[float]) -> Optional
     return None
 
 
+def _costos(mlas: list[str], item_id: int) -> dict[str, float]:
+    """Each MLA's list_cost; on a failed mlwebhook read, `{}` and a warning, so it is not mistaken for no data."""
+    try:
+        return costos_envio_por_mla(mlas)
+    except Exception as exc:
+        logger.warning("No se pudo consultar ml_seller_shipping_costs (producto %s): %s", item_id, exc)
+        return {}
+
+
+def _envio_actual(
+    db: Session, costos: Mapping[str, float], envio_erp: Optional[float], envio_aplica: bool, grupo_id: int
+) -> tuple[float, str]:
+    """Today's shipping cost and its origin: MAX(list_cost), else the ERP `envio`, else (a zero cost where shipping
+    counts) the group average `calcular_limpio` would look up, the same `obtener_envio_promedio_grupo`."""
+    envio = costo_envio_maximo(costos, envio_erp)
+    if costos:
+        return envio, ORIGEN_MAX
+    if envio == 0 and envio_aplica:
+        return obtener_envio_promedio_grupo(db, grupo_id), ORIGEN_GRUPO_PROMEDIO
+    return envio, ORIGEN_ERP
+
+
 def _round(value: Optional[float]) -> Optional[float]:
     return None if value is None else round(value, 2)
 
@@ -154,16 +182,16 @@ def calcular_variantes_envio(
 
     publicaciones = _publicaciones_activas(db, producto.item_id)
     mlas = [mla for mla, _ in publicaciones]
-    costos = costos_envio_por_mla(mlas) if mlas else {}
+    costos = _costos(mlas, producto.item_id) if mlas else {}
     datos = _datos_ml(db, mlas) if mlas else {}
     unidades = _unidades_vendidas(db, producto.item_id, ahora - timedelta(days=VENTANA_DIAS)) if mlas else {}
 
     listas = {pl for _, pl in publicaciones if pl is not None} | {pricelist_actual}
     comisiones = {pl: obtener_comision_base(db, pl, grupo_id) for pl in sorted(listas)}
 
-    envio_actual = costo_envio_maximo(costos, producto.envio)
     envio_aplica = envio_cuenta(precio, constantes)
-    comun = {"precio": precio, "iva": iva, "costo_ars": costo_ars, "constantes": constantes, "grupo_id": grupo_id}
+    envio_actual, origen_actual = _envio_actual(db, costos, producto.envio, envio_aplica, grupo_id)
+    comun = {"precio": precio, "iva": iva, "costo_ars": costo_ars, "constantes": constantes}
 
     variantes: list[dict[str, Any]] = []
     for mla, pricelist_id in publicaciones:
@@ -172,8 +200,8 @@ def calcular_variantes_envio(
         costo_envio = costos.get(mla)
         # Below the threshold shipping never reaches the markup, so a missing cost does not block pricing.
         envio_para_precio = costo_envio if costo_envio is not None or envio_aplica else 0.0
-        markup, ganancia = _precio_con_envio(db, comision_base_pct=comision, costo_envio=envio_para_precio, **comun)
-        markup_actual, _ = _precio_con_envio(db, comision_base_pct=comision, costo_envio=envio_actual, **comun)
+        markup, ganancia = _precio_con_envio(comision_base_pct=comision, costo_envio=envio_para_precio, **comun)
+        markup_actual, _ = _precio_con_envio(comision_base_pct=comision, costo_envio=envio_actual, **comun)
         variantes.append(
             {
                 "mla": mla,
@@ -196,9 +224,7 @@ def calcular_variantes_envio(
 
     promedio_simple, promedio_ponderado = _promedios(variantes)
     comision_actual = comisiones[pricelist_actual]
-    markup_hoy, ganancia_hoy = _precio_con_envio(
-        db, comision_base_pct=comision_actual, costo_envio=envio_actual, **comun
-    )
+    markup_hoy, ganancia_hoy = _precio_con_envio(comision_base_pct=comision_actual, costo_envio=envio_actual, **comun)
     for v in variantes:
         del v["_markup"], v["_ganancia"]
 
@@ -216,7 +242,7 @@ def calcular_variantes_envio(
         "promedio_ponderado": promedio_ponderado,
         "actual": {
             "costo_envio": envio_actual,
-            "origen": "max_publicaciones" if costos else "erp",
+            "origen": origen_actual,
             "pricelist_id": pricelist_actual,
             "comision_base_pct": comision_actual,
             "markup_pct": _round(markup_hoy),

@@ -4,9 +4,10 @@ Today every markup uses MAX(list_cost) across the product's active MLAs. This en
 comparison and adds one variant per active MLA, priced with ITS OWN list_cost through the same calculator, plus
 a simple and a sales-weighted average.
 
-The mlwebhook table (`ml_seller_shipping_costs`) is not reachable from tests: `_fetch_list_cost_by_mla` is
-stubbed, as the existing resolver tests do. The logistic types used here are the values the code already
-documents as observed in production (`mode_resolution.py`: self_service, cross_docking, fulfillment).
+The mlwebhook table (`ml_seller_shipping_costs`) is not reachable from tests: `_query_list_cost_by_mla`
+(the raising read under the resolver's `_fetch_list_cost_by_mla`) is stubbed. The logistic types used
+here are the values the code already documents as observed in production (`mode_resolution.py`:
+self_service, cross_docking, fulfillment).
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ def asked(monkeypatch) -> list[list[str]]:
         calls.append(sorted(mla_ids))
         return {mla: COSTS[mla] for mla in mla_ids if mla in COSTS}
 
-    monkeypatch.setattr(envio_real_service, "_fetch_list_cost_by_mla", fetch)
+    monkeypatch.setattr(envio_real_service, "_query_list_cost_by_mla", fetch)
     return calls
 
 
@@ -287,7 +288,7 @@ class TestSinPrecio:
 
     def test_without_commission_the_reason_is_given(self, client, auth_headers, producto, db, asked, monkeypatch):
         COSTS_EXTRA = {**COSTS, "MLA-SIN-LISTA": 3000.0, "MLA-LISTA-RARA": 3000.0}
-        monkeypatch.setattr(envio_real_service, "_fetch_list_cost_by_mla", lambda ids: {m: COSTS_EXTRA[m] for m in ids})
+        monkeypatch.setattr(envio_real_service, "_query_list_cost_by_mla", lambda ids: {m: COSTS_EXTRA[m] for m in ids})
         seed_three(db)
         db.add(PublicacionML(mla="MLA-SIN-LISTA", item_id=ITEM, codigo="C", item_title="t", pricelist_id=None))
         db.flush()
@@ -360,3 +361,47 @@ class TestEndpointParams:
         assert body["actual"]["pricelist_id"] == 17
         assert body["actual"]["comision_base_pct"] == 17.0
         assert body["actual"]["markup_pct"] == round(markup, 2)
+
+
+class TestMlwebhookCaido:
+    """The mlwebhook read fails: every cost is missing and today's value falls back to the ERP envio."""
+
+    @pytest.fixture()
+    def caido(self, monkeypatch):
+        def boom(mla_ids):
+            raise RuntimeError("connection refused")
+
+        monkeypatch.setattr(envio_real_service, "_query_list_cost_by_mla", boom)
+
+    @pytest.fixture()
+    def sin_costos(self, monkeypatch):
+        """What the resolver read returns when mlwebhook is down: no cost at all."""
+        monkeypatch.setattr(envio_real_service, "_query_list_cost_by_mla", lambda mla_ids: {})
+
+    def test_group_average_fallback_is_resolved_once(
+        self, client, auth_headers, producto, db, sin_costos, query_counter
+    ):
+        producto.envio = 0
+        db.flush()
+        seed_three(db)
+        with query_counter() as few:
+            body = get(client, auth_headers, ABOVE).json()
+        for n in range(10):
+            add_pub(db, f"MLA-X{n}")
+        with query_counter() as many:
+            get(client, auth_headers, ABOVE)
+
+        assert many.total == few.total
+        assert body["actual"]["origen"] == "grupo_promedio"
+        markup, _ = expected(ABOVE, 12.0, 0.0)  # no subcategory mapped: the group average is 0
+        assert body["actual"]["markup_pct"] == round(markup, 2)
+        assert by_mla(body)["MLA-FLEX"]["markup_pct_actual"] == round(markup, 2)
+
+    def test_the_failure_is_logged(self, client, auth_headers, producto, db, caido, caplog):
+        seed_three(db)
+        with caplog.at_level("WARNING", logger="app.services.precio_variantes_envio"):
+            body = get(client, auth_headers, ABOVE).json()
+
+        assert body["actual"]["origen"] == "erp"
+        warnings = [r for r in caplog.records if r.name == "app.services.precio_variantes_envio"]
+        assert len(warnings) == 1 and "connection refused" in warnings[0].getMessage()
