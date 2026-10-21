@@ -332,9 +332,40 @@ class TestPorcentaje:
         assert _filas(engine, campana) == [("fuera", a, 1, Decimal("100.00")), ("fuera", b, 1, Decimal("50.00"))]
 
     @pytest.mark.parametrize("base", ["costo", "precio_neto"])
-    def test_a_sale_whose_base_is_unknown_is_refused(self, engine: Engine, base: str) -> None:
-        campana = _porcentaje(engine, base)
-        _ml(engine, 2964, 1, D(2026, 11, 2), gross="0", mcosto="0")  # unsettled: no gross, no cost
+    def test_an_unsettled_ml_sale_waits_without_holding_units(self, engine: Engine, base: str) -> None:
+        """An unsettled ML order (no gross, no cost) is skipped and counted, not a failure: it holds no
+        units, so the cap goes to the next sale until it settles and the campaign is rebuilt."""
+        campana = _porcentaje(engine, base, tope_unidades=1)
+        _ml(engine, 2964, 1, D(2026, 11, 2), gross="0", mcosto="0")
+        ref = _fuera(engine, 2964, 1, D(2026, 11, 3), monto="1000.00", costo="1000.00")
+
+        result = _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("fuera", ref, 1, Decimal("100.00"))]
+        assert result.pendientes_base == 1
+
+    def test_a_sale_without_its_cost_waits_on_a_cost_base(self, engine: Engine) -> None:
+        campana = _porcentaje(engine, "costo")
+        sin_costo = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 2))
+        w.execute(
+            engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = NULL WHERE it_transaction = :r", r=sin_costo
+        )
+
+        result = _recalcular(engine, campana)
+
+        assert (w.consumos(engine), result.pendientes_base) == ([], 1)
+
+
+class TestPorcentajeSinIva:
+    @pytest.fixture()
+    def sin_iva(self, engine: Engine) -> Iterator[None]:
+        w.execute(engine, "UPDATE productos_erp SET iva = NULL WHERE item_id = 2964")
+        yield
+        w.execute(engine, "UPDATE productos_erp SET iva = 21 WHERE item_id = 2964")
+
+    def test_an_ml_net_price_of_a_product_without_vat_rate_fails(self, engine: Engine, sin_iva: None) -> None:
+        campana = _porcentaje(engine, "precio_neto")
+        _ml(engine, 2964, 1, D(2026, 11, 2), gross="121", mcosto="1")
 
         with pytest.raises(SellOutAsignacionError):
             _recalcular(engine, campana)

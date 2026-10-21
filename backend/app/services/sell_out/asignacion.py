@@ -22,8 +22,11 @@ longer linked, so this call would not find them).
 
 Percentage (owner 2026-10-20): `porcentaje` of a base per unit without VAT,
 as recorded on the sale (`alcance.Venta`): `costo`, or `precio_neto` (an ML
-price is stripped of its product's VAT). A sale with an unknown base fails the
-campaign. A USD campaign converts the ARS base with its own `tc_modo`: `fijo`
+price is stripped of its product's VAT). A sale whose base is unknown (an ML
+order not settled yet, a sale without its cost) is skipped: it holds no units,
+so the cap goes on to the next sale, and it is counted in `pendientes_base`.
+Once it settles, its campaign is rebuilt (S3) and it takes its place in sale
+order. A missing rate or VAT rate is configuration, not transient data: it fails. A USD campaign converts the ARS base with its own `tc_modo`: `fijo`
 at its `tipo_cambio`; `dia_venta` at the sale day's BNA; `al_cobro` at its
 `tipo_cambio` once set, before that at the CURRENT BNA (the latest `tipo_cambio`
 row), so its amounts move with BNA: S3 queues `al_cobro` campaigns when BNA
@@ -71,11 +74,16 @@ class SellOutAsignacionError(ValueError):
     """A campaign cannot be allocated as it stands; the message says why."""
 
 
+class _BaseDesconocida(Exception):
+    """A sale's percentage base is not known yet (module docstring)."""
+
+
 @dataclass
 class RecomputeResult:
     campanas: int = 0
     inserted: int = 0
     deleted: int = 0
+    pendientes_base: int = 0  # percentage sales skipped because their base is unknown yet
 
 
 def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, List[int]]:
@@ -134,10 +142,12 @@ def _base(c: SellOutCampana, v: alcance.Venta, iva: Optional[Decimal], tasas: _T
     if c.tipo != "porcentaje" or v.unidades < 0:
         return None
     base = v.costo_unit if c.base_porcentaje == "costo" else v.precio_unit
-    if base is not None and c.base_porcentaje == "precio_neto" and v.precio_con_iva:
-        base = None if iva is None else base / (1 + iva / 100)
     if base is None:
-        raise SellOutAsignacionError(f"campaign {c.id}: sale {(v.canal, v.venta_ref)} has no {c.base_porcentaje}")
+        raise _BaseDesconocida
+    if c.base_porcentaje == "precio_neto" and v.precio_con_iva:
+        if iva is None:
+            raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
+        base = base / (1 + iva / 100)
     return base if c.moneda == "ARS" else base / _tasa(c, v.fecha, tasas)
 
 
@@ -145,6 +155,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
     """`{campana_id: [Consumo]}`, campaigns in id order, each after those taking precedence over it."""
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per campaign and line: the unit numbers it took or freed
     salida: Dict[int, List[tope.Consumo]] = {}
+    pendientes = 0
     for c in activas:
         alcance_c = productos.get(c.id, {})
         antes = [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
@@ -155,6 +166,11 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
             iva = alcance_c[v.item_id]
             if c.monto_incluye_iva and iva is None:
                 raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
+            try:
+                base_unit = _base(c, v, iva, tasas)
+            except _BaseDesconocida:
+                pendientes += 1
+                continue
             clave = (v.canal, v.venta_ref)
             ocupado = set().union(*(tenidas[p].get(clave, ()) for p in antes))
             libres[clave] = [u for u in range(abs(v.unidades)) if u not in ocupado]
@@ -166,7 +182,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
                     fecha=v.fecha,
                     unidades=v.unidades,
                     iva_pct=iva or Decimal(0),
-                    base_unit=_base(c, v, iva, tasas),
+                    base_unit=base_unit,
                     ocupadas=len(ocupado),
                     objetivo=v.objetivo,
                 )
@@ -174,7 +190,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
         por_linea: Dict[Clave, int] = {}
         salida[c.id] = tope.asignar(_tope(c), lineas, por_linea=por_linea)
         tenidas[c.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
-    return salida
+    return salida, pendientes
 
 
 def _tasas(db: Session, activas: List[SellOutCampana], ventas: List[alcance.Venta]) -> _Tasas:
@@ -211,7 +227,7 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         desde = min(c.fecha_desde for c in activas)
         ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in activas))
     tasas = _tasas(db, activas, ventas)
-    deseados = _asignar(activas, productos, ventas, tasas)
+    deseados, pendientes = _asignar(activas, productos, ventas, tasas)
 
     guardados: Dict[Tuple[int, str, int], Tuple[int, tuple]] = {}
     t = SellOutConsumo
@@ -250,4 +266,4 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         db.execute(delete(SellOutConsumo).where(SellOutConsumo.id.in_(borrar)))
     if filas:
         db.execute(insert(SellOutConsumo), filas)
-    return RecomputeResult(campanas=len(cierre), inserted=len(filas), deleted=len(borrar))
+    return RecomputeResult(len(cierre), len(filas), len(borrar), pendientes)
