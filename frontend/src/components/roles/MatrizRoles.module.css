@@ -32,7 +32,10 @@
 
 .tabla {
   width: 100%;
-  border-collapse: collapse;
+  /* Separate borders: each cell paints its own, so the sticky cells cover what
+     scrolls under them (collapsed borders are painted by the table and bleed). */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--font-sm);
   color: var(--cf-text-primary);
 }
@@ -53,6 +56,10 @@
 }
 
 .colPermiso {
+  /* Top-left corner: sticky on both axes, above the role headers and the
+     permission names that slide under it. */
+  left: 0;
+  z-index: calc(var(--z-sticky) + 1);
   text-align: left;
   min-width: 260px;
 }
@@ -62,8 +69,45 @@
   white-space: nowrap;
 }
 
+/* The role open in the drawer. The tint is layered over the card colour: the
+   header is sticky and the dark-mode tint is translucent. */
+.colRolSeleccionado {
+  composes: colRol;
+  color: var(--tone-info-fg);
+  background: linear-gradient(var(--tone-info-bg), var(--tone-info-bg)), var(--cf-bg-card);
+  /* Inset shadows, not borders: painted inside the cell, so nothing reaches past it. */
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -2px 0 0 var(--cf-accent-blue),
+    inset 0 2px 0 var(--cf-accent-blue);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.soloRol {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--tone-info-fg);
+  cursor: pointer;
+}
+
 .categoria {
   padding: var(--space-2) var(--space-3);
+  /* The row spans the table: only its label sticks to the left. */
   text-align: left;
   font-weight: var(--font-semibold);
   color: var(--cf-text-primary);
@@ -71,12 +115,27 @@
   border-bottom: 1px solid var(--cf-border-subtle);
 }
 
+.categoriaEtiqueta {
+  position: sticky;
+  left: var(--space-3);
+}
+
 .fila:hover {
   background: var(--cf-bg-hover);
 }
 
+.fila:hover .permiso {
+  background: var(--cf-bg-hover);
+}
+
+/* Permission names stay in view while the roles scroll horizontally. Opaque
+   background so the cells sliding under it do not show through. */
 .permiso {
+  position: sticky;
+  left: 0;
+  z-index: calc(var(--z-base) + 1);
   padding: var(--space-2) var(--space-3);
+  background: var(--cf-bg-card);
   text-align: left;
   font-weight: var(--font-medium);
   border-bottom: 1px solid var(--cf-border-subtle);
@@ -117,11 +176,37 @@
   border-bottom: 1px solid var(--cf-border-subtle);
 }
 
+/* Column of the selected role. Declared before .pendiente so a pending cell
+   keeps its warning tint inside it. */
+.celdaSeleccionada {
+  background: var(--tone-info-bg);
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -2px 0 0 var(--cf-accent-blue);
+}
+
+/* Its unchecked cells fade, so the granted ones stand out at a glance. */
+.celdaSeleccionada .casilla:not(:checked) {
+  opacity: 0.45;
+}
+
+.celdaConcedida {
+  background: var(--tone-info-border);
+}
+
 /* A cell whose value differs from what is saved for that role. */
 .pendiente {
   composes: celda;
   background: var(--tone-warning-bg);
   box-shadow: inset 0 0 0 1px var(--tone-warning-border);
+}
+
+/* A pending cell inside the selected column keeps both marks. */
+.pendiente.celdaSeleccionada {
+  box-shadow:
+    inset 2px 0 0 var(--cf-accent-blue),
+    inset -2px 0 0 var(--cf-accent-blue),
+    inset 0 0 0 3px var(--tone-warning-border);
 }
 
 .casilla {

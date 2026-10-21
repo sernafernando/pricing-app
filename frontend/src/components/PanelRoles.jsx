@@ -55,6 +55,8 @@ export default function PanelRoles() {
 
   // Role drawer: the role whose detail it shows, or the create form (mostrarFormRol without editandoRol).
   const [rolAbiertoId, setRolAbiertoId] = useState(null);
+  // "Solo los permisos de este rol" in the matrix: kept on across role switches, off once no role is open.
+  const [soloDelRol, setSoloDelRol] = useState(false);
 
   // Estados para crear/editar rol
   const [mostrarFormRol, setMostrarFormRol] = useState(false);
@@ -159,6 +161,12 @@ export default function PanelRoles() {
   const esPendiente = (rol, codigo) => pendientes[rol.id]?.[codigo] !== undefined;
 
   const sinCargar = (rol) => !esSoloLectura(rol) && !permisosPorRol[rol.id];
+
+  /** Catalog permissions the role has now, pending changes included; null when unknown. */
+  const cantidadDelRol = (rol) => {
+    if (!rol || sinCargar(rol)) return null;
+    return Object.values(catalogo).flat().filter((p) => tienePermiso(rol, p.codigo)).length;
+  };
 
   const togglePermiso = (rol, codigo) => {
     if (esSoloLectura(rol) || sinCargar(rol) || matrizBloqueada) return;
@@ -375,6 +383,10 @@ export default function PanelRoles() {
     setRolAbiertoId(null);
   };
 
+  // The role filter turns off whenever no role is open, whatever closed it (drawer, + Nuevo Rol, a
+  // delete): derived from the current rolAbiertoId in render, never from a value a handler captured.
+  if (soloDelRol && rolAbiertoId === null) setSoloDelRol(false);
+
   const rolAbierto = roles.find((rol) => rol.id === rolAbiertoId) ?? null;
   const drawerAbierto = mostrarFormRol || rolAbierto !== null;
   let tituloDrawer = rolAbierto?.nombre;
@@ -453,6 +465,10 @@ export default function PanelRoles() {
               sinCargar={sinCargar}
               onToggle={togglePermiso}
               deshabilitado={matrizBloqueada}
+              rolSeleccionado={rolAbierto}
+              cantidadDelRol={cantidadDelRol(rolAbierto)}
+              soloDelRol={soloDelRol}
+              onSoloDelRolChange={setSoloDelRol}
             />
             <BarraCambios
               cantidad={cantidadPendientes}
@@ -480,11 +496,12 @@ export default function PanelRoles() {
               <DetalleRol
                 rol={rolAbierto}
                 soloLectura={esSoloLectura(rolAbierto)}
-                cantidadPermisos={permisosPorRol[rolAbierto.id]?.length ?? null}
+                cantidadPermisos={cantidadDelRol(rolAbierto)}
                 bloqueado={guardandoPermisos}
                 onEditar={() => iniciarEdicion(rolAbierto)}
                 onClonar={() => setRolAClonar(rolAbierto)}
                 onEliminar={() => pedirEliminarRol(rolAbierto)}
+                onVerPermisos={() => setSoloDelRol(true)}
               />
             )}
           </DrawerRol>

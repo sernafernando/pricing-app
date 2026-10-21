@@ -39,3 +39,25 @@
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
+
+/* The permission count, as a link-like button that filters the matrix. */
+.verPermisos {
+  padding: 0;
+  font: inherit;
+  color: var(--cf-accent-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.verPermisos:hover:not(:disabled) {
+  color: var(--cf-accent-blue-hover);
+}
+
+.verPermisos:disabled {
+  color: var(--cf-text-tertiary);
+  text-decoration: none;
+  cursor: not-allowed;
+}

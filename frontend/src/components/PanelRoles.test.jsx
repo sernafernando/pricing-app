@@ -1018,3 +1018,328 @@ describe('PanelRoles role drawer', () => {
     expect(drawer('Ventas')).toBeInTheDocument();
   });
 });
+
+describe('PanelRoles selected role in the matrix', () => {
+  const tabla = () => screen.getByRole('table', { name: 'Matriz de roles y permisos' });
+  const encabezado = (nombre) => within(tabla()).getByRole('columnheader', { name: nombre });
+  const td = (permisoNombre, rolNombre) => celda(permisoNombre, rolNombre).closest('td');
+  const soloDelRol = () => screen.queryByRole('checkbox', { name: /^Solo los permisos de este rol/ });
+  const fila = (permisoNombre) => within(tabla()).queryByRole('rowheader', { name: new RegExp(`^${permisoNombre}`) });
+
+  it('marks the header and every cell of the selected role column, granted cells more strongly', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+
+    expect(encabezado('Ventas (seleccionado)')).toHaveAttribute('aria-current', 'true');
+    expect(td('Ver productos', 'Ventas').className).toMatch(/celdaSeleccionada/);
+    expect(td('Ver productos', 'Ventas').className).toMatch(/celdaConcedida/);
+    expect(td('Editar precios', 'Ventas').className).toMatch(/celdaSeleccionada/);
+    expect(td('Editar precios', 'Ventas').className).not.toMatch(/celdaConcedida/);
+    expect(td('Ver panel de administración', 'Ventas').className).toMatch(/celdaSeleccionada/);
+  });
+
+  it('leaves the other columns unmarked', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+
+    expect(encabezado('Administrador')).not.toHaveAttribute('aria-current');
+    expect(encabezado('Super Admin')).not.toHaveAttribute('aria-current');
+    for (const permisoNombre of ['Ver productos', 'Editar precios', 'Ver panel de administración']) {
+      expect(td(permisoNombre, 'Administrador').className).not.toMatch(/celdaSeleccionada|celdaConcedida/);
+      expect(td(permisoNombre, 'Super Admin').className).not.toMatch(/celdaSeleccionada|celdaConcedida/);
+    }
+  });
+
+  it('hides the role filter toggle while no role is selected', async () => {
+    await renderMatriz();
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(within(tabla()).queryByRole('columnheader', { name: /seleccionado/ })).not.toBeInTheDocument();
+  });
+
+  it('filters the rows to the role permissions, counting a pending change, and hides empty categories', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeChecked();
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (1)');
+
+    await user.click(celda('Editar precios', 'Ventas'));
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (2)');
+
+    await user.click(soloDelRol());
+
+    expect(soloDelRol()).toBeChecked();
+    expect(fila('Ver productos')).toBeInTheDocument();
+    expect(fila('Editar precios')).toBeInTheDocument();
+    expect(fila('Ver panel de administración')).not.toBeInTheDocument();
+    expect(within(tabla()).getByText('Productos')).toBeInTheDocument();
+    expect(within(tabla()).queryByText('Administración del sistema')).not.toBeInTheDocument();
+
+    await user.click(soloDelRol());
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+  });
+
+  it('keeps the filter on when switching to another role and applies it to that role', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await abrirRol(user, 'Administrador');
+
+    expect(soloDelRol()).toBeChecked();
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (2)');
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+    expect(encabezado('Administrador (seleccionado)')).toHaveAttribute('aria-current', 'true');
+    expect(encabezado('Ventas')).not.toHaveAttribute('aria-current');
+  });
+
+  it('clears the highlight and resets the filter when the drawer closes', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(screen.getByRole('button', { name: 'Cerrar panel del rol' }));
+
+    expect(queryDrawer()).not.toBeInTheDocument();
+    expect(encabezado('Ventas')).not.toHaveAttribute('aria-current');
+    expect(td('Ver productos', 'Ventas').className).not.toMatch(/celdaSeleccionada|celdaConcedida/);
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeChecked();
+  });
+
+  it('keeps a row the selected role just unchecked visible while the filter is on, marked as pending', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(celda('Ver productos', 'Ventas'));
+
+    expect(fila('Ver productos')).toBeInTheDocument();
+    expect(celda('Ver productos', 'Ventas')).not.toBeChecked();
+    expect(td('Ver productos', 'Ventas').className).toMatch(/pendiente/);
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (0)');
+
+    // Undo it from the same row: it is granted again and no longer pending.
+    await user.click(celda('Ver productos', 'Ventas'));
+    expect(celda('Ver productos', 'Ventas')).toBeChecked();
+    expect(td('Ver productos', 'Ventas').className).not.toMatch(/pendiente/);
+  });
+
+  it('turns the filter off after deleting the open role, also when a role switch is tried mid-delete', async () => {
+    const { promesa, resolver } = diferido();
+    api.delete.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(screen.getByRole('button', { name: 'Eliminar rol' }));
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }));
+    // The cards are locked while the DELETE is in flight, so the deleted role stays the open one.
+    expect(tarjeta('Administrador')).toBeDisabled();
+    await user.click(tarjeta('Administrador'));
+    expect(drawer('Ventas')).toBeInTheDocument();
+
+    await act(async () => resolver({ data: {} }));
+    expect(await screen.findByText('Rol eliminado correctamente')).toBeInTheDocument();
+
+    expect(queryDrawer()).not.toBeInTheDocument();
+    expect(soloDelRol()).not.toBeInTheDocument();
+    await abrirRol(user, 'Administrador');
+    expect(soloDelRol()).not.toBeChecked();
+    expect(fila('Editar precios')).toBeInTheDocument();
+  });
+
+  it('brings the toggle back unchecked when a role is reopened after + Nuevo Rol', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    expect(soloDelRol()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeChecked();
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+  });
+
+  it('never filters by a role whose permissions failed to load, and keeps the filter for loaded roles', async () => {
+    const user = userEvent.setup();
+    servidorConEstado({ fallaGet: (rolId) => rolId === 3 });
+    await renderPanel();
+    expect(await screen.findByText('No se pudieron cargar los permisos de: Ventas')).toBeInTheDocument();
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(fila('Editar precios')).toBeInTheDocument();
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+
+    // Loaded role with the filter on, then the unloaded one: no toggle and every row shown.
+    await abrirRol(user, 'Administrador');
+    await user.click(soloDelRol());
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(fila('Editar precios')).toBeInTheDocument();
+    expect(fila('Ver productos')).toBeInTheDocument();
+
+    // Back to a loaded role: the filter is still on (it stays on across role switches).
+    await abrirRol(user, 'Administrador');
+    expect(soloDelRol()).toBeChecked();
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+  });
+
+  describe('horizontal scroll to the selected column', () => {
+    // jsdom has no layout: fake the live rects. The scroller sits at x=100 and shows 600px;
+    // "Permiso" is sticky (always 100..360); role columns are 120px wide at these content
+    // offsets and move left as the scroller scrolls. Ventas starts off to the right.
+    const IZQUIERDA = { 'Super Admin': 260, Administrador: 380, Ventas: 900 };
+    const SCROLLER_X = 100;
+    let scrollLeft;
+    let scrollTo;
+
+    const nombreColumna = (el) => el.firstChild?.textContent;
+    // jsdom may or may not define these: keep the exact originals and put them back.
+    const MIEMBROS_STUB = ['scrollTo', 'scrollIntoView'];
+    let originales;
+    const rect = (left, width) => ({ left, right: left + width, width, top: 0, bottom: 40, height: 40, x: left, y: 0 });
+
+    beforeEach(() => {
+      originales = Object.fromEntries(
+        MIEMBROS_STUB.map((nombre) => [nombre, Object.getOwnPropertyDescriptor(Element.prototype, nombre)]),
+      );
+      scrollLeft = 0;
+      scrollTo = vi.fn();
+      Element.prototype.scrollTo = scrollTo;
+      Element.prototype.scrollIntoView = vi.fn();
+      vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getBoundingClientRect() {
+        if (this.tagName === 'DIV' && this.firstElementChild?.tagName === 'TABLE') return rect(SCROLLER_X, 600);
+        if (this.tagName === 'TH' && nombreColumna(this) === 'Permiso') return rect(SCROLLER_X, 260);
+        const izquierda = this.tagName === 'TH' ? IZQUIERDA[nombreColumna(this)] : undefined;
+        if (izquierda !== undefined) return rect(SCROLLER_X + izquierda - scrollLeft, 120);
+        return rect(0, 0);
+      });
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(600);
+      vi.spyOn(Element.prototype, 'scrollLeft', 'get').mockImplementation(() => scrollLeft);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      for (const [nombre, descriptor] of Object.entries(originales)) {
+        if (descriptor) Object.defineProperty(Element.prototype, nombre, descriptor);
+        else delete Element.prototype[nombre];
+      }
+    });
+
+    const scrollerDeLaTabla = () => tabla().parentElement;
+
+    it('scrolls the matrix right so a selected column past the right edge is visible', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+
+      await abrirRol(user, 'Ventas');
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo.mock.contexts[0]).toBe(scrollerDeLaTabla());
+      // Ventas ends at 1020px; the scroller shows 600px.
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 420 }));
+      expect(window.scrollTo).not.toHaveBeenCalled();
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('scrolls back left past the sticky permission column when switching to a hidden role', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+      await abrirRol(user, 'Ventas');
+      scrollLeft = 420;
+      scrollTo.mockClear();
+
+      await abrirRol(user, 'Administrador');
+
+      // Administrador starts at 380px, but the first 260px of the view are covered by "Permiso".
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 120 }));
+      expect(scrollTo.mock.contexts[0]).toBe(scrollerDeLaTabla());
+    });
+
+    it('scrolls to the selected column once the table comes back after a search with no rows', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+      const buscador = screen.getByPlaceholderText('Buscá un permiso por código o nombre…');
+
+      await user.type(buscador, 'zzz');
+      expect(screen.getByText('No hay permisos que coincidan.')).toBeInTheDocument();
+      await abrirRol(user, 'Ventas');
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      await user.clear(buscador);
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo.mock.contexts[0]).toBe(scrollerDeLaTabla());
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 420 }));
+    });
+
+    it('does not scroll when the selected column is already visible', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+
+      await abrirRol(user, 'Administrador');
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+  });
+
+  it('disables the permission count button in the role detail while a matrix save is in flight', async () => {
+    const { promesa, resolver } = diferido();
+    api.put.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    const ventas = await abrirRol(user, 'Ventas');
+    await user.click(celda('Editar precios', 'Ventas'));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(within(ventas).getByRole('button', { name: /^Ver solo los \d+ permisos de Ventas/ })).toBeDisabled();
+
+    await act(async () => resolver({ data: { success: true } }));
+    expect(await screen.findByText('Permisos guardados correctamente')).toBeInTheDocument();
+    expect(within(ventas).getByRole('button', { name: /^Ver solo los \d+ permisos de Ventas/ })).toBeEnabled();
+  });
+
+  it('shows the same permission count in the role detail as the toggle, unsaved changes included', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    const ventas = await abrirRol(user, 'Ventas');
+    await user.click(celda('Editar precios', 'Ventas'));
+
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (2)');
+    const contador = within(ventas).getByRole('button', { name: 'Ver solo los 2 permisos de Ventas en la matriz' });
+    expect(contador).toHaveTextContent('2');
+  });
+
+  it('turns the filter on from the permission count in the role detail', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    const admin = await abrirRol(user, 'Administrador');
+    await user.click(within(admin).getByRole('button', { name: 'Ver solo los 2 permisos de Administrador en la matriz' }));
+
+    expect(soloDelRol()).toBeChecked();
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+  });
+});
