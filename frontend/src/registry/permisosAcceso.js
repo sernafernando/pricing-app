@@ -11,7 +11,10 @@
  * `PermisosService.obtener_permisos_detallados_usuario`).
  *
  * Screens come from `screenCatalog.js`; every screen's `permisos` is any-of,
- * exactly like `ProtectedRoute` in App.jsx.
+ * exactly like `ProtectedRoute` in App.jsx. Every other payload permission is
+ * an extra ("permiso adicional"): it is listed under the screen(s) where it
+ * acts (`PERMISOS_ADICIONALES` rules) and never changes that screen's access;
+ * one with no screen at all goes to the "Otros permisos" group.
  */
 
 // Mirrors backend/app/services/pm_scope.py: FULL_VIEW_ROLES and PERMISO_FULL_VIEW.
@@ -104,18 +107,65 @@ export function accesoPantalla(screen, permisos, ctx) {
   return { status: sinDatos ? STATUS.CONDICIONAL : STATUS.ACCEDE, origen: otorgante.origen, filas };
 }
 
+const prefijoDe = (codigo) => String(codigo).split('.')[0];
+
 /**
- * One entry per catalog screen: `{ ...screen, acceso }`.
- * ctx: { rol, paresDelegados }.
+ * Paths (catalog order) whose "Permisos adicionales" list `codigo`; [] = none.
+ * reglas: `{ prefijos, porPantalla }` (screenCatalog `PERMISOS_ADICIONALES`):
+ * porPantalla wins, then prefijos, then the screens whose access permissions
+ * share the prefix. An access permission of any screen is never an extra.
  */
-export function construirVistaPorPantalla(permisosDetallados, { rol, paresDelegados }, catalogo) {
+export function pantallasDeAdicional(codigo, catalogo, reglas = {}) {
+  if (catalogo.some((screen) => screen.permisos.includes(codigo))) return [];
+  const { prefijos = {}, porPantalla = {} } = reglas;
+  const prefijo = prefijoDe(codigo);
+  let destinos = Object.keys(porPantalla).filter((path) => porPantalla[path].includes(codigo));
+  if (destinos.length === 0) {
+    destinos = Object.hasOwn(prefijos, prefijo)
+      ? prefijos[prefijo]
+      : catalogo.filter((screen) => screen.permisos.some((p) => prefijoDe(p) === prefijo)).map((s) => s.path);
+  }
+  const elegidos = new Set(destinos);
+  return catalogo.filter((screen) => elegidos.has(screen.path)).map((screen) => screen.path);
+}
+
+function repartirAdicionales(permisos, catalogo, reglas) {
+  const porPantalla = new Map(catalogo.map((screen) => [screen.path, []]));
+  const otros = [];
+  const acceso = new Set(catalogo.flatMap((screen) => screen.permisos));
+  for (const permiso of permisos.values()) {
+    if (acceso.has(permiso.codigo)) continue;
+    const destinos = pantallasDeAdicional(permiso.codigo, catalogo, reglas);
+    if (destinos.length === 0) otros.push(permiso);
+    for (const path of destinos) porPantalla.get(path).push(permiso);
+  }
+  return { porPantalla, otros };
+}
+
+/**
+ * One entry per catalog screen: `{ ...screen, acceso, adicionales }`, where
+ * `adicionales` are the payload rows of its extra permissions (they never
+ * change `acceso`). ctx: { rol, paresDelegados }. reglas: see
+ * `pantallasDeAdicional`.
+ */
+export function construirVistaPorPantalla(permisosDetallados, { rol, paresDelegados }, catalogo, reglas = {}) {
   const permisos = indexarPermisos(permisosDetallados);
   const ctx = {
     esSuperadmin: rol === 'SUPERADMIN',
     esFullView: esFullView({ rol, permisos }),
     paresDelegados,
   };
-  return catalogo.map((screen) => ({ ...screen, acceso: accesoPantalla(screen, permisos, ctx) }));
+  const { porPantalla } = repartirAdicionales(permisos, catalogo, reglas);
+  return catalogo.map((screen) => ({
+    ...screen,
+    acceso: accesoPantalla(screen, permisos, ctx),
+    adicionales: porPantalla.get(screen.path),
+  }));
+}
+
+/** Payload permissions with no screen at all ("Otros permisos"), so they stay editable. */
+export function otrosPermisos(permisosDetallados, catalogo, reglas = {}) {
+  return repartirAdicionales(indexarPermisos(permisosDetallados), catalogo, reglas).otros;
 }
 
 /** Lower-case, accent-free form used by every search comparison. */
@@ -130,30 +180,40 @@ function textoPermiso(fila) {
   return [fila.codigo, fila.nombre, fila.descripcion].map(normalizar).join(' ');
 }
 
-/** Search over screen label/path/section and its permissions' codigo/nombre/descripcion. */
+// Access rows plus extras: what search, con_overrides and criticos look at.
+const filasConAdicionales = (item) => [...item.acceso.filas, ...(item.adicionales || [])];
+
+/**
+ * Search over screen label/path/section and the codigo/nombre/descripcion of
+ * its access permissions and its extras.
+ */
 export function coincideBusqueda(item, busqueda) {
   const q = normalizar(busqueda).trim();
   if (!q) return true;
   const textoPantalla = [item.label, item.path, item.section].map(normalizar).join(' ');
   if (textoPantalla.includes(q)) return true;
-  return item.acceso.filas.some((fila) => textoPermiso(fila).includes(q));
+  return filasConAdicionales(item).some((fila) => textoPermiso(fila).includes(q));
 }
 
-/** Search over a single permission (the "Permisos sin pantalla" group). */
+/** Search over a single permission (the "Otros permisos" group). */
 export function permisoCoincideBusqueda(permiso, busqueda) {
   const q = normalizar(busqueda).trim();
   if (!q) return true;
   return `${textoPermiso(permiso)} ${normalizar(permiso.categoria)}`.includes(q);
 }
 
+/**
+ * Screen filters. `sin_acceso` is the screen status only (an extra never
+ * decides access); `con_overrides` and `criticos` also look at the extras.
+ */
 export function cumpleFiltro(item, filtro) {
   switch (filtro) {
     case 'sin_acceso':
       return item.acceso.status === STATUS.SIN_ACCESO;
     case 'con_overrides':
-      return item.acceso.filas.some((fila) => fila.override !== null && fila.override !== undefined);
+      return filasConAdicionales(item).some((fila) => fila.override !== null && fila.override !== undefined);
     case 'criticos':
-      return item.acceso.filas.some((fila) => fila.es_critico);
+      return filasConAdicionales(item).some((fila) => fila.es_critico);
     case 'depende_de_datos':
       return item.scope === 'data';
     default:
@@ -161,7 +221,7 @@ export function cumpleFiltro(item, filtro) {
   }
 }
 
-/** Same predicates applied to a permission that no screen references. */
+/** Same predicates applied to a permission with no screen ("Otros permisos"). */
 export function permisoCumpleFiltro(permiso, filtro) {
   switch (filtro) {
     case 'sin_acceso':
@@ -178,9 +238,9 @@ export function permisoCumpleFiltro(permiso, filtro) {
 }
 
 /**
- * Chip counts = rows each filter would list: matching screens plus matching
- * loose permissions ("Permisos sin pantalla"), so a chip never shows fewer
- * than what it lists.
+ * Chip counts = rows each filter would list: matching screens (each once, its
+ * extras included) plus matching "Otros permisos" rows, so a chip never shows
+ * fewer than what it lists.
  */
 export function contarFiltros(items, sueltos = []) {
   return Object.fromEntries(
@@ -229,12 +289,6 @@ export function contarOverrides(permisosDetallados) {
   const agregados = permisos.filter((p) => p.override === true).length;
   const quitados = permisos.filter((p) => p.override === false).length;
   return { agregados, quitados, total: agregados + quitados };
-}
-
-/** Payload permissions that no catalog screen references, so they stay editable. */
-export function permisosSinPantalla(permisosDetallados, catalogo) {
-  const referenciados = new Set(catalogo.flatMap((screen) => screen.permisos));
-  return [...indexarPermisos(permisosDetallados).values()].filter((p) => !referenciados.has(p.codigo));
 }
 
 /**

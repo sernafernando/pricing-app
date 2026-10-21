@@ -8,7 +8,8 @@ import {
   coincideBusqueda,
   cumpleFiltro,
   contarFiltros,
-  permisosSinPantalla,
+  otrosPermisos,
+  pantallasDeAdicional,
   agruparPorSeccion,
   contarParesEfectivos,
   permisoCumpleFiltro,
@@ -216,9 +217,94 @@ describe('construirVistaPorPantalla + filters + search', () => {
     ]);
   });
 
-  it('lists payload permissions no screen references, with their category', () => {
-    const sueltos = permisosSinPantalla(detallados, CATALOGO);
-    expect(sueltos.map((p) => [p.codigo, p.categoria])).toEqual([['admin.sincronizar', 'admin']]);
+  it('leaves a permission whose prefix matches no screen in "Otros", with its category', () => {
+    const otros = otrosPermisos(detallados, CATALOGO);
+    expect(otros.map((p) => [p.codigo, p.categoria])).toEqual([['admin.sincronizar', 'admin']]);
+  });
+});
+
+describe('extra permissions (permisos adicionales) under their screen', () => {
+  const catalogo = [
+    { path: '/productos', label: 'Productos', section: 'Productos', permisos: ['productos.ver'], scope: 'permiso' },
+    { path: '/precios-listas', label: 'Precios por Lista', section: 'Productos', permisos: ['productos.ver'], scope: 'permiso' },
+    { path: '/rma', label: 'RMA', section: 'Soporte', permisos: ['rma.ver'], scope: 'permiso' },
+    { path: '/claims', label: 'Reclamos', section: 'Soporte', permisos: ['rma.ver'], scope: 'permiso' },
+    { path: '/control-deposito', label: 'Control', section: 'Soporte', permisos: ['rma.control_deposito'], scope: 'permiso' },
+    { path: '/traza', label: 'Traza', section: 'Consultas', permisos: ['traza.ver'], scope: 'permiso' },
+  ];
+  const reglas = {
+    prefijos: { productos: ['/productos'], rma: ['/rma'], reportes: [] },
+    porPantalla: { '/claims': ['rma.gestionar'], '/rma': ['rma.gestionar'], '/traza': ['reportes.exportar_traza'] },
+  };
+  const detallados = {
+    productos: [delRol('productos.ver'), permiso('productos.editar_precios', { es_critico: true })],
+    rma: [
+      permiso('rma.ver'),
+      permiso('rma.control_deposito'),
+      permiso('rma.gestionar', { override: true, efectivo: true, origen: 'override_agregado' }),
+      permiso('rma.eliminar'),
+    ],
+    consultas: [delRol('traza.ver')],
+    reportes: [permiso('reportes.exportar'), permiso('reportes.exportar_traza')],
+    sistema: [permiso('pxq.ver')],
+  };
+  const vista = construirVistaPorPantalla(detallados, { rol: 'PRICING', paresDelegados: null }, catalogo, reglas);
+  const adicionales = (path) => vista.find((v) => v.path === path).adicionales.map((p) => p.codigo);
+
+  it('defaults to the screens whose access permissions share the codigo prefix', () => {
+    expect(pantallasDeAdicional('traza.exportar', catalogo, reglas)).toEqual(['/traza']);
+    expect(pantallasDeAdicional('rma.eliminar', catalogo, {})).toEqual(['/rma', '/claims', '/control-deposito']);
+  });
+
+  it('lets a prefix rule pick the screen of an ambiguous prefix', () => {
+    expect(adicionales('/productos')).toEqual(['productos.editar_precios']);
+    expect(adicionales('/precios-listas')).toEqual([]);
+    expect(adicionales('/rma')).toContain('rma.eliminar');
+    expect(adicionales('/control-deposito')).toEqual([]);
+  });
+
+  it('lets a per-codigo rule win over the prefix, on one or several screens', () => {
+    expect(pantallasDeAdicional('rma.gestionar', catalogo, reglas)).toEqual(['/rma', '/claims']);
+    expect(adicionales('/claims')).toEqual(['rma.gestionar']);
+    expect(adicionales('/traza')).toEqual(['reportes.exportar_traza']);
+  });
+
+  it('never lists an access permission as an extra', () => {
+    expect(pantallasDeAdicional('rma.control_deposito', catalogo, reglas)).toEqual([]);
+    expect(adicionales('/rma')).not.toContain('rma.control_deposito');
+    expect(otrosPermisos(detallados, catalogo, reglas).map((p) => p.codigo)).not.toContain('rma.control_deposito');
+  });
+
+  it('sends a code with no screen to "Otros": an empty prefix rule or an unknown prefix', () => {
+    expect(otrosPermisos(detallados, catalogo, reglas).map((p) => [p.codigo, p.categoria])).toEqual([
+      ['reportes.exportar', 'reportes'],
+      ['pxq.ver', 'sistema'],
+    ]);
+  });
+
+  it('keeps the access status: a missing extra does not take the screen away', () => {
+    expect(vista.find((v) => v.path === '/productos').acceso.status).toBe('accede');
+    expect(vista.find((v) => v.path === '/productos').acceso.filas.map((f) => f.codigo)).toEqual(['productos.ver']);
+  });
+
+  it('finds a screen by one of its extras', () => {
+    const buscar = (q) => vista.filter((v) => coincideBusqueda(v, q)).map((v) => v.path);
+    expect(buscar('editar_precios')).toEqual(['/productos']);
+    expect(buscar('Descripción rma.eliminar')).toEqual(['/rma']);
+  });
+
+  it('applies con_overrides and criticos to the extras too; sin_acceso stays the screen status', () => {
+    const paths = (filtro) => vista.filter((v) => cumpleFiltro(v, filtro)).map((v) => v.path);
+    expect(paths('con_overrides')).toEqual(['/rma', '/claims']);
+    expect(paths('criticos')).toEqual(['/productos']);
+    expect(paths('sin_acceso')).toEqual(['/rma', '/claims', '/control-deposito']);
+  });
+
+  it('counts each screen once, extras included, plus the "Otros" rows', () => {
+    const otros = otrosPermisos(detallados, catalogo, reglas);
+    expect(contarFiltros(vista, otros)).toEqual({
+      todo: 8, sin_acceso: 5, con_overrides: 2, criticos: 1, depende_de_datos: 0,
+    });
   });
 });
 

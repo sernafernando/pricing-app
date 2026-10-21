@@ -22,8 +22,7 @@ const OTRAS = 'Otras';
 
 // Routes intentionally left out of the catalog (each must still exist in App.jsx).
 // /test-stats-dinamicos: developer test page (TestStatsDinamicos.jsx), no sidebar
-// entry; its permission (admin.sincronizar) still shows under "Permisos sin pantalla"
-// if no other screen references it.
+// entry; its permission (admin.sincronizar) shows as an extra of /admin (admin prefix).
 export const EXCLUDED_ROUTES = ['/test-stats-dinamicos'];
 
 export const SCREENS = [
@@ -138,6 +137,97 @@ export const SCREENS = [
   { path: '/perfiles-medidas', label: 'Perfiles de medidas', section: OTRAS, permisos: ['admin.gestionar_tn_perfiles'], scope: 'permiso' },
   { path: '/ml-publicaciones', label: 'Publicaciones ML', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
 ];
+
+/**
+ * Where each extra permission (one that does NOT decide access but acts inside
+ * a screen, like `productos.editar_precios`) is listed in "Por pantalla".
+ * Resolution, in order (permisosAcceso.js `pantallasDeAdicional`):
+ *   1. porPantalla: a codigo listed under one or more paths goes exactly there.
+ *   2. prefijos: the codigo prefix (text before the first '.') goes to these
+ *      paths; [] means "no screen", so the code lands in "Otros permisos".
+ *   3. Default: every screen whose access `permisos` share the prefix.
+ * A code that is some screen's access permission is never an extra.
+ * Each target was picked from where the frontend checks the code
+ * (tienePermiso / constants in pages and components); a code nothing in the
+ * frontend checks follows its prefix or, without one, ends in "Otros".
+ * `screenCatalog.test.js` fails on unknown paths and on any prefix that opens
+ * more than one screen without an entry in `prefijos`.
+ */
+export const PERMISOS_ADICIONALES = {
+  prefijos: {
+    // Prefixes that open several screens: the screen where most of its codes act.
+    productos: ['/productos'],
+    admin: ['/admin'],
+    administracion: ['/administracion/compras'],
+    rma: ['/rma'],
+    ml_ops: ['/ml-publicaciones'],
+    produccion: ['/produccion'],
+    rrhh: ['/rrhh/empleados'],
+    tickets: ['/tickets'],
+    ordenes: ['/pedidos-preparacion'],
+    alertas: ['/gestion/alertas'],
+    reportes: [],
+    // Prefixes no access permission uses.
+    tienda: ['/tienda'],
+    config: ['/admin'], // Admin tabs Comisiones / Constantes Pricing.
+    envios_flex: ['/pedidos-preparacion'], // TabEnviosFlex, TabCheckeoColecta.
+    pedidos: ['/pedidos-preparacion'],
+    promos: ['/productos', '/ml-publicaciones'], // promociones panels + PublicationPanel.
+    pxq: ['/productos'], // PxqPanel inside the Productos promo tree.
+    sell_out: ['/sell-in'],
+    equipos: ['/productos'], // EquiposModal.
+    tplink: [], // Global opt-in flags (ThemeContext); tplink.solo is listed below.
+  },
+  porPantalla: {
+    '/productos': [
+      'productos.calcular_web_masivo',
+      'productos.editar_precio_cuotas',
+      'productos.marcar_color',
+      'productos.marcar_color_lote',
+    ],
+    '/tienda': [
+      'productos.calcular_web_masivo',
+      'productos.editar_precio_cuotas',
+      'productos.marcar_color',
+      'productos.marcar_color_lote',
+      'productos.gestionar_markups_tienda',
+    ],
+    '/mla-banlist': ['admin.gestionar_banlist'],
+    // ItemsSinMLA.jsx, including its Tienda Nube reconcile tab.
+    '/items-sin-mla': [
+      'admin.asignar_items_sin_mla',
+      'admin.gestionar_asignaciones',
+      'admin.gestionar_comparacion_banlist',
+      'admin.gestionar_items_sin_mla_banlist',
+      'admin.ver_anomalias_vinculadas',
+      'admin.ver_comparacion_listas_ml',
+      'admin.ver_tn_reconciliacion',
+      'admin.gestionar_tn_publicacion',
+      'admin.gestionar_tn_reconcile_banlist',
+      'admin.gestionar_tn_reconcile_excepciones',
+    ],
+    '/pedidos-preparacion': ['produccion.ver_preparacion', 'seguimiento_envios.flag', 'documentos.imprimir'],
+    '/seguimiento-envios': ['seguimiento_envios.flag'],
+    '/rma': ['rma.gestionar', 'documentos.imprimir'],
+    '/claims': ['rma.gestionar'],
+    '/control-deposito': ['rma.control_deposito_no_baja'],
+    '/metricas-ml': ['ml_metricas.ver_ganancia', 'ventas_ml.ver_todas_marcas', 'tplink.solo'],
+    '/dashboard-metricas-ml': ['ventas_ml.ver_todas_marcas'],
+    '/ml-publicaciones': ['ml_metricas.ver_ganancia'],
+    '/notificaciones': ['reportes.recibir_notificaciones_markup'],
+    '/rrhh/empleados': ['rrhh.config', 'rrhh.gestionar', 'documentos.imprimir'],
+    '/rrhh/presentismo': ['rrhh.gestionar', 'documentos.imprimir'],
+    '/rrhh/sanciones': ['rrhh.config', 'rrhh.gestionar'],
+    '/rrhh/vacaciones': ['rrhh.gestionar'],
+    '/rrhh/cuenta-corriente': ['rrhh.gestionar'],
+    '/rrhh/horarios': ['rrhh.config', 'rrhh.gestionar'],
+    '/rrhh/horas-extras': ['rrhh.aprobar_horas_extras', 'rrhh.gestionar_horas_extras', 'rrhh.liquidar_horas_extras'],
+    '/administracion/proveedores': ['administracion.consultar_afip', 'administracion.gestionar_proveedores'],
+    '/administracion/impuestos': ['administracion.gestionar_proveedores'],
+    '/administracion/caja': ['administracion.gestionar_caja', 'administracion.sincronizar_caja'],
+    '/administracion/bancos': ['administracion.gestionar_caja'],
+  },
+};
 
 /** Every permission category the backend uses (CategoriaPermiso enum + migrations). */
 export const CATEGORIAS_PERMISO = {

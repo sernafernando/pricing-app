@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowRight, Check, ChevronDown, ChevronRight, Minus, Plu
 import { marcasPmAPI } from '../../services/api';
 import SearchInput from '../SearchInput';
 import { FacetChips, StatusPill } from '../kit';
-import { SCREENS, nombreCategoria } from '../../registry/screenCatalog';
+import { PERMISOS_ADICIONALES, SCREENS, nombreCategoria } from '../../registry/screenCatalog';
 import {
   STATUS,
   agruparPorSeccion,
@@ -14,9 +14,9 @@ import {
   contarOverrides,
   contarParesEfectivos,
   cumpleFiltro,
+  otrosPermisos,
   permisoCoincideBusqueda,
   permisoCumpleFiltro,
-  permisosSinPantalla,
   resumenAcceso,
 } from '../../registry/permisosAcceso';
 import ResumenAcceso from './ResumenAcceso';
@@ -74,7 +74,9 @@ const MAX_CHIPS = 2;
 /**
  * "Por pantalla" view of one user's permissions: every app screen with its
  * access status, the permissions it needs (any-of) and where each comes from,
- * with inline Conceder / Quitar / Resetear overrides.
+ * plus its extra permissions ("Permisos adicionales": actions inside the
+ * screen that do not decide access), with inline Conceder / Quitar / Resetear
+ * overrides. Codes with no screen at all are listed under "Otros permisos".
  *
  * `permisosUsuario` is the `GET /permisos/usuario/{id}` response. After an
  * override change it calls `onActualizado()` so the parent reloads it.
@@ -105,9 +107,9 @@ export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActu
   }, [usuarioId]);
 
   const detallados = permisosUsuario?.permisos_detallados || {};
-  const vista = construirVistaPorPantalla(detallados, { rol, paresDelegados }, SCREENS);
+  const vista = construirVistaPorPantalla(detallados, { rol, paresDelegados }, SCREENS, PERMISOS_ADICIONALES);
   const buscadas = vista.filter((item) => coincideBusqueda(item, busqueda));
-  const sueltosBuscados = permisosSinPantalla(detallados, SCREENS).filter((p) =>
+  const sueltosBuscados = otrosPermisos(detallados, SCREENS, PERMISOS_ADICIONALES).filter((p) =>
     permisoCoincideBusqueda(p, busqueda),
   );
   const conteos = contarFiltros(buscadas, sueltosBuscados);
@@ -178,10 +180,10 @@ export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActu
         ))}
 
         {sueltos.length > 0 && (
-          <section className={styles.grupo} aria-label="Permisos sin pantalla">
+          <section className={styles.grupo} aria-label="Otros permisos">
             <header className={styles.grupoHeader}>
-              <h3 className={styles.grupoTitulo}>Permisos sin pantalla</h3>
-              <span className={styles.grupoConteo}>Acciones dentro de pantallas o del backend</span>
+              <h3 className={styles.grupoTitulo}>Otros permisos</h3>
+              <span className={styles.grupoConteo}>Sin pantalla asociada: globales o del backend</span>
             </header>
             <ul className={styles.detalleLista}>
               {sueltos.map((permiso) => (
@@ -197,6 +199,8 @@ export default function PermisosPorPantalla({ usuarioId, permisosUsuario, onActu
 
 function FilaPantalla({ item, expandida, onAlternar, acciones }) {
   const { acceso } = item;
+  const adicionales = item.adicionales || [];
+  const tieneDetalle = acceso.filas.length + adicionales.length > 0;
   const pill = STATUS_PILL[acceso.status];
   const condicional = acceso.status === STATUS.CONDICIONAL;
   const detalleId = `permisos-detalle-${item.path}`;
@@ -218,9 +222,9 @@ function FilaPantalla({ item, expandida, onAlternar, acciones }) {
           aria-expanded={expandida}
           aria-controls={detalleId}
           onClick={onAlternar}
-          disabled={acceso.filas.length === 0}
+          disabled={!tieneDetalle}
         >
-          {acceso.filas.length > 0 &&
+          {tieneDetalle &&
             (expandida ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />)}
           {condicional && <AlertTriangle size={14} className={styles.iconoAviso} aria-hidden="true" />}
           <span className={styles.label}>{item.label}</span>
@@ -241,6 +245,11 @@ function FilaPantalla({ item, expandida, onAlternar, acciones }) {
               ))}
               {restantes > 0 && <span className={styles.muted}>+{restantes}</span>}
             </>
+          )}
+          {adicionales.length > 0 && (
+            <span className={styles.adicionalesConteo}>
+              +{adicionales.length} {adicionales.length === 1 ? 'adicional' : 'adicionales'}
+            </span>
           )}
         </div>
 
@@ -274,14 +283,29 @@ function FilaPantalla({ item, expandida, onAlternar, acciones }) {
         </div>
       )}
 
-      {expandida && acceso.filas.length > 0 && (
+      {expandida && tieneDetalle && (
         <div id={detalleId} className={styles.detalle}>
           {item.nota && <p className={styles.nota}>{item.nota}</p>}
-          <ul className={styles.detalleLista}>
-            {acceso.filas.map((fila) => (
-              <FilaPermiso key={fila.codigo} permiso={fila} acciones={acciones} />
-            ))}
-          </ul>
+          {acceso.filas.length > 0 && (
+            <ul className={styles.detalleLista}>
+              {acceso.filas.map((fila) => (
+                <FilaPermiso key={fila.codigo} permiso={fila} acciones={acciones} />
+              ))}
+            </ul>
+          )}
+          {adicionales.length > 0 && (
+            <div className={styles.adicionales}>
+              <div className={styles.adicionalesHeader}>
+                <h4 className={styles.adicionalesTitulo}>Permisos adicionales</h4>
+                <span className={styles.muted}>No deciden el acceso: habilitan acciones dentro de la pantalla</span>
+              </div>
+              <ul className={styles.detalleLista} aria-label="Permisos adicionales">
+                {adicionales.map((permiso) => (
+                  <FilaPermiso key={permiso.codigo} permiso={permiso} acciones={acciones} />
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </li>
