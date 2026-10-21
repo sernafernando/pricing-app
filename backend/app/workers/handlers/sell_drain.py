@@ -31,7 +31,8 @@ transient: a product whose recompute always times out would otherwise stop the
 drain on every wake forever, so it is charged and parks like any bad line.
 
 Step 3 also queues, set-based, the sell-out campaigns the lines can move
-(`app.services.sell_out.queue.enqueue_ventas`); `sell_out.drain` rebuilds them.
+(`app.services.sell_out.queue.enqueue_ventas`), in a savepoint that never
+blocks sell in (`_fan_out_sell_out`); `sell_out.drain` rebuilds them.
 Wired like `tp_cost.fill`:
 `channels=("sell_dirty",)` with no `interval`/`run_at_local`, so
 `WorkerRuntime.drain_once` runs it on every LISTEN wake and on every safety
@@ -44,6 +45,7 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -56,6 +58,9 @@ from app.workers.context import JobResult, WorkerContext
 logger = logging.getLogger(__name__)
 
 Claimed = Tuple[str, int, Optional[int]]
+
+# How long the sell-out fan-out waits for a campaign's queue row held by a running `sell_out.drain` batch.
+SELL_OUT_LOCK_TIMEOUT = "2s"
 
 # deadlock, serialization failure, lock_not_available; plus class 08 (connection exceptions).
 # Not 57014 (query_canceled / statement_timeout): it can be a product's own, permanent fault.
@@ -136,8 +141,7 @@ def _recompute_and_settle(
     the caller does, once its transaction committed."""
     products = queue.products_of(db, claimed)
     result = get_costing().recompute(db, set().union(*products.values()))
-    # Sell out (T7 S3): queue the campaigns these lines can move; its own worker rebuilds them.
-    sell_out_queue.enqueue_ventas(db, list(products))
+    _fan_out_sell_out(db, list(products))
     failed: Dict[queue.Line, str] = {
         line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(items & result.failed.keys()))
         for line, items in products.items()
@@ -145,6 +149,24 @@ def _recompute_and_settle(
     }
     parked = queue.settle(db, [line for line in products if line not in failed], failed)
     return result, failed, parked
+
+
+def _fan_out_sell_out(db: Session, lines: List[queue.Line]) -> None:
+    """Sell out (T7 S3): queues the campaigns these lines can move, in a savepoint so it never blocks
+    sell in. Waiting longer than `SELL_OUT_LOCK_TIMEOUT` for a queue row (a long `sell_out.drain` batch
+    holds it) raises 55P03, transient: the whole batch rolls back uncharged and the next wake retries,
+    so the signal is not lost. Any other error is rolled back to the savepoint and logged; the sell-in
+    batch commits. `SET LOCAL` inside the savepoint is restored before it is released."""
+    try:
+        with db.begin_nested():
+            previo = db.execute(text("SELECT current_setting('lock_timeout')")).scalar()
+            db.execute(text("SELECT set_config('lock_timeout', :t, true)"), {"t": SELL_OUT_LOCK_TIMEOUT})
+            sell_out_queue.enqueue_ventas(db, lines)
+            db.execute(text("SELECT set_config('lock_timeout', :t, true)"), {"t": previo})
+    except Exception as exc:
+        if is_transient(exc):
+            raise
+        logger.exception("sell.drain: sell-out fan-out failed; sell in goes on, the campaigns are not queued")
 
 
 def _log_parked(parked: Sequence[queue.Line], errors: Dict[queue.Line, str]) -> None:

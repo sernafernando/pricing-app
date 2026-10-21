@@ -26,10 +26,12 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty
 from app.services.sell import queue
+from app.services.sell_out import queue as sell_out_queue
 from app.services.sell_in import costing
 from app.workers.context import WorkerContext
 from app.workers.handlers import sell_drain
 from app.workers.handlers.sell_drain import drain as handler
+from app.workers.handlers.sell_out_drain import drain as sell_out_drain
 from app.workers.registry import REGISTRY
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as w
@@ -56,6 +58,32 @@ def _db(monkeypatch: pytest.MonkeyPatch, engine: Engine) -> Iterator[None]:
     monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
     yield
     w.clean(engine)
+    with engine.begin() as conn:  # the sell-out side: links, consumptions and queue cascade
+        conn.execute(text("DELETE FROM sell_out_campanas"))
+        conn.execute(text("DELETE FROM offset_grupos"))
+
+
+def _campana(engine: Engine, desde: date = D(2026, 10, 1), hasta: date = D(2026, 10, 31)) -> int:
+    """An ARS per-unit sell-out campaign (10 per unit, no cap) over product 2964."""
+    with engine.begin() as conn:
+        grupo = conn.execute(text("INSERT INTO offset_grupos (nombre) VALUES ('G') RETURNING id")).scalar()
+        conn.execute(text("INSERT INTO offset_grupo_filtros (grupo_id, item_id) VALUES (:g, 2964)"), {"g": grupo})
+        cid = conn.execute(
+            text(
+                "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, moneda, "
+                "usuario_id) VALUES ('C', :d, :h, 'por_unidad', 10, 'ARS', 7) RETURNING id"
+            ),
+            {"d": desde, "h": hasta},
+        ).scalar()
+        conn.execute(
+            text("INSERT INTO sell_out_campana_grupos (campana_id, grupo_id) VALUES (:c, :g)"), {"c": cid, "g": grupo}
+        )
+    return cid
+
+
+def _sell_out(engine: Engine, sql: str) -> list:
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(text(sql))]
 
 
 def _ctx() -> WorkerContext:
@@ -76,36 +104,15 @@ class TestDrain:
         assert handler.channels == (queue.CHANNEL,) == ("sell_dirty",)
         assert handler.interval is None and handler.run_at_local is None
 
-    def test_a_drained_line_queues_the_sell_out_campaigns_it_can_move(self, engine: Engine) -> None:
-        with engine.begin() as conn:
-            grupo = conn.execute(text("INSERT INTO offset_grupos (nombre) VALUES ('G') RETURNING id")).scalar()
-            conn.execute(text("INSERT INTO offset_grupo_filtros (grupo_id, item_id) VALUES (:g, 2964)"), {"g": grupo})
-            campanas = [
-                conn.execute(
-                    text(
-                        "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, moneda, "
-                        "usuario_id) VALUES ('C', :d, :h, 'por_unidad', 10, 'ARS', 7) RETURNING id"
-                    ),
-                    {"d": desde, "h": hasta},
-                ).scalar()
-                for desde, hasta in ((D(2026, 10, 1), D(2026, 10, 31)), (D(2026, 11, 1), D(2026, 11, 30)))
-            ]
-            for cid in campanas:
-                conn.execute(
-                    text("INSERT INTO sell_out_campana_grupos (campana_id, grupo_id) VALUES (:c, :g)"),
-                    {"c": cid, "g": grupo},
-                )
+    def test_a_drained_line_queues_the_sell_out_campanas_it_can_move(self, engine: Engine) -> None:
+        octubre = _campana(engine)
+        _campana(engine, D(2026, 11, 1), D(2026, 11, 30))
         w.venta(engine, "fuera", 2964, 1, D(2026, 10, 16))
         w.venta(engine, "tn", 950, 1, D(2026, 11, 2))  # a product no campaign reaches
 
         _drain()
 
-        with engine.connect() as conn:
-            queued = [r[0] for r in conn.execute(text("SELECT campana_id FROM sell_out_dirty"))]
-            conn.execute(text("DELETE FROM sell_out_campanas"))
-            conn.execute(text("DELETE FROM offset_grupos"))
-            conn.commit()
-        assert queued == [campanas[0]]
+        assert _sell_out(engine, "SELECT campana_id FROM sell_out_dirty") == [(octubre,)]
         assert w.queued(engine) == []
 
     def test_a_new_sale_is_allocated_and_leaves_the_queue(self, engine: Engine) -> None:
@@ -695,3 +702,65 @@ class TestRevival:
         assert (detail["lines"], detail["failed"]) == (1, 0)
         assert w.consumos(engine) == [(linea, "ml", ref, 2964, 1, Decimal("10.00"))]
         assert w.queued(engine) == []
+
+
+@pytest.mark.postgres
+class TestSellOutFanOut:
+    def test_a_cancelled_line_queues_the_campaign_holding_it_and_its_rows_drop(self, engine: Engine) -> None:
+        cid = _campana(engine)
+        ref = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 16))
+        _drain()
+        sell_out_drain.run(_ctx())
+        consumos = "SELECT campana_id, venta_ref, unidades FROM sell_out_consumos"
+        assert _sell_out(engine, consumos) == [(cid, ref, 2)]
+
+        w.delete_venta(engine, "fuera", ref)  # cancelled: only its consumptions still point at the campaign
+        _drain()
+        assert _sell_out(engine, "SELECT campana_id FROM sell_out_dirty") == [(cid,)]
+        sell_out_drain.run(_ctx())
+
+        assert _sell_out(engine, consumos) == []
+
+    def test_a_sell_out_row_held_elsewhere_rolls_the_batch_back_uncharged_and_it_is_retried(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sell_drain, "SELL_OUT_LOCK_TIMEOUT", "100ms")
+        cid = _campana(engine)
+        [linea] = w.compra(engine, [(2964, 10, "250000.00")])
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 16))
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO sell_out_dirty (campana_id) VALUES (:c)"), {"c": cid})
+        holder = engine.connect()
+        try:
+            holder.execute(text("SELECT 1 FROM sell_out_dirty WHERE campana_id = :c FOR UPDATE"), {"c": cid})
+            detail = _drain()  # the long sell-out batch holds the campaign's queue row
+            assert _attempts(engine, ref) == 0  # not charged: retried, the signal is not lost
+            assert w.consumos(engine) == []  # rolled back with the batch
+            assert detail["failed"] == 0
+        finally:
+            holder.rollback()
+            holder.close()
+
+        _drain()
+
+        assert [c[2] for c in w.consumos(engine)] == [ref]
+        assert linea and w.queued(engine) == []
+
+    def test_any_other_sell_out_error_is_logged_and_the_sell_in_batch_still_commits(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        [linea] = w.compra(engine, [(2964, 10, "250000.00")])
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 10, 16))
+
+        def _rota(db, lines):
+            db.execute(text("SELECT * FROM tabla_que_no_existe"))  # aborts the transaction without a savepoint
+
+        monkeypatch.setattr(sell_out_queue, "enqueue_ventas", _rota)
+
+        with caplog.at_level(logging.ERROR, logger=sell_drain.__name__):
+            detail = _drain()
+
+        assert [(c[0], c[2]) for c in w.consumos(engine)] == [(linea, ref)]
+        assert w.queued(engine) == []
+        assert detail["failed"] == 0
+        assert any("sell.drain: sell-out fan-out failed" in r.getMessage() for r in caplog.records)
