@@ -4,7 +4,7 @@
  * the visual suite's job (`src/test/visual/publicacionesMl.visual.test.jsx`).
  */
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
@@ -1481,5 +1481,16 @@ describe('Exportar a Sheets', () => {
     const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
     await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
     await waitFor(() => expect(screen.queryByText('Exportación cancelada')).not.toBeInTheDocument());
+  });
+
+  it('a popup closed after a filter change says nothing under the new list', async () => {
+    let cancel;
+    exportPublicacionesSheets.mockReturnValue(new Promise((_, reject) => (cancel = reject)));
+    await page();
+    await userEvent.click(sheetsButton());
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await act(async () => cancel(Object.assign(new Error('Exportación cancelada'), { cancelled: true })));
+    expect(screen.queryByText('Exportación cancelada')).not.toBeInTheDocument();
   });
 });

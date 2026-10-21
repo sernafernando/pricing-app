@@ -274,8 +274,9 @@ export default function PublicacionesML() {
       const result = await exporter(filters.vista, buildExportParams(filters, { canSeeMargin, canSeeSales }));
       if (result && !result.opened) setSheetsNotice({ url: result.url });
     } catch (err) {
+      if (askedFor !== currentExportList.current) return;
       if (err.cancelled) setSheetsNotice({ text: err.message });
-      else if (askedFor === currentExportList.current) setExportError(err.message);
+      else setExportError(err.message);
     } finally {
       setBusy(false);
     }
