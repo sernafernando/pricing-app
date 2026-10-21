@@ -181,6 +181,7 @@ def _deseada(db: Session, bono: SellInBonoMarca, pedido: Optional[_Pedido], line
     fecha = pedido.fecha_factura
     if fecha is None or not (bono.fecha_desde <= fecha <= bono.fecha_hasta):
         return None
+    # No duplicate or non-positive units: the snapshot has UNIQUE(pedido_id, item_id) and CHECK(cantidad > 0).
     propias = [linea for linea in lineas if linea[2] == bono.marca]
     if not propias:
         return None
@@ -272,11 +273,19 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     huerfanas = _huerfanas(db)
     if not pares and not huerfanas:
         return result
-    _bloquear(db, {bid for bid, _ in pares} | {c.bono_id for c in huerfanas})
-    # Again, now that no other call can write these bonuses' purchases.
-    pares, huerfanas = _pares(db, bono_set, pedido_set), _huerfanas(db)
+    bloqueados = {bid for bid, _ in pares} | {c.bono_id for c in huerfanas}
+    _bloquear(db, bloqueados)
+    # Again, now that no other call can write these bonuses' purchases, and ONLY for them: a bonus that
+    # appeared while this call waited (activated, its range or brand changed, a purchase of another
+    # call) is not locked here, and the change that made it appear queued it through its own trigger.
+    pares = {par for par in _pares(db, bono_set, pedido_set) if par[0] in bloqueados}
+    huerfanas = [c for c in _huerfanas(db) if c.bono_id in bloqueados]
 
-    bonos = {x.id: x for x in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_({bid for bid, _ in pares}))}
+    # Fresh: a worker batch shares the session, so rows loaded before the lock may be stale.
+    bonos = {
+        x.id: x
+        for x in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_({bid for bid, _ in pares})).populate_existing()
+    }
     pids = {pid for _, pid in pares}
     pedidos = {
         row.id: _Pedido(

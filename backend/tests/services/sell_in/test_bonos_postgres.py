@@ -9,6 +9,8 @@ recomputed by the FIFO strategy. Runs in a throwaway schema (`_bono_world`).
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 from decimal import Decimal
 from typing import Iterator
@@ -17,6 +19,7 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
+from app.models.sell_in import SellInBonoMarca
 from app.services.sell_in import bonos
 from tests.services.sell_in import _bono_world as b
 from tests.services.sell_in import _world as w
@@ -335,6 +338,109 @@ class TestChanges:
                 {"i": manual[0]},
             ).one()
         assert tuple(row) == ("manual", "activa", 5, Decimal("100.00"))
+
+
+@pytest.mark.postgres
+class TestConcurrency:
+    def test_a_bonus_rows_loaded_before_the_lock_are_read_again(self, engine: Engine) -> None:
+        """A worker batch shares one session: a bonus loaded by an earlier call must not be reused stale."""
+        bono = b.bono(engine, monto="2.00")
+        pedido = b.pedido(engine, {2964: 3})
+        with sessionmaker(bind=engine)() as db:
+            cargado = db.get(SellInBonoMarca, bono)  # held: the identity map is weak
+            assert cargado.monto_unit == Decimal("2.00")
+            with engine.begin() as other:
+                other.execute(text("UPDATE sell_in_bonos_marca SET monto_unit = 5 WHERE id = :b"), {"b": bono})
+            bonos.reconciliar(db, pedido_ids=[pedido])
+            db.commit()
+
+        assert b.items_de(engine, bono, pedido) == [(2964, 3, Decimal("15.00"))]
+
+    def test_a_bonus_that_appears_while_waiting_for_the_lock_is_left_to_its_own_key(self, engine: Engine) -> None:
+        """Only the bonuses locked before the re-read are written: a bonus activated while this call
+        waited is unlocked here, and its own trigger has queued it for a call that will lock it."""
+        uno = b.bono(engine)
+        otro = b.bono(engine, estado="anulada")
+        pedido = b.pedido(engine, {2964: 1})
+        b.clear_queue(engine)
+        resultado: dict = {}
+
+        def reconcile() -> None:
+            try:
+                with sessionmaker(bind=engine)() as db:
+                    resultado["r"] = bonos.reconciliar(db, pedido_ids=[pedido])
+                    db.commit()
+            except Exception as exc:  # surfaced by the assertion below
+                resultado["error"] = exc
+
+        holder = engine.connect()
+        try:
+            holder.execute(text("SELECT pg_advisory_xact_lock(:ns, :b)"), {"ns": bonos.LOCK_NAMESPACE, "b": uno})
+            worker = threading.Thread(target=reconcile)
+            worker.start()
+            _wait_for_lock_waiter(engine, uno)
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE sell_in_bonos_marca SET estado = 'activa' WHERE id = :b"), {"b": otro})
+            holder.rollback()  # releases the lock: the call re-reads and finds `otro` too
+            worker.join(timeout=30)
+        finally:
+            holder.close()
+
+        assert "error" not in resultado, resultado.get("error")
+        assert [(g[0], g[1]) for g in b.generadas(engine)] == [(uno, pedido)]
+        assert ("bono", otro) in b.queued(engine)
+
+    def test_an_orphan_of_another_bonus_that_appears_while_waiting_is_left_to_its_own_key(self, engine: Engine) -> None:
+        """`mercusys` covers another month, so a call for `propio` never locks it; its orphan is
+        voided by the call its own key (the deleted operation) triggers."""
+        tplink = b.bono(engine, marca=b.TPLINK)
+        mercusys = b.bono(engine, marca=b.MERCUSYS, desde=D(2026, 11, 1), hasta=D(2026, 11, 30))
+        propio, ajeno = b.pedido(engine, {2964: 1}), b.pedido(engine, {950: 1}, D(2026, 11, 10))
+        _reconciliar(engine, bono_ids=[tplink, mercusys])
+        b.clear_queue(engine)
+        resultado: dict = {}
+
+        def reconcile() -> None:
+            try:
+                with sessionmaker(bind=engine)() as db:
+                    resultado["r"] = bonos.reconciliar(db, pedido_ids=[propio])
+                    db.commit()
+            except Exception as exc:  # surfaced by the assertion below
+                resultado["error"] = exc
+
+        holder = engine.connect()
+        try:
+            holder.execute(text("SELECT pg_advisory_xact_lock(:ns, :b)"), {"ns": bonos.LOCK_NAMESPACE, "b": tplink})
+            worker = threading.Thread(target=reconcile)
+            worker.start()
+            _wait_for_lock_waiter(engine, tplink)
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM pedidos_compra WHERE id = :p"), {"p": ajeno})
+            holder.rollback()
+            worker.join(timeout=30)
+        finally:
+            holder.close()
+
+        assert "error" not in resultado, resultado.get("error")
+        assert [(g[0], g[2]) for g in b.generadas(engine) if g[1] is None] == [(mercusys, "activa")]
+        assert ("pedido", ajeno) in b.queued(engine)
+
+
+def _wait_for_lock_waiter(engine: Engine, bono_id: int) -> None:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with engine.connect() as conn:
+            waiting = conn.execute(
+                text(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted "
+                    "AND classid = :ns AND objid = :b"
+                ),
+                {"ns": bonos.LOCK_NAMESPACE, "b": bono_id},
+            ).scalar_one()
+        if waiting:
+            return
+        time.sleep(0.05)
+    raise AssertionError("the reconcile never waited on the bonus lock")
 
 
 @pytest.mark.postgres

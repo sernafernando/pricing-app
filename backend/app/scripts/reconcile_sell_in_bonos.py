@@ -8,7 +8,8 @@ backfill after deploy, or a repair. Same code the worker runs
 (`app.services.sell_in.bonos.reconciliar`).
 
 Idempotent: a re-run writes nothing. One short session and one commit per
-bonus (rolled back under `--dry-run`, which still reports what would change).
+bonus; `--dry-run` runs them all in one transaction rolled back at the end and
+reports what the real run would change.
 Pairs that cannot be reconciled (a USD bonus on an operation with no rate and
 no BNA rate for its invoice date) are left as they were and listed in the
 summary's `fallidas`; the exit code is then 1, else 0.
@@ -32,23 +33,35 @@ from app.services.sell_in import bonos
 
 
 def run_reconcile(*, session_factory: Callable[[], Session], dry_run: bool = False) -> dict:
-    """Reconciles every bonus, one transaction each; returns the summary."""
+    """Reconciles every bonus, one transaction each; returns the summary. Under `dry_run` every bonus runs
+    in ONE transaction rolled back at the end, so each call sees what the previous ones would have written
+    (the orphans are swept once, as in a real run) and the summary predicts the real run."""
     with session_factory() as db:
         ids = [bid for (bid,) in db.query(SellInBonoMarca.id).order_by(SellInBonoMarca.id)]
     summary = {"bonos": len(ids), "creadas": 0, "actualizadas": 0, "anuladas": 0, "fallidas": [], "dry_run": dry_run}
-    for bono_id in ids or [None]:
+    # Every call also voids orphans whose operation was deleted; with no bonus one call still does.
+    keys = [[bono_id] for bono_id in ids] or [[]]
+    if dry_run:
         with session_factory() as db:
-            # Every call also voids orphans whose operation was deleted; with no bonus one call still does.
-            result = bonos.reconciliar(db, bono_ids=[bono_id] if bono_id is not None else [])
-            if dry_run:
+            try:
+                for bono_ids in keys:
+                    _sumar(summary, bonos.reconciliar(db, bono_ids=bono_ids))
+            finally:
                 db.rollback()
-            else:
-                db.commit()
-        summary["creadas"] += result.creadas
-        summary["actualizadas"] += result.actualizadas
-        summary["anuladas"] += result.anuladas
-        summary["fallidas"] += [[b, p, error] for (b, p), error in sorted(result.fallidas.items())]
+        return summary
+    for bono_ids in keys:
+        with session_factory() as db:
+            result = bonos.reconciliar(db, bono_ids=bono_ids)
+            db.commit()
+        _sumar(summary, result)
     return summary
+
+
+def _sumar(summary: dict, result: bonos.ReconcileResult) -> None:
+    summary["creadas"] += result.creadas
+    summary["actualizadas"] += result.actualizadas
+    summary["anuladas"] += result.anuladas
+    summary["fallidas"] += [[b, p, error] for (b, p), error in sorted(result.fallidas.items())]
 
 
 def _build_parser() -> argparse.ArgumentParser:

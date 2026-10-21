@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.scripts.reconcile_sell_in_bonos import main, run_reconcile
@@ -56,6 +56,21 @@ class TestReconcileScript:
 
         assert summary["creadas"] == 1
         assert b.generadas(engine) == []
+
+    def test_dry_run_predicts_the_real_run_with_an_orphan_and_two_bonuses(self, engine: Engine) -> None:
+        """Every reconcile call sweeps the orphans: the dry run must count one void, like the real run."""
+        b.bono(engine, marca=b.TPLINK)
+        b.bono(engine, marca=b.MERCUSYS)
+        pedido = b.pedido(engine, {2964: 1})
+        _run(engine)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM pedidos_compra WHERE id = :p"), {"p": pedido})
+
+        prevista = _run(engine, dry_run=True)
+        real = _run(engine)
+
+        assert (prevista["creadas"], prevista["actualizadas"], prevista["anuladas"]) == (0, 0, 1)
+        assert (real["creadas"], real["actualizadas"], real["anuladas"]) == (0, 0, 1)
 
     def test_failed_pairs_are_listed_and_the_exit_code_is_one(self, engine: Engine, monkeypatch) -> None:
         bono = b.bono(engine, moneda="USD")
