@@ -140,6 +140,20 @@ class SellInPrefillOut(BaseModel):
     items: list[SellInPrefillItem]
 
 
+class SellInOperacionProducto(BaseModel):
+    """One product of a Compras operation, for the picker's hover popover: whole units ordered and received."""
+
+    item_id: int
+    codigo: Optional[str]
+    descripcion: Optional[str]
+    pedida: int
+    recibida: int
+
+
+class SellInOperacionProductosOut(BaseModel):
+    items: list[SellInOperacionProducto]
+
+
 OPERACIONES_LIMITE = 20  # options in the operation picker of the create panel
 
 

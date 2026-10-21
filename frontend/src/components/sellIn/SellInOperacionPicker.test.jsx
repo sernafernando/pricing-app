@@ -1,17 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { sellInAPI } from '../../services/sellInAPI';
-import { operacionesFake } from './sellInFixtures';
+import { operacionesFake, PRODUCTOS_OPERACION } from './sellInFixtures';
 import SellInOperacionPicker from './SellInOperacionPicker';
 
-vi.mock('../../services/sellInAPI', () => ({ sellInAPI: { operaciones: vi.fn() } }));
+vi.mock('../../services/sellInAPI', () => ({ sellInAPI: { operaciones: vi.fn(), operacionProductos: vi.fn() } }));
 
 const LABEL = 'Pedido de compra (N°)';
 
 beforeEach(() => {
   vi.clearAllMocks();
   sellInAPI.operaciones.mockImplementation(operacionesFake);
+  sellInAPI.operacionProductos.mockResolvedValue({ data: PRODUCTOS_OPERACION });
 });
 
 const renderPicker = (props = {}) => {
@@ -194,5 +195,164 @@ describe('SellInOperacionPicker', () => {
   it('is disabled when no more operations fit', () => {
     const { input } = renderPicker({ deshabilitado: true });
     expect(input).toBeDisabled();
+  });
+
+  describe('products of the operation under the pointer', () => {
+    const pausa = () => new Promise((resolve) => setTimeout(resolve, 300)); // longer than the hover delay
+
+    const abrirLista = async (user, input) => {
+      await user.click(input);
+      return screen.findAllByRole('option');
+    };
+
+    it('hovering an option shows its products, ordered and received, after a short pause', async () => {
+      let resolver;
+      sellInAPI.operacionProductos.mockReturnValue(new Promise((resolve) => (resolver = resolve)));
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      const opcion = (await abrirLista(user, input))[1];
+
+      await user.hover(opcion);
+
+      const popover = await screen.findByRole('tooltip');
+      expect(popover).toHaveTextContent('Productos de la operación N° 16');
+      expect(popover).toHaveTextContent('Cargando productos…');
+      expect(opcion).toHaveAttribute('aria-describedby', popover.id);
+      resolver({ data: PRODUCTOS_OPERACION });
+      const fila = await within(popover).findByRole('row', { name: /SW-8/ });
+      expect(within(fila).getAllByRole('cell').map((celda) => celda.textContent)).toEqual(['SW-8Switch 8 bocas', '12', '10']);
+      expect(within(popover).getAllByRole('columnheader').map((th) => th.textContent)).toEqual(['Producto', 'Pedidas', 'Recibidas']);
+      expect(within(popover).getByRole('row', { name: /SW-16/ })).toHaveTextContent('Switch 16 bocas');
+      expect(sellInAPI.operacionProductos).toHaveBeenCalledWith(16);
+    });
+
+    it('sweeping the pointer across the list asks only for the row it rests on', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      const opciones = await abrirLista(user, input);
+
+      await user.hover(opciones[0]);
+      await user.hover(opciones[1]);
+      await user.hover(opciones[2]);
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('N° 15');
+      expect(sellInAPI.operacionProductos).toHaveBeenCalledTimes(1);
+      expect(sellInAPI.operacionProductos).toHaveBeenCalledWith(15);
+    });
+
+    it('asks once per operation and hides when the pointer leaves the list', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      const opcion = (await abrirLista(user, input))[1];
+
+      await user.hover(opcion);
+      await screen.findByRole('row', { name: /SW-8/ });
+      await user.unhover(opcion);
+      await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+      await user.hover(opcion);
+      await pausa();
+
+      expect(screen.getByRole('row', { name: /SW-8/ })).toBeInTheDocument();
+      expect(sellInAPI.operacionProductos).toHaveBeenCalledTimes(1);
+    });
+
+    it('the option highlighted with the arrow keys shows its products too', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await abrirLista(user, input);
+
+      await user.keyboard('{ArrowDown}{ArrowDown}');
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('N° 16');
+      expect(sellInAPI.operacionProductos).toHaveBeenCalledWith(16);
+    });
+
+    it('says so when the operation has no products or they cannot be read', async () => {
+      sellInAPI.operacionProductos.mockImplementation((id) =>
+        id === 16 ? Promise.resolve({ data: { items: [] } }) : Promise.reject(new Error('boom')),
+      );
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      const opciones = await abrirLista(user, input);
+
+      await user.hover(opciones[1]);
+      expect(await screen.findByText('La operación no tiene productos en sus órdenes de compra.')).toBeInTheDocument();
+      await user.hover(opciones[2]);
+      expect(await screen.findByText('No se pudieron leer los productos.')).toBeInTheDocument();
+    });
+
+    it('shows the first twelve products and counts the rest, since a hover card cannot scroll', async () => {
+      const items = Array.from({ length: 14 }, (_, i) => ({ item_id: i + 1, codigo: `C-${i + 1}`, descripcion: 'X', pedida: 1, recibida: 0 }));
+      sellInAPI.operacionProductos.mockResolvedValue({ data: { items } });
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await user.hover((await abrirLista(user, input))[1]);
+
+      expect(await screen.findByText('y 2 productos más')).toBeInTheDocument();
+      expect(within(screen.getByRole('tooltip')).getAllByRole('row')).toHaveLength(13); // header + 12
+    });
+
+    it('closes with the list', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await user.hover((await abrirLista(user, input))[1]);
+      await screen.findByRole('tooltip');
+
+      await user.keyboard('{Escape}');
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+
+    it('closes when the list or the page scrolls, since its position would go stale', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await user.hover((await abrirLista(user, input))[1]);
+      await screen.findByRole('tooltip');
+
+      fireEvent.scroll(screen.getByRole('listbox')); // scroll does not bubble: only a capture listener sees it
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+      await pausa();
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+
+    it('closes when the window is resized', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await user.hover((await abrirLista(user, input))[1]);
+      await screen.findByRole('tooltip');
+
+      fireEvent(window, new Event('resize'));
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+
+    it('after closing the list, resting on the same operation again measures it anew instead of reusing the old card', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      const opcion = (await abrirLista(user, input))[1];
+      await user.hover(opcion);
+      await screen.findByRole('tooltip');
+      await user.keyboard('{Escape}');
+
+      await user.hover((await abrirLista(user, input))[1]);
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument(); // not at once, with a stale position
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('N° 16');
+    });
+
+    it('reopening the list from the keyboard does not bring back the last hovered card', async () => {
+      const user = userEvent.setup();
+      const { input } = renderPicker();
+      await user.hover((await abrirLista(user, input))[1]);
+      await screen.findByRole('tooltip');
+      await user.keyboard('{Escape}');
+
+      await user.keyboard('{ArrowDown}');
+      await screen.findAllByRole('option');
+      await pausa();
+
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
   });
 });

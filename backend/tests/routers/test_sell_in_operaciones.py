@@ -403,3 +403,83 @@ def test_prefill_needs_gestionar(client, lector, proveedores, nuevo_pedido):
 
     assert _prefill(client, lector, p1.id).status_code == 403
     assert client.get(f"{BASE}/prefill", params={"pedido_compra_ids": [p1.id]}).status_code in (401, 403)
+
+
+# ── Products of one operation (the picker's hover popover, T3f) ─────
+
+
+def _productos(client, headers, pedido_id: int):
+    return client.get(f"{BASE}/operaciones/{pedido_id}/productos", headers=headers)
+
+
+def _recibidas(db, poh_id: int, por_linea: dict[int, str]) -> None:
+    for linea in db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.poh_id == poh_id):
+        linea.pod_confirmedqty = Decimal(por_linea.get(linea.pod_id, "0"))
+    db.flush()
+
+
+def test_productos_lists_ordered_and_received_units_per_product(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    pedido = nuevo_pedido(proveedores[0])
+    _oc(db, pedido, 9301, [(4513, "5"), (4512, "10"), (None, "3")])
+    _oc(db, pedido, 9302, [(4512, "2.4"), (9999, "1"), (8888, "0.2")])
+    _recibidas(db, 9301, {1: "2", 2: "10"})
+    _recibidas(db, 9302, {1: "0.5"})
+
+    resp = _productos(client, gestor, pedido.id)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "items": [
+            {"item_id": 4513, "codigo": "SW-16", "descripcion": "Switch 16 bocas", "pedida": 5, "recibida": 2},
+            {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch 8 bocas", "pedida": 12, "recibida": 11},
+            {"item_id": 9999, "codigo": None, "descripcion": None, "pedida": 1, "recibida": 0},
+        ]
+    }
+
+
+def test_productos_reads_the_header_link_and_is_empty_without_oc(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    sin_oc, por_cabecera = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    _oc(db, por_cabecera, 9303, [(4512, "4")], por_cabecera=True)
+
+    assert _productos(client, gestor, sin_oc.id).json() == {"items": []}
+    assert [i["item_id"] for i in _productos(client, gestor, por_cabecera.id).json()["items"]] == [4512]
+
+
+def test_productos_of_an_unknown_operation_is_a_404(client, gestor):
+    resp = _productos(client, gestor, 987654)
+
+    assert resp.status_code == 404
+    assert "987654" in _message(resp)
+
+
+def test_productos_needs_gestionar_like_the_picker(client, lector, proveedores, nuevo_pedido):
+    pedido = nuevo_pedido(proveedores[0])
+
+    assert _productos(client, lector, pedido.id).status_code == 403
+    assert client.get(f"{BASE}/operaciones/{pedido.id}/productos").status_code in (401, 403)
+
+
+def test_productos_query_count_does_not_grow_with_the_lines(client, gestor, productos, proveedores, nuevo_pedido, db):
+    from sqlalchemy import event
+
+    chico, grande = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    _oc(db, chico, 9304, [(4512, "1")])
+    _oc(db, grande, 9305, [(4512, "1"), (4513, "2")])
+    _oc(db, grande, 9306, [(4513, "1"), (4512, "3")])
+
+    def _contar(pedido_id: int) -> int:
+        sentencias: list[str] = []
+        registrar = lambda *args: sentencias.append(args[2])  # noqa: E731
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", registrar)
+        try:
+            assert _productos(client, gestor, pedido_id).status_code == 200
+        finally:
+            event.remove(engine, "before_cursor_execute", registrar)
+        return sum(1 for s in sentencias if "purchase_order_detail" in s or "productos_erp" in s)
+
+    assert _contar(grande.id) == _contar(chico.id) == 2

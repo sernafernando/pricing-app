@@ -211,6 +211,14 @@ export function operacionesFake(params = {}) {
   return Promise.resolve({ data: { items } });
 }
 
+/** `GET /sell-in/compras/operaciones/{id}/productos` (`SellInOperacionProductosOut`) of operation 16. */
+export const PRODUCTOS_OPERACION = {
+  items: [
+    { item_id: 4512, codigo: 'SW-8', descripcion: 'Switch 8 bocas', pedida: 12, recibida: 10 },
+    { item_id: 4513, codigo: 'SW-16', descripcion: 'Switch 16 bocas', pedida: 4, recibida: 0 },
+  ],
+};
+
 /* Brand bonus (`backend/app/schemas/sell_in_bonos.py`: `SellInBonoOut`, `SellInBonoListOut`, `SellInBonoAlcanceOut`). */
 export const BONO = {
   id: 3,

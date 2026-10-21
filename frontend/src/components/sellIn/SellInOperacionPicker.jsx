@@ -2,10 +2,12 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { sellInAPI } from '../../services/sellInAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import EstadoBadge from '../compras/_shared/EstadoBadge';
+import SellInOperacionProductos from './SellInOperacionProductos';
 import { formatMonto } from './sellInFormat';
 import styles from './SellInPanel.module.css';
 
 const DEBOUNCE_MS = 250;
+const HOVER_MS = 200; // a pointer sweeping the list asks for nothing; only the row it rests on
 
 const esExacta = (operacion, texto) =>
   String(operacion.id) === texto || operacion.numero.toLowerCase() === texto.toLowerCase();
@@ -19,6 +21,9 @@ const esExacta = (operacion, texto) =>
  *
  * `restriccion` ({ proveedorId, proveedorNombre, moneda }) narrows the search server-side to the
  * operations a sell in may still combine (one supplier, one currency); `excluir` are the linked ones.
+ *
+ * Resting the pointer on an option, or highlighting it with the arrow keys, shows a card with that
+ * operation's products (`SellInOperacionProductos`), fetched once per operation and kept while mounted.
  */
 export default function SellInOperacionPicker({ label, excluir, restriccion, deshabilitado = false, onPick }) {
   const id = useId();
@@ -31,6 +36,10 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
   const [error, setError] = useState(false);
   const textoRef = useRef(texto);
   textoRef.current = texto;
+  const [apuntada, setApuntada] = useState(null); // the option under the pointer, at once
+  const [mostrada, setMostrada] = useState(null); // { operacion, rect } once the pointer rested
+  const [productos, setProductos] = useState({}); // operation id -> { estado, items }
+  const pedidos = useRef(new Set());
 
   const parametros = (q) => ({
     q,
@@ -68,6 +77,8 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
   }, [abierto, texto, filtros]);
 
   const cerrar = () => {
+    setApuntada(null);
+    setMostrada(null); // a reopened list measures its options again
     setAbierto(false);
     setError(false);
     setCargado(false);
@@ -114,6 +125,46 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
 
   const mostrarLista = abierto && cargado && opciones.length > 0;
   const opcionId = (operacion) => `${id}-op-${operacion.id}`;
+  const cardId = `${id}-productos`;
+
+  const objetivo = !mostrarLista ? null : (apuntada ?? (activo >= 0 ? opciones[activo] : null));
+  const cargarProductos = (pedidoId) => {
+    if (pedidos.current.has(pedidoId)) return;
+    pedidos.current.add(pedidoId);
+    setProductos((prev) => ({ ...prev, [pedidoId]: { estado: 'cargando' } }));
+    Promise.resolve()
+      .then(() => sellInAPI.operacionProductos(pedidoId))
+      .then(({ data }) => setProductos((prev) => ({ ...prev, [pedidoId]: { estado: 'ok', items: data.items } })))
+      .catch(() => {
+        pedidos.current.delete(pedidoId); // the next rest on it tries again
+        setProductos((prev) => ({ ...prev, [pedidoId]: { estado: 'error' } }));
+      });
+  };
+  useEffect(() => {
+    if (!objetivo) return undefined;
+    const timer = setTimeout(() => {
+      const rect = document.getElementById(opcionId(objetivo))?.getBoundingClientRect();
+      setMostrada({ operacion: objetivo, rect });
+      cargarProductos(objetivo.id);
+    }, HOVER_MS);
+    return () => clearTimeout(timer);
+    // Only the operation matters: a new `opciones` array with the same target must not re-arm the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objetivo?.id]);
+  const card = objetivo && mostrada?.operacion.id === objetivo.id ? mostrada : null;
+  const hayCard = card !== null;
+  // The card's position is measured once, when it opens: any scroll (capture phase, so the list's own
+  // and the panel's count too) or resize would leave it stale, so it closes until the next rest.
+  useEffect(() => {
+    if (!hayCard) return undefined;
+    const ocultar = () => setMostrada(null);
+    window.addEventListener('scroll', ocultar, true);
+    window.addEventListener('resize', ocultar);
+    return () => {
+      window.removeEventListener('scroll', ocultar, true);
+      window.removeEventListener('resize', ocultar);
+    };
+  }, [hayCard]);
 
   return (
     <div className={styles.field}>
@@ -157,9 +208,12 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
               id={opcionId(operacion)}
               role="option"
               aria-selected={i === activo}
+              aria-describedby={card?.operacion.id === operacion.id ? cardId : undefined}
               className={`${styles.opcion} ${i === activo ? styles.opcionActiva : ''}`}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => elegir(operacion)}
+              onMouseEnter={() => setApuntada(operacion)}
+              onMouseLeave={() => setApuntada((prev) => (prev?.id === operacion.id ? null : prev))}
             >
               <span className={styles.opcionFila}>
                 <span>N° {operacion.id}</span>
@@ -175,6 +229,9 @@ export default function SellInOperacionPicker({ label, excluir, restriccion, des
             </li>
           ))}
         </ul>
+      )}
+      {card && (
+        <SellInOperacionProductos id={cardId} operacion={card.operacion} rect={card.rect} estado={productos[card.operacion.id]} />
       )}
     </div>
   );
