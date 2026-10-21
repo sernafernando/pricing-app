@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { buildMlItemUrl } from '../../utils/mlSidePanel';
@@ -7,6 +7,7 @@ import { describeLoadError } from './loadErrors';
 import MlSellerLinks from './MlSellerLinks';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelFooter from './panel/PanelFooter';
+import PanelShell from './panel/PanelShell';
 import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
@@ -89,10 +90,10 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
   const mlUrl = buildMlItemUrl(row?.permalink);
 
   return (
-    <div className={styles.panel}>
-      <header className={styles.header}>
-        <div className={styles.identity}>
-          {detail ? <h2 className={styles.title}>{row.title ?? 'Sin título'}</h2> : <h2 className={styles.title}>Publicación</h2>}
+    <PanelShell
+      title={detail ? (row.title ?? 'Sin título') : 'Publicación'}
+      meta={
+        <>
           <div className={styles.meta}>
             <span className={styles.itemId}>{itemId}</span>
             <CopyButton value={itemId} label="Copiar MLA" compact />
@@ -105,29 +106,14 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
               Ver en Mercado Libre
             </a>
           )}
-        </div>
-        <button type="button" className={styles.close} aria-label="Cerrar panel" onClick={onClose}>
-          <X size={16} aria-hidden="true" />
-        </button>
-      </header>
-
-      {status === 'loading' && (
-        <div className={styles.skeleton} role="status" aria-label="Cargando publicación" aria-busy="true">
-          {Array.from({ length: 6 }, (_, index) => (
-            <div key={index} className={styles.skeletonRow} />
-          ))}
-        </div>
-      )}
-
-      {status === 'error' && (
-        <div className={styles.error} role="alert">
-          <span>{describeError(error)}</span>
-          <button type="button" className="btn-tesla outline sm" onClick={reload}>
-            Reintentar
-          </button>
-        </div>
-      )}
-
+        </>
+      }
+      onClose={onClose}
+      loading={status === 'loading'}
+      loadingLabel="Cargando publicación"
+      error={status === 'error' ? describeError(error) : null}
+      onRetry={reload}
+    >
       {status === 'ready' && active && (
         <>
           <div ref={stripRef} className={styles.tabs} role="tablist" aria-label="Secciones de la publicación" onKeyDown={handleTabKeyDown}>
@@ -157,6 +143,6 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
       )}
 
       {status === 'ready' && <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} />}
-    </div>
+    </PanelShell>
   );
 }
