@@ -22,21 +22,32 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import sessionmaker
 
+from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty
 from app.services.sell import queue
 from app.services.sell_in import costing
 from app.workers.context import WorkerContext
 from app.workers.handlers import sell_drain
 from app.workers.handlers.sell_drain import drain as handler
 from app.workers.registry import REGISTRY
+from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _world as w
 
 D = date
 _PRODUCTS_OF = queue.products_of
 
 
+# The drain also queues the sell-out campaigns its lines can move (T7 S3).
+SELL_OUT_TABLES = [
+    t.__table__
+    for t in (OffsetGrupo, OffsetGrupoFiltro, SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty)
+]
+
+
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    with w.world("sell_drain") as engine:
+    with throwaway_schema("sell_drain", [*w.TABLES, *SELL_OUT_TABLES], w.STUBS, after=w._install) as engine:
         yield engine
 
 
@@ -64,6 +75,38 @@ class TestDrain:
         assert handler.name == "sell.drain"
         assert handler.channels == (queue.CHANNEL,) == ("sell_dirty",)
         assert handler.interval is None and handler.run_at_local is None
+
+    def test_a_drained_line_queues_the_sell_out_campaigns_it_can_move(self, engine: Engine) -> None:
+        with engine.begin() as conn:
+            grupo = conn.execute(text("INSERT INTO offset_grupos (nombre) VALUES ('G') RETURNING id")).scalar()
+            conn.execute(text("INSERT INTO offset_grupo_filtros (grupo_id, item_id) VALUES (:g, 2964)"), {"g": grupo})
+            campanas = [
+                conn.execute(
+                    text(
+                        "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, moneda, "
+                        "usuario_id) VALUES ('C', :d, :h, 'por_unidad', 10, 'ARS', 7) RETURNING id"
+                    ),
+                    {"d": desde, "h": hasta},
+                ).scalar()
+                for desde, hasta in ((D(2026, 10, 1), D(2026, 10, 31)), (D(2026, 11, 1), D(2026, 11, 30)))
+            ]
+            for cid in campanas:
+                conn.execute(
+                    text("INSERT INTO sell_out_campana_grupos (campana_id, grupo_id) VALUES (:c, :g)"),
+                    {"c": cid, "g": grupo},
+                )
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 16))
+        w.venta(engine, "tn", 950, 1, D(2026, 11, 2))  # a product no campaign reaches
+
+        _drain()
+
+        with engine.connect() as conn:
+            queued = [r[0] for r in conn.execute(text("SELECT campana_id FROM sell_out_dirty"))]
+            conn.execute(text("DELETE FROM sell_out_campanas"))
+            conn.execute(text("DELETE FROM offset_grupos"))
+            conn.commit()
+        assert queued == [campanas[0]]
+        assert w.queued(engine) == []
 
     def test_a_new_sale_is_allocated_and_leaves_the_queue(self, engine: Engine) -> None:
         [linea] = w.compra(engine, [(2964, 10, "250000.00")])

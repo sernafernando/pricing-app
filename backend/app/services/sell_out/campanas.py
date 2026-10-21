@@ -8,7 +8,10 @@ writes one audit row (`item_id` NULL, `campana_id` in the values).
 
 Consumption, the shared cap, stacking and the ARS conversion (including the
 current-BNA estimate of an `al_cobro` campaign whose rate is not set yet) are
-applied by the allocator (T7); this module only stores them. The payment rate
+applied by the allocator (T7); this module stores them and queues the campaign
+for the `sell_out.drain` rebuild in the same transaction (`queue`). An edit also
+queues the campaigns that shared products with it BEFORE the edit, since
+afterwards the rebuild no longer finds them. The payment rate
 of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 """
 
@@ -28,6 +31,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
 from app.schemas.sell_out import SellOutCampanaIn
 from app.services.sell_in.compras import contiene
+from app.services.sell_out import asignacion, queue
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
 _QUANTUM = {
@@ -203,6 +207,7 @@ def crear_campana(db: Session, data: SellOutCampanaIn, usuario_id: int) -> SellO
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, _valores(campana, grupo_ids))
+    queue.enqueue(db, [campana.id])
     db.commit()
     db.refresh(campana)
     return campana
@@ -222,8 +227,10 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
         return None
     grupo_ids = validar(db, data, campana)
     antes = _valores(campana, _grupo_ids(db, campana_id))
+    compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, _valores(campana, grupo_ids))
+    queue.enqueue(db, [campana_id, *compartian])
     db.commit()
     db.refresh(campana)
     return campana
@@ -238,6 +245,7 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
     _audit(
         db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, _valores(campana, _grupo_ids(db, campana_id)), motivo
     )
+    queue.enqueue(db, [campana_id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
     db.commit()
     db.refresh(campana)
     return campana
@@ -248,7 +256,7 @@ def definir_tipo_cambio(
 ) -> Optional[SellOutCampana]:
     """Set (or change) the rate of an `al_cobro` campaign when the brand pays, also after it ended.
 
-    None when it does not exist; `SellOutYaAnulada` when voided. Every change is audited; T7 recomputes.
+    None when it does not exist; `SellOutYaAnulada` when voided. Every change is audited and queued.
     """
     campana = _bloquear(db, campana_id)
     if campana is None:
@@ -262,6 +270,7 @@ def definir_tipo_cambio(
     campana.tipo_cambio = _a_escala("tipo_cambio", tipo_cambio)
     campana.tc_definido_en = datetime.now(timezone.utc)
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO, usuario_id, antes, _valores(campana, grupo_ids))
+    queue.enqueue(db, [campana_id])
     db.commit()
     db.refresh(campana)
     return campana

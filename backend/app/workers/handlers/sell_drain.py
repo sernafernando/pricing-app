@@ -30,7 +30,9 @@ they were, and the next wake retries them. A statement timeout (57014) is NOT
 transient: a product whose recompute always times out would otherwise stop the
 drain on every wake forever, so it is charged and parks like any bad line.
 
-Sell out (T7) will join step 3. Wired like `tp_cost.fill`:
+Step 3 also queues, set-based, the sell-out campaigns the lines can move
+(`app.services.sell_out.queue.enqueue_ventas`); `sell_out.drain` rebuilds them.
+Wired like `tp_cost.fill`:
 `channels=("sell_dirty",)` with no `interval`/`run_at_local`, so
 `WorkerRuntime.drain_once` runs it on every LISTEN wake and on every safety
 poll. On an empty queue that costs one query.
@@ -48,6 +50,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_background_db
 from app.services.sell import queue
 from app.services.sell_in.costing import RecomputeResult, get_costing
+from app.services.sell_out import queue as sell_out_queue
 from app.workers.context import JobResult, WorkerContext
 
 logger = logging.getLogger(__name__)
@@ -133,6 +136,8 @@ def _recompute_and_settle(
     the caller does, once its transaction committed."""
     products = queue.products_of(db, claimed)
     result = get_costing().recompute(db, set().union(*products.values()))
+    # Sell out (T7 S3): queue the campaigns these lines can move; its own worker rebuilds them.
+    sell_out_queue.enqueue_ventas(db, list(products))
     failed: Dict[queue.Line, str] = {
         line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(items & result.failed.keys()))
         for line, items in products.items()

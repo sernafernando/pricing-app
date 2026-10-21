@@ -114,6 +114,13 @@ def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana],
     return campanas, productos, sorted(vistas)
 
 
+def vinculadas(db: Session, campana_ids: Iterable[int]) -> List[int]:
+    """The given campaigns plus every active one sharing a product with them, transitively, in id order:
+    what `recalcular` would rebuild right now. A group edit captures it BEFORE the edit (S3)."""
+    ids = sorted({int(i) for i in campana_ids})
+    return _vinculadas(db, ids)[2] if ids else []
+
+
 def _tope(c: SellOutCampana) -> tope.Campana:
     return tope.Campana(
         tipo=c.tipo,

@@ -78,12 +78,8 @@ def _numero(columna, producto):
     return or_(func.coalesce(columna, 0) == 0, producto == columna)
 
 
-def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Optional[Decimal]]]:
-    """`{campana_id: {item_id: iva_pct}}` of the given campaigns, in ONE query; a campaign
-    reaching nothing is absent."""
-    ids = sorted({int(i) for i in campana_ids})
-    if not ids:
-        return {}
+def _alcanzados(db: Session, *columnas):
+    """`columnas` over every (campaign, product) pair a filter row of the campaign's groups reaches."""
     f, p = OffsetGrupoFiltro, ProductoERP
     algo = or_(
         func.coalesce(f.marca, "") != "",
@@ -98,10 +94,23 @@ def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Op
         _numero(f.subcategoria_id, p.subcategoria_id),
         _numero(f.item_id, p.item_id),
     )
-    rows = (
-        db.query(SellOutCampanaGrupo.campana_id, p.item_id, p.iva)
+    return (
+        db.query(*columnas)
+        .select_from(SellOutCampanaGrupo)
         .join(f, f.grupo_id == SellOutCampanaGrupo.grupo_id)
         .join(p, coincide)
+    )
+
+
+def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Optional[Decimal]]]:
+    """`{campana_id: {item_id: iva_pct}}` of the given campaigns, in ONE query; a campaign
+    reaching nothing is absent."""
+    ids = sorted({int(i) for i in campana_ids})
+    if not ids:
+        return {}
+    p = ProductoERP
+    rows = (
+        _alcanzados(db, SellOutCampanaGrupo.campana_id, p.item_id, p.iva)
         .filter(SellOutCampanaGrupo.campana_id.in_(ids))
         .distinct()
     )
@@ -109,6 +118,30 @@ def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Op
     for campana_id, item_id, iva in rows:
         salida[campana_id][item_id] = Decimal(str(iva)) if iva is not None else None
     return dict(salida)
+
+
+def campanas_por_venta(db: Session, ventas: Iterable[Tuple[int, date]]) -> Set[int]:
+    """The ACTIVE campaigns reaching some `(item_id, fecha)` sale inside their range, in ONE query
+    over the sales' products and overall dates (sell-out queue fan-out, T7 S3)."""
+    ventas = set(ventas)
+    if not ventas:
+        return set()
+    c, g = SellOutCampana, SellOutCampanaGrupo
+    rows = (
+        _alcanzados(db, c.id, ProductoERP.item_id, c.fecha_desde, c.fecha_hasta)
+        .join(c, c.id == g.campana_id)
+        .filter(
+            c.estado == "activa",
+            ProductoERP.item_id.in_(sorted({item for item, _ in ventas})),
+            c.fecha_desde <= max(dia for _, dia in ventas),
+            c.fecha_hasta >= min(dia for _, dia in ventas),
+        )
+        .distinct()
+    )
+    fechas: Dict[int, Set[date]] = defaultdict(set)
+    for item, dia in ventas:
+        fechas[item].add(dia)
+    return {cid for cid, item, desde, hasta in rows if any(desde <= dia <= hasta for dia in fechas[item])}
 
 
 def en_campana(campana: SellOutCampana, venta: Venta) -> bool:
