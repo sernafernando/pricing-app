@@ -1118,6 +1118,96 @@ describe('PanelRoles selected role in the matrix', () => {
     expect(soloDelRol()).not.toBeChecked();
   });
 
+  it('keeps a row the selected role just unchecked visible while the filter is on, marked as pending', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(celda('Ver productos', 'Ventas'));
+
+    expect(fila('Ver productos')).toBeInTheDocument();
+    expect(celda('Ver productos', 'Ventas')).not.toBeChecked();
+    expect(td('Ver productos', 'Ventas').className).toMatch(/pendiente/);
+    expect(soloDelRol()).toHaveAccessibleName('Solo los permisos de este rol (0)');
+
+    // Undo it from the same row: it is granted again and no longer pending.
+    await user.click(celda('Ver productos', 'Ventas'));
+    expect(celda('Ver productos', 'Ventas')).toBeChecked();
+    expect(td('Ver productos', 'Ventas').className).not.toMatch(/pendiente/);
+  });
+
+  describe('horizontal scroll to the selected column', () => {
+    // jsdom has no layout: fake one where the "Permiso" column is 260px wide, every role
+    // column 120px, the scroller 600px wide, and Ventas at 900px (off to the right).
+    const IZQUIERDA = { Permiso: 0, 'Super Admin': 260, Administrador: 380, Ventas: 900 };
+    let scrollLeft;
+    let scrollTo;
+
+    const nombreColumna = (el) => el.firstChild?.textContent;
+
+    beforeEach(() => {
+      scrollLeft = 0;
+      scrollTo = vi.fn();
+      Element.prototype.scrollTo = scrollTo;
+      Element.prototype.scrollIntoView = vi.fn();
+      vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+      vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function offsetLeft() {
+        return this.tagName === 'TH' ? IZQUIERDA[nombreColumna(this)] ?? 0 : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function offsetWidth() {
+        if (this.tagName !== 'TH') return 0;
+        return nombreColumna(this) === 'Permiso' ? 260 : 120;
+      });
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(600);
+      vi.spyOn(Element.prototype, 'scrollLeft', 'get').mockImplementation(() => scrollLeft);
+    });
+
+    afterEach(() => {
+      delete Element.prototype.scrollTo;
+      delete Element.prototype.scrollIntoView;
+    });
+
+    const scrollerDeLaTabla = () => tabla().parentElement;
+
+    it('scrolls the matrix right so a selected column past the right edge is visible', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+
+      await abrirRol(user, 'Ventas');
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollTo.mock.contexts[0]).toBe(scrollerDeLaTabla());
+      // Ventas ends at 1020px; the scroller shows 600px.
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 420 }));
+      expect(window.scrollTo).not.toHaveBeenCalled();
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('scrolls back left past the sticky permission column when switching to a hidden role', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+      await abrirRol(user, 'Ventas');
+      scrollLeft = 420;
+      scrollTo.mockClear();
+
+      await abrirRol(user, 'Administrador');
+
+      // Administrador starts at 380px, but the first 260px of the view are covered by "Permiso".
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 120 }));
+      expect(scrollTo.mock.contexts[0]).toBe(scrollerDeLaTabla());
+    });
+
+    it('does not scroll when the selected column is already visible', async () => {
+      const user = userEvent.setup();
+      await renderMatriz();
+
+      await abrirRol(user, 'Administrador');
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+  });
+
   it('turns the filter on from the permission count in the role detail', async () => {
     const user = userEvent.setup();
     await renderMatriz();

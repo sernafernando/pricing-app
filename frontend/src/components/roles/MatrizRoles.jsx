@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import SearchInput from '../SearchInput';
 import { nombreCategoria } from '../../registry/screenCatalog';
 import { normalizar } from '../../registry/permisosAcceso';
@@ -24,6 +24,22 @@ function claseCelda({ pendiente, seleccionada, concedida }) {
   ].filter(Boolean).join(' ');
 }
 
+/**
+ * Scrolls `scroller` horizontally (never the page) so the selected header is in
+ * view, clear of the sticky "Permiso" column on the left. No-op when visible.
+ */
+function mostrarColumnaSeleccionada(scroller) {
+  const th = scroller?.querySelector('th[aria-current="true"]');
+  if (!th) return;
+  const fija = scroller.querySelector('thead th')?.offsetWidth ?? 0;
+  const inicio = th.offsetLeft - fija;
+  const fin = th.offsetLeft + th.offsetWidth;
+  let left = null;
+  if (inicio < scroller.scrollLeft) left = inicio;
+  else if (fin > scroller.scrollLeft + scroller.clientWidth) left = fin - scroller.clientWidth;
+  if (left !== null && typeof scroller.scrollTo === 'function') scroller.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+}
+
 function mensajeVacio(q, soloDelRol) {
   if (q) return 'No hay permisos que coincidan.';
   if (soloDelRol) return 'Este rol no tiene permisos.';
@@ -45,6 +61,12 @@ export default function MatrizRoles({
   rolSeleccionado = null, soloDelRol = false, onSoloDelRolChange,
 }) {
   const [busqueda, setBusqueda] = useState('');
+  const scrollRef = useRef(null);
+  const rolSeleccionadoId = rolSeleccionado?.id ?? null;
+
+  useEffect(() => {
+    if (rolSeleccionadoId !== null) mostrarColumnaSeleccionada(scrollRef.current);
+  }, [rolSeleccionadoId]);
 
   // A role whose permissions are unknown cannot be filtered by them.
   const filtrable = rolSeleccionado !== null && !sinCargar(rolSeleccionado);
@@ -59,7 +81,10 @@ export default function MatrizRoles({
     .map(([categoria, permisos]) => ({
       categoria,
       nombre: nombreCategoria(categoria),
-      visibles: (permisos || []).filter((p) => coincide(p, q) && (!filtrando || delRol(p))),
+      // A row the role has a pending change on stays while filtering, so an uncheck can be seen and undone.
+      visibles: (permisos || []).filter(
+        (p) => coincide(p, q) && (!filtrando || delRol(p) || esPendiente(rolSeleccionado, p.codigo)),
+      ),
     }))
     .filter((grupo) => grupo.visibles.length > 0);
 
@@ -88,7 +113,7 @@ export default function MatrizRoles({
       {grupos.length === 0 ? (
         <div className={styles.vacio}>{mensajeVacio(q, filtrando)}</div>
       ) : (
-        <div className={styles.scroll}>
+        <div ref={scrollRef} className={styles.scroll}>
           <table className={styles.tabla} aria-label="Matriz de roles y permisos">
             <thead>
               <tr>
@@ -114,7 +139,7 @@ export default function MatrizRoles({
               <tbody key={grupo.categoria}>
                 <tr>
                   <th scope="colgroup" colSpan={roles.length + 1} className={styles.categoria}>
-                    {grupo.nombre}
+                    <span className={styles.categoriaEtiqueta}>{grupo.nombre}</span>
                   </th>
                 </tr>
                 {grupo.visibles.map((permiso) => (
