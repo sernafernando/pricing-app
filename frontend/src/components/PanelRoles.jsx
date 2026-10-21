@@ -301,7 +301,6 @@ export default function PanelRoles() {
 
       mostrarMensaje({ tipo: 'success', texto: 'Rol eliminado correctamente' });
       setRolAbiertoId((abierto) => (abierto === rol.id ? null : abierto));
-      if (rolAbiertoId === rol.id) setSoloDelRol(false);
       setPendientes((prev) => Object.fromEntries(Object.entries(prev).filter(([rolId]) => rolId !== String(rol.id))));
       cargarDatos();
     } catch (error) {
@@ -364,7 +363,6 @@ export default function PanelRoles() {
 
   const abrirNuevoRol = () => {
     setRolAbiertoId(null);
-    setSoloDelRol(false);
     setEditandoRol(null);
     setFormRol({ ...FORM_ROL_VACIO, orden: roles.length });
     setMostrarFormRol(true);
@@ -377,8 +375,11 @@ export default function PanelRoles() {
     if (!puedeCerrarDrawer) return;
     cerrarFormRol();
     setRolAbiertoId(null);
-    setSoloDelRol(false);
   };
+
+  // The role filter turns off whenever no role is open, whatever closed it (drawer, + Nuevo Rol, a
+  // delete): derived from the current rolAbiertoId in render, never from a value a handler captured.
+  if (soloDelRol && rolAbiertoId === null) setSoloDelRol(false);
 
   const rolAbierto = roles.find((rol) => rol.id === rolAbiertoId) ?? null;
   const drawerAbierto = mostrarFormRol || rolAbierto !== null;

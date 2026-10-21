@@ -1137,6 +1137,72 @@ describe('PanelRoles selected role in the matrix', () => {
     expect(td('Ver productos', 'Ventas').className).not.toMatch(/pendiente/);
   });
 
+  it('turns the filter off after deleting the open role, also when a role switch is tried mid-delete', async () => {
+    const { promesa, resolver } = diferido();
+    api.delete.mockReturnValueOnce(promesa);
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(screen.getByRole('button', { name: 'Eliminar rol' }));
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }));
+    // The cards are locked while the DELETE is in flight, so the deleted role stays the open one.
+    expect(tarjeta('Administrador')).toBeDisabled();
+    await user.click(tarjeta('Administrador'));
+    expect(drawer('Ventas')).toBeInTheDocument();
+
+    await act(async () => resolver({ data: {} }));
+    expect(await screen.findByText('Rol eliminado correctamente')).toBeInTheDocument();
+
+    expect(queryDrawer()).not.toBeInTheDocument();
+    expect(soloDelRol()).not.toBeInTheDocument();
+    await abrirRol(user, 'Administrador');
+    expect(soloDelRol()).not.toBeChecked();
+    expect(fila('Editar precios')).toBeInTheDocument();
+  });
+
+  it('brings the toggle back unchecked when a role is reopened after + Nuevo Rol', async () => {
+    const user = userEvent.setup();
+    await renderMatriz();
+
+    await abrirRol(user, 'Ventas');
+    await user.click(soloDelRol());
+    await user.click(screen.getByRole('button', { name: '+ Nuevo Rol' }));
+    expect(soloDelRol()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeChecked();
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+  });
+
+  it('never filters by a role whose permissions failed to load, and keeps the filter for loaded roles', async () => {
+    const user = userEvent.setup();
+    servidorConEstado({ fallaGet: (rolId) => rolId === 3 });
+    await renderPanel();
+    expect(await screen.findByText('No se pudieron cargar los permisos de: Ventas')).toBeInTheDocument();
+
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(fila('Editar precios')).toBeInTheDocument();
+    expect(fila('Ver panel de administración')).toBeInTheDocument();
+
+    // Loaded role with the filter on, then the unloaded one: no toggle and every row shown.
+    await abrirRol(user, 'Administrador');
+    await user.click(soloDelRol());
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+    await abrirRol(user, 'Ventas');
+    expect(soloDelRol()).not.toBeInTheDocument();
+    expect(fila('Editar precios')).toBeInTheDocument();
+    expect(fila('Ver productos')).toBeInTheDocument();
+
+    // Back to a loaded role: the filter is still on (it stays on across role switches).
+    await abrirRol(user, 'Administrador');
+    expect(soloDelRol()).toBeChecked();
+    expect(fila('Editar precios')).not.toBeInTheDocument();
+  });
+
   describe('horizontal scroll to the selected column', () => {
     // jsdom has no layout: fake the live rects. The scroller sits at x=100 and shows 600px;
     // "Permiso" is sticky (always 100..360); role columns are 120px wide at these content
