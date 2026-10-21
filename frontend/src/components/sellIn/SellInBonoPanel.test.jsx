@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { sellInBonosAPI } from '../../services/sellInAPI';
-import { BONO, BONO_ANULADO } from './sellInFixtures';
+import { ALCANCE, ALCANCE_VACIO, BONO, BONO_ANULADO } from './sellInFixtures';
 import SellInBonoPanel from './SellInBonoPanel';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInBonosAPI: { detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
+  sellInBonosAPI: { detalle: vi.fn(), alcance: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
 }));
 
 const MARCAS = ['MERCUSYS', 'TP-LINK'];
@@ -15,13 +15,14 @@ const apiError = (status, message) => Object.assign(new Error(message), { respon
 beforeEach(() => {
   vi.clearAllMocks();
   sellInBonosAPI.detalle.mockResolvedValue({ data: BONO });
+  sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE });
   sellInBonosAPI.crear.mockResolvedValue({ data: { ...BONO, id: 9 } });
   sellInBonosAPI.editar.mockResolvedValue({ data: { ...BONO, monto_unit: '4.00' } });
   sellInBonosAPI.anular.mockResolvedValue({ data: { ...BONO, estado: 'anulada' } });
 });
 
 const renderPanel = (props = {}) => {
-  const handlers = { onSaved: vi.fn(), onClose: vi.fn() };
+  const handlers = { onSaved: vi.fn(), onClose: vi.fn(), onVerCompra: vi.fn() };
   render(<SellInBonoPanel bonoId={3} marcas={MARCAS} puedeGestionar {...handlers} {...props} />);
   return handlers;
 };
@@ -96,16 +97,43 @@ describe('SellInBonoPanel — new bonus', () => {
 });
 
 describe('SellInBonoPanel — existing bonus', () => {
-  it('loads the bonus with what it generated so far', async () => {
+  it('loads the bonus and what it reaches, with the three groups and their counts', async () => {
     renderPanel();
     expect(await screen.findByRole('heading', { name: 'Bono TP-Link USD 3/u' })).toBeInTheDocument();
     expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(3);
+    expect(sellInBonosAPI.alcance).toHaveBeenCalledWith(3);
     expect(screen.getByText('Bono de marca')).toBeInTheDocument();
     expect(screen.getByText('18 compras · 1.040 u · USD 3.120,00 aplicados')).toBeInTheDocument();
-    expect(screen.getByLabelText('Marca')).toHaveValue('TP-LINK');
+
+    const alcanzadas = await screen.findByRole('region', { name: 'Compras alcanzadas (18)' });
+    expect(within(alcanzadas).getByText('Mostrando 1 de 18')).toBeInTheDocument();
+    const fila = within(alcanzadas).getByText('OC-2026-01722').closest('tr');
+    expect(within(fila).getByText('A-0003-00045871')).toBeInTheDocument();
+    expect(within(fila).getByText('80')).toBeInTheDocument();
+    expect(within(fila).getByText('USD 240,00')).toBeInTheDocument();
+
+    const pendientes = screen.getByRole('region', { name: 'Pendientes de factura (1)' });
+    expect(within(pendientes).getByText(/OC-2026-01890/)).toHaveTextContent('OC-2026-01890 · Global Tech · Nro. A-0007-00012233 · 120 u');
+
+    const fuera = screen.getByRole('region', { name: 'Fuera de rango (1)' });
+    expect(within(fuera).getByText(/OC-2026-01650/)).toHaveTextContent('OC-2026-01650 · TP-Link Argentina · factura 28/08/2026 · 15 u');
   });
 
-  it('saves an edit as a full replace', async () => {
+  it('says so when a group is empty', async () => {
+    sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE_VACIO });
+    renderPanel();
+    const alcanzadas = await screen.findByRole('region', { name: 'Compras alcanzadas (0)' });
+    expect(within(alcanzadas).getByText('Todavía no alcanzó ninguna compra.')).toBeInTheDocument();
+  });
+
+  it('opens a reached purchase', async () => {
+    const user = userEvent.setup();
+    const { onVerCompra } = renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'OC-2026-01722' }));
+    expect(onVerCompra).toHaveBeenCalledWith(41);
+  });
+
+  it('saves an edit as a full replace and reloads what it reaches', async () => {
     const user = userEvent.setup();
     const { onSaved } = renderPanel();
     const monto = await screen.findByLabelText('Monto por unidad');
@@ -121,6 +149,7 @@ describe('SellInBonoPanel — existing bonus', () => {
       descripcion: 'Bono TP-Link USD 3/u',
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...BONO, monto_unit: '4.00' }));
+    expect(sellInBonosAPI.alcance).toHaveBeenCalledTimes(2);
   });
 
   it('shows the backend message inline when an edit is refused', async () => {

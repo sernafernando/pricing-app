@@ -94,10 +94,21 @@
   color: var(--cf-text-tertiary);
 }
 
-/* "Bono de marca" badge under the description of a generated purchase. */
+/* "Bono de marca" badge and its link, under the description of a generated purchase. */
 .origen {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-1);
+}
+
+.link {
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
 }

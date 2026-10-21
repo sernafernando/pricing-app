@@ -24,6 +24,6 @@ export default function SellInNuevoPanel({ marcas, onCreated, onBonoCreado, onCl
   return modo === 'compra' ? (
     <SellInCreatePanel onCreated={onCreated} onClose={onClose} modoSwitch={modoSwitch} />
   ) : (
-    <SellInBonoPanel marcas={marcas} puedeGestionar onSaved={onBonoCreado} onClose={onClose} modoSwitch={modoSwitch} />
+    <SellInBonoPanel marcas={marcas} puedeGestionar onSaved={onBonoCreado} onClose={onClose} onVerCompra={() => {}} modoSwitch={modoSwitch} />
   );
 }

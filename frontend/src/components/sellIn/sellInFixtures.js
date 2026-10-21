@@ -211,19 +211,7 @@ export function operacionesFake(params = {}) {
   return Promise.resolve({ data: { items } });
 }
 
-/** A sell in a brand bonus generated (`origen = 'bono_marca'`): only its bonus changes or voids it. */
-export const COMPRA_BONO = {
-  ...COMPRA_ARS,
-  id: 41,
-  descripcion: 'Bono de marca TP-LINK (bono 3)',
-  moneda: 'USD',
-  tipo_cambio: '1450.000000',
-  formula: 'por_unidad',
-  origen: 'bono_marca',
-  bono_id: 3,
-};
-
-/* Brand bonus (`backend/app/schemas/sell_in_bonos.py`: `SellInBonoOut`, `SellInBonoListOut`). */
+/* Brand bonus (`backend/app/schemas/sell_in_bonos.py`: `SellInBonoOut`, `SellInBonoListOut`, `SellInBonoAlcanceOut`). */
 export const BONO = {
   id: 3,
   marca: 'TP-LINK',
@@ -244,3 +232,54 @@ export const BONO = {
 export const BONO_ANULADO = { ...BONO, id: 4, estado: 'anulada', descripcion: 'Bono anulado', compras_activas: 0, unidades: 0, monto_generado: '0.00' };
 
 export const BONOS_LISTA = { items: [BONO, BONO_ANULADO], total: 2, page: 1, page_size: 10 };
+
+export const ALCANCE = {
+  limite: 20,
+  alcanzadas: {
+    total: 18,
+    items: [
+      {
+        compra_id: 41,
+        pedido_id: 1722,
+        numero: 'OC-2026-01722',
+        proveedor_nombre: 'Distribuidora Mayorista',
+        numero_factura: 'A-0003-00045871',
+        fecha_factura: '2026-09-02',
+        unidades: 80,
+        monto: '240.00',
+        moneda: 'USD',
+      },
+    ],
+  },
+  pendientes: {
+    total: 1,
+    items: [
+      { pedido_id: 1890, numero: 'OC-2026-01890', proveedor_nombre: 'Global Tech', numero_factura: 'A-0007-00012233', fecha_factura: null, unidades: 120 },
+    ],
+  },
+  fuera_de_rango: {
+    total: 1,
+    items: [
+      { pedido_id: 1650, numero: 'OC-2026-01650', proveedor_nombre: 'TP-Link Argentina', numero_factura: null, fecha_factura: '2026-08-28', unidades: 15 },
+    ],
+  },
+};
+
+export const ALCANCE_VACIO = {
+  limite: 20,
+  alcanzadas: { total: 0, items: [] },
+  pendientes: { total: 0, items: [] },
+  fuera_de_rango: { total: 0, items: [] },
+};
+
+/** A sell in the worker generated for `BONO` (only the bonus changes or voids it). */
+export const COMPRA_BONO = {
+  ...COMPRA_ARS,
+  id: 41,
+  descripcion: 'Bono de marca TP-LINK (bono 3)',
+  moneda: 'USD',
+  tipo_cambio: '1450.000000',
+  formula: 'por_unidad',
+  origen: 'bono_marca',
+  bono_id: 3,
+};

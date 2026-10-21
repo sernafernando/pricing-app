@@ -11,9 +11,9 @@ const COLUMNS = 9;
 /**
  * The sell-in purchases list. The chevron opens a row into its lines; a click
  * elsewhere on the row selects it (`onSelect`, the detail panel). A purchase a
- * brand bonus generated carries a "Bono de marca" badge.
+ * brand bonus generated carries a "Bono de marca" badge and links to its bonus (`onVerBono`).
  */
-export default function SellInTable({ compras, selectedId, onSelect }) {
+export default function SellInTable({ compras, selectedId, onSelect, onVerBono }) {
   const [abiertas, setAbiertas] = useState(() => new Set());
   const toggle = (id) =>
     setAbiertas((prev) => {
@@ -68,6 +68,11 @@ export default function SellInTable({ compras, selectedId, onSelect }) {
                     {compra.origen === 'bono_marca' && (
                       <div className={styles.origen}>
                         <StatusPill tone="purple">Bono de marca</StatusPill>
+                        {onVerBono && (
+                          <button type="button" className={styles.link} onClick={() => onVerBono(compra.bono_id)}>
+                            {`Ver bono #${compra.bono_id}`}
+                          </button>
+                        )}
                       </div>
                     )}
                   </td>
