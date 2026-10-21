@@ -3,8 +3,8 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
-import { sellInAPI } from '../services/sellInAPI';
-import { COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
+import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
+import { BONO, BONOS_LISTA, COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
 import SellIn from './SellIn';
 
 vi.mock('../services/sellInAPI', () => ({
@@ -14,6 +14,13 @@ vi.mock('../services/sellInAPI', () => ({
     detalle: vi.fn(),
     preview: vi.fn(),
     crear: vi.fn(),
+    anular: vi.fn(),
+  },
+  sellInBonosAPI: {
+    listar: vi.fn(),
+    detalle: vi.fn(),
+    crear: vi.fn(),
+    editar: vi.fn(),
     anular: vi.fn(),
   },
 }));
@@ -32,6 +39,8 @@ beforeEach(() => {
   sellInAPI.listar.mockResolvedValue({ data: LISTA });
   sellInAPI.resumen.mockResolvedValue({ data: RESUMEN });
   productosAPI.marcas.mockResolvedValue({ data: { marcas: ['Mercusys', 'TP-Link'] } });
+  sellInBonosAPI.listar.mockResolvedValue({ data: BONOS_LISTA });
+  sellInBonosAPI.detalle.mockResolvedValue({ data: BONO });
 });
 
 describe('SellIn page — list', () => {
@@ -154,6 +163,51 @@ describe('SellIn page — list', () => {
     sellInAPI.listar.mockRejectedValue({ response: { status: 500, data: { detail: 'boom' } } });
     renderWithRouter(<SellIn />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los sell in.');
+  });
+});
+
+describe('SellIn page — brand bonuses', () => {
+  it('"Actualizar" reloads the brand bonuses too', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByRole('region', { name: 'Bonos de marca' });
+    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('lists the brand bonuses with what they generated, and opens one in the side panel', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    const bonos = await screen.findByRole('region', { name: 'Bonos de marca' });
+    const fila = (await within(bonos).findByText('Bono TP-Link USD 3/u')).closest('tr');
+    expect(sellInBonosAPI.listar).toHaveBeenCalledWith({ page: 1, page_size: 10 });
+    expect(within(fila).getByText('TP-LINK')).toBeInTheDocument();
+    expect(within(fila).getByText('USD 3,00 / u')).toBeInTheDocument();
+    expect(within(fila).getByText('18 compras · 1.040 u')).toBeInTheDocument();
+    expect(within(fila).getByText('Activo')).toBeInTheDocument();
+    await user.click(within(fila).getByRole('button', { name: 'Ver bono' }));
+    const panel = screen.getByRole('complementary', { name: 'Bono de marca' });
+    expect(await within(panel).findByRole('heading', { name: 'Bono TP-Link USD 3/u' })).toBeInTheDocument();
+    expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(3);
+  });
+
+  it('a bonus created from the switch opens in the panel and the bonus list reloads', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.crear.mockResolvedValue({ data: BONO });
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await waitFor(() => expect(screen.getByRole('option', { name: 'TP-Link' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /Nuevo sell in/ }));
+    const panel = screen.getByRole('complementary', { name: 'Nuevo sell in' });
+    await user.click(within(panel).getByRole('button', { name: 'Bono de marca' }));
+    await user.selectOptions(within(panel).getByLabelText('Marca'), 'TP-Link');
+    await user.type(within(panel).getByLabelText('Monto por unidad'), '3');
+    await user.type(within(panel).getByLabelText('Factura desde'), '2026-09-01');
+    await user.type(within(panel).getByLabelText('Factura hasta'), '2026-11-30');
+    await user.click(within(panel).getByRole('button', { name: 'Guardar bono' }));
+    expect(await screen.findByRole('complementary', { name: 'Bono de marca' })).toBeInTheDocument();
+    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(2));
   });
 });
 

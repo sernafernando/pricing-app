@@ -311,3 +311,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* "Por compra | Bono de marca" switch under the "Nuevo sell in" header. */
+.modoSwitch {
+  padding: var(--space-3) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}

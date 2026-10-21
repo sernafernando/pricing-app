@@ -10,8 +10,8 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { setTheme } from './visualHelpers';
 import SellIn from '../../pages/SellIn';
-import { sellInAPI } from '../../services/sellInAPI';
-import { LISTA, RESUMEN } from '../../components/sellIn/sellInFixtures';
+import { sellInAPI, sellInBonosAPI } from '../../services/sellInAPI';
+import { BONOS_LISTA, LISTA, RESUMEN } from '../../components/sellIn/sellInFixtures';
 
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
@@ -33,11 +33,13 @@ vi.mock('../../services/sellInAPI', () => ({
     anular: vi.fn(),
     proveedores: vi.fn(),
   },
+  sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
 }));
 
 beforeEach(() => {
   sellInAPI.listar.mockResolvedValue({ data: LISTA });
   sellInAPI.resumen.mockResolvedValue({ data: RESUMEN });
+  sellInBonosAPI.listar.mockResolvedValue({ data: BONOS_LISTA });
 });
 
 const Shell = ({ children }) => (

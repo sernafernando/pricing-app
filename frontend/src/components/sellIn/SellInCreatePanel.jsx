@@ -46,8 +46,9 @@ const buscarProveedores = (search) =>
  * (supplier, receipt date, products); removing every operation clears what
  * they filled. Typed products are replaced only after an inline confirmation,
  * and the operations' currency is only offered, since a sell in keeps its own.
+ * `modoSwitch` (the "Por compra | Bono de marca" switch) renders under the header.
  */
-export default function SellInCreatePanel({ onCreated, onClose }) {
+export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = null }) {
   const id = useId();
   const [datos, setDatos] = useState({ fechaCompra: toLocalDateString(), fechaIngreso: '', cuentaDesde: 'compra', descripcion: '' });
   const [proveedor, setProveedor] = useState(null);
@@ -263,6 +264,7 @@ export default function SellInCreatePanel({ onCreated, onClose }) {
           <X size={18} />
         </button>
       </header>
+      {modoSwitch}
 
       <div className={styles.panelBody}>
         <section className={styles.section}>
