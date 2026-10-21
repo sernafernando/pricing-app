@@ -212,6 +212,16 @@ def _listener(engine):
     return raw
 
 
+def _close_listener(raw) -> None:
+    """Discard, never pool, the listener: `raw.close()` returned it to the
+    engine's pool still in driver-level autocommit (SQLAlchemy's reset-on-return
+    does not undo `set_isolation_level`), so the next `pg_orders_ops_db` got it
+    and its `connection.begin()` no longer wrapped anything -- every flush was
+    committed for real and leaked into later tests (e.g. `UniqueViolation` in
+    `test_activity_receiver_shipments_postgres.py`)."""
+    raw.invalidate()
+
+
 def _notified(raw, timeout: float = 1.0) -> bool:
     conn = raw.driver_connection
     select.select([conn], [], [], timeout)
@@ -246,7 +256,7 @@ class TestQuarantineWakesTheRetryWorker:
             self._quarantine(pg_orders_ops_engine, 3001, commit=True)
             assert _notified(raw) is True
         finally:
-            raw.close()
+            _close_listener(raw)
             self._cleanup(pg_orders_ops_engine, 3001)
 
     def test_a_rolled_back_quarantine_notifies_nothing(self, pg_orders_ops_engine):
@@ -255,5 +265,5 @@ class TestQuarantineWakesTheRetryWorker:
             self._quarantine(pg_orders_ops_engine, 3002, commit=False)
             assert _notified(raw, timeout=0.3) is False
         finally:
-            raw.close()
+            _close_listener(raw)
             self._cleanup(pg_orders_ops_engine, 3002)

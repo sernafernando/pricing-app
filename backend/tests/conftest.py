@@ -506,7 +506,7 @@ def pg_tickets_db(pg_tickets_engine):
 
 
 @pytest.fixture(scope="session")
-def pg_payments_engine():
+def _pg_payments_session():
     """Session-scoped PostgreSQL engine with only `ml_payments_ops` and
     `ml_payment_charges` (ml-ventas-desglose-costos corte 5, post-review
     fix): the duplicate `(name, type)` `ON CONFLICT DO UPDATE` crash this
@@ -525,18 +525,21 @@ def pg_payments_engine():
     from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
 
     tables = [_MlPaymentOps.__table__, _MlPaymentCharge.__table__]
-    # Real BigInteger PKs, not the SQLite-patched Integer (see
-    # `_restore_pristine_pg_types`): this table lives for the whole session
-    # and other Postgres fixtures (`board_pg_engine`) reuse it instead of
-    # creating their own, so an INTEGER `payment_id` built here overflows
-    # their seeds -- order- and xdist-worker-dependent.
-    _restore_pristine_pg_types(tables)
     eng = create_engine(POSTGRES_TEST_URL)
-    Base.metadata.create_all(bind=eng, tables=tables)
-    # Leave the shared Column objects patched for SQLite again, in case the
-    # `db` fixture is used by a later test in this same session.
-    _patch_pg_types_for_sqlite()
-    yield eng
+
+    def ensure_tables() -> None:
+        # Real BigInteger PKs, not the SQLite-patched Integer (see
+        # `_restore_pristine_pg_types`): this table lives for the whole session
+        # and other Postgres fixtures (`board_pg_engine`) reuse it instead of
+        # creating their own, so an INTEGER `payment_id` built here overflows
+        # their seeds -- order- and xdist-worker-dependent.
+        _restore_pristine_pg_types(tables)
+        Base.metadata.create_all(bind=eng, tables=tables)
+        # Leave the shared Column objects patched for SQLite again, in case the
+        # `db` fixture is used by a later test in this same session.
+        _patch_pg_types_for_sqlite()
+
+    yield eng, ensure_tables
     # Per-`Table.drop()`, NOT `Base.metadata.drop_all(tables=...)`: the
     # metadata-level drop still fires every native ENUM's `after_drop` hook on
     # the WHOLE shared `Base.metadata`, so it issued `DROP TYPE rolusuario`
@@ -545,6 +548,17 @@ def pg_payments_engine():
     for table in reversed(tables):
         table.drop(bind=eng, checkfirst=True)
     eng.dispose()
+
+
+@pytest.fixture()
+def pg_payments_engine(_pg_payments_session):
+    """The session engine, with its tables (re)created if missing: the
+    module-scoped `pg_order_metrics*` fixtures drop `ml_payments_ops`/
+    `ml_payment_charges` on teardown, so a later user on the same xdist worker
+    would otherwise find them gone."""
+    eng, ensure_tables = _pg_payments_session
+    ensure_tables()
+    return eng
 
 
 @pytest.fixture()
@@ -561,7 +575,7 @@ def pg_payments_db(pg_payments_engine):
 
 
 @pytest.fixture(scope="session")
-def pg_orders_ops_engine():
+def _pg_orders_ops_session():
     """Session-scoped PostgreSQL engine with `ml_orders_ops`,
     `ml_order_items_ops`, `ml_orders_ops_cuarentena` and
     `ml_ops_divergence` (2026-09-14 incident, quarantine isolation).
@@ -624,14 +638,33 @@ def pg_orders_ops_engine():
     # Integer: see `_restore_pristine_pg_types`. The divergence mirror above
     # copies its columns from the ORM table, none of which is a BigInteger PK
     # that the SQLite patch rewrites except `id`, which is a serial either way.
-    _restore_pristine_pg_types(own_tables)
     eng = create_engine(POSTGRES_TEST_URL)
-    Base.metadata.create_all(bind=eng, tables=own_tables)
-    local_metadata.create_all(bind=eng)
-    yield eng
+
+    def ensure_tables() -> None:
+        _restore_pristine_pg_types(own_tables)
+        Base.metadata.create_all(bind=eng, tables=own_tables)
+        local_metadata.create_all(bind=eng)
+        # Re-patch for SQLite, as `pg_payments_engine` does: this now runs on
+        # every use, so it must not leave the shared Columns un-patched.
+        _patch_pg_types_for_sqlite()
+
+    yield eng, ensure_tables
     local_metadata.drop_all(bind=eng)
-    Base.metadata.drop_all(bind=eng, tables=own_tables)
+    # Per-`Table.drop()`, NOT `Base.metadata.drop_all(tables=...)`: same
+    # `DROP TYPE rolusuario` hazard as `pg_payments_engine`'s teardown, while
+    # `pg_tickets_engine`'s `usuarios` is still alive on the same worker.
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
     eng.dispose()
+
+
+@pytest.fixture()
+def pg_orders_ops_engine(_pg_orders_ops_session):
+    """The session engine, with its tables (re)created if missing -- same
+    module-teardown race as `pg_payments_engine`, for `ml_orders_ops`."""
+    eng, ensure_tables = _pg_orders_ops_session
+    ensure_tables()
+    return eng
 
 
 @pytest.fixture()
