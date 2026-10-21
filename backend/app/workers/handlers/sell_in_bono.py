@@ -117,7 +117,8 @@ class SellInBonoHandler:
                 detail["actualizadas"] += result.actualizadas
                 detail["anuladas"] += result.anuladas
             if failed:
-                logger.warning("sell_in.bono: %s key(s) failed: %s", len(failed), failed)
+                # Keys only: each key's (capped) error was already logged where it failed.
+                logger.warning("sell_in.bono: %s key(s) failed: %s", len(failed), sorted(failed))
             if stopped or len(claimed) < bono_queue.BATCH_SIZE:
                 break
         return JobResult(success=True, detail=detail)
