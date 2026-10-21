@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import random
+from datetime import date, timedelta
 from decimal import Decimal as D
 
 import pytest
@@ -103,6 +104,26 @@ def test_a_return_of_a_product_nobody_holds_frees_nothing() -> None:
     assert _filas(asignar(_campana(tope_unidades=2), lineas)) == [("ml", 1, 2, D("20.00"))]
 
 
+def test_a_return_whose_target_is_another_product_frees_its_own_product() -> None:
+    lineas = [
+        _linea(1, 2, dia=1, item=1),
+        _linea(2, 2, dia=2, item=2),
+        _linea(3, -1, dia=3, item=1, objetivo=("ml", 2)),
+    ]
+    assert _filas(asignar(_campana(), lineas)) == [("ml", 1, 1, D("10.00")), ("ml", 2, 2, D("20.00"))]
+
+
+def test_a_return_whose_target_holds_nothing_here_frees_the_latest_holder() -> None:
+    # Ref 2 got nothing (cap reached), so its return frees ref 1, and ref 4 takes the unit.
+    lineas = [
+        _linea(1, 2, dia=1),
+        _linea(2, 2, dia=2),
+        _linea(3, -1, dia=3, objetivo=("ml", 2)),
+        _linea(4, 1, dia=4),
+    ]
+    assert _filas(asignar(_campana(tope_unidades=2), lineas)) == [("ml", 1, 1, D("10.00")), ("ml", 4, 1, D("10.00"))]
+
+
 def test_a_lone_return_is_harmless() -> None:
     assert asignar(_campana(tope_unidades=2), [_linea(1, -3)]) == []
 
@@ -133,6 +154,44 @@ def test_a_return_on_a_money_capped_line_keeps_only_what_its_units_are_worth() -
     lineas = [_linea(1, 1), _linea(2, 3, dia=2), _linea(3, -1, dia=3, objetivo=("ml", 2))]
     campana = _campana(tope_monto=D("25"))
     assert _filas(asignar(campana, lineas)) == [("ml", 1, 1, D("10.00")), ("ml", 2, 1, D("10.00"))]
+
+
+def _secuencia(seed: int) -> list[Linea]:
+    """Sales and returns of two products, one event per day so a prefix is the past."""
+    rng = random.Random(seed)
+    lineas: list[Linea] = []
+    ventas: list[Linea] = []
+    for ref in range(1, 41):
+        fecha = date(2026, 1, 1) + timedelta(days=ref)
+        item = rng.choice((1, 2))
+        iva = D("10.5") if item == 1 else D("21")
+        if ventas and rng.random() < 0.35:
+            objetivo = rng.choice(ventas + [None])
+            clave = None if objetivo is None else (objetivo.canal, objetivo.venta_ref)
+            linea = Linea("ml", ref, item, fecha, -rng.randint(1, 3), iva_pct=iva, objetivo=clave)
+        else:
+            linea = Linea("ml", ref, item, fecha, rng.randint(1, 4), iva_pct=iva)
+            ventas.append(linea)
+        lineas.append(linea)
+    return lineas
+
+
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize("tope_monto", [D("777.77"), D("1000.01"), D("2500")])
+def test_a_money_cap_on_non_whole_amounts_holds_through_returns(seed, tope_monto) -> None:
+    # 121 / 1.105 = 109.5022624... per unit: never a whole number of cents.
+    campana = _campana(monto_unit=D("121"), monto_incluye_iva=True, tope_monto=tope_monto)
+    lineas = _secuencia(seed)
+    antes: dict = {}
+    for n in range(1, len(lineas) + 1):
+        consumos = asignar(campana, lineas[:n])
+        assert sum(c.monto for c in consumos) <= tope_monto
+        ahora = {(c.canal, c.venta_ref): c for c in consumos}
+        if lineas[n - 1].unidades < 0:
+            for clave, consumo in ahora.items():
+                assert consumo.monto <= antes[clave].monto, (seed, n, clave)
+                assert consumo.unidades <= antes[clave].unidades, (seed, n, clave)
+        antes = ahora
 
 
 # ── VAT and the percentage base ─────────────────────────────────────
@@ -207,6 +266,8 @@ def test_a_return_frees_only_the_units_this_campaign_holds() -> None:
         [_linea(1, 2, ocupadas=-1)],
         [_linea(1, -2, ocupadas=3)],
         [_linea(1, 2, iva_pct=D("-1"))],
+        [_linea(1, 2, base_unit=D("-0.01"))],
+        [_linea(1, 0, ocupadas=1)],
     ],
 )
 def test_invalid_lines_are_refused(lineas) -> None:
@@ -222,8 +283,11 @@ def test_invalid_lines_are_refused(lineas) -> None:
         {"tipo": "bono"},
         {"tope_unidades": 0},
         {"tope_monto": D("0")},
+        {"monto_unit": D("-1")},
+        {"tipo": "porcentaje", "monto_unit": None, "porcentaje": D("-1")},
     ],
 )
 def test_invalid_campaigns_are_refused(overrides) -> None:
+    # The line carries a valid base, so only the campaign itself can be refused.
     with pytest.raises(ValueError):
-        asignar(_campana(**overrides), [_linea(1, 1)])
+        asignar(_campana(**overrides), [_linea(1, 1, base_unit=D("100"))])
