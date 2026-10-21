@@ -1,11 +1,11 @@
-"""sell out: row triggers that queue campaigns for changes outside the app's writers
+"""sell out: statement triggers that queue campaigns for changes outside the app's writers
 
 Revision ID: 20261109_sell_out_triggers
 Revises: 20261108_sell_out_consumos
 Create Date: 2026-10-21
 
 Sell in / sell out, T7 slice S4. `sell_out_dirty` is fed by the app's own
-writers since S3 (`sell.drain` fan-out, the campaigns API, BNA); these row
+writers since S3 (`sell.drain` fan-out, the campaigns API, BNA); these
 triggers cover what never passes through them (owner scope, 2026-10-21):
 
 - `offset_grupo_filtros`: a filter added, changed or removed through the
@@ -17,18 +17,23 @@ triggers cover what never passes through them (owner scope, 2026-10-21):
 - `ventas_fuera_ml_metricas` / `ventas_tienda_nube_metricas`: a `cust_id` or
   `costo_total` change (not in `sell_dirty`'s watched columns).
 
-Each trigger queues campaign ids with the queue's upsert and notifies
-`sell_out_dirty`; none does allocation work, and every UPDATE trigger has a
-WHEN ... IS DISTINCT FROM so a rewrite with the same values fires nothing.
-The SQL is a frozen copy of `app/services/sell_out/triggers.py`'s
-`UPGRADE_SQL`/`DOWNGRADE_SQL` (that module is the live definition).
+FOR EACH STATEMENT with transition tables: each statement queues its whole
+campaign set in ONE upsert ordered by `campana_id` (the order every queue
+writer locks in, so a bulk ERP sync cannot deadlock with them) and notifies
+`sell_out_dirty`; none does allocation work, and a statement where nothing
+relevant changed never touches the queue. The SQL is a frozen copy of
+`app/services/sell_out/triggers.py`'s `UPGRADE_SQL`/`DOWNGRADE_SQL` (that
+module is the live definition).
 
 No backfill: a campaign whose reach moved before this revision is rebuilt by
 its next queue event.
 
-LOCK NOTE: CREATE TRIGGER takes a SHARE ROW EXCLUSIVE lock on
+LOCK NOTE: CREATE/DROP TRIGGER takes a SHARE ROW EXCLUSIVE lock on
 `offset_grupo_filtros`, `productos_erp`, `ventas_fuera_ml_metricas` and
-`ventas_tienda_nube_metricas` for an instant (no rewrite, no scan).
+`ventas_tienda_nube_metricas` (no rewrite, no scan). Behind an open writer
+(an ERP sync or ingest transaction) it would queue and block every new writer
+of the table, so upgrade and downgrade run with `lock_timeout = '5s'`: they
+fail fast (55P03, lock_not_available) and the deploy is retried.
 """
 
 from typing import List, Sequence, Union
@@ -41,8 +46,16 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 CHANNEL = "sell_out_dirty"
+LOCK_TIMEOUT = "5s"
 
-# Inserts the `campana_id`s selected by `{select}` (sorted, like `queue.enqueue`) and notifies once.
+# Returns at once while no campaign is active: nothing can be reached or held.
+_GATE = """
+    IF NOT EXISTS (SELECT 1 FROM sell_out_campanas WHERE estado = 'activa') THEN
+        RETURN NULL;
+    END IF;"""
+
+# Inserts the `campana_id`s selected by `{select}` in ONE statement sorted by id (the order every queue
+# writer locks in, `queue.enqueue`) and notifies once if something was queued.
 _ENQUEUE = f"""
     INSERT INTO sell_out_dirty (campana_id)
     SELECT DISTINCT q.campana_id FROM ({{select}}) AS q
@@ -53,12 +66,69 @@ _ENQUEUE = f"""
     END IF;
     RETURN NULL;"""
 
-_VENTA_UPDATE = """
-CREATE TRIGGER trg_sell_out_{canal}_update
-AFTER UPDATE OF cust_id, costo_total ON {tabla}
-FOR EACH ROW WHEN ((OLD.cust_id, OLD.costo_total) IS DISTINCT FROM (NEW.cust_id, NEW.costo_total))
-EXECUTE FUNCTION sell_out_enqueue_venta('{canal}')
+_FILTROS_SELECT = """
+        SELECT g.campana_id FROM sell_out_campana_grupos AS g
+        JOIN sell_out_campanas AS c ON c.id = g.campana_id
+        WHERE c.estado = 'activa' AND g.grupo_id = ANY(grupos)"""
+
+_PRODUCTOS_SELECT = """
+        SELECT a.campana_id
+        FROM unnest(items, marcas, categorias, subcategorias, solo_iva) AS s(item_id, marca, categoria, sub, solo_iva)
+        CROSS JOIN LATERAL sell_out_alcance(s.item_id, s.marca, s.categoria, s.sub) AS a
+        JOIN sell_out_campanas AS c ON c.id = a.campana_id
+        WHERE NOT s.solo_iva OR c.monto_incluye_iva OR (c.tipo = 'porcentaje' AND c.base_porcentaje = 'precio_neto')"""
+
+_VENTAS_SELECT = """
+        SELECT y.campana_id FROM (
+            WITH lados AS (
+                SELECT v.ref, v.item_id, v.dia,
+                       (o.id IS NULL OR n.id IS NULL OR o.cust_id IS DISTINCT FROM n.cust_id) AS cliente
+                FROM viejas AS o FULL JOIN nuevas AS n ON n.id = o.id
+                CROSS JOIN LATERAL (VALUES
+                    (o.it_transaction, o.item_id, CAST(o.fecha_venta AT TIME ZONE 'UTC' AS DATE)),
+                    (n.it_transaction, n.item_id, CAST(n.fecha_venta AT TIME ZONE 'UTC' AS DATE))
+                ) AS v(ref, item_id, dia)
+                WHERE v.ref IS NOT NULL
+                  AND (o.id IS NULL OR n.id IS NULL
+                       OR (o.cust_id, o.costo_total) IS DISTINCT FROM (n.cust_id, n.costo_total))
+            )
+            SELECT x.campana_id, l.cliente
+            FROM lados AS l JOIN sell_out_consumos AS x ON x.canal = TG_ARGV[0] AND x.venta_ref = l.ref
+            UNION ALL
+            SELECT a.campana_id, l.cliente
+            FROM lados AS l JOIN productos_erp AS p ON p.item_id = l.item_id
+            CROSS JOIN LATERAL sell_out_alcance(p.item_id, p.marca, p.categoria, p.subcategoria_id) AS a
+            WHERE l.dia IS NOT NULL AND l.dia <= a.fecha_hasta AND (l.cliente OR l.dia >= a.fecha_desde)
+        ) AS y
+        JOIN sell_out_campanas AS c ON c.id = y.campana_id
+        WHERE y.cliente OR (c.tipo = 'porcentaje' AND c.base_porcentaje = 'costo')"""
+
+_TRIGGER = """
+CREATE TRIGGER trg_sell_out_{nombre}_{evento}
+AFTER {evento_sql} ON {tabla}
+REFERENCING {tablas}
+FOR EACH STATEMENT EXECUTE FUNCTION {funcion}
 """
+_TRANSICION = {
+    "insert": "NEW TABLE AS nuevas",
+    "update": "OLD TABLE AS viejas NEW TABLE AS nuevas",
+    "delete": "OLD TABLE AS viejas",
+}
+_EVENTOS = ("insert", "update", "delete")
+
+
+def _triggers(nombre: str, tabla: str, funcion: str, eventos: Sequence[str] = _EVENTOS) -> List[str]:
+    return [
+        _TRIGGER.format(
+            nombre=nombre, evento=e, evento_sql=e.upper(), tabla=tabla, tablas=_TRANSICION[e], funcion=funcion
+        )
+        for e in eventos
+    ]
+
+
+def _drops(nombre: str, tabla: str, eventos: Sequence[str] = _EVENTOS) -> List[str]:
+    return [f"DROP TRIGGER IF EXISTS trg_sell_out_{nombre}_{e} ON {tabla}" for e in reversed(eventos)]
+
 
 UPGRADE_SQL: List[str] = [
     """
@@ -78,121 +148,90 @@ RETURNS TABLE (campana_id BIGINT, fecha_desde DATE, fecha_hasta DATE) AS $fn$
 $fn$ LANGUAGE sql STABLE
 """,
     f"""
-CREATE OR REPLACE FUNCTION sell_out_enqueue_filtro() RETURNS TRIGGER AS $trg$
+CREATE OR REPLACE FUNCTION sell_out_enqueue_filtros() RETURNS TRIGGER AS $trg$
 DECLARE
     grupos INTEGER[];
-BEGIN
+BEGIN{_GATE}
     IF TG_OP = 'INSERT' THEN
-        grupos := ARRAY[NEW.grupo_id];
+        SELECT array_agg(DISTINCT n.grupo_id) INTO grupos FROM nuevas AS n;
     ELSIF TG_OP = 'DELETE' THEN
-        grupos := ARRAY[OLD.grupo_id];
+        SELECT array_agg(DISTINCT o.grupo_id) INTO grupos FROM viejas AS o;
     ELSE
-        grupos := ARRAY[OLD.grupo_id, NEW.grupo_id];
+        SELECT array_agg(DISTINCT v.grupo_id) INTO grupos
+        FROM viejas AS o FULL JOIN nuevas AS n ON n.id = o.id
+        CROSS JOIN LATERAL (VALUES (o.grupo_id), (n.grupo_id)) AS v(grupo_id)
+        WHERE v.grupo_id IS NOT NULL
+          AND (o.id IS NULL OR n.id IS NULL
+               OR (o.grupo_id, o.marca, o.categoria, o.subcategoria_id, o.item_id)
+                  IS DISTINCT FROM (n.grupo_id, n.marca, n.categoria, n.subcategoria_id, n.item_id));
     END IF;
-{
-        _ENQUEUE.format(
-            select='''
-        SELECT g.campana_id FROM sell_out_campana_grupos AS g
-        JOIN sell_out_campanas AS c ON c.id = g.campana_id
-        WHERE c.estado = 'activa' AND g.grupo_id = ANY(grupos)'''
-        )
-    }
+    IF grupos IS NULL THEN
+        RETURN NULL;
+    END IF;
+{_ENQUEUE.format(select=_FILTROS_SELECT)}
 END;
 $trg$ LANGUAGE plpgsql
 """,
     f"""
-CREATE OR REPLACE FUNCTION sell_out_enqueue_producto() RETURNS TRIGGER AS $trg$
+CREATE OR REPLACE FUNCTION sell_out_enqueue_productos() RETURNS TRIGGER AS $trg$
 DECLARE
-    solo_iva BOOLEAN := TG_OP = 'UPDATE'
-        AND (OLD.marca, OLD.categoria, OLD.subcategoria_id) IS NOT DISTINCT FROM (NEW.marca, NEW.categoria, NEW.subcategoria_id);
-BEGIN
-{
-        _ENQUEUE.format(
-            select='''
-        SELECT a.campana_id FROM (
-            SELECT * FROM sell_out_alcance(OLD.item_id, OLD.marca, OLD.categoria, OLD.subcategoria_id)
-            WHERE TG_OP <> 'INSERT'
-            UNION
-            SELECT * FROM sell_out_alcance(NEW.item_id, NEW.marca, NEW.categoria, NEW.subcategoria_id)
-            WHERE TG_OP <> 'DELETE'
-        ) AS a
-        JOIN sell_out_campanas AS c ON c.id = a.campana_id
-        WHERE NOT solo_iva OR c.monto_incluye_iva OR (c.tipo = 'porcentaje' AND c.base_porcentaje = 'precio_neto')'''
-        )
-    }
+    items INTEGER[];
+    marcas TEXT[];
+    categorias TEXT[];
+    subcategorias INTEGER[];
+    solo_iva BOOLEAN[];
+BEGIN{_GATE}
+    IF TG_OP = 'INSERT' THEN
+        SELECT array_agg(n.item_id), array_agg(n.marca), array_agg(n.categoria), array_agg(n.subcategoria_id),
+               array_agg(false)
+        INTO items, marcas, categorias, subcategorias, solo_iva FROM nuevas AS n;
+    ELSIF TG_OP = 'DELETE' THEN
+        SELECT array_agg(o.item_id), array_agg(o.marca), array_agg(o.categoria), array_agg(o.subcategoria_id),
+               array_agg(false)
+        INTO items, marcas, categorias, subcategorias, solo_iva FROM viejas AS o;
+    ELSE
+        SELECT array_agg(v.item_id), array_agg(v.marca), array_agg(v.categoria), array_agg(v.subcategoria_id),
+               array_agg(o.item_id IS NOT NULL AND n.item_id IS NOT NULL
+                         AND (o.marca, o.categoria, o.subcategoria_id)
+                             IS NOT DISTINCT FROM (n.marca, n.categoria, n.subcategoria_id))
+        INTO items, marcas, categorias, subcategorias, solo_iva
+        FROM viejas AS o FULL JOIN nuevas AS n ON n.item_id = o.item_id
+        CROSS JOIN LATERAL (VALUES (o.item_id, o.marca, o.categoria, o.subcategoria_id),
+                                   (n.item_id, n.marca, n.categoria, n.subcategoria_id))
+            AS v(item_id, marca, categoria, subcategoria_id)
+        WHERE v.item_id IS NOT NULL
+          AND (o.item_id IS NULL OR n.item_id IS NULL
+               OR (o.marca, o.categoria, o.subcategoria_id, o.iva)
+                  IS DISTINCT FROM (n.marca, n.categoria, n.subcategoria_id, n.iva));
+    END IF;
+    IF items IS NULL THEN
+        RETURN NULL;
+    END IF;
+{_ENQUEUE.format(select=_PRODUCTOS_SELECT)}
 END;
 $trg$ LANGUAGE plpgsql
 """,
     f"""
-CREATE OR REPLACE FUNCTION sell_out_enqueue_venta() RETURNS TRIGGER AS $trg$
-DECLARE
-    cliente BOOLEAN := OLD.cust_id IS DISTINCT FROM NEW.cust_id;
-BEGIN
-{
-        _ENQUEUE.format(
-            select='''
-        SELECT x.campana_id FROM (
-            SELECT s.campana_id, CAST(NULL AS DATE) AS dia, CAST(NULL AS DATE) AS desde, CAST(NULL AS DATE) AS hasta
-            FROM sell_out_consumos AS s
-            WHERE s.canal = TG_ARGV[0] AND s.venta_ref IN (OLD.it_transaction, NEW.it_transaction)
-            UNION ALL
-            SELECT a.campana_id, v.dia, a.fecha_desde, a.fecha_hasta
-            FROM (VALUES (OLD.item_id, date(timezone('UTC', OLD.fecha_venta))),
-                         (NEW.item_id, date(timezone('UTC', NEW.fecha_venta)))) AS v(item_id, dia)
-            JOIN productos_erp AS p ON p.item_id = v.item_id
-            CROSS JOIN LATERAL sell_out_alcance(p.item_id, p.marca, p.categoria, p.subcategoria_id) AS a
-        ) AS x
-        JOIN sell_out_campanas AS c ON c.id = x.campana_id
-        WHERE (x.dia IS NULL OR x.dia <= x.hasta)
-          AND (cliente OR ((x.dia IS NULL OR x.dia >= x.desde)
-                           AND c.tipo = 'porcentaje' AND c.base_porcentaje = 'costo'))'''
-        )
-    }
+CREATE OR REPLACE FUNCTION sell_out_enqueue_ventas() RETURNS TRIGGER AS $trg$
+BEGIN{_GATE}
+{_ENQUEUE.format(select=_VENTAS_SELECT)}
 END;
 $trg$ LANGUAGE plpgsql
 """,
-    """
-CREATE TRIGGER trg_sell_out_filtros_insert_delete
-AFTER INSERT OR DELETE ON offset_grupo_filtros
-FOR EACH ROW EXECUTE FUNCTION sell_out_enqueue_filtro()
-""",
-    """
-CREATE TRIGGER trg_sell_out_filtros_update
-AFTER UPDATE OF grupo_id, marca, categoria, subcategoria_id, item_id ON offset_grupo_filtros
-FOR EACH ROW WHEN (
-    (OLD.grupo_id, OLD.marca, OLD.categoria, OLD.subcategoria_id, OLD.item_id)
-    IS DISTINCT FROM (NEW.grupo_id, NEW.marca, NEW.categoria, NEW.subcategoria_id, NEW.item_id)
-)
-EXECUTE FUNCTION sell_out_enqueue_filtro()
-""",
-    """
-CREATE TRIGGER trg_sell_out_productos_insert_delete
-AFTER INSERT OR DELETE ON productos_erp
-FOR EACH ROW EXECUTE FUNCTION sell_out_enqueue_producto()
-""",
-    """
-CREATE TRIGGER trg_sell_out_productos_update
-AFTER UPDATE OF marca, categoria, subcategoria_id, iva ON productos_erp
-FOR EACH ROW WHEN (
-    (OLD.marca, OLD.categoria, OLD.subcategoria_id, OLD.iva)
-    IS DISTINCT FROM (NEW.marca, NEW.categoria, NEW.subcategoria_id, NEW.iva)
-)
-EXECUTE FUNCTION sell_out_enqueue_producto()
-""",
-    _VENTA_UPDATE.format(canal="fuera", tabla="ventas_fuera_ml_metricas"),
-    _VENTA_UPDATE.format(canal="tn", tabla="ventas_tienda_nube_metricas"),
+    *_triggers("filtros", "offset_grupo_filtros", "sell_out_enqueue_filtros()"),
+    *_triggers("productos", "productos_erp", "sell_out_enqueue_productos()"),
+    *_triggers("fuera", "ventas_fuera_ml_metricas", "sell_out_enqueue_ventas('fuera')", ("update",)),
+    *_triggers("tn", "ventas_tienda_nube_metricas", "sell_out_enqueue_ventas('tn')", ("update",)),
 ]
 
 DOWNGRADE_SQL: List[str] = [
-    "DROP TRIGGER IF EXISTS trg_sell_out_tn_update ON ventas_tienda_nube_metricas",
-    "DROP TRIGGER IF EXISTS trg_sell_out_fuera_update ON ventas_fuera_ml_metricas",
-    "DROP TRIGGER IF EXISTS trg_sell_out_productos_update ON productos_erp",
-    "DROP TRIGGER IF EXISTS trg_sell_out_productos_insert_delete ON productos_erp",
-    "DROP TRIGGER IF EXISTS trg_sell_out_filtros_update ON offset_grupo_filtros",
-    "DROP TRIGGER IF EXISTS trg_sell_out_filtros_insert_delete ON offset_grupo_filtros",
-    "DROP FUNCTION IF EXISTS sell_out_enqueue_venta()",
-    "DROP FUNCTION IF EXISTS sell_out_enqueue_producto()",
-    "DROP FUNCTION IF EXISTS sell_out_enqueue_filtro()",
+    *_drops("tn", "ventas_tienda_nube_metricas", ("update",)),
+    *_drops("fuera", "ventas_fuera_ml_metricas", ("update",)),
+    *_drops("productos", "productos_erp"),
+    *_drops("filtros", "offset_grupo_filtros"),
+    "DROP FUNCTION IF EXISTS sell_out_enqueue_ventas()",
+    "DROP FUNCTION IF EXISTS sell_out_enqueue_productos()",
+    "DROP FUNCTION IF EXISTS sell_out_enqueue_filtros()",
     "DROP FUNCTION IF EXISTS sell_out_alcance(INTEGER, TEXT, TEXT, INTEGER)",
 ]
 
@@ -202,13 +241,18 @@ def _is_postgres() -> bool:
     return op.get_bind().dialect.name == "postgresql"
 
 
+def _run(statements: List[str]) -> None:
+    op.execute(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'")
+    for statement in statements:
+        op.execute(statement)
+    op.execute("SET LOCAL lock_timeout = DEFAULT")
+
+
 def upgrade() -> None:
     if _is_postgres():
-        for statement in UPGRADE_SQL:
-            op.execute(statement)
+        _run(UPGRADE_SQL)
 
 
 def downgrade() -> None:
     if _is_postgres():
-        for statement in DOWNGRADE_SQL:
-            op.execute(statement)
+        _run(DOWNGRADE_SQL)

@@ -16,7 +16,9 @@ from alembic.config import Config
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from psycopg2.errors import LockNotAvailable
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import OperationalError
 
 from app.services.sell_out import triggers
 from tests.services.sell_out import _world as w
@@ -91,10 +93,12 @@ class TestUpgradeDowngrade:
 
         _step(engine, "upgrade")
         assert _names(engine, _TRIGGERS) == {
-            "trg_sell_out_filtros_insert_delete",
+            "trg_sell_out_filtros_insert",
             "trg_sell_out_filtros_update",
-            "trg_sell_out_productos_insert_delete",
+            "trg_sell_out_filtros_delete",
+            "trg_sell_out_productos_insert",
             "trg_sell_out_productos_update",
+            "trg_sell_out_productos_delete",
             "trg_sell_out_fuera_update",
             "trg_sell_out_tn_update",
         }
@@ -107,3 +111,23 @@ class TestUpgradeDowngrade:
         w.clear_queue(engine)
         w.execute(engine, "UPDATE productos_erp SET marca = 'TP-LINK' WHERE item_id = 2270")
         assert w.queued(engine) == []
+
+    @pytest.mark.parametrize("step", ["upgrade", "downgrade"])
+    def test_behind_an_open_writer_it_fails_fast_instead_of_blocking_the_table(self, engine: Engine, step) -> None:
+        """CREATE/DROP TRIGGER needs SHARE ROW EXCLUSIVE: behind an open ERP sync it must give up (lock_timeout)
+        rather than queue and block every new writer of the table; the deploy retries."""
+        if step == "downgrade":
+            _step(engine, "upgrade")
+        with engine.connect() as sync:
+            tx = sync.begin()
+            sync.exec_driver_sql("LOCK TABLE ventas_tienda_nube_metricas IN ROW EXCLUSIVE MODE")
+            try:
+                with engine.connect() as conn:
+                    conn.exec_driver_sql("SET statement_timeout = '20s'")  # bounds the test if it does block
+                    ctx = MigrationContext.configure(conn)
+                    with pytest.raises(OperationalError) as caught:
+                        with ctx.begin_transaction(), Operations.context(ctx):
+                            getattr(_module(), step)()
+            finally:
+                tx.rollback()
+        assert isinstance(caught.value.orig, LockNotAvailable)

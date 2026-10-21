@@ -1,4 +1,4 @@
-"""The `sell_out_dirty` row triggers (sell-in-sell-out T7 S4): the changes the
+"""The `sell_out_dirty` statement triggers (sell-in-sell-out T7 S4): the changes the
 app's own writers (`sell.drain`, the campaigns API, BNA) never see, and which
 campaigns each one queues.
 
@@ -9,11 +9,13 @@ installed (no `sell_dirty` triggers), so every queued row comes from them.
 from __future__ import annotations
 
 import select
-from datetime import date
+import threading
+import time as time_module
+from datetime import date, datetime, time, timezone
 from typing import Iterator, List
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 
 from app.services.sell_out import triggers
 from tests.services.sell_out import _world as w
@@ -23,6 +25,7 @@ pytestmark = pytest.mark.postgres
 D = date
 TPLINK_ROUTERS = {"marca": "TP-LINK", "categoria": "Routers"}  # reaches 2964 only
 MERCUSYS = {"marca": "MERCUSYS"}  # reaches 950 only
+CANALES = [("fuera", "ventas_fuera_ml_metricas"), ("tn", "ventas_tienda_nube_metricas")]
 PORCENTAJE_COSTO = {"tipo": "porcentaje", "monto_unit": None, "porcentaje": "2.0000", "base_porcentaje": "costo"}
 
 
@@ -40,18 +43,16 @@ def _clean(engine: Engine) -> Iterator[None]:
     yield
     w.clean(engine)
     w.execute(engine, "DELETE FROM productos_erp WHERE item_id NOT IN (2964, 2270, 950)")
-    w.execute(
-        engine,
-        "UPDATE productos_erp SET marca = 'TP-LINK', categoria = 'Routers', subcategoria_id = 11, iva = 21 WHERE item_id = 2964",
-    )  # noqa: E501
-    w.execute(
-        engine,
-        "UPDATE productos_erp SET marca = 'TP-LINK', categoria = 'Switches', subcategoria_id = 12, iva = 10.5 WHERE item_id = 2270",
-    )  # noqa: E501
-    w.execute(
-        engine,
-        "UPDATE productos_erp SET marca = 'MERCUSYS', categoria = 'Routers', subcategoria_id = 11, iva = 21 WHERE item_id = 950",
-    )  # noqa: E501
+    for item_id, (marca, categoria, sub, iva) in w.PRODUCTOS.items():
+        w.execute(
+            engine,
+            "UPDATE productos_erp SET marca = :m, categoria = :c, subcategoria_id = :s, iva = :iva WHERE item_id = :i",
+            m=marca,
+            c=categoria,
+            s=sub,
+            iva=iva,
+            i=item_id,
+        )
     w.clear_queue(engine)
 
 
@@ -209,16 +210,19 @@ class TestSaleCustomer:
     """A customer-only change on fuera sales: it moves which earlier sale a return reverses
     (`costing.resolver_objetivos`), and a return only counts inside a campaign's range."""
 
-    def test_it_queues_the_campaigns_reaching_the_product_that_end_on_or_after_the_sale(self, engine: Engine) -> None:
+    @pytest.mark.parametrize("canal, tabla", CANALES)
+    def test_it_queues_the_campaigns_reaching_the_product_that_end_on_or_after_the_sale(
+        self, engine: Engine, canal, tabla
+    ) -> None:
         routers = w.grupo(engine, [TPLINK_ROUTERS])
         cubre = w.campana(engine, [routers])  # November
         posterior = w.campana(engine, [routers], desde=D(2026, 12, 1), hasta=D(2026, 12, 31))  # a later return
         w.campana(engine, [routers], desde=D(2026, 10, 1), hasta=D(2026, 10, 31))  # ended before the sale
         w.campana(engine, [w.grupo(engine, [MERCUSYS])])  # another product
-        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+        ref = w.venta(engine, canal, 2964, 1, D(2026, 11, 10))
         w.clear_queue(engine)
 
-        w.execute(engine, "UPDATE ventas_fuera_ml_metricas SET cust_id = 999 WHERE it_transaction = :r", r=ref)
+        w.execute(engine, f"UPDATE {tabla} SET cust_id = 999 WHERE it_transaction = :r", r=ref)
 
         assert _ids(engine) == sorted([cubre, posterior])
 
@@ -251,9 +255,7 @@ class TestSaleCost:
     """A `costo_total` change without `costo_unitario` (`sell_dirty` only watches the latter): it is the
     base of a percentage campaign on cost (`alcance.ventas`)."""
 
-    @pytest.mark.parametrize(
-        "canal, tabla", [("fuera", "ventas_fuera_ml_metricas"), ("tn", "ventas_tienda_nube_metricas")]
-    )
+    @pytest.mark.parametrize("canal, tabla", CANALES)
     def test_it_queues_the_cost_percentage_campaigns_covering_the_sale(self, engine: Engine, canal, tabla) -> None:
         routers = w.grupo(engine, [TPLINK_ROUTERS])
         porcentaje = w.campana(engine, [routers], **PORCENTAJE_COSTO)
@@ -274,9 +276,119 @@ class TestSaleCost:
 
         w.execute(
             engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = 1, cust_id = 1 WHERE it_transaction = :r", r=ref
-        )  # noqa: E501
+        )
 
         assert _ids(engine) == []
+
+    def test_of_the_campaigns_holding_the_line_it_queues_only_the_cost_percentage_ones(self, engine: Engine) -> None:
+        otro = w.grupo(engine, [MERCUSYS])  # neither reaches the line: only what they hold queues them
+        porcentaje = w.campana(engine, [otro], **PORCENTAJE_COSTO)
+        por_unidad = w.campana(engine, [otro])
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+        _consumo(engine, porcentaje, "fuera", ref, 2964, D(2026, 11, 10))
+        _consumo(engine, por_unidad, "fuera", ref, 2964, D(2026, 11, 10))
+        w.clear_queue(engine)
+
+        w.execute(engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = 1 WHERE it_transaction = :r", r=ref)
+
+        assert _ids(engine) == [porcentaje]
+
+
+class TestSaleDay:
+    """The sale's day is its UTC date (`costing.utc_date`, like `alcance.ventas`), whatever the session's
+    TimeZone: a sale at 00:30 UTC on December 1st is still November 30th in Buenos Aires."""
+
+    @pytest.mark.parametrize("hora, dentro", [(time(23, 30), True), (time(0, 30), False)])
+    def test_the_day_is_the_utc_date_under_a_non_utc_session(self, engine: Engine, hora, dentro) -> None:
+        cid = w.campana(engine, [w.grupo(engine, [TPLINK_ROUTERS])], **PORCENTAJE_COSTO)  # November
+        dia = D(2026, 11, 30) if hora.hour == 23 else D(2026, 12, 1)
+        ref = w.venta(engine, "fuera", 2964, 1, dia)
+        w.execute(
+            engine,
+            "UPDATE ventas_fuera_ml_metricas SET fecha_venta = :f WHERE it_transaction = :r",
+            f=datetime.combine(dia, hora, tzinfo=timezone.utc),
+            r=ref,
+        )
+        w.clear_queue(engine)
+
+        with engine.begin() as conn:
+            conn.exec_driver_sql("SET LOCAL TIME ZONE 'America/Argentina/Buenos_Aires'")
+            conn.execute(
+                text("UPDATE ventas_fuera_ml_metricas SET costo_total = 1 WHERE it_transaction = :r"), {"r": ref}
+            )
+
+        assert _ids(engine) == ([cid] if dentro else [])
+
+
+class TestStatementLevel:
+    """One upsert per statement, in campaign order, like every other writer of the queue (`queue.enqueue`
+    sorts): a bulk ERP sync touching products of campaigns 2 then 1 must not lock 2 before 1."""
+
+    def test_a_bulk_update_does_not_deadlock_with_a_writer_locking_in_campaign_order(self, engine: Engine) -> None:
+        uno = w.campana(engine, [w.grupo(engine, [{"marca": "TP-LINK", "categoria": "Switches"}])])  # 2270
+        dos = w.campana(engine, [w.grupo(engine, [{"item_id": 2964}])])
+        w.clear_queue(engine)
+        upsert = text(
+            "INSERT INTO sell_out_dirty (campana_id) VALUES (:c) "
+            "ON CONFLICT (campana_id) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL"
+        )
+        errores: list = []
+        pid: list = []
+
+        def sync() -> None:  # the ERP sync: one statement over 2964 (campaign 2) then 2270 (campaign 1)
+            try:
+                with engine.begin() as conn:
+                    conn.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
+                    pid.append(conn.exec_driver_sql("SELECT pg_backend_pid()").scalar())
+                    conn.exec_driver_sql("UPDATE productos_erp SET marca = 'MERCUSYS' WHERE item_id IN (2964, 2270)")
+            except Exception as exc:  # noqa: BLE001 - asserted below
+                errores.append(exc)
+
+        with engine.connect() as writer:
+            tx = writer.begin()
+            writer.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
+            writer.execute(upsert, {"c": uno})  # the API / fan-out: campaign 1 first...
+            hilo = threading.Thread(target=sync)
+            hilo.start()
+            _esperar_bloqueado(engine, pid)
+            try:
+                writer.execute(upsert, {"c": dos})  # ...then campaign 2
+                tx.commit()
+            except Exception as exc:  # noqa: BLE001 - asserted below
+                tx.rollback()
+                errores.append(exc)
+            hilo.join(10)
+
+        assert errores == []
+        assert _ids(engine) == [uno, dos]
+
+    def test_a_statement_that_changes_nothing_relevant_leaves_a_parked_campaign_untouched(self, engine: Engine) -> None:
+        routers = w.grupo(engine, [TPLINK_ROUTERS])
+        cid = w.campana(engine, [routers], **PORCENTAJE_COSTO)
+        ref = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 10))
+        w.execute(engine, "INSERT INTO sell_out_dirty (campana_id, attempts, last_error) VALUES (:c, 5, 'roto')", c=cid)
+
+        w.execute(engine, "UPDATE productos_erp SET descripcion = 'Otra', marca = marca")
+        w.execute(engine, "UPDATE offset_grupo_filtros SET created_at = now(), marca = marca")
+        w.execute(
+            engine,
+            "UPDATE ventas_fuera_ml_metricas SET cliente = 'Otro', costo_total = costo_total WHERE it_transaction = :r",
+            r=ref,
+        )
+
+        assert w.queued(engine) == [(cid, 5, "roto")]
+
+
+def _esperar_bloqueado(engine: Engine, pid: list) -> None:
+    """Waits (bounded) until the sync's backend is waiting on a lock."""
+    sql = text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :p")
+    for _ in range(100):
+        if pid:
+            with engine.connect() as conn:
+                if conn.execute(sql, {"p": pid[0]}).scalar() == "Lock":
+                    return
+        time_module.sleep(0.05)
+    raise AssertionError("the sync never waited on the writer's lock")
 
 
 class TestQueueSemantics:
