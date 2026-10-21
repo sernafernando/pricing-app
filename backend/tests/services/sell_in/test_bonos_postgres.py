@@ -13,10 +13,10 @@ import threading
 import time
 from datetime import date
 from decimal import Decimal
-from typing import Iterator
+from typing import Iterator, List
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.sell_in import SellInBonoMarca
@@ -424,6 +424,40 @@ class TestConcurrency:
         assert "error" not in resultado, resultado.get("error")
         assert [(g[0], g[2]) for g in b.generadas(engine) if g[1] is None] == [(mercusys, "activa")]
         assert ("pedido", ajeno) in b.queued(engine)
+
+
+@pytest.mark.postgres
+class TestQueryCount:
+    def test_the_reads_of_a_call_do_not_grow_with_its_bonuses_operations_and_orphans(self, engine: Engine) -> None:
+        """Pairs, BNA rates (one per invoice date) and the orphans' items are read in batches."""
+        assert _selects_de_un_reconcile(engine, 1) == _selects_de_un_reconcile(engine, 4)
+
+
+def _selects_de_un_reconcile(engine: Engine, n: int) -> int:
+    """SELECTs of one call over `n` bonuses, `n` operations without a rate of their own (BNA rate) and
+    `n` orphans; everything else is already in line, so the call only reads (and voids the orphans)."""
+    b.clean(engine)
+    b.tipo_cambio(engine, D(2026, 10, 1), 1000)
+    bono_ids = [b.bono(engine, monto="1.00") for _ in range(n)]
+    vivos = [b.pedido(engine, {2964: 1}, tipo_cambio=None) for _ in range(n)]
+    muertos = [b.pedido(engine, {2964: 1}, tipo_cambio=None) for _ in range(n)]
+    _reconciliar(engine, bono_ids=bono_ids)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM pedidos_compra WHERE id = ANY(:ids)"), {"ids": muertos})
+
+    selects: List[str] = []
+
+    def contar(conn, cursor, statement, parameters, context, executemany) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    event.listen(engine, "before_cursor_execute", contar)
+    try:
+        result = _reconciliar(engine, bono_ids=bono_ids, pedido_ids=vivos + muertos)
+    finally:
+        event.remove(engine, "before_cursor_execute", contar)
+    assert (result.creadas, result.actualizadas, result.anuladas) == (0, 0, n * n)
+    return len(selects)
 
 
 def _wait_for_lock_waiter(engine: Engine, bono_id: int) -> None:

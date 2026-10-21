@@ -66,7 +66,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import or_, text
+from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -75,7 +75,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido
 from app.models.tipo_cambio import TipoCambio
-from app.services.sell_in.compras import SellInError, _audit, _moneda, costo_en_moneda
+from app.services.sell_in.compras import SellInError, audit, costo_en_moneda, moneda
 from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT
 
@@ -127,22 +127,26 @@ def _bloquear(db: Session, bono_ids: Iterable[int]) -> None:
 def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
     """Every pair a call must look at: what may apply now plus what was generated before."""
     pares: Set[Par] = set()
+    en_rango = and_(
+        PedidoCompra.fecha_factura >= SellInBonoMarca.fecha_desde,
+        PedidoCompra.fecha_factura <= SellInBonoMarca.fecha_hasta,
+    )
     if bono_ids:
-        for bono in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_(bono_ids)):
-            en_rango = db.query(PedidoCompra.id).filter(
-                PedidoCompra.fecha_factura >= bono.fecha_desde, PedidoCompra.fecha_factura <= bono.fecha_hasta
-            )
-            pares.update((bono.id, pid) for (pid,) in en_rango)
+        # Each given bonus (any state) with every operation invoiced in its range.
+        pares.update(
+            (int(bid), int(pid))
+            for bid, pid in db.query(SellInBonoMarca.id, PedidoCompra.id)
+            .join(PedidoCompra, en_rango)
+            .filter(SellInBonoMarca.id.in_(bono_ids))
+        )
     if pedido_ids:
-        for pid, fecha in db.query(PedidoCompra.id, PedidoCompra.fecha_factura).filter(
-            PedidoCompra.id.in_(pedido_ids), PedidoCompra.fecha_factura.isnot(None)
-        ):
-            vigentes = db.query(SellInBonoMarca.id).filter(
-                SellInBonoMarca.estado == "activa",
-                SellInBonoMarca.fecha_desde <= fecha,
-                SellInBonoMarca.fecha_hasta >= fecha,
-            )
-            pares.update((bid, pid) for (bid,) in vigentes)
+        # Each given operation with every ACTIVE bonus whose range covers its invoice date.
+        pares.update(
+            (int(bid), int(pid))
+            for bid, pid in db.query(SellInBonoMarca.id, PedidoCompra.id)
+            .join(PedidoCompra, en_rango)
+            .filter(PedidoCompra.id.in_(pedido_ids), SellInBonoMarca.estado == "activa")
+        )
     generadas = db.query(SellInCompra.bono_id, SellInCompra.bono_pedido_id).filter(
         SellInCompra.origen == ORIGEN,
         SellInCompra.bono_pedido_id.isnot(None),
@@ -173,9 +177,16 @@ def _tasa_bna(db: Session, fecha: date) -> Optional[Decimal]:
     return Decimal(str(venta)) if venta is not None else None
 
 
-def _deseada(db: Session, bono: SellInBonoMarca, pedido: Optional[_Pedido], lineas: List[tuple]) -> Optional[_Deseada]:
+def _deseada(
+    db: Session,
+    bono: SellInBonoMarca,
+    pedido: Optional[_Pedido],
+    lineas: List[tuple],
+    tasas_bna: Dict[date, Optional[Decimal]],
+) -> Optional[_Deseada]:
     """The purchase the pair must have, or None when the bonus does not apply to it. Raises `SellInError`
-    when it applies but its USD amount has no rate to convert at."""
+    when it applies but its USD amount has no rate to convert at. `tasas_bna` caches the BNA rate per
+    invoice date for the whole call."""
     if bono.estado != "activa" or pedido is None or pedido.estado in ESTADOS_EXCLUIDOS:
         return None
     fecha = pedido.fecha_factura
@@ -185,7 +196,11 @@ def _deseada(db: Session, bono: SellInBonoMarca, pedido: Optional[_Pedido], line
     propias = [linea for linea in lineas if linea[2] == bono.marca]
     if not propias:
         return None
-    tasa = pedido.tipo_cambio if pedido.tipo_cambio is not None else _tasa_bna(db, fecha)
+    tasa = pedido.tipo_cambio
+    if tasa is None:
+        if fecha not in tasas_bna:
+            tasas_bna[fecha] = _tasa_bna(db, fecha)
+        tasa = tasas_bna[fecha]
     if bono.moneda == "USD" and tasa is None:
         raise SellInError(
             f"El pedido {pedido.id} no tiene tipo de cambio y no hay cotización del dólar al {fecha.isoformat()}"
@@ -206,13 +221,13 @@ def _deseada(db: Session, bono: SellInBonoMarca, pedido: Optional[_Pedido], line
     return _Deseada(cabecera, detalle)
 
 
-def _costo(costo, moneda_costo, moneda: str, tasa: Optional[Decimal]) -> Decimal:
+def _costo(costo, moneda_costo, moneda_compra: str, tasa: Optional[Decimal]) -> Decimal:
     """The product's cost frozen on a new line, in the purchase currency; 0 when it has none or it
     cannot be converted (informational only: the bonus amount never depends on it)."""
     if costo is None:
         return Decimal("0")
     try:
-        return costo_en_moneda(Decimal(str(costo)), _moneda(moneda_costo), moneda, tasa)
+        return costo_en_moneda(Decimal(str(costo)), moneda(moneda_costo), moneda_compra, tasa)
     except SellInError:
         return Decimal("0")
 
@@ -325,23 +340,23 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         if (c.bono_id, c.bono_pedido_id) in pares
     }
     items_por_compra: Dict[int, List[SellInCompraItem]] = defaultdict(list)
-    for item in db.query(SellInCompraItem).filter(
-        SellInCompraItem.compra_id.in_([c.id for c in existentes.values()] or [-1])
-    ):
+    compra_ids = [c.id for c in existentes.values()] + [c.id for c in huerfanas]
+    for item in db.query(SellInCompraItem).filter(SellInCompraItem.compra_id.in_(compra_ids or [-1])):
         items_por_compra[item.compra_id].append(item)
 
     tocados: Set[int] = set()
+    tasas_bna: Dict[date, Optional[Decimal]] = {}
     for compra in huerfanas:
-        actuales = db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra.id).all()
+        actuales = items_por_compra.get(compra.id, [])
         compra.estado = "anulada"
-        _audit(db, compra, actuales, TipoAccion.SELL_IN_COMPRA_ANULADA, compra.usuario_id, _motivo(None))
+        audit(db, compra, actuales, TipoAccion.SELL_IN_COMPRA_ANULADA, compra.usuario_id, _motivo(None))
         tocados |= {i.item_id for i in actuales}
         result.anuladas += 1
     for par in sorted(pares):
         bono_id, pedido_id = par
         pedido = pedidos.get(pedido_id)
         try:
-            deseada = _deseada(db, bonos[bono_id], pedido, lineas.get(pedido_id, []))
+            deseada = _deseada(db, bonos[bono_id], pedido, lineas.get(pedido_id, []), tasas_bna)
         except SellInError as exc:
             result.fallidas[par] = str(exc)
             continue
@@ -353,7 +368,7 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         elif compra is not None and deseada is None:
             if compra.estado == "activa":
                 compra.estado = "anulada"
-                _audit(db, compra, actuales, TipoAccion.SELL_IN_COMPRA_ANULADA, compra.usuario_id, _motivo(pedido))
+                audit(db, compra, actuales, TipoAccion.SELL_IN_COMPRA_ANULADA, compra.usuario_id, _motivo(pedido))
                 tocados |= {i.item_id for i in actuales}
                 result.anuladas += 1
         elif compra is not None and deseada is not None:
@@ -386,7 +401,7 @@ def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada
     db.add(compra)
     db.flush()
     db.add(SellInCompraPedido(compra_id=compra.id, pedido_compra_id=pedido_id))
-    costos = {item: (costo, moneda) for item, _, _, costo, moneda in lineas}
+    costos = {item: (costo, moneda_costo) for item, _, _, costo, moneda_costo in lineas}
     items = [
         SellInCompraItem(
             compra_id=compra.id,
@@ -399,7 +414,7 @@ def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada
     ]
     db.add_all(items)
     db.flush()
-    _audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, compra.usuario_id)
+    audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_CREADA, compra.usuario_id)
     return set(deseada.lineas)
 
 
@@ -414,7 +429,7 @@ def _actualizar(
     antes = _foto(compra, antes_lineas)
     for k, v in deseada.cabecera.items():
         setattr(compra, k, v)
-    costos = {item: (costo, moneda) for item, _, _, costo, moneda in lineas}
+    costos = {item: (costo, moneda_costo) for item, _, _, costo, moneda_costo in lineas}
     for item in actuales:
         if item.item_id not in deseada.lineas:
             db.delete(item)
