@@ -1,4 +1,5 @@
 import { downloadCsv } from './ventasMlExport';
+import { exportarCsvASheets } from './googleSheetsExport';
 
 // The views with an export: the Agrupado tree has none.
 const EXPORT_URLS = {
@@ -20,9 +21,17 @@ export function exportFilename(vista, today = new Date()) {
  * the operator (the backend's: too many rows, a slow query, no permission).
  */
 export async function exportPublicacionesCsv(vista, params) {
-  if (!canExportVista(vista)) throw new Error('Esta vista no se puede exportar.');
-  await downloadCsv(EXPORT_URLS[vista], params, {
-    filename: exportFilename(vista),
-    genericError: 'No se pudo exportar las publicaciones.',
-  });
+  await downloadCsv(exportUrl(vista), params, exportOptions(vista));
 }
+
+/** The same export, sent to a new Google Sheet (`exportarCsvASheets`) titled like the file. */
+export async function exportPublicacionesSheets(vista, params) {
+  return exportarCsvASheets(exportUrl(vista), params, exportOptions(vista));
+}
+
+function exportUrl(vista) {
+  if (!canExportVista(vista)) throw new Error('Esta vista no se puede exportar.');
+  return EXPORT_URLS[vista];
+}
+
+const exportOptions = (vista) => ({ filename: exportFilename(vista), genericError: 'No se pudo exportar las publicaciones.' });

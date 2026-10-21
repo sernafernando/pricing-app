@@ -35,10 +35,29 @@ export async function exportVentasCsv(params) {
   await downloadCsv('/ml-ventas-ops/sales/export', params);
 }
 
+export const METRICAS_EXPORT_URL = '/ml-metricas/board/export';
+
 /** Métricas ML board CSV (`GET /ml-metricas/board/export`): same download
  * and error handling, params from `buildMetricasMLParams`. */
 export async function exportMetricasCsv(params) {
-  await downloadCsv('/ml-metricas/board/export', params);
+  await downloadCsv(METRICAS_EXPORT_URL, params);
+}
+
+async function requestCsv(url, params, genericError) {
+  try {
+    return await api.get(url, { params, responseType: 'blob' });
+  } catch (err) {
+    throw new Error(await messageFromError(err, genericError));
+  }
+}
+
+/** The export of `url` as text (for Google Sheets), with `filename` or the server's; fails like `downloadCsv`. */
+export async function fetchCsvText(url, params, { filename, genericError = GENERIC_ERROR } = {}) {
+  const response = await requestCsv(url, params, genericError);
+  return {
+    text: await response.data.text(),
+    filename: filename || filenameFromDisposition(response.headers?.['content-disposition']),
+  };
 }
 
 /**
@@ -46,12 +65,7 @@ export async function exportMetricasCsv(params) {
  * Error carrying the backend's message (or `genericError`), safe to show the operator.
  */
 export async function downloadCsv(url, params, { filename, genericError = GENERIC_ERROR } = {}) {
-  let response;
-  try {
-    response = await api.get(url, { params, responseType: 'blob' });
-  } catch (err) {
-    throw new Error(await messageFromError(err, genericError));
-  }
+  const response = await requestCsv(url, params, genericError);
   const objectUrl = URL.createObjectURL(response.data);
   const link = document.createElement('a');
   link.href = objectUrl;
