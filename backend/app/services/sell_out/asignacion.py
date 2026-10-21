@@ -14,6 +14,11 @@ tracked per sale line: a campaign takes the lowest-numbered units not held by
 the campaigns that take precedence over it (`ocupadas` = how many those hold
 between them), so campaigns that stack share the SAME units and campaigns that
 do not hold different ones. On a return the same goes for the units each frees.
+A return linked to its sale (`alcance.Venta.objetivo`) counts only when that
+sale is one of the campaign's lines: one returning a sale from before the
+campaign, or a sale skipped while its base is unknown, frees nothing here (when
+that sale settles, the rebuild counts both). Only a return that could not be
+linked falls back to the latest earlier sale of the product (`tope.asignar`).
 Campaigns sharing products are therefore rebuilt together, in id order,
 whatever was asked: the call takes every active campaign linked to the asked
 ones through shared products, transitively. S3 must queue, on a group edit, the
@@ -160,10 +165,12 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
     for c in activas:
         alcance_c = productos.get(c.id, {})
         antes = [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
-        lineas, libres = [], {}
-        for v in ventas:
+        lineas, libres, admitidas = [], {}, set()
+        for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcance_c or not alcance.en_campana(c, v):
                 continue
+            if v.objetivo is not None and v.objetivo not in admitidas:
+                continue  # it returns a sale this campaign does not count (before it, or waiting for its base)
             iva = alcance_c[v.item_id]
             if c.monto_incluye_iva and iva is None:
                 raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
@@ -173,6 +180,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
                 pendientes[c.id] = pendientes.get(c.id, 0) + 1
                 continue
             clave = (v.canal, v.venta_ref)
+            admitidas.add(clave)
             ocupado = set().union(*(tenidas[p].get(clave, ()) for p in antes))
             libres[clave] = [u for u in range(abs(v.unidades)) if u not in ocupado]
             lineas.append(

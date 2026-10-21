@@ -171,6 +171,28 @@ class TestAsignacion:
 
         assert _filas(engine, campana) == []
 
+    def test_a_return_of_a_sale_before_the_campaign_takes_no_credit_from_another_sale(self, engine: Engine) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], tope_unidades=2)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 10, 30), cliente=55)  # before the campaign
+        ajena = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2), cliente=99)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 11, 3), signo=-1, cliente=55)  # returns the October sale
+        tarde = w.venta(engine, "ml", 2964, 1, D(2026, 11, 4))
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("fuera", ajena, 2, Decimal("20.00"))]
+        assert tarde not in [f[1] for f in _filas(engine, campana)]
+
+    def test_an_unlinked_return_still_frees_the_latest_earlier_sale(self, engine: Engine) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])])
+        a = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 2), cliente=55)
+        b = w.venta(engine, "fuera", 2964, 2, D(2026, 11, 3), cliente=55)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 11, 4), signo=-1, cliente=55)  # two candidates: not linked
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("fuera", a, 2, Decimal("20.00")), ("fuera", b, 1, Decimal("10.00"))]
+
     def test_an_amount_with_vat_is_applied_net_of_each_product_own_vat(self, engine: Engine) -> None:
         campana = w.campana(
             engine, [w.grupo(engine, [{"marca": "TP-LINK"}])], monto_unit="121.00", monto_incluye_iva=True
@@ -344,6 +366,21 @@ class TestPorcentaje:
 
         assert _filas(engine, campana) == [("fuera", ref, 1, Decimal("100.00"))]
         assert result.pendientes_base == {campana: 2}
+
+    def test_a_return_of_a_sale_waiting_for_its_base_takes_no_credit_from_another_sale(self, engine: Engine) -> None:
+        campana = _porcentaje(engine, "costo")
+        sin_costo = w.venta(engine, "fuera", 2964, 1, D(2026, 11, 2), cliente=55)
+        w.execute(
+            engine, "UPDATE ventas_fuera_ml_metricas SET costo_total = NULL WHERE it_transaction = :r", r=sin_costo
+        )
+        ajena = _fuera(engine, 2964, 1, D(2026, 11, 2), monto="1.00", costo="1000.00")  # another customer
+        w.execute(engine, "UPDATE ventas_fuera_ml_metricas SET cust_id = 99 WHERE it_transaction = :r", r=ajena)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 11, 3), signo=-1, cliente=55)  # returns the waiting sale
+
+        result = _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("fuera", ajena, 1, Decimal("100.00"))]
+        assert result.pendientes_base == {campana: 1}
 
     def test_a_sale_without_its_cost_waits_on_a_cost_base(self, engine: Engine) -> None:
         campana = _porcentaje(engine, "costo")
