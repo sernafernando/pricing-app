@@ -14,6 +14,8 @@ const CUENTA_DESDE = { compra: 'Fecha de compra', ingreso: 'Fecha de ingreso' };
  * One sell-in purchase in the side panel, read fresh from `GET /{id}`. With
  * `sell_in.gestionar` an active purchase can be voided after an inline
  * confirmation (no modal); there is no edit: a wrong one is voided and loaded again.
+ * One a brand bonus generated (`origen = 'bono_marca'`) only changes through its
+ * bonus, so it is marked and offers no void (the backend answers 409).
  */
 export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged, onClose }) {
   const id = useId();
@@ -61,6 +63,7 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
     }
   };
 
+  const generada = compra?.origen === 'bono_marca';
   const campos = compra
     ? [
         ['Proveedor', compra.proveedor_nombre ?? '—'],
@@ -98,7 +101,9 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
                 {compra.estado === 'activa' ? 'Activa' : 'Anulada'}
               </StatusPill>
               <StatusPill tone={compra.aplica ? 'success' : 'neutral'}>{compra.aplica ? 'Aplica' : 'No aplica'}</StatusPill>
+              {generada && <StatusPill tone="purple">Bono de marca</StatusPill>}
             </div>
+            {generada && <p className={styles.hint}>La generó un bono de marca: se actualiza sola y se anula desde su bono.</p>}
             <dl className={styles.campos}>
               {campos.map(([label, value]) => (
                 <div key={label} className={styles.campo}>
@@ -112,7 +117,7 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
         )}
       </div>
 
-      {compra && puedeGestionar && compra.estado === 'activa' && (
+      {compra && puedeGestionar && compra.estado === 'activa' && !generada && (
         <footer className={styles.panelFooter}>
           {confirmando ? (
             <div className={styles.confirm}>

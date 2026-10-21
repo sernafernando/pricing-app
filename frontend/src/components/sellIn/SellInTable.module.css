@@ -93,3 +93,11 @@
   text-align: center;
   color: var(--cf-text-tertiary);
 }
+
+/* "Bono de marca" badge under the description of a generated purchase. */
+.origen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 4px;
+}
