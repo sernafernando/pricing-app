@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { buildMlItemUrl } from '../../utils/mlSidePanel';
@@ -37,8 +37,20 @@ const describeError = (error) =>
  * @param {() => void} [props.onListReload] Asks the page to reload its list (a promotion write changes price and markup).
  * @param {object} [props.dataState] The list's honest-state block.
  * @param {Array} [props.tabs] The tab registry (tests inject their own).
+ * @param {() => void} [props.onBack] Shows "Volver a <producto>": the publication was opened from a product's panel.
+ * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
  */
-export default function PublicationPanel({ itemId, tab, onTabChange, onClose, onListReload, dataState, tabs = PANEL_TABS }) {
+export default function PublicationPanel({
+  itemId,
+  tab,
+  onTabChange,
+  onClose,
+  onListReload,
+  dataState,
+  tabs = PANEL_TABS,
+  onBack,
+  backLabel,
+}) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
   const canManage = tienePermiso('ml_ops.gestionar');
@@ -94,6 +106,12 @@ export default function PublicationPanel({ itemId, tab, onTabChange, onClose, on
       title={detail ? (row.title ?? 'Sin título') : 'Publicación'}
       meta={
         <>
+          {onBack && (
+            <button type="button" className={styles.back} onClick={onBack}>
+              <ArrowLeft size={12} aria-hidden="true" />
+              <span className={styles.backText}>{backLabel ? `Volver a ${backLabel}` : 'Volver al producto'}</span>
+            </button>
+          )}
           <div className={styles.meta}>
             <span className={styles.itemId}>{itemId}</span>
             <CopyButton value={itemId} label="Copiar MLA" compact />

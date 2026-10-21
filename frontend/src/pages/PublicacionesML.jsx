@@ -11,6 +11,7 @@ import PresenceFilters from '../components/publicacionesMl/PresenceFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
+import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
@@ -331,7 +332,14 @@ export default function PublicacionesML() {
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
   const sort = producto ? productRows.sort : effectiveSort(filters, { canSeeSales, canSeeMargin });
-  const closePanel = () => setFilters({ sel: '', tab: '' });
+  // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
+  const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
+  const selectProduct = (key) => setFilters({ prod: key, sel: '', tab: '' });
+  const selectProductItem = (itemId) => setFilters({ sel: itemId, tab: '' });
+  const backToProduct = () => setFilters({ sel: '', tab: '' });
+  const backLabel = filters.prod
+    ? productRows.rows.find((row) => row.type === 'node' && row.node.key === filters.prod)?.node.label
+    : undefined;
   const changeTab = (tab) => setFilters({ tab });
   const handleSort = (key) => {
     if (key === sort.key) setFilters({ orden: key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
@@ -557,10 +565,10 @@ export default function PublicacionesML() {
       ) : (
         <div className={styles.listArea} aria-busy={loading}>
           <SplitPanelLayout
-            open={Boolean(filters.sel)}
+            open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
             width="lg"
-            ariaLabel="Detalle de la publicación"
+            ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={
               filters.sel ? (
                 <PublicationPanel
@@ -570,6 +578,17 @@ export default function PublicacionesML() {
                   onClose={closePanel}
                   onListReload={reloadList}
                   dataState={data?.data_state}
+                  onBack={filters.prod ? backToProduct : undefined}
+                  backLabel={backLabel}
+                />
+              ) : filters.prod ? (
+                <ProductPanel
+                  filters={filters}
+                  productKey={filters.prod}
+                  onClose={closePanel}
+                  onSelectItem={selectProductItem}
+                  canSeeSales={canSeeSales}
+                  canSeeMargin={canSeeMargin}
                 />
               ) : null
             }
@@ -582,7 +601,9 @@ export default function PublicacionesML() {
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}
+                onSelectProduct={selectProduct}
                 selectedKey={filters.sel || undefined}
+                selectedProductKey={filters.prod || undefined}
                 sort={sort}
                 onSort={handleSort}
                 offset={TABLE_OFFSET}

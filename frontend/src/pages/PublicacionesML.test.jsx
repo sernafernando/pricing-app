@@ -1222,6 +1222,82 @@ describe('the Producto view', () => {
   });
 });
 
+describe('the product panel', () => {
+  const productPanel = () => screen.queryByRole('complementary', { name: 'Detalle del producto' });
+  const publicationPanel = () => screen.queryByRole('complementary', { name: 'Detalle de la publicación' });
+  const products = async (entry = '/ml-publicaciones?vista=producto') => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    await within(await screen.findByRole('table', { name: /por producto/ })).findByText('Router Archer AX55');
+  };
+  const rowOf = (text) => within(screen.getByRole('table', { name: /por producto/ })).getByText(text).closest('tr');
+
+  beforeEach(() => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
+  });
+
+  it('a click on a product opens its panel, highlights its row and does not expand it', async () => {
+    const user = userEvent.setup();
+    await products();
+    await user.click(rowOf('Router Archer AX55'));
+    const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    expect(await within(opened).findByRole('heading', { name: 'Router Archer AX55' })).toBeInTheDocument();
+    expect(publicacionesMlAPI.products).toHaveBeenCalledWith(expect.objectContaining({ producto: '4101', limit: 1 }));
+    expect(screen.getByRole('button', { name: /Abrir Router Archer AX55/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(rowOf('Router Archer AX55')).toHaveAttribute('aria-current', 'true');
+    expect(publicationPanel()).not.toBeInTheDocument();
+  });
+
+  it('a publication of the panel opens its own panel, which goes back to the product', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&prod=4101');
+    const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await user.click(await within(opened).findByRole('button', { name: /MLA1100000001/ }));
+
+    const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
+    expect(productPanel()).not.toBeInTheDocument();
+    await user.click(within(detail).getByRole('button', { name: 'Volver a Router Archer AX55' }));
+
+    expect(await screen.findByRole('complementary', { name: 'Detalle del producto' })).toBeInTheDocument();
+    expect(publicationPanel()).not.toBeInTheDocument();
+  });
+
+  it('a publication opened from the list has no way back to a product', async () => {
+    const user = userEvent.setup();
+    await products();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await user.click(await screen.findByText('MLA1100000001'));
+    const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
+    expect(within(detail).queryByRole('button', { name: /^Volver/ })).not.toBeInTheDocument();
+  });
+
+  it('closing it clears the product', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&prod=4101');
+    const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await user.click(within(opened).getByRole('button', { name: 'Cerrar panel' }));
+    await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
+    expect(rowOf('Router Archer AX55')).not.toHaveAttribute('aria-current');
+  });
+
+  it('a filter change closes it', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&prod=4101');
+    await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await user.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
+  });
+
+  it('the Agrupado view still opens its nodes on a click, with no product panel', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await user.click(await screen.findByText('EPSON'));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Cerrar EPSON/ })).toBeInTheDocument());
+    expect(productPanel()).not.toBeInTheDocument();
+  });
+});
+
 describe('the product filters (Marca, Categoría, Subcategoría, PM)', () => {
   const URL_FILTERS = 'marcas=TP%252CLINK&categorias=REDES&subcategorias=12&pms=7';
   const SENT = { marcas: 'TP%2CLINK', categorias: 'REDES', subcategorias: '12', pms: '7' };

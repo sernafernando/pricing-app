@@ -712,6 +712,35 @@ describe('Publicaciones ML Producto view (visual)', () => {
       });
     }
 
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: a click on a product opens its panel beside the table, its figures and publications inside it`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await expect.element(screen.getByRole('complementary', { name: 'Detalle del producto' }).getByText('Cifras')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        await expect.element(screen.getByRole('button', { name: /Router TP-Link Archer AX55 por color/ })).toBeVisible();
+        const box = rect(panel);
+        const scroller = scrollerOf();
+        // Side by side: the table ends where the panel starts, and nothing scrolls the page sideways.
+        expect(rect(scroller).right).toBeLessThanOrEqual(box.left + 0.5);
+        expect(box.right).toBeLessThanOrEqual(width + 0.5);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const el of panel.querySelectorAll('*')) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0) continue;
+          expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
+        }
+        const figures = [...panel.querySelectorAll('dd')].filter((el) => el.textContent.trim());
+        expect(figures.length).toBeGreaterThan(0);
+        expect(wrapped(figures)).toEqual([]);
+        // The product row is the highlighted one, and it was not expanded.
+        expect(rowWith(scroller, 'Router Archer AX55').getAttribute('aria-current')).toBe('true');
+        expect(scroller.textContent).not.toContain('Router TP-Link Archer AX55 por color');
+        screen.unmount();
+      });
+    }
+
     it(`1366x768 ${theme}: an open product shows its publications one level deeper, "Ver más" inside the table`, async () => {
       const screen = await renderProducts({ width: 1366, height: 768, theme });
       await screen.getByRole('button', { name: /Abrir Router Archer AX55/ }).click();
