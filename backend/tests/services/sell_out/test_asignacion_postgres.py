@@ -337,12 +337,13 @@ class TestPorcentaje:
         units, so the cap goes to the next sale until it settles and the campaign is rebuilt."""
         campana = _porcentaje(engine, base, tope_unidades=1)
         _ml(engine, 2964, 1, D(2026, 11, 2), gross="0", mcosto="0")
+        _ml(engine, 2964, 2, D(2026, 11, 2), gross="0", mcosto="0")
         ref = _fuera(engine, 2964, 1, D(2026, 11, 3), monto="1000.00", costo="1000.00")
 
         result = _recalcular(engine, campana)
 
         assert _filas(engine, campana) == [("fuera", ref, 1, Decimal("100.00"))]
-        assert result.pendientes_base == 1
+        assert result.pendientes_base == {campana: 2}
 
     def test_a_sale_without_its_cost_waits_on_a_cost_base(self, engine: Engine) -> None:
         campana = _porcentaje(engine, "costo")
@@ -353,7 +354,7 @@ class TestPorcentaje:
 
         result = _recalcular(engine, campana)
 
-        assert (w.consumos(engine), result.pendientes_base) == ([], 1)
+        assert (w.consumos(engine), result.pendientes_base) == ([], {campana: 1})
 
 
 class TestPorcentajeSinIva:

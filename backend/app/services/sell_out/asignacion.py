@@ -45,7 +45,7 @@ any error propagates and the caller rolls back.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -83,7 +83,8 @@ class RecomputeResult:
     campanas: int = 0
     inserted: int = 0
     deleted: int = 0
-    pendientes_base: int = 0  # percentage sales skipped because their base is unknown yet
+    # campaign -> its percentage sales skipped because their base is unknown yet (only campaigns with some)
+    pendientes_base: Dict[int, int] = field(default_factory=dict)
 
 
 def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, List[int]]:
@@ -155,7 +156,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
     """`{campana_id: [Consumo]}`, campaigns in id order, each after those taking precedence over it."""
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per campaign and line: the unit numbers it took or freed
     salida: Dict[int, List[tope.Consumo]] = {}
-    pendientes = 0
+    pendientes: Dict[int, int] = {}
     for c in activas:
         alcance_c = productos.get(c.id, {})
         antes = [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
@@ -169,7 +170,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
             try:
                 base_unit = _base(c, v, iva, tasas)
             except _BaseDesconocida:
-                pendientes += 1
+                pendientes[c.id] = pendientes.get(c.id, 0) + 1
                 continue
             clave = (v.canal, v.venta_ref)
             ocupado = set().union(*(tenidas[p].get(clave, ()) for p in antes))
