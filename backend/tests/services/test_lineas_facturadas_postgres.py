@@ -39,7 +39,7 @@ CREATE TABLE imputaciones (
 );
 CREATE TABLE v_facturas_compra_vigentes (ct_transaction BIGINT PRIMARY KEY, sd_plusorminus INTEGER, clasificacion TEXT);
 CREATE TABLE tb_item_transactions (
-  it_transaction BIGINT PRIMARY KEY, ct_transaction BIGINT, item_id INTEGER, it_qty NUMERIC(18, 4),
+  it_transaction BIGINT PRIMARY KEY, ct_transaction BIGINT, item_id INTEGER, it_qty NUMERIC(18, 4), it_price NUMERIC(18, 4), curr_id INTEGER,
   it_isassociation BOOLEAN, it_order INTEGER, it_isassociationgroup BOOLEAN
 );
 CREATE TABLE pedido_compra_lineas_facturadas (
@@ -47,6 +47,7 @@ CREATE TABLE pedido_compra_lineas_facturadas (
   pedido_id BIGINT NOT NULL REFERENCES pedidos_compra (id) ON DELETE CASCADE,
   item_id INTEGER NOT NULL,
   cantidad INTEGER NOT NULL,
+  importe_neto NUMERIC(18, 2), moneda VARCHAR(3),
   CONSTRAINT uq_pedido_compra_lineas_facturadas_pedido_item UNIQUE (pedido_id, item_id),
   CONSTRAINT ck_pedido_compra_lineas_facturadas_cantidad_positiva CHECK (cantidad > 0)
 );
