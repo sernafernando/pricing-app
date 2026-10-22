@@ -42,6 +42,7 @@ import {
   STOCK_OPTIONS,
   formatUnits,
 } from '../utils/metricasMlFormat';
+import SheetsNotice from '../components/sheets/SheetsNotice';
 import styles from './MetricasML.module.css';
 
 /**
@@ -539,20 +540,7 @@ export default function MetricasML() {
           <ShieldAlert size={16} /> {exportError}
         </div>
       )}
-      {sheetsNotice && (
-        <p className={styles.description} role="status">
-          {sheetsNotice.url ? (
-            <>
-              Hoja creada.{' '}
-              <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
-                Abrir la hoja en Google Sheets
-              </a>
-            </>
-          ) : (
-            sheetsNotice.text
-          )}
-        </p>
-      )}
+      <SheetsNotice notice={sheetsNotice} onClose={() => setSheetsNotice(null)} />
 
       <section className={styles.filterCard} aria-label="Filtros">
         <div className={styles.filterBand}>

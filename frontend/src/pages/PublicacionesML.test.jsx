@@ -1537,7 +1537,7 @@ describe('Exportar a Sheets', () => {
     exportPublicacionesSheets.mockRejectedValue(Object.assign(new Error('Exportación cancelada'), { cancelled: true }));
     await page();
     await userEvent.click(sheetsButton());
-    expect(await screen.findByText('Exportación cancelada')).toHaveAttribute('role', 'status');
+    expect(await screen.findByRole('status')).toHaveTextContent('Exportación cancelada');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -1545,16 +1545,16 @@ describe('Exportar a Sheets', () => {
     exportPublicacionesSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: false });
     await page();
     await userEvent.click(sheetsButton());
-    const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    const link = await screen.findByRole('link', { name: 'Abrir en Google Sheets' });
     expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
   });
 
   it('links to the new sheet even when its tab seemed to open (a browser can block it silently)', async () => {
     await page();
     await userEvent.click(sheetsButton());
-    const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    const link = await screen.findByRole('link', { name: 'Abrir en Google Sheets' });
     expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
-    expect(screen.getByRole('status')).toHaveTextContent('Hoja creada.');
+    expect(screen.getByRole('status')).toHaveTextContent('Hoja creada en Google Sheets');
   });
 
   it('a filter change drops the note about the previous list', async () => {
