@@ -17,6 +17,11 @@ price, and that credit is added to profit. The rules live in
 - An edit, void or rate change while `sell_out.drain` is rebuilding the
   campaign is a 409 ("La campaña se está recalculando. Reintentar en unos
   segundos."); nothing is stored and the client can retry.
+- Every campaign comes with `resumen`, what it credited so far: units, amount
+  in its currency and in ARS, what its cap has left, per channel, the sales
+  waiting for their percentage base and the rebuild state
+  (`app.services.sell_out.resumen`; a fixed number of queries per page).
+  `GET /{id}/consumos` pages its credited lines, in sale order.
 - Business-rule errors are a 422 with one readable Spanish message; an
   unknown campaign is a 404.
 """
@@ -39,11 +44,13 @@ from app.schemas.sell_out import (
     SellOutCampanaIn,
     SellOutCampanaListOut,
     SellOutCampanaOut,
+    SellOutConsumosListOut,
     SellOutTipoCambioIn,
     Tipo,
 )
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_out import campanas as service
+from app.services.sell_out import resumen
 
 router = APIRouter(prefix="/sell-out/campanas", tags=["Sell out"])
 
@@ -86,7 +93,7 @@ def listar_campanas(
 ) -> dict:
     filtros = service.FiltrosCampanas(estado=estado, vigente_en=vigente_en, q=q, grupo_id=grupo_id, tipo=tipo)
     campanas, total = service.listar_campanas(db, filtros, page=page, page_size=page_size)
-    return {"items": service.serializar(db, campanas), "total": total, "page": page, "page_size": page_size}
+    return {"items": resumen.serializar(db, campanas), "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/{campana_id}", response_model=SellOutCampanaOut)
@@ -94,7 +101,30 @@ def obtener_campana(campana_id: int, _user: Usuario = Depends(requiere_ver), db:
     campana = db.get(SellOutCampana, campana_id)
     if campana is None:
         raise _no_existe(campana_id)
-    return service.serializar(db, [campana])[0]
+    return resumen.serializar(db, [campana])[0]
+
+
+@router.get("/{campana_id}/consumos", response_model=SellOutConsumosListOut)
+def listar_consumos(
+    campana_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _user: Usuario = Depends(requiere_ver),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The campaign's credited sale lines, in sale order, one page at a time."""
+    campana = db.get(SellOutCampana, campana_id)
+    if campana is None:
+        raise _no_existe(campana_id)
+    items, total = resumen.consumos(db, campana, page=page, page_size=page_size)
+    return {
+        "moneda": campana.moneda,
+        "ars_estimado": resumen.ars_estimado(campana),
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.post("", response_model=SellOutCampanaOut, status_code=status.HTTP_201_CREATED)
@@ -105,7 +135,7 @@ def crear_campana(
         campana = service.crear_campana(db, data, user.id)
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
-    return service.serializar(db, [campana])[0]
+    return resumen.serializar(db, [campana])[0]
 
 
 @router.put("/{campana_id}", response_model=SellOutCampanaOut)
@@ -122,7 +152,7 @@ def editar_campana(
         raise _error(db, exc) from exc
     if campana is None:
         raise _no_existe(campana_id)
-    return service.serializar(db, [campana])[0]
+    return resumen.serializar(db, [campana])[0]
 
 
 @router.post("/{campana_id}/anular", response_model=SellOutCampanaOut)
@@ -139,7 +169,7 @@ def anular_campana(
         raise _error(db, exc) from exc
     if campana is None:
         raise _no_existe(campana_id)
-    return service.serializar(db, [campana])[0]
+    return resumen.serializar(db, [campana])[0]
 
 
 @router.post("/{campana_id}/tipo-cambio", response_model=SellOutCampanaOut)
@@ -156,4 +186,4 @@ def definir_tipo_cambio(
         raise _error(db, exc) from exc
     if campana is None:
         raise _no_existe(campana_id)
-    return service.serializar(db, [campana])[0]
+    return resumen.serializar(db, [campana])[0]

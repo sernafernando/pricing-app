@@ -107,7 +107,7 @@ class Consumo:
     monto: Decimal  # campaign currency, cents
 
 
-def _cents(value: Decimal) -> Decimal:
+def cents(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
@@ -153,7 +153,7 @@ def asignar(campana: Campana, lineas: Iterable[Linea], por_linea: Optional[Dict[
     lineas = sorted(lineas, key=lambda x: (x.fecha, x.unidades < 0, x.canal, x.venta_ref))
     _validar(campana, lineas)
     unidades_libres = campana.tope_unidades  # None: no unit cap
-    monto_libre = None if campana.tope_monto is None else _cents(campana.tope_monto)  # None: no money cap
+    monto_libre = None if campana.tope_monto is None else cents(campana.tope_monto)  # None: no money cap
     # sale -> [units, amount, unit amount], in the order the sales were processed
     tenencia: Dict[Clave, List] = {}
     ventas: Dict[Clave, Linea] = {}
@@ -171,7 +171,7 @@ def asignar(campana: Campana, lineas: Iterable[Linea], por_linea: Optional[Dict[
                 toma = min(toma, math.ceil(monto_libre / unitario))
             if toma <= 0:
                 continue
-            monto = _cents(unitario * toma)
+            monto = cents(unitario * toma)
             if monto_libre is not None:
                 monto = min(monto, monto_libre)
                 monto_libre -= monto
@@ -193,7 +193,7 @@ def asignar(campana: Campana, lineas: Iterable[Linea], por_linea: Optional[Dict[
             unidades, monto, unitario = tenencia[candidata]
             suelta = min(falta, unidades)
             restante = unidades - suelta
-            nuevo_monto = _cents(unitario * restante)  # <= monto: see the module docstring
+            nuevo_monto = cents(unitario * restante)  # <= monto: see the module docstring
             tenencia[candidata] = [restante, nuevo_monto, unitario]
             falta -= suelta
             if unidades_libres is not None:

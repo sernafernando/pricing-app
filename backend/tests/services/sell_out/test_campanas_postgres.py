@@ -20,15 +20,18 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.sell_out import SellOutCampana
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaOut
 from app.services.sell_out import campanas as service
+from app.services.sell_out import resumen
 
 pytestmark = pytest.mark.postgres
 
-# The service queues each change (T7 S3); an edit reads the reach (filters, products) before applying it.
+# The service queues each change (T7 S3); an edit reads the reach (filters, products) before applying it;
+# the API shape carries what each campaign credited (`resumen`, T7 S5).
 TABLES = (
     "sell_out_campanas",
     "sell_out_campana_grupos",
     "auditoria",
     "sell_out_dirty",
+    "sell_out_consumos",
     "offset_grupo_filtros",
     "productos_erp",
 )
@@ -91,7 +94,7 @@ def _data(**overrides) -> SellOutCampanaIn:
 def _api(session, campana_id: int) -> dict:
     """The campaign as the API returns it, read back from the database in a fresh session."""
     campana = session.get(SellOutCampana, campana_id)
-    return SellOutCampanaOut.model_validate(service.serializar(session, [campana])[0]).model_dump(mode="json")
+    return SellOutCampanaOut.model_validate(resumen.serializar(session, [campana])[0]).model_dump(mode="json")
 
 
 def _audit(session, tipo: TipoAccion) -> Auditoria:

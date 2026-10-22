@@ -248,7 +248,7 @@ export default function PublicacionesML() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const [exportingSheets, setExportingSheets] = useState(false);
-  // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link of a blocked tab.
+  // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link to the new sheet (shown even when its tab opened: a browser can block it silently).
   const [sheetsNotice, setSheetsNotice] = useState(null);
   const sheetsEnabled = isSheetsExportEnabled();
   useEffect(() => {
@@ -265,7 +265,7 @@ export default function PublicacionesML() {
   }, [exportList]);
   // The CSV of the view on screen, with the list's own filters and sort (the Agrupado tree has no export).
   // "Exportar a Sheets" sends the same view and request to a new Google Sheet, straight from the click (the Google
-  // popup needs it); a cancelled popup and the link of a blocked tab are notes, not refusals.
+  // popup needs it); a cancelled popup and the link to the new sheet are notes, not refusals.
   const runExport = async (exporter, setBusy) => {
     const askedFor = exportList;
     setBusy(true);
@@ -273,7 +273,7 @@ export default function PublicacionesML() {
     setSheetsNotice(null);
     try {
       const result = await exporter(filters.vista, buildExportParams(filters, { canSeeMargin, canSeeSales }));
-      if (result && !result.opened) setSheetsNotice({ url: result.url });
+      if (result?.url) setSheetsNotice({ url: result.url });
     } catch (err) {
       if (askedFor !== currentExportList.current) return;
       if (err.cancelled) setSheetsNotice({ text: err.message });
@@ -461,9 +461,12 @@ export default function PublicacionesML() {
       {sheetsNotice && (
         <p className={styles.description} role="status">
           {sheetsNotice.url ? (
-            <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
-              Abrir la hoja en Google Sheets
-            </a>
+            <>
+              Hoja creada.{' '}
+              <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
+                Abrir la hoja en Google Sheets
+              </a>
+            </>
           ) : (
             sheetsNotice.text
           )}

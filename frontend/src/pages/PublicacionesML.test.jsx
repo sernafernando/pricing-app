@@ -1549,6 +1549,14 @@ describe('Exportar a Sheets', () => {
     expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
   });
 
+  it('links to the new sheet even when its tab seemed to open (a browser can block it silently)', async () => {
+    await page();
+    await userEvent.click(sheetsButton());
+    const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
+    expect(screen.getByRole('status')).toHaveTextContent('Hoja creada.');
+  });
+
   it('a filter change drops the note about the previous list', async () => {
     exportPublicacionesSheets.mockRejectedValue(Object.assign(new Error('Exportación cancelada'), { cancelled: true }));
     await page();
