@@ -8,12 +8,12 @@ import styles from '../sellIn/SellInPanel.module.css';
  * The payment rate of a USD `al_cobro` sell-out campaign (`POST /sell-out/campanas/{id}/tipo-cambio`, T8c).
  * Until it is set, ARS amounts are estimated with the day's BNA rate. It can be set, and changed, also after
  * the campaign ended; the campaign is recalculated by itself. `onDefinido` gets the campaign as stored.
+ * `busy` / `onBusyChange` are the panel's: one request at a time across the whole panel.
  */
-export default function SellOutTipoCambio({ campana, onDefinido }) {
+export default function SellOutTipoCambio({ campana, onDefinido, busy = false, onBusyChange = () => {} }) {
   const id = useId();
   const [valor, setValor] = useState('');
   const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
   const definido = campana.tipo_cambio != null;
 
   const definir = async () => {
@@ -21,7 +21,7 @@ export default function SellOutTipoCambio({ campana, onDefinido }) {
       setError('El tipo de cambio tiene que ser mayor a 0.');
       return;
     }
-    setBusy(true);
+    onBusyChange(true);
     setError(null);
     try {
       const { data } = await sellOutAPI.definirTipoCambio(campana.id, valor.trim());
@@ -30,7 +30,7 @@ export default function SellOutTipoCambio({ campana, onDefinido }) {
     } catch (err) {
       setError(apiMessage(err, 'No se pudo definir el tipo de cambio.'));
     } finally {
-      setBusy(false);
+      onBusyChange(false);
     }
   };
 

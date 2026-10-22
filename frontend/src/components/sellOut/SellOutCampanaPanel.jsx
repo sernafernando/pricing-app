@@ -149,6 +149,8 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
         {conTipoCambio && (
           <SellOutTipoCambio
             campana={campana}
+            busy={busy}
+            onBusyChange={setBusy}
             onDefinido={(data) => {
               mostrar(data);
               onSaved(data);

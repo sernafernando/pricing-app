@@ -3,7 +3,7 @@
  * channel, its recalculation state, and the legacy offset it came from.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { CAMPANA_MIGRADA, CAMPANA_PORCENTAJE_ANULADA } from './sellOutFixtures';
@@ -197,5 +197,21 @@ describe('SellOutCampanaPanel — void and exchange rate (T8c)', () => {
     await screen.findByText('Activa');
     expect(screen.queryByLabelText('Valor del tipo de cambio')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Anular campaña' })).not.toBeInTheDocument();
+  });
+
+  it('while the rate is being set, the footer actions wait', async () => {
+    const user = userEvent.setup();
+    let responder;
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    sellOutAPI.definirTipoCambio.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    render(<SellOutCampanaPanel campanaId={55} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
+
+    await user.type(await screen.findByLabelText('Valor del tipo de cambio'), '1420');
+    await user.click(screen.getByRole('button', { name: 'Definir tipo de cambio' }));
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Anular campaña' })).toBeDisabled();
+
+    responder({ data: { ...CAMPANA_MIGRADA, tipo_cambio: '1420.000000' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeEnabled());
   });
 });
