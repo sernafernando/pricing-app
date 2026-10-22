@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_ads import MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
 from app.services.ml_ads.ingestion import LOCAL_TZ
-from app.services.ml_ads.store import CAMPAIGNS_SOURCE
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import NO_PRODUCT, ads_owner_select
+from app.services.ml_ads.store import CAMPAIGNS_SOURCE
 from app.services.ml_publications.view.ads import AdsAvailability
 
 SOURCE = "product_ads"
