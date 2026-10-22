@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
@@ -187,6 +188,22 @@ def test_create_and_edit_store_and_audit_the_same_decimals(Session, overrides, e
     assert {c: editada[c] for c in DECIMALES} == esperado
     assert {c: audit.valores_nuevos[c] for c in DECIMALES} == esperado
     assert {c: audit.valores_anteriores[c] for c in DECIMALES} == esperado
+
+
+@pytest.mark.parametrize("origen", [123, 999], ids=["offset_already_migrated", "unknown_offset"])
+def test_a_second_campaign_for_one_offset_or_an_unknown_offset_is_refused_and_leaves_nothing(Session, origen) -> None:
+    with Session() as db:
+        service.crear_campana(db, _data(), USUARIO, offset_origen_id=123)
+    counts = (
+        "SELECT (SELECT count(*) FROM sell_out_campanas), (SELECT count(*) FROM auditoria), "
+        "(SELECT count(*) FROM sell_out_dirty)"
+    )
+    with Session() as db:
+        before = db.execute(text(counts)).one()
+        with pytest.raises(IntegrityError):
+            service.crear_campana(db, _data(nombre="Otra"), USUARIO, offset_origen_id=origen)
+    with Session() as db:
+        assert db.execute(text(counts)).one() == before
 
 
 def test_a_migrated_campaign_stores_audits_and_returns_its_legacy_offset_and_an_edit_keeps_it(Session) -> None:
