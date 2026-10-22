@@ -522,3 +522,23 @@ def test_a_database_error_reading_one_offset_is_reported_and_the_others_still_mi
     assert (filas[falla]["resultado"], filas[falla]["motivo"].split(":")[0]) == ("no migrado", "Error de base de datos")
     assert [c["offset_origen_id"] for c in _campanas(engine)] == [sana]
     assert summary["con_error"] == [falla]
+
+
+def test_an_offset_deleted_during_the_run_is_reported_and_the_run_goes_on(engine, correr, monkeypatch) -> None:
+    primero = _offset(engine, item_id=2964)
+    borrado = _offset(engine, item_id=950)
+    real = script._ya_migrada
+
+    def ya_migrada(db, offset_id):
+        if offset_id == primero:
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM offsets_ganancia WHERE id = :i"), {"i": borrado})
+        return real(db, offset_id)
+
+    monkeypatch.setattr(script, "_ya_migrada", ya_migrada)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert (filas[borrado]["resultado"], filas[borrado]["motivo"]) == ("no migrado", "El offset ya no existe")
+    assert [c["offset_origen_id"] for c in _campanas(engine)] == [primero]

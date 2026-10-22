@@ -276,6 +276,17 @@ def run_migracion(
         with session_factory() as db:
             try:
                 offset = db.get(OffsetGanancia, offset_id)
+                if offset is None:  # deleted after the ids were read
+                    filas.append(
+                        {
+                            **dict.fromkeys(COLUMNAS, ""),
+                            "offset_id": offset_id,
+                            "resultado": NO_MIGRADO,
+                            "motivo": "El offset ya no existe",
+                        }
+                    )
+                    summary["no_migrados"] += 1
+                    continue
                 ya = _ya_migrada(db, offset_id)
                 error = None
                 if ya is not None:
