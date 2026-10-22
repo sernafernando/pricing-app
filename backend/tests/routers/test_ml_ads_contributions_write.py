@@ -59,6 +59,19 @@ def _rows(db) -> list[MlAdsCampaignContribution]:
     return db.query(MlAdsCampaignContribution).order_by(MlAdsCampaignContribution.id).all()
 
 
+def _override(db, user, codigo: str, concedido: bool) -> None:
+    """A per-user override on top of the role (the hybrid permission system)."""
+    from app.models.permiso import Permiso, UsuarioPermisoOverride
+
+    permiso = db.query(Permiso).filter(Permiso.codigo == codigo).first()
+    if permiso is None:
+        permiso = Permiso(codigo=codigo, nombre=codigo, descripcion="", categoria="ventas_ml", orden=72)
+        db.add(permiso)
+        db.flush()
+    db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=permiso.id, concedido=concedido))
+    db.flush()
+
+
 def _create(client, headers, **overrides):
     return client.post(f"{BASE}/contributions", headers=headers, json=_contribution(**overrides))
 
@@ -78,6 +91,23 @@ class TestPermissions:
         assert [r.status_code for r in responses] == [403, 403, 403]
         assert GESTIONAR in responses[0].json()["error"]["message"]
         assert [(r.campaign_id, r.value) for r in _rows(db)] == [(CAMP, Decimal("30.00"))]
+
+    def test_a_granting_override_lets_a_viewer_load(self, client, db, viewer, active_user) -> None:
+        _override(db, active_user, GESTIONAR, True)
+        assert _create(client, viewer).status_code == 201
+        assert [r.created_by_id for r in _rows(db)] == [active_user.id]
+
+    def test_a_revoking_override_blocks_an_admin(self, client, db, manager, admin_user) -> None:
+        _override(db, admin_user, GESTIONAR, False)
+        assert _create(client, manager).status_code == 403
+        assert _rows(db) == []
+
+    def test_managing_without_ver_ganancia_is_403(self, client, db, rol_ventas, auth_headers, campaigns) -> None:
+        grant(db, rol_ventas, GESTIONAR)
+        response = _create(client, auth_headers)
+        assert response.status_code == 403
+        assert GANANCIA in response.json()["error"]["message"]
+        assert _rows(db) == []
 
 
 class TestCreate:
