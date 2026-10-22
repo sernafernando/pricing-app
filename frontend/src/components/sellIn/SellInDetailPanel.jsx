@@ -4,7 +4,7 @@ import { sellInAPI } from '../../services/sellInAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import SellInLineas from './SellInLineas';
-import { FORMULA_LABELS, apiMessage, formatEntero, formatMonto, formatNumero } from './sellInFormat';
+import { FORMULA_LABELS, apiMessage, formatEntero, formatMonto, formatNumero, formatPorcentaje } from './sellInFormat';
 import styles from './SellInPanel.module.css';
 
 const MOTIVO_MAX = 500; // backend `SellInAnularIn.motivo` (auditoria.comentario is VARCHAR(500))
@@ -64,15 +64,18 @@ export default function SellInDetailPanel({ compraId, puedeGestionar, onChanged,
   };
 
   const generada = compra?.origen === 'bono_marca';
+  const porPorcentaje = compra?.tipo === 'porcentaje';
   const campos = compra
     ? [
         ['Proveedor', compra.proveedor_nombre ?? '—'],
         ['Fecha de compra', formatDateOnly(compra.fecha_compra)],
         ['Fecha de ingreso', compra.fecha_ingreso ? formatDateOnly(compra.fecha_ingreso) : '—'],
         ['Cuenta desde', CUENTA_DESDE[compra.cuenta_desde] ?? compra.cuenta_desde],
+        ...(porPorcentaje ? [['Sell in', `${formatPorcentaje(compra.porcentaje)} de lo facturado`]] : []),
         ['Monto total', formatMonto(compra.monto_total, compra.moneda)],
         ['Tipo de cambio', compra.tipo_cambio ? formatNumero(compra.tipo_cambio) : '—'],
-        ['Reparto', FORMULA_LABELS[compra.formula] ?? compra.formula],
+        // A % purchase is stored as a manual split: each line's amount is its own invoiced share.
+        ['Reparto', porPorcentaje ? 'Según lo facturado de cada producto' : (FORMULA_LABELS[compra.formula] ?? compra.formula)],
         ['Operaciones de compra', compra.pedido_compra_ids?.length ? compra.pedido_compra_ids.map((n) => `N° ${n}`).join(', ') : '—'],
         ['Unidades', `${formatEntero(compra.unidades_consumidas)} consumidas · ${formatEntero(compra.unidades_restantes)} restantes`],
       ]

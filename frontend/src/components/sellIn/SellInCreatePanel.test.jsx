@@ -462,4 +462,135 @@ describe('SellInCreatePanel', () => {
     expect(screen.getByLabelText('Pedido de compra (N°)')).toBeDisabled();
     expect(sellInAPI.prefill).toHaveBeenCalledTimes(50);
   });
+
+  describe('as a percentage of what was invoiced', () => {
+    // 4512 was invoiced USD 10.101,00 over the operations; 4513 has no invoiced line yet.
+    const PREFILL_FACTURADO = {
+      ...PREFILL,
+      items: [
+        { ...PREFILL.items[0], facturado: '10101.00', facturado_moneda: 'USD' },
+        { ...PREFILL.items[1], facturado: null, facturado_moneda: null },
+      ],
+    };
+    const PREVIEW_PORCENTAJE = {
+      ...PREVIEW,
+      moneda: 'USD',
+      tipo: 'porcentaje',
+      porcentaje: '2.5000',
+      formula: 'manual',
+      lineas: PREVIEW.lineas.map((l) => ({ ...l, base_facturada: '10101.00' })),
+    };
+
+    beforeEach(() => {
+      sellInAPI.prefill.mockResolvedValue({ data: PREFILL_FACTURADO });
+      sellInAPI.preview.mockResolvedValue({ data: PREVIEW_PORCENTAJE });
+    });
+
+    async function porcentaje(user, valor = '2.5') {
+      await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
+      await user.type(screen.getByLabelText('Porcentaje'), valor);
+      await user.type(screen.getByLabelText('Tipo de cambio'), '1400');
+    }
+
+    it('asks for the percentage instead of a total, shows each product invoiced and saves without a formula', async () => {
+      const user = userEvent.setup();
+      const { onCreated } = renderPanel();
+      await agregarOperacion(user, 15);
+      await screen.findByLabelText('Cantidad de SW-8');
+      await porcentaje(user);
+
+      expect(screen.queryByLabelText('Monto total')).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Reparto' })).not.toBeInTheDocument();
+      expect(screen.getByText('Facturado USD 10.101,00')).toBeInTheDocument();
+      expect(screen.getByText('Sin facturado')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+      const enviado = {
+        moneda: 'USD',
+        tipo: 'porcentaje',
+        porcentaje: '2.5',
+        tipo_cambio: '1400',
+        lineas: [
+          { item_id: 4512, cantidad: 12 },
+          { item_id: 4513, cantidad: 4 },
+        ],
+        pedido_compra_ids: [15],
+      };
+      expect(sellInAPI.preview).toHaveBeenCalledWith(enviado);
+      const previa = await screen.findByRole('table', { name: 'Vista previa por ítem' });
+      expect(within(previa).getByRole('columnheader', { name: 'Base facturada' })).toBeInTheDocument();
+      expect(within(previa).getAllByText('USD 10.101,00').length).toBeGreaterThan(0);
+
+      await user.click(screen.getByRole('button', { name: 'Guardar sell in' }));
+      await waitFor(() => expect(onCreated).toHaveBeenCalledWith(COMPRA_ARS));
+      const creado = sellInAPI.crear.mock.calls[0][0];
+      expect(creado).toMatchObject({ ...enviado, pedido_compra_ids: [15] });
+      expect(creado).not.toHaveProperty('monto_total');
+      expect(creado).not.toHaveProperty('formula');
+    });
+
+    it('needs an operation to take the invoiced base from', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await fillCompra(user);
+      await porcentaje(user);
+      await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Elegí al menos una operación de compra: el porcentaje se aplica sobre lo facturado.',
+      );
+      expect(sellInAPI.preview).not.toHaveBeenCalled();
+    });
+
+    it.each(['0', '150'])('refuses a percentage of %s before asking the server', async (valor) => {
+      const user = userEvent.setup();
+      renderPanel();
+      await agregarOperacion(user, 15);
+      await screen.findByLabelText('Cantidad de SW-8');
+      await porcentaje(user, valor);
+      await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('El porcentaje debe ser mayor que 0 y hasta 100.');
+      expect(sellInAPI.preview).not.toHaveBeenCalled();
+    });
+
+    it('stops showing the ARS equivalent of a total that is no longer used', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.type(screen.getByLabelText('Monto total'), '100');
+      await user.type(screen.getByLabelText('Tipo de cambio'), '1400');
+      expect(screen.getByText(/Equivale a/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
+
+      expect(screen.queryByText(/Equivale a/)).not.toBeInTheDocument();
+    });
+
+    it('shows what was invoiced for products kept instead of the operations ones', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await fillCompra(user);
+      await agregarOperacion(user, 15);
+      await user.click(await screen.findByRole('button', { name: 'Mantener los actuales' }));
+      await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
+
+      expect(screen.getByText('Facturado USD 10.101,00')).toBeInTheDocument();
+      expect(screen.getByText('Sin facturado')).toBeInTheDocument();
+    });
+
+    it('drops the preview when the operations change, since the base comes from them', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await agregarOperacion(user, 15);
+      await screen.findByLabelText('Cantidad de SW-8');
+      await porcentaje(user);
+      await user.click(screen.getByRole('button', { name: 'Calcular vista previa' }));
+      await screen.findByRole('table', { name: 'Vista previa por ítem' });
+
+      await agregarOperacion(user, 16);
+
+      expect(screen.queryByRole('table', { name: 'Vista previa por ítem' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Guardar sell in' })).toBeDisabled();
+    });
+  });
 });

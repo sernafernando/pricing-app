@@ -14,6 +14,10 @@ const MONEDAS = [
   { value: 'USD', label: 'USD' },
   { value: 'ARS', label: 'ARS' },
 ];
+const TIPOS = [
+  { value: 'monto', label: 'Monto fijo' },
+  { value: 'porcentaje', label: '% de lo facturado' },
+];
 const FORMULAS = [
   { value: 'proporcional', label: 'Proporcional (por defecto)' },
   { value: 'por_unidad', label: 'Por unidad' },
@@ -47,12 +51,16 @@ const buscarProveedores = (search) =>
  * they filled. Typed products are replaced only after an inline confirmation,
  * and the operations' currency is only offered, since a sell in keeps its own.
  * `modoSwitch` (the "Por compra | Bono de marca" switch) renders under the header.
+ *
+ * As a percentage (`tipo: 'porcentaje'`, T3g) there is no total nor split: each
+ * line gets that % of its invoiced net over the operations (shown from the
+ * prefill), so it needs at least one operation, and changing them drops the preview.
  */
 export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = null }) {
   const id = useId();
   const [datos, setDatos] = useState({ fechaCompra: toLocalDateString(), fechaIngreso: '', cuentaDesde: 'compra', descripcion: '' });
   const [proveedor, setProveedor] = useState(null);
-  const [reparto, setReparto] = useState({ moneda: 'USD', montoTotal: '', tipoCambio: '', formula: 'proporcional' });
+  const [reparto, setReparto] = useState({ tipo: 'monto', moneda: 'USD', montoTotal: '', porcentaje: '', tipoCambio: '', formula: 'proporcional' });
   const [lineas, setLineas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   // The picked operations as the search answered them, by id: the first one sets the supplier and currency rule.
@@ -60,6 +68,9 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
   // What the last prefill answered: its currency (offered) and products waiting for the user's go-ahead.
   const [monedaOperaciones, setMonedaOperaciones] = useState(null);
   const [lineasPendientes, setLineasPendientes] = useState(null);
+  // What the operations invoiced per product (`item_id` -> {importe, moneda}), shown on every line with
+  // that product, kept or typed ones too: a % purchase takes its base from there.
+  const [facturados, setFacturados] = useState({});
   const [prefillError, setPrefillError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
@@ -120,6 +131,7 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
     setPrefillError(null);
     setLineasPendientes(null);
     setMonedaOperaciones(null);
+    setFacturados({});
     if (ids.length === 0) {
       aplicarPrefill({ proveedor: null, fechaIngreso: '', lineas: [] });
       return;
@@ -128,6 +140,11 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
       const { data } = await sellInAPI.prefill(ids);
       if (token !== prefillRef.current) return;
       setMonedaOperaciones(data.moneda);
+      setFacturados(
+        Object.fromEntries(
+          data.items.filter((item) => item.facturado != null).map((item) => [item.item_id, { importe: item.facturado, moneda: item.facturado_moneda }]),
+        ),
+      );
       aplicarPrefill({
         proveedor: { id: data.proveedor_id, nombre: data.proveedor_nombre ?? `Proveedor #${data.proveedor_id}` },
         fechaIngreso: data.fecha_ingreso ?? '',
@@ -170,6 +187,8 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
   };
   const cambiarPedidos = (ids) => {
     setPedidos(ids);
+    // A % purchase's base is what the operations invoiced.
+    if (reparto.tipo === 'porcentaje') invalidar();
     pedirPrefill(ids);
   };
   const agregarPedido = (operacion) => {
@@ -188,19 +207,18 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
     invalidar();
   };
 
-  const { moneda, montoTotal, tipoCambio, formula } = reparto;
-  const manual = formula === 'manual';
-  const body = {
-    moneda,
-    monto_total: montoTotal,
-    tipo_cambio: tipoCambio || null,
-    formula,
-    lineas: lineas.map((l) => ({
-      item_id: l.item_id,
-      cantidad: Number.parseInt(l.cantidad, 10) || 0,
-      ...(manual ? { monto_manual: l.montoManual || '0' } : {}),
-    })),
-  };
+  const { tipo, moneda, montoTotal, porcentaje, tipoCambio, formula } = reparto;
+  const porPorcentaje = tipo === 'porcentaje';
+  const manual = !porPorcentaje && formula === 'manual';
+  const lineasBody = lineas.map((l) => ({
+    item_id: l.item_id,
+    cantidad: Number.parseInt(l.cantidad, 10) || 0,
+    ...(manual ? { monto_manual: l.montoManual || '0' } : {}),
+  }));
+  // A % purchase sends no total nor formula: the server computes both from the invoiced base.
+  const body = porPorcentaje
+    ? { moneda, tipo, porcentaje, tipo_cambio: tipoCambio || null, lineas: lineasBody, pedido_compra_ids: pedidos }
+    : { moneda, monto_total: montoTotal, tipo_cambio: tipoCambio || null, formula, lineas: lineasBody };
 
   const calcular = async () => {
     if (lineas.length === 0) {
@@ -210,6 +228,14 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
     // The backend refuses it too (`compras.py`: "Una compra en USD necesita el tipo de cambio").
     if (moneda === 'USD' && !(Number(tipoCambio) > 0)) {
       setError('Una compra en USD necesita el tipo de cambio.');
+      return;
+    }
+    if (porPorcentaje && pedidos.length === 0) {
+      setError('Elegí al menos una operación de compra: el porcentaje se aplica sobre lo facturado.');
+      return;
+    }
+    if (porPorcentaje && !(Number(porcentaje) > 0 && Number(porcentaje) <= 100)) {
+      setError('El porcentaje debe ser mayor que 0 y hasta 100.');
       return;
     }
     const suma = sumaManual(lineas.map((l) => l.montoManual));
@@ -254,7 +280,7 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
     }
   };
 
-  const equivale = moneda === 'USD' && Number(montoTotal) > 0 && Number(tipoCambio) > 0 ? Number(montoTotal) * Number(tipoCambio) : null;
+  const equivale = !porPorcentaje && moneda === 'USD' && Number(montoTotal) > 0 && Number(tipoCambio) > 0 ? Number(montoTotal) * Number(tipoCambio) : null;
 
   return (
     <div className={styles.panel}>
@@ -343,11 +369,19 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
 
         <section className={styles.section}>
           <h3>Monto</h3>
+          <SegmentedControl label="Forma del monto" options={TIPOS} value={tipo} onChange={(value) => setRepartoCampo({ tipo: value })} />
           <div className={styles.grid2}>
-            <label className={styles.field} htmlFor={`${id}-mt`}>
-              <span className={styles.label}>Monto total</span>
-              <input id={`${id}-mt`} type="number" min="0" step="0.01" className={styles.input} value={montoTotal} onChange={(e) => setRepartoCampo({ montoTotal: e.target.value })} />
-            </label>
+            {porPorcentaje ? (
+              <label className={styles.field} htmlFor={`${id}-pc`}>
+                <span className={styles.label}>Porcentaje</span>
+                <input id={`${id}-pc`} type="number" min="0" max="100" step="0.0001" className={styles.input} value={porcentaje} onChange={(e) => setRepartoCampo({ porcentaje: e.target.value })} />
+              </label>
+            ) : (
+              <label className={styles.field} htmlFor={`${id}-mt`}>
+                <span className={styles.label}>Monto total</span>
+                <input id={`${id}-mt`} type="number" min="0" step="0.01" className={styles.input} value={montoTotal} onChange={(e) => setRepartoCampo({ montoTotal: e.target.value })} />
+              </label>
+            )}
             <div className={styles.field}>
               <span className={styles.label}>Moneda</span>
               <SegmentedControl label="Moneda" options={MONEDAS} value={moneda} onChange={(value) => setRepartoCampo({ moneda: value })} />
@@ -365,6 +399,9 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
             <span className={styles.label}>Tipo de cambio</span>
             <input id={`${id}-tc`} type="number" min="0" step="0.01" className={styles.input} value={tipoCambio} onChange={(e) => setRepartoCampo({ tipoCambio: e.target.value })} />
           </label>
+          {porPorcentaje && (
+            <p className={styles.hint}>Cada producto recibe ese porcentaje de lo facturado en las operaciones, en su misma moneda.</p>
+          )}
           <p className={styles.hint}>
             {equivale !== null ? (
               <>
@@ -396,6 +433,13 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
             <div key={l.item_id} className={styles.linea}>
               <span className={styles.lineaNombre}>
                 <span className={styles.mono}>{l.codigo}</span> {l.descripcion}
+                {porPorcentaje && (
+                  <span className={styles.lineaFacturado}>
+                    {facturados[l.item_id]
+                      ? `Facturado ${formatMonto(facturados[l.item_id].importe, facturados[l.item_id].moneda)}`
+                      : 'Sin facturado'}
+                  </span>
+                )}
               </span>
               <input type="number" min="1" className={styles.inputSm} aria-label={`Cantidad de ${l.codigo}`} value={l.cantidad} onChange={(e) => setLinea(l.item_id, { cantidad: e.target.value })} />
               {manual && (
@@ -408,11 +452,13 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
           ))}
         </section>
 
-        <section className={styles.section}>
-          <h3>Reparto entre ítems</h3>
-          <SegmentedControl label="Reparto" options={FORMULAS} value={formula} onChange={(value) => setRepartoCampo({ formula: value })} />
-          <p className={styles.hint}>En manual, los montos deben sumar el total.</p>
-        </section>
+        {!porPorcentaje && (
+          <section className={styles.section}>
+            <h3>Reparto entre ítems</h3>
+            <SegmentedControl label="Reparto" options={FORMULAS} value={formula} onChange={(value) => setRepartoCampo({ formula: value })} />
+            <p className={styles.hint}>En manual, los montos deben sumar el total.</p>
+          </section>
+        )}
 
         <section className={styles.section}>
           <div className={styles.sectionHead}>

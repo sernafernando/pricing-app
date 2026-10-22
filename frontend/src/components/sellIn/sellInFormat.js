@@ -18,6 +18,15 @@ export function formatNumero(value) {
 
 export const formatEntero = (value) => INT.format(value ?? 0);
 
+const PERCENT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 });
+
+/** A purchase's percentage as typed: `2,5 %`, up to the column's 4 decimals. */
+export function formatPorcentaje(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const num = Number(value);
+  return Number.isNaN(num) ? '—' : `${PERCENT.format(num)} %`;
+}
+
 /** The list/resumen query params: only what is set, `marcas` as CSV (exact match on the server). */
 export function buildSellInParams({ aplica, q, marcas, moneda, estado, desde, hasta }) {
   const params = {
