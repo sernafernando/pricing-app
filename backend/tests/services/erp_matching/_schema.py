@@ -52,12 +52,78 @@ ALTER TABLE pedido_compra_lineas_facturadas
   ADD CONSTRAINT ck_pedido_compra_lineas_facturadas_moneda CHECK (moneda IN ('ARS', 'USD'));
 """
 
+# The sell-in bonus queue on the snapshot, verbatim from 20261107_sell_in_bonos_marca
+# (tables trimmed to the columns the trigger functions read). Only the line
+# triggers: they are what a reconcile can fire.
+BONO_DDL = """
+ALTER TABLE pedidos_compra ADD COLUMN fecha_factura DATE;
+CREATE TABLE sell_in_bonos_marca (
+  id BIGINT PRIMARY KEY, marca VARCHAR(100) NOT NULL, fecha_desde DATE NOT NULL, fecha_hasta DATE NOT NULL,
+  estado VARCHAR(16) NOT NULL DEFAULT 'activa'
+);
+CREATE TABLE sell_in_bono_dirty (
+  tipo VARCHAR(8) NOT NULL, ref BIGINT NOT NULL, enqueued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT,
+  CONSTRAINT ck_sell_in_bono_dirty_tipo CHECK (tipo IN ('bono', 'pedido')),
+  PRIMARY KEY (tipo, ref)
+);
+"""
+BONO_FUNCIONES = [
+    """
+CREATE OR REPLACE FUNCTION sell_in_bono_cubre(p_fecha DATE, p_marca TEXT DEFAULT NULL) RETURNS BOOLEAN AS $fn$
+    SELECT p_fecha IS NOT NULL AND EXISTS (
+        SELECT 1 FROM sell_in_bonos_marca AS b
+        WHERE b.estado = 'activa' AND p_fecha BETWEEN b.fecha_desde AND b.fecha_hasta
+          AND (p_marca IS NULL OR b.marca = p_marca)
+    )
+$fn$ LANGUAGE sql STABLE
+""",
+    """
+CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_linea() RETURNS TRIGGER AS $trg$
+DECLARE
+    pedidos BIGINT[];
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        pedidos := ARRAY[NEW.pedido_id];
+    ELSIF TG_OP = 'DELETE' THEN
+        pedidos := ARRAY[OLD.pedido_id];
+    ELSE
+        pedidos := ARRAY[OLD.pedido_id, NEW.pedido_id];
+    END IF;
+    INSERT INTO sell_in_bono_dirty (tipo, ref)
+    SELECT DISTINCT 'pedido', p.id FROM pedidos_compra AS p
+    WHERE p.id = ANY(pedidos) AND sell_in_bono_cubre(p.fecha_factura)
+    ORDER BY 2
+    ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
+    IF FOUND THEN
+        PERFORM pg_notify('sell_in_bono_dirty', '');
+    END IF;
+    RETURN NULL;
+END;
+$trg$ LANGUAGE plpgsql
+""",
+    """
+CREATE TRIGGER trg_sell_in_bono_lineas_insert_delete
+AFTER INSERT OR DELETE ON pedido_compra_lineas_facturadas
+FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_linea()
+""",
+    """
+CREATE TRIGGER trg_sell_in_bono_lineas_update
+AFTER UPDATE OF pedido_id, item_id, cantidad ON pedido_compra_lineas_facturadas
+FOR EACH ROW WHEN ((OLD.pedido_id, OLD.item_id, OLD.cantidad) IS DISTINCT FROM (NEW.pedido_id, NEW.item_id, NEW.cantidad))
+EXECUTE FUNCTION sell_in_bono_enqueue_linea()
+""",
+]
+
 ARS, USD = 1, 2
 
 
 @contextmanager
-def lf_schema(*, con_importe: bool = True) -> Iterator[Engine]:
-    """Engine bound (search_path) to a fresh schema; dropped on exit."""
+def lf_schema(*, con_importe: bool = True, con_bono: bool = False) -> Iterator[Engine]:
+    """Engine bound (search_path) to a fresh schema; dropped on exit.
+
+    `con_bono` also installs the sell-in bonus queue and its line triggers.
+    """
     from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable  # noqa: PLC0415
 
     if not _postgres_reachable():
@@ -70,6 +136,10 @@ def lf_schema(*, con_importe: bool = True) -> Iterator[Engine]:
     try:
         with eng.begin() as conn:
             conn.execute(text(ERP_DDL + LINEAS_DDL_V1 + (ADD_IMPORTE_DDL if con_importe else "")))
+            if con_bono:
+                conn.execute(text(BONO_DDL))
+                for statement in BONO_FUNCIONES:
+                    conn.exec_driver_sql(statement)
         yield eng
     finally:
         eng.dispose()

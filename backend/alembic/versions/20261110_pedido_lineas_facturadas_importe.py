@@ -17,9 +17,13 @@ writes both; this upgrade fills them for the rows already there.
   2=USD), not the invoice header's: an ARS-header invoice can carry USD-priced
   lines. Mixed currencies, a line without price, or an unknown currency → both
   NULL. CHECKs: importe_neto >= 0, moneda IN ('ARS', 'USD').
-- The backfill UPDATE only sets these two columns, so the sell-in bonus trigger
-  (`AFTER UPDATE OF pedido_id, item_id, cantidad`) does not fire: nothing is
-  queued.
+- Nothing is queued for the sell-in bonus (a per-unit amount). The backfill
+  UPDATE sets only these two columns, outside the trigger's
+  `AFTER UPDATE OF pedido_id, item_id, cantidad` list. The live reconcile's
+  upsert does SET cantidad, so for it the guard is the trigger's WHEN clause
+  (`(OLD.pedido_id, OLD.item_id, OLD.cantidad) IS DISTINCT FROM (NEW...)`):
+  an amount/currency-only change does not queue the pedido, a quantity change
+  does (tests/services/erp_matching/test_bono_queue_postgres.py).
 
 LOCK NOTE: ADD COLUMN/ADD CONSTRAINT take an ACCESS EXCLUSIVE lock on the
 table (nullable columns without default: no rewrite; the CHECKs scan the small

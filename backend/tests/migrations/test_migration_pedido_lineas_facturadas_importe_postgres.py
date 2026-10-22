@@ -20,7 +20,15 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.services.erp_matching_service import reconciliar_lineas_facturadas
-from tests.services.erp_matching._schema import USD, filas, lf_schema, linea, nota_credito, pedido_con_factura
+from tests.services.erp_matching._schema import (
+    USD,
+    documento,
+    filas,
+    lf_schema,
+    linea,
+    nota_credito,
+    pedido_con_factura,
+)
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _REVISION = "20261110_pedido_lineas_facturadas_importe"
@@ -51,8 +59,35 @@ def _columns(engine: Engine) -> set[str]:
         return {r[0] for r in conn.execute(text(_COLUMNS))}
 
 
+def _imputacion(conn, id_: int, origen_tipo: str, origen_id: int, destino_tipo: str, destino_id: int, **extra) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO imputaciones (id, origen_tipo, origen_id, destino_tipo, destino_id, es_reversal, "
+            "reimputada_desde_id) VALUES (:id, :ot, :oi, :dt, :di, :rev, :desde)"
+        ),
+        {
+            "id": id_,
+            "ot": origen_tipo,
+            "oi": origen_id,
+            "dt": destino_tipo,
+            "di": destino_id,
+            "rev": extra.get("es_reversal", False),
+            "desde": extra.get("reimputada_desde_id"),
+        },
+    )
+
+
 def _seed(conn) -> None:
-    """Pedido 1: same-currency credit note, mixed item, clamp item. Pedido 3: USD lines on an ARS header."""
+    """Every document path of the service's _DOCUMENTOS_SQL.
+
+    Pedido 1: same-currency credit note imputed to the pedido, mixed item, clamp item.
+    Pedido 3: USD lines on an ARS header.
+    Pedido 6: corrected from 5, corrected from 4 (both without a link); the credit note
+      is frozen on the grand-ancestor 4, reached only through the recursive chain.
+    Pedido 7: credit note imputed to the invoice (`factura_erp`), not the pedido.
+    Pedido 8: local credit note (`nota_credito_local` → its ct_transaction_id), plus an
+      ERP credit note whose imputación was reversed (does not count).
+    """
     pedido_con_factura(conn)
     nota_credito(conn)
     linea(conn, 1, 100, 501, "10", "100.005", 1)
@@ -64,13 +99,42 @@ def _seed(conn) -> None:
     pedido_con_factura(conn, pedido_id=3, ct=300, curr=1)
     linea(conn, 7, 300, 501, "2", "7.25", USD)
 
+    conn.execute(
+        text(
+            "INSERT INTO pedidos_compra (id, ct_transaction_id, corregido_desde_id) "
+            "VALUES (4, NULL, NULL), (5, NULL, 4), (6, 600, 5)"
+        )
+    )
+    documento(conn, 600)
+    documento(conn, 610, signo=-1, clasificacion="NC")
+    _imputacion(conn, 2, "nota_credito_erp", 610, "pedido_compra", 4)
+    linea(conn, 8, 600, 601, "5", "20", 1)
+    linea(conn, 9, 610, 601, "1", "20", 1)
+
+    pedido_con_factura(conn, pedido_id=7, ct=700, curr=USD)
+    documento(conn, 710, signo=-1, clasificacion="NC", curr=USD)
+    _imputacion(conn, 3, "nota_credito_erp", 710, "factura_erp", 700)
+    linea(conn, 10, 700, 701, "3", "1.10", USD)
+    linea(conn, 11, 710, 701, "1", "1.10", USD)
+
+    pedido_con_factura(conn, pedido_id=8, ct=800)
+    documento(conn, 810, signo=-1, clasificacion="NC")
+    conn.execute(text("INSERT INTO notas_credito_local (id, ct_transaction_id) VALUES (50, 810)"))
+    _imputacion(conn, 4, "nota_credito_local", 50, "pedido_compra", 8)
+    documento(conn, 820, signo=-1, clasificacion="NC")
+    _imputacion(conn, 5, "nota_credito_erp", 820, "pedido_compra", 8)
+    _imputacion(conn, 6, "nota_credito_erp", 820, "pedido_compra", 8, es_reversal=True, reimputada_desde_id=5)
+    linea(conn, 12, 800, 801, "6", "7", 1)
+    linea(conn, 13, 810, 801, "2", "7", 1)
+    linea(conn, 14, 820, 801, "1", "7", 1)
+
 
 def _snapshot_v1(conn) -> None:
     # The quantities 20261104 / the reconcile already stored before this revision.
     conn.execute(
         text(
             "INSERT INTO pedido_compra_lineas_facturadas (pedido_id, item_id, cantidad) "
-            "VALUES (1, 501, 9), (1, 502, 3), (1, 503, 1), (3, 501, 2)"
+            "VALUES (1, 501, 9), (1, 502, 3), (1, 503, 1), (3, 501, 2), (6, 601, 4), (7, 701, 2), (8, 801, 4)"
         )
     )
 
@@ -102,6 +166,9 @@ def test_upgrade_adds_the_columns_and_backfills_what_the_reconcile_computes(v1):
         (1, 502, 3, None, None),
         (1, 503, 1, "0.00", "USD"),
         (3, 501, 2, "14.50", "USD"),
+        (6, 601, 4, "80.00", "ARS"),
+        (7, 701, 2, "2.20", "USD"),
+        (8, 801, 4, "28.00", "ARS"),
     ]
     assert filas(v1) == esperado
     # Parity: the live reconcile over the same mirror stores exactly the same rows.
@@ -141,7 +208,7 @@ def test_downgrade_drops_both_columns_and_keeps_the_quantities(v1):
 
     assert _columns(v1) == set()
     with v1.connect() as conn:
-        assert conn.execute(text("SELECT SUM(cantidad) FROM pedido_compra_lineas_facturadas")).scalar() == 15
+        assert conn.execute(text("SELECT SUM(cantidad) FROM pedido_compra_lineas_facturadas")).scalar() == 25
 
 
 @pytest.mark.postgres
