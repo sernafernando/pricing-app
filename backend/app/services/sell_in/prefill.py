@@ -18,6 +18,9 @@ the ERP mirror afterwards.
   (`pedido_compra_ingresos`, sentinel arrival rows included): its
   `fecha_ingreso` when typed, else the Buenos Aires date of `created_at` (the
   reception service does not fill `fecha_ingreso`). None without receipts.
+- Invoiced net: per product, the SUM of `importe_neto` of the operations'
+  invoiced lines (`compras.facturado`), the base of a % sell in (T3g); None
+  when the product has no invoiced line or its lines mix currencies.
 - `productos_operacion`: the same product rows for ONE operation, with the
   received units too, for the picker's hover popover (T3f).
 """
@@ -38,7 +41,7 @@ from app.models.pedido_compra_oc import triples_for_pedido
 from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.purchase_order_detail import PurchaseOrderDetail
-from app.services.sell_in.compras import SellInError, operaciones
+from app.services.sell_in.compras import Facturado, SellInError, facturado, operaciones
 
 _TZ_LOCAL = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -101,9 +104,19 @@ def _lineas(db: Session, pedidos) -> list[dict]:
 
 
 def _items(db: Session, pedidos) -> list[dict]:
+    filas = _lineas(db, pedidos)
+    bases = facturado(db, [p.id for p in pedidos], [f["item_id"] for f in filas])
+    sin_facturar = Facturado(None, None)
     return [
-        {"item_id": f["item_id"], "codigo": f["codigo"], "descripcion": f["descripcion"], "cantidad": f["pedida"]}
-        for f in _lineas(db, pedidos)
+        {
+            "item_id": f["item_id"],
+            "codigo": f["codigo"],
+            "descripcion": f["descripcion"],
+            "cantidad": f["pedida"],
+            "facturado": bases.get(f["item_id"], sin_facturar).importe,
+            "facturado_moneda": bases.get(f["item_id"], sin_facturar).moneda,
+        }
+        for f in filas
     ]
 
 

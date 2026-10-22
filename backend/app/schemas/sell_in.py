@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 Moneda = Literal["ARS", "USD"]
 Formula = Literal["proporcional", "por_unidad", "manual"]
 CuentaDesde = Literal["compra", "ingreso"]
+# 'monto': the operator types the total. 'porcentaje': each line is that % of its invoiced net.
+TipoCompra = Literal["monto", "porcentaje"]
 Estado = Literal["activa", "anulada"]
 Aplica = Literal["si", "no", "todas"]
 
@@ -34,11 +36,18 @@ class SellInLineaIn(BaseModel):
 
 class SellInPreviewIn(BaseModel):
     moneda: Moneda
-    monto_total: Decimal
+    tipo: TipoCompra = "monto"
+    # Required for 'monto'. A 'porcentaje' purchase computes it and must not send it.
+    monto_total: Optional[Decimal] = None
+    # Required for 'porcentaje', in (0, 100]; refused for 'monto'.
+    porcentaje: Optional[Decimal] = None
     # ARS per USD. Required for a USD purchase, and to convert a product cost kept in the other currency.
     tipo_cambio: Optional[Decimal] = None
     formula: Formula = "proporcional"
     lineas: list[SellInLineaIn]
+    # Compras operations (`pedidos_compra`) this sell in comes from: same supplier and currency.
+    # A 'porcentaje' purchase takes its base from their invoiced lines.
+    pedido_compra_ids: list[int] = Field(default_factory=list, max_length=PEDIDOS_MAX)
 
 
 class SellInCompraCreate(SellInPreviewIn):
@@ -48,8 +57,6 @@ class SellInCompraCreate(SellInPreviewIn):
     proveedor_id: Optional[int] = None
     # Legacy single operation: read as a one-element `pedido_compra_ids`.
     pedido_compra_id: Optional[int] = None
-    # Compras operations (`pedidos_compra`) this sell in comes from: same supplier and currency.
-    pedido_compra_ids: list[int] = Field(default_factory=list, max_length=PEDIDOS_MAX)
     descripcion: Optional[str] = None
 
 
@@ -67,6 +74,8 @@ class SellInPreviewLinea(BaseModel):
     descuento_unit: Decimal
     costo_con_sell_in_unit: Decimal
     porcentaje: Optional[Decimal]
+    # A 'porcentaje' purchase's base: the line's invoiced net, frozen at load (not stored).
+    base_facturada: Optional[Decimal] = None
 
 
 class SellInPreviewTotales(BaseModel):
@@ -79,6 +88,8 @@ class SellInPreviewTotales(BaseModel):
 
 class SellInPreviewOut(BaseModel):
     moneda: Moneda
+    tipo: TipoCompra
+    porcentaje: Optional[Decimal]
     formula: Formula
     monto_total: Decimal
     lineas: list[SellInPreviewLinea]
@@ -102,6 +113,8 @@ class SellInCompraOut(BaseModel):
     fecha_ingreso: Optional[date]
     cuenta_desde: CuentaDesde
     moneda: Moneda
+    tipo: TipoCompra = "monto"
+    porcentaje: Optional[Decimal] = None
     monto_total: Decimal
     tipo_cambio: Optional[Decimal]
     formula: Formula
@@ -127,6 +140,10 @@ class SellInPrefillItem(BaseModel):
     codigo: Optional[str]
     descripcion: Optional[str]
     cantidad: int
+    # Invoiced net of the product over the operations, the base of a % sell in; None when it has
+    # no invoiced line or its lines mix currencies.
+    facturado: Optional[Decimal] = None
+    facturado_moneda: Optional[Moneda] = None
 
 
 class SellInPrefillOut(BaseModel):

@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
@@ -80,13 +81,95 @@ def costo_en_moneda(costo: Decimal, moneda_costo: str, moneda_compra: str, tipo_
 class _Calculo:
     lineas: list[dict]
     totales: dict
+    monto_total: Decimal
+    formula: str
 
 
-def _calcular(db: Session, data: SellInPreviewIn) -> _Calculo:
+@dataclass(frozen=True)
+class Facturado:
+    """A product's invoiced net over some operations; both None when its lines mix currencies."""
+
+    importe: Optional[Decimal]
+    moneda: Optional[str]
+
+
+def facturado(db: Session, pedido_ids: list[int], item_ids: list[int]) -> dict[int, Facturado]:
+    """Invoiced net per product over the operations (`pedido_compra_lineas_facturadas`), the base
+    of a % sell in. A product with no invoiced line is absent; one whose lines have no single
+    currency (an invoice that mixes them, or operations invoiced in different ones) maps to None."""
+    if not pedido_ids or not item_ids:
+        return {}
+    filas = db.query(
+        PedidoCompraLineaFacturada.item_id, PedidoCompraLineaFacturada.importe_neto, PedidoCompraLineaFacturada.moneda
+    ).filter(PedidoCompraLineaFacturada.pedido_id.in_(pedido_ids), PedidoCompraLineaFacturada.item_id.in_(item_ids))
+    por_item: dict[int, list] = {}
+    for item_id, importe, moneda_fila in filas:
+        por_item.setdefault(item_id, []).append((importe, moneda_fila))
+    bases: dict[int, Facturado] = {}
+    for item_id, lineas in por_item.items():
+        monedas = {m for _, m in lineas}
+        if any(i is None for i, _ in lineas) or None in monedas or len(monedas) > 1:
+            bases[item_id] = Facturado(None, None)
+        else:
+            bases[item_id] = Facturado(sum((Decimal(str(i)) for i, _ in lineas), Decimal("0")), monedas.pop())
+    return bases
+
+
+def _validar_tipo(data: SellInPreviewIn, pedido_ids: list[int]) -> None:
+    if data.tipo == "monto":
+        if data.porcentaje is not None:
+            raise SellInError("Una compra por monto no lleva porcentaje")
+        if data.monto_total is None:
+            raise SellInError("Falta el monto total de la compra")
+        return
+    # An explicit total, formula or line amount would be silently replaced by the computed one.
+    if (
+        data.monto_total is not None
+        or "formula" in data.model_fields_set
+        or any(linea.monto_manual is not None for linea in data.lineas)
+    ):
+        raise SellInError(
+            "Una compra por porcentaje calcula su monto: no indiques monto total, fórmula ni montos por línea"
+        )
+    if data.porcentaje is None:
+        raise SellInError("Falta el porcentaje de la compra")
+    if not Decimal("0") < data.porcentaje <= Decimal("100"):
+        raise SellInError("El porcentaje debe estar entre 0 y 100 (mayor que 0)")
+    if data.porcentaje != data.porcentaje.quantize(Decimal("0.0001")):
+        raise SellInError("El porcentaje admite hasta 4 decimales")
+    if not pedido_ids:
+        raise SellInError(
+            "Una compra por porcentaje necesita sus operaciones: el porcentaje se aplica sobre lo facturado"
+        )
+
+
+def _montos_por_porcentaje(db: Session, data: SellInPreviewIn, pedido_ids: list[int]) -> dict[int, tuple]:
+    """Each line's (invoiced base, amount): the % of the line's invoiced net, half up to cents."""
+    bases = facturado(db, pedido_ids, [linea.item_id for linea in data.lineas])
+    montos = {}
+    for linea in data.lineas:
+        base = bases.get(linea.item_id)
+        if base is None:
+            raise SellInError(f"El item {linea.item_id} no tiene facturado en las operaciones de la compra")
+        if base.importe is None:
+            raise SellInError(f"El facturado del item {linea.item_id} mezcla monedas: no sirve de base")
+        if base.moneda != data.moneda:
+            raise SellInError(
+                f"El facturado del item {linea.item_id} está en {base.moneda} y la compra en {data.moneda}: "
+                f"cargá la compra en {base.moneda}"
+            )
+        monto = (base.importe * data.porcentaje / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+        montos[linea.item_id] = (base.importe, monto)
+    return montos
+
+
+def _calcular(db: Session, data: SellInPreviewIn, pedido_ids: list[int]) -> _Calculo:
     if data.tipo_cambio is not None and data.tipo_cambio <= 0:
         raise SellInError("El tipo de cambio debe ser positivo")
     if data.moneda == "USD" and data.tipo_cambio is None:
         raise SellInError("Una compra en USD necesita el tipo de cambio")
+    _validar_tipo(data, pedido_ids)
+    por_porcentaje = _montos_por_porcentaje(db, data, pedido_ids) if data.tipo == "porcentaje" else {}
 
     item_ids = [linea.item_id for linea in data.lineas]
     productos = (
@@ -109,9 +192,15 @@ def _calcular(db: Session, data: SellInPreviewIn) -> _Calculo:
             costo = costo_en_moneda(
                 Decimal(str(producto.costo)), moneda(producto.moneda_costo), data.moneda, data.tipo_cambio
             )
-        lines.append(Line(linea.item_id, linea.cantidad, costo, linea.monto_manual))
+        monto_manual = por_porcentaje[linea.item_id][1] if por_porcentaje else linea.monto_manual
+        lines.append(Line(linea.item_id, linea.cantidad, costo, monto_manual))
 
-    filas = preview(data.formula, data.monto_total, lines)
+    # A % purchase is the sum of its lines, each with its exact amount: a manual split.
+    formula = "manual" if por_porcentaje else data.formula
+    monto_total = sum((m for _, m in por_porcentaje.values()), Decimal("0")) if por_porcentaje else data.monto_total
+    if por_porcentaje and monto_total <= 0:
+        raise SellInError("Lo facturado da un monto de cero: no hay sell in para cargar")
+    filas = preview(formula, monto_total, lines)
     lineas = [
         {
             "item_id": fila.item_id,
@@ -123,6 +212,7 @@ def _calcular(db: Session, data: SellInPreviewIn) -> _Calculo:
             "descuento_unit": fila.descuento_unit,
             "costo_con_sell_in_unit": fila.costo_con_sell_in_unit,
             "porcentaje": fila.porcentaje,
+            "base_facturada": por_porcentaje[fila.item_id][0] if por_porcentaje else None,
         }
         for fila in filas
     ]
@@ -138,19 +228,24 @@ def _calcular(db: Session, data: SellInPreviewIn) -> _Calculo:
         "costo_con_sell_in_total": costo_base_total - asignado_total,
         "porcentaje": porcentaje,
     }
-    return _Calculo(lineas, totales)
+    return _Calculo(lineas, totales, monto_total, formula)
 
 
 def calcular_preview(db: Session, data: SellInPreviewIn) -> dict:
     """The split the purchase would get, without writing anything."""
+    ids = list(dict.fromkeys(data.pedido_compra_ids))
+    if data.tipo == "porcentaje":
+        operaciones(db, ids)  # the same existence, supplier and currency checks as the load
     try:
-        calculo = _calcular(db, data)
+        calculo = _calcular(db, data, ids)
     except SellInSplitError as exc:
         raise SellInError(str(exc)) from exc
     return {
         "moneda": data.moneda,
-        "formula": data.formula,
-        "monto_total": data.monto_total,
+        "tipo": data.tipo,
+        "porcentaje": data.porcentaje,
+        "formula": calculo.formula,
+        "monto_total": calculo.monto_total,
         "lineas": calculo.lineas,
         "totales": calculo.totales,
     }
@@ -175,6 +270,8 @@ def audit(
             "moneda": compra.moneda,
             "estado": compra.estado,
         }
+        if compra.tipo == "porcentaje":
+            valores.update(tipo=compra.tipo, porcentaje=str(compra.porcentaje))
         db.add(
             Auditoria(
                 item_id=item.item_id,
@@ -256,7 +353,7 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     if ops is not None:
         _validar_contra_operaciones(data, ops)
     try:
-        calculo = _calcular(db, data)
+        calculo = _calcular(db, data, ids)
     except SellInSplitError as exc:
         raise SellInError(str(exc)) from exc
 
@@ -300,9 +397,11 @@ def _guardar(
         fecha_ingreso=data.fecha_ingreso,
         cuenta_desde=data.cuenta_desde,
         moneda=data.moneda,
-        monto_total=data.monto_total,
+        tipo=data.tipo,
+        porcentaje=data.porcentaje,
+        monto_total=calculo.monto_total,
         tipo_cambio=data.tipo_cambio,
-        formula=data.formula,
+        formula=calculo.formula,
         estado="activa",
         descripcion=data.descripcion,
         usuario_id=usuario_id,
@@ -635,6 +734,8 @@ _COLUMNAS_COMPRA = (
     "fecha_ingreso",
     "cuenta_desde",
     "moneda",
+    "tipo",
+    "porcentaje",
     "monto_total",
     "tipo_cambio",
     "formula",
