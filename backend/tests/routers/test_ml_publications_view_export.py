@@ -3,8 +3,9 @@
 Same harness as the KPI strip's (`test_ml_publications_view_kpis.py`): permissions in the SQLite test database, the
 store and the Board's tables in one throwaway Postgres schema that `get_background_db()` (each later page) also
 reaches. What is pinned: the file follows the list (filters and order, across pages), every row is exported (no row
-cap: the keys are read unbounded and a set past the old 10,000 is never refused), the permissions of the list apply (403s, the metrics and margin columns), BOM + `;`, free text defused, and a
-page failing mid-stream ends the file with an error line.
+cap: the keys are read unbounded and a set past the old 10,000 is never refused), the permissions of the list apply
+(403s, the metrics and margin columns), BOM + `;`, free text defused, and a page failing mid-stream ends the file with
+an error line.
 
 The export closes the request session before streaming, which in this harness rolls back what the test flushed into
 it (the grants): a test that also reads the list reads it BEFORE the export.

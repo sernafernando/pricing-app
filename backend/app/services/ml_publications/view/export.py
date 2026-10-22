@@ -25,10 +25,9 @@ from app.utils.csv_cells import csv_money, csv_text
 
 logger = logging.getLogger(__name__)
 
-# Rows per page, each page on its own short DB session: memory and the pooled connection follow ONE page.
+# Rows per page, each page on its own short DB session: memory and the pooled connection follow ONE page. There is
+# no row cap: the export fixes EVERY key (a few bytes each), never more than one page of rows.
 EXPORT_PAGE_SIZE = 500
-# No row cap: the export fixes EVERY key (no bound, `None`; a few bytes each); the rows themselves are only ever held
-# one page at a time.
 
 # The screen's labels of a row's `sku_divergence` kind (`skuDivergence.js`).
 DIVERGENCE_LABELS = {"otro_producto": "Otro producto", "sin_coincidencia": "SKU sin coincidencia"}
