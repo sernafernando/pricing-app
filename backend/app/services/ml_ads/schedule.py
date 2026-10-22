@@ -240,7 +240,11 @@ def _run_campaigns(
     deadline: Optional[datetime],
     today: date,
 ) -> TickResult:
-    """The campaigns of the days older than D-14 for every advertiser, with whatever the deadline has left."""
+    """The campaigns of the days older than D-14 for every advertiser, with whatever the deadline has left.
+
+    A day the day fetch already read (its campaigns stored) is still read once more when it reaches D-15: one
+    call per advertiser and day, and it stores ML's answer at the day it becomes final. The upsert never duplicates.
+    """
 
     def step(*args: Any, **kwargs: Any) -> ingestion.StepResult:
         return ingestion.run_campaigns_step(*args, **kwargs)  # looked up per call, so a test can replace it
@@ -268,7 +272,9 @@ def _run_account_level(
     today: date,
     newest_ago: int = 1,
 ) -> Optional[str]:
-    """Run an account-level source (Display, Brand Ads) to completion or to the first stop; returns its error text.
+    """Run a ledger source of its own (Display, Brand Ads, campaigns) to completion or to the first stop.
+
+    Returns its error text, if any.
 
     Its window runs from the oldest retained day to D-`newest_ago` (yesterday unless a source says otherwise).
 
