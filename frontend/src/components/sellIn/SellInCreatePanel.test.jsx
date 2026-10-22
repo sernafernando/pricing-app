@@ -554,6 +554,30 @@ describe('SellInCreatePanel', () => {
       expect(sellInAPI.preview).not.toHaveBeenCalled();
     });
 
+    it('stops showing the ARS equivalent of a total that is no longer used', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.type(screen.getByLabelText('Monto total'), '100');
+      await user.type(screen.getByLabelText('Tipo de cambio'), '1400');
+      expect(screen.getByText(/Equivale a/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
+
+      expect(screen.queryByText(/Equivale a/)).not.toBeInTheDocument();
+    });
+
+    it('shows what was invoiced for products kept instead of the operations ones', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await fillCompra(user);
+      await agregarOperacion(user, 15);
+      await user.click(await screen.findByRole('button', { name: 'Mantener los actuales' }));
+      await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
+
+      expect(screen.getByText('Facturado USD 10.101,00')).toBeInTheDocument();
+      expect(screen.getByText('Sin facturado')).toBeInTheDocument();
+    });
+
     it('drops the preview when the operations change, since the base comes from them', async () => {
       const user = userEvent.setup();
       renderPanel();

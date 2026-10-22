@@ -68,6 +68,9 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
   // What the last prefill answered: its currency (offered) and products waiting for the user's go-ahead.
   const [monedaOperaciones, setMonedaOperaciones] = useState(null);
   const [lineasPendientes, setLineasPendientes] = useState(null);
+  // What the operations invoiced per product (`item_id` -> {importe, moneda}), shown on every line with
+  // that product, kept or typed ones too: a % purchase takes its base from there.
+  const [facturados, setFacturados] = useState({});
   const [prefillError, setPrefillError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
@@ -128,6 +131,7 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
     setPrefillError(null);
     setLineasPendientes(null);
     setMonedaOperaciones(null);
+    setFacturados({});
     if (ids.length === 0) {
       aplicarPrefill({ proveedor: null, fechaIngreso: '', lineas: [] });
       return;
@@ -136,6 +140,11 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
       const { data } = await sellInAPI.prefill(ids);
       if (token !== prefillRef.current) return;
       setMonedaOperaciones(data.moneda);
+      setFacturados(
+        Object.fromEntries(
+          data.items.filter((item) => item.facturado != null).map((item) => [item.item_id, { importe: item.facturado, moneda: item.facturado_moneda }]),
+        ),
+      );
       aplicarPrefill({
         proveedor: { id: data.proveedor_id, nombre: data.proveedor_nombre ?? `Proveedor #${data.proveedor_id}` },
         fechaIngreso: data.fecha_ingreso ?? '',
@@ -145,8 +154,6 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
           descripcion: item.descripcion ?? '',
           cantidad: String(item.cantidad),
           montoManual: '',
-          facturado: item.facturado ?? null,
-          facturadoMoneda: item.facturado_moneda ?? null,
         })),
       });
     } catch (err) {
@@ -273,7 +280,7 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
     }
   };
 
-  const equivale = moneda === 'USD' && Number(montoTotal) > 0 && Number(tipoCambio) > 0 ? Number(montoTotal) * Number(tipoCambio) : null;
+  const equivale = !porPorcentaje && moneda === 'USD' && Number(montoTotal) > 0 && Number(tipoCambio) > 0 ? Number(montoTotal) * Number(tipoCambio) : null;
 
   return (
     <div className={styles.panel}>
@@ -428,7 +435,9 @@ export default function SellInCreatePanel({ onCreated, onClose, modoSwitch = nul
                 <span className={styles.mono}>{l.codigo}</span> {l.descripcion}
                 {porPorcentaje && (
                   <span className={styles.lineaFacturado}>
-                    {l.facturado != null ? `Facturado ${formatMonto(l.facturado, l.facturadoMoneda)}` : 'Sin facturado'}
+                    {facturados[l.item_id]
+                      ? `Facturado ${formatMonto(facturados[l.item_id].importe, facturados[l.item_id].moneda)}`
+                      : 'Sin facturado'}
                   </span>
                 )}
               </span>
