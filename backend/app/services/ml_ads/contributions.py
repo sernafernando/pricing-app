@@ -1,4 +1,4 @@
-"""Brand contributions to Product Ads campaigns: the read side (ml-ads-brand-contribution S8).
+"""Brand contributions to Product Ads campaigns: reads and writes (ml-ads-brand-contribution S4, S7, S8).
 
 Only stores what the team loads (S2). How a contribution lowers the subtracted cost (S5, S6) is the Board's job.
 """
@@ -8,11 +8,32 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay
+
+
+class ContributionError(Exception):
+    """A rule the API reports as 422 on `field`."""
+
+    def __init__(self, field_name: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field_name
+
+
+@dataclass(frozen=True)
+class ContributionData:
+    advertiser_id: int
+    campaign_id: int
+    kind: str
+    value: Decimal
+    date_from: date
+    date_to: date
+    brand: Optional[str]
+    note: Optional[str]
 
 
 @dataclass
@@ -47,3 +68,44 @@ def list_campaigns(db: Session, date_from: date, date_to: date) -> list[Campaign
         if row is not None:
             row.contributions.append(contribution)
     return list(rows.values())
+
+
+def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None) -> None:
+    """The campaign is catalogued (its row is locked so two writes on one campaign serialize) and no other
+    contribution of it shares a day with `[date_from, date_to]` (both ends inclusive)."""
+    campaign = (
+        db.query(MlAdsCampaign)
+        .filter(MlAdsCampaign.advertiser_id == data.advertiser_id, MlAdsCampaign.campaign_id == data.campaign_id)
+        .with_for_update()
+        .first()
+    )
+    if campaign is None:
+        raise ContributionError(
+            "campaign_id", f"campaign {data.campaign_id} of advertiser {data.advertiser_id} is unknown"
+        )
+    clash = db.query(MlAdsCampaignContribution.id).filter(
+        MlAdsCampaignContribution.advertiser_id == data.advertiser_id,
+        MlAdsCampaignContribution.campaign_id == data.campaign_id,
+        MlAdsCampaignContribution.date_from <= data.date_to,
+        MlAdsCampaignContribution.date_to >= data.date_from,
+    )
+    if exclude_id is not None:
+        clash = clash.filter(MlAdsCampaignContribution.id != exclude_id)
+    if clash.first() is not None:
+        raise ContributionError("date_from", "the range overlaps another contribution of the same campaign")
+
+
+def _apply(row: MlAdsCampaignContribution, data: ContributionData, user_id: int) -> None:
+    for name, value in vars(data).items():
+        setattr(row, name, value)
+    row.updated_by_id = user_id
+
+
+def create(db: Session, data: ContributionData, user_id: int) -> MlAdsCampaignContribution:
+    _check(db, data)
+    row = MlAdsCampaignContribution(created_by_id=user_id)
+    _apply(row, data, user_id)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row

@@ -51,9 +51,9 @@ class TestPermission:
         assert response.status_code == 403
         assert GANANCIA in response.json()["error"]["message"]
 
-    def test_the_router_only_reads(self) -> None:
-        verbs = {m for route in ml_ads.router.routes for m in getattr(route, "methods", set())}
-        assert verbs == {"GET"}
+    def test_the_only_writes_are_the_brand_contributions(self) -> None:
+        writes = {route.path for route in ml_ads.router.routes if getattr(route, "methods", set()) - {"GET", "HEAD"}}
+        assert writes == {"/ml-ads/contributions"}
 
 
 class TestValidation:

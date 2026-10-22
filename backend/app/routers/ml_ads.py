@@ -1,20 +1,24 @@
 """Router: the Ads cost reads (`/ml-ads/...`, ml-billing-balance design D9, AR-1, AR-3, AR-4, AR-5).
 
 Thin on purpose: it parses the query, checks `ml_metricas.ver_ganancia`, calls `services/ml_ads/read.py` and
-serializes. Everything is computed at read time from the stored facts; nothing here writes or calls Mercado Libre.
+serializes. Everything is computed at read time from the stored facts; nothing here calls Mercado Libre, and the only
+writes are the brand contributions the team loads.
 
 - `GET /ml-ads/by-mla`: Product Ads per MLA with any activity (cost 0 included) in `[date_from, date_to]`, with its single owner product
   (0 = "sin producto"), cost on the API basis and net of IVA, and the informational metrics. `mlas` narrows (CSV).
 - `GET /ml-ads/by-product`: the read-time sum of those rows per owner, "sin producto" included. `product_ids` narrows.
 - `GET /ml-ads/account-level`: Display per campaign (subtractable: its IVA basis is measured) and Brand Ads
   (informational only, no net cost). Never attributed to an MLA.
-- `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with all its brand contributions and its cost in the
-  range (ml-ads-brand-contribution S8). Read only; the contributions are loaded by a later write API.
+- `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions and its cost in the range
+  (ml-ads-brand-contribution S8). `POST /ml-ads/contributions` loads a contribution and also needs
+  `ml_metricas.gestionar_aportes_ads` (S7); it writes only that table and changes no number yet.
 
 Every cost read above carries the `coverage` of the same range (ledger days not fetched, and mismatch days), so a gap is
 never shown as zero spend. A range is `date_from <= date_to` and at most 366 days; `mlas` and `product_ids` take up
-to 500 values; anything else is a 422 with the app's envelope and the offending `field`. Money is a float with two
-decimals, rounded once here.
+to 500 values; anything else is a 422 with the app's envelope and the offending `field`. A contribution body that
+breaks its own shape (kind, value bounds, two decimals, date order) is FastAPI's standard 422 (`detail[].loc`); an
+unknown campaign or an overlapping range is the app's envelope with `field`. Money is a float with two decimals,
+rounded once here.
 """
 
 from __future__ import annotations
@@ -22,19 +26,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
+from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.ml_ads import MlAdsCampaignContribution
+from app.models.usuario import Usuario
 from app.services.ml_ads import contributions, read
 
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
+PERMISO_APORTES = "ml_metricas.gestionar_aportes_ads"
 MAX_DAYS = 366
 MAX_IDS = 500
 
@@ -261,11 +267,32 @@ def get_account_level(w: Window = Depends(window), db: Session = Depends(get_db)
 # ── Brand contributions (ml-ads-brand-contribution) ─────────────
 
 
+class ContributionIn(BaseModel):
+    """`percentage`: 0 < value <= 100. `fixed_amount`: money > 0. Both with at most two decimals (S4)."""
+
+    advertiser_id: int
+    campaign_id: int
+    kind: Literal["percentage", "fixed_amount"]
+    value: Decimal = Field(gt=0, max_digits=16, decimal_places=2)
+    date_from: date
+    date_to: date
+    brand: Optional[str] = Field(None, max_length=120)
+    note: Optional[str] = Field(None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _bounds(self) -> "ContributionIn":
+        if self.kind == "percentage" and self.value > 100:
+            raise ValueError("a percentage is at most 100")
+        if self.date_from > self.date_to:
+            raise ValueError("date_from must not be after date_to")
+        return self
+
+
 class ContributionOut(BaseModel):
     id: int
     advertiser_id: int
     campaign_id: int
-    kind: str  # percentage | fixed_amount
+    kind: str
     value: float
     date_from: date
     date_to: date
@@ -308,6 +335,13 @@ def _contribution_out(row: MlAdsCampaignContribution) -> ContributionOut:
     )
 
 
+def _data(body: ContributionIn) -> contributions.ContributionData:
+    return contributions.ContributionData(**body.model_dump())
+
+
+_manage = [Depends(require_permiso(PERMISO_APORTES))]
+
+
 @router.get("/campaigns", response_model=CampaignsOut)
 def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) -> CampaignsOut:
     rows = contributions.list_campaigns(db, w.date_from, w.date_to)
@@ -324,3 +358,16 @@ def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) ->
             for r in rows
         ]
     )
+
+
+@router.post(
+    "/contributions", response_model=ContributionOut, status_code=status.HTTP_201_CREATED, dependencies=_manage
+)
+def create_contribution(
+    body: ContributionIn, user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
+) -> ContributionOut:
+    try:
+        return _contribution_out(contributions.create(db, _data(body), user.id))
+    except contributions.ContributionError as exc:
+        db.rollback()
+        raise _unprocessable(exc.field, str(exc))
