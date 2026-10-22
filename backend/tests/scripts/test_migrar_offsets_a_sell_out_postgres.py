@@ -445,3 +445,58 @@ def test_the_csv_path_is_required() -> None:
     with pytest.raises(SystemExit) as caught:
         script.main([])
     assert caught.value.code == 2
+
+
+def test_an_unwritable_report_path_stops_before_migrating_anything(engine, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=engine))
+    _offset(engine, item_id=2964)
+
+    with pytest.raises(OSError):
+        script.main(["--csv", str(tmp_path / "no-existe" / "reporte.csv"), "--hoy", HOY, "--apply"])
+
+    assert _campanas(engine) == [] and _count(engine, "offset_grupos") == 0
+
+
+def test_a_database_error_on_one_offset_is_reported_and_the_others_still_migrate(engine, correr, monkeypatch) -> None:
+    falla = _offset(engine, item_id=2964)
+    sana = _offset(engine, item_id=950)
+    real = script._nuevo_grupo
+
+    def nuevo_grupo(db, offset, usuario_id):
+        if offset.id == falla:
+            db.execute(text("SELECT * FROM tabla_que_no_existe"))
+        return real(db, offset, usuario_id)
+
+    monkeypatch.setattr(script, "_nuevo_grupo", nuevo_grupo)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 1
+    assert (filas[falla]["resultado"], filas[falla]["motivo"].split(":")[0]) == ("no migrado", "Error de base de datos")
+    assert filas[sana]["resultado"] == "migrado"
+    assert [c["offset_origen_id"] for c in _campanas(engine)] == [sana]
+    assert _count(engine, "offset_grupos") == 1  # the failed offset's group rolled back
+    assert summary["con_error"] == [falla]
+
+
+def test_a_validation_error_without_a_field_names_the_campaign() -> None:
+    from pydantic import BaseModel, ValidationError, model_validator
+
+    class Modelo(BaseModel):
+        @model_validator(mode="after")
+        def falla(self):
+            raise ValueError("fechas cruzadas")
+
+    with pytest.raises(ValidationError) as exc:
+        Modelo()
+    assert script._campos(exc.value) == "campaña"
+
+
+def test_the_dry_run_reports_an_offset_that_validation_refuses_and_exits_1(engine, correr) -> None:
+    rechazado = _offset(engine, item_id=2964, fecha_desde=date(2027, 2, 1), fecha_hasta=None)
+    antes = {table: _count(engine, table) for table in _ESCRITAS}
+
+    code, summary, filas = correr()
+
+    assert {table: _count(engine, table) for table in _ESCRITAS} == antes
+    assert (code, filas[rechazado]["resultado"], summary["con_error"]) == (1, "no migrado", [rechazado])

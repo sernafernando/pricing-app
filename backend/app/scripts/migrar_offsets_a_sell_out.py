@@ -50,6 +50,7 @@ from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.offset_ganancia import OffsetGanancia
@@ -180,9 +181,13 @@ def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuar
             grupo_ids=[],  # its own new group, created under --apply
         )
     except ValidationError as exc:
-        campos = ", ".join(str(e["loc"][0]) for e in exc.errors())
-        return _Plan(f"Valor no válido en: {campos}", error=True)
+        return _Plan(f"Valor no válido en: {_campos(exc)}", error=True)
     return plan
+
+
+def _campos(exc: ValidationError) -> str:
+    """The fields a validation error names; a model-level error has none and names the whole campaign."""
+    return ", ".join(dict.fromkeys(str(e["loc"][0]) if e["loc"] else "campaña" for e in exc.errors()))
 
 
 def _nuevo_grupo(db: Session, offset: OffsetGanancia, usuario_id: int) -> int:
@@ -236,6 +241,12 @@ def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple
     except campanas.SellOutError as exc:
         db.rollback()  # drops the new group too
         return _fila(offset, NO_MIGRADO, motivo=str(exc), avisos=plan.avisos), str(exc)
+    except SQLAlchemyError as exc:
+        # One offset's database error must not cost the others, nor the report: it is rolled back and reported.
+        db.rollback()
+        logger.exception("Offset #%s: database error", offset.id)
+        motivo = f"Error de base de datos: {type(exc).__name__}"
+        return _fila(offset, NO_MIGRADO, motivo=motivo, avisos=plan.avisos), motivo
 
 
 def run_migracion(
@@ -322,6 +333,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = _build_parser().parse_args(argv)
     from app.core import database  # resolved at call time, so tests can point it elsewhere
 
+    # The report is the only record of the warnings: an unwritable path stops the run before anything is created.
+    open(args.csv, "w", encoding="utf-8-sig").close()
     summary, filas = run_migracion(
         session_factory=database.SessionLocal,
         apply=args.apply,
