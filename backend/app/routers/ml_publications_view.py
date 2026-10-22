@@ -30,7 +30,7 @@ joins it).
 - `GET /ml-publications/view/items/export` and `/products/export` (`ml_ops.ver`): the current view (same filters,
   sort, markup filters and permission checks as `/items` and `/products`, through the same dependencies) as a CSV
   streamed page by page, its keys fixed first and each later page read by key on its own session
-  (`view/export.py`); over `export.EXPORT_MAX_ROWS` rows it answers 422. The Agrupado view has no export.
+  (`view/export.py`); every row, no cap. The Agrupado view has no export.
 - `/items` also sorts by Métricas ML's figures (`orden` facturado_30d, unidades_7d, unidades_30d, with
   `ml_metricas.ver`; markup_30d and total_gauss_30d also with `ml_metricas.ver_ganancia`; 403 otherwise): the WHOLE
   filtered set ranked by the Board over the last 30 business days, then paged; no sales (or no cost) last.
@@ -1210,10 +1210,6 @@ def get_product_ids(
 # ── CSV export of the current view ───────────────────────────────
 
 
-def _over_cap() -> Exception:
-    return api_error(status.HTTP_422_UNPROCESSABLE_CONTENT, ErrorCode.VALIDATION_ERROR, export.over_cap_message())
-
-
 def _csv_response(body: Any, name: str) -> StreamingResponse:
     filename = f"publicaciones-ml-{name}-{date.today().isoformat()}.csv"
     return StreamingResponse(
@@ -1235,14 +1231,14 @@ def export_items(
     STREAMED page by page with the list's own columns; the Métricas ML columns with `ml_metricas.ver`, the margin
     ones with `ml_metricas.ver_ganancia`.
 
-    The request's short transaction fixes the ORDERED keys (at most `export.EXPORT_MAX_ROWS`, else 422) and reads
+    The request's short transaction fixes the ORDERED keys of EVERY row (no cap) and reads
     page 1, before the 200, so a bad state fails as a normal HTTP error. Each later page of `export.EXPORT_PAGE_SIZE`
     keys runs on its OWN short session (`get_background_db`) and reads its rows BY KEY: a change between pages can
     never repeat or drop a row (a row that stopped matching the filters is skipped). The request sessions are closed
     before the first byte: a session held for the whole download pins a pooled connection while the client reads
     (QueuePool incident, PR #811). A page failing mid-stream ends the file with an explicit error line."""
     columns = export.visible(export.ITEM_COLUMNS, sales=ask.can_see_sales, margin=ask.can_see_margin)
-    page_size, cap = export.EXPORT_PAGE_SIZE, export.EXPORT_MAX_ROWS
+    page_size = export.EXPORT_PAGE_SIZE
     try:
         events = settings_store.get_setting("events.enabled").value is True
         listing.bound(db)
@@ -1252,10 +1248,14 @@ def export_items(
             prefetched = export.PrefetchedAds(plan.provider, plan.date_from, plan.date_to)
             plan, ads_failed = replace(plan, provider=prefetched), prefetched.failed
         keys = listing.ordered_keys(
-            db, f, ask.sort, cap + 1, events=events, markup=ask.markup(auth_db, plan), can_see_margin=ask.can_see_margin
+            db,
+            f,
+            ask.sort,
+            export.EVERY_ROW,
+            events=events,
+            markup=ask.markup(auth_db, plan),
+            can_see_margin=ask.can_see_margin,
         )
-        if len(keys) > cap:
-            raise _over_cap()
 
         def read(session: Session, pricing: Session, page_keys: Sequence[str]) -> list[list[Any]]:
             nonlocal ads_failed
@@ -1311,16 +1311,14 @@ def export_products(
     (keys first, each later page by key on its own session, the request sessions closed before the first byte, an
     error line if a page fails); the figures with `ml_metricas.ver`, the margin with `ml_metricas.ver_ganancia`."""
     columns = export.visible(export.PRODUCT_COLUMNS, sales=ask.can_see_sales, margin=ask.can_see_margin)
-    page_size, cap = export.EXPORT_PAGE_SIZE, export.EXPORT_MAX_ROWS
+    page_size = export.EXPORT_PAGE_SIZE
     descending = ask.sort_dir == "desc"
     try:
         if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)
-        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, cap + 1)
-        if len(keys) > cap:
-            raise _over_cap()
+        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, export.EVERY_ROW)
 
         def read(session: Session, page_keys: Sequence[int]) -> list[list[Any]]:
             page = products.products_for_keys(session, f, list(page_keys))

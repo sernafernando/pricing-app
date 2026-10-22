@@ -198,7 +198,7 @@ export function buildSheetRequests({ sheetId, rows, notes }) {
   const formats = header.map((name, c) => numberFormatOf(name, valuesOf(c)));
   const noteRow = rows.length + 1;
   const requests = [
-    // Exactly the rows written (a new sheet may have fewer than an export's 10,000), the header frozen.
+    // Exactly the rows written (a new sheet's default grid may be smaller or larger than the export), the header frozen.
     {
       updateSheetProperties: {
         properties: {

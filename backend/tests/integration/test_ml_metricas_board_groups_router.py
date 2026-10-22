@@ -383,12 +383,22 @@ class TestGroupedExport:
 
         assert "Total Gauss" not in header.splitlines()[0]
 
-    def test_refuses_more_rows_than_the_cap(self, client, admin_auth_headers, board_data, monkeypatch):
-        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
+    def test_every_leaf_is_exported_across_small_pages_with_no_row_cap(
+        self, client, admin_auth_headers, board_data, monkeypatch
+    ):
+        real, limits = board.Board.leaf_keys, []
+
+        def spy(self, limit):
+            limits.append(limit)
+            return real(self, limit)
+
+        monkeypatch.setattr(board.Board, "leaf_keys", spy)
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 1)
 
         resp = client.get(f"{URL}/export", params=GROUP, headers=admin_auth_headers)
 
-        assert resp.status_code == 422
+        assert len(_csv(resp)) == 4
+        assert limits == [None], "the leaf keys read must never be cut"
 
     def test_pages_by_key_like_the_product_export(self, client, admin_auth_headers, board_data, monkeypatch):
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)

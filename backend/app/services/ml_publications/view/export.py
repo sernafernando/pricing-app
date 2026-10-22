@@ -4,7 +4,7 @@ The same discipline as Métricas ML's board export (`routers/ml_metricas.export_
 fixes the ORDERED keys of every row (`listing.ordered_keys`, `products.ordered_product_keys`: the list's own order,
 the markup sort and filter included) and reads page 1; every later page of `EXPORT_PAGE_SIZE` keys is read BY KEY on
 its own short session, so a change between pages can never repeat or drop a row. This module holds what the two
-endpoints share: the caps, the columns (the list's own, by the screen's labels), the stream and the Ads cost read
+endpoints share: the page size, the columns (the list's own, by the screen's labels), the stream and the Ads cost read
 once for the whole file. `;` delimiter and a UTF-8 BOM, so a spreadsheet in the Spanish locale opens it as is;
 every free-text cell goes through `csv_text`.
 """
@@ -27,18 +27,13 @@ logger = logging.getLogger(__name__)
 
 # Rows per page, each page on its own short DB session: memory and the pooled connection follow ONE page.
 EXPORT_PAGE_SIZE = 500
-# Beyond this many rows the export refuses (422) and asks for narrower filters, like Métricas ML's.
-EXPORT_MAX_ROWS = 10_000
+# No row cap: the export fixes EVERY key (a few bytes each; the rows themselves are only ever held one page at a
+# time). The key reads take an int bound (the markup path slices with it), so this is PostgreSQL's largest LIMIT:
+# one that never cuts.
+EVERY_ROW = 2**63 - 1
 
 # The screen's labels of a row's `sku_divergence` kind (`skuDivergence.js`).
 DIVERGENCE_LABELS = {"otro_producto": "Otro producto", "sin_coincidencia": "SKU sin coincidencia"}
-
-
-def over_cap_message() -> str:
-    return (
-        f"Son más de {EXPORT_MAX_ROWS} filas, demasiadas para exportar de una vez. "
-        "Acotá los filtros (estado, tienda, marca, búsqueda...)."
-    )
 
 
 @dataclass(frozen=True)

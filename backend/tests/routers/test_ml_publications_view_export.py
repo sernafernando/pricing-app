@@ -2,8 +2,8 @@
 
 Same harness as the KPI strip's (`test_ml_publications_view_kpis.py`): permissions in the SQLite test database, the
 store and the Board's tables in one throwaway Postgres schema that `get_background_db()` (each later page) also
-reaches. What is pinned: the file follows the list (filters and order, across pages), the cap answers 422 before the
-200, the permissions of the list apply (403s, the metrics and margin columns), BOM + `;`, free text defused, and a
+reaches. What is pinned: the file follows the list (filters and order, across pages), every row is exported (no row
+cap: the keys are read unbounded and a set past the old 10,000 is never refused), the permissions of the list apply (403s, the metrics and margin columns), BOM + `;`, free text defused, and a
 page failing mid-stream ends the file with an error line.
 
 The export closes the request session before streaming, which in this harness rolls back what the test flushed into
@@ -147,19 +147,40 @@ class TestItems:
         assert expected[:2] == ["MLA1", "MLA4"]
         assert column(header, rows, "Publicación") == expected
 
-    def test_over_the_cap_is_a_422_asking_to_narrow_the_filters(
+    def test_every_row_is_exported_across_small_pages_with_no_row_cap(
         self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
     ):
+        """No row cap: the ordered keys are read with a bound that never cuts, and a set larger than a page streams
+        every row (5 publications in pages of 2)."""
         grant(db, rol_admin, VER)
-        monkeypatch.setattr(export, "EXPORT_MAX_ROWS", 4)
-        response = client.get(ITEMS_CSV, headers=admin_auth_headers)
-        assert response.status_code == 422
-        assert "filtros" in response.json()["error"]["message"]
+        monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 2)
+        real, bounds = listing.ordered_keys, []
 
-    def test_exactly_the_cap_is_exported(self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch):
+        def spy(session, f, sort, cap, **kwargs):
+            bounds.append(cap)
+            return real(session, f, sort, cap, **kwargs)
+
+        monkeypatch.setattr(listing, "ordered_keys", spy)
+        header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))
+        assert sorted(column(header, rows, "Publicación")) == ["MLA1", "MLA2", "MLA3", "MLA4", "MLA5"]
+        assert len(bounds) == 1 and bounds[0] >= 2**63 - 1, f"the keys read must never be cut: {bounds}"
+
+    def test_a_set_past_the_old_10000_cap_is_still_exported(
+        self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
+    ):
+        """10,001 more keys than the view holds (rows gone between the keys and their page, which are skipped) make a
+        set past the old 10,000 cap: the export still answers 200 with every real row, never a 422."""
         grant(db, rol_admin, VER)
-        monkeypatch.setattr(export, "EXPORT_MAX_ROWS", 5)
-        assert len(read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))[1]) == 5
+        monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 20_000)  # one page: the test pays for one read
+        real = listing.ordered_keys
+
+        def padded(session, f, sort, cap, **kwargs):
+            keys = real(session, f, sort, cap, **kwargs) + [f"MLA9{i:09d}" for i in range(10_001)]
+            return keys[:cap]
+
+        monkeypatch.setattr(listing, "ordered_keys", padded)
+        header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))
+        assert sorted(column(header, rows, "Publicación")) == ["MLA1", "MLA2", "MLA3", "MLA4", "MLA5"]
 
     def test_without_metricas_or_margin_there_are_no_such_columns(
         self, client, sold, db, rol_admin, admin_auth_headers
@@ -398,11 +419,23 @@ class TestProducts:
         header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers, params=params))
         assert len(names) >= 2 and column(header, rows, "Producto") == names
 
-    def test_over_the_cap_is_a_422(self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch) -> None:
+    def test_every_row_is_exported_with_no_row_cap(
+        self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
+    ) -> None:
+        """No row cap: the product keys are read with a bound that never cuts, every row streamed in pages of 1."""
         grant(db, rol_admin, VER)
-        monkeypatch.setattr(export, "EXPORT_MAX_ROWS", 2)
-        response = client.get(PRODUCTS_CSV, headers=admin_auth_headers)
-        assert response.status_code == 422 and "filtros" in response.json()["error"]["message"]
+        monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 1)
+        expected = [name or "Sin producto" for name in listed(client, admin_auth_headers, PRODUCTS, "descripcion")]
+        real, bounds = products_service.ordered_product_keys, []
+
+        def spy(session, f, orden, descending, cap):
+            bounds.append(cap)
+            return real(session, f, orden, descending, cap)
+
+        monkeypatch.setattr(products_service, "ordered_product_keys", spy)
+        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
+        assert len(expected) >= 2 and column(header, rows, "Producto") == expected
+        assert len(bounds) == 1 and bounds[0] >= 2**63 - 1, f"the keys read must never be cut: {bounds}"
 
     def test_a_page_failing_mid_stream_ends_the_file_with_an_error_line(
         self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
