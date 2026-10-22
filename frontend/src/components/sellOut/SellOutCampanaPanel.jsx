@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import { apiMessage, formatEntero, formatMonto } from '../sellIn/sellInFormat';
 import SellOutCampanaForm from './SellOutCampanaForm';
+import SellOutTipoCambio from './SellOutTipoCambio';
 import { CANAL_LABELS, TC_MODO_LABELS, beneficio, recalculo } from './sellOutFormat';
 import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeCampana } from './sellOutValores';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import tableStyles from '../sellIn/SellInTable.module.css';
 
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
+const MOTIVO_MAX = 500; // backend `SellOutAnularIn.motivo` (auditoria.comentario is VARCHAR(500))
 
 function topes(campana) {
   const { resumen } = campana;
@@ -30,10 +32,14 @@ function topes(campana) {
  * A sell-out campaign in the side panel (feature sell-in-sell-out T8), no modals. With no `campanaId` it
  * loads a new one. Otherwise it reads it fresh from `GET /sell-out/campanas/{id}`: its terms, what it
  * credited by channel and its recalculation state; with `sell_out.gestionar` an active one is edited in
- * place (a full replace). The backend's messages (422/409) show inline; a 409 reads the campaign again.
+ * place (a full replace), voided after an inline confirmation, and, in USD `al_cobro`, given the rate the brand
+ * paid at. The backend's messages (422/409) show inline; a 409 on save reads the campaign again.
  */
 export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, onSaved, onClose }) {
+  const id = useId();
   const nuevo = campanaId === null;
+  const [confirmando, setConfirmando] = useState(false);
+  const [motivo, setMotivo] = useState('');
   const [campana, setCampana] = useState(null);
   const [valores, setValores] = useState(CAMPANA_VACIA);
   const [error, setError] = useState(null);
@@ -84,6 +90,21 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
     }
   };
 
+  const anular = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await sellOutAPI.anular(campanaId, motivo);
+      setConfirmando(false);
+      mostrar(data);
+      onSaved(data);
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo anular la campaña.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const editable = puedeGestionar && (nuevo || campana?.estado === 'activa');
   // Editing shows the form; what the form does not hold (origin, recalculation, caps left) stays below it.
   const soloLectura = new Set(['Topes', 'Origen', 'Recálculo']);
@@ -100,6 +121,7 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
         ['Recálculo', recalculo(campana.resumen?.recalculo)],
       ]
     : [];
+  const conTipoCambio = editable && !nuevo && campana?.moneda === 'USD' && campana?.tc_modo === 'al_cobro';
   const visibles = editable ? campos.filter(([label]) => soloLectura.has(label)) : campos;
   const canales = campana?.resumen?.por_canal ?? [];
 
@@ -123,6 +145,15 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
           <section className={panelStyles.section} aria-label="Definición">
             <SellOutCampanaForm valores={valores} onChange={setValores} grupos={grupos} />
           </section>
+        )}
+        {conTipoCambio && (
+          <SellOutTipoCambio
+            campana={campana}
+            onDefinido={(data) => {
+              mostrar(data);
+              onSaved(data);
+            }}
+          />
         )}
         {campana && (
           <>
@@ -173,12 +204,52 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
 
       {editable && (
         <footer className={panelStyles.panelFooter}>
-          <button type="button" className="btn-tesla outline sm" onClick={onClose} disabled={busy}>
-            Cancelar
-          </button>
-          <button type="button" className="btn-tesla primary sm" onClick={guardar} disabled={busy}>
-            {nuevo ? 'Guardar campaña' : 'Guardar cambios'}
-          </button>
+          {confirmando ? (
+            <div className={panelStyles.confirm}>
+              <label className={panelStyles.field} htmlFor={`${id}-motivo`}>
+                <span className={panelStyles.label}>Motivo (opcional)</span>
+                <textarea
+                  id={`${id}-motivo`}
+                  className={panelStyles.textarea}
+                  maxLength={MOTIVO_MAX}
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                />
+              </label>
+              <p className={panelStyles.hint}>Al anular la campaña deja de acreditar y se recalculan las ventas que alcanzaba.</p>
+              <div className={panelStyles.confirmActions}>
+                <button
+                  type="button"
+                  className="btn-tesla outline sm"
+                  onClick={() => {
+                    setConfirmando(false);
+                    setMotivo('');
+                  }}
+                  disabled={busy}
+                >
+                  Cancelar
+                </button>
+                <button type="button" className="btn-tesla danger sm" onClick={anular} disabled={busy}>
+                  Confirmar anulación
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {nuevo ? (
+                <button type="button" className="btn-tesla outline sm" onClick={onClose} disabled={busy}>
+                  Cancelar
+                </button>
+              ) : (
+                <button type="button" className="btn-tesla outline sm" onClick={() => setConfirmando(true)} disabled={busy}>
+                  Anular campaña
+                </button>
+              )}
+              <button type="button" className="btn-tesla primary sm" onClick={guardar} disabled={busy}>
+                {nuevo ? 'Guardar campaña' : 'Guardar cambios'}
+              </button>
+            </>
+          )}
         </footer>
       )}
     </div>
