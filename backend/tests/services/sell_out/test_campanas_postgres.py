@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
@@ -40,6 +41,8 @@ GRUPO = 1
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY, nombre VARCHAR(100) NOT NULL)",
+    "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)",  # the legacy offset a campaign migrates (T15)
+    "INSERT INTO offsets_ganancia VALUES (123)",
     f"INSERT INTO usuarios VALUES ({USUARIO})",
     f"INSERT INTO offset_grupos VALUES ({GRUPO}, 'TP-Link redes')",
 ]
@@ -185,3 +188,36 @@ def test_create_and_edit_store_and_audit_the_same_decimals(Session, overrides, e
     assert {c: editada[c] for c in DECIMALES} == esperado
     assert {c: audit.valores_nuevos[c] for c in DECIMALES} == esperado
     assert {c: audit.valores_anteriores[c] for c in DECIMALES} == esperado
+
+
+@pytest.mark.parametrize("origen", [123, 999], ids=["offset_already_migrated", "unknown_offset"])
+def test_a_second_campaign_for_one_offset_or_an_unknown_offset_is_refused_and_leaves_nothing(Session, origen) -> None:
+    with Session() as db:
+        service.crear_campana(db, _data(), USUARIO, offset_origen_id=123)
+    counts = (
+        "SELECT (SELECT count(*) FROM sell_out_campanas), (SELECT count(*) FROM auditoria), "
+        "(SELECT count(*) FROM sell_out_dirty)"
+    )
+    with Session() as db:
+        before = db.execute(text(counts)).one()
+        with pytest.raises(IntegrityError):
+            service.crear_campana(db, _data(nombre="Otra"), USUARIO, offset_origen_id=origen)
+    with Session() as db:
+        assert db.execute(text(counts)).one() == before
+
+
+def test_a_migrated_campaign_stores_audits_and_returns_its_legacy_offset_and_an_edit_keeps_it(Session) -> None:
+    with Session() as db:
+        migrada = service.crear_campana(db, _data(), USUARIO, offset_origen_id=123).id
+        manual = service.crear_campana(db, _data(nombre="Manual"), USUARIO).id
+    with Session() as db:
+        assert (_api(db, migrada)["offset_origen_id"], _api(db, manual)["offset_origen_id"]) == (123, None)
+        creadas = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_CREADA)
+        valores = {a.valores_nuevos["campana_id"]: a.valores_nuevos for a in creadas}
+    assert valores[migrada]["offset_origen_id"] == 123
+    assert "offset_origen_id" not in valores[manual]  # a campaign loaded by hand audits as before
+
+    with Session() as db:
+        service.editar_campana(db, migrada, _data(nombre="Editada"), USUARIO)
+    with Session() as db:
+        assert _api(db, migrada)["offset_origen_id"] == 123

@@ -30,6 +30,11 @@ each sale's amount is divided by its own product's VAT rate (T7,
 Campaigns on the same product and dates stack unless one of them is not
 `acumulable`. A campaign is never deleted: it is voided (`anulada`).
 
+`offset_origen_id` is the legacy offset (`offsets_ganancia`) a campaign was
+migrated from (T15, `app.scripts.migrar_offsets_a_sell_out`), NULL for one
+loaded by hand; UNIQUE, so each offset is migrated once. Deleting the offset
+keeps the campaign (SET NULL).
+
 `SellOutConsumo` holds what each sale takes from a campaign's cap, rebuilt per
 campaign by the T7 allocator; `SellOutDirty` queues the campaigns to rebuild.
 `SellOutConsumo.venta_ref` has NO foreign key on purpose, like
@@ -92,6 +97,7 @@ class SellOutCampana(Base):
         CheckConstraint("tope_unidades IS NULL OR tope_unidades > 0", name="ck_sell_out_campanas_tope_unidades"),
         CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_out_campanas_tope_monto"),
         CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_out_campanas_estado"),
+        UniqueConstraint("offset_origen_id", name="uq_sell_out_campanas_offset_origen_id"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -117,6 +123,12 @@ class SellOutCampana(Base):
     monto_incluye_iva = Column(Boolean, nullable=False, default=False, server_default=false())
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    # The migrated legacy offset; see the module docstring.
+    offset_origen_id = Column(
+        Integer,
+        ForeignKey("offsets_ganancia.id", ondelete="SET NULL", name="fk_sell_out_campanas_offset_origen_id"),
+        nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_out_campanas_updated_at` trigger.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

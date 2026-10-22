@@ -24,13 +24,14 @@ from app.core.database import Base
 
 _MIGRATIONS = [
     Path(__file__).resolve().parents[2] / "alembic" / "versions" / f"{revision}.py"
-    for revision in ("20261105_sell_out_campanas", "20261108_sell_out_consumos")
+    for revision in ("20261105_sell_out_campanas", "20261108_sell_out_consumos", "20261111_sell_out_offset_origen")
 ]
 TABLES = ("sell_out_campanas", "sell_out_campana_grupos", "sell_out_consumos", "sell_out_dirty")
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)",
     "CREATE TABLE roles (id SERIAL PRIMARY KEY, codigo VARCHAR(50) UNIQUE)",
     "CREATE TABLE permisos (id SERIAL PRIMARY KEY, codigo VARCHAR(100) UNIQUE, nombre TEXT, descripcion TEXT, "
     "categoria TEXT, orden INTEGER, es_critico BOOLEAN, created_at TIMESTAMPTZ)",
