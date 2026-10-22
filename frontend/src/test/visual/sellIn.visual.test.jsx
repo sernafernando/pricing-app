@@ -41,10 +41,11 @@ vi.mock('../../services/sellInAPI', () => ({
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
 }));
 
-vi.mock('../../services/sellOutAPI', () => ({ sellOutAPI: { listar: vi.fn(), detalle: vi.fn() } }));
+vi.mock('../../services/sellOutAPI', () => ({ sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn() } }));
 
 beforeEach(() => {
   sellOutAPI.listar.mockResolvedValue({ data: CAMPANAS_LISTA });
+  sellOutAPI.grupos.mockResolvedValue({ data: [] });
   sellInAPI.listar.mockResolvedValue({ data: LISTA });
   sellInAPI.resumen.mockResolvedValue({ data: RESUMEN });
   sellInBonosAPI.listar.mockResolvedValue({ data: BONOS_LISTA });

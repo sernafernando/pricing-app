@@ -28,7 +28,9 @@ vi.mock('../services/sellInAPI', () => ({
   },
 }));
 
-vi.mock('../services/sellOutAPI', () => ({ sellOutAPI: { listar: vi.fn(), detalle: vi.fn() } }));
+vi.mock('../services/sellOutAPI', () => ({
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), grupos: vi.fn() },
+}));
 
 const mockTienePermiso = vi.fn();
 vi.mock('../contexts/PermisosContext', () => ({
@@ -49,6 +51,7 @@ beforeEach(() => {
   sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE });
   sellOutAPI.listar.mockResolvedValue({ data: CAMPANAS_LISTA });
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+  sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
 });
 
 describe('SellIn page — list', () => {
@@ -276,6 +279,37 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: /Actualizar/ }));
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('"Nueva campaña" opens the form with the offset groups; saving shows the new campaign and reloads the list', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.crear.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, id: 95, nombre: 'Epson diciembre' } });
+    sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, id: 95, nombre: 'Epson diciembre' } });
+    renderWithRouter(<SellIn />);
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
+    await user.click(within(seccion).getByRole('button', { name: /Nueva campaña/ }));
+
+    expect(await screen.findByRole('heading', { name: 'Nueva campaña de sell out' })).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Nombre'), 'Epson diciembre');
+    await user.type(screen.getByLabelText('Monto por unidad'), '12');
+    await user.type(screen.getByLabelText('Desde'), '2026-12-01');
+    await user.type(screen.getByLabelText('Hasta'), '2026-12-31');
+    await user.click(await screen.findByRole('checkbox', { name: 'TP-Link redes' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
+
+    expect(await screen.findByRole('heading', { name: 'Epson diciembre', level: 2 })).toBeInTheDocument();
+    expect(sellOutAPI.detalle).toHaveBeenCalledWith(95);
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('without sell_out.gestionar there is no "Nueva campaña" and the groups are not asked', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
+    renderWithRouter(<SellIn />);
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await within(seccion).findByText('RB 8180');
+    expect(within(seccion).queryByRole('button', { name: /Nueva campaña/ })).not.toBeInTheDocument();
+    expect(sellOutAPI.grupos).not.toHaveBeenCalled();
   });
 
   it('without sell_out.ver the section is not shown and nothing is asked', async () => {

@@ -66,6 +66,23 @@ function useBonos(enabled) {
   return { lista, error, offset, setOffset, pageSize, setPageSize, recargar };
 }
 
+/** The offset groups a sell-out campaign can reach (`GET /offset-grupos`); empty on failure. */
+function useGruposOffset(enabled) {
+  const [grupos, setGrupos] = useState([]);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let active = true;
+    sellOutAPI
+      .grupos()
+      .then(({ data }) => active && setGrupos(data ?? []))
+      .catch(() => active && setGrupos([]));
+    return () => {
+      active = false;
+    };
+  }, [enabled]);
+  return grupos;
+}
+
 /** The sell-out campaigns page by page (`GET /sell-out/campanas`), searched by name (`q`); `recargar` asks again. */
 function useCampanas(enabled) {
   const [q, setQ] = useState('');
@@ -109,6 +126,8 @@ export default function SellIn() {
   const bonos = useBonos(puedeVer);
   const puedeVerSellOut = tienePermiso('sell_out.ver');
   const campanas = useCampanas(puedeVer && puedeVerSellOut);
+  const puedeGestionarSellOut = puedeVerSellOut && tienePermiso('sell_out.gestionar');
+  const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -238,7 +257,17 @@ export default function SellIn() {
               onClose={cerrarPanel}
             />
           ) : panel?.tipo === 'campana' ? (
-            <SellOutCampanaPanel key={`campana-${panel.id}`} campanaId={panel.id} onClose={cerrarPanel} />
+            <SellOutCampanaPanel
+              key={`campana-${panel.id ?? 'nueva'}`}
+              campanaId={panel.id}
+              grupos={gruposOffset}
+              puedeGestionar={puedeGestionarSellOut}
+              onSaved={(campana) => {
+                if (panel.id === null) verCampana(campana.id);
+                campanas.recargar();
+              }}
+              onClose={cerrarPanel}
+            />
           ) : panel ? (
             <SellInDetailPanel
               key={panel.id}
@@ -380,9 +409,16 @@ export default function SellIn() {
 
         {puedeVerSellOut && (
           <section className={styles.bonos} aria-labelledby="sell-out-campanas-titulo">
-            <h2 id="sell-out-campanas-titulo" className={styles.sectionTitle}>
-              Campañas de sell out
-            </h2>
+            <div className={styles.sectionHead}>
+              <h2 id="sell-out-campanas-titulo" className={styles.sectionTitle}>
+                Campañas de sell out
+              </h2>
+              {puedeGestionarSellOut && (
+                <button type="button" className="btn-tesla primary sm" onClick={() => setPanel({ tipo: 'campana', id: null })}>
+                  <Plus size={14} /> Nueva campaña
+                </button>
+              )}
+            </div>
             <p className={styles.description}>
               Un monto por unidad o un porcentaje que la marca reconoce por cada venta de los productos alcanzados, en un rango de fechas.
             </p>

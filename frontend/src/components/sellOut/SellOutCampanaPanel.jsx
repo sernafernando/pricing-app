@@ -4,7 +4,9 @@ import { sellOutAPI } from '../../services/sellOutAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import { apiMessage, formatEntero, formatMonto } from '../sellIn/sellInFormat';
+import SellOutCampanaForm from './SellOutCampanaForm';
 import { CANAL_LABELS, TC_MODO_LABELS, beneficio, recalculo } from './sellOutFormat';
+import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeCampana } from './sellOutValores';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import tableStyles from '../sellIn/SellInTable.module.css';
 
@@ -25,26 +27,66 @@ function topes(campana) {
 }
 
 /**
- * One sell-out campaign in the side panel, read fresh from `GET /sell-out/campanas/{id}` (feature
- * sell-in-sell-out T8): its terms, what it credited by channel and its recalculation state.
+ * A sell-out campaign in the side panel (feature sell-in-sell-out T8), no modals. With no `campanaId` it
+ * loads a new one. Otherwise it reads it fresh from `GET /sell-out/campanas/{id}`: its terms, what it
+ * credited by channel and its recalculation state; with `sell_out.gestionar` an active one is edited in
+ * place (a full replace). The backend's messages (422/409) show inline; a 409 reads the campaign again.
  */
-export default function SellOutCampanaPanel({ campanaId, onClose }) {
+export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, onSaved, onClose }) {
+  const nuevo = campanaId === null;
   const [campana, setCampana] = useState(null);
+  const [valores, setValores] = useState(CAMPANA_VACIA);
   const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const mostrar = (data) => {
+    setCampana(data);
+    setValores(valoresDeCampana(data));
+  };
 
   useEffect(() => {
+    if (nuevo) return undefined;
     let active = true;
     setCampana(null);
     setError(null);
     sellOutAPI
       .detalle(campanaId)
-      .then(({ data }) => active && setCampana(data))
+      .then(({ data }) => active && mostrar(data))
       .catch((err) => active && setError(apiMessage(err, 'No se pudo cargar la campaña.')));
     return () => {
       active = false;
     };
-  }, [campanaId]);
+  }, [nuevo, campanaId]);
 
+  const guardar = async () => {
+    const faltan = faltantes(valores);
+    if (faltan.length) {
+      setError(`Faltan datos: ${faltan.join(', ')}.`);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const body = bodyDeCampana(valores);
+      const { data } = nuevo ? await sellOutAPI.crear(body) : await sellOutAPI.editar(campanaId, body);
+      if (!nuevo) mostrar(data);
+      onSaved(data);
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo guardar la campaña.'));
+      if (!nuevo && err?.response?.status === 409) {
+        sellOutAPI
+          .detalle(campanaId)
+          .then(({ data }) => mostrar(data))
+          .catch(() => {});
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const editable = puedeGestionar && (nuevo || campana?.estado === 'activa');
+  // Editing shows the form; what the form does not hold (origin, recalculation, caps left) stays below it.
+  const soloLectura = new Set(['Topes', 'Origen', 'Recálculo']);
   const campos = campana
     ? [
         ['Beneficio', beneficio(campana)],
@@ -58,13 +100,14 @@ export default function SellOutCampanaPanel({ campanaId, onClose }) {
         ['Recálculo', recalculo(campana.resumen?.recalculo)],
       ]
     : [];
+  const visibles = editable ? campos.filter(([label]) => soloLectura.has(label)) : campos;
   const canales = campana?.resumen?.por_canal ?? [];
 
   return (
     <div className={panelStyles.panel}>
       <header className={panelStyles.panelHeader}>
-        <h2>{campana ? campana.nombre : 'Campaña de sell out'}</h2>
-        <button type="button" className={panelStyles.close} aria-label="Cerrar" onClick={onClose}>
+        <h2>{nuevo ? 'Nueva campaña de sell out' : campana ? campana.nombre : 'Campaña de sell out'}</h2>
+        <button type="button" className={panelStyles.close} aria-label="Cerrar" onClick={onClose} disabled={busy}>
           <X size={18} />
         </button>
       </header>
@@ -75,7 +118,12 @@ export default function SellOutCampanaPanel({ campanaId, onClose }) {
             {error}
           </p>
         )}
-        {!campana && !error && <p className={panelStyles.hint}>Cargando…</p>}
+        {!nuevo && !campana && !error && <p className={panelStyles.hint}>Cargando…</p>}
+        {editable && (
+          <section className={panelStyles.section} aria-label="Definición">
+            <SellOutCampanaForm valores={valores} onChange={setValores} grupos={grupos} />
+          </section>
+        )}
         {campana && (
           <>
             <div className={panelStyles.pills}>
@@ -83,9 +131,9 @@ export default function SellOutCampanaPanel({ campanaId, onClose }) {
                 {campana.estado === 'activa' ? 'Activa' : 'Anulada'}
               </StatusPill>
             </div>
-            {campana.descripcion && <p className={panelStyles.hint}>{campana.descripcion}</p>}
+            {!editable && campana.descripcion && <p className={panelStyles.hint}>{campana.descripcion}</p>}
             <dl className={panelStyles.campos}>
-              {campos.map(([label, value]) => (
+              {visibles.map(([label, value]) => (
                 <div key={label} className={panelStyles.campo}>
                   <dt>{label}</dt>
                   <dd>{value}</dd>
@@ -122,6 +170,17 @@ export default function SellOutCampanaPanel({ campanaId, onClose }) {
           </>
         )}
       </div>
+
+      {editable && (
+        <footer className={panelStyles.panelFooter}>
+          <button type="button" className="btn-tesla outline sm" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button type="button" className="btn-tesla primary sm" onClick={guardar} disabled={busy}>
+            {nuevo ? 'Guardar campaña' : 'Guardar cambios'}
+          </button>
+        </footer>
+      )}
     </div>
   );
 }
