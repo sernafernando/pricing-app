@@ -50,11 +50,11 @@ export default function SellOutCampanaPanel({ campanaId, onClose }) {
         ['Beneficio', beneficio(campana)],
         ['Vigencia', `${formatDateOnly(campana.fecha_desde, DIA)} – ${formatDateOnly(campana.fecha_hasta, DIA)}`],
         ['Tipo de cambio', campana.moneda === 'USD' ? TC_MODO_LABELS[campana.tc_modo] ?? '—' : 'No aplica (ARS)'],
-        ['Alcance', campana.grupos.map((g) => g.nombre).join(', ') || '—'],
+        ['Alcance', (campana.grupos ?? []).map((g) => g.nombre).join(', ') || '—'],
         ['Topes', topes(campana)],
         ['Monto con IVA', campana.monto_incluye_iva ? 'Sí' : 'No'],
         ['Acumulable', campana.acumulable ? 'Sí' : 'No'],
-        ['Origen', campana.offset_origen_id ? `Migrada del offset #${campana.offset_origen_id}` : 'Cargada a mano'],
+        ['Origen', campana.offset_origen_id != null ? `Migrada del offset #${campana.offset_origen_id}` : 'Cargada a mano'],
         ['Recálculo', recalculo(campana.resumen?.recalculo)],
       ]
     : [];

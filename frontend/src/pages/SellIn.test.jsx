@@ -269,6 +269,15 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     expect(sellOutAPI.detalle).toHaveBeenCalledWith(55);
   });
 
+  it('"Actualizar" reloads the campaigns too', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
   it('without sell_out.ver the section is not shown and nothing is asked', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.ver');
     renderWithRouter(<SellIn />);

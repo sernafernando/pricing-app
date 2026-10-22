@@ -66,7 +66,7 @@ function useBonos(enabled) {
   return { lista, error, offset, setOffset, pageSize, setPageSize, recargar };
 }
 
-/** The sell-out campaigns page by page (`GET /sell-out/campanas`), searched by name (`q`). */
+/** The sell-out campaigns page by page (`GET /sell-out/campanas`), searched by name (`q`); `recargar` asks again. */
 function useCampanas(enabled) {
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
@@ -74,21 +74,26 @@ function useCampanas(enabled) {
   const [lista, setLista] = useState(null);
   const [error, setError] = useState(null);
   const requestRef = useRef(0);
-  useEffect(() => {
+  const recargar = useCallback(async () => {
     if (!enabled) return;
     const requestId = ++requestRef.current;
     setError(null);
     const params = { page: Math.floor(offset / pageSize) + 1, page_size: pageSize };
-    sellOutAPI
-      .listar(q.trim() ? { q: q.trim(), ...params } : params)
-      .then(({ data }) => requestId === requestRef.current && setLista(data))
-      .catch(() => requestId === requestRef.current && setError('No se pudieron cargar las campañas de sell out.'));
+    try {
+      const { data } = await sellOutAPI.listar(q.trim() ? { q: q.trim(), ...params } : params);
+      if (requestId === requestRef.current) setLista(data);
+    } catch {
+      if (requestId === requestRef.current) setError('No se pudieron cargar las campañas de sell out.');
+    }
   }, [enabled, q, offset, pageSize]);
+  useEffect(() => {
+    recargar();
+  }, [recargar]);
   const buscar = useCallback((value) => {
     setQ(value);
     setOffset(0);
   }, []);
-  return { lista, error, q, buscar, offset, setOffset, pageSize, setPageSize };
+  return { lista, error, q, buscar, offset, setOffset, pageSize, setPageSize, recargar };
 }
 
 /**
@@ -180,6 +185,7 @@ export default function SellIn() {
             onClick={() => {
               cargar();
               bonos.recargar();
+              campanas.recargar();
             }}
             disabled={loading}
           >
