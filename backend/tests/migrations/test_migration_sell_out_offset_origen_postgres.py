@@ -82,6 +82,16 @@ def test_upgrade_adds_a_nullable_column(before):
 
 
 @pytest.mark.postgres
+def test_upgrade_keeps_the_campaigns_already_there_with_no_origin(before):
+    with before.begin() as conn:
+        conn.execute(text("INSERT INTO sell_out_campanas (nombre) VALUES ('a'), ('b'), ('c')"))
+    _step(before, "upgrade")
+    with before.connect() as conn:
+        rows = conn.execute(text("SELECT nombre, offset_origen_id FROM sell_out_campanas ORDER BY id")).all()
+    assert rows == [("a", None), ("b", None), ("c", None)]
+
+
+@pytest.mark.postgres
 def test_upgrade_allows_one_campaign_per_offset(before):
     _step(before, "upgrade")
     _insert(before, 1)
