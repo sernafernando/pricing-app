@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apiMessage, buildSellInParams, formatMonto, sumaManual } from './sellInFormat';
+import { apiMessage, buildSellInParams, formatMonto, formatPorcentaje, sumaManual } from './sellInFormat';
 
 describe('buildSellInParams', () => {
   it('sends only the filters that are set, marcas as CSV', () => {
@@ -37,6 +37,15 @@ describe('formatMonto', () => {
 
   it('reads a missing value as a dash, never as zero', () => {
     expect(formatMonto(null, 'ARS')).toBe('—');
+  });
+});
+
+describe('formatPorcentaje', () => {
+  it('shows up to 4 decimals with a comma, and a dash for nothing or not a number', () => {
+    expect(formatPorcentaje('2.5000')).toBe('2,5 %');
+    expect(formatPorcentaje('0.1234')).toBe('0,1234 %');
+    expect(formatPorcentaje(null)).toBe('—');
+    expect(formatPorcentaje('abc')).toBe('—');
   });
 });
 
