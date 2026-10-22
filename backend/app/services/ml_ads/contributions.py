@@ -23,7 +23,11 @@ class CampaignRow:
 
 
 def list_campaigns(db: Session, date_from: date, date_to: date) -> list[CampaignRow]:
-    """Every catalogued campaign with all its contributions (by start) and its cost in `[date_from, date_to]`."""
+    """Every catalogued campaign with all its contributions (by start) and its cost in `[date_from, date_to]`.
+
+    All contributions, not only those touching the range: the loading screen lists them all. The catalogue is only
+    ever upserted (nothing deletes from `ml_ads_campaigns`) and writes require a catalogued campaign, so no
+    contribution is left without its campaign. Not paginated, like the other `/ml-ads` reads: two advertisers."""
     day = MlAdsCampaignDay
     sums = (
         db.query(day.advertiser_id, day.campaign_id, func.sum(day.cost))
