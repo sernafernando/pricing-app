@@ -43,6 +43,7 @@ import {
   formatUnits,
 } from '../utils/metricasMlFormat';
 import SheetsNotice from '../components/sheets/SheetsNotice';
+import useWarnBeforeUnload from '../hooks/useWarnBeforeUnload';
 import styles from './MetricasML.module.css';
 
 /**
@@ -183,6 +184,8 @@ export default function MetricasML() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const [exportingSheets, setExportingSheets] = useState(false);
+  // The sheet is written from this page: a reload or a closed tab would cut it halfway.
+  useWarnBeforeUnload(exportingSheets);
   // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link to the new sheet (shown even when its tab opened: a browser can block it silently).
   const [sheetsNotice, setSheetsNotice] = useState(null);
   const sheetsEnabled = isSheetsExportEnabled();
@@ -540,7 +543,7 @@ export default function MetricasML() {
           <ShieldAlert size={16} /> {exportError}
         </div>
       )}
-      <SheetsNotice notice={sheetsNotice} onClose={() => setSheetsNotice(null)} />
+      <SheetsNotice notice={exportingSheets ? { processing: true } : sheetsNotice} onClose={() => setSheetsNotice(null)} />
 
       <section className={styles.filterCard} aria-label="Filtros">
         <div className={styles.filterBand}>
