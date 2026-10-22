@@ -26,6 +26,8 @@ BasePorcentaje = Literal["costo", "precio_neto"]
 Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Estado = Literal["activa", "anulada"]
+Canal = Literal["ml", "fuera", "tn"]
+EstadoRecalculo = Literal["al_dia", "en_cola", "recalculando", "fallida"]
 
 NOMBRE_MAX = 200
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
@@ -76,6 +78,38 @@ class SellOutGrupoOut(BaseModel):
     nombre: str
 
 
+class SellOutCanalOut(BaseModel):
+    canal: Canal
+    lineas: int
+    unidades: int
+    monto: Decimal  # in the campaign currency
+
+
+class SellOutRecalculoOut(BaseModel):
+    """The rebuild state from the `sell_out_dirty` queue (`app.services.sell_out.resumen`)."""
+
+    estado: EstadoRecalculo
+    intentos: int
+    error: Optional[str]  # the last failure, while it has not been rebuilt since
+    detenida: bool  # parked after too many failures: retried only when something queues it again
+    encolada_en: Optional[datetime]
+
+
+class SellOutResumenOut(BaseModel):
+    """What the campaign credited so far (`app.services.sell_out.resumen`)."""
+
+    lineas: int
+    unidades: int
+    monto: Decimal  # in the campaign currency
+    monto_ars: Optional[Decimal]  # None when a USD row has no rate
+    ars_estimado: bool  # `al_cobro` without its rate: the ARS amount is an estimate at the latest BNA
+    tope_unidades_restantes: Optional[int]  # None without a unit cap
+    tope_monto_restante: Optional[Decimal]  # None without a money cap
+    por_canal: list[SellOutCanalOut]
+    pendientes_base: int  # percentage sales skipped while their base is unknown
+    recalculo: SellOutRecalculoOut
+
+
 class SellOutCampanaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,10 +135,36 @@ class SellOutCampanaOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     grupos: list[SellOutGrupoOut]
+    resumen: SellOutResumenOut
 
 
 class SellOutCampanaListOut(BaseModel):
     items: list[SellOutCampanaOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SellOutConsumoOut(BaseModel):
+    """One credited sale line. A return inside the campaign is netted into its sale's row."""
+
+    id: int
+    canal: Canal
+    venta_ref: int  # ML `item_row_id`; fuera / TN `it_transaction`
+    fecha_venta: date
+    item_id: int
+    codigo: Optional[str]
+    descripcion: Optional[str]
+    unidades: int
+    monto: Decimal  # in the campaign currency
+    tc_venta: Optional[Decimal]  # ARS per USD the row converts at; None for ARS
+    monto_ars: Optional[Decimal]
+
+
+class SellOutConsumosListOut(BaseModel):
+    moneda: Moneda
+    ars_estimado: bool
+    items: list[SellOutConsumoOut]
     total: int
     page: int
     page_size: int

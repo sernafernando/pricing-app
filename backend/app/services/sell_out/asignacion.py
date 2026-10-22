@@ -158,13 +158,23 @@ def _tasa(c: SellOutCampana, fecha: date, tasas: _Tasas) -> Decimal:
     return Decimal(tasa)
 
 
+def _base_registrada(c: SellOutCampana, v: alcance.Venta) -> Optional[Decimal]:
+    return v.costo_unit if c.base_porcentaje == "costo" else v.precio_unit
+
+
+def base_desconocida(c: SellOutCampana, v: alcance.Venta) -> bool:
+    """A positive sale of a percentage campaign whose base is not recorded yet: the rebuild skips it and
+    counts it in `pendientes_base` (module docstring). The summary read (`resumen`) counts with it too."""
+    return c.tipo == "porcentaje" and v.unidades > 0 and _base_registrada(c, v) is None
+
+
 def _base(c: SellOutCampana, v: alcance.Venta, iva: Optional[Decimal], tasas: _Tasas) -> Optional[Decimal]:
     """A positive sale's percentage base per unit, without VAT, in the campaign currency."""
     if c.tipo != "porcentaje" or v.unidades < 0:
         return None
-    base = v.costo_unit if c.base_porcentaje == "costo" else v.precio_unit
-    if base is None:
+    if base_desconocida(c, v):
         raise _BaseDesconocida
+    base = _base_registrada(c, v)
     if c.base_porcentaje == "precio_neto" and v.precio_con_iva:
         if iva is None:
             raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
