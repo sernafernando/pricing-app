@@ -1,0 +1,86 @@
+/** The campaign form's values (strings, as the inputs hold them), to and from the API's `SellOutCampanaIn`. */
+
+export const CAMPANA_VACIA = {
+  nombre: '',
+  descripcion: '',
+  fechaDesde: '',
+  fechaHasta: '',
+  tipo: 'por_unidad',
+  montoUnit: '',
+  porcentaje: '',
+  basePorcentaje: 'costo',
+  moneda: 'USD',
+  tcModo: 'al_cobro',
+  tipoCambio: '',
+  topeUnidades: '',
+  topeMonto: '',
+  acumulable: true,
+  montoIncluyeIva: false,
+  grupoIds: [],
+};
+
+const texto = (value) => (value === null || value === undefined ? '' : String(value));
+const opcional = (value) => (String(value ?? '').trim() === '' ? null : String(value).trim());
+const positivo = (value) => Number(value) > 0;
+
+/** A stored campaign (`SellOutCampanaOut`) as form values. */
+export function valoresDeCampana(campana) {
+  return {
+    nombre: campana.nombre,
+    descripcion: texto(campana.descripcion),
+    fechaDesde: campana.fecha_desde,
+    fechaHasta: campana.fecha_hasta,
+    tipo: campana.tipo,
+    montoUnit: texto(campana.monto_unit),
+    porcentaje: texto(campana.porcentaje),
+    basePorcentaje: campana.base_porcentaje ?? 'costo',
+    moneda: campana.moneda,
+    tcModo: campana.tc_modo ?? 'al_cobro',
+    tipoCambio: texto(campana.tipo_cambio),
+    topeUnidades: texto(campana.tope_unidades),
+    topeMonto: texto(campana.tope_monto),
+    acumulable: campana.acumulable,
+    montoIncluyeIva: campana.monto_incluye_iva,
+    grupoIds: (campana.grupos ?? []).map((g) => g.id),
+  };
+}
+
+/**
+ * The request body: the amount of its type only, the FX fields only in USD (the rate only when fixed),
+ * empty optionals as null. Amounts stay strings: the backend reads them as Decimal.
+ */
+export function bodyDeCampana(v) {
+  const porUnidad = v.tipo === 'por_unidad';
+  const usd = v.moneda === 'USD';
+  const tope = opcional(v.topeUnidades);
+  return {
+    nombre: v.nombre.trim(),
+    descripcion: opcional(v.descripcion),
+    fecha_desde: v.fechaDesde,
+    fecha_hasta: v.fechaHasta,
+    tipo: v.tipo,
+    monto_unit: porUnidad ? opcional(v.montoUnit) : null,
+    porcentaje: porUnidad ? null : opcional(v.porcentaje),
+    base_porcentaje: v.basePorcentaje,
+    moneda: v.moneda,
+    tc_modo: usd ? v.tcModo : null,
+    tipo_cambio: usd && v.tcModo === 'fijo' ? opcional(v.tipoCambio) : null,
+    tope_unidades: tope === null ? null : Number(tope),
+    tope_monto: opcional(v.topeMonto),
+    acumulable: v.acumulable,
+    monto_incluye_iva: v.montoIncluyeIva,
+    grupo_ids: v.grupoIds,
+  };
+}
+
+/** What the form still needs before it can be sent, as words for the message ("Faltan datos: …"). */
+export function faltantes(v) {
+  const faltan = [];
+  if (!v.nombre.trim()) faltan.push('nombre');
+  if (!v.fechaDesde || !v.fechaHasta) faltan.push('fechas');
+  if (v.tipo === 'por_unidad' && !positivo(v.montoUnit)) faltan.push('monto por unidad');
+  if (v.tipo === 'porcentaje' && !positivo(v.porcentaje)) faltan.push('porcentaje');
+  if (v.moneda === 'USD' && v.tcModo === 'fijo' && !positivo(v.tipoCambio)) faltan.push('tipo de cambio');
+  if (v.grupoIds.length === 0) faltan.push('productos alcanzados');
+  return faltan;
+}

@@ -9,4 +9,8 @@ const CAMPANAS = '/sell-out/campanas';
 export const sellOutAPI = {
   listar: (params) => api.get(CAMPANAS, { params }),
   detalle: (id) => api.get(`${CAMPANAS}/${id}`),
+  crear: (body) => api.post(CAMPANAS, body),
+  editar: (id, body) => api.put(`${CAMPANAS}/${id}`, body),
+  // The product groups a campaign reaches: the ones Gestionar Offsets manages (`GET /offset-grupos`).
+  grupos: () => api.get('/offset-grupos'),
 };
