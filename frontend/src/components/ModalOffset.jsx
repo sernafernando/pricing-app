@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './TabRentabilidad.module.css';
+import OffsetMigradoBadge from './offsets/OffsetMigradoBadge';
 
 // Map apiBasePath to default channel selection
 const CHANNEL_DEFAULTS = {
@@ -1017,6 +1018,12 @@ export default function ModalOffset({
               </div>
             )}
           </div>
+          {offsets.some(o => o.campana_id) && (
+            <p className={styles.tdSmall}>
+              Los offsets marcados como migrados ya tienen su campaña de sell-out. Siguen sumando en las cifras
+              actuales, pero los cambios que hagas acá no se pasan a la campaña.
+            </p>
+          )}
           {offsets.length === 0 ? (
             <p>No hay offsets configurados</p>
           ) : offsetsFiltrados.length === 0 ? (
@@ -1065,7 +1072,10 @@ export default function ModalOffset({
                         {montoStr}
                         {offset.max_unidades && <span className={styles.tdSmall}> (max {offset.max_unidades}u)</span>}
                       </td>
-                      <td>{offset.descripcion || '-'}</td>
+                      <td>
+                        {offset.descripcion || '-'}
+                        {offset.campana_id ? <><br/><OffsetMigradoBadge campanaId={offset.campana_id} /></> : null}
+                      </td>
                       <td className={styles.tdSmall}>
                         {formatFecha(offset.fecha_desde)}{offset.fecha_hasta ? ` - ${formatFecha(offset.fecha_hasta)}` : '+'}
                       </td>

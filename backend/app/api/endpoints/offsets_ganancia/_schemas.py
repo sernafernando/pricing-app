@@ -110,6 +110,8 @@ class OffsetGananciaResponse(BaseModel):
     aplica_ml: bool = True
     aplica_fuera: bool = True
     aplica_tienda_nube: bool = True
+    # Sell-out campaign this offset was migrated to (T15), if any
+    campana_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 
