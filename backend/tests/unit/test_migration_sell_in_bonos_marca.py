@@ -75,26 +75,46 @@ class TestMigrationGraph:
         assert revision.down_revision == "20261106_ml_payments_shipment_fanout"
 
 
+_LATEST_TRIGGERS = "20261115_sell_in_bono_queue_alcance"
+
+
 class TestFrozenTriggerCopy:
-    """The migration carries a frozen copy of `bono_queue`'s trigger SQL. The queue
-    tests run the module's SQL, so the copy must equal it or they prove nothing
-    about what this migration installs."""
+    """The latest migration that installs the queue's triggers carries a frozen copy of
+    `bono_queue`'s trigger SQL. The queue tests run the module's SQL, so the copy must
+    equal it or they prove nothing about what the migrations install. That migration
+    also carries a frozen copy of what this one installed, which its downgrade restores."""
 
     _DRIFT = (
         "app/services/sell_in/bono_queue.py {} differs from the frozen copy in {}: changing the module's "
         "trigger SQL requires a NEW migration that installs it (then point this test at that migration)"
     )
 
-    def test_the_upgrade_installs_exactly_the_module_trigger_sql(self) -> None:
-        migration = base._load_migration(base._MIGRATIONS[1])
-        frozen = [s for s in migration._TRIGGERS_UP if "sell_in_bonos_marca_set_updated_at" not in s]
-        assert frozen == bono_queue.UPGRADE_SQL, self._DRIFT.format("UPGRADE_SQL", _REVISION)
+    @staticmethod
+    def _latest():
+        path = next(p for p in base._MIGRATIONS if p.stem == _LATEST_TRIGGERS)
+        return base._load_migration(path)
 
-    def test_the_downgrade_drops_exactly_the_module_trigger_sql(self) -> None:
+    @staticmethod
+    def _this_one():
         migration = base._load_migration(base._MIGRATIONS[1])
-        frozen = [s for s in migration._TRIGGERS_DOWN if "sell_in_bonos_marca_updated_at" not in s]
-        frozen = [s for s in frozen if "sell_in_bonos_marca_set_updated_at" not in s]
-        assert frozen == bono_queue.DOWNGRADE_SQL, self._DRIFT.format("DOWNGRADE_SQL", _REVISION)
+        up = [s for s in migration._TRIGGERS_UP if "sell_in_bonos_marca_set_updated_at" not in s]
+        down = [s for s in migration._TRIGGERS_DOWN if "sell_in_bonos_marca_updated_at" not in s]
+        return up, [s for s in down if "sell_in_bonos_marca_set_updated_at" not in s]
+
+    def test_the_latest_upgrade_installs_exactly_the_module_trigger_sql(self) -> None:
+        assert self._latest()._TRIGGERS_UP == bono_queue.UPGRADE_SQL, self._DRIFT.format(
+            "UPGRADE_SQL", _LATEST_TRIGGERS
+        )
+
+    def test_the_latest_downgrade_drops_exactly_the_module_trigger_sql(self) -> None:
+        assert self._latest()._TRIGGERS_DOWN == bono_queue.DOWNGRADE_SQL, self._DRIFT.format(
+            "DOWNGRADE_SQL", _LATEST_TRIGGERS
+        )
+
+    def test_the_latest_one_restores_exactly_what_this_one_installed(self) -> None:
+        up, down = self._this_one()
+        assert self._latest()._PREVIOUS_UP == up
+        assert self._latest()._PREVIOUS_DOWN == down
 
 
 @pytest.mark.postgres

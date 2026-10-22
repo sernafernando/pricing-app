@@ -2,7 +2,8 @@
 Followed by `20261107_sell_in_bonos_marca` (brand bonus, the purchases' origin
 columns and the bonus queue) and `20261112_sell_in_compras_porcentaje` (fixed
 amount or percentage) and `20261114_sell_in_bonos_alcance` (a bonus's scope and
-kind, and its models), so the parity check covers the tables as they are now.
+kind, and its models), so the parity check covers the tables as they are now
+(`20261115_sell_in_bono_queue_alcance` only replaces the queue's triggers).
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references (usuarios, proveedores,
@@ -32,6 +33,7 @@ _MIGRATIONS = [
         "20261107_sell_in_bonos_marca",
         "20261112_sell_in_compras_porcentaje",
         "20261114_sell_in_bonos_alcance",
+        "20261115_sell_in_bono_queue_alcance",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
@@ -42,9 +44,9 @@ _STUBS = [
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, proveedor_id INTEGER, estado VARCHAR(24), "
     "tipo_cambio NUMERIC(18, 6), fecha_factura DATE)",
-    "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY, marca VARCHAR(100))",
+    "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY, marca VARCHAR(100), categoria VARCHAR(100))",
     "CREATE TABLE pedido_compra_lineas_facturadas (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT, item_id INTEGER, "
-    "cantidad INTEGER)",
+    "cantidad INTEGER, importe_neto NUMERIC(18, 2), moneda VARCHAR(3))",
     "INSERT INTO usuarios VALUES (7)",
     "INSERT INTO proveedores VALUES (3)",
     "INSERT INTO pedidos_compra (id) VALUES (900)",
