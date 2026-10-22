@@ -435,6 +435,32 @@ describe('exportarCsvASheets', () => {
     expect(tokenClientConfigs).toHaveLength(2);
   });
 
+  it('a write that fails after the sheet exists deletes that half-written sheet, then reports', async () => {
+    let batches = 0;
+    fetch.mockImplementation((url, init) => {
+      if (url.endsWith(':batchUpdate') && ++batches === 2) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) });
+      if (init.method === 'DELETE') return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve({}) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(url.endsWith(':batchUpdate') ? {} : CREATED) });
+    });
+    const lines = Array.from({ length: 3000 }, (_, i) => `P${i};${i}`);
+    csvResponse(`${BOM}Producto;Unidades\n${lines.join('\n')}\n`);
+    await expect(run()).rejects.toThrow('No se pudo crear la hoja de Google.');
+    const deleted = fetch.mock.calls.filter(([, init]) => init.method === 'DELETE');
+    expect(deleted).toEqual([
+      ['https://www.googleapis.com/drive/v3/files/sid', { method: 'DELETE', headers: { Authorization: 'Bearer tok-1' } }],
+    ]);
+  });
+
+  it('an export over the 10,000,000 cells a Google sheet holds creates nothing and says so', async () => {
+    const header = Array.from({ length: 1000 }, (_, i) => `C${i}`).join(';');
+    const row = Array.from({ length: 1000 }, () => '1').join(';');
+    csvResponse(`${BOM}${header}\n${Array.from({ length: 10_000 }, () => row).join('\n')}\n`);
+    await expect(run()).rejects.toThrow(
+      'La exportación tiene 10.001.000 celdas y una hoja de Google admite hasta 10.000.000. Use Exportar CSV o acote los filtros.',
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('when the browser blocks the new tab, still answers with the sheet link', async () => {
     window.open = vi.fn(() => null);
     csvResponse(CSV);

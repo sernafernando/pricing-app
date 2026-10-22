@@ -16,6 +16,9 @@ const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const SHEETS_ERROR = 'No se pudo crear la hoja de Google.';
+const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
+// What one Google sheet holds; a bigger export would be refused halfway, so it is refused before anything is created.
+const MAX_SHEET_CELLS = 10_000_000;
 const GOOGLE_ERROR = 'No se pudo conectar con Google. Intente de nuevo.';
 const POPUP_BLOCKED = 'El navegador bloqueó la ventana de Google. Permita las ventanas emergentes e intente de nuevo.';
 // A token this close to expiring is asked for again: it could expire mid-export.
@@ -309,6 +312,13 @@ export async function exportarCsvASheets(url, params, { filename, genericError }
     }
     const csv = await fetchCsvText(url, params, { filename, genericError });
     const { rows, notes } = parseCsvExport(csv.text);
+    const cells = rows.length * (rows[0]?.length ?? 0);
+    if (cells > MAX_SHEET_CELLS) {
+      const fmt = (n) => n.toLocaleString('es-AR');
+      throw new Error(
+        `La exportación tiene ${fmt(cells)} celdas y una hoja de Google admite hasta ${fmt(MAX_SHEET_CELLS)}. Use Exportar CSV o acote los filtros.`,
+      );
+    }
     const created = await sheetsRequest(
       accessToken,
       `${SHEETS_API}?fields=spreadsheetId,spreadsheetUrl,sheets.properties.sheetId`,
@@ -316,8 +326,17 @@ export async function exportarCsvASheets(url, params, { filename, genericError }
     );
     const sheetId = created.sheets?.[0]?.properties?.sheetId ?? 0;
     // One call at a time, in order: the formatting and the fit come after every row is written.
-    for (const requests of buildSheetRequests({ sheetId, rows, notes })) {
-      await sheetsRequest(accessToken, `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`, { requests });
+    try {
+      for (const requests of buildSheetRequests({ sheetId, rows, notes })) {
+        await sheetsRequest(accessToken, `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`, { requests });
+      }
+    } catch (err) {
+      // A half-written sheet must not stay in the operator's Drive; drive.file lets the app delete what it created.
+      await fetch(`${DRIVE_FILES}/${created.spreadsheetId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => {});
+      throw err;
     }
 
     if (tab) {
