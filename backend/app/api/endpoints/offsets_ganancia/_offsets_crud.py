@@ -7,6 +7,7 @@ from datetime import date
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
+from app.models.sell_out import SellOutCampana
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
@@ -51,6 +52,18 @@ def _validar_offset_negativo_sin_limite(
         )
 
 
+def _campanas_por_offset(db: Session, offset_ids: List[int]) -> dict:
+    """Sell-out campaign each offset was migrated to (T15), by offset id."""
+    if not offset_ids:
+        return {}
+    rows = (
+        db.query(SellOutCampana.offset_origen_id, SellOutCampana.id)
+        .filter(SellOutCampana.offset_origen_id.in_(offset_ids))
+        .all()
+    )
+    return dict(rows)
+
+
 @router.get("/offsets-ganancia", response_model=List[OffsetGananciaResponse])
 def listar_offsets(
     marca: Optional[str] = None,
@@ -86,6 +99,7 @@ def listar_offsets(
         )
 
     offsets = query.order_by(OffsetGanancia.fecha_creacion.desc()).all()
+    campanas = _campanas_por_offset(db, [o.id for o in offsets])
 
     return [
         OffsetGananciaResponse(
@@ -111,6 +125,7 @@ def listar_offsets(
             aplica_ml=o.aplica_ml if o.aplica_ml is not None else True,
             aplica_fuera=o.aplica_fuera if o.aplica_fuera is not None else True,
             aplica_tienda_nube=o.aplica_tienda_nube if o.aplica_tienda_nube is not None else True,
+            campana_id=campanas.get(o.id),
         )
         for o in offsets
     ]
@@ -349,6 +364,7 @@ def actualizar_offset(
         aplica_ml=offset.aplica_ml if offset.aplica_ml is not None else True,
         aplica_fuera=offset.aplica_fuera if offset.aplica_fuera is not None else True,
         aplica_tienda_nube=offset.aplica_tienda_nube if offset.aplica_tienda_nube is not None else True,
+        campana_id=_campanas_por_offset(db, [offset.id]).get(offset.id),
     )
 
 

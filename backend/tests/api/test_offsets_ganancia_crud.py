@@ -169,3 +169,43 @@ class TestPutRejectsNegativeValueWithLimit:
             headers=admin_auth_headers,
         )
         assert resp.status_code == 422
+
+
+class TestListMarksMigratedOffsets:
+    """T16: an offset migrated to a sell-out campaign carries that campaign's id; the rest carry null."""
+
+    def test_listing_carries_the_campaign_an_offset_migrated_to(self, client, admin_auth_headers, db, admin_user):
+        from datetime import date
+
+        from app.models.offset_ganancia import OffsetGanancia
+        from app.models.sell_out import SellOutCampana
+
+        migrado = OffsetGanancia(
+            marca="EPSON", tipo_offset="monto_por_unidad", monto=36, moneda="USD", fecha_desde=date(2026, 1, 1)
+        )
+        propio = OffsetGanancia(
+            marca="DVIGI", tipo_offset="porcentaje_costo", porcentaje=3, fecha_desde=date(2026, 4, 1)
+        )
+        db.add_all([migrado, propio])
+        db.flush()
+        db.add(
+            SellOutCampana(
+                id=55,
+                nombre="RB 8180",
+                fecha_desde=date(2026, 1, 1),
+                fecha_hasta=date(2026, 12, 31),
+                tipo="por_unidad",
+                monto_unit=36,
+                moneda="USD",
+                tc_modo="al_cobro",
+                usuario_id=admin_user.id,
+                offset_origen_id=migrado.id,
+            )
+        )
+        db.flush()
+
+        resp = client.get("/api/offsets-ganancia", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        campana_por_offset = {o["id"]: o["campana_id"] for o in resp.json()}
+        assert campana_por_offset == {migrado.id: 55, propio.id: None}
