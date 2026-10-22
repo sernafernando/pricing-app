@@ -685,8 +685,19 @@ describe('Exportar a Sheets', () => {
     await renderWithRouter(<MetricasML />);
     await userEvent.click(await sheetsButton());
     expect(screen.getByRole('button', { name: 'Exportando a Sheets…' })).toBeDisabled();
+    // The page says it is processing and the browser asks before a reload or close would kill the export.
+    expect(screen.getByText('Exportando a Google Sheets…')).toBeInTheDocument();
+    const unload = () => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(unload()).toBe(true);
     finish({ url: 'u', opened: true });
     expect(await sheetsButton()).toBeEnabled();
+    expect(screen.queryByText('Exportando a Google Sheets…')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir en Google Sheets' })).toBeInTheDocument();
+    expect(unload()).toBe(false);
   });
 
   it('shows a refusal like the CSV export does', async () => {

@@ -40,6 +40,7 @@ import { canExportVista, exportPublicacionesCsv, exportPublicacionesSheets } fro
 import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import SheetsNotice from '../components/sheets/SheetsNotice';
+import useWarnBeforeUnload from '../hooks/useWarnBeforeUnload';
 import styles from './PublicacionesML.module.css';
 
 /**
@@ -249,6 +250,8 @@ export default function PublicacionesML() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const [exportingSheets, setExportingSheets] = useState(false);
+  // The sheet is written from this page: a reload or a closed tab would cut it halfway.
+  useWarnBeforeUnload(exportingSheets);
   // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link to the new sheet (shown even when its tab opened: a browser can block it silently).
   const [sheetsNotice, setSheetsNotice] = useState(null);
   const sheetsEnabled = isSheetsExportEnabled();
@@ -459,7 +462,7 @@ export default function PublicacionesML() {
           <span className={styles.errorText}>{exportError}</span>
         </div>
       )}
-      <SheetsNotice notice={sheetsNotice} onClose={() => setSheetsNotice(null)} />
+      <SheetsNotice notice={exportingSheets ? { processing: true } : sheetsNotice} onClose={() => setSheetsNotice(null)} />
 
       <StateBanner dataState={data?.data_state} />
 

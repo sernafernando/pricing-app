@@ -1,13 +1,25 @@
-import { ExternalLink, FileSpreadsheet, Info, X } from 'lucide-react';
+import { ExternalLink, FileSpreadsheet, Info, Loader2, X } from 'lucide-react';
 import styles from './SheetsNotice.module.css';
 
 /**
  * What "Exportar a Sheets" leaves on screen that is not an error: `{ url }` of the sheet it created (a success banner
  * with a link to it, shown even when its tab opened: a browser can block that tab silently), or `{ text }` of a quiet
- * note such as a cancelled Google popup. `onClose` dismisses it.
+ * note such as a cancelled Google popup. `onClose` dismisses it. `{ processing: true }` is the export still running:
+ * it asks not to reload or close the tab (the sheet is written from this page) and cannot be dismissed.
  */
 export default function SheetsNotice({ notice, onClose }) {
   if (!notice) return null;
+  if (notice.processing) {
+    return (
+      <div className={styles.processing} role="status">
+        <Loader2 size={18} className={styles.spinner} aria-hidden="true" />
+        <div className={styles.body}>
+          <span className={styles.title}>Exportando a Google Sheets…</span>
+          <span className={styles.detail}>No recargar ni cerrar esta pestaña hasta que termine.</span>
+        </div>
+      </div>
+    );
+  }
   const created = Boolean(notice.url);
   return (
     <div className={created ? styles.success : styles.note} role="status">

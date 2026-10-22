@@ -38,4 +38,13 @@ describe('SheetsNotice', () => {
     const { container } = render(<SheetsNotice notice={null} onClose={() => {}} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('while exporting: a processing status that asks not to reload or close the tab, and cannot be dismissed', () => {
+    render(<SheetsNotice notice={{ processing: true }} onClose={() => {}} />);
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Exportando a Google Sheets…');
+    expect(status).toHaveTextContent('No recargar ni cerrar esta pestaña hasta que termine.');
+    expect(screen.queryByRole('button', { name: 'Cerrar aviso' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
 });

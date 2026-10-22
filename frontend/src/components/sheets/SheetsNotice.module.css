@@ -25,6 +25,30 @@
   border-color: var(--tone-neutral-border);
 }
 
+.processing {
+  composes: banner;
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+}
+
+.spinner {
+  flex-shrink: 0;
+  animation: sheets-spin 0.9s linear infinite;
+}
+
+@keyframes sheets-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
 .icon {
   flex-shrink: 0;
 }
