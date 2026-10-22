@@ -87,3 +87,12 @@ class TestUnicodePasswords:
     def test_unicode_password_wrong_fails(self) -> None:
         hashed = get_password_hash("contraseña-segura-日本")
         assert verify_password("otra-contraseña-😀", hashed) is False
+
+
+def test_the_suite_hashes_with_cheap_bcrypt_rounds():
+    """tests/conftest.py lowers bcrypt to 4 rounds for the suite only (0.9 ms per hash instead of ~200 ms);
+    production keeps bcrypt's default of 12. Verification reads the cost from the stored hash, so the
+    fixed cost-12 hashes above still verify."""
+    hashed = get_password_hash("somepassword123")
+    assert hashed.startswith("$2b$04$")
+    assert verify_password("somepassword123", hashed) is True

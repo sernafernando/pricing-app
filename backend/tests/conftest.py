@@ -23,6 +23,7 @@ os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "memory://")
 from datetime import date
 from typing import Optional
 
+import bcrypt
 import fakeredis
 import pytest
 import sqlalchemy as sa
@@ -46,6 +47,20 @@ from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, JSONB, UUID as PG_
 from pgvector.sqlalchemy import Vector
 
 from tests import pg_worker_db
+
+# bcrypt's default cost (12) takes ~200 ms per hash, and the user fixtures plus ~120 direct
+# get_password_hash() calls hash on every test: most of the suite's setup time. Cost 4 takes ~1 ms.
+# Tests only: app.core.security calls bcrypt.gensalt() at hash time, so production keeps cost 12,
+# and verify_password reads the cost from each stored hash.
+_bcrypt_gensalt = bcrypt.gensalt
+
+
+def _cheap_gensalt(rounds: int = 4, prefix: bytes = b"2b") -> bytes:
+    return _bcrypt_gensalt(rounds, prefix)
+
+
+bcrypt.gensalt = _cheap_gensalt
+
 from app.core.database import Base, get_async_db, get_db
 from app.core.security import get_password_hash, create_access_token, create_refresh_token
 from app.core import token_revocation
