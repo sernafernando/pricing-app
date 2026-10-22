@@ -257,6 +257,7 @@ class TestItemsMarkup:
             return real(session, f, sort, cap, **kwargs)
 
         monkeypatch.setattr(listing, "ordered_keys", spy)
+        monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 2)
         header, rows = read_csv(client.get(ITEMS_CSV, headers=priced, params={"orden": "markup"}))
         assert len(expected) > 2 and column(header, rows, "Publicación") == expected
         assert bounds == [None]

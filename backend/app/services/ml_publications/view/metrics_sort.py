@@ -15,7 +15,7 @@ tables).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
@@ -37,7 +37,9 @@ def needs_margin(key: str) -> bool:
     return METRIC_SORTS[key][1]
 
 
-def ranked_page(db: Session, mla_source: Any, key: str, descending: bool, limit: int | None, offset: int) -> list[str]:
+def ranked_page(
+    db: Session, mla_source: Any, key: str, descending: bool, limit: Optional[int], offset: int
+) -> list[str]:
     """The MLAs of `mla_source` (a one-column select of the filtered set) at `[offset, offset + limit)` once ranked
     by the figure `key` names (`limit` None: every MLA from `offset` on)."""
     first, last = row_metrics.window(board.today_business())

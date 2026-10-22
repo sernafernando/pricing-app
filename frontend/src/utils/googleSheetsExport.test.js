@@ -469,6 +469,46 @@ describe('exportarCsvASheets', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  describe("Google's per-minute write quota (429)", () => {
+    const tooMany = (retryAfter) => ({
+      ok: false,
+      status: 429,
+      headers: new Headers(retryAfter ? { 'Retry-After': retryAfter } : {}),
+      json: () => Promise.resolve({}),
+    });
+    const ok = (url) => ({ ok: true, status: 200, json: () => Promise.resolve(url.endsWith(':batchUpdate') ? {} : CREATED) });
+
+    beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout'] }));
+    afterEach(() => vi.useRealTimers());
+
+    it('waits what Retry-After says and sends the same call again', async () => {
+      let batches = 0;
+      fetch.mockImplementation((url) =>
+        Promise.resolve(url.endsWith(':batchUpdate') && ++batches === 1 ? tooMany('5') : ok(url)),
+      );
+      csvResponse(CSV);
+      const result = run();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(batchBodies()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toEqual({ url: CREATED.spreadsheetUrl, opened: true });
+      const [first, again] = batchBodies();
+      expect(again).toEqual(first);
+    });
+
+    it('a quota that never frees up says so, and deletes the half-written sheet', async () => {
+      fetch.mockImplementation((url, init) =>
+        Promise.resolve(init.method === 'DELETE' ? { ok: true, status: 204 } : url.endsWith(':batchUpdate') ? tooMany() : ok(url)),
+      );
+      csvResponse(CSV);
+      const result = run().catch((e) => e);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect((await result).message).toBe('Google Sheets está recibiendo demasiados pedidos. Espere un minuto y vuelva a intentar.');
+      expect(fetch.mock.calls.filter(([url]) => url.endsWith(':batchUpdate'))).toHaveLength(7); // the call, then 6 retries
+      expect(fetch.mock.calls.filter(([, init]) => init.method === 'DELETE')).toHaveLength(1);
+    });
+  });
+
   it('when the browser blocks the new tab, still answers with the sheet link', async () => {
     window.open = vi.fn(() => null);
     csvResponse(CSV);
