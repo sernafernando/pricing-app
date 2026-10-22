@@ -257,8 +257,10 @@ def list_products(
     return ProductsPage(out, int(total), int(mla_count), without)
 
 
-def ordered_product_keys(db: Session, f: PublicationFilter, orden: str, descending: bool, cap: int) -> list[int]:
-    """The product ids (`NO_PRODUCT` for "Sin producto") of every row of the Producto view, at most `cap`, in the
+def ordered_product_keys(
+    db: Session, f: PublicationFilter, orden: str, descending: bool, cap: Optional[int]
+) -> list[int]:
+    """The product ids (`NO_PRODUCT` for "Sin producto") of every row of the Producto view, at most `cap` (every one when None), in the
     very order `list_products` pages them: the keys an export fixes before reading its pages."""
     key = parse_sort(orden)
     with _product_rows(db, f) as (_, _, rows):

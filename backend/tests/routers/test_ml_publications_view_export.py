@@ -150,8 +150,8 @@ class TestItems:
     def test_every_row_is_exported_across_small_pages_with_no_row_cap(
         self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
     ):
-        """No row cap: the ordered keys are read with a bound that never cuts, and a set larger than a page streams
-        every row (5 publications in pages of 2)."""
+        """No row cap: the ordered keys are read with no bound (`None`), and a set larger than a page streams every
+        row (5 publications in pages of 2)."""
         grant(db, rol_admin, VER)
         monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 2)
         real, bounds = listing.ordered_keys, []
@@ -163,7 +163,7 @@ class TestItems:
         monkeypatch.setattr(listing, "ordered_keys", spy)
         header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))
         assert sorted(column(header, rows, "Publicación")) == ["MLA1", "MLA2", "MLA3", "MLA4", "MLA5"]
-        assert len(bounds) == 1 and bounds[0] >= 2**63 - 1, f"the keys read must never be cut: {bounds}"
+        assert bounds == [None], "the keys read must never be cut"
 
     def test_a_set_past_the_old_10000_cap_is_still_exported(
         self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
@@ -176,7 +176,7 @@ class TestItems:
 
         def padded(session, f, sort, cap, **kwargs):
             keys = real(session, f, sort, cap, **kwargs) + [f"MLA9{i:09d}" for i in range(10_001)]
-            return keys[:cap]
+            return keys if cap is None else keys[:cap]
 
         monkeypatch.setattr(listing, "ordered_keys", padded)
         header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers))
@@ -245,6 +245,21 @@ class TestItemsMarkup:
         header, rows = read_csv(client.get(ITEMS_CSV, headers=priced, params=params))
         assert expected and column(header, rows, "Publicación") == expected
         assert "Markup actual" in header
+
+    def test_the_markup_sort_with_no_bound_exports_every_row(self, client, priced, monkeypatch) -> None:
+        """The markup order is cut in Python (`listing._markup_ids`): with no bound (`None`) it keeps every row, in
+        the list's order, across pages of 2."""
+        expected = listed(client, priced, ITEMS, "item_id", orden="markup")
+        real, bounds = listing.ordered_keys, []
+
+        def spy(session, f, sort, cap, **kwargs):
+            bounds.append(cap)
+            return real(session, f, sort, cap, **kwargs)
+
+        monkeypatch.setattr(listing, "ordered_keys", spy)
+        header, rows = read_csv(client.get(ITEMS_CSV, headers=priced, params={"orden": "markup"}))
+        assert len(expected) > 2 and column(header, rows, "Publicación") == expected
+        assert bounds == [None]
 
     def test_the_markup_column_is_the_worst_variation(self, client, priced) -> None:
         expected = client.get(ITEMS, headers=priced, params={"orden": "markup"}).json()["items"]
@@ -422,7 +437,7 @@ class TestProducts:
     def test_every_row_is_exported_with_no_row_cap(
         self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch
     ) -> None:
-        """No row cap: the product keys are read with a bound that never cuts, every row streamed in pages of 1."""
+        """No row cap: the product keys are read with no bound (`None`), every row streamed in pages of 1."""
         grant(db, rol_admin, VER)
         monkeypatch.setattr(export, "EXPORT_PAGE_SIZE", 1)
         expected = [name or "Sin producto" for name in listed(client, admin_auth_headers, PRODUCTS, "descripcion")]
@@ -435,7 +450,7 @@ class TestProducts:
         monkeypatch.setattr(products_service, "ordered_product_keys", spy)
         header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))
         assert len(expected) >= 2 and column(header, rows, "Producto") == expected
-        assert len(bounds) == 1 and bounds[0] >= 2**63 - 1, f"the keys read must never be cut: {bounds}"
+        assert bounds == [None], "the keys read must never be cut"
 
     def test_a_page_failing_mid_stream_ends_the_file_with_an_error_line(
         self, client, sold, db, rol_admin, admin_auth_headers, monkeypatch

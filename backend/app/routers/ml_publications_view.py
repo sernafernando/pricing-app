@@ -1251,7 +1251,7 @@ def export_items(
             db,
             f,
             ask.sort,
-            export.EVERY_ROW,
+            None,  # every row: no bound
             events=events,
             markup=ask.markup(auth_db, plan),
             can_see_margin=ask.can_see_margin,
@@ -1318,7 +1318,7 @@ def export_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)
-        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, export.EVERY_ROW)
+        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, None)  # every row
 
         def read(session: Session, page_keys: Sequence[int]) -> list[list[Any]]:
             page = products.products_for_keys(session, f, list(page_keys))

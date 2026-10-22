@@ -1652,9 +1652,9 @@ class Board:
         rows = self.rows()
         return int(self.db.execute(select(func.count()).select_from(rows)).scalar() or 0)
 
-    def ordered_keys(self, limit: int) -> List[str]:
+    def ordered_keys(self, limit: Optional[int]) -> List[str]:
         """The keys of every row of the filtered board, in board order, at
-        most `limit` of them: what a multi-transaction reader (the CSV export)
+        most `limit` of them (all when None): what a multi-transaction reader (the CSV export)
         fixes up front so a change between its pages can never repeat or drop
         a row."""
         rows = self.rows()
@@ -2010,9 +2010,9 @@ class Board:
         keys = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]
         return (*names, *keys, *self._ordered(rows))
 
-    def leaf_keys(self, limit: int) -> List[Tuple[str, ...]]:
+    def leaf_keys(self, limit: Optional[int]) -> List[Tuple[str, ...]]:
         """The key of every leaf -- the keys of its path, then its product --
-        in export order, at most `limit`: what the CSV export fixes up front so
+        in export order, at most `limit` (all when None): what the CSV export fixes up front so
         a change between its pages can never repeat or drop a row."""
         rows = self.leaf_rows()
         path = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]

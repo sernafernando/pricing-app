@@ -27,10 +27,8 @@ logger = logging.getLogger(__name__)
 
 # Rows per page, each page on its own short DB session: memory and the pooled connection follow ONE page.
 EXPORT_PAGE_SIZE = 500
-# No row cap: the export fixes EVERY key (a few bytes each; the rows themselves are only ever held one page at a
-# time). The key reads take an int bound (the markup path slices with it), so this is PostgreSQL's largest LIMIT:
-# one that never cuts.
-EVERY_ROW = 2**63 - 1
+# No row cap: the export fixes EVERY key (no bound, `None`; a few bytes each); the rows themselves are only ever held
+# one page at a time.
 
 # The screen's labels of a row's `sku_divergence` kind (`skuDivergence.js`).
 DIVERGENCE_LABELS = {"otro_producto": "Otro producto", "sin_coincidencia": "SKU sin coincidencia"}

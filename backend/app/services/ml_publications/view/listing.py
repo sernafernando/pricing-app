@@ -363,16 +363,17 @@ def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> t
 
 
 def _markup_ids(
-    db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, markup: MarkupQuery
+    db: Session, f: PublicationFilter, sort: Sort, limit: Optional[int], offset: int, markup: MarkupQuery
 ) -> tuple[list[str], int, MarkupResult]:
-    """The ids at `[offset, offset + limit)` of the set the markup filter keeps, in the requested order, its total and
+    """The ids at `[offset, offset + limit)` (to the end when `limit` is None) of the set the markup filter keeps, in the requested order, its total and
     the set-wide markup. Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4):
     price it once and filter it in Python. The markup order is applied in Python too; a column order is applied by
     the database over the accepted ids only, which also cuts the page."""
     result, kept = markup_accepted(db, f, markup)
     if sort.key == SORT_MARKUP:
         wanted = [item_id for item_id in _worst_first(result.items, sort.descending) if item_id in kept]
-        return wanted[offset : offset + limit], len(wanted), result
+        end = None if limit is None else offset + limit
+        return wanted[offset:end], len(wanted), result
     # The database orders only the publications the markup filter accepted and cuts the page: it used to order
     # the whole filtered set and ship every id back just to keep fifty.
     accepted = [item_id for item_id in result.items if item_id in kept]  # the computed order, as before
@@ -465,13 +466,13 @@ def ordered_keys(
     db: Session,
     f: PublicationFilter,
     sort: Sort,
-    cap: int,
+    cap: Optional[int],
     *,
     events: bool,
     markup: Optional[MarkupQuery] = None,
     can_see_margin: bool = False,
 ) -> list[str]:
-    """The item ids of the WHOLE filtered set, at most `cap`, in the very order `list_items` pages them (the markup
+    """The item ids of the WHOLE filtered set, at most `cap` (every one when None), in the very order `list_items` pages them (the markup
     sort and filter included, through the same `_markup_ids`): the keys an export fixes before reading its pages."""
     _check(f, sort, events, can_see_margin)
     f = resolve_pm_pairs(db, f)
