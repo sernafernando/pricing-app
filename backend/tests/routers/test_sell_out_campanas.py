@@ -12,6 +12,7 @@ from decimal import Decimal
 import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 
@@ -107,6 +108,33 @@ def test_create_per_unit_campaign_with_defaults(client, gestor, grupos, db, admi
     assert out["grupos"] == [{"id": grupos[0], "nombre": "TP-Link redes"}]
     audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_CREADA).one()
     assert audit.valores_nuevos["campana_id"] == out["id"]
+
+
+def test_the_legacy_offset_is_read_only_and_returned_when_set(client, gestor, grupos, db, admin_user) -> None:
+    offset = OffsetGanancia(marca="EPSON", tipo_offset="monto_por_unidad", monto=3, fecha_desde=date(2026, 1, 1))
+    db.add(offset)
+    db.flush()
+    out = _crear(client, gestor, grupos, offset_origen_id=offset.id)
+    assert out["offset_origen_id"] is None  # the API cannot set it: only the offsets migration does
+    assert db.get(SellOutCampana, out["id"]).offset_origen_id is None
+
+    migrada = SellOutCampana(
+        nombre="Migrada",
+        fecha_desde=date(2026, 11, 1),
+        fecha_hasta=date(2026, 11, 30),
+        tipo="por_unidad",
+        monto_unit=Decimal("3"),
+        tc_modo="al_cobro",
+        usuario_id=admin_user.id,
+        offset_origen_id=offset.id,
+    )
+    db.add(migrada)
+    db.flush()
+    resp = client.get(f"{BASE}/{migrada.id}", headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["offset_origen_id"] == offset.id
+    listado = client.get(BASE, headers=gestor).json()["items"]
+    assert {c["id"]: c["offset_origen_id"] for c in listado} == {out["id"]: None, migrada.id: offset.id}
 
 
 def test_create_percentage_campaign_on_net_price_not_stackable(client, gestor, grupos) -> None:

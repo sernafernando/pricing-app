@@ -132,6 +132,7 @@ class SellOutCampanaOut(BaseModel):
     monto_incluye_iva: bool
     estado: Estado
     usuario_id: int
+    offset_origen_id: Optional[int] = None  # read-only: the legacy offset it was migrated from (T15)
     created_at: datetime
     updated_at: datetime
     grupos: list[SellOutGrupoOut]

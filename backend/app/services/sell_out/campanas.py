@@ -219,12 +219,18 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
     db.flush()
 
 
-def crear_campana(db: Session, data: SellOutCampanaIn, usuario_id: int) -> SellOutCampana:
+def crear_campana(
+    db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
+) -> SellOutCampana:
+    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`)."""
     grupo_ids = validar(db, data)
-    campana = SellOutCampana(usuario_id=usuario_id)
+    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id)
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, _valores(campana, grupo_ids))
+    valores = _valores(campana, grupo_ids)
+    if offset_origen_id is not None:
+        valores["offset_origen_id"] = offset_origen_id
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
     _encolar(db, [campana.id])
     db.commit()
     db.refresh(campana)
@@ -353,6 +359,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
             id=c.id,
             estado=c.estado,
             usuario_id=c.usuario_id,
+            offset_origen_id=c.offset_origen_id,
             created_at=c.created_at,
             updated_at=c.updated_at,
         )
