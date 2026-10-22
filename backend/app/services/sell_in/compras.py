@@ -243,7 +243,8 @@ def calcular_preview(db: Session, data: SellInPreviewIn) -> dict:
     return {
         "moneda": data.moneda,
         "tipo": data.tipo,
-        "porcentaje": data.porcentaje,
+        # The column's scale, so the preview shows what a load stores.
+        "porcentaje": None if data.porcentaje is None else data.porcentaje.quantize(Decimal("0.0001")),
         "formula": calculo.formula,
         "monto_total": calculo.monto_total,
         "lineas": calculo.lineas,

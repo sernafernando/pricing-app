@@ -555,7 +555,7 @@ def test_a_percentage_preview_shows_the_same_split_and_its_base_without_writing(
     data = resp.json()
     assert (data["tipo"], data["porcentaje"], data["monto_total"], data["formula"]) == (
         "porcentaje",
-        "2.5",
+        "2.5000",
         "327.53",
         "manual",
     )
