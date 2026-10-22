@@ -17,9 +17,11 @@ from decimal import Decimal
 
 import pytest
 
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_ingresos import PedidoCompraIngreso
+from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
@@ -295,6 +297,10 @@ def _ingreso(db, pedido: PedidoCompra, user, creado: datetime, fecha: date | Non
     db.flush()
 
 
+# A product with no invoiced line has no % base.
+_SIN_FACTURAR = {"facturado": None, "facturado_moneda": None}
+
+
 def _prefill(client, headers, *ids):
     return client.get(f"{BASE}/prefill", params={"pedido_compra_ids": list(ids)}, headers=headers)
 
@@ -318,8 +324,8 @@ def test_prefill_sums_the_ordered_quantity_of_every_oc_line_per_product(
     assert (data["proveedor_id"], data["proveedor_nombre"], data["moneda"]) == (proveedores[0].id, "TP-Link", "ARS")
     assert data["fecha_ingreso"] == "2026-10-03"
     assert data["items"] == [
-        {"item_id": 4513, "codigo": "SW-16", "descripcion": "Switch 16 bocas", "cantidad": 12},
-        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch 8 bocas", "cantidad": 12},
+        {"item_id": 4513, "codigo": "SW-16", "descripcion": "Switch 16 bocas", "cantidad": 12, **_SIN_FACTURAR},
+        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch 8 bocas", "cantidad": 12, **_SIN_FACTURAR},
     ]
 
 
@@ -368,8 +374,8 @@ def test_prefill_rounds_quantities_half_up_and_drops_products_without_units(
     _oc(db, p1, 9101, [(4512, "2.1"), (4513, "5"), (4512, "0.4"), (4513, "-5"), (9999, "1"), (4514, "0.4")])
 
     assert _prefill(client, gestor, p1.id).json()["items"] == [
-        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch 8 bocas", "cantidad": 3},
-        {"item_id": 9999, "codigo": None, "descripcion": None, "cantidad": 1},
+        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch 8 bocas", "cantidad": 3, **_SIN_FACTURAR},
+        {"item_id": 9999, "codigo": None, "descripcion": None, "cantidad": 1, **_SIN_FACTURAR},
     ]
 
 
@@ -483,3 +489,169 @@ def test_productos_query_count_does_not_grow_with_the_lines(client, gestor, prod
         return sum(1 for s in sentencias if "purchase_order_detail" in s or "productos_erp" in s)
 
     assert _contar(grande.id) == _contar(chico.id) == 2
+
+
+# ── Sell in as a percentage of the invoiced net (T3g-3) ─────────────
+
+
+def _facturado(db, pedido: PedidoCompra, item_id: int, importe: str | None, moneda: str | None = "ARS") -> None:
+    db.add(
+        PedidoCompraLineaFacturada(
+            pedido_id=pedido.id,
+            item_id=item_id,
+            cantidad=10,
+            importe_neto=None if importe is None else Decimal(importe),
+            moneda=moneda,
+        )
+    )
+    db.flush()
+
+
+def _porcentaje(pedidos, **overrides) -> dict:
+    body = _body(tipo="porcentaje", porcentaje="2.5", pedido_compra_ids=[p.id for p in pedidos])
+    del body["monto_total"], body["formula"]
+    body.update(overrides)
+    return body
+
+
+@pytest.fixture()
+def facturadas(db, proveedores, nuevo_pedido):
+    """Two operations: 4512 invoiced 10101.00 on the first, 4513 invoiced 2000.00 + 1000.00 on both."""
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    _facturado(db, p1, 4512, "10101.00")
+    _facturado(db, p1, 4513, "2000.00")
+    _facturado(db, p2, 4513, "1000.00")
+    return p1, p2
+
+
+def test_a_percentage_purchase_takes_each_line_amount_from_its_invoiced_net(client, gestor, productos, facturadas, db):
+    resp = client.post(BASE, json=_porcentaje(facturadas), headers=gestor)
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    # 10101.00 x 2.5% = 252.525 -> 252.53 (half up); (2000 + 1000) x 2.5% = 75.00
+    assert [(i["item_id"], i["monto_asignado"]) for i in data["items"]] == [(4512, "252.53"), (4513, "75.00")]
+    assert (data["tipo"], data["porcentaje"], data["monto_total"], data["formula"]) == (
+        "porcentaje",
+        "2.5000",
+        "327.53",
+        "manual",
+    )
+    compra = db.get(SellInCompra, data["id"])
+    assert (compra.tipo, compra.porcentaje, compra.monto_total) == ("porcentaje", Decimal("2.5"), Decimal("327.53"))
+    auditadas = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_CREADA).all()
+    assert {(a.valores_nuevos["tipo"], a.valores_nuevos["porcentaje"]) for a in auditadas} == {("porcentaje", "2.5")}
+
+
+def test_a_percentage_preview_shows_the_same_split_and_its_base_without_writing(
+    client, gestor, productos, facturadas, db
+):
+    body = _porcentaje(facturadas)
+    del body["fecha_compra"]
+
+    resp = client.post(f"{BASE}/preview", json=body, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert (data["tipo"], data["porcentaje"], data["monto_total"], data["formula"]) == (
+        "porcentaje",
+        "2.5000",
+        "327.53",
+        "manual",
+    )
+    assert [(f["item_id"], f["base_facturada"], f["monto_asignado"]) for f in data["lineas"]] == [
+        (4512, "10101.00", "252.53"),
+        (4513, "3000.00", "75.00"),
+    ]
+    assert db.query(SellInCompra).count() == 0
+
+
+def test_a_fixed_amount_purchase_is_unchanged_and_has_no_percentage(client, gestor, productos, db):
+    resp = client.post(BASE, json=_body(), headers=gestor)
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert (data["tipo"], data["porcentaje"], data["monto_total"], data["formula"]) == (
+        "monto",
+        None,
+        "1000.00",
+        "proporcional",
+    )
+    assert [i["monto_asignado"] for i in data["items"]] == ["250.00", "750.00"]
+    preview = client.post(f"{BASE}/preview", json=_body(), headers=gestor).json()
+    assert [f["base_facturada"] for f in preview["lineas"]] == [None, None]
+    auditada = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_CREADA).first()
+    assert "tipo" not in auditada.valores_nuevos and "porcentaje" not in auditada.valores_nuevos
+
+
+@pytest.mark.parametrize(
+    ("cambios", "fragmento"),
+    [
+        ({"monto_total": "100.00"}, "calcula su monto"),
+        ({"formula": "proporcional"}, "calcula su monto"),
+        ({"porcentaje": None}, "Falta el porcentaje"),
+        ({"porcentaje": "0"}, "entre 0 y 100"),
+        ({"porcentaje": "100.0001"}, "entre 0 y 100"),
+        ({"porcentaje": "2.00001"}, "4 decimales"),
+        ({"pedido_compra_ids": []}, "necesita sus operaciones"),
+        ({"lineas": [{"item_id": 4512, "cantidad": 10, "monto_manual": "5.00"}]}, "calcula su monto"),
+        ({"moneda": "USD", "tipo_cambio": "1400"}, "está en ARS y la compra en USD"),
+    ],
+)
+def test_a_percentage_purchase_refuses_what_does_not_fit(client, gestor, productos, facturadas, db, cambios, fragmento):
+    resp = client.post(BASE, json=_porcentaje(facturadas, **cambios), headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    assert fragmento in _message(resp)
+    assert db.query(SellInCompra).count() == 0
+
+
+def test_a_fixed_amount_purchase_needs_its_total_and_takes_no_percentage(client, gestor, productos, db):
+    sin_total = _body()
+    del sin_total["monto_total"]
+    resp = client.post(BASE, json=sin_total, headers=gestor)
+    assert resp.status_code == 422 and "Falta el monto total" in _message(resp)
+
+    resp = client.post(BASE, json=_body(porcentaje="2"), headers=gestor)
+    assert resp.status_code == 422 and "no lleva porcentaje" in _message(resp)
+    assert db.query(SellInCompra).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("filas", "fragmento"),
+    [
+        ([], "no tiene facturado"),  # 4513 never invoiced
+        ([(None, None)], "mezcla monedas"),  # one invoice mixes currencies
+        ([("1000.00", "ARS"), ("50.00", "USD")], "mezcla monedas"),  # each operation in another currency
+    ],
+)
+def test_a_percentage_purchase_needs_one_invoiced_net_per_line(
+    client, gestor, productos, proveedores, nuevo_pedido, db, filas, fragmento
+):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    _facturado(db, p1, 4512, "10101.00")
+    for pedido, (importe, moneda) in zip((p1, p2), filas):
+        _facturado(db, pedido, 4513, importe, moneda)
+
+    resp = client.post(BASE, json=_porcentaje([p1, p2]), headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    assert fragmento in _message(resp) and "4513" in _message(resp)
+
+
+def test_prefill_shows_each_products_invoiced_net_and_its_currency(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    _oc(db, p1, 9101, [(4512, "10"), (4513, "5")])
+    _oc(db, p2, 9102, [(4513, "5")])
+    _facturado(db, p1, 4512, "10101.00")
+    _facturado(db, p1, 4513, None, None)  # mixes currencies: no single amount
+    _facturado(db, p2, 4513, "1000.00")
+
+    data = _prefill(client, gestor, p1.id, p2.id).json()
+
+    assert [(i["item_id"], i["facturado"], i["facturado_moneda"]) for i in data["items"]] == [
+        (4512, "10101.00", "ARS"),
+        (4513, None, None),
+    ]
