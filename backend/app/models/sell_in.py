@@ -106,6 +106,12 @@ class SellInCompra(Base):
         CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_sell_in_compras_tc_positivo"),
         CheckConstraint("formula IN ('proporcional', 'por_unidad', 'manual')", name="ck_sell_in_compras_formula"),
         CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_in_compras_estado"),
+        CheckConstraint("tipo IN ('monto', 'porcentaje')", name="ck_sell_in_compras_tipo"),
+        CheckConstraint(
+            "(tipo = 'monto' AND porcentaje IS NULL) "
+            "OR (tipo = 'porcentaje' AND porcentaje IS NOT NULL AND porcentaje > 0 AND porcentaje <= 100)",
+            name="ck_sell_in_compras_porcentaje_segun_tipo",
+        ),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -117,6 +123,9 @@ class SellInCompra(Base):
     cuenta_desde = Column(String(16), nullable=False, default="compra", server_default="compra")
     moneda = Column(String(3), nullable=False)
     monto_total = Column(Numeric(18, 2), nullable=False)
+    # 'monto' (a fixed amount) or 'porcentaje' (a % of the invoiced net); `monto_total` is set either way.
+    tipo = Column(String(16), nullable=False, default="monto", server_default="monto")
+    porcentaje = Column(Numeric(7, 4), nullable=True)
     tipo_cambio = Column(Numeric(18, 6), nullable=True)
     formula = Column(String(16), nullable=False, default="proporcional", server_default="proporcional")
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
