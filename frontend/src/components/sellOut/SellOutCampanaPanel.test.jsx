@@ -3,14 +3,14 @@
  * channel, its recalculation state, and the legacy offset it came from.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { sellOutAPI } from '../../services/sellOutAPI';
-import { CAMPANA_MIGRADA, CAMPANA_PORCENTAJE_ANULADA } from './sellOutFixtures';
+import { CAMPANA_MIGRADA, CAMPANA_PORCENTAJE_ANULADA, CONSUMOS_USD } from './sellOutFixtures';
 import SellOutCampanaPanel from './SellOutCampanaPanel';
 
 vi.mock('../../services/sellOutAPI', () => ({
-  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn(), definirTipoCambio: vi.fn() },
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn(), definirTipoCambio: vi.fn(), consumos: vi.fn() },
 }));
 
 const GRUPOS = [
@@ -20,7 +20,10 @@ const GRUPOS = [
 
 const campo = (label) => screen.getByText(label, { selector: 'dt' }).nextElementSibling;
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
+});
 
 describe('SellOutCampanaPanel', () => {
   it('a per-unit USD campaign: its terms, channels and the offset it was migrated from', async () => {
@@ -36,8 +39,9 @@ describe('SellOutCampanaPanel', () => {
     expect(campo('Alcance')).toHaveTextContent('Offset #48: RB 8180');
     expect(campo('Origen')).toHaveTextContent('Migrada del offset #48');
     expect(campo('Recálculo')).toHaveTextContent('Al día');
-    expect(screen.getByText('Mercado Libre').closest('tr')).toHaveTextContent('20');
-    expect(screen.getByText('Fuera de ML').closest('tr')).toHaveTextContent('USD 360,00');
+    const porCanal = screen.getByRole('region', { name: 'Acreditado por canal' });
+    expect(within(porCanal).getByText('Mercado Libre').closest('tr')).toHaveTextContent('20');
+    expect(within(porCanal).getByText('Fuera de ML').closest('tr')).toHaveTextContent('USD 360,00');
   });
 
   it('a voided % campaign: base, caps left, VAT flag and a failed recalculation with its error', async () => {
@@ -213,5 +217,18 @@ describe('SellOutCampanaPanel — void and exchange rate (T8c)', () => {
 
     responder({ data: { ...CAMPANA_MIGRADA, tipo_cambio: '1420.000000' } });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeEnabled());
+  });
+
+  it('an existing campaign lists its credited sales; a new one does not ask for them', async () => {
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    const { unmount } = render(<SellOutCampanaPanel campanaId={55} onClose={() => {}} />);
+    expect(await screen.findByText('Epson EcoTank L8180')).toBeInTheDocument();
+    expect(sellOutAPI.consumos).toHaveBeenCalledWith(55, { page: 1, page_size: 25 });
+    unmount();
+
+    vi.clearAllMocks();
+    render(<SellOutCampanaPanel campanaId={null} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Ventas acreditadas' })).not.toBeInTheDocument();
+    expect(sellOutAPI.consumos).not.toHaveBeenCalled();
   });
 });
