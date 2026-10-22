@@ -37,9 +37,9 @@ def needs_margin(key: str) -> bool:
     return METRIC_SORTS[key][1]
 
 
-def ranked_page(db: Session, mla_source: Any, key: str, descending: bool, limit: int, offset: int) -> list[str]:
+def ranked_page(db: Session, mla_source: Any, key: str, descending: bool, limit: int | None, offset: int) -> list[str]:
     """The MLAs of `mla_source` (a one-column select of the filtered set) at `[offset, offset + limit)` once ranked
-    by the figure `key` names."""
+    by the figure `key` names (`limit` None: every MLA from `offset` on)."""
     first, last = row_metrics.window(board.today_business())
     f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, f, scope_pairs=None) as b:
