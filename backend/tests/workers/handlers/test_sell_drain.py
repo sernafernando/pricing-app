@@ -45,11 +45,15 @@ SELL_OUT_TABLES = [
     t.__table__
     for t in (OffsetGrupo, OffsetGrupoFiltro, SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty)
 ]
+# `sell_out_campanas.offset_origen_id` references the legacy offsets (T15).
+SELL_OUT_STUBS = ["CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)"]
 
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    with throwaway_schema("sell_drain", [*w.TABLES, *SELL_OUT_TABLES], w.STUBS, after=w.install) as engine:
+    with throwaway_schema(
+        "sell_drain", [*w.TABLES, *SELL_OUT_TABLES], [*w.STUBS, *SELL_OUT_STUBS], after=w.install
+    ) as engine:
         yield engine
 
 
