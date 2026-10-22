@@ -178,9 +178,14 @@ function cellOf(value, numberFormat) {
 
 const textRow = (text) => ({ values: [{ userEnteredValue: { stringValue: text } }] });
 
+// Rows written per `batchUpdate` call: Google advises payloads of about 2 MB, and an export has no row cap.
+const CHUNK_ROWS = 2000;
+
 /**
- * The one `batchUpdate` that writes the export to the sheet and makes it readable: `rows` is the header plus the data,
- * written at A1 as typed values (never pasted text, which Sheets would parse), `notes` the file's trailing notes.
+ * The `batchUpdate` calls that write the export to the sheet and make it readable, to send IN ORDER, one call per
+ * array: `rows` is the header plus the data, written at A1 as typed values (never pasted text, which Sheets would
+ * parse) in chunks of `CHUNK_ROWS` rows, the first call also sizing the grid; the last call formats, filters and fits
+ * the columns once every row is written, then adds `notes`, the file's trailing notes.
  * Pure: every request shape follows the Sheets API v4 `Request` reference.
  */
 export function buildSheetRequests({ sheetId, rows, notes }) {
@@ -197,24 +202,26 @@ export function buildSheetRequests({ sheetId, rows, notes }) {
   const valuesOf = (c) => data.map((row) => row[c] ?? '').filter((v) => v !== '');
   const formats = header.map((name, c) => numberFormatOf(name, valuesOf(c)));
   const noteRow = rows.length + 1;
-  const requests = [
+  // Typed with the formats of the WHOLE column, whatever chunk a row lands in.
+  const cellsOf = (start) =>
+    rows
+      .slice(start, start + CHUNK_ROWS)
+      .map((row, i) => ({ values: header.map((_, c) => cellOf(row[c] ?? '', start + i ? formats[c] : null)) }));
+  const writes = [];
+  for (let start = 0; start < rows.length; start += CHUNK_ROWS) {
+    writes.push([{ updateCells: { start: { sheetId, rowIndex: start, columnIndex: 0 }, rows: cellsOf(start), fields: 'userEnteredValue' } }]);
+  }
+  writes[0].unshift({
     // Exactly the rows written (a new sheet's default grid may be smaller or larger than the export), the header frozen.
-    {
-      updateSheetProperties: {
-        properties: {
-          sheetId,
-          gridProperties: { rowCount: notes.length ? noteRow + notes.length : rows.length, columnCount: width, frozenRowCount: 1 },
-        },
-        fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
+    updateSheetProperties: {
+      properties: {
+        sheetId,
+        gridProperties: { rowCount: notes.length ? noteRow + notes.length : rows.length, columnCount: width, frozenRowCount: 1 },
       },
+      fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
     },
-    {
-      updateCells: {
-        start: { sheetId, rowIndex: 0, columnIndex: 0 },
-        rows: rows.map((row, r) => ({ values: header.map((_, c) => cellOf(row[c] ?? '', r ? formats[c] : null)) })),
-        fields: 'userEnteredValue',
-      },
-    },
+  });
+  const requests = [
     {
       repeatCell: {
         range: span(0, 1),
@@ -262,7 +269,7 @@ export function buildSheetRequests({ sheetId, rows, notes }) {
       },
     );
   }
-  return requests;
+  return [...writes, requests];
 }
 
 // ── The export ──────────────────────────────────────────────────
@@ -308,9 +315,10 @@ export async function exportarCsvASheets(url, params, { filename, genericError }
       { properties: { title: csv.filename.replace(/\.csv$/i, ''), locale: 'es_AR' } },
     );
     const sheetId = created.sheets?.[0]?.properties?.sheetId ?? 0;
-    await sheetsRequest(accessToken, `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`, {
-      requests: buildSheetRequests({ sheetId, rows, notes }),
-    });
+    // One call at a time, in order: the formatting and the fit come after every row is written.
+    for (const requests of buildSheetRequests({ sheetId, rows, notes })) {
+      await sheetsRequest(accessToken, `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`, { requests });
+    }
 
     if (tab) {
       tab.location.href = created.spreadsheetUrl;
