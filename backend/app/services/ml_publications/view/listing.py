@@ -365,10 +365,10 @@ def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> t
 def _markup_ids(
     db: Session, f: PublicationFilter, sort: Sort, limit: Optional[int], offset: int, markup: MarkupQuery
 ) -> tuple[list[str], int, MarkupResult]:
-    """The ids at `[offset, offset + limit)` (to the end when `limit` is None) of the set the markup filter keeps, in the requested order, its total and
-    the set-wide markup. Sorting or filtering by markup needs the markup of the WHOLE filtered set (design §4.4):
-    price it once and filter it in Python. The markup order is applied in Python too; a column order is applied by
-    the database over the accepted ids only, which also cuts the page."""
+    """The ids at `[offset, offset + limit)` (to the end when `limit` is None) of the set the markup filter keeps,
+    in the requested order, its total and the set-wide markup. Sorting or filtering by markup needs the markup of the
+    WHOLE filtered set (design §4.4): price it once and filter it in Python. The markup order is applied in Python
+    too; a column order is applied by the database over the accepted ids only, which also cuts the page."""
     result, kept = markup_accepted(db, f, markup)
     if sort.key == SORT_MARKUP:
         wanted = [item_id for item_id in _worst_first(result.items, sort.descending) if item_id in kept]
@@ -472,8 +472,9 @@ def ordered_keys(
     markup: Optional[MarkupQuery] = None,
     can_see_margin: bool = False,
 ) -> list[str]:
-    """The item ids of the WHOLE filtered set, at most `cap` (every one when None), in the very order `list_items` pages them (the markup
-    sort and filter included, through the same `_markup_ids`): the keys an export fixes before reading its pages."""
+    """The item ids of the WHOLE filtered set, at most `cap` (every one when None), in the very order `list_items`
+    pages them (the markup sort and filter included, through the same `_markup_ids`): the keys an export fixes before
+    reading its pages."""
     _check(f, sort, events, can_see_margin)
     f = resolve_pm_pairs(db, f)
     if _by_markup(sort, markup):

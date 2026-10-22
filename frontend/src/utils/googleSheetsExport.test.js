@@ -404,9 +404,9 @@ describe('exportarCsvASheets', () => {
   });
 
   it('a refused export surfaces the backend message and creates nothing', async () => {
-    const body = JSON.stringify({ error: { message: 'Son más de 10000 filas.' } });
+    const body = JSON.stringify({ error: { message: 'La exportación no está disponible.' } });
     api.get.mockRejectedValue({ response: { status: 422, data: new Blob([body]) } });
-    await expect(run()).rejects.toThrow('Son más de 10000 filas.');
+    await expect(run()).rejects.toThrow('La exportación no está disponible.');
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -458,6 +458,14 @@ describe('exportarCsvASheets', () => {
     await expect(run()).rejects.toThrow(
       'La exportación tiene 10.001.000 celdas y una hoja de Google admite hasta 10.000.000. Use Exportar CSV o acote los filtros.',
     );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('counts the blank row and the notes the sheet gets: 10,000,000 data cells plus a note are refused', async () => {
+    const header = Array.from({ length: 1000 }, (_, i) => `C${i}`).join(';');
+    const row = Array.from({ length: 1000 }, () => '1').join(';');
+    csvResponse(`${BOM}${header}\n${Array.from({ length: 9_999 }, () => row).join('\n')}\n# AVISO: sin publicidad.\n`);
+    await expect(run()).rejects.toThrow('La exportación tiene 10.002.000 celdas');
     expect(fetch).not.toHaveBeenCalled();
   });
 

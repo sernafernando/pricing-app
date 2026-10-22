@@ -191,6 +191,9 @@ const CHUNK_ROWS = 2000;
  * the columns once every row is written, then adds `notes`, the file's trailing notes.
  * Pure: every request shape follows the Sheets API v4 `Request` reference.
  */
+/** The rows of the sheet: the CSV's, then a blank row and the notes when there are any. */
+const gridRows = (rows, notes) => (notes.length ? rows.length + 1 + notes.length : rows.length);
+
 export function buildSheetRequests({ sheetId, rows, notes }) {
   const [header, ...data] = rows;
   const width = header.length;
@@ -219,7 +222,7 @@ export function buildSheetRequests({ sheetId, rows, notes }) {
     updateSheetProperties: {
       properties: {
         sheetId,
-        gridProperties: { rowCount: notes.length ? noteRow + notes.length : rows.length, columnCount: width, frozenRowCount: 1 },
+        gridProperties: { rowCount: gridRows(rows, notes), columnCount: width, frozenRowCount: 1 },
       },
       fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
     },
@@ -312,7 +315,7 @@ export async function exportarCsvASheets(url, params, { filename, genericError }
     }
     const csv = await fetchCsvText(url, params, { filename, genericError });
     const { rows, notes } = parseCsvExport(csv.text);
-    const cells = rows.length * (rows[0]?.length ?? 0);
+    const cells = gridRows(rows, notes) * (rows[0]?.length ?? 0);
     if (cells > MAX_SHEET_CELLS) {
       const fmt = (n) => n.toLocaleString('es-AR');
       throw new Error(
