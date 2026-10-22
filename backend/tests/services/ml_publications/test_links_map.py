@@ -226,7 +226,7 @@ class TestSingleItemPaths:
             conn.execute(
                 text(
                     "CREATE TABLE auditoria (id serial PRIMARY KEY, item_id integer, usuario_id integer NOT NULL, "
-                    "tipo_accion varchar(50) NOT NULL, valores_anteriores json, valores_nuevos json, es_masivo integer, "
+                    "tipo_accion varchar(50) NOT NULL, valores_anteriores json, valores_nuevos json, es_masivo boolean DEFAULT false, "
                     "productos_afectados integer, comentario varchar(500), fecha timestamp NOT NULL)"
                 )
             )

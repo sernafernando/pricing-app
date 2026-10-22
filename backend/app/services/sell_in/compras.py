@@ -182,7 +182,7 @@ def audit(
                 tipo_accion=tipo,
                 valores_anteriores=None,
                 valores_nuevos=valores,
-                es_masivo=0,
+                es_masivo=False,
                 comentario=motivo,
                 fecha=fecha,
             )

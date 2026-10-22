@@ -1028,7 +1028,7 @@ def _record_audit(
             tipo_accion=tipo,
             valores_anteriores=_audit_values(item_id, variation_id, before),
             valores_nuevos=_audit_values(item_id, variation_id, after),
-            es_masivo=0,
+            es_masivo=False,
             comentario=note,
             fecha=now.astimezone(timezone.utc).replace(tzinfo=None),
         )

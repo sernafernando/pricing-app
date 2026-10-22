@@ -256,7 +256,7 @@ def _audit_cambio(db: Session, compra: SellInCompra, antes: dict, despues: dict)
             tipo_accion=TipoAccion.SELL_IN_COMPRA_BONO_ACTUALIZADA,
             valores_anteriores=_json(antes),
             valores_nuevos=_json(despues),
-            es_masivo=0,
+            es_masivo=False,
             comentario=None,
             fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
         )
