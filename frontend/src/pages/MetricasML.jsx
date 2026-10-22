@@ -182,7 +182,7 @@ export default function MetricasML() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const [exportingSheets, setExportingSheets] = useState(false);
-  // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link of a blocked tab.
+  // What "Exportar a Sheets" left to say that is not an error: a cancelled popup, or the link to the new sheet (shown even when its tab opened: a browser can block it silently).
   const [sheetsNotice, setSheetsNotice] = useState(null);
   const sheetsEnabled = isSheetsExportEnabled();
   useEffect(() => {
@@ -390,8 +390,8 @@ export default function MetricasML() {
     setExportError(null);
     setSheetsNotice(null);
     try {
-      const { url, opened } = await exportMetricasSheets(exportParams);
-      if (!opened) setSheetsNotice({ url });
+      const { url } = await exportMetricasSheets(exportParams);
+      if (url) setSheetsNotice({ url });
     } catch (err) {
       if (err.cancelled) setSheetsNotice({ text: err.message });
       else setExportError(err.message);
@@ -542,9 +542,12 @@ export default function MetricasML() {
       {sheetsNotice && (
         <p className={styles.description} role="status">
           {sheetsNotice.url ? (
-            <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
-              Abrir la hoja en Google Sheets
-            </a>
+            <>
+              Hoja creada.{' '}
+              <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
+                Abrir la hoja en Google Sheets
+              </a>
+            </>
           ) : (
             sheetsNotice.text
           )}
