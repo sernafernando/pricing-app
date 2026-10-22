@@ -154,6 +154,28 @@ describe('loading the detail', () => {
   });
 });
 
+describe('going back to the product', () => {
+  it('without onBack there is no way back', async () => {
+    renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    expect(screen.queryByRole('button', { name: /^Volver/ })).not.toBeInTheDocument();
+  });
+
+  it('"Volver a <producto>" goes back, even while the detail is loading', async () => {
+    publicacionesMlAPI.detail.mockReturnValue(new Promise(() => {}));
+    const onBack = vi.fn();
+    const user = userEvent.setup();
+    renderPanel({ onBack, backLabel: 'Router Archer AX55' });
+    await user.click(screen.getByRole('button', { name: 'Volver a Router Archer AX55' }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('without the product name it reads "Volver al producto"', async () => {
+    renderPanel({ onBack: vi.fn() });
+    expect(screen.getByRole('button', { name: 'Volver al producto' })).toBeInTheDocument();
+  });
+});
+
 describe('failures', () => {
   it('an empty 200 body does not break the panel', async () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: null });

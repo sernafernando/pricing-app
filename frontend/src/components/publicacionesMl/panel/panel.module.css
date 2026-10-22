@@ -53,6 +53,36 @@
   color: var(--cf-accent-blue);
 }
 
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: var(--font-xs);
+  color: var(--cf-accent-blue);
+  cursor: pointer;
+}
+
+.backText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.back:hover {
+  text-decoration: underline;
+}
+
+.back:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
 .close {
   flex-shrink: 0;
   display: inline-flex;

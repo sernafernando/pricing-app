@@ -20,6 +20,10 @@ import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
  * are sortable (`PRODUCT_SORTS`): the backend sorts the products, not their
  * publications. With `selection` (`{ checked, onToggle }`) a product row leads
  * with its product's checkbox, for the bulk pricing actions.
+ *
+ * A click (or Enter/Space) on a product row opens its panel (`onSelectProduct(key)`); its chevron opens it into
+ * its publications. The highlighted row is the selected publication (`selectedKey`) or, with none, the product
+ * whose panel is open (`selectedProductKey`).
  */
 export default function ProductoTable({
   tree,
@@ -27,7 +31,9 @@ export default function ProductoTable({
   canSeeMargin,
   expandedIds,
   onSelectItem,
+  onSelectProduct,
   selectedKey,
+  selectedProductKey,
   sort,
   onSort,
   offset,
@@ -64,10 +70,14 @@ export default function ProductoTable({
 
   // The page selects by MLA; the table by row, so only one row is highlighted.
   const selectedRowId =
-    selectedKey === undefined ? undefined : rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id;
+    selectedKey !== undefined
+      ? rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id
+      : selectedProductKey !== undefined
+        ? rows.find((row) => row.type === 'node' && row.node.key === selectedProductKey)?.id
+        : undefined;
 
   const handleRowClick = (row, event) => {
-    if (row.type === 'node') toggle(row);
+    if (row.type === 'node') onSelectProduct(row.node.key);
     else if (row.type === 'item') onSelectItem(row.item, event);
   };
 

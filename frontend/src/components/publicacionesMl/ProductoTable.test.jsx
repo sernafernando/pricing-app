@@ -55,7 +55,15 @@ const itemsPage = (count, total = count, prefix = 'MLA') => ({
 const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
 const itemCalls = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params);
 
-function Harness({ filters = FILTERS, canSeeSales = true, canSeeMargin = true, onSelectItem = () => {}, onSort = () => {}, selection }) {
+function Harness({
+  filters = FILTERS,
+  canSeeSales = true,
+  canSeeMargin = true,
+  onSelectItem = () => {},
+  onSelectProduct = () => {},
+  onSort = () => {},
+  selection,
+}) {
   const [expandedIds] = useState(() => new Set());
   const tree = useProductRows({ filters, pageSize: 50, canSeeSales, canSeeMargin });
   const columns = buildColumns({ eventsEnabled: false, canSeeMargin, canSeeSales, expandedIds, producto: true });
@@ -68,7 +76,9 @@ function Harness({ filters = FILTERS, canSeeSales = true, canSeeMargin = true, o
         canSeeMargin={canSeeMargin}
         expandedIds={expandedIds}
         onSelectItem={onSelectItem}
+        onSelectProduct={onSelectProduct}
         selectedKey={filters.sel || undefined}
+        selectedProductKey={filters.prod || undefined}
         sort={tree.sort}
         onSort={onSort}
         selection={selection}
@@ -165,13 +175,55 @@ describe('opening a product', () => {
     expect(screen.queryByRole('button', { name: /Ver más/ })).not.toBeInTheDocument();
   });
 
-  it('a click on a publication selects it; a click on a product opens it', async () => {
+  it('a click on a publication selects it', async () => {
     const onSelectItem = vi.fn();
     const user = userEvent.setup();
     render(<Harness onSelectItem={onSelectItem} />);
-    await user.click(await screen.findByText('Router Archer AX55'));
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Archer AX55/ }));
     await user.click(await screen.findByText('Publicación MLA2'));
     expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({ item_id: 'MLA2' }), expect.anything());
+  });
+
+  it('a click on a product opens its panel; the chevron expands it', async () => {
+    const onSelectProduct = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onSelectProduct={onSelectProduct} />);
+    await user.click(await screen.findByText('Router Archer AX55'));
+    expect(onSelectProduct).toHaveBeenCalledWith('4101');
+    expect(itemCalls()).toHaveLength(0);
+    expect(screen.getByRole('button', { name: /Abrir Router Archer AX55/ })).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    expect(await screen.findByText('Publicación MLA1')).toBeInTheDocument();
+    expect(onSelectProduct).toHaveBeenCalledTimes(1);
+  });
+
+  it('Enter or Space on a focused product row opens its panel', async () => {
+    const onSelectProduct = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onSelectProduct={onSelectProduct} />);
+    await screen.findByText('Sin producto');
+    rowOf('Sin producto').focus();
+    await user.keyboard('{Enter}');
+    expect(onSelectProduct).toHaveBeenLastCalledWith('0');
+    rowOf('Router Archer AX55').focus();
+    await user.keyboard(' ');
+    expect(onSelectProduct).toHaveBeenLastCalledWith('4101');
+    expect(itemCalls()).toHaveLength(0);
+  });
+
+  it('highlights the product whose panel is open, unless a publication is selected', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Harness filters={{ ...FILTERS, prod: '4101' }} />);
+    await screen.findByText('Router Archer AX55');
+    expect(rowOf('Router Archer AX55')).toHaveAttribute('aria-current', 'true');
+    expect(rowOf('Sin producto')).not.toHaveAttribute('aria-current');
+
+    rerender(<Harness filters={{ ...FILTERS, prod: '4101', sel: 'MLA2' }} />);
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await screen.findByText('Publicación MLA2');
+    expect(rowOf('Router Archer AX55')).not.toHaveAttribute('aria-current');
+    expect(rowOf('Publicación MLA2')).toHaveAttribute('aria-current', 'true');
   });
 
   it('a failed load says so and retries', async () => {
