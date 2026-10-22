@@ -20,8 +20,9 @@ Branch: `feat/ml-ads-brand-contribution-api` (PR1), then one branch per PR. Deli
 
 | ID | Specs | Route | Status | Commit / evidence |
 |----|-------|-------|--------|-------------------|
-| T1a | S4 (storage), S8 (read) | delegated writer | in progress (PR #1704, reworked) | see L7 |
-| T1b | S4 (writes), S7 | delegated writer | committed locally, opens after T1a merges | see L7 |
+| T1a | S4 (storage), S8 (read) | delegated writer | merged (#1704) | `96faa8862` (+450/-3); RED 4 failed + 7 errors, GREEN 39 passed |
+| T1b-i | S4 (create), S7 | delegated writer | PR open (this branch) | `628288c8a` (+377/-13); RED 17 failed, GREEN 54 passed |
+| T1b-ii | S4 (edit, delete) | delegated writer | local `feat/ml-ads-brand-contribution-edit`, opens after T1b-i merges | ~+138/-9; RED 6 failed, GREEN 357 passed (ml_ads scope) |
 | T2 | S5, S6, S9 | pending | pending | PR2 |
 | T3 | S10 | pending | pending | PR3 |
 
@@ -34,3 +35,4 @@ Branch: `feat/ml-ads-brand-contribution-api` (PR1), then one branch per PR. Deli
 - **L5** (2026-10-22): plan of 3 stacked PRs (storage+API, board/KPI, frontend). T1 started on `feat/ml-ads-brand-contribution-api` off `origin/main`.
 - **L6** (2026-10-22): T1 GREEN. Table `ml_ads_campaign_contributions` (CHECKs kind/value/dates, index advertiser+campaign; audit ids without FK so `ml_ads_*` stays self-contained), permission `ml_metricas.gestionar_aportes_ads` ADMIN only, endpoints `GET /ml-ads/campaigns`, `POST /ml-ads/contributions`, `PUT|DELETE /ml-ads/contributions/{id}`. Overlap and catalogue checks lock the campaign row (`FOR UPDATE`). One PR (~440 production + ~390 test lines): splitting storage from API would ship a permission that gates nothing. Next: T2.
 - **L7** (2026-10-22, coordinator): #1704 was +861/-13; the owner's rule is each PR <= ~400 authored lines including tests, never `size:exception`. Split by read/write: T1a = table + model + read-only `GET /ml-ads/campaigns` (ver_ganancia); T1b = second migration seeding `ml_metricas.gestionar_aportes_ads` for ADMIN + POST/PUT/DELETE, stacked on T1a, pushed only after T1a merges. Full original kept on local branch `wip/ads-contrib-full` (046e83ea2).
+- **L8** (2026-10-22, coordinator): T1a approved at 446 (~410 without the doc), merged as #1704. T1b split into T1b-i (permission migration + POST with validation and overlap lock) and T1b-ii (PUT/DELETE + delete logging), stacked; T1b-i rebased on main and opened.
