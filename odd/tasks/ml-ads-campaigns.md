@@ -32,7 +32,8 @@ Delivery: `stacked-to-main`, slices of about 400 authored lines (the whole chang
 - [x] T2 (PR B) Mapper + store: catalog upsert (latest), day upsert, drop the day rows of campaigns ML no
   longer lists.
 - [x] T3 (PR B) Ingestion: persist from `_read_summary`, read extra pages when `paging.total` says so.
-- [ ] T4 (PR C) Backfill of days already closed (see Next slice).
+- [x] T4 (PR C) Backfill of days already closed (see Backfill slice); route: inline (one understood backend
+  slice, no writer reason). Commit: see Progress.
 
 ## Acceptance criteria
 
@@ -51,6 +52,14 @@ Delivery: `stacked-to-main`, slices of about 400 authored lines (the whole chang
 Backfill of campaign days for days already closed in the ledger (D-15..D-90 are `final` and never re-read):
 a `campaigns` ledger source run through `schedule._run_account_level`, one `campaigns/search` per day.
 
+As built: `ingestion.run_campaigns_step` (`_CampaignsRun`) reuses `_DayRun._read_summary` unchanged, so
+`map_campaigns`, `save_campaigns`, paging, dedupe and the ADS-3 reporting-advertiser keying are PR B's code.
+Window D-90..D-15 only (`_run_account_level(..., newest_ago=VERIFY_DAYS + 1)`); D-14..D-1 stay with the day
+fetch and the verify. A day is read once (no refresh, no verify); runs last in `run_tick`, isolated like
+Display/Brand. Ledger `source` has no CHECK constraint, so no migration. `read.ads_coverage` leaves the
+`campaigns` source out (it is a cursor, not ads data; otherwise every page would list D-14..D-1 as missing).
+No flag: it rides on the existing `ML_ADS_ENABLED`.
+
 ## Progress
 
 - PR A, branch `feat/ml-ads-campaigns` from origin/main: T1. RED observed (4 migration tests failing before the
@@ -63,6 +72,19 @@ a `campaigns` ledger source run through `schedule._run_account_level`, one `camp
   after; focused suites `tests/services/ml_ads` + `tests/workers/handlers/test_ml_ads.py`: 267 passed. Alembic
   untouched by B.
 
+- PR C, branch `feat/ml-ads-campaigns-backfill` from origin/main: T4. RED observed before the code (new
+  `tests/services/ml_ads/test_campaigns_backfill.py`: 4 failed -- `TickResult` had no `campaigns_steps`, and
+  coverage listed the `campaigns` source as missing days; the Display/Brand-up-to-yesterday guard passed), GREEN
+  after (5 passed); focused suites `tests/services/ml_ads` + `tests/workers/handlers/test_ml_ads.py`: 272 passed
+  (the handler detail test now expects the new `campaigns` key). Engram mirror pending: Engram writes were
+  blocked in this session.
+
+## Log
+
+- L1 (2026-10-22) T4: "Backfill campaign days for days already closed, within ML's 90-day window."
+  Done as above; after deploy nothing manual is needed (the worker's catch-up backfills ~76 days x 2
+  advertisers, one call each, within the existing 15 s run budget).
+
 ## Next step
 
-PR C (T4): backfill of the closed days D-15..D-90.
+Feature complete once PR C merges and the first post-deploy runs show `campaigns` ledger rows closed.

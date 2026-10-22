@@ -35,6 +35,8 @@ from app.services.ml_ads.mapper import BrandFact, DaySummary, DisplayFact, Group
 SOURCE = "product_ads"
 DISPLAY_SOURCE = "display"
 BRAND_SOURCE = "brand_ads"
+# A reading cursor only (campaigns of days already closed, T4): it carries no ads cost and is not coverage.
+CAMPAIGNS_SOURCE = "campaigns"
 UNFINISHED = "fetching"
 # `groups_offset` is the offset of the next `ad_groups/search` page; this value says every page was read,
 # so a resumed day goes straight to the drill instead of asking ML for a page past the end.

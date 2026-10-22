@@ -457,3 +457,44 @@ class _BrandRun(_DayRun):
                 db, self.advertiser_id, self.day, status=status, summary=summary, now=self.now(), source=self.source
             )
         return StepResult(self.advertiser_id, self.day, status, status, self.calls)
+
+
+# --- Campaigns of closed days (ml-ads-campaigns T4) ---------------------------------------------------
+
+
+def run_campaigns_step(
+    session_factory: SessionFactory,
+    client: Any,
+    advertiser_id: int,
+    day: date,
+    *,
+    now: Callable[[], datetime],
+    deadline: Optional[datetime] = None,
+) -> StepResult:
+    """One `(advertiser, day)` already closed: the day's `campaigns/search` (and its further pages), stored."""
+    return _CampaignsRun(session_factory, client, advertiser_id, day, now, deadline).execute()
+
+
+class _CampaignsRun(_DayRun):
+    """The same summary call and campaign storage as a Product Ads day (`_read_summary`), on its own ledger.
+
+    Only for days the day fetch and the verify no longer read (older than D-14). The ledger row
+    (`source='campaigns'`) is the cursor: a closed day is never read again. ML's day total goes to it as an audit.
+    """
+
+    source = store.CAMPAIGNS_SOURCE
+
+    def execute(self) -> StepResult:
+        try:
+            self._open()
+            summary = self._read_summary()
+        except _Stop as stop:
+            return self._result(stop.outcome)
+        with self.session_factory() as db:
+            store.finish_day(
+                db, self.advertiser_id, self.day, status=CLOSED, summary=summary, now=self.now(), source=self.source
+            )
+        return StepResult(self.advertiser_id, self.day, CLOSED, CLOSED, self.calls)
+
+    def verify(self) -> StepResult:
+        raise NotImplementedError("campaign days older than D-14 are final: they are read once")
