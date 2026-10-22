@@ -157,4 +157,22 @@ describe('SellInDetailPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Ver bono #3' }));
     expect(onVerBono).toHaveBeenCalledWith(3);
   });
+
+  it('shows a percentage purchase as its percentage of what was invoiced', async () => {
+    sellInAPI.detalle.mockResolvedValue({
+      data: { ...COMPRA_CON_OPERACIONES, tipo: 'porcentaje', porcentaje: '2.5000', formula: 'manual' },
+    });
+    renderPanel();
+
+    expect(await screen.findByText('2,5 % de lo facturado')).toBeInTheDocument();
+    expect(screen.getByText('Según lo facturado de cada producto')).toBeInTheDocument();
+    expect(screen.queryByText('Manual')).not.toBeInTheDocument();
+  });
+
+  it('shows a fixed-amount purchase as before, with no percentage', async () => {
+    renderPanel();
+
+    expect(await screen.findByText('Reparto proporcional')).toBeInTheDocument();
+    expect(screen.queryByText(/de lo facturado/)).not.toBeInTheDocument();
+  });
 });
