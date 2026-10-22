@@ -71,3 +71,39 @@ export const CAMPANA_PORCENTAJE_ANULADA = {
 };
 
 export const CAMPANAS_LISTA = { items: [CAMPANA_MIGRADA, CAMPANA_PORCENTAJE_ANULADA], total: 2, page: 1, page_size: 10 };
+
+export const CONSUMOS_USD = {
+  moneda: 'USD',
+  ars_estimado: true,
+  items: [
+    {
+      id: 1,
+      canal: 'ml',
+      venta_ref: 9001,
+      fecha_venta: '2026-10-20',
+      item_id: 4172,
+      codigo: 'C13T00R120',
+      descripcion: 'Epson EcoTank L8180',
+      unidades: 2,
+      monto: '72.00',
+      tc_venta: '1415.500000',
+      monto_ars: '101916.00',
+    },
+    {
+      id: 2,
+      canal: 'fuera',
+      venta_ref: 552,
+      fecha_venta: '2026-10-18',
+      item_id: 4172,
+      codigo: null,
+      descripcion: null,
+      unidades: -1,
+      monto: '-36.00',
+      tc_venta: '1410.000000',
+      monto_ars: '-50760.00',
+    },
+  ],
+  total: 30,
+  page: 1,
+  page_size: 25,
+};

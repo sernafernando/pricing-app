@@ -6,7 +6,7 @@ import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
-import { CAMPANA_MIGRADA, CAMPANAS_LISTA } from '../components/sellOut/sellOutFixtures';
+import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
 vi.mock('../services/sellInAPI', () => ({
@@ -29,7 +29,7 @@ vi.mock('../services/sellInAPI', () => ({
 }));
 
 vi.mock('../services/sellOutAPI', () => ({
-  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), grupos: vi.fn() },
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), grupos: vi.fn(), consumos: vi.fn() },
 }));
 
 const mockTienePermiso = vi.fn();
@@ -51,6 +51,7 @@ beforeEach(() => {
   sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE });
   sellOutAPI.listar.mockResolvedValue({ data: CAMPANAS_LISTA });
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+  sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
   sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
 });
 

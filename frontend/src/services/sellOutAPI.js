@@ -9,6 +9,8 @@ const CAMPANAS = '/sell-out/campanas';
 export const sellOutAPI = {
   listar: (params) => api.get(CAMPANAS, { params }),
   detalle: (id) => api.get(`${CAMPANAS}/${id}`),
+  // What a campaign credited, sale line by sale line, page by page.
+  consumos: (id, params) => api.get(`${CAMPANAS}/${id}/consumos`, { params }),
   crear: (body) => api.post(CAMPANAS, body),
   editar: (id, body) => api.put(`${CAMPANAS}/${id}`, body),
   anular: (id, motivo) => api.post(`${CAMPANAS}/${id}/anular`, { motivo: motivo?.trim() || null }),

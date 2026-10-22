@@ -5,6 +5,7 @@ import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import { apiMessage, formatEntero, formatMonto } from '../sellIn/sellInFormat';
 import SellOutCampanaForm from './SellOutCampanaForm';
+import SellOutConsumos from './SellOutConsumos';
 import SellOutTipoCambio from './SellOutTipoCambio';
 import { CANAL_LABELS, TC_MODO_LABELS, beneficio, recalculo } from './sellOutFormat';
 import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeCampana } from './sellOutValores';
@@ -200,6 +201,8 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
                 </table>
               )}
             </section>
+            {/* Keyed by the last change: an edit, a void or a new rate reads the lines again. */}
+            <SellOutConsumos key={campana.updated_at} campanaId={campana.id} />
           </>
         )}
       </div>
