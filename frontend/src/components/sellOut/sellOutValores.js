@@ -81,6 +81,7 @@ export function faltantes(v) {
   if (v.tipo === 'por_unidad' && !positivo(v.montoUnit)) faltan.push('monto por unidad');
   if (v.tipo === 'porcentaje' && !positivo(v.porcentaje)) faltan.push('porcentaje');
   if (v.moneda === 'USD' && v.tcModo === 'fijo' && !positivo(v.tipoCambio)) faltan.push('tipo de cambio');
+  if (opcional(v.topeUnidades) !== null && !Number.isInteger(Number(v.topeUnidades))) faltan.push('tope de unidades entero');
   if (v.grupoIds.length === 0) faltan.push('productos alcanzados');
   return faltan;
 }

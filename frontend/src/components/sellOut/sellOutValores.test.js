@@ -95,6 +95,8 @@ describe('faltantes', () => {
     expect(faltantes(CAMPANA_VACIA)).toEqual(['nombre', 'fechas', 'monto por unidad', 'productos alcanzados']);
     expect(faltantes({ ...POR_UNIDAD, tipo: 'porcentaje' })).toEqual(['porcentaje']);
     expect(faltantes({ ...POR_UNIDAD, tcModo: 'fijo' })).toEqual(['tipo de cambio']);
+    expect(faltantes({ ...POR_UNIDAD, topeUnidades: '1.5' })).toEqual(['tope de unidades entero']);
+    expect(faltantes({ ...POR_UNIDAD, topeUnidades: '500' })).toEqual([]);
     expect(faltantes(POR_UNIDAD)).toEqual([]);
   });
 });
