@@ -66,7 +66,7 @@ def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict]
             tipo_accion=tipo,
             valores_anteriores=antes,
             valores_nuevos=despues,
-            es_masivo=0,
+            es_masivo=False,
             comentario=motivo,
             fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
         )

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, JSON, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -55,7 +55,7 @@ class Auditoria(Base):
     tipo_accion = Column(SQLEnum(TipoAccion), nullable=False, index=True)
     valores_anteriores = Column(JSON)  # Valores antes del cambio
     valores_nuevos = Column(JSON)  # Valores después del cambio
-    es_masivo = Column(Integer, default=False)  # Si afectó a múltiples productos
+    es_masivo = Column(Boolean, default=False)  # Si afectó a múltiples productos
     productos_afectados = Column(Integer)  # Cantidad de productos si es masivo
     comentario = Column(String(500))
     fecha = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
