@@ -1,6 +1,7 @@
 """Migration `20261024_sell_in_tables`: purchases, their items and consumptions.
 Followed by `20261107_sell_in_bonos_marca` (brand bonus, the purchases' origin
-columns and the bonus queue), so the parity check covers the tables as they are now.
+columns and the bonus queue) and `20261112_sell_in_compras_porcentaje` (fixed
+amount or percentage), so the parity check covers the tables as they are now.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references (usuarios, proveedores,
@@ -25,7 +26,7 @@ from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _MIGRATIONS = [
     _BACKEND_ROOT / "alembic" / "versions" / f"{revision}.py"
-    for revision in ("20261024_sell_in_tables", "20261107_sell_in_bonos_marca")
+    for revision in ("20261024_sell_in_tables", "20261107_sell_in_bonos_marca", "20261112_sell_in_compras_porcentaje")
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
 BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty"}
