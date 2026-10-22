@@ -1074,7 +1074,7 @@ export default function ModalOffset({
                       </td>
                       <td>
                         {offset.descripcion || '-'}
-                        {offset.campana_id && <><br/><OffsetMigradoBadge campanaId={offset.campana_id} /></>}
+                        {offset.campana_id ? <><br/><OffsetMigradoBadge campanaId={offset.campana_id} /></> : null}
                       </td>
                       <td className={styles.tdSmall}>
                         {formatFecha(offset.fecha_desde)}{offset.fecha_hasta ? ` - ${formatFecha(offset.fecha_hasta)}` : '+'}
