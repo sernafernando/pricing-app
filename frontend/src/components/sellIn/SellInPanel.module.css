@@ -201,7 +201,7 @@
 .lineaFacturado {
   display: block;
   font-size: var(--font-xs);
-  color: var(--text-secondary);
+  color: var(--cf-text-secondary);
 }
 
 .mono {

@@ -8,7 +8,7 @@ En **Nuevo sell in → Por compra** ahora se puede cargar el beneficio como **un
 
 - **Cómo se calcula:** cada producto recibe ese porcentaje de lo que se le facturó en las operaciones elegidas, con descuentos y notas de crédito ya aplicados. El total es la suma de los productos y lo calcula el sistema.
 - **Se toma lo facturado al momento de cargar:** si después llega una devolución, el sell in no cambia solo.
-- **Lo facturado se ve en el panel:** cada producto muestra **Facturado** con su importe, o **Sin facturado** si todavía no tiene factura. La vista previa suma la columna **Base facturada**.
+- **Lo facturado se ve en el panel:** cada producto muestra **Facturado** con su importe, o **Sin facturado** si todavía no tiene factura. La vista previa agrega la columna **Base facturada**, con lo facturado de cada producto.
 - **Necesita al menos una operación de compra**, porque lo facturado sale de ahí.
 - **La moneda de la compra tiene que ser la de lo facturado.** Si no coincide, el sistema avisa y no guarda.
 - **No se puede guardar si** un producto no tiene facturado o si su factura mezcla monedas. El aviso indica qué producto es.
