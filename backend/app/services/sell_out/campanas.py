@@ -112,6 +112,19 @@ def validar(db: Session, data: SellOutCampanaIn, actual: Optional[SellOutCampana
 
     A USD campaign without `tc_modo` gets `al_cobro` (the default), set on `data` in place.
     """
+    validar_campos(data, actual)
+    grupo_ids = list(dict.fromkeys(data.grupo_ids))
+    if not grupo_ids:
+        raise SellOutError("Seleccione al menos un grupo de productos")
+    existentes = {gid for (gid,) in db.query(OffsetGrupo.id).filter(OffsetGrupo.id.in_(grupo_ids))}
+    for gid in grupo_ids:
+        if gid not in existentes:
+            raise SellOutError(f"El grupo {gid} no existe")
+    return grupo_ids
+
+
+def validar_campos(data: SellOutCampanaIn, actual: Optional[SellOutCampana] = None) -> None:
+    """`validar` without its group checks: for a dry run whose groups do not exist yet (the offsets migration)."""
     if not data.nombre.strip():
         raise SellOutError("El nombre es obligatorio")
     if data.fecha_hasta < data.fecha_desde:
@@ -138,15 +151,6 @@ def validar(db: Session, data: SellOutCampanaIn, actual: Optional[SellOutCampana
         raise SellOutError("El tope de unidades tiene que ser mayor a 0")
     if data.tope_monto is not None and data.tope_monto <= 0:
         raise SellOutError("El tope de monto tiene que ser mayor a 0")
-
-    grupo_ids = list(dict.fromkeys(data.grupo_ids))
-    if not grupo_ids:
-        raise SellOutError("Seleccione al menos un grupo de productos")
-    existentes = {gid for (gid,) in db.query(OffsetGrupo.id).filter(OffsetGrupo.id.in_(grupo_ids))}
-    for gid in grupo_ids:
-        if gid not in existentes:
-            raise SellOutError(f"El grupo {gid} no existe")
-    return grupo_ids
 
 
 def _a_escala(campo: str, valor):
