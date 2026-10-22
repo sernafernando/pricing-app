@@ -389,9 +389,28 @@ WHERE p.ct_transaction_id IS NOT NULL AND {scope_pedido}
 # Combo components are left out and only the main line counts, as in the sales
 # metrics scripts (no purchase line had association flags on prod 2026-10-19;
 # the rule only guards against a future double count).
+#
+# Net amount (sell-in T3g-1, the base of a % sell in): SUM(it_qty * it_price *
+# sd_plusorminus), rounded to cents, clamped at 0, in the lines' OWN currency
+# (`it.curr_id`, 1=ARS, 2=USD as pedidos_service._curr_id_a_moneda). Measured on
+# the dev-DB ERP mirror 2026-10-21 (50 invoices): 9 ARS-header invoices carry
+# USD-priced lines (it_price in USD, ct_subtotal in ARS), so the header's
+# curr_id_transaction would mislabel the amount; and it_price is already net of it_discount1..4
+# (it_pricewithoothers is the pre-discount price). When the invoice and its
+# credit notes mix currencies, or a line lacks a price or a known currency, no
+# single amount exists: importe_neto and moneda are both NULL. CASE instead of
+# GREATEST so the SQLite test engine runs it too. Same SQL in the migration
+# 20261110_pedido_lineas_facturadas_importe backfill.
+_IMPORTE_VALIDO = (
+    "COUNT(DISTINCT it.curr_id) = 1 AND COUNT(it.curr_id) = COUNT(*) "
+    "AND COUNT(it.it_price) = COUNT(*) AND MIN(it.curr_id) IN (1, 2)"
+)
 _LINEAS_ORIGEN_SQL = (
     "SELECT d.pedido_id AS pedido_id, it.item_id AS item_id, "
-    "CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER) AS cantidad "
+    "CAST(FLOOR(SUM(it.it_qty * v.sd_plusorminus)) AS INTEGER) AS cantidad, "
+    "CASE WHEN " + _IMPORTE_VALIDO + " THEN CASE WHEN SUM(it.it_qty * it.it_price * v.sd_plusorminus) < 0 THEN 0 "
+    "ELSE ROUND(SUM(it.it_qty * it.it_price * v.sd_plusorminus), 2) END END AS importe_neto, "
+    "CASE WHEN " + _IMPORTE_VALIDO + " THEN CASE MIN(it.curr_id) WHEN 1 THEN 'ARS' ELSE 'USD' END END AS moneda "
     "FROM (" + _DOCUMENTOS_SQL + ") d "
     """JOIN v_facturas_compra_vigentes v ON v.ct_transaction = d.ct
 JOIN tb_item_transactions it ON it.ct_transaction = d.ct
@@ -409,7 +428,8 @@ _T = "pedido_compra_lineas_facturadas"
 _BORRAR_LINEAS_SQL = text(f"DELETE FROM {_T} WHERE pedido_id = :pid")
 # The corrected clone inherits the original's link and lines as-is.
 _COPIAR_LINEAS_SQL = text(
-    f"INSERT INTO {_T} (pedido_id, item_id, cantidad) SELECT :destino, item_id, cantidad FROM {_T} WHERE pedido_id = :origen"
+    f"INSERT INTO {_T} (pedido_id, item_id, cantidad, importe_neto, moneda) "
+    f"SELECT :destino, item_id, cantidad, importe_neto, moneda FROM {_T} WHERE pedido_id = :origen"
 )
 _MATCH = f"s.pedido_id = {_T}.pedido_id AND s.item_id = {_T}.item_id"
 # Set difference against the snapshot: delete what the ERP no longer has, then
@@ -417,14 +437,18 @@ _MATCH = f"s.pedido_id = {_T}.pedido_id AND s.item_id = {_T}.item_id"
 # concurrent reconciles of the same pedido safe under READ COMMITTED: the second
 # one waits for the first and updates its row instead of raising on
 # UNIQUE(pedido_id, item_id). The DO UPDATE ... WHERE skips unchanged rows, so
-# they do not count as changes. `WHERE true` is required by SQLite to parse an
-# upsert after INSERT ... SELECT. Supported by PostgreSQL and SQLite >= 3.24.
+# they do not count as changes; IS DISTINCT FROM because importe_neto/moneda
+# can be NULL on either side. `WHERE true` is required by SQLite to parse an
+# upsert after INSERT ... SELECT. Supported by PostgreSQL and SQLite >= 3.39
+# (IS DISTINCT FROM on row values).
 _RECONCILIAR_SQL = (
     "WITH s AS ({origen}) DELETE FROM {t} WHERE {scope_t} AND NOT EXISTS (SELECT 1 FROM s WHERE {match})",
-    "WITH s AS ({origen}) INSERT INTO {t} (pedido_id, item_id, cantidad) "
-    "SELECT s.pedido_id, s.item_id, s.cantidad FROM s WHERE true "
-    "ON CONFLICT (pedido_id, item_id) DO UPDATE SET cantidad = excluded.cantidad "
-    "WHERE {t}.cantidad <> excluded.cantidad",
+    "WITH s AS ({origen}) INSERT INTO {t} (pedido_id, item_id, cantidad, importe_neto, moneda) "
+    "SELECT s.pedido_id, s.item_id, s.cantidad, s.importe_neto, s.moneda FROM s WHERE true "
+    "ON CONFLICT (pedido_id, item_id) DO UPDATE SET cantidad = excluded.cantidad, "
+    "importe_neto = excluded.importe_neto, moneda = excluded.moneda "
+    "WHERE ({t}.cantidad, {t}.importe_neto, {t}.moneda) "
+    "IS DISTINCT FROM (excluded.cantidad, excluded.importe_neto, excluded.moneda)",
 )
 
 
