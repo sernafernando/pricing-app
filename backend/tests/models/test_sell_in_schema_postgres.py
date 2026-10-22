@@ -1,7 +1,8 @@
 """Migration `20261024_sell_in_tables`: purchases, their items and consumptions.
 Followed by `20261107_sell_in_bonos_marca` (brand bonus, the purchases' origin
 columns and the bonus queue) and `20261112_sell_in_compras_porcentaje` (fixed
-amount or percentage), so the parity check covers the tables as they are now.
+amount or percentage) and `20261114_sell_in_bonos_alcance` (a bonus's scope and
+kind, and its models), so the parity check covers the tables as they are now.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references (usuarios, proveedores,
@@ -26,10 +27,15 @@ from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _MIGRATIONS = [
     _BACKEND_ROOT / "alembic" / "versions" / f"{revision}.py"
-    for revision in ("20261024_sell_in_tables", "20261107_sell_in_bonos_marca", "20261112_sell_in_compras_porcentaje")
+    for revision in (
+        "20261024_sell_in_tables",
+        "20261107_sell_in_bonos_marca",
+        "20261112_sell_in_compras_porcentaje",
+        "20261114_sell_in_bonos_alcance",
+    )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
-BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty"}
+BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty", "sell_in_bono_items"}
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",

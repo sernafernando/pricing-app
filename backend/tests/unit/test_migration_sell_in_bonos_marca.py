@@ -164,6 +164,9 @@ class TestSellInBonosMarcaMigration:
 
     def test_downgrade_removes_everything_it_created(self, engine: Engine) -> None:
         antes = _names(engine, _TRIGGERS)
+        # Alembic's order: the later revisions of the chain (some depend on the bonus table) go first.
+        for later in reversed(base._MIGRATIONS[2:]):
+            _step(engine, later, "downgrade")
 
         _step(engine, base._MIGRATIONS[1], "downgrade")
 
