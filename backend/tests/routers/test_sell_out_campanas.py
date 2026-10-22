@@ -6,11 +6,14 @@ are proven on Postgres by `tests/models/test_sell_out_schema_postgres.py`.
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+
 import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 
 BASE = "/api/sell-out/campanas"
 VER = "sell_out.ver"
@@ -66,7 +69,7 @@ def _crear(client, headers, grupos, **overrides) -> dict:
 # ── Permissions ─────────────────────────────────────────────────────
 
 ESCRITURAS = [("post", BASE), ("put", f"{BASE}/1"), ("post", f"{BASE}/1/anular"), ("post", f"{BASE}/1/tipo-cambio")]
-LECTURAS = [("get", BASE), ("get", f"{BASE}/1")]
+LECTURAS = [("get", BASE), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
 
 
 @pytest.mark.parametrize("method,url", ESCRITURAS + LECTURAS)
@@ -210,6 +213,63 @@ def test_get_one_and_unknown_is_404(client, lector, gestor, grupos) -> None:
     out = _crear(client, gestor, grupos)
     assert client.get(f"{BASE}/{out['id']}", headers=lector).json() == out
     assert client.get(f"{BASE}/999999", headers=lector).status_code == 404
+
+
+# ── What each campaign credited (T7 S5) ─────────────────────────────
+
+
+def _consumo(db, campana_id: int, canal: str, ref: int, dia: str, unidades: int, monto: str) -> None:
+    db.add(
+        SellOutConsumo(
+            campana_id=campana_id,
+            canal=canal,
+            venta_ref=ref,
+            item_id=2964,
+            fecha_venta=date.fromisoformat(dia),
+            unidades=unidades,
+            monto=Decimal(monto),
+        )
+    )
+    db.flush()
+
+
+def test_list_and_detail_carry_each_campaign_summary(client, gestor, grupos, db) -> None:
+    out = _crear(client, gestor, grupos, moneda="ARS", monto_unit="10", tope_unidades=10)
+    otra = _crear(client, gestor, grupos, moneda="ARS", nombre="Sin ventas")
+    _consumo(db, out["id"], "ml", 1, "2026-11-02", 2, "20.00")
+    _consumo(db, out["id"], "fuera", 2, "2026-11-03", 3, "30.00")
+
+    items = {c["id"]: c for c in client.get(BASE, headers=gestor).json()["items"]}
+    detalle = client.get(f"{BASE}/{out['id']}", headers=gestor).json()
+
+    resumen = items[out["id"]]["resumen"]
+    assert detalle["resumen"] == resumen
+    assert (resumen["lineas"], resumen["unidades"], resumen["monto"], resumen["monto_ars"]) == (2, 5, "50.00", "50.00")
+    assert (resumen["tope_unidades_restantes"], resumen["pendientes_base"], resumen["ars_estimado"]) == (5, 0, False)
+    assert [(c["canal"], c["unidades"]) for c in resumen["por_canal"]] == [("ml", 2), ("fuera", 3)]
+    assert resumen["recalculo"]["estado"] == "al_dia"
+    assert items[otra["id"]]["resumen"]["unidades"] == 0
+
+
+def test_consumos_lists_the_credited_lines_one_page_at_a_time(client, lector, gestor, grupos, db) -> None:
+    out = _crear(client, gestor, grupos, moneda="ARS")
+    for ref in range(1, 4):
+        _consumo(db, out["id"], "tn", ref, f"2026-11-0{ref}", 1, "10.00")
+
+    resp = client.get(f"{BASE}/{out['id']}/consumos", params={"page": 2, "page_size": 2}, headers=lector)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert (body["total"], body["page"], body["page_size"], body["moneda"]) == (3, 2, 2, "ARS")
+    assert [(x["venta_ref"], x["unidades"], x["monto"], x["monto_ars"]) for x in body["items"]] == [
+        (3, 1, "10.00", "10.00")
+    ]
+
+
+def test_consumos_of_an_unknown_campaign_is_404_and_page_size_is_bounded(client, lector, gestor, grupos) -> None:
+    out = _crear(client, gestor, grupos)
+    assert client.get(f"{BASE}/999999/consumos", headers=lector).status_code == 404
+    assert client.get(f"{BASE}/{out['id']}/consumos", params={"page_size": 201}, headers=lector).status_code == 422
 
 
 # ── Update and void ─────────────────────────────────────────────────
