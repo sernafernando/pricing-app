@@ -8,8 +8,10 @@ serializes. Everything is computed at read time from the stored facts; nothing h
 - `GET /ml-ads/by-product`: the read-time sum of those rows per owner, "sin producto" included. `product_ids` narrows.
 - `GET /ml-ads/account-level`: Display per campaign (subtractable: its IVA basis is measured) and Brand Ads
   (informational only, no net cost). Never attributed to an MLA.
+- `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with all its brand contributions and its cost in the
+  range (ml-ads-brand-contribution S8). Read only; the contributions are loaded by a later write API.
 
-Every response carries the `coverage` of the same range (ledger days not fetched, and mismatch days), so a gap is
+Every cost read above carries the `coverage` of the same range (ledger days not fetched, and mismatch days), so a gap is
 never shown as zero spend. A range is `date_from <= date_to` and at most 366 days; `mlas` and `product_ids` take up
 to 500 values; anything else is a 422 with the app's envelope and the offending `field`. Money is a float with two
 decimals, rounded once here.
@@ -18,7 +20,7 @@ decimals, rounded once here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -29,7 +31,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.core.exceptions import ErrorCode, api_error
-from app.services.ml_ads import read
+from app.models.ml_ads import MlAdsCampaignContribution
+from app.services.ml_ads import contributions, read
 
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 MAX_DAYS = 366
@@ -252,4 +255,72 @@ def get_account_level(w: Window = Depends(window), db: Session = Depends(get_db)
             ],
         ),
         brand=BrandOut(cost_informational=_money(brand.cost_informational), prints=brand.prints, clicks=brand.clicks),
+    )
+
+
+# ── Brand contributions (ml-ads-brand-contribution) ─────────────
+
+
+class ContributionOut(BaseModel):
+    id: int
+    advertiser_id: int
+    campaign_id: int
+    kind: str  # percentage | fixed_amount
+    value: float
+    date_from: date
+    date_to: date
+    brand: Optional[str] = None
+    note: Optional[str] = None
+    created_by_id: int
+    updated_by_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CampaignOut(BaseModel):
+    advertiser_id: int
+    campaign_id: int
+    name: Optional[str] = None
+    status: Optional[str] = None
+    cost: float  # `ml_ads_campaign_days.cost` summed over the requested range
+    contributions: list[ContributionOut]
+
+
+class CampaignsOut(BaseModel):
+    campaigns: list[CampaignOut]
+
+
+def _contribution_out(row: MlAdsCampaignContribution) -> ContributionOut:
+    return ContributionOut(
+        id=row.id,
+        advertiser_id=row.advertiser_id,
+        campaign_id=row.campaign_id,
+        kind=row.kind,
+        value=_money(row.value),
+        date_from=row.date_from,
+        date_to=row.date_to,
+        brand=row.brand,
+        note=row.note,
+        created_by_id=row.created_by_id,
+        updated_by_id=row.updated_by_id,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+@router.get("/campaigns", response_model=CampaignsOut)
+def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) -> CampaignsOut:
+    rows = contributions.list_campaigns(db, w.date_from, w.date_to)
+    return CampaignsOut(
+        campaigns=[
+            CampaignOut(
+                advertiser_id=r.campaign.advertiser_id,
+                campaign_id=r.campaign.campaign_id,
+                name=r.campaign.name,
+                status=r.campaign.status,
+                cost=_money(r.cost),
+                contributions=[_contribution_out(c) for c in r.contributions],
+            )
+            for r in rows
+        ]
     )

@@ -217,3 +217,41 @@ class MlAdsCampaignDay(Base):
     organic_units = Column(Integer, nullable=False, server_default="0", default=0)
     raw = Column(JSONB, nullable=False)
     fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+CONTRIBUTION_KINDS = ("percentage", "fixed_amount")
+
+
+class MlAdsCampaignContribution(Base):
+    """A brand's contribution to one Product Ads campaign over `[date_from, date_to]` (ml-ads-brand-contribution S4).
+
+    Loaded by hand (S2). `percentage` covers that share of each day's cost; `fixed_amount` is money spread over the
+    range's days by each day's cost, capped at it (S5, S6: applied by the Board, not stored here). Ranges of one
+    campaign never overlap (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
+    self-contained (users are deactivated, never deleted).
+    """
+
+    __tablename__ = "ml_ads_campaign_contributions"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    advertiser_id = Column(BigInteger, nullable=False)
+    campaign_id = Column(BigInteger, nullable=False)
+    kind = Column(String(16), nullable=False)
+    value = Column(Numeric(16, 2), nullable=False)
+    date_from = Column(Date, nullable=False)
+    date_to = Column(Date, nullable=False)
+    brand = Column(String(120), nullable=True)
+    note = Column(Text, nullable=True)
+    created_by_id = Column(Integer, nullable=False)
+    updated_by_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(_in_list("kind", CONTRIBUTION_KINDS), name="ck_ml_ads_campaign_contributions_kind"),
+        CheckConstraint(
+            "value > 0 AND (kind <> 'percentage' OR value <= 100)", name="ck_ml_ads_campaign_contributions_value"
+        ),
+        CheckConstraint("date_from <= date_to", name="ck_ml_ads_campaign_contributions_dates"),
+        Index("ix_ml_ads_campaign_contributions_campaign", "advertiser_id", "campaign_id"),
+    )
