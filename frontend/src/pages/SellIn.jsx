@@ -3,6 +3,7 @@ import { Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
+import { sellOutAPI } from '../services/sellOutAPI';
 import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
 import { FacetChips, Pagination, SplitPanelLayout } from '../components/kit';
@@ -13,11 +14,14 @@ import SellInNuevoPanel from '../components/sellIn/SellInNuevoPanel';
 import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
 import { buildSellInParams } from '../components/sellIn/sellInFormat';
+import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
+import SellOutCampanasTable from '../components/sellOut/SellOutCampanasTable';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const BONOS_PAGE_SIZES = [10, 25, 50];
-const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca' };
+const CAMPANAS_PAGE_SIZES = [10, 25, 50];
+const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
 const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '' };
 
@@ -62,6 +66,31 @@ function useBonos(enabled) {
   return { lista, error, offset, setOffset, pageSize, setPageSize, recargar };
 }
 
+/** The sell-out campaigns page by page (`GET /sell-out/campanas`), searched by name (`q`). */
+function useCampanas(enabled) {
+  const [q, setQ] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState(CAMPANAS_PAGE_SIZES[0]);
+  const [lista, setLista] = useState(null);
+  const [error, setError] = useState(null);
+  const requestRef = useRef(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const requestId = ++requestRef.current;
+    setError(null);
+    const params = { page: Math.floor(offset / pageSize) + 1, page_size: pageSize };
+    sellOutAPI
+      .listar(q.trim() ? { q: q.trim(), ...params } : params)
+      .then(({ data }) => requestId === requestRef.current && setLista(data))
+      .catch(() => requestId === requestRef.current && setError('No se pudieron cargar las campañas de sell out.'));
+  }, [enabled, q, offset, pageSize]);
+  const buscar = useCallback((value) => {
+    setQ(value);
+    setOffset(0);
+  }, []);
+  return { lista, error, q, buscar, offset, setOffset, pageSize, setPageSize };
+}
+
 /**
  * Sell in: purchase discounts that lower the cost of that purchase's units
  * (feature sell-in-sell-out T3). Lists the sell-in purchases with their
@@ -73,6 +102,8 @@ export default function SellIn() {
   const puedeGestionar = tienePermiso('sell_in.gestionar');
   const marcas = useMarcas(puedeVer);
   const bonos = useBonos(puedeVer);
+  const puedeVerSellOut = tienePermiso('sell_out.ver');
+  const campanas = useCampanas(puedeVer && puedeVerSellOut);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -86,6 +117,7 @@ export default function SellIn() {
   const cerrarPanel = useCallback(() => setPanel(null), []);
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
+  const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
 
   const params = useMemo(() => buildSellInParams({ ...filters, aplica: filters.aplica || 'todas' }), [filters]);
 
@@ -199,6 +231,8 @@ export default function SellIn() {
               onVerCompra={verCompra}
               onClose={cerrarPanel}
             />
+          ) : panel?.tipo === 'campana' ? (
+            <SellOutCampanaPanel key={`campana-${panel.id}`} campanaId={panel.id} onClose={cerrarPanel} />
           ) : panel ? (
             <SellInDetailPanel
               key={panel.id}
@@ -337,6 +371,46 @@ export default function SellIn() {
             </>
           )}
         </section>
+
+        {puedeVerSellOut && (
+          <section className={styles.bonos} aria-labelledby="sell-out-campanas-titulo">
+            <h2 id="sell-out-campanas-titulo" className={styles.sectionTitle}>
+              Campañas de sell out
+            </h2>
+            <p className={styles.description}>
+              Un monto por unidad o un porcentaje que la marca reconoce por cada venta de los productos alcanzados, en un rango de fechas.
+            </p>
+            <div className={styles.searchSlot}>
+              <SearchInput value={campanas.q} onChange={campanas.buscar} debounce={400} placeholder="Buscar campaña por nombre…" />
+            </div>
+            {campanas.error && (
+              <div className={styles.errorBar} role="alert">
+                <ShieldAlert size={16} /> {campanas.error}
+              </div>
+            )}
+            {campanas.lista && (
+              <>
+                <SellOutCampanasTable
+                  campanas={campanas.lista.items}
+                  selectedId={panel?.tipo === 'campana' ? panel.id : null}
+                  onSelect={verCampana}
+                />
+                <Pagination
+                  total={campanas.lista.total}
+                  offset={campanas.offset}
+                  pageSize={campanas.pageSize}
+                  onOffsetChange={campanas.setOffset}
+                  onPageSizeChange={(size) => {
+                    campanas.setPageSize(size);
+                    campanas.setOffset(0);
+                  }}
+                  pageSizeOptions={CAMPANAS_PAGE_SIZES}
+                  summary={<span>{campanas.lista.total} campañas</span>}
+                />
+              </>
+            )}
+          </section>
+        )}
       </SplitPanelLayout>
     </div>
   );
