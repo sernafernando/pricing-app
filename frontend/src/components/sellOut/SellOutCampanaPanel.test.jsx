@@ -3,14 +3,14 @@
  * channel, its recalculation state, and the legacy offset it came from.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { CAMPANA_MIGRADA, CAMPANA_PORCENTAJE_ANULADA } from './sellOutFixtures';
 import SellOutCampanaPanel from './SellOutCampanaPanel';
 
 vi.mock('../../services/sellOutAPI', () => ({
-  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn() },
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn(), definirTipoCambio: vi.fn() },
 }));
 
 const GRUPOS = [
@@ -147,5 +147,71 @@ describe('SellOutCampanaPanel — create and edit (T8b)', () => {
     expect(await screen.findByText('Anulada')).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument();
+  });
+});
+
+describe('SellOutCampanaPanel — void and exchange rate (T8c)', () => {
+  it('voids an active campaign after an inline confirmation, with an optional reason', async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    const anulada = { ...CAMPANA_MIGRADA, estado: 'anulada' };
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    sellOutAPI.anular.mockResolvedValue({ data: anulada });
+    render(<SellOutCampanaPanel campanaId={55} grupos={GRUPOS} puedeGestionar onSaved={onSaved} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Anular campaña' }));
+    expect(sellOutAPI.anular).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText('Motivo (opcional)'), 'Cargada dos veces');
+    await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
+
+    expect(sellOutAPI.anular).toHaveBeenCalledWith(55, 'Cargada dos veces');
+    expect(onSaved).toHaveBeenCalledWith(anulada);
+    expect(await screen.findByText('Anulada')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument();
+  });
+
+  it('"Cancelar" leaves the campaign as it was', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    render(<SellOutCampanaPanel campanaId={55} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'Anular campaña' }));
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(sellOutAPI.anular).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Anular campaña' })).toBeInTheDocument();
+  });
+
+  it('an al_cobro USD campaign offers its payment rate; a fixed-rate one and a reader do not', async () => {
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    const { unmount } = render(<SellOutCampanaPanel campanaId={55} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
+    expect(await screen.findByLabelText('Valor del tipo de cambio')).toBeInTheDocument();
+    unmount();
+
+    sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, tc_modo: 'fijo', tipo_cambio: '1400.000000' } });
+    const fijo = render(<SellOutCampanaPanel campanaId={55} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
+    await screen.findByRole('button', { name: 'Guardar cambios' });
+    expect(screen.queryByLabelText('Valor del tipo de cambio')).not.toBeInTheDocument();
+    fijo.unmount();
+
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    render(<SellOutCampanaPanel campanaId={55} onClose={() => {}} />);
+    await screen.findByText('Activa');
+    expect(screen.queryByLabelText('Valor del tipo de cambio')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Anular campaña' })).not.toBeInTheDocument();
+  });
+
+  it('while the rate is being set, the footer actions wait', async () => {
+    const user = userEvent.setup();
+    let responder;
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    sellOutAPI.definirTipoCambio.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    render(<SellOutCampanaPanel campanaId={55} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
+
+    await user.type(await screen.findByLabelText('Valor del tipo de cambio'), '1420');
+    await user.click(screen.getByRole('button', { name: 'Definir tipo de cambio' }));
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Anular campaña' })).toBeDisabled();
+
+    responder({ data: { ...CAMPANA_MIGRADA, tipo_cambio: '1420.000000' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeEnabled());
   });
 });
