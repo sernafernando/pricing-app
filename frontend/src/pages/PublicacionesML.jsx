@@ -40,6 +40,7 @@ import { canExportVista, exportPublicacionesCsv, exportPublicacionesSheets } fro
 import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import styles from './PublicacionesML.module.css';
+import SheetsNotice from '../components/sheets/SheetsNotice';
 
 /**
  * Publicaciones ML -- the management screen over every publication
@@ -458,20 +459,7 @@ export default function PublicacionesML() {
           <span className={styles.errorText}>{exportError}</span>
         </div>
       )}
-      {sheetsNotice && (
-        <p className={styles.description} role="status">
-          {sheetsNotice.url ? (
-            <>
-              Hoja creada.{' '}
-              <a href={sheetsNotice.url} target="_blank" rel="noopener noreferrer">
-                Abrir la hoja en Google Sheets
-              </a>
-            </>
-          ) : (
-            sheetsNotice.text
-          )}
-        </p>
-      )}
+      <SheetsNotice notice={sheetsNotice} onClose={() => setSheetsNotice(null)} />
 
       <StateBanner dataState={data?.data_state} />
 

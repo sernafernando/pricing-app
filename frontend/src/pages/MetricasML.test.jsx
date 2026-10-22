@@ -708,7 +708,7 @@ describe('Exportar a Sheets', () => {
     exportMetricasSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: false });
     await renderWithRouter(<MetricasML />);
     await userEvent.click(await sheetsButton());
-    const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    const link = await screen.findByRole('link', { name: 'Abrir en Google Sheets' });
     expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
     expect(link).toHaveAttribute('target', '_blank');
   });
@@ -716,17 +716,17 @@ describe('Exportar a Sheets', () => {
   it('links to the new sheet even when its tab seemed to open (a browser can block it silently)', async () => {
     await renderWithRouter(<MetricasML />);
     await userEvent.click(await sheetsButton());
-    const link = await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    const link = await screen.findByRole('link', { name: 'Abrir en Google Sheets' });
     expect(link).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/sid');
-    expect(screen.getByRole('status')).toHaveTextContent('Hoja creada.');
+    expect(screen.getByRole('status')).toHaveTextContent('Hoja creada en Google Sheets');
   });
 
   it('a CSV export afterwards drops the link to the previous sheet', async () => {
     exportMetricasSheets.mockResolvedValue({ url: 'https://docs.google.com/spreadsheets/d/sid', opened: false });
     await renderWithRouter(<MetricasML />);
     await userEvent.click(await sheetsButton());
-    await screen.findByRole('link', { name: 'Abrir la hoja en Google Sheets' });
+    await screen.findByRole('link', { name: 'Abrir en Google Sheets' });
     await userEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
-    await waitFor(() => expect(screen.queryByRole('link', { name: 'Abrir la hoja en Google Sheets' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Abrir en Google Sheets' })).not.toBeInTheDocument());
   });
 });
