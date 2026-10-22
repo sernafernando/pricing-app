@@ -31,7 +31,7 @@ creates nothing.
 Dry run is the DEFAULT: it only validates (`validar` / `validar_campos`) and
 writes nothing. `--apply` loads each offset in its own transaction (its new
 group and its campaign commit together, or neither does). Exits 1 when a
-validation error left an offset out, 0 otherwise. Run from `backend/` with `-m`:
+validation or database error left an offset out, 0 otherwise. Run from `backend/` with `-m`:
     cd /var/www/html/pricing-app/backend && venv/bin/python -m app.scripts.migrar_offsets_a_sell_out --csv /tmp/offsets.csv
     cd /var/www/html/pricing-app/backend && venv/bin/python -m app.scripts.migrar_offsets_a_sell_out --csv /tmp/offsets.csv --apply
 """
@@ -287,6 +287,12 @@ def run_migracion(
                         error = plan.motivo if plan.error else None
                     else:
                         fila, error = _uno(db, offset, plan, apply)
+            except SQLAlchemyError as exc:
+                # Reading the offset failed: reported with its id alone, the run and the report go on.
+                db.rollback()
+                logger.exception("Offset #%s: database error", offset_id)
+                error = f"Error de base de datos: {type(exc).__name__}"
+                fila = {**dict.fromkeys(COLUMNAS, ""), "offset_id": offset_id, "resultado": NO_MIGRADO, "motivo": error}
             finally:
                 if not apply:
                     db.rollback()

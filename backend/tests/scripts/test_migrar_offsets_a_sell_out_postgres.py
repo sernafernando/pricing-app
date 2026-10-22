@@ -500,3 +500,25 @@ def test_the_dry_run_reports_an_offset_that_validation_refuses_and_exits_1(engin
 
     assert {table: _count(engine, table) for table in _ESCRITAS} == antes
     assert (code, filas[rechazado]["resultado"], summary["con_error"]) == (1, "no migrado", [rechazado])
+
+
+def test_a_database_error_reading_one_offset_is_reported_and_the_others_still_migrate(
+    engine, correr, monkeypatch
+) -> None:
+    falla = _offset(engine, item_id=2964)
+    sana = _offset(engine, item_id=950)
+    real = script._ya_migrada
+
+    def ya_migrada(db, offset_id):
+        if offset_id == falla:
+            db.execute(text("SELECT * FROM tabla_que_no_existe"))
+        return real(db, offset_id)
+
+    monkeypatch.setattr(script, "_ya_migrada", ya_migrada)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 1
+    assert (filas[falla]["resultado"], filas[falla]["motivo"].split(":")[0]) == ("no migrado", "Error de base de datos")
+    assert [c["offset_origen_id"] for c in _campanas(engine)] == [sana]
+    assert summary["con_error"] == [falla]
