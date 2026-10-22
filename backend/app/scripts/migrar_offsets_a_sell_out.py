@@ -6,8 +6,7 @@ loaded through the campaigns service (`app.services.sell_out.campanas`: the
 same validation, audit row and `sell_out.drain` queueing as a campaign loaded
 from the screen) and stamped with `offset_origen_id`:
 
-- scope: the offset's `grupo_id` is linked as is; otherwise a new
-  `offset_grupos` row gets one `offset_grupo_filtros` row per non-null scope
+- scope: a new `offset_grupos` row gets one `offset_grupo_filtros` row per non-null scope
   field (marca / categoria / subcategoria_id / item_id). A legacy offset
   reaches a product matching ANY of its fields and a group matches ANY of its
   rows (each row ANDs its own fields), so the reach is the same;
@@ -22,7 +21,9 @@ from the screen) and stamped with `offset_origen_id`:
 Everything else is reported in the CSV and NOT migrated, each with its reason:
 expired offsets (history is not recomputed), `porcentaje_costo` (waits for the
 sell-in percentage, T3g; until then it keeps working as a legacy offset),
-`monto_fijo`, a non-positive amount, no scope, no user (offset without
+`monto_fijo`, a non-positive amount, an offset of a group (the legacy money
+path applies each grouped offset's own amount to its own product under one
+shared cap, which a campaign linked to the group would not), no scope, no user (offset without
 `usuario_id` and no `--usuario-id`) and the service's validation errors.
 An offset already migrated is reported as such with its campaign: a re-run
 creates nothing.
@@ -115,6 +116,14 @@ def _monto(valor: float) -> Decimal:
     return Decimal(str(valor))
 
 
+# The legacy money path applies each grouped offset's own amount to its own product, the group only sharing one cap;
+# a campaign linked to the group would apply one amount to all it reaches. None is active in production (2026-10-22).
+GRUPO_MOTIVO = (
+    "Offset de un grupo: en el sistema anterior cada offset del grupo aplica su monto a su producto con un tope "
+    "compartido; revisar a mano"
+)
+
+
 def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuario_id: Optional[int]) -> _Plan:
     if offset.fecha_hasta is not None and offset.fecha_hasta < hoy:
         return _Plan(f"Vencido el {offset.fecha_hasta.isoformat()}: no se migra para no recalcular la historia")
@@ -126,10 +135,12 @@ def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuar
         return _Plan(f"Tipo de offset desconocido: {offset.tipo_offset}")
     if offset.monto is None or offset.monto <= 0:
         return _Plan("Monto negativo o cero")
+    if offset.grupo_id is not None:
+        return _Plan(GRUPO_MOTIVO)
     usuario = offset.usuario_id if offset.usuario_id is not None else usuario_id
     if usuario is None:
         return _Plan("Sin usuario: indicar --usuario-id")
-    if offset.grupo_id is None and not any(getattr(offset, col) is not None for col, _ in _ALCANCE):
+    if not any(getattr(offset, col) is not None for col, _ in _ALCANCE):
         return _Plan("Sin alcance: no indica marca, categoría, subcategoría, producto ni grupo")
 
     plan = _Plan(usuario_id=usuario)
@@ -166,7 +177,7 @@ def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuar
             moneda=moneda,
             tope_unidades=offset.max_unidades,
             tope_monto=tope_monto,
-            grupo_ids=[offset.grupo_id] if offset.grupo_id is not None else [],
+            grupo_ids=[],  # its own new group, created under --apply
         )
     except ValidationError as exc:
         campos = ", ".join(str(e["loc"][0]) for e in exc.errors())
@@ -217,13 +228,9 @@ def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple
     """The CSV row of one planned offset and its validation error, if any. Under `apply` it commits."""
     try:
         if not apply:
-            if offset.grupo_id is not None:
-                campanas.validar(db, plan.data)
-            else:
-                campanas.validar_campos(plan.data)  # its group does not exist yet
+            campanas.validar_campos(plan.data)  # its group does not exist yet
             return _fila(offset, MIGRARIA, avisos=plan.avisos), None
-        if offset.grupo_id is None:
-            plan.data.grupo_ids = [_nuevo_grupo(db, offset, plan.usuario_id)]
+        plan.data.grupo_ids = [_nuevo_grupo(db, offset, plan.usuario_id)]
         campana = campanas.crear_campana(db, plan.data, plan.usuario_id, offset_origen_id=offset.id)
         return _fila(offset, MIGRADO, campana.id, avisos=plan.avisos), None
     except campanas.SellOutError as exc:

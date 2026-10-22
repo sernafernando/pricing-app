@@ -251,18 +251,23 @@ def test_an_offset_without_a_group_gets_a_new_group_with_one_filter_per_scope_fi
     assert filas[offset_id]["alcance"] == "marca TP-LINK o categoría Routers o subcategoría 12 o producto 950"
 
 
-def test_an_offset_with_a_group_links_that_group_and_creates_none(engine, correr) -> None:
+def test_an_offset_of_a_group_is_not_migrated_and_its_group_is_left_as_is(engine, correr) -> None:
+    # Legacy money path: each offset of a group applies its own amount to its own item, the group only shares a cap.
+    # A campaign linked to the group would apply one amount to everything the group reaches, so it is left to a person.
     grupo_id = w.grupo(engine, [{"marca": "EPSON"}])
-    offset_id = _offset(engine, grupo_id=grupo_id)
+    offset_id = _offset(engine, item_id=2964, grupo_id=grupo_id)
 
     _, summary, filas = correr("--apply")
 
-    [c] = _campanas(engine)
-    assert _grupos_de(engine, c["id"]) == [(grupo_id, "Grupo")]
+    assert _campanas(engine) == []
     assert _count(engine, "offset_grupos") == 1
     assert _filtros(engine, grupo_id) == [("EPSON", None, None, None)]
-    assert (filas[offset_id]["alcance"], filas[offset_id]["resultado"]) == (f"grupo #{grupo_id}", "migrado")
-    assert summary["campana_ids"] == [c["id"]]
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == (
+        "no migrado",
+        "Offset de un grupo: en el sistema anterior cada offset del grupo aplica su monto a su producto con un tope "
+        "compartido; revisar a mano",
+    )
+    assert summary["migrados"] == 0
 
 
 def test_an_ars_offset_keeps_no_money_cap_and_warns(engine, correr) -> None:
@@ -413,9 +418,8 @@ def test_a_rerun_reports_the_migrated_offsets_and_creates_nothing(engine, correr
 
 
 def test_the_default_dry_run_writes_nothing_and_reports_what_it_would_migrate(engine, correr) -> None:
-    grupo_id = w.grupo(engine, [{"marca": "EPSON"}])
-    con_grupo = _offset(engine, grupo_id=grupo_id)
-    sin_grupo = _offset(engine, marca="TP-LINK", fecha_hasta=None)
+    por_producto = _offset(engine, item_id=2964)
+    sin_fin = _offset(engine, marca="TP-LINK", fecha_hasta=None)
     vencido = _offset(engine, item_id=2964, fecha_hasta=date(2026, 1, 31))
     antes = {table: _count(engine, table) for table in _ESCRITAS}
 
@@ -423,12 +427,12 @@ def test_the_default_dry_run_writes_nothing_and_reports_what_it_would_migrate(en
 
     assert {table: _count(engine, table) for table in _ESCRITAS} == antes
     assert code == 0
-    assert [filas[i]["resultado"] for i in (con_grupo, sin_grupo, vencido)] == [
+    assert [filas[i]["resultado"] for i in (por_producto, sin_fin, vencido)] == [
         "migraría (dry-run)",
         "migraría (dry-run)",
         "no migrado",
     ]
-    assert filas[sin_grupo]["avisos"] == "Sin fecha hasta: se usó 2026-12-31, revisar"
+    assert filas[sin_fin]["avisos"] == "Sin fecha hasta: se usó 2026-12-31, revisar"
     assert (summary["dry_run"], summary["migrarian"], summary["no_migrados"], summary["campana_ids"]) == (
         True,
         2,
