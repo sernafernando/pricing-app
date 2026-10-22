@@ -42,8 +42,8 @@ import {
   STOCK_OPTIONS,
   formatUnits,
 } from '../utils/metricasMlFormat';
-import styles from './MetricasML.module.css';
 import SheetsNotice from '../components/sheets/SheetsNotice';
+import styles from './MetricasML.module.css';
 
 /**
  * Métricas ML — the "stock-market board" of how each PRODUCT sells and

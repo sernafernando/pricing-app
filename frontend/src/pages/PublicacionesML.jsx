@@ -39,8 +39,8 @@ import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import { canExportVista, exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
-import styles from './PublicacionesML.module.css';
 import SheetsNotice from '../components/sheets/SheetsNotice';
+import styles from './PublicacionesML.module.css';
 
 /**
  * Publicaciones ML -- the management screen over every publication
