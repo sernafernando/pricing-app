@@ -37,20 +37,53 @@ from app.core.database import Base
 
 
 class SellInBonoMarca(Base):
-    """X per invoiced unit of a brand's products, for the Compras operations whose supplier invoice date
-    (`pedidos_compra.fecha_factura`) falls in [`fecha_desde`, `fecha_hasta`]. Never deleted: voided."""
+    """X per invoiced unit (or a % of the invoiced net) of the products in the bonus's scope, for the
+    Compras operations whose supplier invoice date (`pedidos_compra.fecha_factura`) falls in
+    [`fecha_desde`, `fecha_hasta`]. Never deleted: voided.
+
+    The scope (`alcance`) is a brand (`marca`), a category (`categoria`), some models
+    (`SellInBonoItem` rows) or one invoice (`pedido_id`); each carries only its own field. The table
+    keeps its brand-bonus name. Only 'marca' / 'por_unidad' bonuses are read so far (T3e-1 is inert)."""
 
     __tablename__ = "sell_in_bonos_marca"
     __table_args__ = (
         CheckConstraint("moneda IN ('ARS', 'USD')", name="ck_sell_in_bonos_marca_moneda"),
-        CheckConstraint("monto_unit > 0", name="ck_sell_in_bonos_marca_monto_positivo"),
         CheckConstraint("fecha_desde <= fecha_hasta", name="ck_sell_in_bonos_marca_rango"),
         CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_in_bonos_marca_estado"),
+        CheckConstraint(
+            "alcance IN ('marca', 'categoria', 'modelos', 'factura')", name="ck_sell_in_bonos_marca_alcance"
+        ),
+        CheckConstraint(
+            "(alcance = 'marca' AND marca IS NOT NULL AND categoria IS NULL AND pedido_id IS NULL) "
+            "OR (alcance = 'categoria' AND categoria IS NOT NULL AND marca IS NULL AND pedido_id IS NULL) "
+            "OR (alcance = 'modelos' AND marca IS NULL AND categoria IS NULL AND pedido_id IS NULL) "
+            "OR (alcance = 'factura' AND marca IS NULL AND categoria IS NULL)",
+            name="ck_sell_in_bonos_marca_campos_segun_alcance",
+        ),
+        CheckConstraint("tipo IN ('por_unidad', 'porcentaje')", name="ck_sell_in_bonos_marca_tipo"),
+        CheckConstraint(
+            "(tipo = 'por_unidad' AND monto_unit IS NOT NULL AND monto_unit > 0 AND porcentaje IS NULL) "
+            "OR (tipo = 'porcentaje' AND porcentaje IS NOT NULL AND porcentaje > 0 AND porcentaje <= 100 "
+            "AND monto_unit IS NULL)",
+            name="ck_sell_in_bonos_marca_monto_segun_tipo",
+        ),
     )
 
     id = Column(BigInteger, primary_key=True)
-    marca = Column(String(100), nullable=False, index=True)  # productos_erp.marca, exact
-    monto_unit = Column(Numeric(18, 2), nullable=False)  # per invoiced unit, in `moneda`
+    alcance = Column(String(16), nullable=False, default="marca", server_default="marca")
+    marca = Column(String(100), nullable=True, index=True)  # productos_erp.marca, exact ('marca' scope)
+    categoria = Column(String(100), nullable=True)  # productos_erp.categoria, exact ('categoria' scope)
+    # The operation of a 'factura' bonus. Deleting it keeps the bonus (NULL); the worker voids what it generated.
+    pedido_id = Column(
+        BigInteger,
+        ForeignKey("pedidos_compra.id", ondelete="SET NULL", name="fk_sell_in_bonos_marca_pedido_id"),
+        nullable=True,
+        index=True,
+    )
+    # 'por_unidad' (`monto_unit` per invoiced unit) or 'porcentaje' (`porcentaje` of the invoiced net).
+    tipo = Column(String(16), nullable=False, default="por_unidad", server_default="por_unidad")
+    monto_unit = Column(Numeric(18, 2), nullable=True)  # per invoiced unit, in `moneda`
+    porcentaje = Column(Numeric(7, 4), nullable=True)
     moneda = Column(String(3), nullable=False)
     fecha_desde = Column(Date, nullable=False)  # supplier invoice date, inclusive
     fecha_hasta = Column(Date, nullable=False)  # inclusive
@@ -60,6 +93,18 @@ class SellInBonoMarca(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_in_bonos_marca_updated_at` trigger.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class SellInBonoItem(Base):
+    """A model (`item_id`) reached by a 'modelos' bonus. No FK to `productos_erp`: the ERP may hold an item
+    the catalog sync has not brought yet (like `pedido_compra_lineas_facturadas`)."""
+
+    __tablename__ = "sell_in_bono_items"
+    __table_args__ = (UniqueConstraint("bono_id", "item_id", name="uq_sell_in_bono_items_bono_item"),)
+
+    id = Column(BigInteger, primary_key=True)
+    bono_id = Column(BigInteger, ForeignKey("sell_in_bonos_marca.id", ondelete="CASCADE"), nullable=False)
+    item_id = Column(Integer, nullable=False, index=True)
 
 
 class SellInBonoDirty(Base):
