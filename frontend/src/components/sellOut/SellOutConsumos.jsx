@@ -26,7 +26,11 @@ export default function SellOutConsumos({ campanaId }) {
     sellOutAPI
       .consumos(campanaId, { page: Math.floor(offset / PAGE_SIZE) + 1, page_size: PAGE_SIZE })
       .then(({ data }) => active && setPagina(data))
-      .catch((err) => active && setError(apiMessage(err, 'No se pudieron cargar las ventas acreditadas.')));
+      .catch((err) => {
+        if (!active) return;
+        setPagina(null); // never leave the previous page on screen as if it were the one asked for
+        setError(apiMessage(err, 'No se pudieron cargar las ventas acreditadas.'));
+      });
     return () => {
       active = false;
     };

@@ -53,4 +53,15 @@ describe('SellOutConsumos', () => {
     render(<SellOutConsumos campanaId={99} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Campaña no encontrada');
   });
+
+  it('a page that fails to load hides the previous page instead of showing it as current', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.consumos.mockResolvedValueOnce({ data: CONSUMOS_USD });
+    sellOutAPI.consumos.mockRejectedValueOnce({});
+    render(<SellOutConsumos campanaId={55} />);
+    await screen.findByText('Epson EcoTank L8180');
+    await user.click(screen.getByRole('button', { name: /siguiente/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar las ventas acreditadas.');
+    expect(screen.queryByText('Epson EcoTank L8180')).not.toBeInTheDocument();
+  });
 });
