@@ -19,6 +19,10 @@ Work order of a run:
 6. Brand Ads (account-level, informational, ADS-10), only when nothing before it stopped the run: one call
    per `(advertiser, day)` for every advertiser, its own ledger rows (`source='brand_ads'`) and the same order,
    daily refresh, isolation and limits as Display.
+7. Campaigns of closed days (ml-ads-campaigns T4), only when nothing before it stopped the run: one
+   `campaigns/search` per `(advertiser, day)` for the days older than D-14 (newer ones are read by steps 3-4),
+   its own ledger rows (`source='campaigns'`), read once (no refresh, no verify), with the isolation and limits
+   of Display.
 
 A rate limit or a missing token ends the run. A day that failed is skipped for the rest of the run, so one
 poison day never blocks the others, and the run reports itself incomplete so it is retried. Days ML no
@@ -62,6 +66,8 @@ class TickResult:
     display_error: Optional[str] = None
     brand_steps: list[ingestion.StepResult] = field(default_factory=list)
     brand_error: Optional[str] = None
+    campaigns_steps: list[ingestion.StepResult] = field(default_factory=list)
+    campaigns_error: Optional[str] = None
 
     def as_detail(self) -> dict[str, Any]:
         return {
@@ -77,6 +83,13 @@ class TickResult:
                 "steps": [
                     {"advertiser_id": s.advertiser_id, "day": s.day.isoformat(), "outcome": s.outcome}
                     for s in self.brand_steps
+                ],
+            },
+            "campaigns": {
+                "error": self.campaigns_error,
+                "steps": [
+                    {"advertiser_id": s.advertiser_id, "day": s.day.isoformat(), "outcome": s.outcome}
+                    for s in self.campaigns_steps
                 ],
             },
             "complete": self.complete,
@@ -130,7 +143,10 @@ def run_tick(
     _run_display(session_factory, client, advertisers, result, now=now, deadline=deadline, today=today)
     if result.stopped:
         return result
-    return _run_brand(session_factory, client, advertisers, result, now=now, deadline=deadline, today=today)
+    _run_brand(session_factory, client, advertisers, result, now=now, deadline=deadline, today=today)
+    if result.stopped:
+        return result
+    return _run_campaigns(session_factory, client, advertisers, result, now=now, deadline=deadline, today=today)
 
 
 def _stopped(result: TickResult, outcome: str) -> TickResult:
@@ -214,6 +230,33 @@ def _run_brand(
     return result
 
 
+def _run_campaigns(
+    session_factory: SessionFactory,
+    client: Any,
+    advertisers: list[int],
+    result: TickResult,
+    *,
+    now: Callable[[], datetime],
+    deadline: Optional[datetime],
+    today: date,
+) -> TickResult:
+    """The campaigns of the days older than D-14 for every advertiser, with whatever the deadline has left.
+
+    A day the day fetch already read (its campaigns stored) is still read once more when it reaches D-15: one
+    call per advertiser and day, and it stores ML's answer at the day it becomes final. The upsert never duplicates.
+    """
+
+    def step(*args: Any, **kwargs: Any) -> ingestion.StepResult:
+        return ingestion.run_campaigns_step(*args, **kwargs)  # looked up per call, so a test can replace it
+
+    error = _run_account_level(
+        session_factory, client, advertisers, result, result.campaigns_steps, step, store.CAMPAIGNS_SOURCE,
+        "campaigns", now=now, deadline=deadline, today=today, newest_ago=VERIFY_DAYS + 1,
+    )  # fmt: skip
+    result.campaigns_error = error
+    return result
+
+
 def _run_account_level(
     session_factory: SessionFactory,
     client: Any,
@@ -227,15 +270,20 @@ def _run_account_level(
     now: Callable[[], datetime],
     deadline: Optional[datetime],
     today: date,
+    newest_ago: int = 1,
 ) -> Optional[str]:
-    """Run an account-level source (Display, Brand Ads) to completion or to the first stop; returns its error text.
+    """Run a ledger source of its own (Display, Brand Ads, campaigns) to completion or to the first stop.
+
+    Returns its error text, if any.
+
+    Its window runs from the oldest retained day to D-`newest_ago` (yesterday unless a source says otherwise).
 
     A rate limit or a missing token ends the whole run; any other failure (including an exception) is recorded
     and leaves the run incomplete so the next catch-up retries it. It can never break what ran before it.
     """
     skipped: set[tuple[int, date]] = set()
     try:
-        while unit := _next_account_level_unit(session_factory, targets, today, skipped, source):
+        while unit := _next_account_level_unit(session_factory, targets, today, skipped, source, newest_ago):
             step = run_step(session_factory, client, *unit, now=now, deadline=deadline)
             steps.append(step)
             result.calls += step.calls
@@ -253,15 +301,21 @@ def _run_account_level(
 
 
 def _next_account_level_unit(
-    session_factory: SessionFactory, targets: list[int], today: date, skipped: set[tuple[int, date]], source: str
+    session_factory: SessionFactory,
+    targets: list[int],
+    today: date,
+    skipped: set[tuple[int, date]],
+    source: str,
+    newest_ago: int,
 ) -> Optional[tuple[int, date]]:
     """Unfinished days first (oldest day first), then the days of the window with no ledger row for `source`."""
     first = today - timedelta(days=settings.ML_ADS_RETENTION_DAYS)
+    last = today - timedelta(days=newest_ago)
     with session_factory() as db:
         for unit in store.open_units(db, source=source):
             if unit[0] in targets and unit not in skipped:
                 return unit
-        have = store.ledgered(db, first, today - timedelta(days=1), source=source)
-    window = (first + timedelta(days=n) for n in range((today - first).days))
+        have = store.ledgered(db, first, last, source=source)
+    window = (first + timedelta(days=n) for n in range((last - first).days + 1))
     missing = ((a, day) for day in window for a in targets if (a, day) not in have)
     return next((unit for unit in missing if unit not in skipped), None)

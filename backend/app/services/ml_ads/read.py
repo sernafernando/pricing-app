@@ -20,6 +20,7 @@ from app.models.ml_ads import MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaig
 from app.services.ml_ads.ingestion import LOCAL_TZ
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import NO_PRODUCT, ads_owner_select
+from app.services.ml_ads.store import CAMPAIGNS_SOURCE
 from app.services.ml_publications.view.ads import AdsAvailability
 
 SOURCE = "product_ads"
@@ -280,12 +281,14 @@ def ads_coverage(db: Session, date_from: date, date_to: date, *, today: Optional
     """Which days of the range are not (yet) trustworthy, from the ledger alone (ADS-5).
 
     A day is missing for an (source, advertiser) the ledger knows when it has no closed/mismatch row; only
-    days before `today` (account-local) count, since today is still open. Mismatch days are listed apart."""
+    days before `today` (account-local) count, since today is still open. Mismatch days are listed apart.
+    The `campaigns` ledger is a reading cursor for days already closed, not ads data: it is left out."""
     today = today or datetime.now(LOCAL_TZ).date()
-    known = db.execute(select(MlAdsDayLedger.source, MlAdsDayLedger.advertiser_id).distinct()).all()
+    ads = MlAdsDayLedger.source != CAMPAIGNS_SOURCE
+    known = db.execute(select(MlAdsDayLedger.source, MlAdsDayLedger.advertiser_id).where(ads).distinct()).all()
     rows = db.execute(
         select(MlAdsDayLedger.source, MlAdsDayLedger.advertiser_id, MlAdsDayLedger.day, MlAdsDayLedger.status)
-        .where(MlAdsDayLedger.day.between(date_from, date_to))
+        .where(ads, MlAdsDayLedger.day.between(date_from, date_to))
         .order_by(MlAdsDayLedger.source, MlAdsDayLedger.advertiser_id, MlAdsDayLedger.day)
     ).all()
     status = {(source, advertiser, day): value for source, advertiser, day, value in rows}

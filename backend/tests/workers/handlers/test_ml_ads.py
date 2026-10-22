@@ -122,7 +122,10 @@ class TestRun:
         ledger = pg_ads_db.get(MlAdsDayLedger, ("product_ads", GAUSS, TODAY - timedelta(days=1)))
         assert (ledger.status, result.detail["complete"]) == ("closed", True)
         detail = pg_ads_db.get(WorkerJobState, "ml_ads.ingest").detail
-        assert set(detail) == {"at", "complete", "refreshed_for", "stopped", "calls", "steps", "display", "brand"}
+        assert set(detail) == {
+            "at", "complete", "refreshed_for", "stopped", "calls", "steps", "display", "brand", "campaigns"
+        }  # fmt: skip
+        assert detail["campaigns"] == {"error": None, "steps": []}  # a 1-day window has no day older than D-14
         assert detail["display"] == {
             "error": None,
             "steps": [{"advertiser_id": GAUSS, "day": (TODAY - timedelta(days=1)).isoformat(), "outcome": "closed"}],
