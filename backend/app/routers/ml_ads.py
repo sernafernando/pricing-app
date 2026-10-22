@@ -10,8 +10,9 @@ writes are the brand contributions the team loads.
 - `GET /ml-ads/account-level`: Display per campaign (subtractable: its IVA basis is measured) and Brand Ads
   (informational only, no net cost). Never attributed to an MLA.
 - `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions and its cost in the range
-  (ml-ads-brand-contribution S8). `POST /ml-ads/contributions` loads a contribution and also needs
-  `ml_metricas.gestionar_aportes_ads` (S7); it writes only that table and changes no number yet.
+  (ml-ads-brand-contribution S8). `POST /ml-ads/contributions`, `PUT|DELETE /ml-ads/contributions/{id}` load, edit and
+  delete a contribution and also need `ml_metricas.gestionar_aportes_ads` (S7); they write only that table and change
+  no number yet.
 
 Every cost read above carries the `coverage` of the same range (ledger days not fetched, and mismatch days), so a gap is
 never shown as zero spend. A range is `date_from <= date_to` and at most 366 days; `mlas` and `product_ids` take up
@@ -28,7 +29,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
@@ -339,6 +340,10 @@ def _data(body: ContributionIn) -> contributions.ContributionData:
     return contributions.ContributionData(**body.model_dump())
 
 
+def _not_found(contribution_id: int) -> Exception:
+    return api_error(status.HTTP_404_NOT_FOUND, ErrorCode.NOT_FOUND, f"contribution {contribution_id} does not exist")
+
+
 _manage = [Depends(require_permiso(PERMISO_APORTES))]
 
 
@@ -371,3 +376,29 @@ def create_contribution(
     except contributions.ContributionError as exc:
         db.rollback()
         raise _unprocessable(exc.field, str(exc))
+
+
+@router.put("/contributions/{contribution_id}", response_model=ContributionOut, dependencies=_manage)
+def update_contribution(
+    contribution_id: int,
+    body: ContributionIn,
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ContributionOut:
+    try:
+        row = contributions.update(db, contribution_id, _data(body), user.id)
+    except contributions.ContributionError as exc:
+        db.rollback()
+        raise _unprocessable(exc.field, str(exc))
+    if row is None:
+        raise _not_found(contribution_id)
+    return _contribution_out(row)
+
+
+@router.delete("/contributions/{contribution_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_manage)
+def delete_contribution(
+    contribution_id: int, user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
+) -> Response:
+    if not contributions.delete(db, contribution_id, user.id):
+        raise _not_found(contribution_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

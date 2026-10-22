@@ -5,6 +5,7 @@ Only stores what the team loads (S2). How a contribution lowers the subtracted c
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -14,6 +15,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay
+
+logger = logging.getLogger(__name__)
 
 
 class ContributionError(Exception):
@@ -109,3 +112,38 @@ def create(db: Session, data: ContributionData, user_id: int) -> MlAdsCampaignCo
     db.commit()
     db.refresh(row)
     return row
+
+
+def update(
+    db: Session, contribution_id: int, data: ContributionData, user_id: int
+) -> Optional[MlAdsCampaignContribution]:
+    """`None` when the contribution does not exist."""
+    row = db.get(MlAdsCampaignContribution, contribution_id)
+    if row is None:
+        return None
+    _check(db, data, exclude_id=contribution_id)
+    _apply(row, data, user_id)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete(db: Session, contribution_id: int, user_id: int) -> bool:
+    """The row goes away; the log line keeps who removed what (the table only knows creator and last editor)."""
+    row = db.get(MlAdsCampaignContribution, contribution_id)
+    if row is None:
+        return False
+    logger.info(
+        "ml-ads contribution %s deleted by user %s: advertiser %s campaign %s %s %s %s..%s",
+        row.id,
+        user_id,
+        row.advertiser_id,
+        row.campaign_id,
+        row.kind,
+        row.value,
+        row.date_from,
+        row.date_to,
+    )
+    db.delete(row)
+    db.commit()
+    return True

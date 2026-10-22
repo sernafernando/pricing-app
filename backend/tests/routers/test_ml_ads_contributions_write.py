@@ -1,4 +1,4 @@
-"""ml-ads-brand-contribution T1b-i -- `POST /api/ml-ads/contributions` (S4, S7).
+"""ml-ads-brand-contribution T1b-i, T1b-ii -- `POST/PUT/DELETE /api/ml-ads/contributions` (S4, S7).
 
 Managing needs `ml_metricas.gestionar_aportes_ads` on top of the router's `ml_metricas.ver_ganancia`. Campaigns are
 DERIVED rows in the SQLite test DB.
@@ -65,14 +65,18 @@ def _create(client, headers, **overrides):
 
 class TestPermissions:
     def test_ver_ganancia_alone_views_but_cannot_manage(self, client, db, viewer, manager) -> None:
-        _create(client, manager)
+        created = _create(client, manager).json()
         listed = client.get(
             f"{BASE}/campaigns", headers=viewer, params={"date_from": "2026-10-01", "date_to": "2026-10-31"}
         )
         assert listed.status_code == 200
-        response = _create(client, viewer, campaign_id=OTHER)
-        assert response.status_code == 403
-        assert GESTIONAR in response.json()["error"]["message"]
+        responses = [
+            _create(client, viewer, campaign_id=OTHER),
+            client.put(f"{BASE}/contributions/{created['id']}", headers=viewer, json=_contribution(value="10")),
+            client.delete(f"{BASE}/contributions/{created['id']}", headers=viewer),
+        ]
+        assert [r.status_code for r in responses] == [403, 403, 403]
+        assert GESTIONAR in responses[0].json()["error"]["message"]
         assert [(r.campaign_id, r.value) for r in _rows(db)] == [(CAMP, Decimal("30.00"))]
 
 
@@ -142,3 +146,59 @@ class TestOverlap:
         assert _create(client, manager, date_from="2026-11-01", date_to="2026-11-30").status_code == 201
         assert _create(client, manager, campaign_id=OTHER).status_code == 201
         assert len(_rows(db)) == 3
+
+
+class TestUpdate:
+    def test_update_replaces_the_fields_and_records_the_editor(self, client, db, manager, viewer, active_user) -> None:
+        contribution_id = _create(client, manager).json()["id"]
+        grant(db, _role(db, active_user), GESTIONAR)  # the viewer becomes a manager too
+        response = client.put(
+            f"{BASE}/contributions/{contribution_id}",
+            headers=viewer,
+            json=_contribution(kind="fixed_amount", value="5000", date_to="2026-10-15", brand="Epson"),
+        )
+        assert response.status_code == 200
+        assert (response.json()["value"], response.json()["date_to"]) == (5000.0, "2026-10-15")
+        [row] = _rows(db)
+        assert (row.kind, row.value, row.date_to, row.brand) == (
+            "fixed_amount",
+            Decimal("5000.00"),
+            date(2026, 10, 15),
+            "Epson",
+        )
+        assert row.updated_by_id == active_user.id and row.created_by_id != active_user.id
+
+    def test_its_own_range_is_not_an_overlap_but_a_sibling_is(self, client, db, manager) -> None:
+        first = _create(client, manager).json()["id"]
+        assert _create(client, manager, date_from="2026-11-01", date_to="2026-11-30").status_code == 201
+        url = f"{BASE}/contributions/{first}"
+        assert client.put(url, headers=manager, json=_contribution(date_to="2026-10-20")).status_code == 200
+        clash = client.put(url, headers=manager, json=_contribution(date_to="2026-11-02"))
+        assert clash.status_code == 422
+        assert _rows(db)[0].date_to == date(2026, 10, 20)
+
+    def test_an_unknown_contribution_is_404(self, client, manager) -> None:
+        assert client.put(f"{BASE}/contributions/424242", headers=manager, json=_contribution()).status_code == 404
+
+
+class TestDelete:
+    def test_delete_removes_the_row(self, client, db, manager) -> None:
+        contribution_id = _create(client, manager).json()["id"]
+        assert client.delete(f"{BASE}/contributions/{contribution_id}", headers=manager).status_code == 204
+        assert _rows(db) == []
+        assert client.delete(f"{BASE}/contributions/{contribution_id}", headers=manager).status_code == 404
+
+    def test_delete_logs_who_removed_what(self, client, manager, admin_user, caplog) -> None:
+        contribution_id = _create(client, manager).json()["id"]
+        with caplog.at_level("INFO", logger="app.services.ml_ads.contributions"):
+            client.delete(f"{BASE}/contributions/{contribution_id}", headers=manager)
+        [record] = [r for r in caplog.records if r.name == "app.services.ml_ads.contributions"]
+        message = record.getMessage()
+        assert f"contribution {contribution_id} deleted by user {admin_user.id}" in message
+        assert f"campaign {CAMP}" in message and "percentage 30.00" in message and "2026-10-01..2026-10-31" in message
+
+
+def _role(db, user):
+    from app.models.rol import Rol
+
+    return db.get(Rol, user.rol_id)

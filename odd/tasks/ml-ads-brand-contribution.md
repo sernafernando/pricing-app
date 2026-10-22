@@ -21,8 +21,8 @@ Branch: `feat/ml-ads-brand-contribution-api` (PR1), then one branch per PR. Deli
 | ID | Specs | Route | Status | Commit / evidence |
 |----|-------|-------|--------|-------------------|
 | T1a | S4 (storage), S8 (read) | delegated writer | merged (#1704) | `96faa8862` (+450/-3); RED 4 failed + 7 errors, GREEN 39 passed |
-| T1b-i | S4 (create), S7 | delegated writer | PR open (this branch) | `628288c8a` (+377/-13); RED 17 failed, GREEN 54 passed |
-| T1b-ii | S4 (edit, delete) | delegated writer | local `feat/ml-ads-brand-contribution-edit`, opens after T1b-i merges | ~+138/-9; RED 6 failed, GREEN 357 passed (ml_ads scope) |
+| T1b-i | S4 (create), S7 | delegated writer | PR #1706 open | `628288c8a` (+377/-13); RED 17 failed, GREEN 54 passed |
+| T1b-ii | S4 (edit, delete) | delegated writer | this branch, opens after #1706 merges | ~+138/-9; RED 6 failed, GREEN 357 passed (ml_ads scope) |
 | T2 | S5, S6, S9 | pending | pending | PR2 |
 | T3 | S10 | pending | pending | PR3 |
 
