@@ -120,13 +120,15 @@ describe('parseCsvExport', () => {
 const serial = (y, m, d, h = 0, mi = 0, sec = 0) => Date.UTC(y, m - 1, d, h, mi, sec) / 86_400_000 + 25_569;
 
 describe('buildSheetRequests', () => {
+  // Every request of every call, in the order they are sent.
+  const requestsOf = (args) => mod.buildSheetRequests(args).flat();
   const header = ['Producto', 'SKU', 'Unidades', 'Facturado', 'Markup %', 'Última venta', 'Variación pp'];
   const rows = [
     header,
     ['Router', '000123', '3', '1234,50', '12,50', '2026-10-19 22:30:00', '-1,25'],
     ['Switch', '000124', '', '99,00', '', '', '0,00'],
   ];
-  const ofKind = (kind) => mod.buildSheetRequests({ sheetId: 7, rows, notes: [] }).filter((r) => r[kind]).map((r) => r[kind]);
+  const ofKind = (kind) => requestsOf({ sheetId: 7, rows, notes: [] }).filter((r) => r[kind]).map((r) => r[kind]);
   const numberFormatOf = (column) =>
     ofKind('repeatCell').find((r) => r.range.startColumnIndex === column && r.fields === 'userEnteredFormat.numberFormat')
       ?.cell.userEnteredFormat.numberFormat;
@@ -144,14 +146,14 @@ describe('buildSheetRequests', () => {
   });
 
   it('first sizes the grid to the data and freezes the header row, then filters the data range', () => {
-    const [first] = mod.buildSheetRequests({ sheetId: 7, rows, notes: [] });
+    const [first] = requestsOf({ sheetId: 7, rows, notes: [] });
     expect(first).toEqual({
       updateSheetProperties: {
         properties: { sheetId: 7, gridProperties: { rowCount: 3, columnCount: 7, frozenRowCount: 1 } },
         fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
       },
     });
-    const [withNotes] = mod.buildSheetRequests({ sheetId: 7, rows, notes: ['a', 'b'] });
+    const [withNotes] = requestsOf({ sheetId: 7, rows, notes: ['a', 'b'] });
     expect(withNotes.updateSheetProperties.properties.gridProperties.rowCount).toBe(6); // a blank row, then the notes
     expect(ofKind('setBasicFilter')).toEqual([
       { filter: { range: { sheetId: 7, startRowIndex: 0, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 7 } } },
@@ -183,20 +185,20 @@ describe('buildSheetRequests', () => {
   });
 
   it('a column of dates without time is a DATE', () => {
-    const dated = mod.buildSheetRequests({ sheetId: 7, rows: [['Desde'], ['2026-10-20']], notes: [] });
+    const dated = requestsOf({ sheetId: 7, rows: [['Desde'], ['2026-10-20']], notes: [] });
     const format = dated.find((r) => r.repeatCell?.fields === 'userEnteredFormat.numberFormat').repeatCell;
     expect(format.cell.userEnteredFormat.numberFormat).toEqual({ type: 'DATE', pattern: 'dd/mm/yyyy' });
     expect(dated.find((r) => r.updateCells).updateCells.rows[1].values[0]).toEqual({ userEnteredValue: { numberValue: serial(2026, 10, 20) } });
   });
 
   it('a column with one non-number value gets no number format', () => {
-    const mixed = mod.buildSheetRequests({ sheetId: 0, rows: [['Stock'], ['3'], ['n/d']], notes: [] });
+    const mixed = requestsOf({ sheetId: 0, rows: [['Stock'], ['3'], ['n/d']], notes: [] });
     expect(mixed.some((r) => r.repeatCell?.fields === 'userEnteredFormat.numberFormat')).toBe(false);
   });
 
   it('fits every column to its content, capping the ones with long text', () => {
     const long = 'x'.repeat(80);
-    const fitted = mod.buildSheetRequests({ sheetId: 7, rows: [['Título', 'Stock'], [long, '1']], notes: [] });
+    const fitted = requestsOf({ sheetId: 7, rows: [['Título', 'Stock'], [long, '1']], notes: [] });
     const resizeAt = fitted.findIndex((r) => r.autoResizeDimensions);
     expect(fitted[resizeAt].autoResizeDimensions).toEqual({ dimensions: { sheetId: 7, dimension: 'COLUMNS', startIndex: 0, endIndex: 2 } });
     const caps = fitted.filter((r) => r.updateDimensionProperties);
@@ -213,7 +215,7 @@ describe('buildSheetRequests', () => {
   });
 
   it('writes the notes two rows below the data, AFTER the fit, as text in gray italics', () => {
-    const withNotes = mod.buildSheetRequests({ sheetId: 7, rows, notes: ['AVISO: sin publicidad; reintente.', '=1+1'] });
+    const withNotes = requestsOf({ sheetId: 7, rows, notes: ['AVISO: sin publicidad; reintente.', '=1+1'] });
     const writes = withNotes.filter((r) => r.updateCells);
     const noteAt = withNotes.indexOf(writes.at(-1));
     expect(noteAt).toBeGreaterThan(withNotes.findIndex((r) => r.autoResizeDimensions));
@@ -232,10 +234,10 @@ describe('buildSheetRequests', () => {
   });
 
   describe('the cells, as typed values (never parsed by Sheets)', () => {
-    const cellsOf = (data) => mod.buildSheetRequests({ sheetId: 7, rows: data, notes: [] }).find((r) => r.updateCells).updateCells;
+    const cellsOf = (data) => requestsOf({ sheetId: 7, rows: data, notes: [] }).find((r) => r.updateCells).updateCells;
 
     it('writes every row from A1, right after sizing the grid', () => {
-      const requests = mod.buildSheetRequests({ sheetId: 7, rows, notes: [] });
+      const requests = requestsOf({ sheetId: 7, rows, notes: [] });
       expect(requests[1].updateCells.start).toEqual({ sheetId: 7, rowIndex: 0, columnIndex: 0 });
       expect(requests[1].updateCells.fields).toBe('userEnteredValue');
       expect(requests[1].updateCells.rows).toHaveLength(3);
@@ -280,9 +282,45 @@ describe('buildSheetRequests', () => {
   });
 
   it('a file with only the header gets no banding and no number formats', () => {
-    const empty = mod.buildSheetRequests({ sheetId: 7, rows: [['A', 'B']], notes: [] });
+    const empty = requestsOf({ sheetId: 7, rows: [['A', 'B']], notes: [] });
     expect(empty.some((r) => r.addBanding)).toBe(false);
     expect(empty.some((r) => r.repeatCell?.fields === 'userEnteredFormat.numberFormat')).toBe(false);
+  });
+
+  describe('a big export, in calls of at most 2,000 rows', () => {
+    // The header and 5,000 rows: 5,001 rows to write. "Unidades" is numeric in every row, "Nota" text.
+    const big = [['Producto', 'Unidades', 'Nota'], ...Array.from({ length: 5000 }, (_, i) => [`P${i}`, String(i), i === 4999 ? '=1+1' : 'x'])];
+    const batches = () => mod.buildSheetRequests({ sheetId: 7, rows: big, notes: ['AVISO: sin publicidad.'] });
+
+    it('writes the rows in 3 calls, in order, from rows 0, 2000 and 4000; the first also sizes the grid', () => {
+      const [first, second, third] = batches();
+      expect(first[0].updateSheetProperties.properties.gridProperties).toEqual({ rowCount: 5003, columnCount: 3, frozenRowCount: 1 });
+      const writes = [first, second, third].map((calls) => calls.filter((r) => r.updateCells).map((r) => r.updateCells));
+      expect(writes.map((w) => w.length)).toEqual([1, 1, 1]);
+      expect(writes.map(([w]) => w.start)).toEqual([0, 2000, 4000].map((rowIndex) => ({ sheetId: 7, rowIndex, columnIndex: 0 })));
+      expect(writes.map(([w]) => w.rows.length)).toEqual([2000, 2000, 1001]);
+      expect(first.length + second.length + third.length).toBe(4); // the grid, then only the cells
+    });
+
+    it('types every chunk with the formats of the WHOLE column, the header included only once', () => {
+      const cells = batches()
+        .slice(0, 3)
+        .flatMap((calls) => calls.filter((r) => r.updateCells).flatMap((r) => r.updateCells.rows));
+      expect(cells).toHaveLength(5001);
+      expect(cells[0].values.map((v) => v.userEnteredValue.stringValue)).toEqual(['Producto', 'Unidades', 'Nota']);
+      expect(cells[4500].values[1]).toEqual({ userEnteredValue: { numberValue: 4499 } });
+      expect(cells[5000].values[2]).toEqual({ userEnteredValue: { stringValue: '=1+1' } });
+    });
+
+    it('formats, filters and fits in the last call, after every row was written', () => {
+      const all = batches();
+      expect(all).toHaveLength(4);
+      const last = all.at(-1);
+      expect(last.some((r) => r.autoResizeDimensions)).toBe(true);
+      expect(last.find((r) => r.setBasicFilter).setBasicFilter.filter.range.endRowIndex).toBe(5001);
+      expect(last.filter((r) => r.updateCells).map((r) => r.updateCells.start.rowIndex)).toEqual([5002]); // only the notes
+      expect(all.slice(0, 3).flat().some((r) => r.autoResizeDimensions || r.repeatCell || r.setBasicFilter)).toBe(false);
+    });
   });
 });
 
@@ -307,13 +345,24 @@ describe('exportarCsvASheets', () => {
     expect(create.init).toMatchObject({ method: 'POST', headers: { Authorization: 'Bearer tok-1', 'Content-Type': 'application/json' } });
     expect(create.body).toEqual({ properties: { title: 'metricas-ml-2026-10-01-2026-10-21', locale: 'es_AR' } });
     expect(batch.url).toBe('https://sheets.googleapis.com/v4/spreadsheets/sid:batchUpdate');
-    expect(batch.body).toEqual({
-      requests: mod.buildSheetRequests({ sheetId: 7, rows: [['Producto', 'Unidades'], ['Router', '3']], notes: ['AVISO: sin publicidad.'] }),
-    });
-    expect(sheetsCalls()).toHaveLength(2);
+    const batches = mod.buildSheetRequests({ sheetId: 7, rows: [['Producto', 'Unidades'], ['Router', '3']], notes: ['AVISO: sin publicidad.'] });
+    expect(batches).toHaveLength(2); // the cells, then the formatting
+    expect(batchBodies()).toEqual(batches.map((requests) => ({ requests })));
+    expect(sheetsCalls()).toHaveLength(3);
     // No token yet: the Google popup took the click, so the sheet opens in a tab of its own at the end.
     expect(window.open).toHaveBeenCalledWith(CREATED.spreadsheetUrl, '_blank');
     expect(result).toEqual({ url: CREATED.spreadsheetUrl, opened: true });
+  });
+
+  it('sends a big export as one call per 2,000 rows, in order, then the formatting', async () => {
+    const lines = Array.from({ length: 5000 }, (_, i) => `P${i};${i}`);
+    csvResponse(`${BOM}Producto;Unidades\n${lines.join('\n')}\n`);
+    await run();
+
+    const bodies = batchBodies();
+    expect(bodies).toHaveLength(4);
+    expect(bodies.slice(0, 3).map((b) => b.requests.find((r) => r.updateCells).updateCells.start.rowIndex)).toEqual([0, 2000, 4000]);
+    expect(bodies[3].requests.some((r) => r.autoResizeDimensions)).toBe(true);
   });
 
   it('reuses an unexpired token instead of asking Google again', async () => {
@@ -321,7 +370,7 @@ describe('exportarCsvASheets', () => {
     await run();
     await run();
     expect(tokenClientConfigs).toHaveLength(1);
-    expect(batchBodies()).toHaveLength(2);
+    expect(batchBodies()).toHaveLength(4); // two exports, two calls each
   });
 
   it('asks again once the token is about to expire', async () => {
@@ -355,9 +404,9 @@ describe('exportarCsvASheets', () => {
   });
 
   it('a refused export surfaces the backend message and creates nothing', async () => {
-    const body = JSON.stringify({ error: { message: 'Son más de 10000 filas.' } });
+    const body = JSON.stringify({ error: { message: 'La exportación no está disponible.' } });
     api.get.mockRejectedValue({ response: { status: 422, data: new Blob([body]) } });
-    await expect(run()).rejects.toThrow('Son más de 10000 filas.');
+    await expect(run()).rejects.toThrow('La exportación no está disponible.');
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -384,6 +433,80 @@ describe('exportarCsvASheets', () => {
     expect(popup.close).toHaveBeenCalled();
     await run().catch(() => {});
     expect(tokenClientConfigs).toHaveLength(2);
+  });
+
+  it('a write that fails after the sheet exists deletes that half-written sheet, then reports', async () => {
+    let batches = 0;
+    fetch.mockImplementation((url, init) => {
+      if (url.endsWith(':batchUpdate') && ++batches === 2) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) });
+      if (init.method === 'DELETE') return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve({}) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(url.endsWith(':batchUpdate') ? {} : CREATED) });
+    });
+    const lines = Array.from({ length: 3000 }, (_, i) => `P${i};${i}`);
+    csvResponse(`${BOM}Producto;Unidades\n${lines.join('\n')}\n`);
+    await expect(run()).rejects.toThrow('No se pudo crear la hoja de Google.');
+    const deleted = fetch.mock.calls.filter(([, init]) => init.method === 'DELETE');
+    expect(deleted).toEqual([
+      ['https://www.googleapis.com/drive/v3/files/sid', { method: 'DELETE', headers: { Authorization: 'Bearer tok-1' } }],
+    ]);
+  });
+
+  it('an export over the 10,000,000 cells a Google sheet holds creates nothing and says so', async () => {
+    const header = Array.from({ length: 1000 }, (_, i) => `C${i}`).join(';');
+    const row = Array.from({ length: 1000 }, () => '1').join(';');
+    csvResponse(`${BOM}${header}\n${Array.from({ length: 10_000 }, () => row).join('\n')}\n`);
+    await expect(run()).rejects.toThrow(
+      'La exportación tiene 10.001.000 celdas y una hoja de Google admite hasta 10.000.000. Use Exportar CSV o acote los filtros.',
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('counts the blank row and the notes the sheet gets: 10,000,000 data cells plus a note are refused', async () => {
+    const header = Array.from({ length: 1000 }, (_, i) => `C${i}`).join(';');
+    const row = Array.from({ length: 1000 }, () => '1').join(';');
+    csvResponse(`${BOM}${header}\n${Array.from({ length: 9_999 }, () => row).join('\n')}\n# AVISO: sin publicidad.\n`);
+    await expect(run()).rejects.toThrow('La exportación tiene 10.002.000 celdas');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  describe("Google's per-minute write quota (429)", () => {
+    const tooMany = (retryAfter) => ({
+      ok: false,
+      status: 429,
+      headers: new Headers(retryAfter ? { 'Retry-After': retryAfter } : {}),
+      json: () => Promise.resolve({}),
+    });
+    const ok = (url) => ({ ok: true, status: 200, json: () => Promise.resolve(url.endsWith(':batchUpdate') ? {} : CREATED) });
+
+    beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout'] }));
+    afterEach(() => vi.useRealTimers());
+
+    it('waits what Retry-After says and sends the same call again', async () => {
+      let batches = 0;
+      fetch.mockImplementation((url) =>
+        Promise.resolve(url.endsWith(':batchUpdate') && ++batches === 1 ? tooMany('5') : ok(url)),
+      );
+      csvResponse(CSV);
+      const result = run();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(batchBodies()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toEqual({ url: CREATED.spreadsheetUrl, opened: true });
+      const [first, again] = batchBodies();
+      expect(again).toEqual(first);
+    });
+
+    it('a quota that never frees up says so, and deletes the half-written sheet', async () => {
+      fetch.mockImplementation((url, init) =>
+        Promise.resolve(init.method === 'DELETE' ? { ok: true, status: 204 } : url.endsWith(':batchUpdate') ? tooMany() : ok(url)),
+      );
+      csvResponse(CSV);
+      const result = run().catch((e) => e);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect((await result).message).toBe('Google Sheets está recibiendo demasiados pedidos. Espere un minuto y vuelva a intentar.');
+      expect(fetch.mock.calls.filter(([url]) => url.endsWith(':batchUpdate'))).toHaveLength(7); // the call, then 6 retries
+      expect(fetch.mock.calls.filter(([, init]) => init.method === 'DELETE')).toHaveLength(1);
+    });
   });
 
   it('when the browser blocks the new tab, still answers with the sheet link', async () => {

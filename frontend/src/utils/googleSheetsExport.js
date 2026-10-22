@@ -16,6 +16,10 @@ const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const SHEETS_ERROR = 'No se pudo crear la hoja de Google.';
+const SHEETS_BUSY = 'Google Sheets está recibiendo demasiados pedidos. Espere un minuto y vuelva a intentar.';
+const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
+// What one Google sheet holds; a bigger export would be refused halfway, so it is refused before anything is created.
+const MAX_SHEET_CELLS = 10_000_000;
 const GOOGLE_ERROR = 'No se pudo conectar con Google. Intente de nuevo.';
 const POPUP_BLOCKED = 'El navegador bloqueó la ventana de Google. Permita las ventanas emergentes e intente de nuevo.';
 // A token this close to expiring is asked for again: it could expire mid-export.
@@ -178,9 +182,17 @@ function cellOf(value, numberFormat) {
 
 const textRow = (text) => ({ values: [{ userEnteredValue: { stringValue: text } }] });
 
+/** The rows of the sheet: the CSV's, then a blank row and the notes when there are any. */
+const gridRows = (rows, notes) => (notes.length ? rows.length + 1 + notes.length : rows.length);
+
+// Rows written per `batchUpdate` call: Google advises payloads of about 2 MB, and an export has no row cap.
+const CHUNK_ROWS = 2000;
+
 /**
- * The one `batchUpdate` that writes the export to the sheet and makes it readable: `rows` is the header plus the data,
- * written at A1 as typed values (never pasted text, which Sheets would parse), `notes` the file's trailing notes.
+ * The `batchUpdate` calls that write the export to the sheet and make it readable, to send IN ORDER, one call per
+ * array: `rows` is the header plus the data, written at A1 as typed values (never pasted text, which Sheets would
+ * parse) in chunks of `CHUNK_ROWS` rows, the first call also sizing the grid; the last call formats, filters and fits
+ * the columns once every row is written, then adds `notes`, the file's trailing notes.
  * Pure: every request shape follows the Sheets API v4 `Request` reference.
  */
 export function buildSheetRequests({ sheetId, rows, notes }) {
@@ -197,24 +209,26 @@ export function buildSheetRequests({ sheetId, rows, notes }) {
   const valuesOf = (c) => data.map((row) => row[c] ?? '').filter((v) => v !== '');
   const formats = header.map((name, c) => numberFormatOf(name, valuesOf(c)));
   const noteRow = rows.length + 1;
+  // Typed with the formats of the WHOLE column, whatever chunk a row lands in.
+  const cellsOf = (start) =>
+    rows
+      .slice(start, start + CHUNK_ROWS)
+      .map((row, i) => ({ values: header.map((_, c) => cellOf(row[c] ?? '', start + i ? formats[c] : null)) }));
+  const writes = [];
+  for (let start = 0; start < rows.length; start += CHUNK_ROWS) {
+    writes.push([{ updateCells: { start: { sheetId, rowIndex: start, columnIndex: 0 }, rows: cellsOf(start), fields: 'userEnteredValue' } }]);
+  }
+  writes[0].unshift({
+    // Exactly the rows written (a new sheet's default grid may be smaller or larger than the export), the header frozen.
+    updateSheetProperties: {
+      properties: {
+        sheetId,
+        gridProperties: { rowCount: gridRows(rows, notes), columnCount: width, frozenRowCount: 1 },
+      },
+      fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
+    },
+  });
   const requests = [
-    // Exactly the rows written (a new sheet may have fewer than an export's 10,000), the header frozen.
-    {
-      updateSheetProperties: {
-        properties: {
-          sheetId,
-          gridProperties: { rowCount: notes.length ? noteRow + notes.length : rows.length, columnCount: width, frozenRowCount: 1 },
-        },
-        fields: 'gridProperties(rowCount,columnCount,frozenRowCount)',
-      },
-    },
-    {
-      updateCells: {
-        start: { sheetId, rowIndex: 0, columnIndex: 0 },
-        rows: rows.map((row, r) => ({ values: header.map((_, c) => cellOf(row[c] ?? '', r ? formats[c] : null)) })),
-        fields: 'userEnteredValue',
-      },
-    },
     {
       repeatCell: {
         range: span(0, 1),
@@ -262,22 +276,34 @@ export function buildSheetRequests({ sheetId, rows, notes }) {
       },
     );
   }
-  return requests;
+  return [...writes, requests];
 }
 
 // ── The export ──────────────────────────────────────────────────
 
+// Google answers 429 past its per-minute write quota (a big export is many calls): wait and send the call again,
+// honouring Retry-After, else 1 s, 2 s, 4 s... up to RETRY_MAX_MS, at most RETRIES times.
+const RETRIES = 6;
+const RETRY_MAX_MS = 32_000;
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function sheetsRequest(accessToken, url, body) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (response.ok) return response.json();
+    if (response.status === 429) {
+      if (attempt >= RETRIES) throw new Error(SHEETS_BUSY);
+      const retryAfter = Number(response.headers?.get?.('Retry-After'));
+      await wait(retryAfter > 0 ? retryAfter * 1000 : Math.min(1000 * 2 ** attempt, RETRY_MAX_MS));
+      continue;
+    }
     if (response.status === 401) token = null;
     throw new Error(SHEETS_ERROR);
   }
-  return response.json();
 }
 
 /**
@@ -302,15 +328,32 @@ export async function exportarCsvASheets(url, params, { filename, genericError }
     }
     const csv = await fetchCsvText(url, params, { filename, genericError });
     const { rows, notes } = parseCsvExport(csv.text);
+    const cells = gridRows(rows, notes) * (rows[0]?.length ?? 0);
+    if (cells > MAX_SHEET_CELLS) {
+      const fmt = (n) => n.toLocaleString('es-AR');
+      throw new Error(
+        `La exportación tiene ${fmt(cells)} celdas y una hoja de Google admite hasta ${fmt(MAX_SHEET_CELLS)}. Use Exportar CSV o acote los filtros.`,
+      );
+    }
     const created = await sheetsRequest(
       accessToken,
       `${SHEETS_API}?fields=spreadsheetId,spreadsheetUrl,sheets.properties.sheetId`,
       { properties: { title: csv.filename.replace(/\.csv$/i, ''), locale: 'es_AR' } },
     );
     const sheetId = created.sheets?.[0]?.properties?.sheetId ?? 0;
-    await sheetsRequest(accessToken, `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`, {
-      requests: buildSheetRequests({ sheetId, rows, notes }),
-    });
+    // One call at a time, in order: the formatting and the fit come after every row is written.
+    try {
+      for (const requests of buildSheetRequests({ sheetId, rows, notes })) {
+        await sheetsRequest(accessToken, `${SHEETS_API}/${created.spreadsheetId}:batchUpdate`, { requests });
+      }
+    } catch (err) {
+      // A half-written sheet must not stay in the operator's Drive; drive.file lets the app delete what it created.
+      await fetch(`${DRIVE_FILES}/${created.spreadsheetId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => {});
+      throw err;
+    }
 
     if (tab) {
       tab.location.href = created.spreadsheetUrl;

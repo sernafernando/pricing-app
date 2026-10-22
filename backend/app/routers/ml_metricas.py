@@ -63,10 +63,6 @@ DEFAULT_PERIOD_DAYS = 30
 # The CSV streams this many rows per page, each page on its own short DB
 # session: memory and the pooled connection follow ONE page, never the file.
 EXPORT_PAGE_SIZE = 500
-# The export fixes the ordered list of row keys up front (see `export_board`);
-# beyond this many rows it refuses and asks for narrower filters, like the
-# Ventas ML export.
-EXPORT_MAX_ROWS = 10_000
 
 # `tplink.solo`: the one "Agrupado" dimension it may read, and the Gauss figures it never gets -- the response keys
 # (dropped at any depth by `_tp_solo_response`) and the CSV columns. Its markup fields carry Markup TP.
@@ -829,9 +825,9 @@ def export_board(
     """CSV of every filtered row, same columns as the board (no sparklines),
     STREAMED page by page. Margin columns only with `ml_metricas.ver_ganancia`.
 
-    The first short transaction fixes the ORDERED list of row keys (at most
-    `EXPORT_MAX_ROWS`, else 422) and reads page 1, before the 200, so a bad
-    state fails as a normal HTTP error. Each later page of
+    The first short transaction fixes the ORDERED list of EVERY row key (no
+    row cap: only the keys are held, a few bytes each) and reads page 1,
+    before the 200, so a bad state fails as a normal HTTP error. Each later page of
     `EXPORT_PAGE_SIZE` keys runs on its OWN short session
     (`get_background_db`) and fetches its rows BY KEY, so a change between
     pages can never repeat or drop a row. The request session is closed
@@ -862,15 +858,7 @@ def export_board(
     rows_of = board.Board.leaves_for_keys if grouped else board.Board.rows_for_keys
     with get_background_db() as first_db:
         with board.Board(first_db, f, through_leaves=grouped, scope_pairs=scope_pairs) as b:
-            keys = keys_of(b, EXPORT_MAX_ROWS + 1)
-            if len(keys) > EXPORT_MAX_ROWS:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=(
-                        f"Son más de {EXPORT_MAX_ROWS} filas, demasiadas para exportar de una vez. "
-                        "Acotá los filtros (tienda, marca, búsqueda...)."
-                    ),
-                )
+            keys = keys_of(b, None)  # every row: `None` is no LIMIT
             first = rows_of(b, keys[:EXPORT_PAGE_SIZE])
 
     def fetch_page(page_keys: Sequence) -> List[board.Row]:

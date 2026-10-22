@@ -555,8 +555,8 @@ class TestExport:
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert len(rows) == 4
-        # ONE ordered-keys read, then each page fetched by its keys (2 + 2).
-        key_lists = [s for s in counter.statements if "limit" in s and "board_rows" in s]
+        # ONE ordered-keys read (every key, no LIMIT), then each page fetched by its keys (2 + 2).
+        key_lists = [s for s in counter.statements if s.split()[:3] == ["select", "board_rows.rk", "from"]]
         pages = [s for s in counter.statements if "board_rows.rk in" in s]
         assert len(key_lists) == 1
         assert len(pages) == 2
@@ -724,12 +724,23 @@ class TestExportKeysAreFixedUpFront:
             "Taladro DeWalt",
         ]
 
-    def test_more_rows_than_the_cap_is_422_before_any_byte(self, client, admin_auth_headers, board_data, monkeypatch):
-        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
+    def test_a_set_past_the_old_10000_cap_is_still_exported(self, client, admin_auth_headers, board_data, monkeypatch):
+        """10,001 more keys than the board holds (rows gone between the keys
+        and their page, which are skipped) make a set past the old 10,000
+        cap: the export still answers 200 with every real row, never a 422."""
+        full = [r["Producto"] for r in TestExportEdges._export_rows(client, admin_auth_headers)]
+        real = board.Board.ordered_keys
 
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+        def padded(self, limit):
+            keys = real(self, limit) + [f"MLA9{i:09d}" for i in range(10_001)]
+            return keys if limit is None else keys[:limit]
 
-        assert resp.status_code == 422
+        monkeypatch.setattr(board.Board, "ordered_keys", padded)
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 20_000)  # one page: the test pays for one read
+
+        rows = TestExportEdges._export_rows(client, admin_auth_headers)
+
+        assert [r["Producto"] for r in rows] == full
 
 
 class TestExportEdges:
@@ -746,32 +757,27 @@ class TestExportEdges:
         assert resp.status_code == 200
         return list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
 
-    def test_exactly_the_cap_exports_every_row(self, client, admin_auth_headers, board_data, monkeypatch):
-        """The cap and the page size come from the fixture's own row count, so
-        the test does not silently depend on how many rows board_data seeds;
-        the exact ordered rows prove the page boundary neither repeats nor
-        drops one."""
+    def test_every_row_is_exported_across_small_pages_with_no_row_cap(
+        self, client, admin_auth_headers, board_data, monkeypatch
+    ):
+        """No row cap: the ordered keys are read with no LIMIT, and a set
+        larger than a page streams every row, in order, none repeated or
+        dropped at a page boundary (pages of 1)."""
         full = self._export_rows(client, admin_auth_headers)
         assert len(full) >= 2, "the fixture must span more than one page"
-        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", len(full))
-        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", len(full) - 1)
+        real, limits = board.Board.ordered_keys, []
+
+        def spy(self, limit):
+            limits.append(limit)
+            return real(self, limit)
+
+        monkeypatch.setattr(board.Board, "ordered_keys", spy)
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 1)
 
         rows = self._export_rows(client, admin_auth_headers)
 
         assert [(r["Producto"], r["MLA"]) for r in rows] == [(r["Producto"], r["MLA"]) for r in full]
-
-    def test_one_over_the_cap_is_422_with_the_reason(self, client, admin_auth_headers, board_data, monkeypatch):
-        baseline = self._export_rows(client, admin_auth_headers)
-        assert len(baseline) >= 2, "the fixture must seed enough rows for a positive cap"
-        cap = len(baseline) - 1
-        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", cap)
-
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
-
-        assert resp.status_code == 422
-        assert resp.json()["error"]["message"] == (
-            f"Son más de {cap} filas, demasiadas para exportar de una vez. Acotá los filtros (tienda, marca, búsqueda...)."
-        )
+        assert limits == [None], "the keys read must never be cut"
 
 
 class TestFreshness:
