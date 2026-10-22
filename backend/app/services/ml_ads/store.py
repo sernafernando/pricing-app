@@ -486,10 +486,12 @@ def save_campaigns(
     days: list[dict[str, Any]],
     *,
     now: datetime,
+    refresh_catalog: bool = True,
 ) -> None:
     """The day's whole campaign listing: catalog rows take the latest values, the day's rows are replaced.
 
-    A campaign ML no longer lists for the day loses its day row; its catalog row stays.
+    A campaign ML no longer lists for the day loses its day row; its catalog row stays. With `refresh_catalog`
+    False (an old day read after newer ones) only campaigns the catalog lacks are added; existing rows stay.
     """
     for model, rows, keys in (
         (MlAdsCampaign, campaigns, ["advertiser_id", "campaign_id"]),
@@ -498,6 +500,9 @@ def save_campaigns(
         if not rows:
             continue
         stmt = pg_insert(model).values([{**row, "fetched_at": now} for row in rows])
+        if model is MlAdsCampaign and not refresh_catalog:
+            db.execute(stmt.on_conflict_do_nothing(index_elements=keys))
+            continue
         refreshed = {name: getattr(stmt.excluded, name) for name in rows[0] if name not in keys}
         refreshed["fetched_at"] = stmt.excluded.fetched_at
         db.execute(stmt.on_conflict_do_update(index_elements=keys, set_=refreshed))

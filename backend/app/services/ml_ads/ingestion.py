@@ -148,6 +148,7 @@ def list_advertisers(
 
 class _DayRun:
     source = store.SOURCE  # the ledger this pipeline writes; Display overrides it
+    refresh_catalog = True  # the campaigns of a recent day are the latest catalog
 
     def __init__(
         self,
@@ -307,7 +308,9 @@ class _DayRun:
             raise _Stop(ERROR)
         campaigns, days = mapper.map_campaigns(self.advertiser_id, self.day, self._all_campaigns(body))
         with self.session_factory() as db:
-            store.save_campaigns(db, self.advertiser_id, self.day, campaigns, days, now=self.now())
+            store.save_campaigns(
+                db, self.advertiser_id, self.day, campaigns, days, now=self.now(), refresh_catalog=self.refresh_catalog
+            )
         return summary
 
     def _all_campaigns(self, body: Mapping[str, Any]) -> list[Any]:
@@ -483,6 +486,7 @@ class _CampaignsRun(_DayRun):
     """
 
     source = store.CAMPAIGNS_SOURCE
+    refresh_catalog = False  # an old day must not overwrite what a newer day's call stored
 
     def execute(self) -> StepResult:
         try:

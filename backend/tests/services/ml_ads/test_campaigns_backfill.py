@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.models.ml_ads import MlAdsCampaignDay, MlAdsDayLedger
+from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignDay, MlAdsDayLedger
 from app.services.ml_ads import read, schedule
 from tests.services.ml_ads.replay import START, SUMMARY_RE, FakeClock, Replay, gauss_day, make_client, tplink_day
 
@@ -113,6 +113,20 @@ class TestCampaignsBackfill:
         assert newer == 0  # D-14..D-1 are read by the day fetch and the verify
         assert (tick.stopped, tick.complete) == (None, True)
         assert tick.as_detail()["campaigns"]["error"] is None
+
+    def test_an_old_day_adds_missing_catalog_rows_but_never_overwrites_the_latest(
+        self, session_factory, pg_ads_db, monkeypatch, closed_window
+    ) -> None:
+        closed_window()
+        # DERIVED: a catalog row as a newer day's call left it (the name stands in for any newer value).
+        pg_ads_db.add(MlAdsCampaign(advertiser_id=GAUSS, campaign_id=7231635, name="newer", raw={}))
+        pg_ads_db.commit()
+
+        _tick(session_factory, _replay(), monkeypatch)
+
+        assert pg_ads_db.get(MlAdsCampaign, (GAUSS, 7231635)).name == "newer"
+        catalog = pg_ads_db.execute(select(func.count()).where(MlAdsCampaign.advertiser_id == GAUSS)).scalar()
+        assert catalog == 16  # the other 15 campaigns of the listing are added
 
     def test_a_backfilled_day_is_not_read_again(self, session_factory, monkeypatch, closed_window) -> None:
         closed_window()

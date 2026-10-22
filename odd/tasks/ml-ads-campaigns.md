@@ -58,7 +58,9 @@ Window D-90..D-15 only (`_run_account_level(..., newest_ago=VERIFY_DAYS + 1)`); 
 fetch and the verify. A day is read once (no refresh, no verify); runs last in `run_tick`, isolated like
 Display/Brand. Ledger `source` has no CHECK constraint, so no migration. `read.ads_coverage` leaves the
 `campaigns` source out (it is a cursor, not ads data; otherwise every page would list D-14..D-1 as missing).
-No flag: it rides on the existing `ML_ADS_ENABLED`.
+No flag: it rides on the existing `ML_ADS_ENABLED`. An old day never overwrites the catalog
+(`save_campaigns(refresh_catalog=False)`: insert-only), since the backfill runs after the day fetch in the same
+tick; it only adds campaigns the catalog lacks.
 
 ## Progress
 
@@ -76,7 +78,9 @@ No flag: it rides on the existing `ML_ADS_ENABLED`.
   `tests/services/ml_ads/test_campaigns_backfill.py`: 4 failed -- `TickResult` had no `campaigns_steps`, and
   coverage listed the `campaigns` source as missing days; the Display/Brand-up-to-yesterday guard passed), GREEN
   after (5 passed); focused suites `tests/services/ml_ads` + `tests/workers/handlers/test_ml_ads.py`: 272 passed
-  (the handler detail test now expects the new `campaigns` key). Engram mirror pending: Engram writes were
+  (the handler detail test now expects the new `campaigns` key). Commits `29891405` (feature), `418c1b95` and
+  `d119d142` (GGA observations: docstrings, import order). GGA's 3rd pass found the catalog overwrite: RED
+  (`'Canon' == 'newer'`), GREEN after insert-only for old days; suites 273 passed. Engram mirror pending: Engram writes were
   blocked in this session.
 
 ## Log
