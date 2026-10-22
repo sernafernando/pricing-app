@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
 from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue
-from app.services.sell_out.tope import _cents
+from app.services.sell_out.tope import cents
 
 CANALES = ("ml", "fuera", "tn")
 
@@ -46,7 +46,7 @@ _EN_CURSO_SQL = text(
 def _ars(campana: SellOutCampana, monto: Decimal, tc_venta: Optional[Decimal]) -> Optional[Decimal]:
     if campana.moneda == "ARS":
         return monto
-    return None if tc_venta is None else _cents(Decimal(monto) * Decimal(tc_venta))
+    return None if tc_venta is None else cents(Decimal(monto) * Decimal(tc_venta))
 
 
 def ars_estimado(campana: SellOutCampana) -> bool:
