@@ -391,7 +391,7 @@ export default function MetricasML() {
     setSheetsNotice(null);
     try {
       const { url } = await exportMetricasSheets(exportParams);
-      setSheetsNotice({ url });
+      if (url) setSheetsNotice({ url });
     } catch (err) {
       if (err.cancelled) setSheetsNotice({ text: err.message });
       else setExportError(err.message);
