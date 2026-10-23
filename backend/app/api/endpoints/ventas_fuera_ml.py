@@ -11,6 +11,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
 from app.api.deps import get_current_user
+from app.services.sell_in_out_ventas import MontosVenta, montos_por_venta
 
 router = APIRouter()
 
@@ -108,6 +109,14 @@ class OperacionFueraMLResponse(BaseModel):
     markup: Optional[float]
     ganancia: float
     signo: int
+    # Sell in / sell out (sell-in-sell-out T14): the fields above are the figures without them.
+    # Null when the operation has none (see `_con_sell_in_out`).
+    sell_in_ars: Optional[float] = None
+    sell_out_ars: Optional[float] = None
+    sell_out_estimado: Optional[bool] = None
+    costo_con_sell_in: Optional[float] = None
+    ganancia_con_sell_in_out: Optional[float] = None
+    markup_con_sell_in_out: Optional[float] = None
 
 
 class CountResponse(BaseModel):
@@ -502,6 +511,27 @@ def get_ventas_fuera_ml_query(vendedores_excluidos_str: str):
     """
 
 
+def _con_sell_in_out(costo: Decimal, ganancia: Decimal, montos: Optional[MontosVenta]) -> dict:
+    """An operation's figures with sell in and sell out, from the same ones the list shows without them:
+    sell in lowers the cost, both add to the profit, and the markup is profit over cost like
+    `markup_porcentaje` ((monto / costo) - 1), as a fraction, only while the cost is positive. All null
+    for an operation without either; profit and markup null while its sell out is unknown."""
+    if montos is None:
+        return {}
+    costo_con = costo - (montos.sell_in_ars or Decimal(0))
+    credito = montos.credito_ars
+    ganancia_con = None if credito is None else ganancia + credito
+    markup_con = ganancia_con / costo_con if ganancia_con is not None and costo_con > 0 else None
+    return {
+        "sell_in_ars": None if montos.sell_in_ars is None else float(montos.sell_in_ars),
+        "sell_out_ars": None if montos.sell_out_ars is None else float(montos.sell_out_ars),
+        "sell_out_estimado": montos.sell_out_estimado,
+        "costo_con_sell_in": float(costo_con),
+        "ganancia_con_sell_in_out": None if ganancia_con is None else float(ganancia_con),
+        "markup_con_sell_in_out": None if markup_con is None else float(markup_con),
+    }
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -595,6 +625,7 @@ def get_operaciones_desde_metricas(
     """
 
     result = db.execute(text(query), params).fetchall()
+    sell_in_out = montos_por_venta(db, "fuera", [r.id_operacion for r in result])
 
     return [
         {
@@ -622,6 +653,9 @@ def get_operaciones_desde_metricas(
             "markup": float(r.markup) / 100 if r.markup else None,  # Convertir a decimal (0.15 en lugar de 15%)
             "ganancia": float(r.ganancia) if r.ganancia else 0,
             "signo": r.signo,
+            **_con_sell_in_out(
+                Decimal(r.costo_pesos_sin_iva or 0), Decimal(r.ganancia or 0), sell_in_out.get(r.id_operacion)
+            ),
         }
         for r in result
     ]

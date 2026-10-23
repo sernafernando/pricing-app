@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -53,10 +53,26 @@ def ars_estimado(campana: SellOutCampana) -> bool:
     return campana.moneda == "USD" and campana.tc_modo == "al_cobro" and campana.tipo_cambio is None
 
 
+# One row's ARS amount in SQL, like `_ars`: NULL for an ARS row (no rate) or a USD row without its rate.
+ARS_FILA = func.round(SellOutConsumo.monto * SellOutConsumo.tc_venta, 2)
+
+
+def monto_ars(
+    campana: SellOutCampana, monto: Decimal, montos_ars_fila: Iterable[Optional[Decimal]], sin_tasa: int
+) -> Optional[Decimal]:
+    """The ARS amount of some of a campaign's rows, from their `monto` sum, their `ARS_FILA` sums and how
+    many of them lack `tc_venta`: an ARS campaign's `monto` is already ARS; a row without its rate leaves
+    it unknown (None), never a partial sum."""
+    if campana.moneda == "ARS":
+        return monto
+    if sin_tasa:
+        return None
+    return sum((Decimal(str(x)) for x in montos_ars_fila), Decimal(0))
+
+
 def _montos(db: Session, campanas: Dict[int, SellOutCampana]) -> Dict[int, Dict[str, tuple]]:
     """`{campana_id: {canal: (lineas, unidades, monto, monto_ars, sin_tasa)}}` in one query."""
     t = SellOutConsumo
-    ars_fila = func.round(t.monto * t.tc_venta, 2)
     rows = (
         db.query(
             t.campana_id,
@@ -64,7 +80,7 @@ def _montos(db: Session, campanas: Dict[int, SellOutCampana]) -> Dict[int, Dict[
             func.count(),
             func.sum(t.unidades),
             func.sum(t.monto),
-            func.sum(ars_fila),
+            func.sum(ARS_FILA),
             func.count() - func.count(t.tc_venta),
         )
         .filter(t.campana_id.in_(list(campanas)))
@@ -138,17 +154,11 @@ def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
         lineas = sum(x[0] for x in canales.values())
         unidades = sum(x[1] for x in canales.values())
         monto = sum((x[2] for x in canales.values()), Decimal(0))
-        if c.moneda == "ARS":
-            monto_ars: Optional[Decimal] = monto
-        elif any(x[4] for x in canales.values()):
-            monto_ars = None
-        else:
-            monto_ars = sum((Decimal(str(x[3])) for x in canales.values()), Decimal(0))
         salida[cid] = {
             "lineas": lineas,
             "unidades": unidades,
             "monto": monto,
-            "monto_ars": monto_ars,
+            "monto_ars": monto_ars(c, monto, (x[3] for x in canales.values()), sum(x[4] for x in canales.values())),
             "ars_estimado": ars_estimado(c),
             "tope_unidades_restantes": None if c.tope_unidades is None else c.tope_unidades - unidades,
             "tope_monto_restante": None if c.tope_monto is None else Decimal(c.tope_monto) - monto,
