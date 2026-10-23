@@ -51,9 +51,10 @@ describe('CatalogCompetitionPanel', () => {
     });
 
     renderPanel();
-    await waitFor(() => expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalledTimes(1));
+    // The stored snapshot renders a tick after the call; wait for it, not only for the call.
+    expect(await screen.findByText(/sin consultar todav/i)).toBeInTheDocument();
+    expect(promocionesAPI.getCompetenciaCatalogo).toHaveBeenCalledTimes(1);
     expect(promocionesAPI.refreshCompetenciaCatalogo).not.toHaveBeenCalled();
-    expect(screen.getByText(/sin consultar todav/i)).toBeInTheDocument();
   });
 
   it('shows the "no aplica" state for a not_catalog snapshot, panel stays visible', async () => {
