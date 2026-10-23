@@ -1,0 +1,103 @@
+.container {
+  padding: var(--spacing-lg);
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.description {
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+  margin: var(--spacing-xs) 0 0;
+  max-width: 640px;
+}
+
+.filters {
+  display: flex;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+}
+
+.input {
+  composes: input from '../styles/forms-tesla.css';
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--cf-text-tertiary);
+  font-size: 0.8rem;
+}
+
+.contributions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.contribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.contributionValue {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill {
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--cf-accent-blue) 14%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.note {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: var(--cf-text-secondary);
+}
+
+.alertError {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-accent-red);
+  font-size: 0.82rem;
+  margin-bottom: 12px;
+}
