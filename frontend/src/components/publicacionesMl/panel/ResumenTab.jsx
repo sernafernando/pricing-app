@@ -103,7 +103,64 @@ function LinkSection({ link }) {
   );
 }
 
-function MarkupSection({ breakdown, reason }) {
+/** The key of this publication's markup in `sell_in_out.markups_sell_in[_out]` (backend `detail.SELL_IN_OUT_KEY`). */
+const SELL_IN_OUT_KEY = 'publicacion';
+
+const isBlank = (value) => value === null || value === undefined;
+
+/** A marked-down figure: an unknown amount, or no sell in at all, with what it means in the tooltip. */
+const Muted = ({ title, children }) => (
+  <span className={cellStyles.empty} title={title}>
+    {children}
+  </span>
+);
+
+const MarkupValue = ({ value }) => (
+  <span className={cellStyles.markup} data-negative={value < 0 ? '' : undefined}>
+    {formatPct(value)}
+  </span>
+);
+
+/** The cost of the purchase lot the next sale takes its sell in from, with its discount and units left. */
+function SellInCost({ sellIn }) {
+  if (!sellIn) return <Muted title="Sin sell in vigente">-</Muted>;
+  const detalle = `Descuento por unidad: $ ${amount(sellIn.descuento_unit)}\nUnidades restantes del lote: ${sellIn.unidades_restantes}`;
+  if (isBlank(sellIn.costo)) return <Muted title={detalle}>Sin tipo de cambio</Muted>;
+  return <span title={detalle}>{amount(sellIn.costo)}</span>;
+}
+
+/**
+ * The publication's markup with sell in and sell out when there is sell out, else with sell in only.
+ * "Pendiente" when an amount is unknown (a lot without a cost in pesos, a sell out without its rate
+ * or base): never a made-up figure.
+ */
+function SellInOutMarkup({ sellInOut }) {
+  const { sell_in: sellIn, sell_out: sellOut } = sellInOut;
+  const conSellOut = sellInOut.markups_sell_in_out?.[SELL_IN_OUT_KEY];
+  if (!isBlank(conSellOut)) {
+    return (
+      <span title={`Con sell in y sell out (sell out: $ ${amount(sellOut.monto_unit)} por unidad, sin IVA)`}>
+        <MarkupValue value={conSellOut} />
+      </span>
+    );
+  }
+  const sellOutPendiente = Boolean(sellOut) && isBlank(sellOut.monto_unit);
+  const conSellIn = sellInOut.markups_sell_in?.[SELL_IN_OUT_KEY];
+  if (isBlank(conSellIn)) {
+    const costoPendiente = Boolean(sellIn) && isBlank(sellIn.costo);
+    if (costoPendiente || sellOutPendiente) {
+      return <Muted title="Falta el tipo de cambio o la base para calcular el markup">Pendiente</Muted>;
+    }
+    return null;
+  }
+  return (
+    <span title={sellOutPendiente ? 'Con sell in; el sell out está pendiente' : 'Con sell in'}>
+      <MarkupValue value={conSellIn} />
+    </span>
+  );
+}
+
+function MarkupSection({ breakdown, reason, sellInOut }) {
   if (breakdown == null) {
     return (
       <Section title="Markup">
@@ -128,6 +185,11 @@ function MarkupSection({ breakdown, reason }) {
         <Field label="Origen del envío">{label(SHIPPING_SOURCE_LABELS, breakdown.envio_source)}</Field>
         <Field label="Precio limpio">{amount(breakdown.limpio)}</Field>
         <Field label="Costo">{amount(breakdown.costo_ars)}</Field>
+        {sellInOut && (
+          <Field label="Costo c/ sell in">
+            <SellInCost sellIn={sellInOut.sell_in} />
+          </Field>
+        )}
         <Field label="Markup">
           {breakdown.markup == null ? null : (
             <span className={cellStyles.markup} data-negative={negative ? '' : undefined}>
@@ -135,6 +197,11 @@ function MarkupSection({ breakdown, reason }) {
             </span>
           )}
         </Field>
+        {sellInOut && (
+          <Field label="Markup c/ sell in/out">
+            <SellInOutMarkup sellInOut={sellInOut} />
+          </Field>
+        )}
       </Fields>
     </Section>
   );
@@ -151,7 +218,9 @@ export default function ResumenTab({ detail, canSeeMargin }) {
       <LinkSection link={row.link} />
       <MercadoLibreSection item={detail.item} />
       <BodySection extra={detail.extra} />
-      {canSeeMargin && <MarkupSection breakdown={detail.markupBreakdown} reason={row.markup?.reason} />}
+      {canSeeMargin && (
+        <MarkupSection breakdown={detail.markupBreakdown} reason={row.markup?.reason} sellInOut={detail.sellInOut} />
+      )}
     </>
   );
 }
