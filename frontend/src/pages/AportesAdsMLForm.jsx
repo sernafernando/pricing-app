@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import ModalTesla from '../components/ModalTesla';
 import styles from './AportesAdsMLForm.module.css';
+import { apiErrorMessage } from '../utils/apiErrorMessage';
 
 /**
  * The form state from `initial`, shaped like the API's contribution: a new one passes only `advertiser_id` and
@@ -77,7 +78,7 @@ export default function AportesAdsMLForm({ title, initial, submit, settlementLab
       await submit(payloadOf(form));
       onSaved();
     } catch (err) {
-      setFormError(err?.response?.data?.error?.message || err?.response?.data?.detail || 'No se pudo guardar el aporte');
+      setFormError(apiErrorMessage(err, 'No se pudo guardar el aporte'));
       setSaving(false);
     }
   };
@@ -101,7 +102,7 @@ export default function AportesAdsMLForm({ title, initial, submit, settlementLab
     >
       <form id="aporte-ads-form" className={styles.form} onSubmit={handleSave} noValidate>
         {formError && (
-          <div className={styles.alertError}>
+          <div className={styles.alertError} role="alert">
             <AlertTriangle size={16} /> {formError}
           </div>
         )}

@@ -209,4 +209,15 @@ describe('manage contributions', () => {
     expect(await screen.findByText('the range overlaps contribution 7')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Guardar aporte' })).toBeInTheDocument();
   });
+
+  it('shows the generic message, as an alert, when the 422 detail is a list of field errors', async () => {
+    const user = userEvent.setup();
+    api.post.mockRejectedValue({
+      response: { status: 422, data: { detail: [{ loc: ['body', 'value'], msg: 'too many digits', type: 'decimal' }] } },
+    });
+    await openCreate(user);
+    await fillCommon(user);
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo guardar el aporte');
+  });
 });

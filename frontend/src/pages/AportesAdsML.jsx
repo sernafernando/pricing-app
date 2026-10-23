@@ -12,6 +12,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import AportesAdsMLForm from './AportesAdsMLForm';
 import { registrarPagina } from '../registry/tabRegistry';
+import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import styles from './AportesAdsML.module.css';
 
@@ -21,9 +22,6 @@ const SETTLEMENT_LABELS = { full: 'Se recibe todo', refund_difference: 'Se devue
 
 const isoDay = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-const errorMessage = (err, fallback) =>
-  err?.response?.data?.error?.message || err?.response?.data?.detail || fallback;
 
 const formatDay = (iso) => iso.split('-').reverse().join('/');
 
@@ -73,7 +71,7 @@ export default function AportesAdsML() {
     } catch (err) {
       if (request !== latestRequest.current) return;
       setCampaigns([]);
-      setLoadError(errorMessage(err, 'No se pudieron cargar las campañas'));
+      setLoadError(apiErrorMessage(err, 'No se pudieron cargar las campañas'));
     } finally {
       if (request === latestRequest.current) setLoading(false);
     }
