@@ -53,7 +53,7 @@ class TestPermission:
 
     def test_the_only_writes_are_the_brand_contributions(self) -> None:
         writes = {route.path for route in ml_ads.router.routes if getattr(route, "methods", set()) - {"GET", "HEAD"}}
-        assert writes == {"/ml-ads/contributions"}
+        assert writes == {"/ml-ads/contributions", "/ml-ads/contributions/{contribution_id}"}
 
 
 class TestValidation:

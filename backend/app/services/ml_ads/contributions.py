@@ -5,6 +5,7 @@ Only stores what the team loads (S2). How a contribution lowers the subtracted c
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -14,6 +15,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay
+
+logger = logging.getLogger(__name__)
 
 
 class ContributionError(Exception):
@@ -95,6 +98,16 @@ def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None
         raise ContributionError("date_from", "the range overlaps another contribution of the same campaign")
 
 
+def _locked(db: Session, contribution_id: int) -> Optional[MlAdsCampaignContribution]:
+    """The contribution row under FOR UPDATE, taken before the campaign lock so edit and delete serialize."""
+    return (
+        db.query(MlAdsCampaignContribution)
+        .filter(MlAdsCampaignContribution.id == contribution_id)
+        .with_for_update()
+        .one_or_none()
+    )
+
+
 def _apply(row: MlAdsCampaignContribution, data: ContributionData, user_id: int) -> None:
     for name, value in vars(data).items():
         setattr(row, name, value)
@@ -109,3 +122,42 @@ def create(db: Session, data: ContributionData, user_id: int) -> MlAdsCampaignCo
     db.commit()
     db.refresh(row)
     return row
+
+
+def update(
+    db: Session, contribution_id: int, data: ContributionData, user_id: int
+) -> Optional[MlAdsCampaignContribution]:
+    """`None` when the contribution does not exist (also when a concurrent delete wins the row lock)."""
+    row = _locked(db, contribution_id)
+    if row is None:
+        return None
+    if (row.advertiser_id, row.campaign_id) != (data.advertiser_id, data.campaign_id):
+        raise ContributionError(
+            "campaign_id", "a contribution cannot move to another campaign; delete it and load it again"
+        )
+    _check(db, data, exclude_id=contribution_id)
+    _apply(row, data, user_id)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete(db: Session, contribution_id: int, user_id: int) -> bool:
+    """The row goes away; the log line keeps who removed what (the table only knows creator and last editor)."""
+    row = _locked(db, contribution_id)
+    if row is None:
+        return False
+    logger.info(
+        "ml-ads contribution %s deleted by user %s: advertiser %s campaign %s %s %s %s..%s",
+        row.id,
+        user_id,
+        row.advertiser_id,
+        row.campaign_id,
+        row.kind,
+        row.value,
+        row.date_from,
+        row.date_to,
+    )
+    db.delete(row)
+    db.commit()
+    return True
