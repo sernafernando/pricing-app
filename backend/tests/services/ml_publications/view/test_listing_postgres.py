@@ -415,6 +415,24 @@ class TestGone:
         seed.add_item(conn, "MLA2", status="closed", gone_at=seed.NOW)
         assert ids(run(db, estado="closed")) == ["MLA1"]
 
+    def test_an_item_ml_marks_deleted_only_in_sub_status_is_gone(self, conn, db) -> None:
+        # ML keeps a deleted item as inactive/closed with "deleted" in sub_status and no gone_at of ours
+        seed.add_item(conn, "MLA1", status="active")
+        seed.add_item(conn, "MLA2", status="inactive", sub_status=["forbidden", "deleted"])
+        seed.add_item(conn, "MLA3", status="closed", sub_status=["deleted", "paused_by_seller"])
+        seed.add_item(conn, "MLA4", status="closed", sub_status=["expired"])
+        page = run(db)
+        assert sorted(ids(page)) == ["MLA1", "MLA4"] and page.total == 2
+        assert sorted(ids(run(db, estado="gone"))) == ["MLA2", "MLA3"]
+        assert ids(run(db, estado="inactive")) == []
+        assert ids(run(db, estado="closed")) == ["MLA4"]
+        assert sorted(ids(run(db, estado="closed,gone"))) == ["MLA2", "MLA3", "MLA4"]
+        assert sorted(ids(run(db, estado="closed,gone", estado_excluir="gone"))) == ["MLA4"]
+        rows = {row["item_id"]: row for row in run(db, estado="active,gone").items}
+        assert rows["MLA2"]["gone"] is True and rows["MLA2"]["gone_at"] is None
+        assert rows["MLA1"]["gone"] is False
+        assert listing.facets(db, parse_filter())["status"] == {"active": 1, "closed": 1, "gone": 2}
+
     def test_never_existed_stays_out_even_when_gone_is_asked_for(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", gone_at=seed.NOW, never_existed=True)
         assert ids(run(db, estado="gone")) == []

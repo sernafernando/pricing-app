@@ -230,7 +230,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
         "user_product_id": row.user_product_id,
         "seller_sku": _seller_sku(row),
         "variations_count": variations.get(row.item_id, 0),
-        "gone": row.gone_at is not None,
+        "gone": row.gone_at is not None or "deleted" in (row.sub_status or ()),  # filters.deleted(), per row
         "gone_at": row.gone_at,
         "price": _price(row),
         "stock": {

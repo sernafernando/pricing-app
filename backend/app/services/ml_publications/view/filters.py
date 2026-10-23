@@ -9,8 +9,8 @@ Rules worth knowing before reading the code:
 * `q` has three shapes (`normalize_q`): an MLA id and a digits-only string are EXACT keys; anything else is a
   case-insensitive substring search. Digits-only is an exact key because it is an MLA number, a seller SKU or an
   EAN, and exact keys use the indexes.
-* `gone` and `sin_estado` are status tokens of our own: an item whose `gone_at` is set is listed only when asked
-  for with `estado=gone` (and then it is flagged, spec LST-5); `sin_estado` selects items ML sent without a
+* `gone` and `sin_estado` are status tokens of our own: a deleted item (`gone_at` set, or `deleted` in ML's
+  `sub_status`, see `deleted()`) is listed only when asked for with `estado=gone` (and then it is flagged, spec LST-5); `sin_estado` selects items ML sent without a
   status. The status facet offers exactly these values, so every one of them can be selected back.
 """
 
@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import Interval, and_, case, exists, false, func, literal, or_, select, tuple_
+from sqlalchemy import Interval, and_, case, exists, false, func, literal, not_, or_, select, true, tuple_
 from sqlalchemy.orm import aliased, join as orm_join
 from sqlalchemy.sql import ColumnElement, Select
 
@@ -436,9 +436,16 @@ def price_amount() -> ColumnElement:
     return func.coalesce(T.sp.amount, T.i.price)
 
 
+def deleted() -> ColumnElement:
+    """A deleted item, the `gone` status token: it vanished from ML (`gone_at` set), or ML marks it deleted in its
+    `sub_status` (ML keeps a deleted item as `inactive`/`closed` with `deleted` there, and never sets our `gone_at`)."""
+    # IS TRUE: on a NULL sub_status `= ANY` is NULL, and NOT of it would hide every live item without a sub_status
+    return or_(T.i.gone_at.isnot(None), T.i.sub_status.any("deleted").is_(true()))
+
+
 def status_value() -> ColumnElement:
-    """The status axis value of a row: `gone` for a vanished item, else its ML status (`sin_estado` when none)."""
-    return case((T.i.gone_at.isnot(None), literal(STATUS_GONE)), else_=func.coalesce(T.i.status, literal(NO_STATUS)))
+    """The status axis value of a row: `gone` for a deleted item, else its ML status (`sin_estado` when none)."""
+    return case((deleted(), literal(STATUS_GONE)), else_=func.coalesce(T.i.status, literal(NO_STATUS)))
 
 
 def link_state() -> ColumnElement:
@@ -469,24 +476,24 @@ def _link(f: PublicationFilter) -> ColumnElement:
 
 def _status(f: PublicationFilter) -> ColumnElement:
     """`estado` / `estado_excluir`: ML statuses plus two tokens of ours, `gone` (vanished from ML) and
-    `sin_estado` (no status). Gone items are shown only when `gone` is asked for."""
+    `sin_estado` (no status). Deleted items (`deleted()`) are shown only when `gone` is asked for."""
     wanted = [s for s in f.status if s not in (STATUS_GONE, NO_STATUS)]
     live = []
     if wanted:
         live.append(T.i.status.in_(wanted))
     if NO_STATUS in f.status:
         live.append(T.i.status.is_(None))
-    parts = [and_(T.i.gone_at.is_(None), or_(*live))] if live else []
+    parts = [and_(not_(deleted()), or_(*live))] if live else []
     if STATUS_GONE in f.status:
-        parts.append(T.i.gone_at.isnot(None))
-    clause = or_(*parts) if parts else T.i.gone_at.is_(None)
+        parts.append(deleted())
+    clause = or_(*parts) if parts else not_(deleted())
     excluded = [s for s in f.status_exclude if s not in (STATUS_GONE, NO_STATUS)]
     if NO_STATUS in f.status_exclude:
         clause = and_(clause, T.i.status.isnot(None))
     if excluded:  # a NULL status is not one of the excluded values: it stays unless `sin_estado` is excluded too
         clause = and_(clause, or_(T.i.status.is_(None), T.i.status.notin_(excluded)))
     if STATUS_GONE in f.status_exclude:
-        clause = and_(clause, T.i.gone_at.is_(None))
+        clause = and_(clause, not_(deleted()))
     return clause
 
 
