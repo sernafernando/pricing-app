@@ -37,6 +37,7 @@ class ContributionData:
     date_to: date
     brand: Optional[str]
     note: Optional[str]
+    settlement: Optional[str] = None
 
 
 @dataclass

@@ -220,15 +220,17 @@ class MlAdsCampaignDay(Base):
 
 
 CONTRIBUTION_KINDS = ("percentage", "fixed_amount")
+CONTRIBUTION_SETTLEMENTS = ("full", "refund_difference")
 
 
 class MlAdsCampaignContribution(Base):
     """A brand's contribution to one Product Ads campaign over `[date_from, date_to]` (ml-ads-brand-contribution S4).
 
-    Loaded by hand (S2). `percentage` covers that share of each day's cost; `fixed_amount` is money spread over the
-    range's days by each day's cost, capped at it (S5, S6: applied by the Board, not stored here). Ranges of one
-    campaign never overlap (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
-    self-contained (users are deactivated, never deleted).
+        Loaded by hand (S2). `percentage` covers that share of each day's cost; `fixed_amount` is money spread over the
+        range's days by each day's cost (S5, S6: applied by the Board, not stored here). A fixed amount's `settlement` says
+    whether the brand pays it whole (`full`) or only up to the range's spend (`refund_difference`). Ranges of one
+        campaign never overlap (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
+        self-contained (users are deactivated, never deleted).
     """
 
     __tablename__ = "ml_ads_campaign_contributions"
@@ -240,6 +242,7 @@ class MlAdsCampaignContribution(Base):
     value = Column(Numeric(16, 2), nullable=False)
     date_from = Column(Date, nullable=False)
     date_to = Column(Date, nullable=False)
+    settlement = Column(String(24), nullable=True)
     brand = Column(String(120), nullable=True)
     note = Column(Text, nullable=True)
     created_by_id = Column(Integer, nullable=False)
@@ -253,5 +256,12 @@ class MlAdsCampaignContribution(Base):
             "value > 0 AND (kind <> 'percentage' OR value <= 100)", name="ck_ml_ads_campaign_contributions_value"
         ),
         CheckConstraint("date_from <= date_to", name="ck_ml_ads_campaign_contributions_dates"),
+        CheckConstraint(
+            _in_list("settlement", CONTRIBUTION_SETTLEMENTS), name="ck_ml_ads_campaign_contributions_settlement"
+        ),
+        CheckConstraint(
+            "(kind = 'fixed_amount') = (settlement IS NOT NULL)",
+            name="ck_ml_ads_campaign_contributions_settlement_kind",
+        ),
         Index("ix_ml_ads_campaign_contributions_campaign", "advertiser_id", "campaign_id"),
     )

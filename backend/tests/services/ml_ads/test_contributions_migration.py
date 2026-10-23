@@ -21,6 +21,8 @@ from tests.services.ml_ads.test_account_level_migration import _script_directory
 REVISION = "20261113_ml_ads_campaign_contributions"
 TABLE = "ml_ads_campaign_contributions"
 _PATH = Path(__file__).resolve().parents[3] / "alembic" / "versions" / f"{REVISION}.py"
+# T1c adds `settlement`; the ORM is compared with both migrations applied.
+_SETTLEMENT_PATH = _PATH.with_name("20261116_ml_ads_contribution_settlement.py")
 _INSERT = (
     f"INSERT INTO {TABLE} (advertiser_id, campaign_id, kind, value, date_from, date_to, created_by_id, "
     "updated_by_id) VALUES (714700, 351001, :kind, :value, :desde, :hasta, 7, 7)"
@@ -71,7 +73,11 @@ def throwaway_schema(build):
 
 @pytest.fixture()
 def engine():
-    with throwaway_schema(lambda eng: run_migration(eng, "upgrade")) as eng:
+    def build(eng) -> None:
+        run_migration(eng, "upgrade")
+        run_migration(eng, "upgrade", _SETTLEMENT_PATH)
+
+    with throwaway_schema(build) as eng:
         yield eng
 
 
@@ -100,6 +106,7 @@ def test_migrated_schema_matches_the_orm_and_downgrade_drops_it(engine) -> None:
     assert ("ix_ml_ads_campaign_contributions_campaign",) == tuple(
         n for n, _ in migrated["indexes"] if n.startswith("ix_")
     )
+    run_migration(engine, "downgrade", _SETTLEMENT_PATH)
     run_migration(engine, "downgrade")
     with engine.connect() as conn:
         assert conn.execute(text(f"SELECT to_regclass('{TABLE}')")).scalar_one() is None

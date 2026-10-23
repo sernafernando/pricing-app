@@ -18,6 +18,7 @@ BASE = "/api/ml-ads"
 GANANCIA = "ml_metricas.ver_ganancia"
 GESTIONAR = "ml_metricas.gestionar_aportes_ads"
 ADV, CAMP, OTHER = 714700, 351001, 351002
+FIXED = {"kind": "fixed_amount", "settlement": "refund_difference"}
 
 
 def _contribution(**overrides) -> dict:
@@ -129,10 +130,22 @@ class TestCreate:
         assert body["created_by_id"] == admin_user.id
 
     def test_a_fixed_amount_keeps_its_two_decimals(self, client, db, manager) -> None:
-        response = _create(client, manager, kind="fixed_amount", value="150000.75", brand=None, note=None)
+        response = _create(client, manager, **FIXED, value="150000.75", brand=None, note=None)
         assert response.status_code == 201
         assert response.json()["value"] == 150000.75
         assert [(r.kind, r.value, r.brand) for r in _rows(db)] == [("fixed_amount", Decimal("150000.75"), None)]
+
+    @pytest.mark.parametrize("settlement", ["full", "refund_difference"])
+    def test_a_fixed_amount_stores_how_it_settles(self, client, db, manager, settlement) -> None:
+        response = _create(client, manager, kind="fixed_amount", value="500000", settlement=settlement)
+        assert response.status_code == 201
+        assert response.json()["settlement"] == settlement
+        assert [r.settlement for r in _rows(db)] == [settlement]
+
+    def test_a_percentage_has_no_settlement(self, client, db, manager) -> None:
+        response = _create(client, manager)
+        assert response.status_code == 201 and response.json()["settlement"] is None
+        assert [r.settlement for r in _rows(db)] == [None]
 
     @pytest.mark.parametrize(
         "overrides",
@@ -140,8 +153,11 @@ class TestCreate:
             {"value": "0"},
             {"value": "100.01"},
             {"value": "-5"},
-            {"kind": "fixed_amount", "value": "0"},
-            {"kind": "fixed_amount", "value": "10.123"},  # money takes two decimals
+            {**FIXED, "value": "0"},
+            {**FIXED, "value": "10.123"},  # money takes two decimals
+            {"kind": "fixed_amount", "value": "500000"},  # a fixed amount says how it settles
+            {**FIXED, "settlement": "partial"},
+            {"settlement": "full"},  # a percentage does not settle
             {"kind": "bonus"},
             {"date_from": "2026-11-01", "date_to": "2026-10-31"},
         ],
@@ -185,7 +201,7 @@ class TestUpdate:
         response = client.put(
             f"{BASE}/contributions/{contribution_id}",
             headers=viewer,
-            json=_contribution(kind="fixed_amount", value="5000", date_to="2026-10-15", brand="Epson"),
+            json=_contribution(**FIXED, value="5000", date_to="2026-10-15", brand="Epson"),
         )
         assert response.status_code == 200
         assert (response.json()["value"], response.json()["date_to"]) == (5000.0, "2026-10-15")
