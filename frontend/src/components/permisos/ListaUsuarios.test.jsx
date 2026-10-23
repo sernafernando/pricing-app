@@ -14,10 +14,11 @@ const USUARIOS = [
 const renderLista = (usuarios = USUARIOS) =>
   render(<ListaUsuarios usuarios={usuarios} seleccionadoId={null} overridesSeleccionado={null} onSeleccionar={vi.fn()} />);
 
-const nombresEnOrden = () =>
+// Each row is identified by the user name it shows, not by its CSS-module class.
+const nombresEnOrden = (usuarios = USUARIOS) =>
   within(screen.getByRole('list', { name: 'Usuarios del sistema' }))
     .getAllByRole('button')
-    .map((fila) => fila.querySelector('[class*="nombre"]').textContent);
+    .map((fila) => usuarios.find((u) => within(fila).queryByText(u.nombre)).nombre);
 
 const ordenarPor = () => screen.getByRole('combobox', { name: 'Ordenar por' });
 
@@ -97,5 +98,17 @@ describe('ListaUsuarios sorting', () => {
     await user.selectOptions(ordenarPor(), 'Nombre');
 
     expect(usuarios.map((u) => u.id)).toEqual([12, 3, 7, 9]);
+  });
+
+  it('sorts users with a missing username or role first instead of failing', async () => {
+    const user = userEvent.setup();
+    const usuarios = [...USUARIOS, { id: 20, nombre: 'Eva Sin Datos', username: null, email: null, rol: null, activo: true }];
+    renderLista(usuarios);
+
+    await user.selectOptions(ordenarPor(), 'Usuario');
+    expect(nombresEnOrden(usuarios)[0]).toBe('Eva Sin Datos');
+
+    await user.selectOptions(ordenarPor(), 'Rol');
+    expect(nombresEnOrden(usuarios)[0]).toBe('Eva Sin Datos');
   });
 });
