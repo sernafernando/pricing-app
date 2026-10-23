@@ -16,6 +16,7 @@ from datetime import UTC, date
 from app.api.deps import get_current_user, require_algun_permiso
 from app.api.endpoints.pricing import PERMISOS_EDITAR_PRODUCTOS_O_TIENDA
 from app.services.envio_real_service import resolver_costos_envio_batch
+from app.services.productos_sell_in_out import MarkupCompanions, resolver_sell_in_out_batch
 from app.services.costo_ppp_service import (
     resolver_ppp_batch,
     PppMarkups,
@@ -1012,7 +1013,8 @@ def listar_productos(
 
     # ── Batch-resolve PPP (ERP weighted-average cost, informational only) ────
     ppp_by_item = resolver_ppp_batch(db, all_item_ids_page)
-    ppp_markups_by_item: dict[int, PppMarkups] = {}
+    sell_in_out_batch = resolver_sell_in_out_batch(db, all_item_ids_page, hoy)
+    ppp_markups_by_item: dict[int, MarkupCompanions] = {}
 
     _resolve_envio = partial(resolve_envio, ctx, envio_real_by_item)
 
@@ -1030,7 +1032,15 @@ def listar_productos(
         # this reuses the SAME currency/rate already resolved for the list
         # cost, no extra lookup.
         _ppp_source = ppp_by_item.get(producto_erp.item_id)
-        ppp = PppMarkups(_ppp_source, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd)
+        # Every markup site records into the PPP and the sell in / sell out companions alike.
+        ppp = MarkupCompanions(
+            PppMarkups(_ppp_source, moneda_costo=producto_erp.moneda_costo, tipo_cambio=tipo_cambio_usd),
+            sell_in_out_batch.markups(
+                producto_erp,
+                precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
+                tipo_cambio=tipo_cambio_usd,
+            ),
+        )
         ppp_markups_by_item[producto_erp.item_id] = ppp
 
         # Best current offer and rebate: the shared computation the product
@@ -1313,7 +1323,8 @@ def listar_productos(
             markup_pvp_12_cuotas=markup_pvp_12_cuotas,
             catalog_status=None,  # Se llenará después
             has_catalog=None,  # Se llenará después
-            ppp=ppp.payload(),
+            ppp=ppp.ppp.payload(),
+            sell_in_out=ppp.sell_in_out.payload(),
         )
 
         # Los filtros de markup ahora se aplican en SQL
@@ -1518,7 +1529,8 @@ def listar_productos(
                     # previously rebuilt inside the pvp_configs loop, up to 5x).
                     _ppp_acc = ppp_markups_by_item.get(producto.item_id)
                     if _ppp_acc:
-                        producto.ppp = _ppp_acc.payload()
+                        producto.ppp = _ppp_acc.ppp.payload()
+                        producto.sell_in_out = _ppp_acc.sell_in_out.payload()
 
     # Si aplicamos ordenamiento dinámico, necesitamos paginar manualmente
     if orden_requiere_calculo:
@@ -2725,7 +2737,14 @@ def obtener_producto(
     # product is USD-costed), not with an extra unconditional lookup.
     _ppp_source_d = resolver_ppp_batch(db, [item_id]).get(item_id)
     _tipo_cambio_ppp_d = obtener_tipo_cambio_actual(db, "USD") if producto_erp.moneda_costo == "USD" else None
-    ppp_d = PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d)
+    ppp_d = MarkupCompanions(
+        PppMarkups(_ppp_source_d, moneda_costo=producto_erp.moneda_costo, tipo_cambio=_tipo_cambio_ppp_d),
+        resolver_sell_in_out_batch(db, [item_id], date.today()).markups(
+            producto_erp,
+            precio_lista_ml=producto_pricing.precio_lista_ml if producto_pricing else None,
+            tipo_cambio=_tipo_cambio_ppp_d,
+        ),
+    )
 
     # Markups of the ML list (clásica: PPP companion only; instalments) and of
     # the PVP prices, with the listing's inputs -- pricing context, shipping
@@ -2929,7 +2948,8 @@ def obtener_producto(
         markup_pvp_12_cuotas=markup_pvp_12_cuotas,
         catalog_status=None,
         has_catalog=None,
-        ppp=ppp_d.payload(),
+        ppp=ppp_d.ppp.payload(),
+        sell_in_out=ppp_d.sell_in_out.payload(),
     )
 
 

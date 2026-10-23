@@ -111,7 +111,8 @@ def cents(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-def _unitario(campana: Campana, linea: Linea) -> Decimal:
+def credito_unitario(campana: Campana, linea: Linea) -> Decimal:
+    """One unit's credit of `linea`, unrounded, in the campaign currency (module docstring)."""
     if campana.tipo == "porcentaje":
         if linea.base_unit is None:
             raise ValueError(f"sale {(linea.canal, linea.venta_ref)} has no percentage base")
@@ -163,7 +164,7 @@ def asignar(campana: Campana, lineas: Iterable[Linea], por_linea: Optional[Dict[
         if disponibles == 0:
             continue
         if linea.unidades > 0:
-            unitario = _unitario(campana, linea)
+            unitario = credito_unitario(campana, linea)
             toma = disponibles
             if unidades_libres is not None:
                 toma = min(toma, unidades_libres)
