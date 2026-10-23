@@ -31,6 +31,7 @@ import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as
 import { formatDateOnly } from '../utils/dateUtils';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
+import SellInOutLine from '../components/SellInOutLine';
 import PrecioTransfHint from '../components/PrecioTransfHint';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
 import { useProductosSeleccion } from '../hooks/useProductosSeleccion';
@@ -1750,6 +1751,7 @@ export default function Productos() {
                     <td>
                       {p.moneda_costo} ${p.costo?.toFixed(2)}
                       <PppLine ppp={p.ppp} />
+                      <SellInOutLine sellInOut={p.sell_in_out} />
                     </td>
                     <td className={isRowActive && celdaActiva?.colIndex === 0 ? 'keyboard-cell-active' : ''}>
                       {editandoPrecio === p.item_id ? (
@@ -1803,6 +1805,7 @@ export default function Productos() {
                               <div className="markup-display" style={{ color: getMarkupColor(p.markup_pvp) }}>
                                 {p.markup_pvp}%
                                 <PppLine ppp={p.ppp} markupKey="pvp_clasica" />
+                                <SellInOutLine sellInOut={p.sell_in_out} markupKey="pvp_clasica" />
                               </div>
                             )
                           ) : (
@@ -1823,6 +1826,7 @@ export default function Productos() {
                                     );
                                   })()}
                                   <PppLine ppp={p.ppp} markupKey="clasica" />
+                                  <SellInOutLine sellInOut={p.sell_in_out} markupKey="clasica" />
                                 </div>
                               )}
                             </>
@@ -1973,6 +1977,7 @@ export default function Productos() {
                             <div className="mejor-oferta-detalle" style={{ color: getMarkupColor(p.mejor_oferta_markup * 100) }}>
                               Markup: {(p.mejor_oferta_markup * 100).toFixed(2)}%
                               <PppLine ppp={p.ppp} markupKey="mejor_oferta" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="mejor_oferta" />
                             </div>
                           )}
                         </div>
@@ -2143,6 +2148,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="cuota_clasica_3" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="cuota_clasica_3" />
                             </div>
                           )}
                         </td>
@@ -2177,6 +2183,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="cuota_clasica_6" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="cuota_clasica_6" />
                             </div>
                           )}
                         </td>
@@ -2211,6 +2218,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="cuota_clasica_9" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="cuota_clasica_9" />
                             </div>
                           )}
                         </td>
@@ -2245,6 +2253,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="cuota_clasica_12" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="cuota_clasica_12" />
                             </div>
                           )}
                         </td>
@@ -2286,6 +2295,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="pvp_cuota_3" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="pvp_cuota_3" />
                             </div>
                           )}
                         </td>
@@ -2322,6 +2332,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="pvp_cuota_6" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="pvp_cuota_6" />
                             </div>
                           )}
                         </td>
@@ -2358,6 +2369,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="pvp_cuota_9" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="pvp_cuota_9" />
                             </div>
                           )}
                         </td>
@@ -2394,6 +2406,7 @@ export default function Productos() {
                                 </div>
                               )}
                               <PppLine ppp={p.ppp} markupKey="pvp_cuota_12" />
+                              <SellInOutLine sellInOut={p.sell_in_out} markupKey="pvp_cuota_12" />
                             </div>
                           )}
                         </td>
