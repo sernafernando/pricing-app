@@ -372,6 +372,7 @@ class TestDeployIntegration:
 
 PNPM_STUB = """#!/usr/bin/env bash
 echo "pnpm {label} $*" >> "$STUB_DIR/calls.log"
+echo "${{COREPACK_ENABLE_DOWNLOAD_PROMPT:-unset}}" >> "$STUB_DIR/corepack_prompt.log"
 """
 
 
@@ -402,8 +403,10 @@ class TestFrontendBuildNode:
         assert self.pnpm_calls(env) == ["pnpm node24 install --frozen-lockfile", "pnpm node24 run build"]
         assert "Node v24.22.1" in result.stdout
         assert "No está" not in result.stdout
+        # corepack must never stop a deploy without a terminal to ask before downloading pnpm
+        assert (env.stub / "corepack_prompt.log").read_text().split() == ["0", "0"]
 
-    def test_a_missing_node_dir_falls_back_to_the_node_on_path(self, env) -> None:
+    def test_a_node_dir_that_does_not_exist_falls_back_to_the_node_on_path(self, env) -> None:
         self.setup_build(env)
         missing = env.root / "not-installed"
 
@@ -413,7 +416,7 @@ class TestFrontendBuildNode:
         assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", "pnpm system run build"]
         assert f"No está {missing}/bin/node" in result.stdout
 
-    def test_without_the_separate_node_the_build_uses_the_node_on_path(self, env) -> None:
+    def test_a_node_dir_without_a_node_binary_falls_back_to_the_node_on_path(self, env) -> None:
         node_dir = self.setup_build(env)  # no node binary in it: not installed
 
         result = env.run(DEPLOY_SCRIPT, "--skip-pull", extra_env={"FRONTEND_NODE_DIR": str(node_dir)})
