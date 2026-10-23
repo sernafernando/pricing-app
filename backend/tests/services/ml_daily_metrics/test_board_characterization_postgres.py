@@ -135,7 +135,7 @@ def _board_response(session, name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
         "meta": {k: v for k, v in data.items() if k not in ("kpis", "facets", "rows")},
         # The additive `kpis.ads` and "Costos TP" fields (null with their toggles OFF) are not part of what
         # these digests pin.
-        "kpis": {k: v for k, v in data["kpis"].items() if k not in ("ads", "total_tp") or v is not None},
+        "kpis": {k: v for k, v in data["kpis"].items() if k not in ("ads", "total_tp", "sell_in_out") or v is not None},
         "facets": data["facets"],
         "rows": [_without_null_tp(row) for row in data["rows"]],
     }
@@ -151,6 +151,7 @@ TP_FIELDS = (
     "m_sell_out",
     "sell_out_pendientes",
     "sell_out_estimados",
+    "sell_in_out",
 )
 
 
