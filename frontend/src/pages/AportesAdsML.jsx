@@ -2,14 +2,15 @@
  * AportesAdsML — brand contributions to Product Ads campaigns (ml-ads-brand-contribution S10).
  *
  * Lists every catalogued campaign with its cost in a date range (`GET /ml-ads/campaigns`, `ml_metricas.ver_ganancia`)
- * and all its contributions; with `ml_metricas.gestionar_aportes_ads` (S7) it also loads new ones
- * (`AportesAdsMLForm`). A contribution is a percentage or a fixed amount over a date range (S3/S4); a fixed amount
+ * and all its contributions; with `ml_metricas.gestionar_aportes_ads` (S7) it also loads and edits them
+ * (`AportesAdsMLForm`) and deletes them behind a confirmation modal. A contribution is a percentage or a fixed amount over a date range (S3/S4); a fixed amount
  * says how it settles (S6). Métricas ML stops subtracting the part of the cost a contribution covers (S9).
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle, Plus } from 'lucide-react';
+import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
+import ModalTesla from '../components/ModalTesla';
 import AportesAdsMLForm from './AportesAdsMLForm';
 import { registrarPagina } from '../registry/tabRegistry';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
@@ -25,7 +26,7 @@ const isoDay = (d) =>
 
 const formatDay = (iso) => iso.split('-').reverse().join('/');
 
-function ContributionItem({ c }) {
+function ContributionItem({ c, canManage, onEdit, onDelete }) {
   const value = c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value);
   return (
     <li className={styles.contribution}>
@@ -35,6 +36,16 @@ function ContributionItem({ c }) {
         {formatDay(c.date_from)} – {formatDay(c.date_to)}
         {c.brand ? ` · ${c.brand}` : ''}
       </span>
+      {canManage && (
+        <span className={styles.actions}>
+          <button type="button" className={styles.btnIcon} aria-label="Editar aporte" onClick={() => onEdit(c)}>
+            <Pencil size={14} />
+          </button>
+          <button type="button" className={styles.btnIconDanger} aria-label="Borrar aporte" onClick={() => onDelete(c)}>
+            <Trash2 size={14} />
+          </button>
+        </span>
+      )}
       {c.note && <span className={styles.note}>{c.note}</span>}
     </li>
   );
@@ -60,6 +71,11 @@ export default function AportesAdsML() {
 
   // The campaign whose new contribution is being loaded, while the form is open.
   const [creatingFor, setCreatingFor] = useState(null);
+  // The contribution being edited, while the form is open.
+  const [editing, setEditing] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchCampaigns = useCallback(async () => {
     const request = ++latestRequest.current;
@@ -97,7 +113,27 @@ export default function AportesAdsML() {
 
   const handleSaved = () => {
     setCreatingFor(null);
+    setEditing(null);
     fetchCampaigns();
+  };
+
+  const closeDelete = () => {
+    setDeleteTarget(null);
+    setDeleteError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.delete(`/ml-ads/contributions/${deleteTarget.id}`);
+      closeDelete();
+      fetchCampaigns();
+    } catch (err) {
+      setDeleteError(apiErrorMessage(err, 'No se pudo borrar el aporte'));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -171,7 +207,13 @@ export default function AportesAdsML() {
                     ) : (
                       <ul className={styles.contributions}>
                         {c.contributions.map((k) => (
-                          <ContributionItem key={k.id} c={k} />
+                          <ContributionItem
+                            key={k.id}
+                            c={k}
+                            canManage={canManage}
+                            onEdit={setEditing}
+                            onDelete={setDeleteTarget}
+                          />
                         ))}
                       </ul>
                     )}
@@ -203,6 +245,41 @@ export default function AportesAdsML() {
           onSaved={handleSaved}
         />
       )}
+
+      {editing && (
+        <AportesAdsMLForm
+          title="Editar aporte"
+          initial={editing}
+          submit={(body) => api.put(`/ml-ads/contributions/${editing.id}`, body)}
+          settlementLabels={SETTLEMENT_LABELS}
+          onClose={() => setEditing(null)}
+          onSaved={handleSaved}
+        />
+      )}
+
+      <ModalTesla
+        isOpen={deleteTarget != null}
+        onClose={closeDelete}
+        title="Borrar aporte"
+        size="sm"
+        footer={
+          <div className={styles.modalFooter}>
+            <button type="button" className={styles.btnSecondary} onClick={closeDelete}>
+              Cancelar
+            </button>
+            <button type="button" className={styles.btnDanger} onClick={handleConfirmDelete} disabled={deleting}>
+              <Trash2 size={14} /> Borrar
+            </button>
+          </div>
+        }
+      >
+        <p className={styles.description}>El costo que cubría este aporte vuelve a descontarse en Métricas ML.</p>
+        {deleteError && (
+          <div className={styles.alertError} role="alert">
+            <AlertTriangle size={16} /> {deleteError}
+          </div>
+        )}
+      </ModalTesla>
     </div>
   );
 }

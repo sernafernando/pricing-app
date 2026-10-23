@@ -110,3 +110,28 @@
 .colActions {
   text-align: right;
 }
+
+.btnIcon {
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+}
+
+.btnIconDanger {
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+  color: var(--cf-accent-red);
+}
+
+.actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+}
+
+.btnDanger {
+  composes: btn-tesla danger sm from '../styles/buttons-tesla.css';
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
