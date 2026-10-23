@@ -492,6 +492,37 @@ describe('ProductoMLAsPanel — wholesale (PxQ) filter forwarding', () => {
     );
     renderPanel();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeInTheDocument());
+    expect(screen.getByText('Todas las publicaciones de este producto están eliminadas.')).toBeInTheDocument();
     expect(screen.queryByText('MLA_GONE')).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Ver eliminadas (1)' }));
+    expect(screen.getByText('MLA_GONE')).toBeInTheDocument();
+    expect(screen.queryByText('Todas las publicaciones de este producto están eliminadas.')).not.toBeInTheDocument();
+  });
+
+  it('each button counts what it then shows when a filter and deleted publications meet', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([
+        { level: 1, kind: 'publicacion', mla: 'MLA_OK', label: 'MLA_OK', publication_status: 'active', matches_filter: true, children: [] },
+        { level: 1, kind: 'publicacion', mla: 'MLA_OUT', label: 'MLA_OUT', publication_status: 'active', matches_filter: false, children: [] },
+        { level: 1, kind: 'publicacion', mla: 'MLA_GONE_OUT', label: 'MLA_GONE_OUT', publication_status: 'gone', matches_filter: false, children: [] },
+        { level: 1, kind: 'publicacion', mla: 'MLA_GONE_IN', label: 'MLA_GONE_IN', publication_status: 'gone', matches_filter: true, children: [] },
+      ]),
+    );
+    renderPanel({ tiendaOficial: '57997' });
+
+    await waitFor(() => expect(screen.getByText('MLA_OK')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'ver todos (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Ver eliminadas (1)' }));
+    expect(screen.getByText('MLA_GONE_IN')).toBeInTheDocument();
+    expect(screen.queryByText('MLA_GONE_OUT')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ver todos (2)' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'ver todos (2)' }));
+    expect(screen.getByText('MLA_OUT')).toBeInTheDocument();
+    expect(screen.getByText('MLA_GONE_OUT')).toBeInTheDocument();
   });
 });

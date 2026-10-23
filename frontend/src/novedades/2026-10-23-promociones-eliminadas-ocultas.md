@@ -8,6 +8,7 @@ En **Productos**, al desplegar las publicaciones de Mercado Libre de un producto
 
 - Se ocultan las que desaparecieron de Mercado Libre y las que Mercado Libre marca como eliminadas, aunque las siga informando como inactivas o cerradas.
 - El botón **Ver eliminadas (N)** las muestra con la etiqueta **Eliminada**, y **Ocultar eliminadas** las vuelve a ocultar.
+- Si todas las publicaciones del producto están eliminadas, se avisa con un mensaje.
 - **Ver todos** sigue mostrando solo lo que ocultan los filtros de promociones, tienda o PxQ: no muestra las eliminadas.
 
 ## Cómo se usa

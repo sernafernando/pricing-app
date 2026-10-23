@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { productosAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import TreeNode from './TreeNode';
-import { isFilterActive, countDeletedDescendants, countHiddenDescendants } from './treeNodeUtils';
+import { isFilterActive, countDeletedDescendants, countHiddenDescendants, nodeHasVisibleContent } from './treeNodeUtils';
 import { useTreeViewStore } from '../../store/treeViewStore';
 import styles from './promociones.module.css';
 
@@ -146,12 +146,15 @@ function ProductoMLAsPanel({
   }
 
   const hiddenCount = filterActive
-    ? rootChildren.reduce((sum, child) => sum + countHiddenDescendants(child), 0)
+    ? rootChildren.reduce((sum, child) => sum + countHiddenDescendants(child, showDeleted), 0)
     : 0;
 
   // Deleted publications are hidden by default, filter or not; the toggle is
-  // offered only when there is one to show.
-  const deletedCount = rootChildren.reduce((sum, child) => sum + countDeletedDescendants(child), 0);
+  // offered only when it would show one (each count is what its button then
+  // shows, so a filter and the toggle never promise each other's nodes).
+  const deletedCount = rootChildren.reduce((sum, child) => sum + countDeletedDescendants(child, filterActive, verTodos), 0);
+  const allDeleted =
+    !showDeleted && deletedCount > 0 && !rootChildren.some((child) => nodeHasVisibleContent(child, filterActive, verTodos));
 
   // Only offer the toggle when the tree actually has a familia level to hide
   // — otherwise there is nothing for it to control.
@@ -199,6 +202,7 @@ function ProductoMLAsPanel({
           </button>
         </div>
       )}
+      {allDeleted && <div className={styles.panelState}>Todas las publicaciones de este producto están eliminadas.</div>}
       <table className={styles.innerTable}>
         <tbody>
           {rootChildren.map((child) => (

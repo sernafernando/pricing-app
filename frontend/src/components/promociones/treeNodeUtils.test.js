@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { countDeletedDescendants, isDeletedNode, isFilterActive, isNodeHidden, nodeHasVisibleContent } from './treeNodeUtils';
+import {
+  countDeletedDescendants,
+  countHiddenDescendants,
+  isDeletedNode,
+  isFilterActive,
+  isNodeHidden,
+  nodeHasVisibleContent,
+} from './treeNodeUtils';
 
 describe('isFilterActive — every filter the backend folds into matches_filter', () => {
   it('is false when nothing narrows', () => {
@@ -72,5 +79,19 @@ describe('deleted publications — hidden unless showDeleted', () => {
   it('counts the deleted publications at any depth', () => {
     expect(countDeletedDescendants({ kind: 'familia', children: [gone, { kind: 'familia', children: [deletedInMl, live] }] })).toBe(2);
     expect(countDeletedDescendants(live)).toBe(0);
+  });
+
+  // Each count is what its button then shows: a filter and the deleted toggle must not promise each other's nodes.
+  it('"Ver eliminadas (N)" counts only the deleted ones the filter lets through', () => {
+    const tree = { kind: 'familia', children: [{ ...gone, matches_filter: false }, { ...deletedInMl, matches_filter: true }] };
+    expect(countDeletedDescendants(tree, true, false)).toBe(1);
+    expect(countDeletedDescendants(tree, true, true)).toBe(2); // "ver todos" lifts the filter
+    expect(countDeletedDescendants(tree, false, false)).toBe(2);
+  });
+
+  it('"ver todos (N)" counts only the filtered-out nodes it would reveal', () => {
+    const tree = { kind: 'familia', children: [{ ...gone, matches_filter: false }, { ...live, matches_filter: false }] };
+    expect(countHiddenDescendants(tree)).toBe(1);
+    expect(countHiddenDescendants(tree, true)).toBe(2); // deleted ones shown: "ver todos" reveals them too
   });
 });
