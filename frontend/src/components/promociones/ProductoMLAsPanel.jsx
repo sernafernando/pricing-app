@@ -153,8 +153,9 @@ function ProductoMLAsPanel({
   // offered only when it would show one (each count is what its button then
   // shows, so a filter and the toggle never promise each other's nodes).
   const deletedCount = rootChildren.reduce((sum, child) => sum + countDeletedDescendants(child, filterActive, verTodos), 0);
+  // Only deleted ones hide everything: nothing would show even with "ver todos", so the filter is not the cause.
   const allDeleted =
-    !showDeleted && deletedCount > 0 && !rootChildren.some((child) => nodeHasVisibleContent(child, filterActive, verTodos));
+    !showDeleted && deletedCount > 0 && !rootChildren.some((child) => nodeHasVisibleContent(child, filterActive, true));
 
   // Only offer the toggle when the tree actually has a familia level to hide
   // — otherwise there is nothing for it to control.
@@ -202,7 +203,7 @@ function ProductoMLAsPanel({
           </button>
         </div>
       )}
-      {allDeleted && <div className={styles.panelState}>Todas las publicaciones de este producto están eliminadas.</div>}
+      {allDeleted && <div className={styles.panelState}>Las publicaciones de este producto quedan ocultas por estar eliminadas.</div>}
       <table className={styles.innerTable}>
         <tbody>
           {rootChildren.map((child) => (

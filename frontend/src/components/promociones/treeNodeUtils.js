@@ -75,17 +75,22 @@ export function nodeHasVisibleContent(node, filterActive, revealAll, showDeleted
  * sizes the root panel's "ver todos (N)" escape hatch.
  */
 export function countHiddenDescendants(node, showDeleted = false) {
-  const own = isMlaBearing(node.kind) && node.matches_filter === false && (showDeleted || !isDeletedNode(node));
+  // A hidden deleted node takes its subtree with it: "ver todos" reveals none of it.
+  if (!showDeleted && isDeletedNode(node)) return 0;
+  const own = isMlaBearing(node.kind) && node.matches_filter === false;
   return (own ? 1 : 0) + (node.children || []).reduce((sum, child) => sum + countHiddenDescendants(child, showDeleted), 0);
 }
 
 /**
  * Counts every deleted MLA-bearing descendant (inclusive) the filter lets
- * through (or every one when the filter is off or revealed), shown or not:
+ * through, under no node it hides (every one when the filter is off or
+ * revealed), shown or not:
  * sizes "Ver eliminadas (N)", so the toggle shows exactly that many.
  */
 export function countDeletedDescendants(node, filterActive = false, revealAll = false) {
-  const own = isDeletedNode(node) && (!filterActive || revealAll || node.matches_filter !== false);
+  // A node the filter hides takes its subtree with it, deleted ones included.
+  if (isNodeHidden(node, filterActive, revealAll, true)) return 0;
+  const own = isDeletedNode(node);
   return (
     (own ? 1 : 0) +
     (node.children || []).reduce((sum, child) => sum + countDeletedDescendants(child, filterActive, revealAll), 0)

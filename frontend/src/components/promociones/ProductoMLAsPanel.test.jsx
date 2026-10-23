@@ -492,12 +492,12 @@ describe('ProductoMLAsPanel — wholesale (PxQ) filter forwarding', () => {
     );
     renderPanel();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeInTheDocument());
-    expect(screen.getByText('Todas las publicaciones de este producto están eliminadas.')).toBeInTheDocument();
+    expect(screen.getByText('Las publicaciones de este producto quedan ocultas por estar eliminadas.')).toBeInTheDocument();
     expect(screen.queryByText('MLA_GONE')).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Ver eliminadas (1)' }));
     expect(screen.getByText('MLA_GONE')).toBeInTheDocument();
-    expect(screen.queryByText('Todas las publicaciones de este producto están eliminadas.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Las publicaciones de este producto quedan ocultas por estar eliminadas.')).not.toBeInTheDocument();
   });
 
   it('each button counts what it then shows when a filter and deleted publications meet', async () => {
@@ -524,5 +524,17 @@ describe('ProductoMLAsPanel — wholesale (PxQ) filter forwarding', () => {
     await user.click(screen.getByRole('button', { name: 'ver todos (2)' }));
     expect(screen.getByText('MLA_OUT')).toBeInTheDocument();
     expect(screen.getByText('MLA_GONE_OUT')).toBeInTheDocument();
+  });
+
+  it('does not blame deleted publications for what the filter hides', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([
+        { level: 1, kind: 'publicacion', mla: 'MLA_OUT', label: 'MLA_OUT', publication_status: 'active', matches_filter: false, children: [] },
+        { level: 1, kind: 'publicacion', mla: 'MLA_GONE', label: 'MLA_GONE', publication_status: 'gone', matches_filter: true, children: [] },
+      ]),
+    );
+    renderPanel({ tiendaOficial: '57997' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeInTheDocument());
+    expect(screen.queryByText(/quedan ocultas por estar eliminadas/)).not.toBeInTheDocument();
   });
 });

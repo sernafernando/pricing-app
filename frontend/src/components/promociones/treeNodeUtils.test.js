@@ -89,6 +89,16 @@ describe('deleted publications — hidden unless showDeleted', () => {
     expect(countDeletedDescendants(tree, false, false)).toBe(2);
   });
 
+  it('counts nothing under a node its button would not show: the subtree goes with it', () => {
+    const outChild = { kind: 'vinculada', mla: 'MLA5', publication_status: 'active', matches_filter: false };
+    const deletedParent = { kind: 'catalogo', mla: 'MLA6', publication_status: 'gone', matches_filter: true, children: [outChild] };
+    expect(countHiddenDescendants(deletedParent)).toBe(0);
+    expect(countHiddenDescendants(deletedParent, true)).toBe(1);
+    const outParent = { kind: 'catalogo', mla: 'MLA7', publication_status: 'active', matches_filter: false, children: [{ ...gone, matches_filter: true }] };
+    expect(countDeletedDescendants(outParent, true, false)).toBe(0);
+    expect(countDeletedDescendants(outParent, true, true)).toBe(1);
+  });
+
   it('"ver todos (N)" counts only the filtered-out nodes it would reveal', () => {
     const tree = { kind: 'familia', children: [{ ...gone, matches_filter: false }, { ...live, matches_filter: false }] };
     expect(countHiddenDescendants(tree)).toBe(1);
