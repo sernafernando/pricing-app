@@ -85,6 +85,11 @@
   color: var(--tone-success-fg);
 }
 
+.sellInCost {
+  color: var(--tone-success-fg);
+  cursor: help;
+}
+
 .offsetList {
   display: flex;
   flex-direction: column;
@@ -139,6 +144,9 @@
 
 /* One card per list, told apart by its accent: ML is info blue, PVP purple. */
 .group {
+  /* Containing block of the absolutely positioned bits inside the table (e.g. the visually hidden "Acciones"
+     header), so a table wider than the panel scrolls inside its group instead of widening the panel. */
+  position: relative;
   align-self: stretch;
   box-sizing: border-box;
   overflow-x: auto;
@@ -190,7 +198,7 @@
 }
 
 .table thead th {
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-xs);
   border-bottom: 1px solid var(--cf-border-default);
   text-align: right;
   font-size: var(--font-xs);
@@ -199,7 +207,13 @@
   color: var(--cf-text-secondary);
 }
 
+/* A long header (e.g. "Markup c/ sell in/out") wraps so the table fits the side panel. */
+.table thead th.wrapHead {
+  white-space: normal;
+}
+
 .table thead th:first-child {
+  padding-left: var(--spacing-sm);
   text-align: left;
 }
 
@@ -215,13 +229,15 @@
   background: var(--tone-info-bg);
 }
 
+/* Tight side padding: six columns share the side panel, and CI fonts are wider than local ones. */
 .table td,
 .label {
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-xs);
   vertical-align: middle;
 }
 
 .label {
+  padding-left: var(--spacing-sm);
   text-align: left;
   font-weight: var(--font-medium);
   white-space: nowrap;
@@ -243,7 +259,7 @@
 /* Markup chip, painted by markupTone (utils/ventasMlTone). */
 .chip {
   display: inline-block;
-  padding: 0 var(--spacing-sm);
+  padding: 0 var(--spacing-xs);
   border-radius: var(--radius-md);
   background: var(--tone-neutral-bg);
   color: var(--tone-neutral-fg);

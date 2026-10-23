@@ -18,7 +18,11 @@ import styles from './ProductPrices.module.css';
  * To write one, `write` names the endpoint Productos uses for that cell
  * (`rapido` = /precios/set-rapido, `cuota` = /precios/set-cuota),
  * `pricelist` the list its negative-markup check asks about and `perm` the
- * `pricePermissions` flag that allows it.
+ * `pricePermissions` flag that allows it. `short` is the visible label of an
+ * installments row ("12C"), so every list fits the side panel; `label` stays
+ * its full name (tooltip, accessible name, messages). `sellInOut` is the row's key in
+ * `sell_in_out.markups_sell_in[_out]` of GET /productos/{item_id}, the PPP
+ * markup keys (costo_ppp_service.ppp_key_*).
  */
 const ML_CUOTAS = [
   ['3', 17],
@@ -39,10 +43,11 @@ const LISTS = [
     title: 'Lista ML',
     subtitle: 'Precio de las publicaciones en Mercado Libre',
     rows: [
-      { id: 'ml-clasica', label: 'Clásica', precio: 'precio_lista_ml', markup: 'markup', pricelist: 4, write: 'rapido', listaTipo: 'web', perm: 'canEditClasica' },
+      { id: 'ml-clasica', label: 'Clásica', precio: 'precio_lista_ml', markup: 'markup', pricelist: 4, write: 'rapido', listaTipo: 'web', perm: 'canEditClasica', sellInOut: 'clasica' },
       ...ML_CUOTAS.map(([cuota, pricelist]) => ({
         id: `ml-${cuota}`,
         label: `${cuota} cuotas`,
+        short: `${cuota}C`,
         precio: `precio_${cuota}_cuotas`,
         markup: `markup_${cuota}_cuotas`,
         pricelist,
@@ -50,6 +55,7 @@ const LISTS = [
         cuota,
         listaTipo: 'web',
         perm: 'canEditMlCuotas',
+        sellInOut: `cuota_clasica_${cuota}`,
       })),
     ],
   },
@@ -58,10 +64,11 @@ const LISTS = [
     title: 'PVP',
     subtitle: 'Precio de venta al público',
     rows: [
-      { id: 'pvp-clasica', label: 'PVP clásica', precio: 'precio_pvp', markup: 'markup_pvp', pricelist: 12, write: 'rapido', listaTipo: 'pvp', perm: 'canEditPvp' },
+      { id: 'pvp-clasica', label: 'PVP clásica', short: 'PVP clás.', precio: 'precio_pvp', markup: 'markup_pvp', pricelist: 12, write: 'rapido', listaTipo: 'pvp', perm: 'canEditPvp', sellInOut: 'pvp_clasica' },
       ...PVP_CUOTAS.map(([cuota, pricelist]) => ({
         id: `pvp-${cuota}`,
         label: `PVP ${cuota} cuotas`,
+        short: `PVP ${cuota}C`,
         precio: `precio_pvp_${cuota}_cuotas`,
         markup: `markup_pvp_${cuota}_cuotas`,
         pricelist,
@@ -69,6 +76,7 @@ const LISTS = [
         cuota,
         listaTipo: 'pvp',
         perm: 'canEditPvp',
+        sellInOut: `pvp_cuota_${cuota}`,
       })),
     ],
   },
@@ -180,12 +188,93 @@ function OffsetCost({ product, offsets, needsRate, rate, costo }) {
   );
 }
 
+/** "-": the product has no sell in (or no sell out) today. */
+const NoSellInOut = ({ title }) => (
+  <span className={styles.muted} title={title}>
+    -
+  </span>
+);
+
+/**
+ * The cost of the purchase lot the next sale takes its sell in from (FIFO),
+ * with its discount per unit and the units left of the lot in the tooltip.
+ */
+function SellInCost({ sellIn }) {
+  if (!sellIn) return <NoSellInOut title="Sin sell in vigente" />;
+  const detalle = `Descuento por unidad: $ ${formatAmount(sellIn.descuento_unit)}\nUnidades restantes del lote: ${sellIn.unidades_restantes}`;
+  if (isBlank(sellIn.costo)) {
+    return (
+      <span className={styles.muted} title={detalle}>
+        Sin tipo de cambio
+      </span>
+    );
+  }
+  return (
+    <span className={styles.sellInCost} title={detalle}>
+      $ {formatAmount(sellIn.costo)}
+    </span>
+  );
+}
+
+/** The credit per unit (without VAT) of the campaigns that would credit the next sale. */
+function SellOutAmount({ sellOut }) {
+  if (!sellOut) return <NoSellInOut title="Sin campañas de sell out vigentes" />;
+  if (isBlank(sellOut.monto_unit)) {
+    return (
+      <span className={styles.muted} title="Falta el tipo de cambio o la base de la campaña para calcular el monto">
+        Pendiente
+      </span>
+    );
+  }
+  return <span title="Por unidad, sin IVA">$ {formatAmount(sellOut.monto_unit)}</span>;
+}
+
+/**
+ * The row's markup with sell in and sell out when there is sell out, else with
+ * sell in only; "-" when the product has neither. "Pendiente" when an amount
+ * is unknown (a lot without an ARS cost, a sell out without its rate or base),
+ * so it never reads like a row without price ("—").
+ */
+function SellInOutMarkup({ row, price, sellInOut }) {
+  if (!sellInOut) return <NoSellInOut title="Sin sell in ni sell out" />;
+  // A row without price has no markup at all: nothing is pending there.
+  if (isBlank(price)) return <Empty />;
+  const conSellOut = sellInOut.markups_sell_in_out?.[row.sellInOut];
+  if (!isBlank(conSellOut)) {
+    return (
+      <span title="Con sell in y sell out">
+        <MarkupChip value={conSellOut} />
+      </span>
+    );
+  }
+  const sellOutPendiente = Boolean(sellInOut.sell_out) && isBlank(sellInOut.sell_out.monto_unit);
+  const conSellIn = sellInOut.markups_sell_in?.[row.sellInOut];
+  if (isBlank(conSellIn)) {
+    const costoPendiente = Boolean(sellInOut.sell_in) && isBlank(sellInOut.sell_in.costo);
+    if (costoPendiente || sellOutPendiente) {
+      return (
+        <span className={styles.muted} title="Falta el tipo de cambio o la base para calcular el markup">
+          Pendiente
+        </span>
+      );
+    }
+    return <Empty />;
+  }
+  return (
+    <span title={sellOutPendiente ? 'Con sell in; el sell out está pendiente' : 'Con sell in'}>
+      <MarkupChip value={conSellIn} />
+    </span>
+  );
+}
+
 /**
  * What to keep in mind while setting a price: the product's IVA rate
  * (anyone who sees the prices) and, only for `showCost` (the caller's
  * ml_metricas.ver_ganancia), its cost in ARS and its cost with offset. A USD
  * cost is converted with the current rate (`rate`, venta) and keeps its
  * original amount beside it; the cost with offset uses that same rate.
+ * Beside them, the cost with sell in and the sell out per unit, as the
+ * backend computes them (`sell_in_out`).
  */
 function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, costo }) {
 
@@ -211,6 +300,18 @@ function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, cost
             <dt className={styles.factLabel}>Costo con offset</dt>
             <dd className={styles.factValue}>
               <OffsetCost product={product} offsets={offsets} needsRate={needsRate} rate={rate} costo={costo} />
+            </dd>
+          </div>
+          <div className={styles.fact}>
+            <dt className={styles.factLabel}>Costo c/ sell in</dt>
+            <dd className={styles.factValue}>
+              <SellInCost sellIn={product.sell_in_out?.sell_in} />
+            </dd>
+          </div>
+          <div className={styles.fact}>
+            <dt className={styles.factLabel}>Sell out por unidad</dt>
+            <dd className={styles.factValue}>
+              <SellOutAmount sellOut={product.sell_in_out?.sell_out} />
             </dd>
           </div>
         </>
@@ -242,8 +343,8 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
 
   return (
     <tr className={styles.row} data-editing={isEditing ? '' : undefined}>
-      <th scope="row" className={styles.label}>
-        {row.label}
+      <th scope="row" className={styles.label} title={row.short && row.label} aria-label={row.short && row.label}>
+        {row.short ?? row.label}
       </th>
       <td className={styles.price}>
         {isEditing ? (
@@ -272,6 +373,11 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
       {showCost && (
         <td className={styles.markup} data-col="markup-offset">
           <MarkupChip value={markupConOffset(markup, costo)} />
+        </td>
+      )}
+      {showCost && (
+        <td className={styles.markup} data-col="markup-sell-in-out">
+          <SellInOutMarkup row={row} price={price} sellInOut={product.sell_in_out} />
         </td>
       )}
       {editable && (
@@ -585,7 +691,16 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
                     <th scope="col">Lista</th>
                     <th scope="col">Precio</th>
                     <th scope="col">Markup</th>
-                    {showCost && <th scope="col">Markup con offset</th>}
+                    {showCost && (
+                      <th scope="col" className={styles.wrapHead}>
+                        Markup con offset
+                      </th>
+                    )}
+                    {showCost && (
+                      <th scope="col" className={styles.wrapHead}>
+                        Markup c/ sell in/out
+                      </th>
+                    )}
                     {editable && (
                       <th scope="col">
                         <span className={styles.srOnly}>Acciones</span>
