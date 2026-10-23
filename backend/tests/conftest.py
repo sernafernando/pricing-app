@@ -115,6 +115,19 @@ def _fake_revocation_redis():
 
 
 @pytest.fixture(autouse=True)
+def _no_status_reader_enqueue(monkeypatch):
+    """Pin the publication status reader's queue write to a no-op for every test.
+
+    `fetch_publication_status_by_mla` queues each MLA without an `ml_items` row for a direct fetch, through
+    `queue.enqueue` on its OWN `get_background_db()` session: the app's real database, never the test one.
+    Every reader of the status (promotions tree, banner, product modal) would otherwise write there. Tests of
+    the queueing itself re-patch `_enqueue` locally."""
+    from app.services import ml_publication_status_service
+
+    monkeypatch.setattr(ml_publication_status_service, "_enqueue", lambda entries, session=None: len(entries))
+
+
+@pytest.fixture(autouse=True)
 def _no_pxq_shipping_proxy(monkeypatch):
     """Pin the PxQ shipping auto-fetch to the proxy-absent contract for every
     test.

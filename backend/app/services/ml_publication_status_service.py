@@ -26,6 +26,8 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.models.ml_publications import MlItem
+from app.services.ml_publications import queue
+from app.services.ml_publications.resources import CORE_RESOURCE
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,10 @@ ML_PUBLICATION_STATUS_MAP: Dict[int, str] = {
 NEVER_EXISTED = "never_existed"  # ML answered that the item does not exist
 GONE = "gone"  # the item vanished from ML (`gone_at` set)
 NO_ML_DATA = "no_ml_data"  # no `ml_items` row, or the row was never fetched
+
+# The queue write of `_queue_unseen`, a seam the test suite pins to a no-op (it opens its own session on the
+# app's real database, never the test one).
+_enqueue = queue.enqueue
 
 
 @dataclass(frozen=True)
@@ -74,7 +80,8 @@ def fetch_publication_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str
     """Batch-resolves every MLA's status from `ml_items` (ONE query).
 
     When the read succeeds, EVERY requested MLA is keyed: one without an
-    `ml_items` row is `NO_ML_DATA` ("Sin datos de ML"), never "active".
+    `ml_items` row is `NO_ML_DATA` ("Sin datos de ML"), never "active", and
+    is queued for a direct fetch (`_queue_unseen`).
 
     FAIL-OPEN: a failing read is logged and returns `{}` — callers render
     no status at all rather than break (the chip is decoration, and the
@@ -111,4 +118,25 @@ def fetch_publication_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str
                 pass
         return {}
 
+    _queue_unseen([mla for mla in dict.fromkeys(mla_ids) if mla not in found])
     return {mla: found.get(mla, MlPublicationStatus(NO_ML_DATA)) for mla in mla_ids}
+
+
+def _queue_unseen(mla_ids: List[str]) -> None:
+    """Queues the MLAs the store has no row for, for a direct fetch of the item (reconcile lane).
+
+    The store discovers items by scanning the seller's listing, and ML's scan never returns a deleted item:
+    one deleted before the store existed never gets a row, so it read "Sin datos de ML" forever (owner,
+    MLA1816578183: inactive, `[forbidden, deleted]`). A direct fetch records ML's real status (or a 404).
+    The queue dedupes, so asking again is harmless. Its own short transaction, never the caller's;
+    FAIL-OPEN like the read: a failure only leaves the MLA for the next reader."""
+    if not mla_ids:
+        return
+    entries = [
+        queue.EnqueueEntry(kind="item", entity_id=mla, lane=queue.LANE_RECONCILE, resources=(CORE_RESOURCE,))
+        for mla in mla_ids
+    ]
+    try:
+        _enqueue(entries)
+    except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
+        logger.warning("could not queue %d MLAs without an ml_items row: %s", len(mla_ids), exc)

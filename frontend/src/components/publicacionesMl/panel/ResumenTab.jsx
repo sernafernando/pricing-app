@@ -24,7 +24,7 @@ function PublicationSection({ detail }) {
     <Section title="Publicación">
       <Fields>
         <Field label="Estado">
-          {row.status || row.gone ? <PublicationStatusPill status={row.status} gone={row.gone} /> : null}
+          {row.status || row.gone ? <PublicationStatusPill status={row.status} gone={row.gone} subStatus={detail.subStatus} /> : null}
         </Field>
         <Field label="Subestado">{detail.subStatus.length > 0 ? detail.subStatus.join(', ') : null}</Field>
         {row.gone && <Field label="Eliminada el">{date(row.gone_at)}</Field>}
