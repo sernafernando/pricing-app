@@ -2,7 +2,8 @@
  * AportesAdsMLForm — the modal form of a brand contribution (ml-ads-brand-contribution S10).
  *
  * The page decides where the body goes through `submit(body)` (`POST /ml-ads/contributions`, which needs
- * `ml_metricas.gestionar_aportes_ads`, S7), so the same form can serve any write of a contribution. A fixed amount must say how it settles and a percentage must not (S6): the backend answers 422 otherwise, so the
+ * `ml_metricas.gestionar_aportes_ads`, S7), so the same form can serve any write of a contribution. A fixed amount
+ * must say how it settles and a percentage must not (S6): the backend answers 422 otherwise, so the
  * body carries `settlement` only for a fixed amount. The backend's 422 message (overlapping range, unknown campaign)
  * is shown in the form, which stays open.
  */
