@@ -5,16 +5,18 @@ import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import SellInBonoAlcance from './SellInBonoAlcance';
 import SellInBonoForm from './SellInBonoForm';
-import { BONO_VACIO, bodyDeBono, valoresDeBono } from './sellInBonoValores';
+import { BONO_VACIO, alcanceDeBono, bodyDeBono, bonoCompleto, faltanDatos, valoresDeBono } from './sellInBonoValores';
 import { apiMessage, formatEntero, formatMonto } from './sellInFormat';
 import styles from './SellInPanel.module.css';
 
 const MOTIVO_MAX = 500; // backend `SellInBonoAnularIn.motivo` (auditoria.comentario is VARCHAR(500))
 
-const completo = (v) => Boolean(v.marca && Number(v.montoUnit) > 0 && v.fechaDesde && v.fechaHasta);
+/** What the bonus generated in another currency than its own (a purchase left there before a currency edit). */
+const otrasMonedas = (bono) => (bono.montos_generados ?? []).filter((m) => m.moneda !== bono.moneda);
 
 /**
- * A brand bonus in the right side panel (Stitch `03`), no modals. With no
+ * A bonus in the right side panel (Stitch `03`), no modals; it reaches a brand, a category, some
+ * models or one Compras operation, per unit or as a % of the invoiced net (`SellInBonoForm`). With no
  * `bonoId` it loads a new one; otherwise it reads the bonus and what it
  * reaches, and with `sell_in.gestionar` an active one can be edited (a full
  * replace) or voided after an inline confirmation. The backend's messages
@@ -73,8 +75,8 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   };
 
   const guardar = async () => {
-    if (!completo(valores)) {
-      setError('Faltan datos: marca, monto por unidad y fechas de factura.');
+    if (!bonoCompleto(valores)) {
+      setError(faltanDatos(valores));
       return;
     }
     setBusy(true);
@@ -113,7 +115,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
 
   const activo = bono?.estado === 'activa';
   const editable = puedeGestionar && (nuevo || activo);
-  const titulo = nuevo ? 'Nuevo sell in · Bono de marca' : bono ? bono.descripcion || `Bono ${bono.marca}` : 'Bono de marca';
+  const titulo = nuevo ? 'Nuevo sell in · Bono de marca' : bono ? bono.descripcion || `Bono · ${alcanceDeBono(bono)}` : 'Bono de marca';
 
   return (
     <div className={styles.panel}>
@@ -152,6 +154,11 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
               <p className={styles.hint}>
                 <strong>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados`}</strong>
               </p>
+            )}
+            {bono && otrasMonedas(bono).length > 0 && (
+              <p className={styles.hint}>{`Además ${otrasMonedas(bono)
+                .map((m) => formatMonto(m.monto, m.moneda))
+                .join(' y ')} en otra moneda (de antes de cambiarla).`}</p>
             )}
           </section>
         )}

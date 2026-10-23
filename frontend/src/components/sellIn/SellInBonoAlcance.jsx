@@ -83,7 +83,7 @@ export default function SellInBonoAlcance({ alcance, onVerCompra }) {
       </Grupo>
 
       <Grupo titulo="Pendientes de factura" total={pendientes.total} mostrados={pendientes.items.length} icono={<AlertTriangle size={16} aria-hidden />} tono="warning">
-        <p className={panel.hint}>Operaciones de la marca sin factura del proveedor vinculada. El bono se aplica cuando se vincula la factura. Las unidades son las recibidas.</p>
+        <p className={panel.hint}>Operaciones con productos del bono sin factura del proveedor vinculada. El bono se aplica cuando se vincula la factura. Las unidades son las recibidas.</p>
         {pendientes.items.length === 0 ? (
           <p className={panel.hint}>No hay operaciones pendientes de factura.</p>
         ) : (
@@ -96,9 +96,9 @@ export default function SellInBonoAlcance({ alcance, onVerCompra }) {
       </Grupo>
 
       <Grupo titulo="Fuera de rango" total={fuera.total} mostrados={fuera.items.length} icono={<Ban size={16} aria-hidden />}>
-        <p className={panel.hint}>Operaciones de la marca facturadas fuera del rango del bono. Las unidades son las facturadas.</p>
+        <p className={panel.hint}>Operaciones con productos del bono facturadas fuera de su rango. Las unidades son las facturadas.</p>
         {fuera.items.length === 0 ? (
-          <p className={panel.hint}>No hay operaciones de la marca fuera de rango.</p>
+          <p className={panel.hint}>No hay operaciones fuera de rango.</p>
         ) : (
           <ul className={styles.lista}>
             {fuera.items.map((p) => (

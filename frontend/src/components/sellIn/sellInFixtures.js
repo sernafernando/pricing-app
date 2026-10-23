@@ -222,8 +222,15 @@ export const PRODUCTOS_OPERACION = {
 /* Brand bonus (`backend/app/schemas/sell_in_bonos.py`: `SellInBonoOut`, `SellInBonoListOut`, `SellInBonoAlcanceOut`). */
 export const BONO = {
   id: 3,
+  alcance: 'marca',
   marca: 'TP-LINK',
+  categoria: null,
+  modelos: [],
+  pedido_id: null,
+  pedido_numero: null,
+  tipo: 'por_unidad',
   monto_unit: '3.00',
+  porcentaje: null,
   moneda: 'USD',
   fecha_desde: '2026-09-01',
   fecha_hasta: '2026-11-30',
@@ -235,9 +242,10 @@ export const BONO = {
   compras_activas: 18,
   unidades: 1040,
   monto_generado: '3120.00',
+  montos_generados: [{ moneda: 'USD', monto: '3120.00' }],
 };
 
-export const BONO_ANULADO = { ...BONO, id: 4, estado: 'anulada', descripcion: 'Bono anulado', compras_activas: 0, unidades: 0, monto_generado: '0.00' };
+export const BONO_ANULADO = { ...BONO, id: 4, estado: 'anulada', descripcion: 'Bono anulado', compras_activas: 0, unidades: 0, monto_generado: '0.00', montos_generados: [] };
 
 export const BONOS_LISTA = { items: [BONO, BONO_ANULADO], total: 2, page: 1, page_size: 10 };
 
