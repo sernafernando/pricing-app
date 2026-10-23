@@ -24,9 +24,9 @@ def campaigns(db):
         db.add(MlAdsCampaign(advertiser_id=ADV, campaign_id=campaign_id, name=name, status="active", raw={}))
     for day, cost in ((date(2026, 10, 4), "100.50"), (date(2026, 10, 5), "200.25"), (date(2026, 11, 1), "999")):
         db.add(MlAdsCampaignDay(advertiser_id=ADV, campaign_id=CAMP, day=day, cost=Decimal(cost), raw={}))
-    for kind, value, start, end in (
-        ("fixed_amount", "50.00", date(2026, 11, 1), date(2026, 11, 30)),
-        ("percentage", "30.00", date(2026, 10, 1), date(2026, 10, 31)),
+    for kind, value, start, end, settlement in (
+        ("fixed_amount", "50.00", date(2026, 11, 1), date(2026, 11, 30), "full"),
+        ("percentage", "30.00", date(2026, 10, 1), date(2026, 10, 31), None),
     ):
         db.add(
             MlAdsCampaignContribution(
@@ -36,6 +36,7 @@ def campaigns(db):
                 value=Decimal(value),
                 date_from=start,
                 date_to=end,
+                settlement=settlement,
                 brand="TP-Link",
                 created_by_id=7,
                 updated_by_id=7,
@@ -71,9 +72,9 @@ def test_each_campaign_carries_its_contributions_and_its_cost_in_the_range(
         "active",
         300.75,
     )
-    assert [(c["kind"], c["value"], c["date_from"], c["date_to"]) for c in mine["contributions"]] == [
-        ("percentage", 30.0, "2026-10-01", "2026-10-31"),  # by start, every contribution of the campaign
-        ("fixed_amount", 50.0, "2026-11-01", "2026-11-30"),
+    assert [(c["kind"], c["value"], c["date_from"], c["date_to"], c["settlement"]) for c in mine["contributions"]] == [
+        ("percentage", 30.0, "2026-10-01", "2026-10-31", None),  # by start, every contribution of the campaign
+        ("fixed_amount", 50.0, "2026-11-01", "2026-11-30", "full"),
     ]
     assert (mine["contributions"][0]["brand"], mine["contributions"][0]["created_by_id"]) == ("TP-Link", 7)
     assert (found[OTHER]["cost"], found[OTHER]["contributions"]) == (0.0, [])

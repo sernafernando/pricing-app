@@ -269,7 +269,8 @@ def get_account_level(w: Window = Depends(window), db: Session = Depends(get_db)
 
 
 class ContributionIn(BaseModel):
-    """`percentage`: 0 < value <= 100. `fixed_amount`: money > 0. Both with at most two decimals (S4)."""
+    """`percentage`: 0 < value <= 100. `fixed_amount`: money > 0 with its `settlement` (S6). Both with at most two
+    decimals (S4)."""
 
     advertiser_id: int
     campaign_id: int
@@ -277,6 +278,7 @@ class ContributionIn(BaseModel):
     value: Decimal = Field(gt=0, max_digits=16, decimal_places=2)
     date_from: date
     date_to: date
+    settlement: Optional[Literal["full", "refund_difference"]] = None
     brand: Optional[str] = Field(None, max_length=120)
     note: Optional[str] = Field(None, max_length=1000)
 
@@ -284,6 +286,8 @@ class ContributionIn(BaseModel):
     def _bounds(self) -> "ContributionIn":
         if self.kind == "percentage" and self.value > 100:
             raise ValueError("a percentage is at most 100")
+        if (self.kind == "fixed_amount") != (self.settlement is not None):
+            raise ValueError("a fixed amount says how it settles (full or refund_difference); a percentage does not")
         if self.date_from > self.date_to:
             raise ValueError("date_from must not be after date_to")
         return self
@@ -297,6 +301,7 @@ class ContributionOut(BaseModel):
     value: float
     date_from: date
     date_to: date
+    settlement: Optional[str] = None
     brand: Optional[str] = None
     note: Optional[str] = None
     created_by_id: int
@@ -327,6 +332,7 @@ def _contribution_out(row: MlAdsCampaignContribution) -> ContributionOut:
         value=_money(row.value),
         date_from=row.date_from,
         date_to=row.date_to,
+        settlement=row.settlement,
         brand=row.brand,
         note=row.note,
         created_by_id=row.created_by_id,
