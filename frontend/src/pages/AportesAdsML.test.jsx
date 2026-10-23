@@ -1,6 +1,6 @@
 /**
  * AportesAdsML (ml-ads-brand-contribution S10): the page that shows the brand contributions loaded on Product Ads
- * campaigns, with each campaign's cost in the chosen range, and loads new ones: the fixed-amount
+ * campaigns, with each campaign's cost in the chosen range, and loads, edits and deletes them: the fixed-amount
  * settlement rule (S6), the manage permission (S7) and the backend's 422 message.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -148,11 +148,13 @@ describe('invalid range', () => {
 });
 
 describe('manage contributions', () => {
-  it('hides the add button without ml_metricas.gestionar_aportes_ads', async () => {
+  it('hides the manage actions without ml_metricas.gestionar_aportes_ads', async () => {
     permisosDenegados.add('ml_metricas.gestionar_aportes_ads');
     render(<AportesAdsML />);
     await screen.findByText('Routers');
     expect(screen.queryByRole('button', { name: /agregar aporte/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /editar aporte/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /borrar aporte/i })).not.toBeInTheDocument();
   });
 
   it('requires a settlement choice for a fixed amount and sends it', async () => {
@@ -193,6 +195,41 @@ describe('manage contributions', () => {
     expect(body).not.toHaveProperty('settlement');
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('button', { name: 'Guardar aporte' })).not.toBeInTheDocument();
+  });
+
+  it('edits a contribution with PUT and refreshes the list', async () => {
+    const user = userEvent.setup();
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(within(rowOf('Routers')).getByRole('button', { name: /editar aporte/i }));
+    expect(screen.getByLabelText('Se devuelve la diferencia')).toBeChecked();
+    await user.clear(screen.getByLabelText('Valor'));
+    await user.type(screen.getByLabelText('Valor'), '200000');
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    expect(api.put).toHaveBeenCalledWith(
+      '/ml-ads/contributions/7',
+      expect.objectContaining({
+        advertiser_id: 714700,
+        campaign_id: 55,
+        value: 200000,
+        settlement: 'refund_difference',
+        brand: 'TP-Link',
+        note: 'Acuerdo trimestral',
+      }),
+    );
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+  });
+
+  it('deletes a contribution after confirming and refreshes the list', async () => {
+    const user = userEvent.setup();
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(within(rowOf('Routers')).getByRole('button', { name: /borrar aporte/i }));
+    expect(api.delete).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Borrar' }));
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/ml-ads/contributions/7'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
   });
 
   it("shows the backend's 422 message and keeps the form open", async () => {
