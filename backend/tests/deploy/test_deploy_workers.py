@@ -143,6 +143,8 @@ class Env:
             "PROJECT_DIR": str(self.project),
             "HEALTHCHECK_TIMEOUT": "1",
             "HOME": str(self.root),
+            # never pick up a real /opt/node24 on the test host
+            "FRONTEND_NODE_DIR": str(self.root / "no-node"),
             **(extra_env or {}),
         }
         return subprocess.run(
@@ -400,6 +402,16 @@ class TestFrontendBuildNode:
         assert self.pnpm_calls(env) == ["pnpm node24 install --frozen-lockfile", "pnpm node24 run build"]
         assert "Node v24.22.1" in result.stdout
         assert "No está" not in result.stdout
+
+    def test_a_missing_node_dir_falls_back_to_the_node_on_path(self, env) -> None:
+        self.setup_build(env)
+        missing = env.root / "not-installed"
+
+        result = env.run(DEPLOY_SCRIPT, "--skip-pull", extra_env={"FRONTEND_NODE_DIR": str(missing)})
+
+        assert result.returncode == 0, result.stderr
+        assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", "pnpm system run build"]
+        assert f"No está {missing}/bin/node" in result.stdout
 
     def test_without_the_separate_node_the_build_uses_the_node_on_path(self, env) -> None:
         node_dir = self.setup_build(env)  # no node binary in it: not installed

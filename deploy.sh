@@ -346,24 +346,26 @@ fi
 
 # 4) Frontend build
 if [ "$SKIP_BUILD" = false ]; then
-  # Solo para estos dos comandos: el resto del deploy sigue con el PATH de siempre.
   FRONTEND_PATH="$PATH"
   if [ -x "$FRONTEND_NODE_DIR/bin/node" ]; then
     FRONTEND_PATH="$FRONTEND_NODE_DIR/bin:$PATH"
   else
-    # Fallback deliberado: el node del sistema (20.19) también buildea el lockfile actual, y
-    # fallar acá frenaría el deploy en un server sin el Node aparte. CI chequea con 24.
+    # Fallback deliberado en vez de fallar: a esta altura las migraciones ya corrieron, y cortar
+    # acá dejaría el deploy a medias. El aviso muestra con qué Node se buildea.
     warn "No está $FRONTEND_NODE_DIR/bin/node: el frontend se buildea con el node del PATH ($(node --version 2>/dev/null || echo 'no encontrado')), no con el que usa CI"
   fi
+  # El PATH del Node aparte vale solo para pnpm: el resto del deploy sigue con el de siempre.
+  # Sin el prompt de corepack, un deploy sin terminal no se queda esperando al bajar pnpm.
+  frontend_pnpm() { PATH="$FRONTEND_PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm "$@"; }
 
   CURRENT_STEP="instalación de dependencias del frontend"
   log "Instalando dependencias frontend (Node $(PATH="$FRONTEND_PATH" node --version 2>/dev/null || echo '?'))..."
   cd "$FRONTEND_DIR"
-  PATH="$FRONTEND_PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm install --frozen-lockfile
+  frontend_pnpm install --frozen-lockfile
 
   CURRENT_STEP="build del frontend"
   log "Building frontend..."
-  PATH="$FRONTEND_PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm run build
+  frontend_pnpm run build
 else
   warn "Skipping frontend build"
 fi
