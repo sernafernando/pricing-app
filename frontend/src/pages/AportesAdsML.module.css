@@ -101,3 +101,12 @@
   font-size: 0.82rem;
   margin-bottom: 12px;
 }
+
+.btnSecondary {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+  white-space: nowrap;
+}
+
+.colActions {
+  text-align: right;
+}

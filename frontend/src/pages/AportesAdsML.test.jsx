@@ -1,9 +1,11 @@
 /**
  * AportesAdsML (ml-ads-brand-contribution S10): the page that shows the brand contributions loaded on Product Ads
- * campaigns, with each campaign's cost in the chosen range.
+ * campaigns, with each campaign's cost in the chosen range, and loads new ones: the fixed-amount
+ * settlement rule (S6), the manage permission (S7) and the backend's 422 message.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import AportesAdsML from './AportesAdsML';
 import api from '../services/api';
 
@@ -51,10 +53,26 @@ const CAMPAIGNS = {
 
 const rowOf = (text) => screen.getByText(text).closest('tr');
 
+async function openCreate(user, campaign = 'Notebooks') {
+  render(<AportesAdsML />);
+  await screen.findByText(campaign);
+  await user.click(within(rowOf(campaign)).getByRole('button', { name: /agregar aporte/i }));
+}
+
+async function fillCommon(user, { value = '10' } = {}) {
+  await user.clear(screen.getByLabelText('Valor'));
+  await user.type(screen.getByLabelText('Valor'), value);
+  await user.type(screen.getByLabelText('Desde', { selector: '#aporte-desde' }), '2026-10-01');
+  await user.type(screen.getByLabelText('Hasta', { selector: '#aporte-hasta' }), '2026-10-15');
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   permisosDenegados.clear();
   api.get.mockResolvedValue({ data: CAMPAIGNS });
+  api.post.mockResolvedValue({ data: {} });
+  api.put.mockResolvedValue({ data: {} });
+  api.delete.mockResolvedValue({ data: {} });
 });
 
 describe('campaign list', () => {
@@ -126,5 +144,69 @@ describe('invalid range', () => {
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2099-01-01' } });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(api.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('manage contributions', () => {
+  it('hides the add button without ml_metricas.gestionar_aportes_ads', async () => {
+    permisosDenegados.add('ml_metricas.gestionar_aportes_ads');
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    expect(screen.queryByRole('button', { name: /agregar aporte/i })).not.toBeInTheDocument();
+  });
+
+  it('requires a settlement choice for a fixed amount and sends it', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.selectOptions(screen.getByLabelText('Tipo'), 'fixed_amount');
+    await fillCommon(user, { value: '50000' });
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(await screen.findByText(/elegí si se recibe todo o se devuelve la diferencia/i)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post).toHaveBeenCalledWith('/ml-ads/contributions', {
+      advertiser_id: 25713,
+      campaign_id: 66,
+      kind: 'fixed_amount',
+      value: 50000,
+      date_from: '2026-10-01',
+      date_to: '2026-10-15',
+      settlement: 'full',
+      brand: null,
+      note: null,
+    });
+  });
+
+  it('sends no settlement for a percentage, then closes the form and refreshes the list', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    expect(screen.queryByLabelText('Se recibe todo')).not.toBeInTheDocument();
+    await fillCommon(user, { value: '25' });
+    await user.type(screen.getByLabelText('Marca'), 'Lenovo');
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const [, body] = api.post.mock.calls[0];
+    expect(body).toMatchObject({ kind: 'percentage', value: 25, brand: 'Lenovo' });
+    expect(body).not.toHaveProperty('settlement');
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: 'Guardar aporte' })).not.toBeInTheDocument();
+  });
+
+  it("shows the backend's 422 message and keeps the form open", async () => {
+    const user = userEvent.setup();
+    api.post.mockRejectedValue({
+      response: {
+        status: 422,
+        data: { error: { code: 'VALIDATION_ERROR', message: 'the range overlaps contribution 7', field: 'date_from' } },
+      },
+    });
+    await openCreate(user);
+    await fillCommon(user);
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(await screen.findByText('the range overlaps contribution 7')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar aporte' })).toBeInTheDocument();
   });
 });
