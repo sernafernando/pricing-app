@@ -10,8 +10,10 @@ exact), its models (`sell_in_bono_items`, of any brand) or every line of ONE
 operation (`pedido_id`; the invoice still has to fall in the range). Lines
 whose item is not in the catalog are never read. Its `tipo` says how much:
 `monto_unit` per unit, or `porcentaje` of each line's invoiced net
-(`pedido_compra_lineas_facturadas.importe_neto`, net of credit notes). It is applied by itself (owner: "los pedidos se tienen que aplicar
-solos a esa marca"): `reconciliar` keeps ONE sell-in purchase per (bonus,
+(`pedido_compra_lineas_facturadas.importe_neto`, net of credit notes).
+
+It is applied by itself (owner: "los pedidos se tienen que aplicar solos a esa
+marca"): `reconciliar` keeps ONE sell-in purchase per (bonus,
 operation) in step with the rules below. The full reconcile script runs it
 for every bonus; the queue's consumer (the `sell_in.bono` worker, shipped on
 its own) runs it for every queued change (`bono_queue`).
