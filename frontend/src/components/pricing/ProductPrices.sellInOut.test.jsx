@@ -142,3 +142,16 @@ describe('markup with sell in and sell out', () => {
     expect(sellCell(await rowOf('PVP clásica'))).toHaveTextContent(/^-$/);
   });
 });
+
+describe('installment row labels', () => {
+  it('shows "12C" / "PVP 12C" and keeps the full name as tooltip and accessible name', async () => {
+    render(<ProductPrices productItemId={4101} showCost />);
+    const ml = await rowOf('12 cuotas');
+    const pvp = await rowOf('PVP 12 cuotas');
+
+    expect(within(ml).getByRole('rowheader')).toHaveTextContent(/^12C$/);
+    expect(within(ml).getByRole('rowheader')).toHaveAttribute('title', '12 cuotas');
+    expect(within(pvp).getByRole('rowheader')).toHaveTextContent(/^PVP 12C$/);
+    expect(within(await rowOf('Clásica')).getByRole('rowheader')).not.toHaveAttribute('title');
+  });
+});

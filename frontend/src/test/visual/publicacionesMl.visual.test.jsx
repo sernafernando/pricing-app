@@ -1027,7 +1027,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
             tokenColor('--tone-warning-fg'),
           ]);
 
-          const row = (label) => [...panel.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('th').textContent === label);
+          const row = (label) => [...panel.querySelectorAll('tbody tr')].find((tr) => (tr.querySelector('th').getAttribute('aria-label') ?? tr.querySelector('th').textContent) === label);
           const chip = (label, col) => row(label).querySelector(`[data-col="${col}"] [data-tone]`);
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));

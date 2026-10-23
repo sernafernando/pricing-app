@@ -18,7 +18,9 @@ import styles from './ProductPrices.module.css';
  * To write one, `write` names the endpoint Productos uses for that cell
  * (`rapido` = /precios/set-rapido, `cuota` = /precios/set-cuota),
  * `pricelist` the list its negative-markup check asks about and `perm` the
- * `pricePermissions` flag that allows it. `sellInOut` is the row's key in
+ * `pricePermissions` flag that allows it. `short` is the visible label of an
+ * installments row ("12C"), so every list fits the side panel; `label` stays
+ * its full name (tooltip, accessible name, messages). `sellInOut` is the row's key in
  * `sell_in_out.markups_sell_in[_out]` of GET /productos/{item_id}, the PPP
  * markup keys (costo_ppp_service.ppp_key_*).
  */
@@ -45,6 +47,7 @@ const LISTS = [
       ...ML_CUOTAS.map(([cuota, pricelist]) => ({
         id: `ml-${cuota}`,
         label: `${cuota} cuotas`,
+        short: `${cuota}C`,
         precio: `precio_${cuota}_cuotas`,
         markup: `markup_${cuota}_cuotas`,
         pricelist,
@@ -65,6 +68,7 @@ const LISTS = [
       ...PVP_CUOTAS.map(([cuota, pricelist]) => ({
         id: `pvp-${cuota}`,
         label: `PVP ${cuota} cuotas`,
+        short: `PVP ${cuota}C`,
         precio: `precio_pvp_${cuota}_cuotas`,
         markup: `markup_pvp_${cuota}_cuotas`,
         pricelist,
@@ -337,8 +341,8 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
 
   return (
     <tr className={styles.row} data-editing={isEditing ? '' : undefined}>
-      <th scope="row" className={styles.label}>
-        {row.label}
+      <th scope="row" className={styles.label} title={row.short && row.label} aria-label={row.short && row.label}>
+        {row.short ?? row.label}
       </th>
       <td className={styles.price}>
         {isEditing ? (

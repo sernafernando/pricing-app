@@ -13,6 +13,7 @@ En **Publicaciones ML**, la pestaña **Precios** muestra, además del costo y lo
 - Un producto sin sell in ni sell out muestra **-** en estos datos.
 - **Costo**, **Markup** y lo relacionado con offsets no cambian.
 - Solo lo ven quienes pueden ver el costo.
+- Las filas de cuotas se muestran abreviadas para que la tabla entre en el panel: **3C**, **6C**, **9C**, **12C** y **PVP 3C** a **PVP 12C**. Al pasar el mouse se ve el nombre completo ("12 cuotas").
 
 ## Cómo se usa
 
