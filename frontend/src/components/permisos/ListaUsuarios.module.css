@@ -130,3 +130,41 @@
     max-height: none;
   }
 }
+
+.orden {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ordenEtiqueta {
+  flex-shrink: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.ordenSelect {
+  flex: 1;
+  min-width: 0;
+}
+
+.ordenSentido {
+  flex-shrink: 0;
+  align-self: stretch;
+  min-width: 2rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.ordenSentido:hover {
+  background: var(--cf-bg-hover);
+}
+
+.ordenSentido:focus-visible {
+  outline: 2px solid var(--tone-info-border);
+  outline-offset: 1px;
+}
