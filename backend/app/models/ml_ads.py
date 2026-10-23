@@ -226,11 +226,11 @@ CONTRIBUTION_SETTLEMENTS = ("full", "refund_difference")
 class MlAdsCampaignContribution(Base):
     """A brand's contribution to one Product Ads campaign over `[date_from, date_to]` (ml-ads-brand-contribution S4).
 
-        Loaded by hand (S2). `percentage` covers that share of each day's cost; `fixed_amount` is money spread over the
-        range's days by each day's cost (S5, S6: applied by the Board, not stored here). A fixed amount's `settlement` says
+    Loaded by hand (S2). `percentage` covers that share of each day's cost; `fixed_amount` is money spread over the
+    range's days by each day's cost (S5, S6: applied by the Board, not stored here). A fixed amount's `settlement` says
     whether the brand pays it whole (`full`) or only up to the range's spend (`refund_difference`). Ranges of one
-        campaign never overlap (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
-        self-contained (users are deactivated, never deleted).
+    campaign never overlap (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
+    self-contained (users are deactivated, never deleted).
     """
 
     __tablename__ = "ml_ads_campaign_contributions"
