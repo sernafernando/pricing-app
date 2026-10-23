@@ -20,7 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { offsetsGananciaAPI, preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
-import { PRODUCTO_CON_REBATE_Y_OFERTA } from '../../components/pricing/ProductPrices.fixtures';
+import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
   DATA_STATE_OK,
@@ -1006,8 +1006,8 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
   // Precios: cost card, one accented card per list, markup chips by the app scale (markupTone).
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset, both markups as toned chips and fits the panel`, async () => {
-        preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO_CON_REBATE_Y_OFERTA });
+      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset and with sell in, every markup as toned chips and fits the panel`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({
           data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
         });
@@ -1033,6 +1033,8 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
           expect(chip('Clásica', 'markup-offset').textContent).toBe('31,56%');
+          expect(chip('Clásica', 'markup-sell-in-out').textContent).toBe('28,80%');
+          expect(facts).toHaveTextContent('$ 60.000,00');
           // Readable on the card in both themes.
           const card = getComputedStyle(groups[0]).backgroundColor;
           for (const label of ['Clásica', '12 cuotas']) {

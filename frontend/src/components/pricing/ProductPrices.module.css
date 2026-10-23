@@ -85,6 +85,11 @@
   color: var(--tone-success-fg);
 }
 
+.sellInCost {
+  color: var(--tone-success-fg);
+  cursor: help;
+}
+
 .offsetList {
   display: flex;
   flex-direction: column;
@@ -197,6 +202,11 @@
   font-weight: var(--font-medium);
   white-space: nowrap;
   color: var(--cf-text-secondary);
+}
+
+/* A long header (e.g. "Markup c/ sell in/out") wraps so the table fits the side panel. */
+.table thead th.wrapHead {
+  white-space: normal;
 }
 
 .table thead th:first-child {
