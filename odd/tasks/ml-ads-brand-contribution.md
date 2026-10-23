@@ -34,7 +34,7 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 | T1b-i | S4 (create), S7 | delegated writer | merged (#1706) | `628288c8a` (+377/-13); RED 17 failed, GREEN 54 passed |
 | T1b-ii | S4 (edit, delete) | delegated writer | merged (#1709) | ~+262/-12 incl. pins; RED 6 failed (+2 mutation REDs for pins), GREEN 24 passed in the write+concurrency files |
 | T1c | S6 (settlement storage + API) | inline | PR open | RED 13 failed + 8 errors, GREEN 77 passed; migration suites 154 passed |
-| T2 | S5, S6, S9 | delegated writer (context backstop: long parent session) | in progress | branch `feat/ml-ads-contribution-board`, stacked on T1c |
+| T2 | S5, S6, S9 | delegated writer (context backstop: long parent session) | GREEN, needs volume DDL line | branch `feat/ml-ads-contribution-board`, stacked on T1c; see Log 2026-10-23 T2 |
 | T3 | S10 | pending | pending | PR3 |
 
 ## Log
@@ -54,3 +54,4 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 - 2026-10-23: #1709 merged (ancestor of origin/main verified). L10 reopens S6: new task T1c (migration adding `settlement` + API field) before T2.
 - 2026-10-23: T1c GREEN on `feat/ml-ads-contribution-fixed-settlement`: migration `20261116_ml_ads_contribution_settlement` (nullable `settlement`, backfill fixed rows `refund_difference`, CHECKs values + kind), ORM, API field required for fixed amounts and rejected for percentages. Risk item 1 (migration with backfill) -> independent verifier.
 - 2026-10-23: T1c opened as #1713 (verifier: no blockers). T2 mapped (explorer): single application point `Board._ads_source`; S9 rules recorded above as assistant decisions. T2 delegated to one writer on `feat/ml-ads-contribution-board`, pushed only after #1713 merges.
+- 2026-10-23 (T2 writer): contributions computed per item row in the `board_ads_lines` statement (CTE `ads_contribution_spend` = each overlapping fixed amount's whole-range spend); `board_ads_lines.contribution` beside the gross `cost`; pair `ads`/`prev_ads` net of it, `ads_cost_api` gross, new pair column `ads_contribution`; KPI `cost_api`/`cost_total` gross, `subtracted_total` net, new `contribution` (AdsKpis + KpiAds). No new statement. RED: 7 failed + 1 passed (the NULL/0 campaign guard) in `test_board_ads_contributions.py`; the PG numeric pin and the CSV pin written after GREEN fail against the base code (9 failed with base `board.py`/`kpi_strip.py`). GREEN: 9 passed; ads + export files 167 passed with the volume DDL line below. Blocker outside the T2 surface: `test_board_volume_postgres.py` temp `ml_ads_item_days` lacks `campaign_id` (8 errors, UndefinedColumn); fix = append `, campaign_id BIGINT` to its DDL (verified: 52 passed incl. the fixed statement count).

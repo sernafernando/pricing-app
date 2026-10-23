@@ -136,6 +136,9 @@ class KpiAds(BaseModel):
     requested: str = "mla"
     applied: str = "mla"
     subtracted_total: float = 0.0
+    # The brand contributions covering part of `cost_api` (ml-ads-brand-contribution S9): `cost_total` stays ML's
+    # gross cost while `subtracted_total` (and Total Gauss) are net of them.
+    contribution: float = 0.0
     coverage: Optional[KpiCoverage] = None
     unattributed: Optional[KpiAdsUnattributed] = None
 
@@ -206,6 +209,7 @@ def _kpi_ads(a: board.AdsKpis, gross: Any) -> KpiAds:
         requested=a.requested,
         applied=a.applied,
         subtracted_total=round_money(a.subtracted_total),
+        contribution=round_money(a.contribution),
         coverage=KpiCoverage(
             available=a.coverage.available,
             data_through=a.coverage.data_through,

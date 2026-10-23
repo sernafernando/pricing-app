@@ -15,6 +15,8 @@ from datetime import date
 
 import pytest
 
+from app.models.ml_ads import MlAdsCampaignContribution, MlAdsItemDay
+
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
     _day,
@@ -95,6 +97,29 @@ class TestThePositionAddsTheColumn:
         # The adjusted Total Gauss and markup the board shows -- the ads subtracted once, never twice.
         assert row["Total Gauss"] == _money(board_row["total_gauss"]) == "240,00"
         assert row["Markup %"] == _money(board_row["markup_pct"]) == "60,00"
+
+    def test_a_brand_contribution_comes_off_the_column_like_off_the_board(
+        self, client, admin_auth_headers, db, one_product
+    ):
+        """ml-ads-brand-contribution S9: MLA1's 60 belong to campaign 7, which a brand covers at 50%."""
+        db.query(MlAdsItemDay).update({MlAdsItemDay.campaign_id: 7})
+        db.add(
+            MlAdsCampaignContribution(
+                advertiser_id=1,
+                campaign_id=7,
+                kind="percentage",
+                value=50,
+                date_from=date(2026, 9, 1),
+                date_to=date(2026, 9, 30),
+                created_by_id=1,
+                updated_by_id=1,
+            )
+        )
+        db.commit()
+        (row,) = _rows(_export(client, admin_auth_headers, publicidad="mla"))
+        board_row = _board(client, admin_auth_headers, publicidad="mla")["11"]
+        assert row[ADS_HEADER] == _money(board_row["ads"]["cost"]) == "30,00"
+        assert row["Total Gauss"] == _money(board_row["total_gauss"]) == "270,00"
 
     def test_restar_publicidad_true_is_the_mla_position(self, client, admin_auth_headers, one_product):
         legacy = _export(client, admin_auth_headers, restar_publicidad="true")
