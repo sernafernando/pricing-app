@@ -116,3 +116,15 @@ describe('permissions', () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 });
+
+describe('invalid range', () => {
+  it('asks nothing while a date is empty or the range is inverted', async () => {
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    api.get.mockClear();
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2099-01-01' } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(api.get).not.toHaveBeenCalled();
+  });
+});

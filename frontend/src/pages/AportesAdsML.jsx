@@ -73,9 +73,12 @@ export default function AportesAdsML() {
     }
   }, [range.from, range.to]);
 
+  // ISO dates compare as text; an empty or inverted range waits for the user instead of asking for a 422.
+  const rangoValido = Boolean(range.from && range.to && range.from <= range.to);
+
   useEffect(() => {
-    if (puedeVerGanancia) fetchCampaigns();
-  }, [fetchCampaigns, puedeVerGanancia]);
+    if (puedeVerGanancia && rangoValido) fetchCampaigns();
+  }, [fetchCampaigns, puedeVerGanancia, rangoValido]);
 
   if (!puedeVerGanancia) {
     return (
@@ -120,7 +123,7 @@ export default function AportesAdsML() {
       </div>
 
       {loadError && (
-        <div className={styles.alertError}>
+        <div className={styles.alertError} role="alert">
           <AlertTriangle size={16} /> {loadError}
         </div>
       )}
