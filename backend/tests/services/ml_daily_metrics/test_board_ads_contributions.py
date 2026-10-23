@@ -14,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
+import pytest
 from sqlalchemy import select
 
 from app.models.ml_ads import MlAdsCampaignContribution, MlAdsItemDay
@@ -147,6 +148,24 @@ def test_the_comparison_period_is_net_of_its_contribution(db) -> None:
     row = _row(db)
     assert (row.prev_tg, row.markup_prev, row.tg) == (Decimal("180.00"), 45, Decimal("300.00"))
     assert _kpis(db).prev_tg == Decimal("180.00")
+
+
+@pytest.mark.parametrize(
+    "kind, value, settlement",
+    [("fixed_amount", "50", "full"), ("percentage", "100", None)],  # net ads below zero / exactly zero
+)
+def test_solo_con_ventas_keeps_a_row_whose_ads_a_contribution_covers(db, kind, value, settlement) -> None:
+    """A product with ads and no sales stays in "solo con ventas" on its GROSS spend (verifier probe B1): its
+    contribution must not leave Total Gauss while the KPI Ads block still counts it."""
+    _product(db)
+    _producto(db, 12, "Router", "Epson")
+    _pub(db, 2, "MLA2", 12, 57997)
+    _ad(db, "80")
+    _ad(db, "10", mla="MLA2", campaign=9, group=2)
+    _contribution(db, kind, value, date(2026, 9, 1), date(2026, 9, 7), settlement=settlement, campaign=9)
+    solo = dataclasses.replace(ON, solo_con_ventas=True)
+    assert _kpis(db, solo).tg == _kpis(db).tg
+    assert "12" in _rows(db, solo)
 
 
 def test_contributions_of_other_campaigns_advertisers_or_days_change_nothing(db) -> None:

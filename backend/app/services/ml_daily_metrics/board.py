@@ -1539,7 +1539,7 @@ class Board:
                         "w15d",
                         "w30d",
                         "u24",
-                        *(("ads_cost",) if self.ads else ()),
+                        *(("ads_cost", "ads_cost_api") if self.ads else ()),
                         *(grouping.TP_SUM_COLUMNS if self.tp else ()),
                     )
                 ),
@@ -1590,8 +1590,10 @@ class Board:
         return q
 
     def _has_activity(self, c: Any) -> Any:
-        """The "solo con ventas" predicate on a summed row: a sale in the period, or (toggle ON) ads in it."""
-        return or_(c.units > 0, c.ads_cost > 0) if self.ads else c.units > 0
+        """The "solo con ventas" predicate on a summed row: a sale in the period, or (toggle ON) ads in it.
+        Ads by ML's GROSS spend: a brand contribution can take the net cost to zero or below, and that row must stay
+        (its contribution is in Total Gauss and in the KPI Ads block alike)."""
+        return or_(c.units > 0, c.ads_cost_api > 0) if self.ads else c.units > 0
 
     def _next_table(self, prefix: str) -> str:
         self._table_seq += 1

@@ -127,10 +127,10 @@ TP_SUM_COLUMNS = ("tg_tp", "tp_incompletos")
 
 
 def sum_columns(pairs: Any) -> tuple:
-    """`SUM_COLUMNS` plus the ads cost and the TP sums when the pair table carries them (their toggles ON)."""
-    return (
-        SUM_COLUMNS + (("ads_cost",) if "ads_cost" in pairs.c else ()) + (TP_SUM_COLUMNS if "tg_tp" in pairs.c else ())
-    )
+    """`SUM_COLUMNS` plus the ads cost (net, and ML's gross that "solo con ventas" reads) and the TP sums when the
+    pair table carries them (their toggles ON)."""
+    ads = ("ads_cost", "ads_cost_api") if "ads_cost" in pairs.c else ()
+    return SUM_COLUMNS + ads + (TP_SUM_COLUMNS if "tg_tp" in pairs.c else ())
 
 
 class Dimension(NamedTuple):
