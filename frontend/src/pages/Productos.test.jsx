@@ -1157,3 +1157,46 @@ describe('CS-12: legacy single-id URL of a grouped store', () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// CS-13 — sell in / sell out companion lines (sell-in-sell-out T10)
+// ---------------------------------------------------------------------------
+describe('CS-13: sell in / sell out companion lines', () => {
+  it('shows the cost with sell in and the markups with sell in / sell out for a row with sell_in_out', async () => {
+    setupApiMocks({
+      productos: [
+        makeProducto({
+          sell_in_out: {
+            sell_in: { compra_item_id: 7, descuento_unit: 150, costo: 850.5, unidades_restantes: 12 },
+            sell_out: { monto_unit: 40, campana_ids: [3] },
+            markups_sell_in: { clasica: 20.5 },
+            markups_sell_in_out: { clasica: 25.25 },
+          },
+        }),
+      ],
+      total: 1,
+    });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    expect(screen.getByText('c/ sell in: ARS $850.50')).toBeInTheDocument();
+    expect(screen.getByText('c/ sell in: 20.50%')).toBeInTheDocument();
+    expect(screen.getByText('c/ sell in + sell out: 25.25%')).toBeInTheDocument();
+  });
+
+  it('renders a row without sell_in_out as before, with no sell in / sell out line', async () => {
+    setupApiMocks({ productos: [makeProducto({ sell_in_out: null })], total: 1 });
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    expect(screen.getByText(/USD \$10\.00/)).toBeInTheDocument();
+    expect(screen.queryByText(/c\/ sell (in|out)/)).toBeNull();
+    expect(document.querySelector('.sell-in-out-line')).toBeNull();
+  });
+});

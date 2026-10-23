@@ -1030,6 +1030,19 @@
   font-style: italic;
 }
 
+/* Sell in / sell out companion line (sell-in-sell-out T10) — subordinate
+   like .ppp-line, one step brighter so it reads apart from the PPP line */
+.sell-in-out-line {
+  font-size: 9px;
+  color: var(--text-secondary);
+  margin-top: 1px;
+}
+
+.sell-in-out-line__item {
+  display: block;
+  cursor: help;
+}
+
 /* Markup con offset aplicado (violeta) */
 .markup-offset-display {
   color: var(--purple) !important;
