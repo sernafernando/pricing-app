@@ -80,6 +80,27 @@ describe('ApiDocs', () => {
     fetchSpy.mockRestore();
   });
 
+  it('swaps the token on a Request object too, and leaves the request alone once logged out', async () => {
+    api.get.mockResolvedValue({ data: SCHEMA });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
+
+    render(<ApiDocs />);
+
+    await screen.findByTestId('scalar');
+    const { configuration } = scalarProps.mock.calls.at(-1)[0];
+    const url = `${window.location.origin}/api/auth/me`;
+    const request = () => new Request(url, { headers: { Authorization: 'Bearer jwt-123' } });
+
+    localStorage.setItem('token', 'jwt-rotated');
+    await configuration.customFetch(request());
+    localStorage.removeItem('token');
+    await configuration.customFetch(request());
+
+    const sent = fetchSpy.mock.calls.map(([, init]) => new Headers(init.headers).get('Authorization'));
+    expect(sent).toEqual(['Bearer jwt-rotated', 'Bearer jwt-123']);
+    fetchSpy.mockRestore();
+  });
+
   it('shows the error instead of the reference when the schema cannot be loaded', async () => {
     api.get.mockRejectedValue(new Error('403'));
 
