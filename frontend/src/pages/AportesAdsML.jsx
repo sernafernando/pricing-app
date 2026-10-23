@@ -130,7 +130,7 @@ export default function AportesAdsML() {
       closeDelete();
       fetchCampaigns();
     } catch (err) {
-      setDeleteError(errorMessage(err, 'No se pudo borrar el aporte'));
+      setDeleteError(apiErrorMessage(err, 'No se pudo borrar el aporte'));
     } finally {
       setDeleting(false);
     }
@@ -275,7 +275,7 @@ export default function AportesAdsML() {
       >
         <p className={styles.description}>El costo que cubría este aporte vuelve a descontarse en Métricas ML.</p>
         {deleteError && (
-          <div className={styles.alertError}>
+          <div className={styles.alertError} role="alert">
             <AlertTriangle size={16} /> {deleteError}
           </div>
         )}

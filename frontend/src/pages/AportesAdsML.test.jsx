@@ -232,6 +232,17 @@ describe('manage contributions', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
   });
 
+  it('keeps the confirmation open with the backend message when a delete fails', async () => {
+    const user = userEvent.setup();
+    api.delete.mockRejectedValue({ response: { status: 404, data: { error: { message: 'contribution 7 does not exist' } } } });
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(within(rowOf('Routers')).getByRole('button', { name: /borrar aporte/i }));
+    await user.click(screen.getByRole('button', { name: 'Borrar' }));
+    expect(await screen.findByText('contribution 7 does not exist')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Borrar' })).toBeInTheDocument();
+  });
+
   it("shows the backend's 422 message and keeps the form open", async () => {
     const user = userEvent.setup();
     api.post.mockRejectedValue({
