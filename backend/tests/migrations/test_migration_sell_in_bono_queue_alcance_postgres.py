@@ -63,13 +63,13 @@ def before() -> Iterator[Engine]:
         yield engine
 
 
-def test_this_revision_chains_on_the_bonus_scope_revision() -> None:
+def test_this_revision_chains_on_the_heads_merge_revision() -> None:
     config = Config(os.path.join(base._BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(base._BACKEND_ROOT, "alembic"))
     script = ScriptDirectory.from_config(config)
     revision = script.get_revision(_REVISION)
     assert revision is not None
-    assert revision.down_revision == "20261114_sell_in_bonos_alcance"
+    assert revision.down_revision == "20261114_merge_ads_permiso_sell_in_bonos"
     assert len(script.get_heads()) == 1  # no divergent heads; a later revision may sit on top of this one
 
 

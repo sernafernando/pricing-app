@@ -1,7 +1,7 @@
 """bonus queue triggers: scope-aware gate (sell_in_bono_cubre_producto)
 
 Revision ID: 20261115_sell_in_bono_queue_alcance
-Revises: 20261114_sell_in_bonos_alcance
+Revises: 20261114_merge_ads_permiso_sell_in_bonos
 Create Date: 2026-10-22
 
 sell-in-sell-out T3e-1 (M2b). Replaces the `sell_in_bono_dirty` triggers that
@@ -36,7 +36,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261115_sell_in_bono_queue_alcance"
-down_revision: Union[str, None] = "20261114_sell_in_bonos_alcance"
+down_revision: Union[str, None] = "20261114_merge_ads_permiso_sell_in_bonos"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
