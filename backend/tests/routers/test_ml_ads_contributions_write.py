@@ -207,6 +207,14 @@ class TestUpdate:
         assert clash.status_code == 422
         assert _rows(db)[0].date_to == date(2026, 10, 20)
 
+    def test_moving_to_another_campaign_is_422(self, client, db, manager) -> None:
+        contribution_id = _create(client, manager).json()["id"]
+        moved = client.put(
+            f"{BASE}/contributions/{contribution_id}", headers=manager, json=_contribution(campaign_id=OTHER)
+        )
+        assert moved.status_code == 422
+        assert _rows(db)[0].campaign_id == CAMP
+
     def test_an_unknown_contribution_is_404(self, client, manager) -> None:
         assert client.put(f"{BASE}/contributions/424242", headers=manager, json=_contribution()).status_code == 404
 

@@ -2,7 +2,8 @@
 
 Real Postgres sessions: A checks and inserts a range while holding the campaign lock; B loading an overlapping
 range of the same campaign waits for A's commit and is then rejected (the API's 422 on `date_from`). A different
-campaign does not wait.
+campaign does not wait. An edit of a contribution another session is deleting waits for that delete and finds nothing
+(the API's 404), instead of failing on commit.
 """
 
 from __future__ import annotations
@@ -88,3 +89,28 @@ def test_another_campaign_does_not_wait(sessions) -> None:
     error, elapsed = _load_while_locked(sessions, _data(OTHER, 15, 20))
     assert error is None and elapsed < HOLD * 0.5
     assert (_count(sessions, CAMP), _count(sessions, OTHER)) == (1, 1)
+
+
+def _delete_slowly(make, contribution_id: int, locked: threading.Event) -> None:
+    with make() as db:
+        row = db.query(MlAdsCampaignContribution).filter_by(id=contribution_id).with_for_update().one()
+        db.delete(row)
+        db.flush()
+        locked.set()
+        time.sleep(HOLD)
+        db.commit()
+
+
+@pytest.mark.postgres
+def test_an_edit_racing_a_delete_finds_nothing(sessions) -> None:
+    with sessions() as db:
+        contribution_id = contributions.create(db, _data(CAMP, 1, 31), 1).id
+    locked = threading.Event()
+    deleter = threading.Thread(target=_delete_slowly, args=(sessions, contribution_id, locked))
+    deleter.start()
+    assert locked.wait(5)
+    with sessions() as db:
+        edited = contributions.update(db, contribution_id, _data(CAMP, 1, 15), 2)
+    deleter.join()
+    assert edited is None
+    assert _count(sessions, CAMP) == 0

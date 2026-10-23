@@ -98,6 +98,16 @@ def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None
         raise ContributionError("date_from", "the range overlaps another contribution of the same campaign")
 
 
+def _locked(db: Session, contribution_id: int) -> Optional[MlAdsCampaignContribution]:
+    """The contribution row under FOR UPDATE, taken before the campaign lock so edit and delete serialize."""
+    return (
+        db.query(MlAdsCampaignContribution)
+        .filter(MlAdsCampaignContribution.id == contribution_id)
+        .with_for_update()
+        .one_or_none()
+    )
+
+
 def _apply(row: MlAdsCampaignContribution, data: ContributionData, user_id: int) -> None:
     for name, value in vars(data).items():
         setattr(row, name, value)
@@ -117,10 +127,14 @@ def create(db: Session, data: ContributionData, user_id: int) -> MlAdsCampaignCo
 def update(
     db: Session, contribution_id: int, data: ContributionData, user_id: int
 ) -> Optional[MlAdsCampaignContribution]:
-    """`None` when the contribution does not exist."""
-    row = db.get(MlAdsCampaignContribution, contribution_id)
+    """`None` when the contribution does not exist (also when a concurrent delete wins the row lock)."""
+    row = _locked(db, contribution_id)
     if row is None:
         return None
+    if (row.advertiser_id, row.campaign_id) != (data.advertiser_id, data.campaign_id):
+        raise ContributionError(
+            "campaign_id", "a contribution cannot move to another campaign; delete it and load it again"
+        )
     _check(db, data, exclude_id=contribution_id)
     _apply(row, data, user_id)
     db.commit()
@@ -130,7 +144,7 @@ def update(
 
 def delete(db: Session, contribution_id: int, user_id: int) -> bool:
     """The row goes away; the log line keeps who removed what (the table only knows creator and last editor)."""
-    row = db.get(MlAdsCampaignContribution, contribution_id)
+    row = _locked(db, contribution_id)
     if row is None:
         return False
     logger.info(
