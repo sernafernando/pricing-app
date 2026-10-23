@@ -2,14 +2,17 @@
  * AportesAdsML — brand contributions to Product Ads campaigns (ml-ads-brand-contribution S10).
  *
  * Lists every catalogued campaign with its cost in a date range (`GET /ml-ads/campaigns`, `ml_metricas.ver_ganancia`)
- * and all its contributions. A contribution is a percentage or a fixed amount over a date range (S3/S4); a fixed
- * amount says how it settles (S6). Métricas ML stops subtracting the part of the cost a contribution covers (S9).
+ * and all its contributions; with `ml_metricas.gestionar_aportes_ads` (S7) it also loads new ones
+ * (`AportesAdsMLForm`). A contribution is a percentage or a fixed amount over a date range (S3/S4); a fixed amount
+ * says how it settles (S6). Métricas ML stops subtracting the part of the cost a contribution covers (S9).
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle } from 'lucide-react';
-import api from '../services/api';
+import { AlertTriangle, Plus } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
+import api from '../services/api';
+import AportesAdsMLForm from './AportesAdsMLForm';
 import { registrarPagina } from '../registry/tabRegistry';
+import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import styles from './AportesAdsML.module.css';
 
@@ -19,9 +22,6 @@ const SETTLEMENT_LABELS = { full: 'Se recibe todo', refund_difference: 'Se devue
 
 const isoDay = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-const errorMessage = (err, fallback) =>
-  err?.response?.data?.error?.message || err?.response?.data?.detail || fallback;
 
 const formatDay = (iso) => iso.split('-').reverse().join('/');
 
@@ -44,6 +44,7 @@ export default function AportesAdsML() {
   // The page opens with `ml_metricas.ver` (like Métricas ML); the campaign costs need `ver_ganancia`, as the API does.
   const { tienePermiso } = usePermisos();
   const puedeVerGanancia = tienePermiso('ml_metricas.ver_ganancia');
+  const canManage = tienePermiso('ml_metricas.gestionar_aportes_ads');
   const today = new Date();
   const [range, setRange] = useState({
     from: isoDay(new Date(today.getFullYear(), today.getMonth(), 1)),
@@ -57,6 +58,9 @@ export default function AportesAdsML() {
   // older response.
   const latestRequest = useRef(0);
 
+  // The campaign whose new contribution is being loaded, while the form is open.
+  const [creatingFor, setCreatingFor] = useState(null);
+
   const fetchCampaigns = useCallback(async () => {
     const request = ++latestRequest.current;
     setLoading(true);
@@ -67,7 +71,7 @@ export default function AportesAdsML() {
     } catch (err) {
       if (request !== latestRequest.current) return;
       setCampaigns([]);
-      setLoadError(errorMessage(err, 'No se pudieron cargar las campañas'));
+      setLoadError(apiErrorMessage(err, 'No se pudieron cargar las campañas'));
     } finally {
       if (request === latestRequest.current) setLoading(false);
     }
@@ -90,6 +94,11 @@ export default function AportesAdsML() {
       </div>
     );
   }
+
+  const handleSaved = () => {
+    setCreatingFor(null);
+    fetchCampaigns();
+  };
 
   return (
     <div className={styles.container}>
@@ -136,17 +145,18 @@ export default function AportesAdsML() {
               <th>Estado</th>
               <th className={styles.num}>Costo del período</th>
               <th>Aportes</th>
+              {canManage && <th aria-label="Acciones" />}
             </tr>
           </thead>
           <tbody className="table-tesla-body">
             {loading && (
               <tr>
-                <td colSpan={4} className={styles.muted}>Cargando...</td>
+                <td colSpan={canManage ? 5 : 4} className={styles.muted}>Cargando...</td>
               </tr>
             )}
             {!loading && campaigns.length === 0 && !loadError && (
               <tr>
-                <td colSpan={4} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
+                <td colSpan={canManage ? 5 : 4} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
               </tr>
             )}
             {!loading &&
@@ -166,11 +176,33 @@ export default function AportesAdsML() {
                       </ul>
                     )}
                   </td>
+                  {canManage && (
+                    <td className={styles.colActions}>
+                      <button
+                        type="button"
+                        className={styles.btnSecondary}
+                        onClick={() => setCreatingFor(c)}
+                      >
+                        <Plus size={14} /> Agregar aporte
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
           </tbody>
         </table>
       </div>
+
+      {creatingFor && (
+        <AportesAdsMLForm
+          title="Nuevo aporte"
+          initial={{ advertiser_id: creatingFor.advertiser_id, campaign_id: creatingFor.campaign_id }}
+          submit={(body) => api.post('/ml-ads/contributions', body)}
+          settlementLabels={SETTLEMENT_LABELS}
+          onClose={() => setCreatingFor(null)}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
   );
 }
