@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { productosAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import TreeNode from './TreeNode';
-import { isFilterActive, countHiddenDescendants } from './treeNodeUtils';
+import { isFilterActive, countDeletedDescendants, countHiddenDescendants, nodeHasVisibleContent } from './treeNodeUtils';
 import { useTreeViewStore } from '../../store/treeViewStore';
 import styles from './promociones.module.css';
 
@@ -73,6 +73,10 @@ function buildPxqParams(conPxq) {
  * by default with a "ver todos (N)" escape hatch counting ALL hidden
  * descendants across the whole tree; `matches_filter` absent/true always
  * shows (fail-open).
+ *
+ * Deleted publications (`isDeletedNode`: gone, or `deleted` in ML's
+ * sub_status) are hidden by default, filter or not, with a "Ver eliminadas
+ * (N)" toggle; "ver todos" never reveals them.
  */
 function ProductoMLAsPanel({
   itemId,
@@ -100,17 +104,20 @@ function ProductoMLAsPanel({
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
   const cacheKey = `${itemId}::${filterKey}`;
   const [verTodos, setVerTodos] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
   const showFamilia = useTreeViewStore((state) => state.showFamilia);
   const toggleFamilia = useTreeViewStore((state) => state.toggleFamilia);
   const expandAll = useTreeViewStore((state) => state.expandAll);
   const collapseAll = useTreeViewStore((state) => state.collapseAll);
 
-  // Reset the "ver todos" reveal whenever the active filter changes, so a
-  // filter change on an already-expanded (still-mounted) panel re-applies the
-  // new hide set. Without this, verTodos stays true and the new filter is
-  // silently defeated — all nodes shown, with no button to re-hide them.
+  // Reset the "ver todos" reveal (and the deleted toggle, the same way)
+  // whenever the active filter changes, so a filter change on an
+  // already-expanded (still-mounted) panel re-applies the new hide set.
+  // Without this, verTodos stays true and the new filter is silently
+  // defeated — all nodes shown, with no button to re-hide them.
   useEffect(() => {
     setVerTodos(false);
+    setShowDeleted(false);
   }, [filterKey]);
 
   const fetcher = useCallback(
@@ -141,8 +148,16 @@ function ProductoMLAsPanel({
   }
 
   const hiddenCount = filterActive
-    ? rootChildren.reduce((sum, child) => sum + countHiddenDescendants(child), 0)
+    ? rootChildren.reduce((sum, child) => sum + countHiddenDescendants(child, showDeleted), 0)
     : 0;
+
+  // Deleted publications are hidden by default, filter or not; the toggle is
+  // offered only when it would show one (each count is what its button then
+  // shows, so a filter and the toggle never promise each other's nodes).
+  const deletedCount = rootChildren.reduce((sum, child) => sum + countDeletedDescendants(child, filterActive, verTodos), 0);
+  // Only deleted ones hide everything: nothing would show even with "ver todos", so the filter is not the cause.
+  const allDeleted =
+    !showDeleted && deletedCount > 0 && !rootChildren.some((child) => nodeHasVisibleContent(child, filterActive, true));
 
   // Only offer the toggle when the tree actually has a familia level to hide
   // — otherwise there is nothing for it to control.
@@ -171,6 +186,18 @@ function ProductoMLAsPanel({
           </button>
         </div>
       )}
+      {deletedCount > 0 && (
+        <div className={styles.filterMessage}>
+          <button
+            type="button"
+            className={`btn-tesla outline-subtle-primary sm ${showDeleted ? 'toggle-active' : ''}`}
+            onClick={() => setShowDeleted((shown) => !shown)}
+            aria-pressed={showDeleted}
+          >
+            {showDeleted ? 'Ocultar eliminadas' : `Ver eliminadas (${deletedCount})`}
+          </button>
+        </div>
+      )}
       {filterActive && hiddenCount > 0 && !verTodos && (
         <div className={styles.filterMessage}>
           <button type="button" className="btn-tesla ghost sm" onClick={() => setVerTodos(true)}>
@@ -178,6 +205,7 @@ function ProductoMLAsPanel({
           </button>
         </div>
       )}
+      {allDeleted && <div className={styles.panelState}>Las publicaciones de este producto quedan ocultas por estar eliminadas.</div>}
       <table className={styles.innerTable}>
         <tbody>
           {rootChildren.map((child) => (
@@ -194,6 +222,7 @@ function ProductoMLAsPanel({
               tiendaOficial={tiendaOficial}
               conPxq={conPxq}
               revealAll={verTodos}
+              showDeleted={showDeleted}
             />
           ))}
         </tbody>

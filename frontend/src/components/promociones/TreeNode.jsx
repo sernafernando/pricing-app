@@ -4,7 +4,13 @@ import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import CatalogCompetitionPanel from './CatalogCompetitionPanel';
 import PxqPanel from './PxqPanel';
-import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
+import {
+  isMlaBearing,
+  isFilterActive,
+  hoistsChildren,
+  nodeHasVisibleContent,
+  describeChildKinds,
+} from './treeNodeUtils';
 import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
 import { publicationStatusInfo, subStatusTitle } from '../publicacionesMl/publicationStatus';
 import { useTiendasOficiales } from '../../hooks/useTiendasOficiales';
@@ -86,6 +92,7 @@ const KIND_ROW_CLASS = {
  * those features deeper in the tree (this is the design's flagged #1 FE
  * risk; the catalog-competition panel was previously omitted from the
  * collapse-epoch sync effect below and had to be fixed once already).
+ * `revealAll` and `showDeleted` are forwarded the same way.
  */
 function TreeNode({
   node,
@@ -99,6 +106,7 @@ function TreeNode({
   tiendaOficial,
   conPxq,
   revealAll = false,
+  showDeleted = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -159,11 +167,9 @@ function TreeNode({
 
   const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq);
 
-  if (!nodeHasVisibleContent(node, filterActive, revealAll)) {
-    return null;
-  }
-
-  if (isMlaBearing(node.kind) && isNodeHidden(node, filterActive, revealAll)) {
+  // Also hides an MLA-bearing node that does not hoist its children: for it,
+  // `nodeHasVisibleContent` is `!isNodeHidden`.
+  if (!nodeHasVisibleContent(node, filterActive, revealAll, showDeleted)) {
     return null;
   }
 
@@ -177,8 +183,10 @@ function TreeNode({
   // way. Children keep forwarding the exact same props so promo filter
   // (matches_filter reveal), the promo summary, the lista badge and the
   // refresh button keep working via each hoisted child's own TreeNode logic.
-  if (node.kind === 'familia' && !showFamilia) {
-    const rowKey = `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
+  // A deleted publication hidden only for being deleted hoists its children
+  // the same way (`hoistsChildren`): its live vinculadas stay in view.
+  if ((node.kind === 'familia' && !showFamilia) || hoistsChildren(node, filterActive, revealAll, showDeleted)) {
+    const rowKey = node.mla || `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
     return (
       <>
         {children.map((child) => (
@@ -195,6 +203,7 @@ function TreeNode({
             tiendaOficial={tiendaOficial}
             conPxq={conPxq}
             revealAll={revealAll}
+            showDeleted={showDeleted}
           />
         ))}
       </>
@@ -400,6 +409,7 @@ function TreeNode({
                   tiendaOficial={tiendaOficial}
                   conPxq={conPxq}
                   revealAll={revealAll}
+                  showDeleted={showDeleted}
                 />
               ))}
             </tbody>
