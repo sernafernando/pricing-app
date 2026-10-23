@@ -561,6 +561,27 @@ describe('opening a publication', () => {
     expect(row).not.toHaveAttribute('aria-current');
   });
 
+  it.each([
+    ['Alt', { altKey: true }, 'https://vendedores.mercadolibre.com.ar/publicaciones?page=1&sort=DEFAULT&search=1100000001'],
+    [
+      'Shift',
+      { shiftKey: true },
+      'https://vendedores.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=1100000001',
+    ],
+  ])('%s+click anywhere on the row opens the seller panel, like Ctrl+click, and does not select it', async (_, keys, url) => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    try {
+      await page();
+      const row = screen.getByText('MLA1100000001').closest('tr');
+      fireEvent.click(row, keys);
+      expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
+      expect(openInMlPanel).not.toHaveBeenCalled();
+      expect(row).not.toHaveAttribute('aria-current');
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it('Cmd+click does the same (S66.2)', async () => {
     await page();
     fireEvent.click(screen.getByText('MLA1100000002').closest('tr'), { metaKey: true });

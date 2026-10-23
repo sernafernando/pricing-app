@@ -1,6 +1,6 @@
 /**
  * The Publicación cell links each publication to the Mercado Libre seller
- * panel: two icon links, plus Alt/Shift+click shortcuts on the MLA.
+ * panel: two icon links; the MLA tells the row's click shortcuts.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -47,25 +47,14 @@ describe('PublicationCell seller panel links', () => {
 });
 
 describe('PublicationCell MLA modifier shortcuts', () => {
-  it.each([
-    ['Alt', { altKey: true }, LISTING],
-    ['Shift', { shiftKey: true }, PROMOS],
-  ])('%s+click on the MLA opens the seller panel URL and stops there', (_label, modifiers, url) => {
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const onRowClick = renderCell();
-    const mla = screen.getByText('MLA1173065146');
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...modifiers });
-    mla.dispatchEvent(event);
-    expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
-    expect(event.defaultPrevented).toBe(true);
-    expect(onRowClick).not.toHaveBeenCalled();
-  });
-
+  // The page opens ML on the whole row (PublicacionesML.test.jsx): a click on the MLA is one more row click.
   it.each([
     ['plain', {}],
     ['Ctrl', { ctrlKey: true }],
     ['Meta', { metaKey: true }],
-  ])('a %s click on the MLA keeps today\'s behavior: the row handles it', (_label, modifiers) => {
+    ['Alt', { altKey: true }],
+    ['Shift', { shiftKey: true }],
+  ])('a %s click on the MLA reaches the row, which handles it', (_label, modifiers) => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
     const onRowClick = renderCell();
     fireEvent.click(screen.getByText('MLA1173065146'), modifiers);
@@ -75,7 +64,10 @@ describe('PublicationCell MLA modifier shortcuts', () => {
 
   it('tells the shortcuts in the MLA tooltip', () => {
     renderCell();
-    expect(screen.getByText('MLA1173065146')).toHaveAttribute('title', expect.stringMatching(/Alt\+clic.*Mayús\+clic/));
+    expect(screen.getByText('MLA1173065146')).toHaveAttribute(
+      'title',
+      expect.stringMatching(/Ctrl\+clic.*Alt\+clic.*Mayús\+clic/),
+    );
   });
 });
 

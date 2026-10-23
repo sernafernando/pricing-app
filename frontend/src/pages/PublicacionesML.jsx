@@ -36,6 +36,7 @@ import {
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
+import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
 import { canExportVista, exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
@@ -351,12 +352,20 @@ export default function PublicacionesML() {
   };
 
   // Ctrl/Cmd+click opens the publication in ML (side panel when the extension
-  // is there); a plain click selects the row. A publication without a usable
-  // permalink opens nothing, and is not selected either.
+  // is there); Alt+click opens it in the seller panel, Shift+click its
+  // promotions; a plain click selects the row. A publication without a usable
+  // permalink (or MLA) opens nothing, and is not selected either.
   const handleRowClick = useCallback(
     (item, event) => {
       if (event?.ctrlKey || event?.metaKey) {
         openInMlPanel(buildMlItemUrl(item.permalink));
+        return;
+      }
+      const sellerUrl = event?.altKey ? buildMlSellerListingUrl : event?.shiftKey ? buildMlSellerPromosUrl : null;
+      if (sellerUrl) {
+        // Shift+click also extends the text selection over the table: drop it.
+        window.getSelection()?.removeAllRanges();
+        openMlSellerUrl(sellerUrl(item.item_id));
         return;
       }
       setFilters({ sel: item.item_id });
