@@ -399,6 +399,7 @@ class TestFrontendBuildNode:
         assert result.returncode == 0, result.stderr
         assert self.pnpm_calls(env) == ["pnpm node24 install --frozen-lockfile", "pnpm node24 run build"]
         assert "Node v24.22.1" in result.stdout
+        assert "No está" not in result.stdout
 
     def test_without_the_separate_node_the_build_uses_the_node_on_path(self, env) -> None:
         node_dir = self.setup_build(env)  # no node binary in it: not installed
@@ -407,3 +408,4 @@ class TestFrontendBuildNode:
 
         assert result.returncode == 0, result.stderr
         assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", "pnpm system run build"]
+        assert f"No está {node_dir}/bin/node" in result.stdout

@@ -351,7 +351,9 @@ if [ "$SKIP_BUILD" = false ]; then
   if [ -x "$FRONTEND_NODE_DIR/bin/node" ]; then
     FRONTEND_PATH="$FRONTEND_NODE_DIR/bin:$PATH"
   else
-    warn "No está $FRONTEND_NODE_DIR/bin/node: el frontend se buildea con el node del PATH"
+    # Fallback deliberado: el node del sistema (20.19) también buildea el lockfile actual, y
+    # fallar acá frenaría el deploy en un server sin el Node aparte. CI chequea con 24.
+    warn "No está $FRONTEND_NODE_DIR/bin/node: el frontend se buildea con el node del PATH ($(node --version 2>/dev/null || echo 'no encontrado')), no con el que usa CI"
   fi
 
   CURRENT_STEP="instalación de dependencias del frontend"
