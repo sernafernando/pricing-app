@@ -135,17 +135,29 @@ def _board_response(session, name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
         "meta": {k: v for k, v in data.items() if k not in ("kpis", "facets", "rows")},
         # The additive `kpis.ads` and "Costos TP" fields (null with their toggles OFF) are not part of what
         # these digests pin.
-        "kpis": {k: v for k, v in data["kpis"].items() if k not in ("ads", "total_tp") or v is not None},
+        "kpis": {k: v for k, v in data["kpis"].items() if k not in ("ads", "total_tp", "sell_in_out") or v is not None},
         "facets": data["facets"],
         "rows": [_without_null_tp(row) for row in data["rows"]],
     }
 
 
-TP_FIELDS = ("total_tp", "tp_incompletos")
+TP_FIELDS = (
+    "total_tp",
+    "tp_incompletos",
+    # sell-in-sell-out T11, null with `sell_in_out` OFF.
+    "sell_in",
+    "sell_out",
+    "m_sell_in",
+    "m_sell_out",
+    "sell_out_pendientes",
+    "sell_out_estimados",
+    "sell_in_out",
+)
 
 
 def _without_null_tp(row: Dict[str, Any]) -> Dict[str, Any]:
-    """A row minus the "Costos TP" fields while they are null (the toggle OFF): additive, not pinned here."""
+    """A row minus the "Costos TP" and sell in / sell out fields while they are null (their toggles OFF):
+    additive, not pinned here."""
     return {k: v for k, v in row.items() if k not in TP_FIELDS or v is not None}
 
 

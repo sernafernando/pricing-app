@@ -1130,6 +1130,10 @@ SORT_FIELDS = {
 # `TestSortByColumn` cannot send it. Each one names the test that sends it WITH its flag.
 FLAG_DEPENDENT_SORTS = {
     "total_tp": ("test_ml_metricas_board_costos_tp_router", "test_sort_by_total_tp_with_costos_tp"),
+    **{
+        sort: ("test_ml_metricas_board_sell_in_out_router", "test_sorts_by_the_sell_in_out_columns")
+        for sort in board.SELL_SORTS
+    },
 }
 
 
