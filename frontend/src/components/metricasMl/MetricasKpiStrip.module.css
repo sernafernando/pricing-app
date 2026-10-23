@@ -218,3 +218,21 @@
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
+
+.sellLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--spacing-xs);
+}
+
+.sellValue {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.sellValue strong {
+  white-space: nowrap;
+}

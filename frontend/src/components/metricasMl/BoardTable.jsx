@@ -16,6 +16,7 @@ import { COLUMN_GROUPS } from './metricasMlColumns';
 import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels';
 import { ADS_ROW_BADGES, adsRowKind } from '../../utils/metricasMlAds';
 import { tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
+import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
 import styles from './BoardTable.module.css';
 
 /**
@@ -30,6 +31,9 @@ import styles from './BoardTable.module.css';
  * does, and money never wraps.
  */
 
+
+// A group announced but not built yet: its columns are painted as such.
+const SOON_GROUPS = new Set(COLUMN_GROUPS.filter((group) => group.soon).map((group) => group.id));
 
 // How far each level of the "Agrupado" tree steps in under its parent.
 const INDENT_PX = 18;
@@ -48,6 +52,10 @@ const SORT_BY = {
   total_gauss: 'total_gauss',
   total_tp: 'total_tp',
   ads_cost: 'ads_cost',
+  sell_in: 'sell_in',
+  sell_out: 'sell_out',
+  total_gauss_sell: 'total_gauss_sell',
+  markup_sell: 'markup_sell',
   last_sale: 'last_sale',
   ageing: 'ageing',
   stock: 'stock',
@@ -90,6 +98,40 @@ function TotalTpCell({ value, incompletos: raw }) {
         </span>
       )}
     </div>
+  );
+}
+
+/** The row's known sell out, flagging the sold lines it leaves out (a USD sell out without its rate yet: never
+ * summed as 0) and the ones whose rate is still an estimate. */
+function SellOutCell({ figures }) {
+  if (!figures) return <SellMoneyCell value={null} />;
+  const { sell_out: value, sell_out_pendientes: pendientes, sell_out_estimados: estimados } = figures;
+  return (
+    <div className={styles.gaussCell}>
+      <span className={styles.money} data-money>
+        {formatSignedMoney(value)}
+      </span>
+      {pendientes > 0 && (
+        <span className={styles.tpWarn} title={sellOutPendingTitle(pendientes)}>
+          <AlertTriangle size={10} aria-hidden="true" />
+          {formatUnits(pendientes)}
+        </span>
+      )}
+      {estimados > 0 && (
+        <span className={styles.tpHint} title={sellOutEstimatedTitle(estimados)}>
+          ≈ {formatUnits(estimados)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SellMoneyCell({ value, strong = false }) {
+  const tone = strong ? moneyTone(value) : null;
+  return (
+    <span className={`${styles.money} ${strong ? styles.moneyStrong : ''} ${tone ? styles[`money_${tone}`] || '' : ''}`} data-money>
+      {formatSignedMoney(value)}
+    </span>
   );
 }
 
@@ -367,8 +409,21 @@ function renderCell(colId, row, ctx) {
     case 'stock':
       // `productos_erp.stock` of the row's product; "—" when the ERP has none.
       return <StockCell value={row.stock} />;
+    // Sell in / sell out: null (dashes) when the backend sends none, never a made-up zero.
+    case 'costo':
+    case 'costo_sell_in':
+    case 'sell_in':
+      return <SellMoneyCell value={row.sell_in_out?.[colId]} />;
+    case 'sell_out':
+      return <SellOutCell figures={row.sell_in_out} />;
+    case 'total_gauss_sell':
+      return <SellMoneyCell value={row.sell_in_out?.total_gauss} strong />;
+    case 'markup_sell': {
+      const value = row.sell_in_out?.markup_pct ?? null;
+      const tone = markupTone(value);
+      return <span className={`${styles.markup} ${tone ? styles[`tone_${tone}`] : styles.muted}`}>{formatPct(value)}</span>;
+    }
     default:
-      // Sell-in / sell-out: announced, never invented.
       return <span className={styles.placeholder}>—</span>;
   }
 }
@@ -384,8 +439,14 @@ const NUMERIC = new Set([
   'total_gauss',
   'total_tp',
   'ads_cost',
+  'costo',
+  'costo_sell_in',
+  'sell_in',
+  'sell_out',
+  'total_gauss_sell',
+  'markup_sell',
 ]);
-const CENTERED = new Set(['units_trend', 'markup_delta', 'markup_trend', 'markup_range', 'ageing', 'stock', 'compras_30d', 'sell_through', 'cobertura']);
+const CENTERED = new Set(['units_trend', 'markup_delta', 'markup_trend', 'markup_range', 'ageing', 'stock']);
 
 function cellClass(colId, groupStart, groupEnd) {
   return [
@@ -425,7 +486,7 @@ export default function BoardTable({
   const ctxBase = { groupBy, canSeeMargin, now };
   const colClass = (col) => {
     const edge = edges.get(col.id) || {};
-    return `${cellClass(col.id, edge.start, edge.end)} ${col.group === 'sellin' ? styles.soonCol : ''}`;
+    return `${cellClass(col.id, edge.start, edge.end)} ${SOON_GROUPS.has(col.group) ? styles.soonCol : ''}`;
   };
 
   // `depth` 0 is a board row; deeper rows are what an open row opened into.
@@ -516,7 +577,7 @@ export default function BoardTable({
         </tr>
         <tr className={styles.leafRow}>
           {columns.map((col) => {
-            const sortKey = SORT_BY[col.id];
+            const sortKey = col.sortable === false ? null : SORT_BY[col.id];
             const active = sortKey && sortKey === sort;
             return (
               <th

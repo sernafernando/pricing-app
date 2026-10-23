@@ -120,6 +120,12 @@ function withoutTpSort(sort) {
   return sort.key === 'total_tp' ? { key: 'gross', desc: true } : sort;
 }
 
+// "Costos TP" has no markup with sell in / sell out (the sell in is on the Gauss cost; the backend answers 422):
+// turning it on leaves that sort.
+function withoutSellTpSort(sort) {
+  return sort.key === 'markup_sell' ? { key: 'gross', desc: true } : sort;
+}
+
 // The current month in Argentina time, the same default as Ventas ML.
 function defaultRange() {
   const { desde, hasta } = currentMonthRange();
@@ -431,8 +437,8 @@ export default function MetricasML() {
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const shownDimension = tpSolo ? TP_SOLO_DIMENSION : dimension;
   const columnDefs = useMemo(
-    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension: shownDimension, adsOn, tpOn, tpSolo }),
-    [canSeeMargin, periodLabel, groupBy, shownDimension, adsOn, tpOn, tpSolo],
+    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension: shownDimension, adsOn, tpOn, tpSolo, costosTp }),
+    [canSeeMargin, periodLabel, groupBy, shownDimension, adsOn, tpOn, tpSolo, costosTp],
   );
   const table = useReactTable({
     data: [],
@@ -586,8 +592,10 @@ export default function MetricasML() {
                 checked={costosTp}
                 onChange={withReset((next) => {
                   setCostosTp(next);
-                  if (next) setTpError(null);
-                  else setSort(withoutTpSort);
+                  if (next) {
+                    setTpError(null);
+                    setSort(withoutSellTpSort);
+                  } else setSort(withoutTpSort);
                 })}
                 title="Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link"
               />
