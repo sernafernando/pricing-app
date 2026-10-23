@@ -18,11 +18,9 @@ import styles from './ProductPrices.module.css';
  * To write one, `write` names the endpoint Productos uses for that cell
  * (`rapido` = /precios/set-rapido, `cuota` = /precios/set-cuota),
  * `pricelist` the list its negative-markup check asks about and `perm` the
- * `pricePermissions` flag that allows it.
- */
-/*
- * `sellInOut` is the row's key in `sell_in_out.markups_sell_in[_out]` of
- * GET /productos/{item_id}, the PPP markup keys (costo_ppp_service.ppp_key_*).
+ * `pricePermissions` flag that allows it. `sellInOut` is the row's key in
+ * `sell_in_out.markups_sell_in[_out]` of GET /productos/{item_id}, the PPP
+ * markup keys (costo_ppp_service.ppp_key_*).
  */
 const ML_CUOTAS = [
   ['3', 17],
@@ -229,7 +227,9 @@ function SellOutAmount({ sellOut }) {
 
 /**
  * The row's markup with sell in and sell out when there is sell out, else with
- * sell in only; "-" when the product has neither.
+ * sell in only; "-" when the product has neither. "Pendiente" when an amount
+ * is unknown (a lot without an ARS cost, a sell out without its rate or base),
+ * so it never reads like a row without price ("—").
  */
 function SellInOutMarkup({ row, sellInOut }) {
   if (!sellInOut) return <NoSellInOut title="Sin sell in ni sell out" />;
@@ -241,10 +241,21 @@ function SellInOutMarkup({ row, sellInOut }) {
       </span>
     );
   }
+  const sellOutPendiente = Boolean(sellInOut.sell_out) && isBlank(sellInOut.sell_out.monto_unit);
   const conSellIn = sellInOut.markups_sell_in?.[row.sellInOut];
-  if (isBlank(conSellIn)) return <Empty />;
+  if (isBlank(conSellIn)) {
+    const costoPendiente = Boolean(sellInOut.sell_in) && isBlank(sellInOut.sell_in.costo);
+    if (costoPendiente || sellOutPendiente) {
+      return (
+        <span className={styles.muted} title="Falta el tipo de cambio o la base para calcular el markup">
+          Pendiente
+        </span>
+      );
+    }
+    return <Empty />;
+  }
   return (
-    <span title="Con sell in">
+    <span title={sellOutPendiente ? 'Con sell in; el sell out está pendiente' : 'Con sell in'}>
       <MarkupChip value={conSellIn} />
     </span>
   );
