@@ -51,6 +51,13 @@ def board_pg_engine():
 
     from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
     from app.models.ml_group_metrics import MlGroupMetrics
+    from app.models.ml_ads import (
+        MlAdsBrandDay,
+        MlAdsCampaignContribution,
+        MlAdsDayLedger,
+        MlAdsDisplayCampaignDay,
+        MlAdsItemDay,
+    )
     from app.models.ml_order_item_costo import MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
     from app.models.ml_orders_ops import (
@@ -88,6 +95,12 @@ def board_pg_engine():
         RmaClaimML.__table__,
         # The grouped view names (and merges by `clave`) the official stores.
         MlTiendaOficial.__table__,
+        # "Restar publicidad": Product Ads, the ledger, the account-level spend and the brand contributions.
+        MlAdsItemDay.__table__,
+        MlAdsDayLedger.__table__,
+        MlAdsDisplayCampaignDay.__table__,
+        MlAdsBrandDay.__table__,
+        MlAdsCampaignContribution.__table__,
     ]
     _restore_pristine_pg_types(tables)
     engine = create_engine(POSTGRES_TEST_URL)

@@ -113,8 +113,10 @@ class KpiAdsUnattributed(BaseModel):
 
 class KpiAds(BaseModel):
     """Product Ads of the KPI rows (only with `restar_publicidad` and `ver_ganancia`). Informational context:
-    the ratios use the API cost basis and are never linked to specific sales; `cost_total` is the net-of-IVA
-    amount already subtracted from `total_gauss` and `markup`. A zero denominator gives null."""
+    the ratios use the API cost basis and are never linked to specific sales; `cost_total` is ML's gross cost net
+    of IVA, `contribution` the brand contributions covering part of it, and `subtracted_total` the amount actually
+    subtracted from `total_gauss` and `markup` (Product Ads net of `contribution`, plus Display and Brand under
+    `todo`). A zero denominator gives null."""
 
     cost_total: float
     cost_api: float
@@ -136,6 +138,9 @@ class KpiAds(BaseModel):
     requested: str = "mla"
     applied: str = "mla"
     subtracted_total: float = 0.0
+    # The brand contributions covering part of `cost_api` (ml-ads-brand-contribution S9): `cost_total` stays ML's
+    # gross cost while `subtracted_total` (and Total Gauss) are net of them.
+    contribution: float = 0.0
     coverage: Optional[KpiCoverage] = None
     unattributed: Optional[KpiAdsUnattributed] = None
 
@@ -206,6 +211,7 @@ def _kpi_ads(a: board.AdsKpis, gross: Any) -> KpiAds:
         requested=a.requested,
         applied=a.applied,
         subtracted_total=round_money(a.subtracted_total),
+        contribution=round_money(a.contribution),
         coverage=KpiCoverage(
             available=a.coverage.available,
             data_through=a.coverage.data_through,

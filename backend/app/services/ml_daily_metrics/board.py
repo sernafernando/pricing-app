@@ -32,7 +32,8 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
    and each MLA's ads are subtracted from its OWNER pair's Total Gauss and
    markup numerator (never the denominator). OFF emits no extra statement. `restar_todo` (third position) also
    takes Display and Brand Ads off the KPI totals, in the unfiltered view only.
-   With the toggle ON, "solo con ventas" keeps a row with `units > 0 OR ads_cost > 0`, and the UNFILTERED view
+   With the toggle ON, "solo con ventas" keeps a row with `units > 0 OR ads_cost_api > 0` (ML's gross spend, so a
+   row whose brand contribution takes the net ads to zero or below stays), and the UNFILTERED view
    (`is_unfiltered`) also gets a "sin producto" pair for each MLA no product owns: its ads have no other row.
    When `BoardFilter.mla_source` is set, a third table, `MLA_SET_TABLE`, is
    materialized FIRST (same savepoint) and both tables above are restricted
@@ -92,6 +93,7 @@ from sqlalchemy import (
     false,
     func,
     literal,
+    literal_column,
     null,
     or_,
     select,
@@ -107,7 +109,13 @@ from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-from app.models.ml_ads import MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
+from app.models.ml_ads import (
+    MlAdsBrandDay,
+    MlAdsCampaignContribution,
+    MlAdsDayLedger,
+    MlAdsDisplayCampaignDay,
+    MlAdsItemDay,
+)
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
 from app.models.producto import ProductoERP
@@ -229,7 +237,8 @@ ADS_METRICS = (
     "organic_units",
     "organic_amount",
 )
-ADS_PAIR_COLUMNS = ("ads_cost_api", *(f"ads_{name}" for name in ADS_METRICS))
+# `ads_contribution`: the brand contributions covering part of `ads_cost_api` (ml-ads-brand-contribution S9).
+ADS_PAIR_COLUMNS = ("ads_cost_api", "ads_contribution", *(f"ads_{name}" for name in ADS_METRICS))
 ADS_COVERED = ("closed", "mismatch")
 ACCOUNT_SOURCES = ("display", "brand_ads")
 # The columns of the request's temp tables that get `ANALYZE` statistics (see
@@ -588,7 +597,9 @@ class Kpis:
 @dataclass
 class AdsKpis:
     """The period's Product Ads of the KPI rows. Money is Decimal: `cost_api` as the API reports it (what the
-    ratios use), `cost_total` net of IVA (what was subtracted)."""
+    ratios use), `cost_total` ML's gross cost net of IVA, `contribution` the brand contributions covering part of
+    it and `subtracted_total` what actually came off the Total Gauss and markup KPIs (Product Ads net of
+    `contribution`, plus Display and Brand under `todo`)."""
 
     cost_total: Decimal
     cost_api: Decimal
@@ -603,8 +614,11 @@ class AdsKpis:
     # What the request asked for and what the view could honestly apply ("mla" | "todo").
     requested: str = "mla"
     applied: str = "mla"
-    # Product Ads net + the account-level spend subtracted from the KPI totals.
+    # Product Ads net (of IVA and of the brand contributions) + the account-level spend subtracted from the KPI
+    # totals.
     subtracted_total: Decimal = Decimal("0")
+    # The brand contributions covering part of `cost_api`, same basis (ml-ads-brand-contribution S9).
+    contribution: Decimal = Decimal("0")
     coverage: Optional["AdsCoverage"] = None
     # Only in the unfiltered view: spend that no row owns.
     unattributed: Optional["AdsUnattributed"] = None
@@ -1221,24 +1235,62 @@ class Board:
         )
 
     def _ads_source(self) -> Any:
-        """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups."""
-        day = MlAdsItemDay.day
+        """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups, with the
+        brand contributions that cover part of it (ml-ads-brand-contribution S5, S6, S9), computed per item row.
+
+        An item row belongs to a contribution by its own (`advertiser_id`, `campaign_id`, `day`); no campaign (NULL
+        or 0) never does. A campaign's ranges never overlap (the write API rejects it under the campaign row lock), so a
+        row meets at most one.
+        `percentage` covers p% of the row; `fixed_amount` spreads its counted amount (`full`: all of it;
+        `refund_difference`: at most the range's spend) by the row's share of the WHOLE range's spend, which may
+        reach past the request's days; a range that spent nothing has nothing to spread over."""
+        I, C = MlAdsItemDay, MlAdsCampaignContribution
+        day = I.day
+
+        def touches(start: date, end: date) -> Any:
+            return and_(C.date_from <= self._day(end), C.date_to >= self._day(start))
+
+        in_range = and_(
+            I.advertiser_id == C.advertiser_id, I.campaign_id == C.campaign_id, day.between(C.date_from, C.date_to)
+        )
+        spend = (
+            select(C.id.label("id"), func.sum(I.cost).label("spend"))
+            .select_from(C)
+            .join(I, in_range)
+            .where(
+                C.kind == "fixed_amount",
+                or_(touches(self.f.date_from, self.f.date_to), touches(self.prev_from, self.prev_to)),
+            )
+            .group_by(C.id)
+            .cte("ads_contribution_spend")
+        )
+        counted = case((C.settlement == "full", C.value), (C.value < spend.c.spend, C.value), else_=spend.c.spend)
+        # `1.0` keeps SQLite (the unit tests) off integer division; Postgres reads it as numeric.
+        share = case(
+            (C.kind == "percentage", I.cost * C.value / literal_column("100.0")),
+            (spend.c.spend > 0, I.cost * literal_column("1.0") * counted / spend.c.spend),
+            else_=0,
+        )
         query = (
             select(
-                MlAdsItemDay.item_id.label("mla"),
+                I.item_id.label("mla"),
                 day.label("day"),
-                func.sum(MlAdsItemDay.cost).label("cost"),
-                *(func.sum(getattr(MlAdsItemDay, name)).label(name) for name in ADS_METRICS),
+                func.sum(I.cost).label("cost"),
+                func.sum(share).label("contribution"),
+                *(func.sum(getattr(I, name)).label(name) for name in ADS_METRICS),
             )
+            .select_from(I)
+            .outerjoin(C, and_(in_range, I.campaign_id != 0))
+            .outerjoin(spend, spend.c.id == C.id)
             .where(
                 or_(
                     self._in_ads_period(day, self.f.date_from, self.f.date_to),
                     self._in_ads_period(day, self.prev_from, self.prev_to),
                 )
             )
-            .group_by(MlAdsItemDay.item_id, day)
+            .group_by(I.item_id, day)
         )
-        return self._in_mla_set(query, MlAdsItemDay.item_id)
+        return self._in_mla_set(query, I.item_id)
 
     def _pair_ads(self) -> Any:
         """Per OWNER pair (owner product, MLA), its ads of the period and of the comparison period, NET of IVA.
@@ -1248,14 +1300,18 @@ class Board:
         owner = ads_owner_select(sqlite=self.sqlite, mlas=select(A.c.mla)).subquery("ads_owner")
         in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
         current = case((in_period, A.c.cost), else_=0)
-        previous = case((self._in_ads_period(A.c.day, self.prev_from, self.prev_to), A.c.cost), else_=0)
+        contribution = case((in_period, A.c.contribution), else_=0)
+        # What the board subtracts: the cost net of the brand contributions (S9); `ads_cost_api` stays ML's gross.
+        net = A.c.cost - A.c.contribution
+        previous = case((self._in_ads_period(A.c.day, self.prev_from, self.prev_to), net), else_=0)
         query = (
             select(
                 owner.c.owner_product.label("product"),
                 A.c.mla.label("mla"),
-                ads_cost_net_of_iva(func.sum(current), ADS_SOURCE).label("ads"),
+                ads_cost_net_of_iva(func.sum(current - contribution), ADS_SOURCE).label("ads"),
                 ads_cost_net_of_iva(func.sum(previous), ADS_SOURCE).label("prev_ads"),
                 func.sum(current).label("ads_cost_api"),
+                func.sum(contribution).label("ads_contribution"),
                 *(func.sum(case((in_period, A.c[name]), else_=0)).label(f"ads_{name}") for name in ADS_METRICS),
             )
             .select_from(A.join(owner, owner.c.mla == A.c.mla))
@@ -1487,7 +1543,7 @@ class Board:
                         "w15d",
                         "w30d",
                         "u24",
-                        *(("ads_cost",) if self.ads else ()),
+                        *(("ads_cost", "ads_cost_api") if self.ads else ()),
                         *(grouping.TP_SUM_COLUMNS if self.tp else ()),
                     )
                 ),
@@ -1538,8 +1594,10 @@ class Board:
         return q
 
     def _has_activity(self, c: Any) -> Any:
-        """The "solo con ventas" predicate on a summed row: a sale in the period, or (toggle ON) ads in it."""
-        return or_(c.units > 0, c.ads_cost > 0) if self.ads else c.units > 0
+        """The "solo con ventas" predicate on a summed row: a sale in the period, or (toggle ON) ads in it.
+        Ads by ML's GROSS spend: a brand contribution can take the net cost to zero or below, and that row must stay
+        (its contribution is in Total Gauss and in the KPI Ads block alike)."""
+        return or_(c.units > 0, c.ads_cost_api > 0) if self.ads else c.units > 0
 
     def _next_table(self, prefix: str) -> str:
         self._table_seq += 1
@@ -2156,7 +2214,8 @@ class Board:
         if self.ads_unattributed:
             A = self.ads_lines
             in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
-            sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in ("cost", *ADS_METRICS)]
+            names = ("cost", "contribution", *ADS_METRICS)
+            sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in names]
             owned_by_nobody = select(func.coalesce(func.sum(self.t.c.ads_cost), 0)).where(
                 self.t.c.product == NO_PRODUCT
             )
@@ -2164,11 +2223,13 @@ class Board:
         else:
             members = self._member_table("")
             query = select(*(func.sum(members.c[name]) for name in ADS_PAIR_COLUMNS))
-        cost_api, *metrics = (value or 0 for value in self.db.execute(query).one())
+        cost_api, contribution, *metrics = (value or 0 for value in self.db.execute(query).one())
         sin_producto = Decimal(str(metrics.pop())) if self.ads_unattributed else Decimal(0)
         by_name = dict(zip(ADS_METRICS, metrics))
-        cost_api = Decimal(str(cost_api))
+        cost_api, contribution = Decimal(str(cost_api)), Decimal(str(contribution))
+        # ML's gross cost stays the block's cost; what came off Total Gauss is net of the contributions (S9).
         cost_total = cents(ads_cost_net_of_iva(cost_api, ADS_SOURCE))
+        subtracted = cents(ads_cost_net_of_iva(cost_api - contribution, ADS_SOURCE))
         account = self.account
         return AdsKpis(
             cost_total=cost_total,
@@ -2183,7 +2244,8 @@ class Board:
             organic_amount=cents(by_name["organic_amount"]),
             requested="todo" if self.f.restar_todo else "mla",
             applied="todo" if self.ads_all else "mla",
-            subtracted_total=cost_total + (cents(account.display_net + account.brand) if self.ads_all else 0),
+            subtracted_total=subtracted + (cents(account.display_net + account.brand) if self.ads_all else 0),
+            contribution=cents(contribution),
             coverage=self._ads_coverage(),
             unattributed=(
                 AdsUnattributed(cents(sin_producto), account, subtracted=self.ads_all) if account is not None else None

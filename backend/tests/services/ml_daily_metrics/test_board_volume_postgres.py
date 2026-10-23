@@ -875,7 +875,7 @@ def volume_ads(volume_session):
             "day DATE, cost NUMERIC(16, 2), clicks INTEGER DEFAULT 0, prints BIGINT DEFAULT 0, "
             "direct_amount NUMERIC(16, 2) DEFAULT 0, indirect_amount NUMERIC(16, 2) DEFAULT 0, "
             "direct_units INTEGER DEFAULT 0, indirect_units INTEGER DEFAULT 0, organic_units INTEGER DEFAULT 0, "
-            "organic_amount NUMERIC(16, 2) DEFAULT 0)"
+            "organic_amount NUMERIC(16, 2) DEFAULT 0, campaign_id BIGINT)"
         )
     )
     volume_session.execute(
