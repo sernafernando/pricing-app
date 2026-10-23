@@ -678,6 +678,9 @@ const renderProducts = async ({ width, height, theme }) => {
   return screen;
 };
 
+// Screenshots of the product panel only with `VITE_PUBLICACIONES_SHOTS_DIR` (checked by hand, never committed).
+const PRODUCT_SHOTS_DIR = import.meta.env.VITE_PUBLICACIONES_SHOTS_DIR;
+
 describe('Publicaciones ML Producto view (visual)', () => {
   beforeEach(() => {
     publicacionesMlAPI.items.mockReset();
@@ -738,6 +741,33 @@ describe('Publicaciones ML Producto view (visual)', () => {
         expect(rowWith(scroller, 'Router Archer AX55').getAttribute('aria-current')).toBe('true');
         expect(scroller.textContent).not.toContain('Router TP-Link Archer AX55 por color');
         screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product panel's Precios tab shows the product's prices inside the panel`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
+        offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('tab', { name: 'Precios' }).click();
+          await expect.element(aside.getByText('$ 64.000,00')).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const box = rect(panel);
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+          const tabs = [...panel.querySelectorAll('[role="tab"]')];
+          expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Precios']);
+          for (const tab of tabs) expect(rect(tab).right).toBeLessThanOrEqual(box.right + 0.5);
+          expect(panel.textContent).not.toContain('Cifras');
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-precios-${width}-${theme}.png` });
+          screen.unmount();
+        } finally {
+          preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
       });
     }
 

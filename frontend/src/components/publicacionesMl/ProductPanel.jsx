@@ -1,5 +1,9 @@
+import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { CopyButton } from '../kit';
+import { usePermisos } from '../../contexts/PermisosContext';
+import ProductPrices from '../pricing/ProductPrices';
+import { canViewProductPrices, pricePermissions } from '../pricing/productPricePermissions';
 import { buildColumns } from './columns';
 import { PRODUCT_FIGURES } from './productFigures';
 import { describeLoadError } from './loadErrors';
@@ -7,6 +11,7 @@ import MarkupCell from './MarkupCell';
 import { UnitsCell } from './MetricsCells';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelShell from './panel/PanelShell';
+import PanelTabs from './panel/PanelTabs';
 import { Field, Fields, Section } from './panel/PanelParts';
 import { amount, count } from './panel/format';
 import useProductPanel, { NO_PRODUCT_KEY } from './panel/useProductPanel';
@@ -23,6 +28,9 @@ const describeError = (error) =>
 
 const publicationsLabel = (n) => `${n} ${n === 1 ? 'publicación' : 'publicaciones'}`;
 
+const RESUMEN = { key: 'resumen', label: 'Resumen' };
+const PRECIOS = { key: 'precios', label: 'Precios' };
+
 /**
  * The panel of one product of the Producto view, beside the table: the product (its code, brand and publication
  * count), the sum of its publications' Métricas ML figures under the page's filters, and those publications, each
@@ -32,6 +40,10 @@ const publicationsLabel = (n) => `${n} ${n === 1 ? 'publicación' : 'publicacion
  * The figures are the columns of the list (`buildColumns`) a product row draws, so the permissions hide exactly
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
  *
+ * Those go under the Resumen tab. Precios mounts the product's prices (the same `ProductPrices` a publication's
+ * Precios tab mounts) for whoever may see them; "Sin producto" has none. Opening another product goes back to
+ * Resumen. A price write reloads the page's list (`onListReload`).
+ *
  * @param {object} props
  * @param {object} props.filters The page's filters.
  * @param {string} props.productKey The product row's `key` (the URL's `prod`).
@@ -39,10 +51,25 @@ const publicationsLabel = (n) => `${n} ${n === 1 ? 'publicación' : 'publicacion
  * @param {(itemId: string) => void} props.onSelectItem Opens a publication's panel.
  * @param {boolean} [props.canSeeSales] `ml_metricas.ver`.
  * @param {boolean} [props.canSeeMargin] `ml_metricas.ver_ganancia`.
+ * @param {() => void} [props.onListReload] Asks the page to reload its list (a price write changes price and markup).
  */
-export default function ProductPanel({ filters, productKey, onClose, onSelectItem, canSeeSales = false, canSeeMargin = false }) {
+export default function ProductPanel({
+  filters,
+  productKey,
+  onClose,
+  onSelectItem,
+  canSeeSales = false,
+  canSeeMargin = false,
+  onListReload,
+}) {
   const { summary, items, loading, error, reload, loadMore, hasMore } = useProductPanel(filters, productKey);
+  const { tienePermiso } = usePermisos();
+  // The open tab belongs to the product it was opened on: another product starts on Resumen.
+  const [openTab, setOpenTab] = useState({ productKey, key: RESUMEN.key });
   const withoutProduct = productKey === NO_PRODUCT_KEY;
+  const productItemId = summary?.productoItemId;
+  const tabs = productItemId != null && canViewProductPrices(tienePermiso) ? [RESUMEN, PRECIOS] : [RESUMEN];
+  const activeKey = (openTab.productKey === productKey && tabs.find((tab) => tab.key === openTab.key)?.key) || RESUMEN.key;
   const figures = buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin, producto: true }).filter((column) =>
     PRODUCT_FIGURES.has(column.key),
   );
@@ -73,70 +100,81 @@ export default function ProductPanel({ filters, productKey, onClose, onSelectIte
       {!loading && !error && !summary && <p className={`${panelStyles.note} ${styles.empty}`}>Los filtros actuales no incluyen este producto.</p>}
 
       {summary && (
-        <div className={panelStyles.body}>
-          {figures.length > 0 && (
-            <Section title="Cifras">
-              <p className={panelStyles.note}>Con los filtros actuales</p>
-              <Fields>
-                {figures.map((column) => (
-                  <Field key={column.key} label={column.label ?? column.header}>
-                    {column.render({ metrics: summary.metrics })}
-                  </Field>
-                ))}
-              </Fields>
-            </Section>
-          )}
+        <PanelTabs tabs={tabs} activeKey={activeKey} onTabChange={(key) => setOpenTab({ productKey, key })} label="Secciones del producto">
+          {activeKey === PRECIOS.key ? (
+            <ProductPrices
+              productItemId={productItemId}
+              permissions={pricePermissions(tienePermiso)}
+              onWritten={onListReload}
+              showCost={canSeeMargin}
+            />
+          ) : (
+            <>
+              {figures.length > 0 && (
+                <Section title="Cifras">
+                  <p className={panelStyles.note}>Con los filtros actuales</p>
+                  <Fields>
+                    {figures.map((column) => (
+                      <Field key={column.key} label={column.label ?? column.header}>
+                        {column.render({ metrics: summary.metrics })}
+                      </Field>
+                    ))}
+                  </Fields>
+                </Section>
+              )}
 
-          <Section title="Publicaciones">
-            {items.length > 0 && (
-              <ul className={styles.items}>
-                {items.map((item) => (
-                  <li key={item.item_id}>
-                    <button type="button" className={styles.item} onClick={() => onSelectItem(item.item_id)}>
-                      <span className={styles.itemHead}>
-                        <span className={panelStyles.itemId}>{item.item_id}</span>
-                        <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />
-                        <ChevronRight size={14} aria-hidden="true" className={styles.chevron} />
-                      </span>
-                      <span className={styles.itemTitle}>{item.title ?? 'Sin título'}</span>
-                      <span className={styles.figures}>
-                        <span className={styles.figure}>
-                          <span className={styles.figureLabel}>Precio</span>
-                          {amount(item.price?.amount) ?? '—'}
-                        </span>
-                        <span className={styles.figure}>
-                          <span className={styles.figureLabel}>Stock</span>
-                          {count(item.stock?.available) ?? '—'}
-                        </span>
-                        {canSeeSales && (
-                          <span className={styles.figure}>
-                            <span className={styles.figureLabel}>Ventas 30D</span>
-                            <UnitsCell value={item.metrics?.units_30d} />
+              <Section title="Publicaciones">
+                {items.length > 0 && (
+                  <ul className={styles.items}>
+                    {items.map((item) => (
+                      <li key={item.item_id}>
+                        <button type="button" className={styles.item} onClick={() => onSelectItem(item.item_id)}>
+                          <span className={styles.itemHead}>
+                            <span className={panelStyles.itemId}>{item.item_id}</span>
+                            <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />
+                            <ChevronRight size={14} aria-hidden="true" className={styles.chevron} />
                           </span>
-                        )}
-                        {canSeeMargin && (
-                          <span className={styles.figure}>
-                            <span className={styles.figureLabel}>Markup</span>
-                            <MarkupCell markup={item.markup} />
+                          <span className={styles.itemTitle}>{item.title ?? 'Sin título'}</span>
+                          <span className={styles.figures}>
+                            <span className={styles.figure}>
+                              <span className={styles.figureLabel}>Precio</span>
+                              {amount(item.price?.amount) ?? '—'}
+                            </span>
+                            <span className={styles.figure}>
+                              <span className={styles.figureLabel}>Stock</span>
+                              {count(item.stock?.available) ?? '—'}
+                            </span>
+                            {canSeeSales && (
+                              <span className={styles.figure}>
+                                <span className={styles.figureLabel}>Ventas 30D</span>
+                                <UnitsCell value={item.metrics?.units_30d} />
+                              </span>
+                            )}
+                            {canSeeMargin && (
+                              <span className={styles.figure}>
+                                <span className={styles.figureLabel}>Markup</span>
+                                <MarkupCell markup={item.markup} />
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {loading && <p className={panelStyles.note}>Cargando publicaciones…</p>}
-            {!loading && !error && items.length === 0 && (
-              <p className={panelStyles.note}>Ninguna publicación coincide con los filtros.</p>
-            )}
-            {hasMore && !loading && (
-              <button type="button" className={`btn-tesla outline sm ${styles.more}`} onClick={loadMore}>
-                Ver más
-              </button>
-            )}
-          </Section>
-        </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {loading && <p className={panelStyles.note}>Cargando publicaciones…</p>}
+                {!loading && !error && items.length === 0 && (
+                  <p className={panelStyles.note}>Ninguna publicación coincide con los filtros.</p>
+                )}
+                {hasMore && !loading && (
+                  <button type="button" className={`btn-tesla outline sm ${styles.more}`} onClick={loadMore}>
+                    Ver más
+                  </button>
+                )}
+              </Section>
+            </>
+          )}
+        </PanelTabs>
       )}
     </PanelShell>
   );

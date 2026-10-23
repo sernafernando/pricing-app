@@ -1,4 +1,3 @@
-import { useEffect, useId, useRef } from 'react';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -8,6 +7,7 @@ import MlSellerLinks from './MlSellerLinks';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelFooter from './panel/PanelFooter';
 import PanelShell from './panel/PanelShell';
+import PanelTabs from './panel/PanelTabs';
 import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
@@ -63,40 +63,9 @@ export default function PublicationPanel({
     refresh();
     onListReload?.();
   };
-  const tabRefs = useRef({});
-  const stripRef = useRef(null);
-  const panelId = useId();
 
   const available = detail ? visibleTabs(tabs, { detail, canSeeMargin, canManage, canViewPromos, canViewPrices }) : [];
   const active = available.find((entry) => entry.key === tab) ?? available[0];
-
-  // The strip scrolls sideways when the tabs outgrow a narrow panel: keep the
-  // open one in view (the URL can open a tab that sits past the edge). Only the
-  // strip moves -- `scrollIntoView` could scroll the page or the panel as well.
-  const activeKey = active?.key;
-  useEffect(() => {
-    const strip = stripRef.current;
-    const tabNode = tabRefs.current[activeKey];
-    if (!strip || !tabNode) return;
-    const start = tabNode.offsetLeft;
-    const end = start + tabNode.offsetWidth;
-    if (start < strip.scrollLeft) strip.scrollLeft = start;
-    else if (end > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = end - strip.clientWidth;
-  }, [activeKey]);
-
-  // Arrow keys / Home / End move between tabs, as a tablist does.
-  const handleTabKeyDown = (event) => {
-    const index = available.findIndex((entry) => entry.key === active?.key);
-    let next = null;
-    if (event.key === 'ArrowRight') next = available[(index + 1) % available.length];
-    else if (event.key === 'ArrowLeft') next = available[(index - 1 + available.length) % available.length];
-    else if (event.key === 'Home') next = available[0];
-    else if (event.key === 'End') next = available[available.length - 1];
-    if (!next) return;
-    event.preventDefault();
-    onTabChange(next.key);
-    tabRefs.current[next.key]?.focus();
-  };
 
   const row = detail?.row;
   const mlUrl = buildMlItemUrl(row?.permalink);
@@ -133,31 +102,9 @@ export default function PublicationPanel({
       onRetry={reload}
     >
       {status === 'ready' && active && (
-        <>
-          <div ref={stripRef} className={styles.tabs} role="tablist" aria-label="Secciones de la publicación" onKeyDown={handleTabKeyDown}>
-            {available.map((entry) => (
-              <button
-                key={entry.key}
-                ref={(node) => {
-                  tabRefs.current[entry.key] = node;
-                }}
-                type="button"
-                role="tab"
-                id={`${panelId}-tab-${entry.key}`}
-                aria-selected={entry.key === active.key}
-                aria-controls={`${panelId}-tabpanel`}
-                tabIndex={entry.key === active.key ? 0 : -1}
-                className={styles.tab}
-                onClick={() => onTabChange(entry.key)}
-              >
-                {entry.label}
-              </button>
-            ))}
-          </div>
-          <div className={styles.body} role="tabpanel" id={`${panelId}-tabpanel`} aria-labelledby={`${panelId}-tab-${active.key}`}>
-            <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} />
-          </div>
-        </>
+        <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
+          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} />
+        </PanelTabs>
       )}
 
       {status === 'ready' && <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} />}
