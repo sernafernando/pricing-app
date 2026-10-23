@@ -12,7 +12,10 @@ What the panel shows, and where each piece comes from (a constant number of stat
    caller who may see margins (the cost columns are not even selected otherwise);
 4. the freshness of every sub-resource that applies, in one `UNION ALL` by primary key;
 5. with margins: `markup_service.compute_detail` (the three or four statements of the markup inputs and one
-   shipping batch), whose breakdown is the very `unit_markup` pipeline of the list.
+   shipping batch), whose breakdown is the very `unit_markup` pipeline of the list;
+6. with a breakdown: the sell in / sell out of its unit's product today (`productos_sell_in_out`, the batch of
+   GET /productos, read from the pricing database), recorded as ONE markup, `publicacion`, from the breakdown's own
+   net and cost (sell-in-sell-out T10).
 
 The variations are NOT here: they have their own endpoint (`variations.py`, P6c). Nothing here writes, and no
 text is ordered or compared by the database (links are ordered by variation id, freshness by a fixed list), so the
@@ -21,6 +24,8 @@ result does not depend on the collation of the server.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Any, Mapping, Optional
 
@@ -38,6 +43,7 @@ from app.services.ml_publications.view.filters import FULFILLMENT, LINK_ITEM_LEV
 from app.services.ml_publications.view.markup_service import MarkupQuery
 from app.services.ml_publications.view.variations import link_state_of
 from app.services.pricing_columns import PRICELIST_TO_CAMPO
+from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 
 STATEMENT_TIMEOUT = "3s"
 # Not shown: the whole body (a whitelisted part of it is) and its hash, which is bytes with no meaning to a person.
@@ -426,6 +432,56 @@ def _breakdown_out(found: markup_service.DetailMarkup) -> Optional[dict[str, Any
     }
 
 
+# The single markup key the Resumen records: this publication's own markup (the breakdown's).
+SELL_IN_OUT_KEY = "publicacion"
+
+
+@dataclass(frozen=True)
+class _PricedProduct:
+    """What `SellInOutBatch.markups` reads of a product, with the breakdown's cost already in pesos (`ARS`), so the
+    cost with sell in is the Resumen's `Costo` minus the discount whatever the product's currency."""
+
+    item_id: int
+    costo: float
+    iva: Optional[float]
+    moneda_costo: str = "ARS"
+
+
+def _breakdown_product(links: list[Any], found: markup_service.DetailMarkup) -> Optional[Any]:
+    """The link row of the product the breakdown prices, as `markup_inputs` picks it: the variation's own linked
+    product, else the item-level one (whatever its match status)."""
+    if found.variation_id is not None:
+        own = next(
+            (
+                r
+                for r in links
+                if r.variation_id == found.variation_id and r.match_status == LINK_LINKED and r.product_id is not None
+            ),
+            None,
+        )
+        if own is not None:
+            return own
+    return next((r for r in links if r.variation_id == LINK_ITEM_LEVEL and r.product_id is not None), None)
+
+
+def _sell_in_out(pricing_db: Session, links: list[Any], found: Optional[markup_service.DetailMarkup]) -> Optional[dict]:
+    """The sell in / sell out of the breakdown's unit (module docstring, 6); None when nothing was priced or neither
+    applies."""
+    b = None if found is None else found.breakdown
+    if b is None:
+        return None
+    row = _breakdown_product(links, found)
+    if row is None:
+        return None
+    product = _PricedProduct(row.product_id, b.costo_ars, row.iva)
+    accumulator = resolver_sell_in_out_batch(pricing_db, [product.item_id], date.today()).markups(
+        product, precio_lista_ml=b.price
+    )
+    accumulator.record(SELL_IN_OUT_KEY, b.limpio)
+    payload = accumulator.payload()
+    return None if payload is None else payload.model_dump()
+
+
 # ── entry point ──────────────────────────────────────────────────
 
 
@@ -473,4 +529,5 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
         if found is not None:
             out_row["markup"] = listing.markup_out(found.item)
         body["markup_breakdown"] = None if found is None else _breakdown_out(found)
+        body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found)
     return body

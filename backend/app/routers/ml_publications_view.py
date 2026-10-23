@@ -55,6 +55,7 @@ from app.api.deps import require_permiso
 from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
+from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications import admin, settings_store
@@ -463,6 +464,8 @@ class ItemDetailResponse(BaseModel):
     links: list[DetailLinkOut]
     product: Optional[DetailProductOut] = None
     markup_breakdown: Optional[MarkupBreakdownOut] = None  # present only with ml_metricas.ver_ganancia
+    # Same gate: the sell in / sell out of the breakdown's unit, its markups under the key `publicacion` (T10).
+    sell_in_out: Optional[SellInOutProducto] = None
     freshness: list[FreshnessOut]
     can_resync: bool
 
