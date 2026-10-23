@@ -16,7 +16,14 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
   - Spread (assistant): the counted amount is spread over the range's days in proportion to each day's campaign cost (`ml_ads_campaign_days`); for `refund_difference` that never exceeds a day's cost. `percentage` has no `settlement` (NULL). Rows stored before L10 are backfilled `refund_difference` (never overstates profit).
 - **S7** (decision by the assistant): permissions reuse the project's system. Viewing uses the existing `ml_metricas.ver_ganancia`; creating, editing and deleting use the new `ml_metricas.gestionar_aportes_ads`, seeded for ADMIN only by migration (same pattern as `sell_out.gestionar`).
 - **S8** (PR1 scope, split into T1a read + T1b write): storage, permission and API only (list campaigns with their contributions and their cost in a range; create, update, delete). No Métricas ML number changes in PR1.
-- **S9** (PR2, not in PR1): the Métricas ML board and KPI subtraction of Product Ads (`publicidad=mla|todo`) honours S5 and S6.
+- **S9** (PR2, decisions by the assistant from the T2 map, 2026-10-23): the Métricas ML board and KPI subtraction of Product Ads (`publicidad=mla|todo`) honours S5 and S6. Rules:
+  - Applied once, in `Board._ads_source` (`board_ads_lines`), so board rows, groups, Total Gauss, markup, the comparison period, "Sin producto", the KPI Ads block and the CSV all follow.
+  - A campaign's day cost is the sum of its `ml_ads_item_days.cost` rows (what the board subtracts), keyed by the item row's (`advertiser_id`, `campaign_id`, `day`); not `ml_ads_campaign_days.cost`, so the contribution removes exactly its share of what the board shows.
+  - `percentage`: each item row of the campaign inside the range contributes cost × p/100.
+  - `fixed_amount`: the counted amount (`full`: the whole amount; `refund_difference`: min(amount, the campaign's spend over the whole contribution range)) is spread over the range's days and that campaign's item rows in proportion to their cost, using the whole range (not only the board period). For `full` above spend a row's contribution can exceed its cost, so its ads cost goes negative and Total Gauss rises. A range with zero spend has nothing to spread over and contributes nothing on the board.
+  - Item rows with no campaign (NULL or 0) get no contribution.
+  - The KPI Ads block keeps ML's gross cost (`cost_api`/`cost_total`) and the subtracted figures go net of contributions; the contribution total is exposed as its own field for T3.
+  - Out of scope: sparklines (already before ads), the Publicaciones view and `/ml-ads/by-mla|by-product` (they read `read.py`, not the board).
 - **S10** (PR3, not in PR1): a frontend page to load contributions, the contribution shown in the Ads block, and its `novedades` entry.
 
 ## Tasks
@@ -26,8 +33,8 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 | T1a | S4 (storage), S8 (read) | delegated writer | merged (#1704) | `96faa8862` (+450/-3); RED 4 failed + 7 errors, GREEN 39 passed |
 | T1b-i | S4 (create), S7 | delegated writer | merged (#1706) | `628288c8a` (+377/-13); RED 17 failed, GREEN 54 passed |
 | T1b-ii | S4 (edit, delete) | delegated writer | merged (#1709) | ~+262/-12 incl. pins; RED 6 failed (+2 mutation REDs for pins), GREEN 24 passed in the write+concurrency files |
-| T1c | S6 (settlement storage + API) | inline | done, PR pending | RED 13 failed + 8 errors, GREEN 77 passed; migration suites 154 passed |
-| T2 | S5, S6, S9 | pending | pending | PR2 |
+| T1c | S6 (settlement storage + API) | inline | PR open | RED 13 failed + 8 errors, GREEN 77 passed; migration suites 154 passed |
+| T2 | S5, S6, S9 | delegated writer (context backstop: long parent session) | in progress | branch `feat/ml-ads-contribution-board`, stacked on T1c |
 | T3 | S10 | pending | pending | PR3 |
 
 ## Log
@@ -46,3 +53,4 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 - **L10** (2026-10-23, user, asked whether fixed-amount surplus is lost or shown as unused): "hay que poder elegir en la campaña si el monto es fijo y se recibe todo o si no supera ese monto se devuelve la diferencia"
 - 2026-10-23: #1709 merged (ancestor of origin/main verified). L10 reopens S6: new task T1c (migration adding `settlement` + API field) before T2.
 - 2026-10-23: T1c GREEN on `feat/ml-ads-contribution-fixed-settlement`: migration `20261116_ml_ads_contribution_settlement` (nullable `settlement`, backfill fixed rows `refund_difference`, CHECKs values + kind), ORM, API field required for fixed amounts and rejected for percentages. Risk item 1 (migration with backfill) -> independent verifier.
+- 2026-10-23: T1c opened as #1713 (verifier: no blockers). T2 mapped (explorer): single application point `Board._ads_source`; S9 rules recorded above as assistant decisions. T2 delegated to one writer on `feat/ml-ads-contribution-board`, pushed only after #1713 merges.
