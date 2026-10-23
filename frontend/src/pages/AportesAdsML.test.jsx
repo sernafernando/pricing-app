@@ -3,7 +3,7 @@
  * campaigns, with each campaign's cost in the chosen range.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import AportesAdsML from './AportesAdsML';
 import api from '../services/api';
 
@@ -74,5 +74,25 @@ describe('campaign list', () => {
     });
     render(<AportesAdsML />);
     await waitFor(() => expect(screen.getByText('the range is at most 366 days')).toBeInTheDocument());
+  });
+});
+
+describe('range changes', () => {
+  it('keeps the newest range when an older response arrives last', async () => {
+    let resolveOld;
+    api.get
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve)))
+      .mockResolvedValueOnce({
+        data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Nuevo rango', status: null, cost: 0, contributions: [] }] },
+      });
+    render(<AportesAdsML />);
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-09-01' } });
+    expect(await screen.findByText('Nuevo rango')).toBeInTheDocument();
+
+    resolveOld({ data: CAMPAIGNS });
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText('Routers')).not.toBeInTheDocument();
+    expect(screen.getByText('Nuevo rango')).toBeInTheDocument();
   });
 });

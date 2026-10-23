@@ -5,7 +5,7 @@
  * and all its contributions. A contribution is a percentage or a fixed amount over a date range (S3/S4); a fixed
  * amount says how it settles (S6). Métricas ML stops subtracting the part of the cost a contribution covers (S9).
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 import { registrarPagina } from '../registry/tabRegistry';
@@ -49,17 +49,23 @@ export default function AportesAdsML() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
+  // Only the newest request may write the list: a range changed quickly must not be overwritten by a slower,
+  // older response.
+  const latestRequest = useRef(0);
+
   const fetchCampaigns = useCallback(async () => {
+    const request = ++latestRequest.current;
     setLoading(true);
     setLoadError(null);
     try {
       const { data } = await api.get('/ml-ads/campaigns', { params: { date_from: range.from, date_to: range.to } });
-      setCampaigns(data?.campaigns ?? []);
+      if (request === latestRequest.current) setCampaigns(data?.campaigns ?? []);
     } catch (err) {
+      if (request !== latestRequest.current) return;
       setCampaigns([]);
       setLoadError(errorMessage(err, 'No se pudieron cargar las campañas'));
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   }, [range.from, range.to]);
 
