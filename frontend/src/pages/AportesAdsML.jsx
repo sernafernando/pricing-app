@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import api from '../services/api';
+import { usePermisos } from '../contexts/PermisosContext';
 import { registrarPagina } from '../registry/tabRegistry';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import styles from './AportesAdsML.module.css';
@@ -40,6 +41,9 @@ function ContributionItem({ c }) {
 }
 
 export default function AportesAdsML() {
+  // The page opens with `ml_metricas.ver` (like Métricas ML); the campaign costs need `ver_ganancia`, as the API does.
+  const { tienePermiso } = usePermisos();
+  const puedeVerGanancia = tienePermiso('ml_metricas.ver_ganancia');
   const today = new Date();
   const [range, setRange] = useState({
     from: isoDay(new Date(today.getFullYear(), today.getMonth(), 1)),
@@ -70,8 +74,19 @@ export default function AportesAdsML() {
   }, [range.from, range.to]);
 
   useEffect(() => {
-    fetchCampaigns();
-  }, [fetchCampaigns]);
+    if (puedeVerGanancia) fetchCampaigns();
+  }, [fetchCampaigns, puedeVerGanancia]);
+
+  if (!puedeVerGanancia) {
+    return (
+      <div className={styles.container}>
+        <h1 className={styles.title}>Aportes de marcas (Ads ML)</h1>
+        <div className={styles.alertError} role="alert">
+          <AlertTriangle size={16} /> Necesitás el permiso para ver la ganancia de Métricas ML para ver los aportes.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>

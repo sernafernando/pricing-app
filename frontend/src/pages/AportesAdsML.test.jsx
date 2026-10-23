@@ -7,6 +7,16 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import AportesAdsML from './AportesAdsML';
 import api from '../services/api';
 
+const permisosDenegados = new Set();
+vi.mock('../contexts/PermisosContext', () => ({
+  usePermisos: () => ({
+    permisos: [],
+    tienePermiso: (codigo) => !permisosDenegados.has(codigo),
+    cargandoPermisos: false,
+  }),
+  PermisosProvider: ({ children }) => children,
+}));
+
 const CONTRIBUTION = {
   id: 7,
   advertiser_id: 714700,
@@ -43,6 +53,7 @@ const rowOf = (text) => screen.getByText(text).closest('tr');
 
 beforeEach(() => {
   vi.clearAllMocks();
+  permisosDenegados.clear();
   api.get.mockResolvedValue({ data: CAMPAIGNS });
 });
 
@@ -94,5 +105,14 @@ describe('range changes', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText('Routers')).not.toBeInTheDocument();
     expect(screen.getByText('Nuevo rango')).toBeInTheDocument();
+  });
+});
+
+describe('permissions', () => {
+  it('without ml_metricas.ver_ganancia shows a notice and asks the API for nothing', () => {
+    permisosDenegados.add('ml_metricas.ver_ganancia');
+    render(<AportesAdsML />);
+    expect(screen.getByText(/permiso para ver la ganancia/i)).toBeInTheDocument();
+    expect(api.get).not.toHaveBeenCalled();
   });
 });
