@@ -126,6 +126,7 @@ def bono_alcance(
     tipo: str = "por_unidad",
     monto: Optional[str] = "2.00",
     porcentaje: Optional[str] = None,
+    moneda: str = "USD",
     desde: date = date(2026, 10, 1),
     hasta: date = date(2026, 10, 31),
     estado: str = "activa",
@@ -135,7 +136,7 @@ def bono_alcance(
         bono_id = conn.execute(
             text(
                 "INSERT INTO sell_in_bonos_marca (alcance, categoria, pedido_id, tipo, monto_unit, porcentaje, moneda, "
-                "fecha_desde, fecha_hasta, estado, usuario_id) VALUES (:a, :c, :p, :t, :monto, :pct, 'USD', :d, :h, "
+                "fecha_desde, fecha_hasta, estado, usuario_id) VALUES (:a, :c, :p, :t, :monto, :pct, :mon, :d, :h, "
                 ":e, 7) RETURNING id"
             ),
             {
@@ -145,6 +146,7 @@ def bono_alcance(
                 "t": tipo,
                 "monto": None if tipo == "porcentaje" else monto,
                 "pct": porcentaje,
+                "mon": moneda,
                 "d": desde,
                 "h": hasta,
                 "e": estado,
@@ -216,6 +218,23 @@ def set_lineas(engine: Engine, pedido_id: int, lineas: Dict[int, int]) -> None:
                 ),
                 {"p": pedido_id, "i": item_id, "q": cantidad},
             )
+
+
+def set_importe(engine: Engine, pedido_id: int, item_id: int, importe: Optional[str], moneda: Optional[str]) -> None:
+    """The invoiced net of one snapshot line (T3g-1), the base of a % bonus; NULL both when currencies mix."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE pedido_compra_lineas_facturadas SET importe_neto = :imp, moneda = :mon "
+                "WHERE pedido_id = :p AND item_id = :i"
+            ),
+            {"imp": importe, "mon": moneda, "p": pedido_id, "i": item_id},
+        )
+
+
+def set_categoria(engine: Engine, item_id: int, categoria: Optional[str]) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE productos_erp SET categoria = :c WHERE item_id = :i"), {"c": categoria, "i": item_id})
 
 
 def tipo_cambio(engine: Engine, fecha: date, venta: float) -> None:
