@@ -1,12 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { sellInBonosAPI } from '../../services/sellInAPI';
-import { ALCANCE, ALCANCE_VACIO, BONO, BONO_ANULADO } from './sellInFixtures';
+import { productosAPI } from '../../services/api';
+import { sellInAPI, sellInBonosAPI } from '../../services/sellInAPI';
+import { ALCANCE, ALCANCE_VACIO, BONO, BONO_ANULADO, operacionesFake, PRODUCTOS } from './sellInFixtures';
 import SellInBonoPanel from './SellInBonoPanel';
 
 vi.mock('../../services/sellInAPI', () => ({
   sellInBonosAPI: { detalle: vi.fn(), alcance: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
+  sellInAPI: { operaciones: vi.fn(), operacionProductos: vi.fn() },
+}));
+
+vi.mock('../../services/api', () => ({
+  productosAPI: { categorias: vi.fn(), listar: vi.fn() },
 }));
 
 const MARCAS = ['MERCUSYS', 'TP-LINK'];
@@ -19,6 +25,9 @@ beforeEach(() => {
   sellInBonosAPI.crear.mockResolvedValue({ data: { ...BONO, id: 9 } });
   sellInBonosAPI.editar.mockResolvedValue({ data: { ...BONO, monto_unit: '4.00' } });
   sellInBonosAPI.anular.mockResolvedValue({ data: { ...BONO, estado: 'anulada' } });
+  productosAPI.categorias.mockResolvedValue({ data: { categorias: ['Routers', 'Switches'] } });
+  productosAPI.listar.mockResolvedValue({ data: { productos: PRODUCTOS, total: 2, page: 1, page_size: 10 } });
+  sellInAPI.operaciones.mockImplementation(operacionesFake);
 });
 
 const renderPanel = (props = {}) => {
@@ -60,7 +69,9 @@ describe('SellInBonoPanel — new bonus', () => {
     await llenar(user);
     await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
     expect(sellInBonosAPI.crear).toHaveBeenCalledWith({
+      alcance: 'marca',
       marca: 'TP-LINK',
+      tipo: 'por_unidad',
       monto_unit: '3',
       moneda: 'USD',
       fecha_desde: '2026-09-01',
@@ -93,6 +104,110 @@ describe('SellInBonoPanel — new bonus', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Faltan datos');
     expect(sellInBonosAPI.crear).not.toHaveBeenCalled();
+  });
+});
+
+const fechas = async (user) => {
+  await user.type(screen.getByLabelText('Factura desde'), '2026-09-01');
+  await user.type(screen.getByLabelText('Factura hasta'), '2026-11-30');
+};
+
+const BASE_BODY = { moneda: 'USD', fecha_desde: '2026-09-01', fecha_hasta: '2026-11-30', descripcion: null };
+
+describe('SellInBonoPanel — scope and kind (T3e)', () => {
+  it('creates a category bonus from the catalog categories', async () => {
+    const user = userEvent.setup();
+    renderPanel({ bonoId: null });
+    await user.click(screen.getByRole('button', { name: 'Categoría' }));
+    await user.selectOptions(await screen.findByLabelText('Categoría del bono'), 'Switches');
+    await user.type(screen.getByLabelText('Monto por unidad'), '3');
+    await fechas(user);
+
+    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+
+    expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'categoria', categoria: 'Switches', tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
+    expect(screen.queryByLabelText('Marca')).not.toBeInTheDocument();
+  });
+
+  it('creates a models bonus from the product search, each model once', async () => {
+    const user = userEvent.setup();
+    renderPanel({ bonoId: null });
+    await user.click(screen.getByRole('button', { name: 'Modelos' }));
+    const buscador = screen.getByRole('group', { name: 'Agregar modelo' });
+    for (const codigo of [/SW-16/, /SW-8/, /SW-16/]) {
+      await user.type(within(buscador).getByRole('searchbox'), 'switch');
+      await user.click(await within(buscador).findByRole('button', { name: codigo }));
+    }
+    const chips = screen.getByRole('list', { name: 'Modelos del bono' });
+    expect(within(chips).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['SW-16 · Switch 16 bocas', 'SW-8 · Switch 8 bocas']);
+    await user.click(screen.getByRole('button', { name: 'Quitar modelo SW-16 · Switch 16 bocas' }));
+    await user.type(screen.getByLabelText('Monto por unidad'), '3');
+    await fechas(user);
+
+    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+
+    expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'modelos', modelos: [4512], tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
+  });
+
+  it('creates an invoice bonus on one Compras operation', async () => {
+    const user = userEvent.setup();
+    renderPanel({ bonoId: null });
+    await user.click(screen.getByRole('button', { name: 'Factura' }));
+    await user.type(screen.getByLabelText('Pedido de compra (N°)'), 'P-00020{Enter}');
+    expect(await screen.findByText('N° P-00020')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Pedido de compra (N°)')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Monto por unidad'), '3');
+    await fechas(user);
+
+    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+
+    expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'factura', pedido_id: 20, tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
+  });
+
+  it('creates a percentage bonus without an amount per unit', async () => {
+    const user = userEvent.setup();
+    renderPanel({ bonoId: null });
+    await user.selectOptions(screen.getByLabelText('Marca'), 'TP-LINK');
+    await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
+    expect(screen.queryByLabelText('Monto por unidad')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Porcentaje'), '2.5');
+    await fechas(user);
+
+    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+
+    expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'marca', marca: 'TP-LINK', tipo: 'porcentaje', porcentaje: '2.5', ...BASE_BODY });
+  });
+
+  it('names what is missing for the chosen scope and kind', async () => {
+    const user = userEvent.setup();
+    renderPanel({ bonoId: null });
+    await user.click(screen.getByRole('button', { name: 'Modelos' }));
+    await user.click(screen.getByRole('button', { name: '% de lo facturado' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Faltan datos: al menos un modelo, porcentaje y fechas de factura.');
+    expect(sellInBonosAPI.crear).not.toHaveBeenCalled();
+  });
+
+  it('shows an existing models bonus with its models, its percentage and what it generated in each currency', async () => {
+    sellInBonosAPI.detalle.mockResolvedValue({
+      data: {
+        ...BONO,
+        alcance: 'modelos',
+        marca: null,
+        modelos: [{ item_id: 4512, codigo: 'SW-8', descripcion: 'Switch 8 bocas' }, { item_id: 999, codigo: null, descripcion: null }],
+        tipo: 'porcentaje',
+        monto_unit: null,
+        porcentaje: '2.5000',
+        montos_generados: [{ moneda: 'ARS', monto: '1450.00' }, { moneda: 'USD', monto: '3120.00' }],
+      },
+    });
+    renderPanel();
+
+    const chips = await screen.findByRole('list', { name: 'Modelos del bono' });
+    expect(within(chips).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['SW-8 · Switch 8 bocas', 'Item 999']);
+    expect(screen.getByLabelText('Porcentaje')).toHaveValue(2.5);
+    expect(screen.getByText('18 compras · 1.040 u · USD 3.120,00 aplicados')).toBeInTheDocument();
+    expect(screen.getByText('Además $ 1.450,00 en otra moneda (de antes de cambiarla).')).toBeInTheDocument();
   });
 });
 
@@ -148,7 +263,9 @@ describe('SellInBonoPanel — existing bonus', () => {
     await user.type(monto, '4');
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
     expect(sellInBonosAPI.editar).toHaveBeenCalledWith(3, {
+      alcance: 'marca',
       marca: 'TP-LINK',
+      tipo: 'por_unidad',
       monto_unit: '4',
       moneda: 'USD',
       fecha_desde: '2026-09-01',

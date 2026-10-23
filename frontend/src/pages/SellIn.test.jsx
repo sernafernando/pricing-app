@@ -194,7 +194,7 @@ describe('SellIn page — brand bonuses', () => {
     const bonos = await screen.findByRole('region', { name: 'Bonos de marca' });
     const fila = (await within(bonos).findByText('Bono TP-Link USD 3/u')).closest('tr');
     expect(sellInBonosAPI.listar).toHaveBeenCalledWith({ page: 1, page_size: 10 });
-    expect(within(fila).getByText('TP-LINK')).toBeInTheDocument();
+    expect(within(fila).getByText('Marca TP-LINK')).toBeInTheDocument();
     expect(within(fila).getByText('USD 3,00 / u')).toBeInTheDocument();
     expect(within(fila).getByText('18 compras · 1.040 u')).toBeInTheDocument();
     expect(within(fila).getByText('Activo')).toBeInTheDocument();
