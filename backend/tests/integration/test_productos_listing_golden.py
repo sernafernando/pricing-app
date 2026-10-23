@@ -296,8 +296,9 @@ class TestProductosListingGolden:
 
 # Statements issued by `listar_productos` for the seeded catalogue. Recorded on
 # the unrefactored endpoint: moving the prefetch into a service must neither add
-# nor drop a query.
-EXPECTED_DEFAULT_STATEMENTS = 18
+# nor drop a query. Sell in / sell out (sell-in-sell-out T9) adds two per page,
+# whatever its size: the current sell-in lots and the sell-out campaign reach.
+EXPECTED_DEFAULT_STATEMENTS = 20
 
 
 class TestProductosListingStatementCount:

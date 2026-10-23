@@ -256,6 +256,8 @@ class TestNoDataGoldenNoRegression:
             # pre-existing (non-ppp) key rather than as data.
             "pxq_tramos",
             "pxq_precio_desde",
+            # Sell in / sell out figures (sell-in-sell-out T9): None without either.
+            "sell_in_out",
         }
 
         assert pre_existing_keys == expected_pre_existing_keys
