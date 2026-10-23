@@ -366,3 +366,44 @@ class TestDeployIntegration:
         env.deploy()
 
         assert not [c for c in env.calls() if " enable" in c or " start " in c]
+
+
+PNPM_STUB = """#!/usr/bin/env bash
+echo "pnpm {label} $*" >> "$STUB_DIR/calls.log"
+"""
+
+
+class TestFrontendBuildNode:
+    """The frontend builds with the separate Node in FRONTEND_NODE_DIR (default /opt/node24) when it
+    is installed, so /usr/bin/node, which other apps on the server run on, is never upgraded for it."""
+
+    def setup_build(self, env) -> Path:
+        env.healthy("pricing-worker")
+        env.healthy("pricing-worker-ml")
+        (env.project / "frontend").mkdir()
+        env._write(env.stub / "bin" / "pnpm", PNPM_STUB.format(label="system"))
+        node_dir = env.root / "node24"
+        (node_dir / "bin").mkdir(parents=True)
+        env._write(node_dir / "bin" / "pnpm", PNPM_STUB.format(label="node24"))
+        return node_dir
+
+    def pnpm_calls(self, env) -> list[str]:
+        return [c for c in env.calls() if c.startswith("pnpm ")]
+
+    def test_the_build_uses_the_separate_node_when_it_is_installed(self, env) -> None:
+        node_dir = self.setup_build(env)
+        env._write(node_dir / "bin" / "node", "#!/usr/bin/env bash\necho v24.22.1\n")
+
+        result = env.run(DEPLOY_SCRIPT, "--skip-pull", extra_env={"FRONTEND_NODE_DIR": str(node_dir)})
+
+        assert result.returncode == 0, result.stderr
+        assert self.pnpm_calls(env) == ["pnpm node24 install --frozen-lockfile", "pnpm node24 run build"]
+        assert "Node v24.22.1" in result.stdout
+
+    def test_without_the_separate_node_the_build_uses_the_node_on_path(self, env) -> None:
+        node_dir = self.setup_build(env)  # no node binary in it: not installed
+
+        result = env.run(DEPLOY_SCRIPT, "--skip-pull", extra_env={"FRONTEND_NODE_DIR": str(node_dir)})
+
+        assert result.returncode == 0, result.stderr
+        assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", "pnpm system run build"]

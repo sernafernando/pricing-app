@@ -21,6 +21,8 @@
 #   HEALTHCHECK_URL     URL que se consulta para confirmar que el backend levantó
 #   HEALTHCHECK_TIMEOUT segundos máximos de espera del health check (default 120)
 #   WABOT_TOKEN         token del servicio; si falta, el helper no manda nada
+#   FRONTEND_NODE_DIR   Node con el que se buildea el frontend (default /opt/node24);
+#                       si no está instalado se usa el node del PATH
 
 # -E propaga el trap ERR a las funciones; sin eso un fallo adentro de una
 # función no dispararía el aviso de deploy fallido.
@@ -30,6 +32,9 @@ set -eE
 PROJECT_DIR="${PROJECT_DIR:-/var/www/html/pricing-app}"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
+# El frontend se buildea con un Node aparte para no tener que actualizar /usr/bin/node,
+# que lo usan otras apps del server (abm-direcciones, Medusa, Strapi).
+FRONTEND_NODE_DIR="${FRONTEND_NODE_DIR:-/opt/node24}"
 
 NOTIFY_SCRIPT="$PROJECT_DIR/scripts/notify-wabot.sh"
 ANNOUNCE_SCRIPT="$PROJECT_DIR/scripts/announce-deploy.sh"
@@ -341,14 +346,22 @@ fi
 
 # 4) Frontend build
 if [ "$SKIP_BUILD" = false ]; then
+  # Solo para estos dos comandos: el resto del deploy sigue con el PATH de siempre.
+  FRONTEND_PATH="$PATH"
+  if [ -x "$FRONTEND_NODE_DIR/bin/node" ]; then
+    FRONTEND_PATH="$FRONTEND_NODE_DIR/bin:$PATH"
+  else
+    warn "No está $FRONTEND_NODE_DIR/bin/node: el frontend se buildea con el node del PATH"
+  fi
+
   CURRENT_STEP="instalación de dependencias del frontend"
-  log "Instalando dependencias frontend..."
+  log "Instalando dependencias frontend (Node $(PATH="$FRONTEND_PATH" node --version 2>/dev/null || echo '?'))..."
   cd "$FRONTEND_DIR"
-  pnpm install --frozen-lockfile
+  PATH="$FRONTEND_PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm install --frozen-lockfile
 
   CURRENT_STEP="build del frontend"
   log "Building frontend..."
-  pnpm run build
+  PATH="$FRONTEND_PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm run build
 else
   warn "Skipping frontend build"
 fi
