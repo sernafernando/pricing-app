@@ -201,3 +201,20 @@ class TestBoardSellInOut:
         # Total Gauss never changes with "Costos TP"; the markup's cost basis does, so no mixed markup.
         assert row.total_gauss_sell == _d("30.00")
         assert (row.costo_sell_in, row.markup_sell) == (None, None)
+
+
+def test_a_sell_in_above_the_cost_leaves_the_markup_unknown_like_the_sort() -> None:
+    row = board.Row(
+        key="1",
+        product_item_id=1,
+        mla=None,
+        tg=_d("10"),
+        mtg=_d("10"),
+        costo=_d("5"),
+        sell_in=_d("8"),
+        sell_out=_d("0"),
+    )
+    row.m_sell_in, row.m_sell_out = _d("8"), _d("0")
+
+    assert row.costo_sell_in == _d("-3")
+    assert row.markup_sell is None

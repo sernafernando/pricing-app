@@ -125,7 +125,6 @@ from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import ads_owner_select
 from app.services.ml_daily_metrics import groups as grouping
 from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
-from app.services.sell_out.resumen import ARS_FILA
 from app.services.ml_daily_metrics.sales import (
     BUSINESS_TZ,
     NO_PRODUCT,
@@ -147,6 +146,7 @@ from app.services.product_facets import (
     product_combo_rows,
     product_facet_options,
 )
+from app.services.sell_out.resumen import ARS_FILA
 
 # "group" is the "Agrupado" view: the pairs summed by `BoardFilter.dimension`.
 GROUP_BY = ("product", "publication", "group")
@@ -532,9 +532,11 @@ class SellInOut:
 
     @staticmethod
     def markup_sell(r: Any) -> Optional[Decimal]:
-        if r.m_sell_in is None:
+        cost = None if r.m_sell_in is None else r.costo - r.m_sell_in
+        # A sell in above the cost leaves no markup, as the sort reads it (`_sell_sort_columns`).
+        if cost is None or cost <= 0:
             return None
-        return markup_of(r.mtg + r.m_sell_in + r.m_sell_out, r.costo - r.m_sell_in)
+        return markup_of(r.mtg + r.m_sell_in + r.m_sell_out, cost)
 
 
 @dataclass
