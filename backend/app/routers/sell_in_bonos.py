@@ -1,7 +1,8 @@
-"""Router: brand bonuses (`/api/sell-in/bonos`), sell-in-sell-out T3c-3.
+"""Router: bonuses (`/api/sell-in/bonos`), sell-in-sell-out T3c-3 (scopes and % in T3e-3).
 
-A brand bonus pays an amount per invoiced unit of a brand's products over a
-supplier-invoice date range. The `sell_in.bono` worker applies it by itself to
+A bonus pays an amount per invoiced unit, or a percentage of the invoiced net,
+of the products it reaches (a brand, a category, some models, or every line of
+one Compras operation) over a supplier-invoice date range. The `sell_in.bono` worker applies it by itself to
 every Compras operation it reaches (`app.services.sell_in.bonos`); this module
 is HTTP only over `app.services.sell_in.bonos_crud`.
 
@@ -9,13 +10,14 @@ is HTTP only over `app.services.sell_in.bonos_crud`.
   `sell_in.gestionar` (the sell-in permissions: a bonus lowers product cost).
 - The author comes from the token, never from the body.
 - `GET ""` is paginated, newest first, filtered by estado and brand (exact).
-  Every bonus carries what it generated so far (active purchases, units, amount).
+  Every bonus carries its models, its operation's number and what it generated
+  so far (active purchases, units, amount in its currency and per currency).
 - Edit is a full replace (`PUT /{id}`) of an active bonus; a voided one is a 409.
 - There is no delete: a bonus is voided (`POST /{id}/anular`, optional reason
   kept in the audit row; 409 if it already was), which voids what it generated.
 - `GET /{id}/alcance` (`sell_in.ver`) answers what the bonus reaches for its
-  panel: generated purchases, brand operations pending an invoice, and brand
-  operations invoiced outside the range (`bonos_alcance`), each capped with
+  panel: generated purchases, operations of its scope pending an invoice, and
+  operations of its scope invoiced outside the range (`bonos_alcance`), each capped with
   its count.
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
   bonus is a 404.

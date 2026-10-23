@@ -25,7 +25,7 @@ from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
-from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
 
 BASE = "/api/sell-in/bonos"
 INICIO = datetime(2026, 9, 1, 15, 0, tzinfo=timezone.utc)
@@ -253,3 +253,57 @@ def test_fractional_received_units_round_half_up_like_the_prefill(client, lector
 def test_limite_is_bounded(client, lector, mundo, limite):
     resp = client.get(f"{BASE}/{mundo['bono'].id}/alcance", params={"limite": limite}, headers=lector)
     assert resp.status_code == 422
+
+
+def _rescopear(db, bono, **campos) -> None:
+    """Turns the world's brand bonus into another scope (T3e)."""
+    bono.marca = None
+    for campo, valor in campos.items():
+        setattr(bono, campo, valor)
+    db.flush()
+
+
+def test_a_category_bonus_panel_lists_operations_of_that_category(client, lector, mundo, db):
+    db.get(ProductoERP, OTRA).categoria = "Switches"
+    _rescopear(db, mundo["bono"], alcance="categoria", categoria="Switches")
+    pendiente = mundo["pedido"]()
+    mundo["recibido"](pendiente, OTRA, "3")
+    mundo["recibido"](pendiente, TP, "9")
+    fuera = mundo["pedido"](fecha_factura=date(2026, 11, 2))
+    mundo["facturado"](fuera, OTRA, 4)
+    solo_tp = mundo["pedido"](fecha_factura=date(2026, 11, 3))
+    mundo["facturado"](solo_tp, TP, 1)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert [(i["pedido_id"], i["unidades"]) for i in data["pendientes"]["items"]] == [(pendiente.id, 3)]
+    assert [(i["pedido_id"], i["unidades"]) for i in data["fuera_de_rango"]["items"]] == [(fuera.id, 4)]
+
+
+def test_a_models_bonus_panel_lists_operations_of_its_models(client, lector, mundo, db):
+    _rescopear(db, mundo["bono"], alcance="modelos")
+    db.add(SellInBonoItem(bono_id=mundo["bono"].id, item_id=OTRA))
+    db.flush()
+    fuera = mundo["pedido"](fecha_factura=date(2026, 9, 2))
+    mundo["facturado"](fuera, OTRA, 6)
+    mundo["facturado"](fuera, TP, 50)
+    solo_tp = mundo["pedido"](fecha_factura=date(2026, 9, 3))
+    mundo["facturado"](solo_tp, TP, 1)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert [(i["pedido_id"], i["unidades"]) for i in data["fuera_de_rango"]["items"]] == [(fuera.id, 6)]
+
+
+def test_an_invoice_bonus_panel_lists_only_its_own_operation(client, lector, mundo, db):
+    suyo = mundo["pedido"](fecha_factura=date(2026, 11, 2))
+    mundo["facturado"](suyo, TP, 2)
+    mundo["facturado"](suyo, OTRA, 3)
+    otro = mundo["pedido"](fecha_factura=date(2026, 11, 3))
+    mundo["facturado"](otro, TP, 1)
+    _rescopear(db, mundo["bono"], alcance="factura", pedido_id=suyo.id)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert [(i["pedido_id"], i["unidades"]) for i in data["fuera_de_rango"]["items"]] == [(suyo.id, 5)]
+    assert data["pendientes"]["total"] == 0
