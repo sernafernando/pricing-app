@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.pricing_constants import PricingConstants
+from app.services.sell_in_out_ventas import con_sell_in_out, montos_por_venta
 
 router = APIRouter()
 
@@ -107,6 +108,14 @@ class VentaTiendaNubeResponse(BaseModel):
     ganancia: Optional[Decimal]  # Monto limpio - costo
     markup: Optional[Decimal]
     vendedor: Optional[str]
+    # Sell in / sell out (sell-in-sell-out T14): the fields above are the figures without them.
+    # Null when the sale has none (see `sell_in_out_ventas.con_sell_in_out`).
+    sell_in_ars: Optional[float] = None
+    sell_out_ars: Optional[float] = None
+    sell_out_estimado: Optional[bool] = None
+    costo_con_sell_in: Optional[float] = None
+    ganancia_con_sell_in_out: Optional[float] = None
+    markup_con_sell_in_out: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -529,6 +538,21 @@ def get_ventas_tienda_nube(
         row_dict["ganancia"] = ganancia
 
         ventas.append(row_dict)
+
+    # `markup` is price / cost - 1 (no TN commission), `ganancia` nets the commission out: the "with"
+    # figures keep those bases.
+    sell_in_out = montos_por_venta(db, "tn", [v["id_operacion"] for v in ventas])
+    for venta in ventas:
+        precio = Decimal(str(venta.get("precio_final_sin_iva") or 0))
+        costo = Decimal(str(venta.get("costo_pesos_sin_iva") or 0))
+        venta.update(
+            con_sell_in_out(
+                costo,
+                Decimal(str(venta["ganancia"])),
+                sell_in_out.get(venta["id_operacion"]),
+                ganancia_markup=precio - costo,
+            )
+        )
 
     return ventas
 

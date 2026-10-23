@@ -102,12 +102,15 @@ def sell_in(engine: Engine, compra_item_id: int, ref: int, descuento: str, canal
     )
 
 
-def sell_out(engine: Engine, campana_id: int, ref: int, monto: str, tc_venta: Optional[str] = None) -> None:
+def sell_out(
+    engine: Engine, campana_id: int, ref: int, monto: str, tc_venta: Optional[str] = None, canal: str = "fuera"
+) -> None:
     w_out.execute(
         engine,
         "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, monto, "
-        "tc_venta) VALUES (:c, 'fuera', :r, 2964, :f, 2, :m, :tc)",
+        "tc_venta) VALUES (:c, :canal, :r, 2964, :f, 2, :m, :tc)",
         c=campana_id,
+        canal=canal,
         r=ref,
         f=DIA,
         m=monto,

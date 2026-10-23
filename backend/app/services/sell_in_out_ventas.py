@@ -94,3 +94,28 @@ def montos_por_venta(db: Session, canal: str, refs: Iterable[int]) -> Dict[int, 
         ars, estimado = sell_out.get(ref, (None, None))
         salida[ref] = MontosVenta(sell_in_ars=sell_in.get(ref), sell_out_ars=ars, sell_out_estimado=estimado)
     return salida
+
+
+def con_sell_in_out(
+    costo: Decimal, ganancia: Decimal, montos: Optional[MontosVenta], *, ganancia_markup: Optional[Decimal] = None
+) -> dict:
+    """A sale's figures with sell in and sell out, from the ones its list shows without them: sell in
+    lowers the cost, both add to the profit. The markup is `ganancia_markup` (the profit the list's own
+    markup is computed from, `ganancia` by default) plus both, over the cost with sell in, as a
+    fraction, only while that cost is positive. `{}` for a sale without either (the response fields
+    stay null); profit and markup null while its sell out is unknown."""
+    if montos is None:
+        return {}
+    costo_con = costo - (montos.sell_in_ars or Decimal(0))
+    credito = montos.credito_ars
+    ganancia_con = None if credito is None else ganancia + credito
+    base = ganancia if ganancia_markup is None else ganancia_markup
+    markup_con = (base + credito) / costo_con if credito is not None and costo_con > 0 else None
+    return {
+        "sell_in_ars": None if montos.sell_in_ars is None else float(montos.sell_in_ars),
+        "sell_out_ars": None if montos.sell_out_ars is None else float(montos.sell_out_ars),
+        "sell_out_estimado": montos.sell_out_estimado,
+        "costo_con_sell_in": float(costo_con),
+        "ganancia_con_sell_in_out": None if ganancia_con is None else float(ganancia_con),
+        "markup_con_sell_in_out": None if markup_con is None else float(markup_con),
+    }
