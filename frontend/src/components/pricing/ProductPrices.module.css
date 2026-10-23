@@ -237,7 +237,8 @@
 .label {
   text-align: left;
   font-weight: var(--font-medium);
-  white-space: nowrap;
+  /* "PVP 12 cuotas" may take two lines, so every column of the list fits the side panel. */
+  white-space: normal;
   color: var(--cf-text-secondary);
 }
 
