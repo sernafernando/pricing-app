@@ -32,7 +32,8 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
    and each MLA's ads are subtracted from its OWNER pair's Total Gauss and
    markup numerator (never the denominator). OFF emits no extra statement. `restar_todo` (third position) also
    takes Display and Brand Ads off the KPI totals, in the unfiltered view only.
-   With the toggle ON, "solo con ventas" keeps a row with `units > 0 OR ads_cost > 0`, and the UNFILTERED view
+   With the toggle ON, "solo con ventas" keeps a row with `units > 0 OR ads_cost_api > 0` (ML's gross spend, so a
+   row whose brand contribution takes the net ads to zero or below stays), and the UNFILTERED view
    (`is_unfiltered`) also gets a "sin producto" pair for each MLA no product owns: its ads have no other row.
    When `BoardFilter.mla_source` is set, a third table, `MLA_SET_TABLE`, is
    materialized FIRST (same savepoint) and both tables above are restricted
@@ -596,7 +597,9 @@ class Kpis:
 @dataclass
 class AdsKpis:
     """The period's Product Ads of the KPI rows. Money is Decimal: `cost_api` as the API reports it (what the
-    ratios use), `cost_total` net of IVA (what was subtracted)."""
+    ratios use), `cost_total` ML's gross cost net of IVA, `contribution` the brand contributions covering part of
+    it and `subtracted_total` what actually came off the Total Gauss and markup KPIs (Product Ads net of
+    `contribution`, plus Display and Brand under `todo`)."""
 
     cost_total: Decimal
     cost_api: Decimal
@@ -1236,7 +1239,8 @@ class Board:
         brand contributions that cover part of it (ml-ads-brand-contribution S5, S6, S9), computed per item row.
 
         An item row belongs to a contribution by its own (`advertiser_id`, `campaign_id`, `day`); no campaign (NULL
-        or 0) never does. A campaign's ranges never overlap (the write API rejects it), so a row meets at most one.
+        or 0) never does. A campaign's ranges never overlap (the write API rejects it under the campaign row lock), so a
+        row meets at most one.
         `percentage` covers p% of the row; `fixed_amount` spreads its counted amount (`full`: all of it;
         `refund_difference`: at most the range's spend) by the row's share of the WHOLE range's spend, which may
         reach past the request's days; a range that spent nothing has nothing to spread over."""

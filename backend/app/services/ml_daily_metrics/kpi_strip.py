@@ -113,8 +113,10 @@ class KpiAdsUnattributed(BaseModel):
 
 class KpiAds(BaseModel):
     """Product Ads of the KPI rows (only with `restar_publicidad` and `ver_ganancia`). Informational context:
-    the ratios use the API cost basis and are never linked to specific sales; `cost_total` is the net-of-IVA
-    amount already subtracted from `total_gauss` and `markup`. A zero denominator gives null."""
+    the ratios use the API cost basis and are never linked to specific sales; `cost_total` is ML's gross cost net
+    of IVA, `contribution` the brand contributions covering part of it, and `subtracted_total` the amount actually
+    subtracted from `total_gauss` and `markup` (Product Ads net of `contribution`, plus Display and Brand under
+    `todo`). A zero denominator gives null."""
 
     cost_total: float
     cost_api: float
