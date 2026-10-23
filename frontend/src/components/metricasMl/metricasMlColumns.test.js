@@ -69,3 +69,19 @@ describe('buildBoardColumns for a tplink.solo user', () => {
     });
   });
 });
+
+describe('buildBoardColumns: sell in / sell out', () => {
+  const SELL = ['costo', 'costo_sell_in', 'sell_in', 'sell_out', 'total_gauss_sell', 'markup_sell'];
+
+  it('fills its group with our figures, in place of the placeholders', () => {
+    const columns = buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product' });
+    expect(columns.filter((col) => col.group === 'sellin').map((col) => col.id)).toEqual(SELL);
+    expect(ids({})).not.toEqual(expect.arrayContaining(['compras_30d']));
+    expect(ids({}).some((id) => ['compras_30d', 'sell_through', 'cobertura'].includes(id))).toBe(false);
+  });
+
+  it('never shows them without the margin permission nor to tplink.solo', () => {
+    expect(ids({ canSeeMargin: false }).some((id) => SELL.includes(id))).toBe(false);
+    expect(ids({ tpSolo: true }).some((id) => SELL.includes(id))).toBe(false);
+  });
+});

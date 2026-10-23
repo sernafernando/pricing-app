@@ -13,6 +13,7 @@ import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTo
 import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatUnits } from '../../utils/metricasMlFormat';
 import { originalAmount } from '../../utils/metricasMlAds';
 import { TP_MARKUP_HINT, tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
+import { sellOutPendingTitle } from '../../utils/metricasMlSell';
 import styles from './MetricasKpiStrip.module.css';
 
 /**
@@ -91,6 +92,25 @@ function TotalTpCard({ tp }) {
   );
 }
 
+/** A figure WITH sell in / sell out, under the same figure without them (sell-in-sell-out T11). */
+function WithSellInOut({ children, pendientes = 0 }) {
+  return (
+    // The figure (and its warning) wraps as a whole under the label in a narrow card, never mid-amount.
+    <span className={`${styles.subtitle} ${styles.sellLine}`} data-testid="kpi-sell-in-out">
+      <span>C/ sell in/out:</span>{' '}
+      <span className={styles.sellValue}>
+        <strong data-money>{children}</strong>
+        {pendientes > 0 && (
+          <span className={styles.warn} title={sellOutPendingTitle(pendientes)}>
+            <AlertTriangle size={12} aria-hidden="true" />
+            {formatUnits(pendientes)}
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 /** `tpSolo`: a `tplink.solo` user's board, which has no Total Gauss (the key is absent) and carries Markup TP. */
 export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading, tpSolo = false }) {
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
@@ -100,6 +120,8 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
   const { units, gross, total_gauss: tg, markup, rows_with_sales: withSales, ageing, ads } = kpis;
   // `kpis.total_tp` exists only while the board shows the TP costs (and only with the profit view).
   const tp = canSeeMargin ? (kpis.total_tp ?? null) : null;
+  // `kpis.sell_in_out` exists only with the profit view (never for `tplink.solo`).
+  const sell = canSeeMargin ? (kpis.sell_in_out ?? null) : null;
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
@@ -138,6 +160,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
                   <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
                 </div>
               )}
+              {sell && <WithSellInOut pendientes={sell.sell_out_pendientes}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
               <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
             </>
           ) : (
@@ -163,6 +186,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
               </div>
             )}
             {tp && <span className={styles.subtitle}>{TP_MARKUP_HINT}</span>}
+            {sell && <WithSellInOut>{formatPct(sell.markup_pct)}</WithSellInOut>}
             <Sparkline values={markup.series} width={200} height={22} tone={deltaTone(markup.delta_pp)} className={styles.spark} label="Markup por día" />
           </>
         ) : (

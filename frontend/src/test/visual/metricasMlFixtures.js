@@ -63,6 +63,17 @@ export const BOARD_ROWS = [
     last_sale_at: '2026-09-30T14:40:00Z',
     ageing_days: 0,
     stock: 128,
+    // The widest figures the sell-in group can show, with lines pending and estimated.
+    sell_in_out: {
+      sell_in: 3240000,
+      sell_out: 1180000.5,
+      sell_out_pendientes: 12,
+      sell_out_estimados: 3,
+      costo: 160181992.06,
+      costo_sell_in: 156941992.06,
+      total_gauss: 48551773.82,
+      markup_pct: 30.9,
+    },
   }),
   product(4102, {
     title: 'Notebook Lenovo V15 G4 AMN Ryzen 5 8GB 256GB SSD',
@@ -244,6 +255,16 @@ export const BOARD_RESPONSE = {
     markup: { value: 21.6, delta_pp: -1.4, series: series(23, -1.5, 0.6).slice(-30) },
     rows_with_sales: { value: 318, of_total: 471 },
     ageing: { avg_days: 18, up_to_30: 402, from_31_to_60: 46, over_60: 23 },
+    sell_in_out: {
+      sell_in: 3240000,
+      sell_out: 1180000.5,
+      sell_out_pendientes: 12,
+      sell_out_estimados: 3,
+      costo: 65370000,
+      costo_sell_in: 62130000,
+      total_gauss: 18540900.6,
+      markup_pct: 29.8,
+    },
   },
   facets: {
     stores: { 57997: 391, 2645: 38, 144: 12, 191942: 22, sin_tienda: 8 },

@@ -480,11 +480,13 @@ describe('MetricasML page', () => {
     expect(screen.queryByRole('button', { name: /Markup cayendo/ })).not.toBeInTheDocument();
   });
 
-  it('sell-in / sell-out is announced, not invented', async () => {
+  it('the sell-in / sell-out group shows our figures, no longer announced', async () => {
     await renderWithRouter(<MetricasML />);
     await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
 
-    expect(screen.getByText('Próximamente')).toBeInTheDocument();
+    expect(screen.queryByText('Próximamente')).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Costo c\/ sell in/ })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Markup c\/ sell in\/out/ })).toBeInTheDocument();
   });
 });
 
