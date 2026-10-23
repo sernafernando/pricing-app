@@ -20,7 +20,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from sqlalchemy import Engine, text
 
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
-from app.models.sell_in import SellInBonoDirty, SellInBonoMarca
+from app.models.sell_in import SellInBonoDirty, SellInBonoItem, SellInBonoMarca
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell import queue as sell_queue
 from app.services.sell_in import bono_queue
@@ -40,6 +40,7 @@ _SELL_IN = [t for t in w.TABLES if t.name not in ("productos_erp", "sell_in_bono
 TABLES = [
     w.ProductoERP.__table__,
     SellInBonoMarca.__table__,
+    SellInBonoItem.__table__,
     *_SELL_IN,
     PedidoCompraLineaFacturada.__table__,
     TipoCambio.__table__,
@@ -84,7 +85,14 @@ def clean(engine: Engine) -> None:
         for table in ("sell_in_compras", "sell_in_bonos_marca", "pedido_compra_lineas_facturadas", "pedidos_compra"):
             conn.execute(text(f"DELETE FROM {table}"))
         conn.execute(text("DELETE FROM tipo_cambio"))
-        conn.execute(text("UPDATE productos_erp SET marca = CASE item_id WHEN 950 THEN 'MERCUSYS' ELSE 'TP-LINK' END"))
+        # Products a test brought into the catalog (only the world's own ones stay).
+        conn.execute(text("DELETE FROM productos_erp WHERE NOT (item_id = ANY(:i))"), {"i": list(PRODUCTOS)})
+        conn.execute(
+            text(
+                "UPDATE productos_erp SET marca = CASE item_id WHEN 950 THEN 'MERCUSYS' ELSE 'TP-LINK' END, "
+                "categoria = NULL"
+            )
+        )
         conn.execute(text("DELETE FROM sell_in_bono_dirty"))
         conn.execute(text("DELETE FROM sell_dirty"))
 
@@ -106,6 +114,47 @@ def bono(
             ),
             {"m": marca, "monto": monto, "mon": moneda, "d": desde, "h": hasta, "e": estado},
         ).scalar()
+
+
+def bono_alcance(
+    engine: Engine,
+    alcance: str,
+    *,
+    categoria: Optional[str] = None,
+    pedido_id: Optional[int] = None,
+    modelos: Tuple[int, ...] = (),
+    tipo: str = "por_unidad",
+    monto: Optional[str] = "2.00",
+    porcentaje: Optional[str] = None,
+    desde: date = date(2026, 10, 1),
+    hasta: date = date(2026, 10, 31),
+    estado: str = "activa",
+) -> int:
+    """A bonus reaching a category, some models or one invoice (T3e); `monto` is ignored for a percentage."""
+    with engine.begin() as conn:
+        bono_id = conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (alcance, categoria, pedido_id, tipo, monto_unit, porcentaje, moneda, "
+                "fecha_desde, fecha_hasta, estado, usuario_id) VALUES (:a, :c, :p, :t, :monto, :pct, 'USD', :d, :h, "
+                ":e, 7) RETURNING id"
+            ),
+            {
+                "a": alcance,
+                "c": categoria,
+                "p": pedido_id,
+                "t": tipo,
+                "monto": None if tipo == "porcentaje" else monto,
+                "pct": porcentaje,
+                "d": desde,
+                "h": hasta,
+                "e": estado,
+            },
+        ).scalar()
+        for item_id in modelos:
+            conn.execute(
+                text("INSERT INTO sell_in_bono_items (bono_id, item_id) VALUES (:b, :i)"), {"b": bono_id, "i": item_id}
+            )
+    return bono_id
 
 
 def update_bono(engine: Engine, bono_id: int, **values) -> None:

@@ -6,31 +6,41 @@ Every trigger is GATED on an active bonus, so nothing is queued while no bonus
 exists (and a key is only queued when some active bonus can care about it):
 
 - `sell_in_bonos_marca`: an INSERT of an active bonus, or an UPDATE that changes
-  what it pays (brand, amount, currency, range, estado, author) while it is or
-  was active (a void is queued: what it generated must be voided);
+  what it pays (scope and its field, kind, amount or percentage, currency,
+  range, estado, author) while it is or was active (a void is queued: what it
+  generated must be voided; so is an invoice bonus whose operation was deleted,
+  since its `pedido_id` goes NULL);
+- `sell_in_bono_items` (a models bonus's models, T3e): any INSERT, DELETE or
+  UPDATE queues its bonus while it is active;
 - `pedidos_compra`: an UPDATE of `fecha_factura`, `estado`, `tipo_cambio` or
   `proveedor_id` that changes it, and an INSERT or DELETE, queue the operation
   when its old or new invoice date falls in an active bonus's range;
-- `pedido_compra_lineas_facturadas` (invoiced units): an INSERT or DELETE, or an
-  UPDATE that changes `pedido_id`, `item_id` or `cantidad`, queue the operation
+- `pedido_compra_lineas_facturadas` (invoiced units and net amount): an INSERT or
+  DELETE, or an UPDATE that changes `pedido_id`, `item_id`, `cantidad`,
+  `importe_neto` or `moneda` (the base of a percentage bonus), queue the operation
   under the same date rule (a line deleted by its operation's cascade is
   covered by the operation's own DELETE);
-- `productos_erp`: a new product, one whose `marca` changes, or a deleted one
-  (its invoiced units no longer match its old brand) queues the operations
-  invoicing it when an active bonus of its old or new brand covers their
-  invoice date. A NULL brand is no brand: that side never consults the gate
-  (`sell_in_bono_cubre(fecha, NULL)` means "any brand").
+- `productos_erp`: a new product, one whose `marca` or `categoria` changes, or a
+  deleted one queues the operations invoicing it when an active bonus that
+  reaches it on its old or new side covers their invoice date
+  (`sell_in_bono_cubre_producto`): by brand, by category, by model (listed in
+  `sell_in_bono_items`) or by invoice (that very operation: a line with no
+  product is out of an invoice bonus's base, so the product's arrival or
+  removal moves it). A NULL brand or category matches no bonus.
 
 The `pedidos_compra` and invoiced-line triggers gate on the invoice date only,
 not on the brands of the operation's items: a deliberate over-queue (an
 operation covered by some active bonus but holding none of its brands is
 queued) that keeps those triggers cheap; the worker reconciles it as a no-op.
 
-The gate is `sell_in_bono_cubre(fecha[, marca])`: one EXISTS over the (few)
-bonuses, indexed by brand when a brand is given and a scan of that small table
-when it is not. A trigger does no reconcile work. `UPGRADE_SQL`/`DOWNGRADE_SQL`
-are the live definition; the migration `20261107_sell_in_bonos_marca` carries a
-frozen copy and owns the table (`app.models.sell_in.SellInBonoDirty`).
+The gates are `sell_in_bono_cubre(fecha[, marca])` (date only, any scope, for
+the operation and line triggers; with a brand, brand bonuses only) and
+`sell_in_bono_cubre_producto(fecha, pedido, item, marca, categoria)`: one EXISTS
+over the (few) bonuses each. A trigger does no reconcile work.
+`UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition; the migration
+`20261115_sell_in_bono_queue_alcance` carries a frozen copy (it replaced the
+one `20261107_sell_in_bonos_marca` installed, which owns the table,
+`app.models.sell_in.SellInBonoDirty`).
 
 The `sell_in.bono` worker drains it. A claimed row is locked (`FOR UPDATE SKIP
 LOCKED`) for the drain's short transaction: a trigger re-queueing it waits and
@@ -66,6 +76,23 @@ CREATE OR REPLACE FUNCTION sell_in_bono_cubre(p_fecha DATE, p_marca TEXT DEFAULT
         SELECT 1 FROM sell_in_bonos_marca AS b
         WHERE b.estado = 'activa' AND p_fecha BETWEEN b.fecha_desde AND b.fecha_hasta
           AND (p_marca IS NULL OR b.marca = p_marca)
+    )
+$fn$ LANGUAGE sql STABLE
+""",
+    """
+CREATE OR REPLACE FUNCTION sell_in_bono_cubre_producto(
+    p_fecha DATE, p_pedido BIGINT, p_item INTEGER, p_marca TEXT, p_categoria TEXT
+) RETURNS BOOLEAN AS $fn$
+    SELECT p_fecha IS NOT NULL AND EXISTS (
+        SELECT 1 FROM sell_in_bonos_marca AS b
+        WHERE b.estado = 'activa' AND p_fecha BETWEEN b.fecha_desde AND b.fecha_hasta
+          AND (
+            (b.alcance = 'marca' AND b.marca = p_marca)
+            OR (b.alcance = 'categoria' AND b.categoria = p_categoria)
+            OR (b.alcance = 'modelos'
+                AND EXISTS (SELECT 1 FROM sell_in_bono_items AS i WHERE i.bono_id = b.id AND i.item_id = p_item))
+            OR (b.alcance = 'factura' AND b.pedido_id = p_pedido)
+          )
     )
 $fn$ LANGUAGE sql STABLE
 """,
@@ -125,6 +152,31 @@ END;
 $trg$ LANGUAGE plpgsql
 """,
     f"""
+CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_bono_item() RETURNS TRIGGER AS $trg$
+DECLARE
+    bonos BIGINT[];
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        bonos := ARRAY[NEW.bono_id];
+    ELSIF TG_OP = 'DELETE' THEN
+        bonos := ARRAY[OLD.bono_id];
+    ELSE
+        bonos := ARRAY[OLD.bono_id, NEW.bono_id];
+    END IF;
+    -- A bonus deleted with its models (CASCADE) is gone: nothing to queue.
+    INSERT INTO sell_in_bono_dirty (tipo, ref)
+    SELECT DISTINCT 'bono', b.id FROM sell_in_bonos_marca AS b
+    WHERE b.id = ANY(bonos) AND b.estado = 'activa'
+    ORDER BY 2
+    ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
+    IF FOUND THEN
+        PERFORM pg_notify('{CHANNEL}', '');
+    END IF;
+    RETURN NULL;
+END;
+$trg$ LANGUAGE plpgsql
+""",
+    f"""
 CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_producto() RETURNS TRIGGER AS $trg$
 DECLARE
     item productos_erp.item_id%TYPE;
@@ -139,8 +191,9 @@ BEGIN
     FROM pedido_compra_lineas_facturadas AS l
     JOIN pedidos_compra AS p ON p.id = l.pedido_id
     WHERE l.item_id = item
-      AND ((TG_OP <> 'DELETE' AND NEW.marca IS NOT NULL AND sell_in_bono_cubre(p.fecha_factura, NEW.marca))
-           OR (TG_OP <> 'INSERT' AND OLD.marca IS NOT NULL AND sell_in_bono_cubre(p.fecha_factura, OLD.marca)))
+      AND ((TG_OP <> 'DELETE' AND sell_in_bono_cubre_producto(p.fecha_factura, p.id, item, NEW.marca, NEW.categoria))
+           OR (TG_OP <> 'INSERT'
+               AND sell_in_bono_cubre_producto(p.fecha_factura, p.id, item, OLD.marca, OLD.categoria)))
     ORDER BY 2
     ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
     IF FOUND THEN
@@ -159,11 +212,18 @@ FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_bono()
 CREATE TRIGGER trg_sell_in_bono_bonos_update
 AFTER UPDATE ON sell_in_bonos_marca
 FOR EACH ROW WHEN (
-    (OLD.marca, OLD.monto_unit, OLD.moneda, OLD.fecha_desde, OLD.fecha_hasta, OLD.estado, OLD.usuario_id)
+    (OLD.alcance, OLD.marca, OLD.categoria, OLD.pedido_id, OLD.tipo, OLD.monto_unit, OLD.porcentaje, OLD.moneda,
+     OLD.fecha_desde, OLD.fecha_hasta, OLD.estado, OLD.usuario_id)
     IS DISTINCT FROM
-    (NEW.marca, NEW.monto_unit, NEW.moneda, NEW.fecha_desde, NEW.fecha_hasta, NEW.estado, NEW.usuario_id)
+    (NEW.alcance, NEW.marca, NEW.categoria, NEW.pedido_id, NEW.tipo, NEW.monto_unit, NEW.porcentaje, NEW.moneda,
+     NEW.fecha_desde, NEW.fecha_hasta, NEW.estado, NEW.usuario_id)
 )
 EXECUTE FUNCTION sell_in_bono_enqueue_bono()
+""",
+    """
+CREATE TRIGGER trg_sell_in_bono_items_change
+AFTER INSERT OR UPDATE OR DELETE ON sell_in_bono_items
+FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_bono_item()
 """,
     """
 CREATE TRIGGER trg_sell_in_bono_pedidos_insert_delete
@@ -186,8 +246,11 @@ FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_linea()
 """,
     """
 CREATE TRIGGER trg_sell_in_bono_lineas_update
-AFTER UPDATE OF pedido_id, item_id, cantidad ON pedido_compra_lineas_facturadas
-FOR EACH ROW WHEN ((OLD.pedido_id, OLD.item_id, OLD.cantidad) IS DISTINCT FROM (NEW.pedido_id, NEW.item_id, NEW.cantidad))
+AFTER UPDATE OF pedido_id, item_id, cantidad, importe_neto, moneda ON pedido_compra_lineas_facturadas
+FOR EACH ROW WHEN (
+    (OLD.pedido_id, OLD.item_id, OLD.cantidad, OLD.importe_neto, OLD.moneda)
+    IS DISTINCT FROM (NEW.pedido_id, NEW.item_id, NEW.cantidad, NEW.importe_neto, NEW.moneda)
+)
 EXECUTE FUNCTION sell_in_bono_enqueue_linea()
 """,
     """
@@ -197,8 +260,8 @@ FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_producto()
 """,
     """
 CREATE TRIGGER trg_sell_in_bono_productos_marca
-AFTER UPDATE OF marca ON productos_erp
-FOR EACH ROW WHEN (OLD.marca IS DISTINCT FROM NEW.marca)
+AFTER UPDATE OF marca, categoria ON productos_erp
+FOR EACH ROW WHEN ((OLD.marca, OLD.categoria) IS DISTINCT FROM (NEW.marca, NEW.categoria))
 EXECUTE FUNCTION sell_in_bono_enqueue_producto()
 """,
     """
@@ -216,12 +279,15 @@ DOWNGRADE_SQL: List[str] = [
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_lineas_insert_delete ON pedido_compra_lineas_facturadas",
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_pedidos_update ON pedidos_compra",
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_pedidos_insert_delete ON pedidos_compra",
+    "DROP TRIGGER IF EXISTS trg_sell_in_bono_items_change ON sell_in_bono_items",
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_bonos_update ON sell_in_bonos_marca",
     "DROP TRIGGER IF EXISTS trg_sell_in_bono_bonos_insert ON sell_in_bonos_marca",
     "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_producto()",
+    "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_bono_item()",
     "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_linea()",
     "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_pedido()",
     "DROP FUNCTION IF EXISTS sell_in_bono_enqueue_bono()",
+    "DROP FUNCTION IF EXISTS sell_in_bono_cubre_producto(DATE, BIGINT, INTEGER, TEXT, TEXT)",
     "DROP FUNCTION IF EXISTS sell_in_bono_cubre(DATE, TEXT)",
 ]
 

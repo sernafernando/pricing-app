@@ -307,3 +307,121 @@ def test_the_trigger_notifies_the_channel(engine: Engine) -> None:
         raw.invalidate()  # never hand an autocommit connection back to the pool
 
     assert bono_queue.CHANNEL in channels
+
+
+@pytest.mark.postgres
+class TestAlcance:
+    """T3e: a bonus may reach a category, some models (`sell_in_bono_items`) or one invoice, and pay a
+    percentage of the invoiced net. The gate follows each scope's own field."""
+
+    def _categoria(self, engine: Engine, item_id: int, categoria) -> None:
+        _sql(engine, "UPDATE productos_erp SET categoria = :c WHERE item_id = :i", c=categoria, i=item_id)
+
+    def test_a_product_entering_or_leaving_a_bonus_category_queues_the_operations_invoicing_it(
+        self, engine: Engine
+    ) -> None:
+        b.bono_alcance(engine, "categoria", categoria="Switches")
+        pedido = b.pedido(engine, {2964: 3})
+        b.clear_queue(engine)
+
+        self._categoria(engine, 2964, "Switches")
+        assert b.queued(engine) == [("pedido", pedido)]
+
+        b.clear_queue(engine)
+        self._categoria(engine, 2964, "Routers")
+        assert b.queued(engine) == [("pedido", pedido)]
+
+    def test_a_category_change_between_categories_without_bonus_queues_nothing(self, engine: Engine) -> None:
+        b.bono_alcance(engine, "categoria", categoria="Switches")
+        b.pedido(engine, {2964: 3})
+        b.clear_queue(engine)
+
+        self._categoria(engine, 2964, "Routers")
+        self._categoria(engine, 2964, "Cables")
+
+        assert b.queued(engine) == []
+
+    def test_a_category_rewrite_with_the_same_value_queues_nothing(self, engine: Engine) -> None:
+        b.bono_alcance(engine, "categoria", categoria="Switches")
+        self._categoria(engine, 2964, "Switches")
+        b.pedido(engine, {2964: 3})
+        b.clear_queue(engine)
+
+        self._categoria(engine, 2964, "Switches")
+
+        assert b.queued(engine) == []
+
+    def test_adding_or_removing_a_model_queues_its_active_bonus_only(self, engine: Engine) -> None:
+        activo = b.bono_alcance(engine, "modelos", modelos=(2964,))
+        anulado = b.bono_alcance(engine, "modelos", estado="anulada")
+        b.clear_queue(engine)
+
+        _sql(
+            engine,
+            "INSERT INTO sell_in_bono_items (bono_id, item_id) VALUES (:b, 2270), (:x, 2270)",
+            b=activo,
+            x=anulado,
+        )
+        assert b.queued(engine) == [("bono", activo)]
+
+        b.clear_queue(engine)
+        _sql(engine, "DELETE FROM sell_in_bono_items WHERE item_id = 2964")
+        assert b.queued(engine) == [("bono", activo)]
+
+    def test_a_listed_model_arriving_in_the_catalog_queues_the_operations_invoicing_it(self, engine: Engine) -> None:
+        b.bono_alcance(engine, "modelos", modelos=(7777,))
+        pedido = b.pedido(engine, {7777: 3})
+        otro = b.pedido(engine, {7778: 3})
+        b.clear_queue(engine)
+
+        _sql(
+            engine,
+            "INSERT INTO productos_erp (item_id, codigo, descripcion) VALUES (7777, 'C7777', 'P'), (7778, 'C7778', 'P')",
+        )
+
+        assert b.queued(engine) == [("pedido", pedido)]
+        assert ("pedido", otro) not in b.queued(engine)
+
+    def test_a_product_arriving_on_an_invoice_bonus_operation_queues_that_operation_only(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {7777: 3})
+        otro = b.pedido(engine, {7777: 1})
+        b.bono_alcance(engine, "factura", pedido_id=pedido, tipo="porcentaje", porcentaje="2")
+        b.clear_queue(engine)
+
+        _sql(engine, "INSERT INTO productos_erp (item_id, codigo, descripcion) VALUES (7777, 'C7777', 'P')")
+
+        assert b.queued(engine) == [("pedido", pedido)]
+        assert ("pedido", otro) not in b.queued(engine)
+
+    def test_a_change_of_invoiced_amount_or_currency_queues_the_operation(self, engine: Engine) -> None:
+        b.bono_alcance(engine, "categoria", categoria="Switches", tipo="porcentaje", porcentaje="2")
+        pedido = b.pedido(engine, {2964: 3})
+        for cambio in ("importe_neto = 1000.00, moneda = 'USD'", "importe_neto = 900.00", "moneda = 'ARS'"):
+            b.clear_queue(engine)
+            _sql(engine, f"UPDATE pedido_compra_lineas_facturadas SET {cambio} WHERE pedido_id = :p", p=pedido)
+            assert b.queued(engine) == [("pedido", pedido)], cambio
+
+    @pytest.mark.parametrize(
+        "cambio",
+        [
+            {"categoria": "Routers"},
+            {"tipo": "porcentaje", "monto_unit": None, "porcentaje": Decimal("3")},
+        ],
+    )
+    def test_a_change_to_a_scope_or_kind_field_queues_the_bonus(self, engine: Engine, cambio: dict) -> None:
+        bono_id = b.bono_alcance(engine, "categoria", categoria="Switches")
+        b.clear_queue(engine)
+
+        b.update_bono(engine, bono_id, **cambio)
+
+        assert b.queued(engine) == [("bono", bono_id)]
+
+    def test_deleting_the_operation_of_an_invoice_bonus_queues_the_bonus(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {2964: 3})
+        bono_id = b.bono_alcance(engine, "factura", pedido_id=pedido)
+        b.clear_queue(engine)
+
+        _sql(engine, "DELETE FROM pedido_compra_lineas_facturadas WHERE pedido_id = :p", p=pedido)
+        _sql(engine, "DELETE FROM pedidos_compra WHERE id = :p", p=pedido)
+
+        assert ("bono", bono_id) in b.queued(engine)  # its pedido_id went NULL: the worker voids what it generated
