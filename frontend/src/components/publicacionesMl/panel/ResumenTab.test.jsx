@@ -201,6 +201,70 @@ describe('the markup breakdown (ver_ganancia only)', () => {
   });
 });
 
+describe('the markup with sell in / sell out (ver_ganancia only)', () => {
+  const SELL_IN = { compra_item_id: 7, descuento_unit: 1500, costo: 62500, unidades_restantes: 12 };
+  const withSellInOut = (sellInOut) => makeDetail({ markup_breakdown: DETAIL_RESPONSE_MARGIN.markup_breakdown, sell_in_out: sellInOut });
+
+  it('shows the cost with sell in, its discount and lot in the tooltip, and the markup with sell in', () => {
+    renderTab(withSellInOut({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }), { canSeeMargin: true });
+    expect(valueOf('Markup', 'Costo')).toHaveTextContent('64.000,00');
+    expect(valueOf('Markup', 'Markup')).toHaveTextContent('26,5%');
+    const costo = valueOf('Markup', 'Costo c/ sell in');
+    expect(costo).toHaveTextContent('62.500,00');
+    const tooltip = costo.querySelector('[title]').getAttribute('title');
+    expect(tooltip).toContain('1.500,00');
+    expect(tooltip).toContain('12');
+    const markup = valueOf('Markup', 'Markup c/ sell in/out');
+    expect(markup).toHaveTextContent('29,6%');
+    expect(markup.querySelector('[title]').getAttribute('title')).toBe('Con sell in');
+  });
+
+  it('with sell out the markup is the one with sell in and sell out', () => {
+    renderTab(
+      withSellInOut({
+        sell_in: SELL_IN,
+        sell_out: { monto_unit: 2000, campana_ids: [3] },
+        markups_sell_in: { publicacion: 29.6 },
+        markups_sell_in_out: { publicacion: -2.4 },
+      }),
+      { canSeeMargin: true },
+    );
+    const markup = valueOf('Markup', 'Markup c/ sell in/out');
+    expect(markup).toHaveTextContent('-2,4%');
+    expect(markup.querySelector('[data-negative]')).not.toBeNull();
+    expect(markup.querySelector('[title]').getAttribute('title')).toContain('Con sell in y sell out');
+  });
+
+  it('an unknown amount reads "Pendiente", never a number', () => {
+    renderTab(
+      withSellInOut({ sell_in: null, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in: {}, markups_sell_in_out: {} }),
+      { canSeeMargin: true },
+    );
+    expect(valueOf('Markup', 'Markup c/ sell in/out')).toHaveTextContent('Pendiente');
+    expect(valueOf('Markup', 'Markup c/ sell in/out')).not.toHaveTextContent('%');
+  });
+
+  it('a lot without a cost in pesos says "Sin tipo de cambio" and its markup is pending', () => {
+    renderTab(
+      withSellInOut({ sell_in: { ...SELL_IN, costo: null }, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }),
+      { canSeeMargin: true },
+    );
+    expect(valueOf('Markup', 'Costo c/ sell in')).toHaveTextContent('Sin tipo de cambio');
+    expect(valueOf('Markup', 'Markup c/ sell in/out')).toHaveTextContent('Pendiente');
+  });
+
+  it('without sell in nor sell out nothing new is shown', () => {
+    renderTab(withSellInOut(null), { canSeeMargin: true });
+    expect(screen.queryByText('Costo c/ sell in')).not.toBeInTheDocument();
+    expect(screen.queryByText('Markup c/ sell in/out')).not.toBeInTheDocument();
+  });
+
+  it('without the permission it is not shown, even if the payload carried it', () => {
+    renderTab(withSellInOut({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }));
+    expect(screen.queryByText('Costo c/ sell in')).not.toBeInTheDocument();
+  });
+});
+
 describe('the data of Mercado Libre (every ml_items column worth reading)', () => {
   const NAME = 'Datos de Mercado Libre';
 

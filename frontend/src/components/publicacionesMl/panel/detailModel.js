@@ -71,6 +71,8 @@ export function readDetail(raw, { canSeeMargin = false } = {}) {
     links: raw.links ?? [],
     product: readProduct(raw.product, canSeeMargin),
     markupBreakdown: canSeeMargin ? (raw.markup_breakdown ?? null) : null,
+    // Sell in / sell out of the breakdown's unit today; its markups under the key `publicacion` (same gate).
+    sellInOut: canSeeMargin ? (raw.sell_in_out ?? null) : null,
     freshness: raw.freshness ?? [],
     canResync: raw.can_resync === true,
   };
