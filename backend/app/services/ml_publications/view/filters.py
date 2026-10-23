@@ -11,7 +11,8 @@ Rules worth knowing before reading the code:
   EAN, and exact keys use the indexes.
 * `gone` and `sin_estado` are status tokens of our own: a deleted item (`gone_at` set, or `deleted` in ML's
   `sub_status`, see `deleted()`) is listed only when asked for with `estado=gone` (and then it is flagged, spec
-  LST-5); `sin_estado` selects items ML sent without a status. The status facet offers exactly these values, so every one of them can be selected back.
+  LST-5); `sin_estado` selects items ML sent without a status. The status facet offers exactly these values, so
+  every one of them can be selected back.
 """
 
 from __future__ import annotations
