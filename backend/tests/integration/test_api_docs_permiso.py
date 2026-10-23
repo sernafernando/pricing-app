@@ -8,7 +8,14 @@ environment. These tests go through the real HTTP stack so `require_permiso(...)
 
 from __future__ import annotations
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.deps import get_current_user
+from app.core.database import get_async_db
+from app.main import _docs_urls
 from app.models.permiso import Permiso, RolPermisoBase
+from app.routers import api_docs
 
 URL = "/api/dev/openapi.json"
 PERMISO = "admin.ver_api_docs"
@@ -51,3 +58,25 @@ class TestApiDocsPermiso:
         paths = client.get(URL, headers=admin_auth_headers).json()["paths"]
 
         assert URL not in paths
+
+
+def test_serves_the_schema_when_fastapi_docs_are_disabled_as_in_production(db, admin_user, rol_admin) -> None:
+    """Production builds the app with `_docs_urls("production")`: no /api/docs, no /api/openapi.json. The
+    endpoint must still build and serve the schema there, since that is the case it exists for."""
+    _grant(db, rol_admin, PERMISO)
+    prod_app = FastAPI(title="Pricing API", **_docs_urls("production"))
+    prod_app.include_router(api_docs.router, prefix="/api")
+
+    @prod_app.get("/api/ping")
+    async def ping() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    prod_app.dependency_overrides[get_current_user] = lambda: admin_user
+    prod_app.dependency_overrides[get_async_db] = lambda: db
+    client = TestClient(prod_app)
+
+    assert client.get("/api/openapi.json").status_code == 404
+    assert client.get("/api/docs").status_code == 404
+    resp = client.get(URL)
+    assert resp.status_code == 200
+    assert list(resp.json()["paths"]) == ["/api/ping"]

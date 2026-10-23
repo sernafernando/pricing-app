@@ -60,6 +60,26 @@ describe('ApiDocs', () => {
     expect(configuration.forceDarkModeState).toBe('dark');
   });
 
+  it('sends the current session token on Test Request after a refresh rotated it', async () => {
+    api.get.mockResolvedValue({ data: SCHEMA });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
+
+    render(<ApiDocs />);
+
+    await screen.findByTestId('scalar');
+    const { configuration } = scalarProps.mock.calls.at(-1)[0];
+    localStorage.setItem('token', 'jwt-rotated');
+    const origin = window.location.origin;
+
+    await configuration.customFetch(`${origin}/api/auth/me`, { headers: { Authorization: 'Bearer jwt-123' } });
+    await configuration.customFetch(`${origin}/api/auth/me`, { headers: { Authorization: 'Bearer typed-by-hand' } });
+    await configuration.customFetch('https://example.com/x', { headers: { Authorization: 'Bearer jwt-123' } });
+
+    const sent = fetchSpy.mock.calls.map(([, init]) => new Headers(init.headers).get('Authorization'));
+    expect(sent).toEqual(['Bearer jwt-rotated', 'Bearer typed-by-hand', 'Bearer jwt-123']);
+    fetchSpy.mockRestore();
+  });
+
   it('shows the error instead of the reference when the schema cannot be loaded', async () => {
     api.get.mockRejectedValue(new Error('403'));
 

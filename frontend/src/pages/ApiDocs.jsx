@@ -16,6 +16,21 @@ const API_ORIGIN = new URL(import.meta.env.VITE_API_URL || '/', window.location.
  * by it. Everything that talks to Scalar's servers is off: telemetry, CDN fonts, the
  * "Ask AI" agent, MCP and the Share/Deploy toolbar.
  */
+/**
+ * Scalar keeps the token it was given at render time, while the auth store rotates the session token in
+ * localStorage. A request to our API that still carries that prefilled token gets the current one instead;
+ * a token typed by hand, and any other host, are left alone.
+ */
+const withCurrentToken = (prefilledToken) => (input, init = {}) => {
+  const url = new URL(input instanceof Request ? input.url : input, window.location.origin);
+  const headers = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined));
+  const current = localStorage.getItem('token');
+  if (url.origin === API_ORIGIN && current && headers.get('Authorization') === `Bearer ${prefilledToken}`) {
+    headers.set('Authorization', `Bearer ${current}`);
+  }
+  return fetch(input, { ...init, headers });
+};
+
 export default function ApiDocs() {
   const { theme } = useTheme();
   const [schema, setSchema] = useState(null);
@@ -48,6 +63,8 @@ export default function ApiDocs() {
     return <p className={styles.status}>Cargando documentación…</p>;
   }
 
+  const prefilledToken = localStorage.getItem('token') ?? '';
+
   return (
     <div className={styles.page}>
       <ApiReferenceReact
@@ -56,8 +73,9 @@ export default function ApiDocs() {
           servers: [{ url: API_ORIGIN }],
           authentication: {
             preferredSecurityScheme: 'HTTPBearer',
-            securitySchemes: { HTTPBearer: { token: localStorage.getItem('token') ?? '' } },
+            securitySchemes: { HTTPBearer: { token: prefilledToken } },
           },
+          customFetch: withCurrentToken(prefilledToken),
           persistAuth: false,
           telemetry: false,
           withDefaultFonts: false,
