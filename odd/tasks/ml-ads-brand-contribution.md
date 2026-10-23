@@ -36,8 +36,8 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 | T1c | S6 (settlement storage + API) | inline | merged (#1713) | RED 13 failed + 8 errors, GREEN 77 passed; migration suites 154 passed |
 | T2 | S5, S6, S9 | delegated writer (context backstop) | merged (#1716) | verifier B1 fixed in the PR |
 | T3a | S10 read (exposes S3, S4, S6, S9) | delegated writer (context backstop) | merged (#1718) | branch `feat/ml-ads-contribution-ui`: `70f66a1c1` KPI "Aporte de marcas", `b62d83c40` read-only page + route + sidebar + novedades; GREEN 26 unit + 8 visual |
-| T3b-i | S10 create (exposes S3, S4, S6, S7) | delegated writer (context backstop) | PR open | branch `feat/ml-ads-contribution-ui-manage`, stacked on T3a: `16487f951`; RED 3 failed, GREEN 7 page + 13 novedades |
-| T3b-ii | S10 edit + delete (exposes S6, S7) | delegated writer (context backstop) | written, not pushed | branch `feat/ml-ads-contribution-ui-delete`, stacked on T3b-i |
+| T3b-i | S10 create (exposes S3, S4, S6, S7) | delegated writer (context backstop) | merged (#1719) | branch `feat/ml-ads-contribution-ui-manage`, stacked on T3a: `16487f951`; RED 3 failed, GREEN 7 page + 13 novedades |
+| T3b-ii | S10 edit + delete (exposes S6, S7) | delegated writer (context backstop) | PR open | branch `feat/ml-ads-contribution-ui-delete`, stacked on T3b-i |
 
 ## Log
 
@@ -66,3 +66,5 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 - 2026-10-23 (coordinator): T3b cut into T3b-i (create) and T3b-ii (edit + delete) to stay near the ~446 tolerance. T3b-i on T3a with its race guard kept: generic form `AportesAdsMLForm.jsx` (`initial` shaped like the API contribution, `submit(body)` from the page, input checks kept), "Agregar aporte" gated by `ml_metricas.gestionar_aportes_ads`, 422 in the form, novedades `aportes-marcas-ads-ml-carga`. RED 3 failed (fixed amount, percentage, 422; seen in the pre-split T3b RED run, where the 2 list tests and the hidden-button guard passed before the change); GREEN page 7 passed, novedades 13 passed, eslint clean.
 - 2026-10-23: #1718 merged (ancestor verified). T3b-i rebased on main (kept the ver_ganancia notice, valid-range guard and race guard); page+registry+novedades 81 passed, eslint clean.
 - 2026-10-23: GGA on T3b-i, fixed in the same PR: one shared `utils/apiErrorMessage` (envelope message, else a string detail, else fallback) used by the page and the form, so a 422 whose detail is FastAPI's field list shows the generic text instead of crashing (RED: 'Objects are not valid as a React child'; GREEN 82 passed); the form error has role=alert.
+- 2026-10-23 (T3b-ii): pencil and trash per contribution (gated like "Agregar aporte"); edit reuses `AportesAdsMLForm` with the contribution as `initial` and a PUT `submit`; delete behind a confirmation modal (error shown in the modal); novedades `aportes-marcas-ads-ml-editar-borrar`. RED 2 failed (edit with PUT, delete after confirming); GREEN page 9 passed, novedades 13 passed, eslint clean.
+- 2026-10-23: #1719 merged (ancestor verified). T3b-ii rebased on main.
