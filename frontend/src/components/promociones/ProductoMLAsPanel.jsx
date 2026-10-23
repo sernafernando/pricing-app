@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { productosAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import TreeNode from './TreeNode';
-import { isFilterActive, countHiddenDescendants } from './treeNodeUtils';
+import { isFilterActive, countDeletedDescendants, countHiddenDescendants } from './treeNodeUtils';
 import { useTreeViewStore } from '../../store/treeViewStore';
 import styles from './promociones.module.css';
 
@@ -73,6 +73,10 @@ function buildPxqParams(conPxq) {
  * by default with a "ver todos (N)" escape hatch counting ALL hidden
  * descendants across the whole tree; `matches_filter` absent/true always
  * shows (fail-open).
+ *
+ * Deleted publications (`isDeletedNode`: gone, or `deleted` in ML's
+ * sub_status) are hidden by default, filter or not, with a "Ver eliminadas
+ * (N)" toggle; "ver todos" never reveals them.
  */
 function ProductoMLAsPanel({
   itemId,
@@ -100,6 +104,7 @@ function ProductoMLAsPanel({
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
   const cacheKey = `${itemId}::${filterKey}`;
   const [verTodos, setVerTodos] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
   const showFamilia = useTreeViewStore((state) => state.showFamilia);
   const toggleFamilia = useTreeViewStore((state) => state.toggleFamilia);
   const expandAll = useTreeViewStore((state) => state.expandAll);
@@ -144,6 +149,10 @@ function ProductoMLAsPanel({
     ? rootChildren.reduce((sum, child) => sum + countHiddenDescendants(child), 0)
     : 0;
 
+  // Deleted publications are hidden by default, filter or not; the toggle is
+  // offered only when there is one to show.
+  const deletedCount = rootChildren.reduce((sum, child) => sum + countDeletedDescendants(child), 0);
+
   // Only offer the toggle when the tree actually has a familia level to hide
   // — otherwise there is nothing for it to control.
   const hasFamilia = rootChildren.some((child) => child.kind === 'familia');
@@ -171,6 +180,18 @@ function ProductoMLAsPanel({
           </button>
         </div>
       )}
+      {deletedCount > 0 && (
+        <div className={styles.filterMessage}>
+          <button
+            type="button"
+            className={`btn-tesla outline-subtle-primary sm ${showDeleted ? 'toggle-active' : ''}`}
+            onClick={() => setShowDeleted((shown) => !shown)}
+            aria-pressed={showDeleted}
+          >
+            {showDeleted ? 'Ocultar eliminadas' : `Ver eliminadas (${deletedCount})`}
+          </button>
+        </div>
+      )}
       {filterActive && hiddenCount > 0 && !verTodos && (
         <div className={styles.filterMessage}>
           <button type="button" className="btn-tesla ghost sm" onClick={() => setVerTodos(true)}>
@@ -194,6 +215,7 @@ function ProductoMLAsPanel({
               tiendaOficial={tiendaOficial}
               conPxq={conPxq}
               revealAll={verTodos}
+              showDeleted={showDeleted}
             />
           ))}
         </tbody>

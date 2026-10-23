@@ -84,7 +84,7 @@ const KIND_ROW_CLASS = {
  * dynamic-refresh reload timers, and the catalog-competition/PxQ panels'
  * caches keep working at any depth — dropping them here silently breaks
  * those features deeper in the tree (this is the design's flagged #1 FE
- * risk; the catalog-competition panel was previously omitted from the
+ * risk; `revealAll` and `showDeleted` likewise; the catalog-competition panel was previously omitted from the
  * collapse-epoch sync effect below and had to be fixed once already).
  */
 function TreeNode({
@@ -99,6 +99,7 @@ function TreeNode({
   tiendaOficial,
   conPxq,
   revealAll = false,
+  showDeleted = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -159,11 +160,11 @@ function TreeNode({
 
   const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq);
 
-  if (!nodeHasVisibleContent(node, filterActive, revealAll)) {
+  if (!nodeHasVisibleContent(node, filterActive, revealAll, showDeleted)) {
     return null;
   }
 
-  if (isMlaBearing(node.kind) && isNodeHidden(node, filterActive, revealAll)) {
+  if (isMlaBearing(node.kind) && isNodeHidden(node, filterActive, revealAll, showDeleted)) {
     return null;
   }
 
@@ -195,6 +196,7 @@ function TreeNode({
             tiendaOficial={tiendaOficial}
             conPxq={conPxq}
             revealAll={revealAll}
+            showDeleted={showDeleted}
           />
         ))}
       </>
@@ -400,6 +402,7 @@ function TreeNode({
                   tiendaOficial={tiendaOficial}
                   conPxq={conPxq}
                   revealAll={revealAll}
+                  showDeleted={showDeleted}
                 />
               ))}
             </tbody>

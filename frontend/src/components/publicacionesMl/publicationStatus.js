@@ -15,11 +15,17 @@ const PUBLICATION_STATUSES = {
   no_ml_data: { label: 'Sin datos de ML', tone: 'neutral' },
 };
 
-/** `{label, tone}` for a status; an unknown ML status is shown verbatim, no status is `null`. ML keeps a
- * deleted publication as `inactive` or `closed` with `deleted` among its `sub_status` reasons: "Eliminada". */
+/** A deleted publication: it vanished from ML (`gone`), or ML keeps it as `inactive` or `closed` with `deleted`
+ * among its `sub_status` reasons. The backend's `filters.deleted()` is the same rule. */
+export function isDeletedPublication(status, subStatus) {
+  return status === 'gone' || Boolean(subStatus?.includes('deleted'));
+}
+
+/** `{label, tone}` for a status; an unknown ML status is shown verbatim, no status is `null`. A deleted
+ * publication (`isDeletedPublication`) reads "Eliminada". */
 export function publicationStatusInfo(status, subStatus) {
   if (!status) return null;
-  if (subStatus?.includes('deleted')) return PUBLICATION_STATUSES.gone;
+  if (isDeletedPublication(status, subStatus)) return PUBLICATION_STATUSES.gone;
   return PUBLICATION_STATUSES[status] || { label: status, tone: 'neutral' };
 }
 

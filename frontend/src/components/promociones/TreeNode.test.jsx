@@ -622,7 +622,7 @@ describe('TreeNode publication status badge (from ml_items.status)', () => {
       ['never_existed', 'No existe en ML'],
     ];
     cases.forEach(([status, label]) => {
-      const { unmount } = renderNode(buildStatusNode(status));
+      const { unmount } = renderNode(buildStatusNode(status), { showDeleted: true }); // 'gone' is hidden otherwise
       expect(screen.getByText(label)).toBeInTheDocument();
       unmount();
     });
@@ -642,10 +642,16 @@ describe('TreeNode publication status badge (from ml_items.status)', () => {
   });
 
   it('says "Eliminada" for a publication ML keeps inactive with the deleted reason, with ML\'s reasons as tooltip', () => {
-    renderNode({ ...buildStatusNode('inactive'), publication_sub_status: ['forbidden', 'deleted'] });
+    renderNode({ ...buildStatusNode('inactive'), publication_sub_status: ['forbidden', 'deleted'] }, { showDeleted: true });
 
     expect(screen.getByText('Eliminada').closest('span')).toHaveAttribute('title', 'forbidden, deleted');
     expect(screen.queryByText('Inactiva')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing for a deleted publication unless deleted ones are shown', () => {
+    renderNode({ ...buildStatusNode('inactive'), publication_sub_status: ['deleted'] });
+    expect(screen.queryByText('Eliminada')).not.toBeInTheDocument();
+    expect(screen.queryByRole('row')).not.toBeInTheDocument();
   });
 
   it('renders no status badge when publication_status is absent (store read failed)', () => {

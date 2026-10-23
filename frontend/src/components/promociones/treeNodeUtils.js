@@ -2,6 +2,8 @@
 // (productos-catalog-family-tree PR3). Split out of TreeNode.jsx so
 // react-refresh only sees component exports there.
 
+import { isDeletedPublication } from '../publicacionesMl/publicationStatus';
+
 // Grouping nodes (no `mla`, no own promos) vs MLA-bearing nodes (carry `mla`
 // + optional `matches_filter`, get their own promos sub-spoiler). Mirrors
 // `TreeNode.kind` from `backend/app/schemas/productos_tree.py`.
@@ -36,12 +38,20 @@ export function isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq) {
   return tipos.length > 0 || estado !== 'disponible' || Boolean(tiendaOficial) || Boolean(conPxq);
 }
 
+/** An MLA-bearing node whose publication is deleted (`isDeletedPublication`). */
+export function isDeletedNode(node) {
+  return isMlaBearing(node.kind) && isDeletedPublication(node.publication_status, node.publication_sub_status);
+}
+
+// A deleted publication is hidden unless showDeleted, filter or not ("ver
+// todos" reveals what the filter hid, never a deleted one). Otherwise
 // matches_filter absent/null = show (fail-open); false = hidden unless
 // revealAll. Grouping nodes have no matches_filter and are never hidden by
 // this check directly — visibility for them is driven by their descendants
 // (see `nodeHasVisibleContent`).
-export function isNodeHidden(node, filterActive, revealAll) {
+export function isNodeHidden(node, filterActive, revealAll, showDeleted = false) {
   if (!isMlaBearing(node.kind)) return false;
+  if (!showDeleted && isDeletedNode(node)) return true;
   if (!filterActive || revealAll) return false;
   return node.matches_filter === false;
 }
@@ -49,13 +59,13 @@ export function isNodeHidden(node, filterActive, revealAll) {
 // A grouping node renders only if at least one descendant MLA-bearing node is
 // visible (or it has no MLA-bearing descendants at all, e.g. an empty/plain
 // container — fail-open, never hide by default absent evidence).
-export function nodeHasVisibleContent(node, filterActive, revealAll) {
+export function nodeHasVisibleContent(node, filterActive, revealAll, showDeleted = false) {
   if (isMlaBearing(node.kind)) {
-    return !isNodeHidden(node, filterActive, revealAll);
+    return !isNodeHidden(node, filterActive, revealAll, showDeleted);
   }
   const children = node.children || [];
   if (children.length === 0) return true;
-  return children.some((child) => nodeHasVisibleContent(child, filterActive, revealAll));
+  return children.some((child) => nodeHasVisibleContent(child, filterActive, revealAll, showDeleted));
 }
 
 /**
@@ -69,6 +79,11 @@ export function countHiddenDescendants(node) {
     count += countHiddenDescendants(child);
   });
   return count;
+}
+
+/** Counts every deleted MLA-bearing descendant (inclusive), shown or not — sizes "Ver eliminadas (N)". */
+export function countDeletedDescendants(node) {
+  return (isDeletedNode(node) ? 1 : 0) + (node.children || []).reduce((sum, child) => sum + countDeletedDescendants(child), 0);
 }
 
 const CHILD_KIND_PLURAL = {

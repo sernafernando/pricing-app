@@ -443,4 +443,55 @@ describe('ProductoMLAsPanel — wholesale (PxQ) filter forwarding', () => {
     await waitFor(() => expect(screen.getByText(/MLA_CON/)).toBeTruthy());
     expect(screen.queryByText(/MLA_SIN/)).toBeNull();
   });
+
+  it('hides deleted publications by default and shows them with "Ver eliminadas (N)"', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([
+        { level: 1, kind: 'publicacion', mla: 'MLA_LIVE', label: 'MLA_LIVE', publication_status: 'active', children: [] },
+        { level: 1, kind: 'publicacion', mla: 'MLA_GONE', label: 'MLA_GONE', publication_status: 'gone', children: [] },
+        {
+          level: 1,
+          kind: 'publicacion',
+          mla: 'MLA_DELETED',
+          label: 'MLA_DELETED',
+          publication_status: 'inactive',
+          publication_sub_status: ['forbidden', 'deleted'],
+          children: [],
+        },
+      ]),
+    );
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('MLA_LIVE')).toBeInTheDocument());
+    expect(screen.queryByText('MLA_GONE')).not.toBeInTheDocument();
+    expect(screen.queryByText('MLA_DELETED')).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Ver eliminadas (2)' }));
+    expect(screen.getByText('MLA_GONE')).toBeInTheDocument();
+    expect(screen.getByText('MLA_DELETED')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ocultar eliminadas' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Ocultar eliminadas' }));
+    expect(screen.queryByText('MLA_GONE')).not.toBeInTheDocument();
+  });
+
+  it('offers no "Ver eliminadas" when nothing is deleted', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA_LIVE', label: 'MLA_LIVE', publication_status: 'active', children: [] }]),
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('MLA_LIVE')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /eliminadas/i })).not.toBeInTheDocument();
+  });
+
+  it('says so when every publication is deleted, with the way to see them', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA_GONE', label: 'MLA_GONE', publication_status: 'gone', children: [] }]),
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeInTheDocument());
+    expect(screen.queryByText('MLA_GONE')).not.toBeInTheDocument();
+  });
 });
