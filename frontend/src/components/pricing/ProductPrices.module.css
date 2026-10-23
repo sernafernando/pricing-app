@@ -198,7 +198,7 @@
 }
 
 .table thead th {
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-xs);
   border-bottom: 1px solid var(--cf-border-default);
   text-align: right;
   font-size: var(--font-xs);
@@ -213,6 +213,7 @@
 }
 
 .table thead th:first-child {
+  padding-left: var(--spacing-sm);
   text-align: left;
 }
 
@@ -228,13 +229,15 @@
   background: var(--tone-info-bg);
 }
 
+/* Tight side padding: six columns share the side panel, and CI fonts are wider than local ones. */
 .table td,
 .label {
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-xs);
   vertical-align: middle;
 }
 
 .label {
+  padding-left: var(--spacing-sm);
   text-align: left;
   font-weight: var(--font-medium);
   white-space: nowrap;

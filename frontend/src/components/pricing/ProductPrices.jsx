@@ -64,7 +64,7 @@ const LISTS = [
     title: 'PVP',
     subtitle: 'Precio de venta al público',
     rows: [
-      { id: 'pvp-clasica', label: 'PVP clásica', precio: 'precio_pvp', markup: 'markup_pvp', pricelist: 12, write: 'rapido', listaTipo: 'pvp', perm: 'canEditPvp', sellInOut: 'pvp_clasica' },
+      { id: 'pvp-clasica', label: 'PVP clásica', short: 'PVP clás.', precio: 'precio_pvp', markup: 'markup_pvp', pricelist: 12, write: 'rapido', listaTipo: 'pvp', perm: 'canEditPvp', sellInOut: 'pvp_clasica' },
       ...PVP_CUOTAS.map(([cuota, pricelist]) => ({
         id: `pvp-${cuota}`,
         label: `PVP ${cuota} cuotas`,

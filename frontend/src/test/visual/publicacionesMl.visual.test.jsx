@@ -1041,7 +1041,8 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
             expect(contrastRatio(getComputedStyle(chip(label, 'markup')).color, card)).toBeGreaterThanOrEqual(3);
           }
 
-          // Figures on one line, every cell's content inside the panel.
+          // Figures on one line, every cell's content inside the panel, with headroom: CI fonts are wider than local ones.
+          panel.style.letterSpacing = '0.08em';
           const figures = [...panel.querySelectorAll('tbody td')].filter((td) => /\d/.test(td.textContent));
           expect(figures.filter((td) => getComputedStyle(td).whiteSpace !== 'nowrap').map((td) => td.textContent)).toEqual([]);
           expect(wrapped(panel.querySelectorAll('section[data-list] [data-tone]'))).toEqual([]);
