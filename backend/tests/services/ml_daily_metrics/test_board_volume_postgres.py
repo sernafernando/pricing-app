@@ -208,6 +208,22 @@ def volume_session(board_pg_engine):
     connection.close()
 
 
+@pytest.fixture(scope="module")
+def volume_sell(volume_session):
+    """Empty sell in / sell out consumption tables: the export with the profit view reads them (sell-in-sell-out
+    T11). TEMPORARY like the Ads ones, so they die with the module's transaction."""
+    volume_session.execute(
+        text(
+            "CREATE TEMPORARY TABLE sell_in_consumos (canal VARCHAR(8), venta_ref BIGINT, descuento_ars NUMERIC(18, 2));"
+            "CREATE TEMPORARY TABLE sell_out_campanas (id BIGINT PRIMARY KEY, moneda VARCHAR(3), tc_modo VARCHAR(12), "
+            "tipo_cambio NUMERIC(18, 6));"
+            "CREATE TEMPORARY TABLE sell_out_consumos (campana_id BIGINT, canal VARCHAR(8), venta_ref BIGINT, "
+            "monto NUMERIC(18, 2), tc_venta NUMERIC(18, 6))"
+        )
+    )
+    return volume_session
+
+
 @pytest.fixture(autouse=True)
 def _frozen_clock(monkeypatch):
     monkeypatch.setattr(board, "now_utc", lambda: NOW)
@@ -535,7 +551,7 @@ class TestPagingIsStableUnderTies:
         assert len(keys) == total
         assert len(set(keys)) == total
 
-    def test_the_csv_export_holds_every_row_exactly_once(self, volume_session, monkeypatch) -> None:
+    def test_the_csv_export_holds_every_row_exactly_once(self, volume_session, volume_sell, monkeypatch) -> None:
         from app.routers import ml_metricas
 
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 300)
