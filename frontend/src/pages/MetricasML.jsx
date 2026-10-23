@@ -437,8 +437,8 @@ export default function MetricasML() {
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const shownDimension = tpSolo ? TP_SOLO_DIMENSION : dimension;
   const columnDefs = useMemo(
-    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension: shownDimension, adsOn, tpOn, tpSolo }),
-    [canSeeMargin, periodLabel, groupBy, shownDimension, adsOn, tpOn, tpSolo],
+    () => buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension: shownDimension, adsOn, tpOn, tpSolo, costosTp }),
+    [canSeeMargin, periodLabel, groupBy, shownDimension, adsOn, tpOn, tpSolo, costosTp],
   );
   const table = useReactTable({
     data: [],

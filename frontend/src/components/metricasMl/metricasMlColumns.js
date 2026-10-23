@@ -46,7 +46,16 @@ function productHeader(groupBy, dimension) {
  * `tpSolo`: a `tplink.solo` user's board (backend P5b) always carries the TP costs and never a Total Gauss, so
  * Total TP takes its place and the markup is Markup TP.
  */
-export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimension, adsOn = false, tpOn = false, tpSolo = false }) {
+export function buildBoardColumns({
+  canSeeMargin,
+  periodLabel,
+  groupBy,
+  dimension,
+  adsOn = false,
+  tpOn = false,
+  tpSolo = false,
+  costosTp = false,
+}) {
   const showTp = tpOn || tpSolo;
   const markupHeader = tpSolo ? 'Markup TP' : 'Markup act.';
   const columns = [
@@ -82,8 +91,14 @@ export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy, dimensio
           { id: 'sell_in', group: 'sellin', header: 'Sell in' },
           { id: 'sell_out', group: 'sellin', header: 'Sell out' },
           { id: 'total_gauss_sell', group: 'sellin', header: 'Total c/ sell in/out' },
-          // No such markup with "Costos TP" (the sell in is on the Gauss cost): shown empty, never a sort.
-          { id: 'markup_sell', group: 'sellin', header: 'Markup c/ sell in/out', ...(tpOn ? { sortable: false } : {}) },
+          // No such markup with "Costos TP" (the sell in is on the Gauss cost): shown empty, never a sort -- from
+          // the toggle's click (`costosTp`), not once the TP board answers (`tpOn`).
+          {
+            id: 'markup_sell',
+            group: 'sellin',
+            header: 'Markup c/ sell in/out',
+            ...(tpOn || costosTp ? { sortable: false } : {}),
+          },
         ]),
   ];
   return canSeeMargin ? columns : columns.filter((col) => !MARGIN_COLUMNS.has(col.id));

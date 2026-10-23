@@ -29,6 +29,8 @@ let tpFailure;
 // (a 500, `'fails'`) or never answers (`'hangs'`) once `plainBoard` says so.
 let pubsTpFailure;
 let plainBoard;
+// The TP board request never answers while set.
+let tpHangs;
 const reject = (status) => Promise.reject({ response: { status, data: { detail: 'x' } } });
 const tpAnswer = (data) => (tpFailure ? reject(tpFailure) : Promise.resolve({ data }));
 
@@ -38,12 +40,13 @@ beforeEach(() => {
   tpFailure = null;
   pubsTpFailure = null;
   plainBoard = 'ok';
+  tpHangs = false;
   exportMetricasCsv.mockClear();
   api.get.mockReset();
   api.get.mockImplementation((url, config) => {
     const tp = config?.params?.costos_tp;
     if (url === '/ml-metricas/board') {
-      if (tp) return tpAnswer(withTp());
+      if (tp) return tpHangs ? new Promise(() => {}) : tpAnswer(withTp());
       if (plainBoard === 'fails') return reject(500);
       if (plainBoard === 'hangs') return new Promise(() => {});
       return Promise.resolve({ data: BOARD_RESPONSE });
@@ -165,6 +168,14 @@ describe('MetricasML Costos TP toggle', () => {
     expect(boardCalls().filter(([, config]) => config.params.costos_tp).map(([, c]) => c.params.sort)).not.toContain('markup_sell');
     expect(screen.queryByRole('button', { name: 'Markup c/ sell in/out' })).toBeNull();
     expect(screen.getByRole('columnheader', { name: 'Markup c/ sell in/out' })).toBeInTheDocument();
+  });
+
+  it('the Markup c/ sell in/out header stops sorting as soon as it is turned on, before the TP board answers', async () => {
+    tpHangs = true;
+    await renderWithRouter(<MetricasML />);
+    await screen.findByRole('button', { name: 'Markup c/ sell in/out' });
+    await turnOn();
+    expect(screen.queryByRole('button', { name: 'Markup c/ sell in/out' })).toBeNull();
   });
 
   it('a TP refusal while sorted by Total TP also falls back to Facturado', async () => {
