@@ -404,6 +404,9 @@ def board_filter_tp(
         return f
     if not _can_see_margin(db, current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Costos TP requiere {PERMISO_GANANCIA}")
+    if f.sort == "markup_sell":
+        # The sell in lowers the Gauss cost: with "Costos TP" there is no markup with sell in / sell out to sort by.
+        raise HTTPException(status_code=422, detail="sort=markup_sell no está disponible con costos_tp=true")
     return replace(f, costos_tp=True, tp_store_ids=_tp_store_ids(db))
 
 

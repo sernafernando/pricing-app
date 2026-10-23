@@ -64,13 +64,16 @@ def catalog(request, board_pg, monkeypatch):
     32: one sale (tg20/c100) with an al_cobro USD sell out whose rate is an estimate ($4: 0.02 at 200) and one
     (tg20/c100) with a USD sell out without its rate yet: pending, never 0.
     33: one sale (tg10/c50) with no sell in nor sell out.
-    34: one sale whose markup is unknown (cost 0) with a sell in of $1: it adds to Total Gauss, not to the markup."""
+    34: one sale whose markup is unknown (cost 0) with a sell in of $1: it adds to Total Gauss, not to the markup.
+    35: one sale whose Total Gauss is not resolved yet with a sell in of $7: outside Total Gauss, so outside its
+    sell in / sell out too."""
     db = board_pg
     db.execute(
         text(
             "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
             "VALUES (31, 'S31', 'Router', 'TP-Link', 'Redes', 1, 1), (32, 'S32', 'Switch', 'TP-Link', 'Redes', 1, 1), "
-            "(33, 'S33', 'Mouse', 'Logi', 'Perifericos', 2, 1), (34, 'S34', 'Cable', 'Logi', 'Perifericos', 2, 1);"
+            "(33, 'S33', 'Mouse', 'Logi', 'Perifericos', 2, 1), (34, 'S34', 'Cable', 'Logi', 'Perifericos', 2, 1), "
+            "(35, 'S35', 'Hub', 'Otra', 'Perifericos', 2, 1);"
             "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
             "(57997, 'Gauss', NULL, 1, true), (2645, 'TP-Link', 'tplink', 2, true)"
         )
@@ -82,6 +85,7 @@ def catalog(request, board_pg, monkeypatch):
         (4, 32, "MLA932", 2645, "20", "100"),
         (5, 33, "MLA933", 57997, "10", "50"),
         (6, 34, "MLA934", 57997, "10", "0"),
+        (7, 35, "MLA935", 57997, "10", "50"),
     )
     published = set()
     refs = {}
@@ -99,10 +103,14 @@ def catalog(request, board_pg, monkeypatch):
         _order(db, order_id, [(product, mla, 1, Decimal(costo))], tg=tg, costo=costo)
         _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
         refs[n] = _line(db, order_id)
+    db.execute(
+        text("UPDATE ml_order_metrics SET gauss_status = 'unresolved', total_gauss = NULL WHERE order_id = :o"),
+        {"o": 2000012345679007},
+    )
     db.execute(text(CONSUMPTION_DDL))
     db.execute(
         text(
-            "INSERT INTO sell_in_consumos VALUES ('ml', :s1, 5), ('ml', :s6, 1), ('fuera', :s2, 99);"
+            "INSERT INTO sell_in_consumos VALUES ('ml', :s1, 5), ('ml', :s6, 1), ('ml', :s7, 7), ('fuera', :s2, 99);"
             "INSERT INTO sell_out_consumos VALUES (1, 'ml', :s1, 3, NULL), (2, 'ml', :s2, 0.01, 200), "
             "(1, 'tn', :s2, 50, NULL), (3, 'ml', :s3, 0.02, 200), (2, 'ml', :s4, 1, NULL)"
         ),
@@ -170,12 +178,18 @@ class TestBoardSellInOut:
         assert row.total_gauss_sell == _d("11.00")
         assert row.markup_sell is None
 
+    def test_a_line_without_total_gauss_takes_no_sell_in_out(self, catalog) -> None:
+        row = _rows(catalog, ON)["35"]
+
+        # Its Total Gauss is not known yet (0 in Total Gauss): its sell in would read as profit without the sale's.
+        assert (row.tg, row.sell_in, row.total_gauss_sell) == (_d("0"), _d("0"), _d("0"))
+
     def test_sorts_by_total_gauss_with_sell_in_out(self, catalog) -> None:
         f = dataclasses.replace(ON, sort="total_gauss_sell", sort_desc=True)
         with board.Board(catalog, f, scope_pairs=None) as b:
             keys = [row.key for row in b.page(None)]
 
-        assert keys == ["32", "31", "34", "33"]
+        assert keys == ["32", "31", "34", "33", "35"]
 
     def test_kpis_sum_the_rows(self, catalog) -> None:
         with board.Board(catalog, ON, scope_pairs=None) as b:
@@ -201,6 +215,13 @@ class TestBoardSellInOut:
         # Total Gauss never changes with "Costos TP"; the markup's cost basis does, so no mixed markup.
         assert row.total_gauss_sell == _d("30.00")
         assert (row.costo_sell_in, row.markup_sell) == (None, None)
+
+    def test_costos_tp_refuses_the_markup_with_sell_in_out_sort(self, catalog) -> None:
+        f = dataclasses.replace(ON, costos_tp=True, tp_store_ids=TP_STORES, sort="markup_sell")
+
+        # The router answers 422 first; never a silent fallback to another order.
+        with pytest.raises(ValueError, match="markup_sell"):
+            _rows(catalog, f)
 
 
 def test_a_sell_in_above_the_cost_leaves_the_markup_unknown_like_the_sort() -> None:

@@ -1036,7 +1036,9 @@ class Board:
         """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
         them, their sums)`. A line's sell out is in ARS like the sell-out screen (`resumen.ARS_FILA`); a USD row
         without its rate leaves the line's sell out unknown (pending, never partial nor 0), a campaign whose rate
-        is still an estimate makes it estimated. `m_*` keep only the lines inside the markup population."""
+        is still an estimate makes it estimated. Only the lines inside Total Gauss count (a line whose Total Gauss
+        is not known yet, or being recomputed, reads 0 in both line sources): its sell in would read as profit
+        without the sale's. `m_*` keep only the lines inside the markup population."""
         si, so, campana = SellInConsumo, SellOutConsumo, SellOutCampana
         sell_in = (
             select(si.venta_ref, func.sum(si.descuento_ars).label("ars"))
@@ -1063,16 +1065,16 @@ class Board:
         joined = lines.outerjoin(sell_in, sell_in.c.venta_ref == lines.c.item_row_id).outerjoin(
             sell_out, sell_out.c.venta_ref == lines.c.item_row_id
         )
-        in_markup = lines.c.mcosto > 0
+        in_gauss, in_markup = lines.c.tg != 0, lines.c.mcosto > 0
         sell_in_ars = func.coalesce(sell_in.c.ars, 0)
         sell_out_ars = func.coalesce(sell_out.c.ars, 0)
         return joined, [
-            func.sum(sell_in_ars).label("sell_in"),
-            func.sum(sell_out_ars).label("sell_out"),
+            func.sum(case((in_gauss, sell_in_ars), else_=0)).label("sell_in"),
+            func.sum(case((in_gauss, sell_out_ars), else_=0)).label("sell_out"),
             func.sum(case((in_markup, sell_in_ars), else_=0)).label("m_sell_in"),
             func.sum(case((in_markup, sell_out_ars), else_=0)).label("m_sell_out"),
-            func.sum(case((sell_out.c.sin_tasa > 0, 1), else_=0)).label("sell_out_pendientes"),
-            func.sum(case((and_(sell_out.c.sin_tasa == 0, sell_out.c.estimados > 0), 1), else_=0)).label(
+            func.sum(case((and_(in_gauss, sell_out.c.sin_tasa > 0), 1), else_=0)).label("sell_out_pendientes"),
+            func.sum(case((and_(in_gauss, sell_out.c.sin_tasa == 0, sell_out.c.estimados > 0), 1), else_=0)).label(
                 "sell_out_estimados"
             ),
         ]
@@ -1826,10 +1828,13 @@ class Board:
         if self.f.sort == "total_tp" and not self.tp:
             # The router answers 422 first; never a silent fallback to another order.
             raise ValueError("sort=total_tp needs costos_tp: there is no Total TP without it")
+        if self.f.sort == "markup_sell" and self.tp:
+            # Same rule: the sell in lowers the Gauss cost, so "Costos TP" has no markup with sell in / sell out.
+            raise ValueError("sort=markup_sell has no markup with costos_tp: the sell in is on the Gauss cost")
         column = sort_cols[self.f.sort]
         if column is None:
-            # A sell in / sell out column the request does not carry (OFF, or the markup with "Costos TP"): every
-            # row ties and the unique key orders them, like the ads cost with its toggle OFF.
+            # A sell in / sell out column with `sell_in_out` OFF: every row ties and the unique key orders them,
+            # like the ads cost with its toggle OFF.
             return (rows.c.rk.asc(),)
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc
         return ((column.desc() if descending else column.asc()).nulls_last(), rows.c.rk.asc())

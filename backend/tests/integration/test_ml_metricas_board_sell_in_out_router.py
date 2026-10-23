@@ -226,3 +226,20 @@ def test_sorts_by_the_sell_in_out_columns(client, admin_auth_headers, db, rol_ad
     for direction, order in (("desc", expected), ("asc", expected[::-1])):
         body = _get(client, admin_auth_headers, sort=sort, sort_dir=direction)
         assert [row["key"] for row in body["rows"]] == order
+
+
+def test_the_markup_with_sell_in_out_is_no_sort_with_costos_tp(
+    client, admin_auth_headers, db, rol_admin, sells
+) -> None:
+    """With "Costos TP" there is no markup with sell in / sell out (the sell in is on the Gauss cost): 422, never a
+    table that claims an order it does not have."""
+    _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+    db.commit()
+
+    resp = client.get(
+        URL,
+        params={"date_from": "2026-09-01", "date_to": "2026-09-30", "sort": "markup_sell", "costos_tp": "true"},
+        headers=admin_auth_headers,
+    )
+
+    assert resp.status_code == 422, resp.text
