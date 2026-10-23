@@ -23,6 +23,8 @@ from unittest.mock import patch
 import pytest
 
 from app.models.ml_publications import MlItem
+from app.services.ml_publications import queue
+from app.services.ml_publications.resources import CORE_RESOURCE
 from app.services.ml_publication_status_service import (
     GONE,
     ML_PUBLICATION_STATUS_MAP,
@@ -163,3 +165,40 @@ def test_postgres_aborted_read_keeps_the_caller_transaction_usable(pg_db) -> Non
 
     survivor = pg_db.execute(text("SELECT item_id FROM tb_item_transactions WHERE it_transaction = 987654321"))
     assert survivor.scalar_one() == 42
+
+
+class TestAnMlaTheStoreNeverSawIsFetched:
+    """Owner (2026-10-23): "MLA1816578183 → status: inactive, sub_status: [forbidden, deleted] en las promos lo
+    sigue mostrando con 'sin datos de ml' no que está deleted". The store discovers items by scanning the seller's
+    listing, which never returns a deleted item: an MLA deleted before the store existed never gets a row. Each
+    MLA a reader asks for without a row is queued for a direct fetch (ML answers its real status, or 404)."""
+
+    def test_an_mla_without_a_row_is_queued_for_a_direct_fetch(self, db) -> None:
+        _seed_ml_item(db, "MLA_Q_KNOWN", status="active")
+        _seed_ml_item(db, "MLA_Q_BLANK")
+        db.commit()
+
+        with patch("app.services.ml_publication_status_service._enqueue") as enqueue:
+            result = fetch_publication_status_by_mla(db, ["MLA_Q_KNOWN", "MLA_Q_BLANK", "MLA_Q_GHOST", "MLA_Q_GHOST"])
+
+        assert result["MLA_Q_GHOST"] == MlPublicationStatus(NO_ML_DATA, None)
+        (entries,), _ = enqueue.call_args
+        # Only the one the store has no row for (a row not fetched yet is already the store's business); once.
+        assert [(e.kind, e.entity_id, e.lane, e.resources) for e in entries] == [
+            ("item", "MLA_Q_GHOST", queue.LANE_RECONCILE, (CORE_RESOURCE,))
+        ]
+
+    def test_nothing_is_queued_when_every_mla_has_a_row(self, db) -> None:
+        _seed_ml_item(db, "MLA_Q_ROW", status="paused")
+        db.commit()
+
+        with patch("app.services.ml_publication_status_service._enqueue") as enqueue:
+            fetch_publication_status_by_mla(db, ["MLA_Q_ROW"])
+
+        enqueue.assert_not_called()
+
+    def test_a_failing_enqueue_still_answers_the_statuses(self, db) -> None:
+        with patch("app.services.ml_publication_status_service._enqueue", side_effect=RuntimeError("down")):
+            result = fetch_publication_status_by_mla(db, ["MLA_Q_DOWN"])
+
+        assert result == {"MLA_Q_DOWN": MlPublicationStatus(NO_ML_DATA, None)}

@@ -641,6 +641,13 @@ describe('TreeNode publication status badge (from ml_items.status)', () => {
     expect(screen.getByText('Pausada').closest('span')).toHaveAttribute('title', 'paused_by_seller');
   });
 
+  it('says "Eliminada" for a publication ML keeps inactive with the deleted reason, with ML\'s reasons as tooltip', () => {
+    renderNode({ ...buildStatusNode('inactive'), publication_sub_status: ['forbidden', 'deleted'] });
+
+    expect(screen.getByText('Eliminada').closest('span')).toHaveAttribute('title', 'forbidden, deleted');
+    expect(screen.queryByText('Inactiva')).not.toBeInTheDocument();
+  });
+
   it('renders no status badge when publication_status is absent (store read failed)', () => {
     renderNode(buildStatusNode(undefined));
 

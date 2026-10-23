@@ -53,7 +53,7 @@ const STATUS_BADGE_BY_TONE = {
 };
 
 function statusBadgeFor(node) {
-  const info = publicationStatusInfo(node.publication_status);
+  const info = publicationStatusInfo(node.publication_status, node.publication_sub_status);
   if (!info) return null;
   const { Icon, className } = STATUS_BADGE_BY_TONE[info.tone] || STATUS_BADGE_BY_TONE.neutral;
   return { label: info.label, Icon, className, title: subStatusTitle(node.publication_sub_status) };

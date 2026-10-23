@@ -18,6 +18,15 @@ describe('publicationStatusInfo', () => {
     expect(publicationStatusInfo(status)).toEqual({ label, tone });
   });
 
+  // Owner: "MLA1816578183 → status: inactive, sub_status: [forbidden, deleted] ... no que está deleted".
+  it.each([['inactive'], ['closed']])('a %s publication ML marks deleted reads "Eliminada"', (status) => {
+    expect(publicationStatusInfo(status, ['forbidden', 'deleted'])).toEqual({ label: 'Eliminada', tone: 'danger' });
+  });
+
+  it('other sub_status reasons keep the status label', () => {
+    expect(publicationStatusInfo('paused', ['paused_by_seller'])).toEqual({ label: 'Pausada', tone: 'warning' });
+  });
+
   it('shows an unknown ML status verbatim instead of hiding it', () => {
     expect(publicationStatusInfo('payment_required')).toEqual({ label: 'payment_required', tone: 'neutral' });
   });
