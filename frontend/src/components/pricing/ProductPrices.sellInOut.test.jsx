@@ -124,6 +124,24 @@ describe('markup with sell in and sell out', () => {
     expect(sellCell(await rowOf('Clásica')).firstChild).toHaveAttribute('title', 'Con sell in; el sell out está pendiente');
   });
 
+  it('with a pending sell out, a row without price still shows "—", never "Pendiente"', async () => {
+    withSellInOut({ ...SELL_IN_OUT, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in_out: {} });
+    render(<ProductPrices productItemId={4101} showCost />);
+    await waitFor(async () => expect(sellCell(await rowOf('9 cuotas'))).toHaveTextContent(/^—$/));
+    expect(sellCell(await rowOf('PVP 6 cuotas'))).toHaveTextContent(/^—$/);
+  });
+
+  it('a lot without an ARS cost leaves the row without price as "—"', async () => {
+    withSellInOut({
+      ...SELL_IN_OUT,
+      sell_in: { ...SELL_IN_OUT.sell_in, costo: null },
+      markups_sell_in: {},
+      markups_sell_in_out: {},
+    });
+    render(<ProductPrices productItemId={4101} showCost />);
+    await waitFor(async () => expect(sellCell(await rowOf('9 cuotas'))).toHaveTextContent(/^—$/));
+  });
+
   it('a lot without an ARS cost leaves the markup pending, not as a row without price', async () => {
     withSellInOut({
       ...SELL_IN_OUT,

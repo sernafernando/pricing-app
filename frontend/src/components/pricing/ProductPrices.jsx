@@ -235,8 +235,10 @@ function SellOutAmount({ sellOut }) {
  * is unknown (a lot without an ARS cost, a sell out without its rate or base),
  * so it never reads like a row without price ("—").
  */
-function SellInOutMarkup({ row, sellInOut }) {
+function SellInOutMarkup({ row, price, sellInOut }) {
   if (!sellInOut) return <NoSellInOut title="Sin sell in ni sell out" />;
+  // A row without price has no markup at all: nothing is pending there.
+  if (isBlank(price)) return <Empty />;
   const conSellOut = sellInOut.markups_sell_in_out?.[row.sellInOut];
   if (!isBlank(conSellOut)) {
     return (
@@ -375,7 +377,7 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
       )}
       {showCost && (
         <td className={styles.markup} data-col="markup-sell-in-out">
-          <SellInOutMarkup row={row} sellInOut={product.sell_in_out} />
+          <SellInOutMarkup row={row} price={price} sellInOut={product.sell_in_out} />
         </td>
       )}
       {editable && (
