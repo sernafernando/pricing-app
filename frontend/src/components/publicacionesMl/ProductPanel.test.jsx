@@ -16,6 +16,19 @@ vi.mock('./panel/useProductPanel', async (importOriginal) => ({
   default: vi.fn(),
 }));
 
+let granted = new Set();
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({ tienePermiso: (permiso) => granted.has(permiso) }),
+}));
+
+vi.mock('../pricing/ProductPrices', () => ({
+  default: ({ productItemId, permissions, showCost }) => (
+    <div data-testid="product-prices">
+      {`prices of ${productItemId}, cost ${showCost ? 'shown' : 'hidden'}, clasica ${permissions.canEditClasica ? 'editable' : 'read-only'}`}
+    </div>
+  ),
+}));
+
 const FILTERS = { vista: 'producto', estado: ['active'] };
 const SUMMARY = readProduct(makeProductRow());
 const NO_PRODUCT = readProduct(PRODUCT_ROWS[2]);
@@ -48,10 +61,9 @@ function hookState(overrides = {}) {
 function renderPanel({ state = hookState(), productKey = '4101', ...props } = {}) {
   useProductPanel.mockReturnValue(state);
   const handlers = { onClose: vi.fn(), onSelectItem: vi.fn() };
-  render(
-    <ProductPanel filters={FILTERS} productKey={productKey} canSeeSales canSeeMargin {...handlers} {...props} />,
-  );
-  return { ...handlers, state };
+  const panel = (key) => <ProductPanel filters={FILTERS} productKey={key} canSeeSales canSeeMargin {...handlers} {...props} />;
+  const { rerender } = render(panel(productKey));
+  return { ...handlers, state, reopen: (key) => rerender(panel(key)) };
 }
 
 const figures = () => screen.queryByRole('region', { name: 'Cifras' });
@@ -59,6 +71,7 @@ const figures = () => screen.queryByRole('region', { name: 'Cifras' });
 describe('ProductPanel', () => {
   beforeEach(() => {
     useProductPanel.mockReset();
+    granted = new Set(['productos.ver']);
   });
 
   it('asks the hook for the product under the page filters', () => {
@@ -167,5 +180,66 @@ describe('ProductPanel', () => {
     renderPanel({ state: hookState({ summary: null, items: [] }) });
     expect(screen.getByText('Los filtros actuales no incluyen este producto.')).toBeInTheDocument();
     expect(figures()).not.toBeInTheDocument();
+  });
+
+  describe('tabs', () => {
+    const tab = (name) => screen.queryByRole('tab', { name });
+
+    it('opens on Resumen, with the figures and the publications', () => {
+      renderPanel();
+      expect(screen.getByRole('tablist', { name: 'Secciones del producto' })).toBeInTheDocument();
+      expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('Precios')).toHaveAttribute('aria-selected', 'false');
+      expect(figures()).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Publicaciones' })).toBeInTheDocument();
+      expect(screen.queryByTestId('product-prices')).not.toBeInTheDocument();
+    });
+
+    it("shows the product's prices on Precios, with the cost behind the margin permission", async () => {
+      granted = new Set(['productos.ver', 'productos.editar_precio_clasica']);
+      renderPanel();
+      await userEvent.click(tab('Precios'));
+      expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('prices of 4101, cost shown, clasica editable');
+      expect(figures()).not.toBeInTheDocument();
+    });
+
+    it('hides the cost on Precios without the margin permission', async () => {
+      renderPanel({ canSeeMargin: false });
+      await userEvent.click(tab('Precios'));
+      expect(screen.getByTestId('product-prices')).toHaveTextContent('prices of 4101, cost hidden, clasica read-only');
+    });
+
+    it('moves between tabs with the arrow keys', async () => {
+      renderPanel();
+      tab('Resumen').focus();
+      await userEvent.keyboard('{ArrowRight}');
+      expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('Precios')).toHaveFocus();
+      await userEvent.keyboard('{Home}');
+      expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('has no Precios without a price permission', () => {
+      granted = new Set();
+      renderPanel();
+      expect(tab('Resumen')).toBeInTheDocument();
+      expect(tab('Precios')).not.toBeInTheDocument();
+    });
+
+    it('has no Precios for "Sin producto"', () => {
+      renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
+      expect(tab('Precios')).not.toBeInTheDocument();
+      expect(figures()).toBeInTheDocument();
+    });
+
+    it('goes back to Resumen when another product is opened', async () => {
+      const { reopen } = renderPanel();
+      await userEvent.click(tab('Precios'));
+      useProductPanel.mockReturnValue(hookState({ summary: readProduct(makeProductRow({ key: '4102', product_item_id: 4102 })) }));
+      reopen('4102');
+      expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
+      expect(figures()).toBeInTheDocument();
+    });
   });
 });

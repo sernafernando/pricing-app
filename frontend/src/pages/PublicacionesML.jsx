@@ -592,6 +592,7 @@ export default function PublicacionesML() {
                   onSelectItem={selectProductItem}
                   canSeeSales={canSeeSales}
                   canSeeMargin={canSeeMargin}
+                  onListReload={reloadList}
                 />
               ) : null
             }
