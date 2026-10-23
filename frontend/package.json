@@ -24,6 +24,7 @@
     "@pdfme/generator": "^5.5.10",
     "@pdfme/schemas": "^5.5.10",
     "@pdfme/ui": "^5.5.10",
+    "@scalar/api-reference-react": "0.9.79",
     "@tanstack/react-query": "^5.96.2",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.23",

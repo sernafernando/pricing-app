@@ -53,6 +53,7 @@ const MLQuestions = lazy(() => import('./pages/MLQuestions'));
 const VentasML = lazy(() => import('./pages/VentasML'));
 const MetricasML = lazy(() => import('./pages/MetricasML'));
 const AportesAdsML = lazy(() => import('./pages/AportesAdsML'));
+const ApiDocs = lazy(() => import('./pages/ApiDocs'));
 const SellIn = lazy(() => import('./pages/SellIn'));
 const PublicacionesML = lazy(() => import('./pages/PublicacionesML'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
@@ -123,6 +124,7 @@ const protectedRoutes = [
   { path: '/novedades', component: Novedades },
   { path: '/admin', component: Admin, permiso: 'admin.ver_panel' },
   { path: '/gestion-pm', component: GestionPM, permiso: 'admin.gestionar_pms' },
+  { path: '/api-docs', component: ApiDocs, permiso: 'admin.ver_api_docs' },
   // No permiso: visibility is data-scoped (titular of ≥1 marca/categoria pair),
   // not permission-gated — see design decision D3 in sub-pm-scope-marcas.
   { path: '/mis-sub-pms', component: MisSubPMs },
