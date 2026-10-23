@@ -1,11 +1,19 @@
-"""Brand bonus reconcile (sell-in-sell-out T3c-3).
+"""Bonus reconcile (sell-in-sell-out T3c-3, scopes and % in T3e-2).
 
-A brand bonus (`SellInBonoMarca`) pays `monto_unit` per INVOICED unit of its
-brand (owner 2026-10-19: "es sobre lo facturado, no importa lo recibido";
-invoiced 100 with a credit note of 10 pays "sobre 90") on every Compras
-operation whose supplier invoice date (`pedidos_compra.fecha_factura`) falls in
-its range. It is applied by itself (owner: "los pedidos se tienen que aplicar
-solos a esa marca"): `reconciliar` keeps ONE sell-in purchase per (bonus,
+A bonus (`SellInBonoMarca`) pays on the INVOICED units of the items it reaches
+(owner 2026-10-19: "es sobre lo facturado, no importa lo recibido"; invoiced
+100 with a credit note of 10 pays "sobre 90") on every Compras operation whose
+supplier invoice date (`pedidos_compra.fecha_factura`) falls in its range.
+Its `alcance` says which items it reaches: its brand (`productos_erp.marca`,
+exact, like the list's brand filter), its category (`productos_erp.categoria`,
+exact), its models (`sell_in_bono_items`, of any brand) or every line of ONE
+operation (`pedido_id`; the invoice still has to fall in the range). Lines
+whose item is not in the catalog are never read. Its `tipo` says how much:
+`monto_unit` per unit, or `porcentaje` of each line's invoiced net
+(`pedido_compra_lineas_facturadas.importe_neto`, net of credit notes).
+
+It is applied by itself (owner: "los pedidos se tienen que aplicar solos a esa
+marca"): `reconciliar` keeps ONE sell-in purchase per (bonus,
 operation) in step with the rules below. The full reconcile script runs it
 for every bonus; the queue's consumer (the `sell_in.bono` worker, shipped on
 its own) runs it for every queued change (`bono_queue`).
@@ -15,19 +23,24 @@ Desired state of a pair, recomputed from scratch on every call:
 - it applies when the bonus is `activa`, the operation exists, is not
   `cancelado`/`rechazado`, has an invoice date inside the bonus's inclusive
   range, and has invoiced units (`pedido_compra_lineas_facturadas`, net of
-  credit notes) of items whose `productos_erp.marca` is the bonus's brand
-  (exact match, like the list's brand filter);
+  credit notes) of items the bonus reaches;
 - then its purchase holds one line per such item: `cantidad` = invoiced units,
-  `monto_asignado` = units x `monto_unit` (`formula = 'por_unidad'`), in the
-  bonus's currency, dated the invoice date (`cuenta_desde = 'compra'`), of the
-  operation's supplier, linked to the operation (`sell_in_compra_pedidos` and
-  `pedido_compra_id`), authored by the bonus's author;
+  `monto_asignado` = units x `monto_unit` (`formula = 'por_unidad'`) or the %
+  of the line's invoiced net, half up to cents (`tipo = 'porcentaje'`,
+  `formula = 'manual'`, like a % sell in loaded by hand; a line whose share is
+  0 is left out), in the bonus's currency, dated the invoice date
+  (`cuenta_desde = 'compra'`), of the operation's supplier, linked to the
+  operation (`sell_in_compra_pedidos` and `pedido_compra_id`), authored by the
+  bonus's author;
 - a USD bonus converts at the operation's own rate (`pedidos_compra.tipo_cambio`,
   the effective rate the Compras module keeps), like every sell in (owner
   2026-10-17: the purchase's own rate). An operation without one (an ARS
   operation) takes the BNA rate of its invoice date (`tipo_cambio`, USD venta,
   the latest on or before it). With no rate at all the pair FAILS
   (`ReconcileResult.fallidas`) and is left as it was: never a guessed rate.
+  A % line invoiced in the other currency converts its share at that same
+  rate; a line whose invoiced net mixes currencies (`importe_neto` NULL) fails
+  the pair too.
 
 Writes, set against what is stored:
 
@@ -64,8 +77,8 @@ from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
@@ -74,7 +87,7 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido
+from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell_in.compras import SellInError, audit, costo_en_moneda, moneda
 from app.services.sell_in.costing import get_costing
@@ -111,6 +124,19 @@ class _Pedido:
     fecha_factura: Optional[date]
 
 
+class _Linea(NamedTuple):
+    """An invoiced line of an operation, joined to its product (a line with no product is never read)."""
+
+    item_id: int
+    cantidad: int
+    marca: Optional[str]
+    categoria: Optional[str]
+    importe_neto: Optional[Decimal]
+    moneda: Optional[str]
+    costo: object
+    moneda_costo: object
+
+
 @dataclass(frozen=True)
 class _Deseada:
     """What a pair's purchase must be: header values and `{item_id: (cantidad, monto_asignado)}`."""
@@ -131,6 +157,8 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
     en_rango = and_(
         PedidoCompra.fecha_factura >= SellInBonoMarca.fecha_desde,
         PedidoCompra.fecha_factura <= SellInBonoMarca.fecha_hasta,
+        # An invoice bonus reaches its own operation only.
+        or_(SellInBonoMarca.alcance != "factura", SellInBonoMarca.pedido_id == PedidoCompra.id),
     )
     if bono_ids:
         # Each given bonus (any state) with every operation invoiced in its range.
@@ -189,22 +217,68 @@ def tasas_bna_por_fecha(db: Session, fechas: Set[date]) -> Dict[date, Optional[D
     return tasas
 
 
+def _alcanzadas(bono: SellInBonoMarca, pedido: _Pedido, lineas: List[_Linea], modelos: Set[int]) -> List[_Linea]:
+    """The operation's lines the bonus reaches. No duplicate or non-positive units: the snapshot has
+    UNIQUE(pedido_id, item_id) and CHECK(cantidad > 0)."""
+    if bono.alcance == "categoria":
+        return [linea for linea in lineas if linea.categoria == bono.categoria]
+    if bono.alcance == "modelos":
+        return [linea for linea in lineas if linea.item_id in modelos]
+    if bono.alcance == "factura":
+        return list(lineas) if bono.pedido_id == pedido.id else []
+    return [linea for linea in lineas if linea.marca == bono.marca]
+
+
+def _monto_porcentaje(bono: SellInBonoMarca, pedido: _Pedido, linea: _Linea, tasa: Optional[Decimal]) -> Decimal:
+    """`porcentaje` of the line's invoiced net, in the bonus's currency (converted at the pair's rate when
+    the invoice is in the other one), half up to cents."""
+    if linea.importe_neto is None or linea.moneda is None:
+        raise SellInError(
+            f"El facturado del item {linea.item_id} en el pedido {pedido.id} mezcla monedas: no sirve de base"
+        )
+    monto = Decimal(linea.importe_neto) * Decimal(bono.porcentaje) / 100
+    if linea.moneda != bono.moneda:
+        if tasa is None:
+            raise SellInError(
+                f"El pedido {pedido.id} no tiene tipo de cambio para pasar a {bono.moneda} lo facturado del item "
+                f"{linea.item_id}"
+            )
+        monto = monto / tasa if bono.moneda == "USD" else monto * tasa
+    return monto.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+_ETIQUETAS = {"categoria": "Bono de categoría", "modelos": "Bono de modelos", "factura": "Bono de factura"}
+
+
+def _etiqueta(bono: Optional[SellInBonoMarca]) -> str:
+    return _ETIQUETAS.get(bono.alcance, "Bono de marca") if bono is not None else "Bono de marca"
+
+
+def _descripcion(bono: SellInBonoMarca) -> str:
+    if bono.alcance == "categoria":
+        return f"{_etiqueta(bono)} {bono.categoria} (bono {bono.id})"
+    if bono.alcance == "marca":
+        return f"{_etiqueta(bono)} {bono.marca} (bono {bono.id})"
+    return f"{_etiqueta(bono)} (bono {bono.id})"
+
+
 def _deseada(
     bono: SellInBonoMarca,
     pedido: Optional[_Pedido],
-    lineas: List[tuple],
+    lineas: List[_Linea],
     tasas_bna: Dict[date, Optional[Decimal]],
+    modelos: Set[int],
 ) -> Optional[_Deseada]:
     """The purchase the pair must have, or None when the bonus does not apply to it. Raises `SellInError`
-    when it applies but its USD amount has no rate to convert at. `tasas_bna` holds the BNA rate per
-    invoice date for the whole call."""
+    when it applies but an amount cannot be computed: a USD purchase or a currency conversion with no
+    rate, or a % line whose invoiced net mixes currencies. `tasas_bna` holds the BNA rate per invoice date
+    for the whole call; `modelos` the item ids of a models bonus."""
     if bono.estado != "activa" or pedido is None or pedido.estado in ESTADOS_EXCLUIDOS:
         return None
     fecha = pedido.fecha_factura
     if fecha is None or not (bono.fecha_desde <= fecha <= bono.fecha_hasta):
         return None
-    # No duplicate or non-positive units: the snapshot has UNIQUE(pedido_id, item_id) and CHECK(cantidad > 0).
-    propias = [linea for linea in lineas if linea[2] == bono.marca]
+    propias = _alcanzadas(bono, pedido, lineas, modelos)
     if not propias:
         return None
     tasa = pedido.tipo_cambio
@@ -214,8 +288,15 @@ def _deseada(
         raise SellInError(
             f"El pedido {pedido.id} no tiene tipo de cambio y no hay cotización del dólar al {fecha.isoformat()}"
         )
-    monto_unit = Decimal(bono.monto_unit)
-    detalle = {item_id: (cantidad, (monto_unit * cantidad).quantize(CENT)) for item_id, cantidad, _, _, _ in propias}
+    if bono.tipo == "porcentaje":
+        montos = {linea.item_id: _monto_porcentaje(bono, pedido, linea, tasa) for linea in propias}
+        # A share that rounds to nothing pays nothing; with no line left the bonus does not apply.
+        detalle = {linea.item_id: (linea.cantidad, montos[linea.item_id]) for linea in propias if montos[linea.item_id]}
+        if not detalle:
+            return None
+    else:
+        monto_unit = Decimal(bono.monto_unit)
+        detalle = {linea.item_id: (linea.cantidad, (monto_unit * linea.cantidad).quantize(CENT)) for linea in propias}
     cabecera = {
         "estado": "activa",
         "proveedor_id": pedido.proveedor_id,
@@ -224,7 +305,11 @@ def _deseada(
         "moneda": bono.moneda,
         "tipo_cambio": tasa.quantize(Decimal("0.000001")) if tasa is not None else None,
         "monto_total": sum((monto for _, monto in detalle.values()), Decimal("0")),
-        "descripcion": f"Bono de marca {bono.marca} (bono {bono.id})",
+        # A % bonus is stored like a % sell in loaded by hand (T3g): each line's amount is given.
+        "tipo": "porcentaje" if bono.tipo == "porcentaje" else "monto",
+        "porcentaje": Decimal(bono.porcentaje) if bono.tipo == "porcentaje" else None,
+        "formula": "manual" if bono.tipo == "porcentaje" else "por_unidad",
+        "descripcion": _descripcion(bono),
         "usuario_id": bono.usuario_id,
     }
     return _Deseada(cabecera, detalle)
@@ -281,6 +366,9 @@ _CABECERA = (
     "moneda",
     "tipo_cambio",
     "monto_total",
+    "tipo",
+    "porcentaje",
+    "formula",
     "descripcion",
     "usuario_id",
 )
@@ -308,7 +396,9 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     # Fresh: a worker batch shares the session, so rows loaded before the lock may be stale.
     bonos = {
         x.id: x
-        for x in db.query(SellInBonoMarca).filter(SellInBonoMarca.id.in_({bid for bid, _ in pares})).populate_existing()
+        for x in db.query(SellInBonoMarca)
+        .filter(SellInBonoMarca.id.in_({bid for bid, _ in pares} | {c.bono_id for c in huerfanas}))
+        .populate_existing()
     }
     pids = {pid for _, pid in pares}
     pedidos = {
@@ -327,20 +417,28 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
             PedidoCompra.fecha_factura,
         ).filter(PedidoCompra.id.in_(pids or [-1]))
     }
-    lineas: Dict[int, List[tuple]] = defaultdict(list)
-    for pid, item_id, cantidad, marca, costo, moneda_costo in (
+    lineas: Dict[int, List[_Linea]] = defaultdict(list)
+    for pid, *linea in (
         db.query(
             PedidoCompraLineaFacturada.pedido_id,
             PedidoCompraLineaFacturada.item_id,
             PedidoCompraLineaFacturada.cantidad,
             ProductoERP.marca,
+            ProductoERP.categoria,
+            PedidoCompraLineaFacturada.importe_neto,
+            PedidoCompraLineaFacturada.moneda,
             ProductoERP.costo,
             ProductoERP.moneda_costo,
         )
         .join(ProductoERP, ProductoERP.item_id == PedidoCompraLineaFacturada.item_id)
         .filter(PedidoCompraLineaFacturada.pedido_id.in_(pids or [-1]))
     ):
-        lineas[pid].append((item_id, cantidad, marca, costo, moneda_costo))
+        lineas[pid].append(_Linea(*linea))
+    modelos: Dict[int, Set[int]] = defaultdict(set)
+    for bid, item_id in db.query(SellInBonoItem.bono_id, SellInBonoItem.item_id).filter(
+        SellInBonoItem.bono_id.in_(list(bonos) or [-1])
+    ):
+        modelos[bid].add(item_id)
     existentes: Dict[Par, SellInCompra] = {
         (c.bono_id, c.bono_pedido_id): c
         for c in db.query(SellInCompra).filter(
@@ -360,14 +458,21 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     for compra in huerfanas:
         actuales = items_por_compra.get(compra.id, [])
         compra.estado = "anulada"
-        audit(db, compra, actuales, TipoAccion.SELL_IN_COMPRA_ANULADA, compra.usuario_id, _motivo(None))
+        audit(
+            db,
+            compra,
+            actuales,
+            TipoAccion.SELL_IN_COMPRA_ANULADA,
+            compra.usuario_id,
+            _motivo(None, bonos.get(compra.bono_id)),
+        )
         tocados |= {i.item_id for i in actuales}
         result.anuladas += 1
     for par in sorted(pares):
         bono_id, pedido_id = par
         pedido = pedidos.get(pedido_id)
         try:
-            deseada = _deseada(bonos[bono_id], pedido, lineas.get(pedido_id, []), tasas_bna)
+            deseada = _deseada(bonos[bono_id], pedido, lineas.get(pedido_id, []), tasas_bna, modelos[bono_id])
         except SellInError as exc:
             result.fallidas[par] = str(exc)
             continue
@@ -379,7 +484,14 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         elif compra is not None and deseada is None:
             if compra.estado == "activa":
                 compra.estado = "anulada"
-                audit(db, compra, actuales, TipoAccion.SELL_IN_COMPRA_ANULADA, compra.usuario_id, _motivo(pedido))
+                audit(
+                    db,
+                    compra,
+                    actuales,
+                    TipoAccion.SELL_IN_COMPRA_ANULADA,
+                    compra.usuario_id,
+                    _motivo(pedido, bonos[bono_id]),
+                )
                 tocados |= {i.item_id for i in actuales}
                 result.anuladas += 1
         elif compra is not None and deseada is not None:
@@ -394,17 +506,16 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     return result
 
 
-def _motivo(pedido: Optional[_Pedido]) -> str:
+def _motivo(pedido: Optional[_Pedido], bono: Optional[SellInBonoMarca]) -> str:
     if pedido is None:
-        return "Bono de marca: el pedido de compra ya no existe"
-    return "Bono de marca: el pedido ya no está alcanzado por el bono"
+        return f"{_etiqueta(bono)}: el pedido de compra ya no existe"
+    return f"{_etiqueta(bono)}: el pedido ya no está alcanzado por el bono"
 
 
-def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada, lineas: List[tuple]) -> Set[int]:
+def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada, lineas: List[_Linea]) -> Set[int]:
     compra = SellInCompra(
         **deseada.cabecera,
         cuenta_desde="compra",
-        formula="por_unidad",
         origen=ORIGEN,
         bono_id=bono.id,
         bono_pedido_id=pedido_id,
@@ -412,7 +523,7 @@ def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada
     db.add(compra)
     db.flush()
     db.add(SellInCompraPedido(compra_id=compra.id, pedido_compra_id=pedido_id))
-    costos = {item: (costo, moneda_costo) for item, _, _, costo, moneda_costo in lineas}
+    costos = {linea.item_id: (linea.costo, linea.moneda_costo) for linea in lineas}
     items = [
         SellInCompraItem(
             compra_id=compra.id,
@@ -430,7 +541,7 @@ def _crear(db: Session, bono: SellInBonoMarca, pedido_id: int, deseada: _Deseada
 
 
 def _actualizar(
-    db: Session, compra: SellInCompra, actuales: List[SellInCompraItem], deseada: _Deseada, lineas: List[tuple]
+    db: Session, compra: SellInCompra, actuales: List[SellInCompraItem], deseada: _Deseada, lineas: List[_Linea]
 ) -> Set[int]:
     """Updates the purchase in place when it differs; returns the products touched (empty: nothing changed)."""
     antes_lineas = _lineas_de(actuales)
@@ -440,7 +551,7 @@ def _actualizar(
     antes = _foto(compra, antes_lineas)
     for k, v in deseada.cabecera.items():
         setattr(compra, k, v)
-    costos = {item: (costo, moneda_costo) for item, _, _, costo, moneda_costo in lineas}
+    costos = {linea.item_id: (linea.costo, linea.moneda_costo) for linea in lineas}
     for item in actuales:
         if item.item_id not in deseada.lineas:
             db.delete(item)

@@ -556,3 +556,194 @@ class TestManualVoidRefused:
                 compras.anular_compra(db, compra, 7, None)
 
         assert b.generadas(engine)[0][2] == "activa"
+
+
+def _cabecera(engine: Engine, bono_id: int, pedido_id: int) -> tuple:
+    """`(tipo, porcentaje, formula, descripcion)` of the purchase generated for (bonus, operation)."""
+    with engine.connect() as conn:
+        return tuple(
+            conn.execute(
+                text(
+                    "SELECT tipo, porcentaje, formula, descripcion FROM sell_in_compras "
+                    "WHERE bono_id = :b AND bono_pedido_id = :p"
+                ),
+                {"b": bono_id, "p": pedido_id},
+            ).one()
+        )
+
+
+@pytest.mark.postgres
+class TestAlcance:
+    """T3e: a bonus reaches a brand, a category (`productos_erp.categoria`, exact), some models (item ids)
+    or one whole invoice (its operation's lines with a product), paying per unit or a % of the invoiced net."""
+
+    def test_a_category_bonus_reaches_only_that_categorys_items(self, engine: Engine) -> None:
+        b.set_categoria(engine, 2964, "Routers")
+        b.set_categoria(engine, 2270, "Switches")
+        bono = b.bono_alcance(engine, "categoria", categoria="Routers", monto="3.00")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5, 950: 6})
+
+        result = _reconciliar(engine, bono_ids=[bono])
+
+        assert _counts(result) == (1, 0, 0)
+        assert b.items_de(engine, bono, pedido) == [(2964, 4, Decimal("12.00"))]
+        assert _cabecera(engine, bono, pedido) == (
+            "monto",
+            None,
+            "por_unidad",
+            f"Bono de categoría Routers (bono {bono})",
+        )
+
+    def test_a_models_bonus_reaches_its_listed_items_of_any_brand(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2270, 950), monto="1.00")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5, 950: 6})
+
+        _reconciliar(engine, pedido_ids=[pedido])
+
+        assert b.items_de(engine, bono, pedido) == [(950, 6, Decimal("6.00")), (2270, 5, Decimal("5.00"))]
+        assert _cabecera(engine, bono, pedido)[3] == f"Bono de modelos (bono {bono})"
+
+    def test_an_invoice_bonus_reaches_every_line_of_its_operation_only(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {2964: 4, 950: 6, 123456: 9})  # 123456 has no product: left out
+        otro = b.pedido(engine, {2964: 1})
+        bono = b.bono_alcance(engine, "factura", pedido_id=pedido, monto="1.00")
+
+        result = _reconciliar(engine, bono_ids=[bono])
+
+        assert _counts(result) == (1, 0, 0)
+        assert [(g[0], g[1]) for g in b.generadas(engine)] == [(bono, pedido)]
+        assert b.items_de(engine, bono, pedido) == [(950, 6, Decimal("6.00")), (2964, 4, Decimal("4.00"))]
+        assert _cabecera(engine, bono, pedido)[3] == f"Bono de factura (bono {bono})"
+        assert _reconciliar(engine, pedido_ids=[otro]).creadas == 0
+
+    def test_an_invoice_bonus_whose_operation_was_deleted_voids_its_purchase(self, engine: Engine) -> None:
+        pedido = b.pedido(engine, {2964: 4})
+        bono = b.bono_alcance(engine, "factura", pedido_id=pedido)
+        _reconciliar(engine, bono_ids=[bono])
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM pedidos_compra WHERE id = :p"), {"p": pedido})
+
+        result = _reconciliar(engine, bono_ids=[bono])
+
+        assert _counts(result) == (0, 0, 1)
+        assert b.generadas(engine)[0][2] == "anulada"
+
+    def test_a_category_change_swaps_the_items_of_a_category_bonus(self, engine: Engine) -> None:
+        b.set_categoria(engine, 2964, "Routers")
+        bono = b.bono_alcance(engine, "categoria", categoria="Routers")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5})
+        _reconciliar(engine, bono_ids=[bono])
+
+        b.set_categoria(engine, 2964, None)
+        b.set_categoria(engine, 2270, "Routers")
+        result = _reconciliar(engine, pedido_ids=[pedido])
+
+        assert _counts(result) == (0, 1, 0)
+        assert b.items_de(engine, bono, pedido) == [(2270, 5, Decimal("10.00"))]
+
+    def test_a_model_removed_from_the_list_leaves_the_purchase(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2270, 2964))
+        pedido = b.pedido(engine, {2964: 4, 2270: 5})
+        _reconciliar(engine, bono_ids=[bono])
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM sell_in_bono_items WHERE bono_id = :b AND item_id = 2964"), {"b": bono})
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert b.items_de(engine, bono, pedido) == [(2270, 5, Decimal("10.00"))]
+
+    def test_a_brand_bonus_keeps_its_description_and_kind(self, engine: Engine) -> None:
+        bono = b.bono(engine)
+        pedido = b.pedido(engine, {2964: 1})
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert _cabecera(engine, bono, pedido) == ("monto", None, "por_unidad", f"Bono de marca TP-LINK (bono {bono})")
+
+
+@pytest.mark.postgres
+class TestPorcentaje:
+    def test_a_percentage_bonus_pays_that_share_of_each_lines_invoiced_net_half_up(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964, 2270), tipo="porcentaje", porcentaje="2.5")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5})
+        b.set_importe(engine, pedido, 2964, "1000.00", "USD")
+        b.set_importe(engine, pedido, 2270, "100.20", "USD")  # 2.505 -> 2.51 (half up, not to even)
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert b.items_de(engine, bono, pedido) == [(2270, 5, Decimal("2.51")), (2964, 4, Decimal("25.00"))]
+        assert b.generadas(engine)[0][4] == Decimal("27.51")
+        assert _cabecera(engine, bono, pedido)[:3] == ("porcentaje", Decimal("2.5000"), "manual")
+
+    def test_an_invoiced_net_in_the_other_currency_converts_at_the_operations_rate(self, engine: Engine) -> None:
+        usd = b.bono_alcance(engine, "factura", tipo="porcentaje", porcentaje="2", moneda="USD", pedido_id=None)
+        pedido = b.pedido(engine, {2964: 4}, tipo_cambio="1450.000000")
+        b.update_bono(engine, usd, pedido_id=pedido)
+        ars = b.bono_alcance(engine, "factura", tipo="porcentaje", porcentaje="2", moneda="ARS", pedido_id=pedido)
+        b.set_importe(engine, pedido, 2964, "145000.00", "ARS")
+
+        _reconciliar(engine, pedido_ids=[pedido])
+
+        assert b.items_de(engine, usd, pedido) == [(2964, 4, Decimal("2.00"))]  # 2900 ARS / 1450
+        assert b.items_de(engine, ars, pedido) == [(2964, 4, Decimal("2900.00"))]
+
+    def test_a_line_without_a_single_currency_fails_the_operation_and_writes_nothing(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964,), tipo="porcentaje", porcentaje="2")
+        mezclado = b.pedido(engine, {2964: 4})  # importe_neto and moneda NULL: invoice and credit note mix currencies
+        bien = b.pedido(engine, {2964: 1})
+        b.set_importe(engine, bien, 2964, "100.00", "USD")
+
+        result = _reconciliar(engine, bono_ids=[bono])
+
+        assert [(g[0], g[1]) for g in b.generadas(engine)] == [(bono, bien)]
+        assert list(result.fallidas) == [(bono, mezclado)]
+        assert "2964" in result.fallidas[(bono, mezclado)]
+
+    def test_a_line_whose_share_rounds_to_zero_is_left_out(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964, 2270), tipo="porcentaje", porcentaje="1")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5})
+        b.set_importe(engine, pedido, 2964, "100.00", "USD")
+        b.set_importe(engine, pedido, 2270, "0.00", "USD")
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert b.items_de(engine, bono, pedido) == [(2964, 4, Decimal("1.00"))]
+
+    def test_switching_a_bonus_from_per_unit_to_percentage_updates_its_purchase_in_place(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964,), monto="1.00")
+        pedido = b.pedido(engine, {2964: 4})
+        b.set_importe(engine, pedido, 2964, "500.00", "USD")
+        _reconciliar(engine, bono_ids=[bono])
+        compra = b.compra_id(engine, bono, pedido)
+
+        b.update_bono(engine, bono, tipo="porcentaje", monto_unit=None, porcentaje="3")
+        result = _reconciliar(engine, bono_ids=[bono])
+
+        assert _counts(result) == (0, 1, 0)
+        assert b.compra_id(engine, bono, pedido) == compra
+        assert b.items_de(engine, bono, pedido) == [(2964, 4, Decimal("15.00"))]
+        assert _cabecera(engine, bono, pedido)[:3] == ("porcentaje", Decimal("3.0000"), "manual")
+
+    def test_a_new_invoiced_net_updates_the_amounts(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964,), tipo="porcentaje", porcentaje="10")
+        pedido = b.pedido(engine, {2964: 4})
+        b.set_importe(engine, pedido, 2964, "500.00", "USD")
+        _reconciliar(engine, bono_ids=[bono])
+
+        b.set_importe(engine, pedido, 2964, "450.00", "USD")  # a credit note
+        _reconciliar(engine, pedido_ids=[pedido])
+
+        assert b.items_de(engine, bono, pedido) == [(2964, 4, Decimal("45.00"))]
+
+    def test_the_void_reason_names_the_bonus_scope(self, engine: Engine) -> None:
+        b.set_categoria(engine, 2964, "Routers")
+        bono = b.bono_alcance(engine, "categoria", categoria="Routers")
+        pedido = b.pedido(engine, {2964: 4})
+        _reconciliar(engine, bono_ids=[bono])
+
+        b.update_pedido(engine, pedido, estado="cancelado")
+        _reconciliar(engine, pedido_ids=[pedido])
+
+        with engine.connect() as conn:
+            comentario = conn.execute(text("SELECT comentario FROM auditoria ORDER BY id DESC LIMIT 1")).scalar_one()
+        assert comentario == "Bono de categoría: el pedido ya no está alcanzado por el bono"
