@@ -112,8 +112,9 @@ function ProductoMLAsPanel({
 
   // Reset the "ver todos" reveal (and the deleted toggle, the same way)
   // whenever the active filter changes, so a filter change on an
-  // already-expanded (still-mounted) panel re-applies the new hide set. Without this, verTodos stays true and the new filter is
-  // silently defeated — all nodes shown, with no button to re-hide them.
+  // already-expanded (still-mounted) panel re-applies the new hide set.
+  // Without this, verTodos stays true and the new filter is silently
+  // defeated — all nodes shown, with no button to re-hide them.
   useEffect(() => {
     setVerTodos(false);
     setShowDeleted(false);

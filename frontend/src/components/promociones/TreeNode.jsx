@@ -7,7 +7,6 @@ import PxqPanel from './PxqPanel';
 import {
   isMlaBearing,
   isFilterActive,
-  isNodeHidden,
   hoistsChildren,
   nodeHasVisibleContent,
   describeChildKinds,
@@ -168,6 +167,8 @@ function TreeNode({
 
   const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq);
 
+  // Also hides an MLA-bearing node that does not hoist its children: for it,
+  // `nodeHasVisibleContent` is `!isNodeHidden`.
   if (!nodeHasVisibleContent(node, filterActive, revealAll, showDeleted)) {
     return null;
   }
@@ -207,10 +208,6 @@ function TreeNode({
         ))}
       </>
     );
-  }
-
-  if (isMlaBearing(node.kind) && isNodeHidden(node, filterActive, revealAll, showDeleted)) {
-    return null;
   }
 
   const kindLabel = KIND_LABELS[node.kind] || node.kind;
