@@ -1,12 +1,12 @@
 """What a bonus reaches, for its panel (sell-in-sell-out T3c-4; scopes in T3e-3).
 
+"Of the brand" below means of the bonus's scope: its brand, its category, its
+models, or only its own operation for an invoice bonus (`_del_alcance`).
+
 Three groups, each capped at `limite` rows with its full count:
 
 - `alcanzadas`: the ACTIVE sell-in purchases the worker generated for the bonus
   (`origen = 'bono_marca'`), with their units and amount; latest invoice first.
-"Of the brand" below means of the bonus's scope: its brand, its category, its
-models, or only its own operation for an invoice bonus (`_del_alcance`).
-
 - `pendientes`: operations of the brand with no supplier invoice date yet
   (`pedidos_compra.fecha_factura` NULL). Before invoicing there are no invoiced
   lines, so the brand is known from what was RECEIVED (`pedido_compra_ingresos`):

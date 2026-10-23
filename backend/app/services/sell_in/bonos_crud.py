@@ -262,7 +262,7 @@ def listar_bonos(
 
 def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     """Bonuses with their models (code and description), operation number and what they generated (active
-    purchases, units, amount per currency): 6 queries per page."""
+    purchases, units, amount per currency): at most 5 queries per page."""
     if not bonos:
         return []
     ids = [b.id for b in bonos]

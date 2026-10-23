@@ -38,13 +38,13 @@ from app.core.database import Base
 
 class SellInBonoMarca(Base):
     """X per invoiced unit (or a % of the invoiced net) of the products in the bonus's scope, for the
-        Compras operations whose supplier invoice date (`pedidos_compra.fecha_factura`) falls in
-        [`fecha_desde`, `fecha_hasta`]. Never deleted: voided.
+    Compras operations whose supplier invoice date (`pedidos_compra.fecha_factura`) falls in
+    [`fecha_desde`, `fecha_hasta`]. Never deleted: voided.
 
-        The scope (`alcance`) is a brand (`marca`), a category (`categoria`), some models
-        (`SellInBonoItem` rows) or one invoice (`pedido_id`); each carries only its own field. The table
-        keeps its brand-bonus name. The reconcile (`app.services.sell_in.bonos`) and the API read every scope and
-    kind (T3e-2, T3e-3)."""
+    The scope (`alcance`) is a brand (`marca`), a category (`categoria`), some models
+    (`SellInBonoItem` rows) or one invoice (`pedido_id`); each carries only its own field. The table
+    keeps its brand-bonus name. The reconcile (`app.services.sell_in.bonos`) and the API read every
+    scope and kind (T3e-2, T3e-3)."""
 
     __tablename__ = "sell_in_bonos_marca"
     __table_args__ = (

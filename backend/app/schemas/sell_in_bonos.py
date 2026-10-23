@@ -115,14 +115,14 @@ class SellInBonoAlcanzadaOut(BaseModel):
 
 
 class SellInBonoPedidoOut(BaseModel):
-    """A Compras operation of the brand the bonus does not reach (yet)."""
+    """A Compras operation of the bonus's scope that the bonus does not reach (yet)."""
 
     pedido_id: int
     numero: str
     proveedor_nombre: Optional[str]
     numero_factura: Optional[str]
     fecha_factura: Optional[date]
-    unidades: int  # pending: received units; out of range: invoiced units (only the brand's)
+    unidades: int  # pending: received units; out of range: invoiced units (only the scope's)
 
 
 class SellInBonoAlcanzadasOut(BaseModel):
