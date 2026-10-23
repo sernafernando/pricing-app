@@ -67,6 +67,7 @@ from app.api.endpoints import (
     etiquetas_zpl_tools,
 )
 from app.routers import (
+    api_docs,
     consultas,
     ml_bot,
     administracion_bancos,
@@ -324,6 +325,7 @@ app.include_router(sync.router, prefix="/api", tags=["Sincronización"])
 app.include_router(productos.router, prefix="/api", tags=["Productos"])
 app.include_router(pricing.router, prefix="/api", tags=["Pricing"])
 app.include_router(admin.router, prefix="/api", tags=["Admin"])
+app.include_router(api_docs.router, prefix="/api", tags=["API docs"])
 app.include_router(usuarios.router, prefix="/api", tags=["usuarios"])
 app.include_router(auditoria.router, prefix="/api", tags=["auditoria"])
 app.include_router(sync_ml.router, prefix="/api", tags=["sync-ml"])

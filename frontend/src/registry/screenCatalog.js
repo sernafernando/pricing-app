@@ -131,6 +131,7 @@ export const SCREENS = [
     nota: 'En el menú solo aparece para titulares de pares marca/categoría o con admin.gestionar_pms.',
   },
   { path: '/admin', label: 'Admin', section: 'Gestión', permisos: ['admin.ver_panel'], scope: 'permiso' },
+  { path: '/api-docs', label: 'API docs', section: 'Gestión', permisos: ['admin.ver_api_docs'], scope: 'permiso' },
   { path: '/gestion/alertas', label: 'Alertas', section: 'Gestión', permisos: ['alertas.gestionar'], scope: 'permiso' },
   { path: '/free-shipping-alerts', label: 'Envío Gratis', section: 'Gestión', permisos: ['alertas.ver_free_shipping'], scope: 'permiso' },
 

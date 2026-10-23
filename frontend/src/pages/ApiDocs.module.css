@@ -1,0 +1,14 @@
+.page {
+  min-height: 100%;
+  background: var(--bg-primary);
+}
+
+.status {
+  padding: var(--spacing-lg);
+  color: var(--text-secondary);
+}
+
+.error {
+  padding: var(--spacing-lg);
+  color: var(--tone-danger-fg);
+}

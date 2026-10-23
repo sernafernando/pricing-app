@@ -218,6 +218,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Gestión PMs', path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
         { label: 'Mis Sub-PMs', path: '/mis-sub-pms', visibleIf: () => tieneTitularidades || tienePermiso('admin.gestionar_pms') },
         { label: 'Admin', path: '/admin', permiso: 'admin.ver_panel' },
+        { label: 'API docs', path: '/api-docs', permiso: 'admin.ver_api_docs' },
         { label: 'Alertas', path: '/gestion/alertas', permiso: 'alertas.gestionar' },
         { label: 'Envío Gratis', path: '/free-shipping-alerts', permiso: 'alertas.ver_free_shipping' },
       ],
