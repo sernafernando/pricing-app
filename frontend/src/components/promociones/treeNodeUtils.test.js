@@ -89,11 +89,17 @@ describe('deleted publications — hidden unless showDeleted', () => {
     expect(countDeletedDescendants(tree, false, false)).toBe(2);
   });
 
-  it('counts nothing under a node its button would not show: the subtree goes with it', () => {
+  it('a hidden deleted node hands its live children up a level: they are shown and counted', () => {
     const outChild = { kind: 'vinculada', mla: 'MLA5', publication_status: 'active', matches_filter: false };
+    const liveChild = { kind: 'vinculada', mla: 'MLA8', publication_status: 'active', matches_filter: true };
     const deletedParent = { kind: 'catalogo', mla: 'MLA6', publication_status: 'gone', matches_filter: true, children: [outChild] };
-    expect(countHiddenDescendants(deletedParent)).toBe(0);
-    expect(countHiddenDescendants(deletedParent, true)).toBe(1);
+    expect(countHiddenDescendants(deletedParent)).toBe(1); // "ver todos" reveals the hoisted child
+    expect(nodeHasVisibleContent({ ...deletedParent, children: [liveChild] }, false, false)).toBe(true);
+    expect(nodeHasVisibleContent(deletedParent, true, false)).toBe(false);
+    expect(nodeHasVisibleContent(deletedParent, true, true)).toBe(true);
+  });
+
+  it('a node the filter hides takes its subtree with it, deleted ones included', () => {
     const outParent = { kind: 'catalogo', mla: 'MLA7', publication_status: 'active', matches_filter: false, children: [{ ...gone, matches_filter: true }] };
     expect(countDeletedDescendants(outParent, true, false)).toBe(0);
     expect(countDeletedDescendants(outParent, true, true)).toBe(1);

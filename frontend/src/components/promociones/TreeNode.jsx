@@ -4,7 +4,14 @@ import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import CatalogCompetitionPanel from './CatalogCompetitionPanel';
 import PxqPanel from './PxqPanel';
-import { isMlaBearing, isFilterActive, isNodeHidden, nodeHasVisibleContent, describeChildKinds } from './treeNodeUtils';
+import {
+  isMlaBearing,
+  isFilterActive,
+  isNodeHidden,
+  hoistsChildren,
+  nodeHasVisibleContent,
+  describeChildKinds,
+} from './treeNodeUtils';
 import { getPublicationTypeLabel } from '../../constants/mlPublicationTypes';
 import { publicationStatusInfo, subStatusTitle } from '../publicacionesMl/publicationStatus';
 import { useTiendasOficiales } from '../../hooks/useTiendasOficiales';
@@ -84,8 +91,9 @@ const KIND_ROW_CLASS = {
  * dynamic-refresh reload timers, and the catalog-competition/PxQ panels'
  * caches keep working at any depth — dropping them here silently breaks
  * those features deeper in the tree (this is the design's flagged #1 FE
- * risk; `revealAll` and `showDeleted` likewise; the catalog-competition panel was previously omitted from the
+ * risk; the catalog-competition panel was previously omitted from the
  * collapse-epoch sync effect below and had to be fixed once already).
+ * `revealAll` and `showDeleted` are forwarded the same way.
  */
 function TreeNode({
   node,
@@ -164,10 +172,6 @@ function TreeNode({
     return null;
   }
 
-  if (isMlaBearing(node.kind) && isNodeHidden(node, filterActive, revealAll, showDeleted)) {
-    return null;
-  }
-
   const children = node.children || [];
 
   // Familia grouping is OPTIONAL (global view toggle, default hidden): when
@@ -178,8 +182,10 @@ function TreeNode({
   // way. Children keep forwarding the exact same props so promo filter
   // (matches_filter reveal), the promo summary, the lista badge and the
   // refresh button keep working via each hoisted child's own TreeNode logic.
-  if (node.kind === 'familia' && !showFamilia) {
-    const rowKey = `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
+  // A deleted publication hidden only for being deleted hoists its children
+  // the same way (`hoistsChildren`): its live vinculadas stay in view.
+  if ((node.kind === 'familia' && !showFamilia) || hoistsChildren(node, filterActive, revealAll, showDeleted)) {
+    const rowKey = node.mla || `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
     return (
       <>
         {children.map((child) => (
@@ -201,6 +207,10 @@ function TreeNode({
         ))}
       </>
     );
+  }
+
+  if (isMlaBearing(node.kind) && isNodeHidden(node, filterActive, revealAll, showDeleted)) {
+    return null;
   }
 
   const kindLabel = KIND_LABELS[node.kind] || node.kind;

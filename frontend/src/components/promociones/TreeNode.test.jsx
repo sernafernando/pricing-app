@@ -648,6 +648,20 @@ describe('TreeNode publication status badge (from ml_items.status)', () => {
     expect(screen.queryByText('Inactiva')).not.toBeInTheDocument();
   });
 
+  it('shows the live publications of a hidden deleted catalog one level up', () => {
+    renderNode({
+      level: 1,
+      kind: 'catalogo',
+      mla: 'MLA_CAT',
+      label: 'MLA_CAT',
+      publication_status: 'gone',
+      matches_filter: true,
+      children: [{ level: 2, kind: 'vinculada', mla: 'MLA_VIN', label: 'MLA_VIN', publication_status: 'active', matches_filter: true, children: [] }],
+    });
+    expect(screen.queryByText('MLA_CAT')).not.toBeInTheDocument();
+    expect(screen.getByText('MLA_VIN')).toBeInTheDocument();
+  });
+
   it('renders nothing for a deleted publication unless deleted ones are shown', () => {
     renderNode({ ...buildStatusNode('inactive'), publication_sub_status: ['deleted'] });
     expect(screen.queryByText('Eliminada')).not.toBeInTheDocument();

@@ -376,6 +376,28 @@ describe('ProductoMLAsPanel — official store filter reaches the tree', () => {
     const [, params] = productosAPI.getProductoTree.mock.calls[1];
     expect(params).toMatchObject({ tiendas_oficiales: '57997' });
   });
+
+  it('hides the deleted publications again when the filter changes, as "ver todos" does', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([
+        { level: 1, kind: 'publicacion', mla: 'MLA_LIVE', label: 'MLA_LIVE', publication_status: 'active', children: [] },
+        { level: 1, kind: 'publicacion', mla: 'MLA_GONE', label: 'MLA_GONE', publication_status: 'gone', children: [] },
+      ]),
+    );
+    const refs = { mlasCacheRef: { current: new Map() }, promosCacheRef: { current: new Map() } };
+    const panel = (tienda) => (
+      <table><tbody><tr><td>
+        <ProductoMLAsPanel itemId="ITEM001" {...refs} tiendaOficial={tienda} />
+      </td></tr></tbody></table>
+    );
+    const view = render(panel('2645'));
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Ver eliminadas (1)' }));
+    expect(screen.getByText('MLA_GONE')).toBeInTheDocument();
+
+    view.rerender(panel('57997'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeInTheDocument());
+    expect(screen.queryByText('MLA_GONE')).not.toBeInTheDocument();
+  });
 });
 
 describe('ProductoMLAsPanel — tree controls look like buttons', () => {

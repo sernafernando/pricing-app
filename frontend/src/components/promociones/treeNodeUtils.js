@@ -43,27 +43,44 @@ export function isDeletedNode(node) {
   return isMlaBearing(node.kind) && isDeletedPublication(node.publication_status, node.publication_sub_status);
 }
 
+// The filter hides an MLA-bearing node: matches_filter absent/null = show
+// (fail-open); false = hidden unless revealAll.
+function filterHides(node, filterActive, revealAll) {
+  return filterActive && !revealAll && node.matches_filter === false;
+}
+
 // A deleted publication is hidden unless showDeleted, filter or not ("ver
-// todos" reveals what the filter hid, never a deleted one). Otherwise
-// matches_filter absent/null = show (fail-open); false = hidden unless
-// revealAll. Grouping nodes have no matches_filter and are never hidden by
-// this check directly — visibility for them is driven by their descendants
-// (see `nodeHasVisibleContent`).
+// todos" reveals what the filter hid, never a deleted one). Grouping nodes
+// have no matches_filter and are never hidden by this check directly —
+// visibility for them is driven by their descendants (see
+// `nodeHasVisibleContent`).
 export function isNodeHidden(node, filterActive, revealAll, showDeleted = false) {
   if (!isMlaBearing(node.kind)) return false;
   if (!showDeleted && isDeletedNode(node)) return true;
-  if (!filterActive || revealAll) return false;
-  return node.matches_filter === false;
+  return filterHides(node, filterActive, revealAll);
+}
+
+/**
+ * A node hidden ONLY for being deleted hands its children up a level (as a
+ * hidden familia does): a deleted catalog must not take its live vinculadas
+ * with it. A node the filter hides still takes its whole subtree.
+ */
+export function hoistsChildren(node, filterActive, revealAll, showDeleted = false) {
+  return isMlaBearing(node.kind) && !showDeleted && isDeletedNode(node) && !filterHides(node, filterActive, revealAll);
 }
 
 // A grouping node renders only if at least one descendant MLA-bearing node is
 // visible (or it has no MLA-bearing descendants at all, e.g. an empty/plain
-// container — fail-open, never hide by default absent evidence).
+// container — fail-open, never hide by default absent evidence). A node that
+// hoists its children shows whatever they show.
 export function nodeHasVisibleContent(node, filterActive, revealAll, showDeleted = false) {
+  const children = node.children || [];
+  if (hoistsChildren(node, filterActive, revealAll, showDeleted)) {
+    return children.some((child) => nodeHasVisibleContent(child, filterActive, revealAll, showDeleted));
+  }
   if (isMlaBearing(node.kind)) {
     return !isNodeHidden(node, filterActive, revealAll, showDeleted);
   }
-  const children = node.children || [];
   if (children.length === 0) return true;
   return children.some((child) => nodeHasVisibleContent(child, filterActive, revealAll, showDeleted));
 }
@@ -75,9 +92,8 @@ export function nodeHasVisibleContent(node, filterActive, revealAll, showDeleted
  * sizes the root panel's "ver todos (N)" escape hatch.
  */
 export function countHiddenDescendants(node, showDeleted = false) {
-  // A hidden deleted node takes its subtree with it: "ver todos" reveals none of it.
-  if (!showDeleted && isDeletedNode(node)) return 0;
-  const own = isMlaBearing(node.kind) && node.matches_filter === false;
+  // A hidden deleted node is not revealed, but its children are (`hoistsChildren`).
+  const own = isMlaBearing(node.kind) && node.matches_filter === false && (showDeleted || !isDeletedNode(node));
   return (own ? 1 : 0) + (node.children || []).reduce((sum, child) => sum + countHiddenDescendants(child, showDeleted), 0);
 }
 
