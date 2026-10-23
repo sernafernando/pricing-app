@@ -43,7 +43,8 @@ class SellInBonoMarca(Base):
 
     The scope (`alcance`) is a brand (`marca`), a category (`categoria`), some models
     (`SellInBonoItem` rows) or one invoice (`pedido_id`); each carries only its own field. The table
-    keeps its brand-bonus name. Only 'marca' / 'por_unidad' bonuses are read so far (T3e-1 is inert)."""
+    keeps its brand-bonus name. The reconcile (`app.services.sell_in.bonos`) and the API read every
+    scope and kind (T3e-2, T3e-3)."""
 
     __tablename__ = "sell_in_bonos_marca"
     __table_args__ = (
