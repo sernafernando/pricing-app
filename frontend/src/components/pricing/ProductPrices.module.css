@@ -259,7 +259,7 @@
 /* Markup chip, painted by markupTone (utils/ventasMlTone). */
 .chip {
   display: inline-block;
-  padding: 0 var(--spacing-sm);
+  padding: 0 var(--spacing-xs);
   border-radius: var(--radius-md);
   background: var(--tone-neutral-bg);
   color: var(--tone-neutral-fg);
