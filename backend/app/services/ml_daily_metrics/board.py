@@ -119,10 +119,13 @@ from app.models.ml_ads import (
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
 from app.models.producto import ProductoERP
+from app.models.sell_in import SellInConsumo
+from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import ads_owner_select
 from app.services.ml_daily_metrics import groups as grouping
 from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
+from app.services.sell_out.resumen import ARS_FILA
 from app.services.ml_daily_metrics.sales import (
     BUSINESS_TZ,
     NO_PRODUCT,
@@ -173,6 +176,8 @@ PRODUCT_AXIS = "product"
 # cascade among themselves (`app.services.product_facets`).
 PAIR_AXES = ("stores", "pub_status", "pub_type", PRODUCT_AXIS)
 ROW_AXES = ("alerts", "stock", "ageing")
+# Sell in / sell out (sell-in-sell-out T11): only with `sell_in_out` on.
+SELL_SORTS = ("sell_in", "sell_out", "total_gauss_sell", "markup_sell")
 SORTS = (
     "gross",
     "units",
@@ -191,8 +196,9 @@ SORTS = (
     "stock",
     # Total TP: only with "Costos TP" on (the only column it exists in), always on for `tplink.solo`.
     "total_tp",
+    *SELL_SORTS,
 )
-MARGIN_SORTS = ("total_gauss", "markup", "markup_delta", "ads_cost", "total_tp")
+MARGIN_SORTS = ("total_gauss", "markup", "markup_delta", "ads_cost", "total_tp", *SELL_SORTS)
 SERIES_DAYS = 90
 WINDOWS = (("3d", 3), ("7d", 7), ("15d", 15), ("30d", 30))
 AGEING_ALERT_DAYS = 60
@@ -360,6 +366,11 @@ class BoardFilter:
     # stores are untouched. OFF by default; OFF emits the very same SQL as before the field existed.
     costos_tp: bool = False
     tp_store_ids: Tuple[int, ...] = ()
+    # Sell in / sell out (sell-in-sell-out T11): each sold line's sell in (a purchase discount, lowering its cost)
+    # and sell out (a campaign credit, added to its profit), from what the allocators wrote for it. Reported NEXT
+    # TO the figures without them, which never change. The router sets it for `ml_metricas.ver_ganancia` only.
+    # OFF emits the very same SQL as before the field existed.
+    sell_in_out: bool = False
 
     def __post_init__(self) -> None:
         if self.restar_todo and not self.restar_publicidad:
@@ -408,6 +419,7 @@ NAVIGATION_FIELDS = frozenset(
         "restar_todo",
         "costos_tp",
         "tp_store_ids",
+        "sell_in_out",
     }
 )
 
@@ -500,6 +512,31 @@ class Pub:
     thumbnail: Optional[str] = None
 
 
+class SellInOut:
+    """The figures WITH sell in and sell out of a `Row` or `Kpis` (sell-in-sell-out T11). Owner: "Always show both:
+    cost and cost with sell in; markup and totals without and with sell out."
+
+    `sell_in`/`sell_out` are the ARS of every sold line (what Total Gauss gains); `m_sell_in`/`m_sell_out` only
+    the lines inside the markup population (`mtg`/`costo`), None with "Costos TP" ON: the markup's cost basis is
+    then the TP cost, and a purchase discount on the Gauss cost does not apply to it. `sell_out` sums the KNOWN
+    sell out only: `sell_out_pendientes` lines have a USD sell out without its rate yet (never read as 0) and
+    `sell_out_estimados` lines one whose campaign rate is still an estimate."""
+
+    @staticmethod
+    def costo_sell_in(r: Any) -> Optional[Decimal]:
+        return None if r.m_sell_in is None else r.costo - r.m_sell_in
+
+    @staticmethod
+    def total_gauss_sell(r: Any) -> Optional[Decimal]:
+        return None if r.sell_in is None else r.tg + r.sell_in + r.sell_out
+
+    @staticmethod
+    def markup_sell(r: Any) -> Optional[Decimal]:
+        if r.m_sell_in is None:
+            return None
+        return markup_of(r.mtg + r.m_sell_in + r.m_sell_out, r.costo - r.m_sell_in)
+
+
 @dataclass
 class Row:
     key: str
@@ -535,6 +572,13 @@ class Row:
     # has none with a TP cost) and how many of its TP-store sold lines lack one (incomplete, never read as 0).
     total_tp: Optional[Decimal] = None
     tp_incompletos: Optional[int] = None
+    # `sell_in_out` ON only (all None when OFF, see `SellInOut`).
+    sell_in: Optional[Decimal] = None
+    sell_out: Optional[Decimal] = None
+    m_sell_in: Optional[Decimal] = None
+    m_sell_out: Optional[Decimal] = None
+    sell_out_pendientes: Optional[int] = None
+    sell_out_estimados: Optional[int] = None
     windows: Dict[str, int] = field(default_factory=dict)
     units_24h: int = 0
     last_sale_at: Optional[datetime] = None
@@ -560,6 +604,10 @@ class Row:
         if self.markup is None or self.markup_prev is None:
             return None
         return self.markup - self.markup_prev
+
+    costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
+    total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
+    markup_sell = property(lambda self: SellInOut.markup_sell(self))
 
     def alerts(self) -> Set[str]:
         return set(self.flags)
@@ -592,6 +640,17 @@ class Kpis:
     # Only with "Costos TP" ON (see `Row`).
     total_tp: Optional[Decimal] = None
     tp_incompletos: Optional[int] = None
+    # Only with `sell_in_out` ON (see `Row`).
+    sell_in: Optional[Decimal] = None
+    sell_out: Optional[Decimal] = None
+    m_sell_in: Optional[Decimal] = None
+    m_sell_out: Optional[Decimal] = None
+    sell_out_pendientes: Optional[int] = None
+    sell_out_estimados: Optional[int] = None
+
+    costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
+    total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
+    markup_sell = property(lambda self: SellInOut.markup_sell(self))
 
 
 @dataclass
@@ -732,6 +791,8 @@ class Board:
         self.ads = f.restar_publicidad
         # "Costos TP": the TP store group's operations take the TP cost. OFF changes nothing.
         self.tp = f.costos_tp
+        # Sell in / sell out next to the figures without them. OFF changes nothing.
+        self.sell = f.sell_in_out
         self.product_item_id = product_item_id
         self.scope = tuple(scope)
         self.scope_pairs = None if scope_pairs is None else [tuple(pair) for pair in scope_pairs]
@@ -945,10 +1006,14 @@ class Board:
             groups=self._touched(),
             mlas=select(self.mla_set.c.mla) if pushdown else None,
             tp=self.tp,
+            keyed=self.sell,
         )
         markup = [func.sum(lines.c.mtg).label("mtg"), func.sum(lines.c.mcosto).label("mcosto")]
         if self.tp:
             markup = self._tp_line_sums(lines)
+        source, sell = lines, []
+        if self.sell:
+            source, sell = self._sell_line_sums(lines)
         return self._in_mla_set(
             select(
                 lines.c.product,
@@ -958,11 +1023,57 @@ class Board:
                 func.sum(lines.c.gross).label("gross"),
                 func.sum(lines.c.tg).label("tg"),
                 *markup,
+                *sell,
                 func.sum(case((lines.c.group_date >= self.since_24h, lines.c.qty), else_=0)).label("u24"),
                 func.max(lines.c.group_date).label("last_at"),
-            ),
+            ).select_from(source),
             lines.c.mla,
         ).group_by(lines.c.product, lines.c.mla, lines.c.day)
+
+    def _sell_line_sums(self, lines: Any) -> Tuple[Any, List[Any]]:
+        """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
+        them, their sums)`. A line's sell out is in ARS like the sell-out screen (`resumen.ARS_FILA`); a USD row
+        without its rate leaves the line's sell out unknown (pending, never partial nor 0), a campaign whose rate
+        is still an estimate makes it estimated. `m_*` keep only the lines inside the markup population."""
+        si, so, campana = SellInConsumo, SellOutConsumo, SellOutCampana
+        sell_in = (
+            select(si.venta_ref, func.sum(si.descuento_ars).label("ars"))
+            .where(si.canal == "ml")
+            .group_by(si.venta_ref)
+            .subquery("line_sell_in")
+        )
+        sin_tasa = func.sum(case((and_(campana.moneda != "ARS", so.tc_venta.is_(None)), 1), else_=0))
+        estimado = and_(campana.moneda == "USD", campana.tc_modo == "al_cobro", campana.tipo_cambio.is_(None))
+        sell_out = (
+            select(
+                so.venta_ref,
+                case(
+                    (sin_tasa > 0, None), else_=func.sum(case((campana.moneda == "ARS", so.monto), else_=ARS_FILA))
+                ).label("ars"),
+                sin_tasa.label("sin_tasa"),
+                func.sum(case((estimado, 1), else_=0)).label("estimados"),
+            )
+            .join(campana, campana.id == so.campana_id)
+            .where(so.canal == "ml")
+            .group_by(so.venta_ref)
+            .subquery("line_sell_out")
+        )
+        joined = lines.outerjoin(sell_in, sell_in.c.venta_ref == lines.c.item_row_id).outerjoin(
+            sell_out, sell_out.c.venta_ref == lines.c.item_row_id
+        )
+        in_markup = lines.c.mcosto > 0
+        sell_in_ars = func.coalesce(sell_in.c.ars, 0)
+        sell_out_ars = func.coalesce(sell_out.c.ars, 0)
+        return joined, [
+            func.sum(sell_in_ars).label("sell_in"),
+            func.sum(sell_out_ars).label("sell_out"),
+            func.sum(case((in_markup, sell_in_ars), else_=0)).label("m_sell_in"),
+            func.sum(case((in_markup, sell_out_ars), else_=0)).label("m_sell_out"),
+            func.sum(case((sell_out.c.sin_tasa > 0, 1), else_=0)).label("sell_out_pendientes"),
+            func.sum(case((and_(sell_out.c.sin_tasa == 0, sell_out.c.estimados > 0), 1), else_=0)).label(
+                "sell_out_estimados"
+            ),
+        ]
 
     def _tp_mlas(self) -> Any:
         """The MLAs whose CURRENT publication is in the TP store group (`mlas_in_stores`)."""
@@ -1012,6 +1123,8 @@ class Board:
                 func.sum(case((in_period, L.c.tg_tp))).label("tg_tp"),
                 total(L.c.tp_incompletos, f.date_from, f.date_to).label("tp_incompletos"),
             ]
+        if self.sell:
+            cols += [total(L.c[name], f.date_from, f.date_to).label(name) for name in grouping.SELL_SUM_COLUMNS]
         return select(*cols).group_by(L.c.product, L.c.mla).subquery("agg")
 
     def _pair_source(self):
@@ -1545,6 +1658,7 @@ class Board:
                         "u24",
                         *(("ads_cost", "ads_cost_api") if self.ads else ()),
                         *(grouping.TP_SUM_COLUMNS if self.tp else ()),
+                        *(grouping.SELL_SUM_COLUMNS if self.sell else ()),
                     )
                 ),
                 func.max(fp.c.last_day).label("last_day"),
@@ -1590,8 +1704,23 @@ class Board:
             stock.label("stock"),
             stock_bucket.label("stock_bucket"),
             ageing_bucket.label("ageing_bucket"),
+            *self._sell_sort_columns(g),
         ).select_from(g.outerjoin(erp, erp.c.item_id == g.c.product))
         return q
+
+    def _sell_sort_columns(self, g: Any) -> List[Any]:
+        """Total Gauss and markup WITH sell in / sell out of a summed row, for sorting (`SellInOut` in SQL)."""
+        if not self.sell:
+            return []
+        columns = [(g.c.tg + g.c.sell_in + g.c.sell_out).label("total_gauss_sell")]
+        if not self.tp:
+            cost = g.c.costo - g.c.m_sell_in
+            columns.append(
+                case((cost > 0, (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None).label(
+                    "markup_sell"
+                )
+            )
+        return columns
 
     def _has_activity(self, c: Any) -> Any:
         """The "solo con ventas" predicate on a summed row: a sale in the period, or (toggle ON) ads in it.
@@ -1683,6 +1812,10 @@ class Board:
             "stock": rows.c.stock,
             # An unknown Total TP (incomplete, or no TP-store sale) is NULL: last either way.
             "total_tp": rows.c.tg_tp if self.tp else None,
+            "sell_in": rows.c.sell_in if self.sell else None,
+            "sell_out": rows.c.sell_out if self.sell else None,
+            "total_gauss_sell": rows.c.total_gauss_sell if self.sell else None,
+            "markup_sell": rows.c.markup_sell if self.sell and not self.tp else None,
         }
         if self.f.sort == "ads_cost" and not self.ads:
             # No ads column with the toggle OFF: every row ties and the unique key orders them. Never a constant
@@ -1692,6 +1825,10 @@ class Board:
             # The router answers 422 first; never a silent fallback to another order.
             raise ValueError("sort=total_tp needs costos_tp: there is no Total TP without it")
         column = sort_cols[self.f.sort]
+        if column is None:
+            # A sell in / sell out column the request does not carry (OFF, or the markup with "Costos TP"): every
+            # row ties and the unique key orders them, like the ads cost with its toggle OFF.
+            return (rows.c.rk.asc(),)
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc
         return ((column.desc() if descending else column.asc()).nulls_last(), rows.c.rk.asc())
 
@@ -1749,6 +1886,7 @@ class Board:
                 prev_costo=cents(r["prev_costo"]),
                 ads_cost=cents(r["ads_cost"]) if self.ads else None,
                 **self._tp_of(r),
+                **self._sell_of(r),
                 last_sale_at=as_aware(as_datetime(r["last_at"])),
                 windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
                 units_24h=int(r["u24"] or 0),
@@ -1919,6 +2057,7 @@ class Board:
             markup_prev.label("markup_prev"),
             (markup - markup_prev).label("markup_delta"),
             func.coalesce(g.c.last_day, g.c.start_day).label("ref_day"),
+            *self._sell_sort_columns(g),
         )
         if self.f.solo_con_ventas:
             q = q.where(self._has_activity(g.c))
@@ -1995,6 +2134,7 @@ class Board:
             prev_costo=cents(r["prev_costo"]),
             ads_cost=cents(r["ads_cost"]) if self.ads else None,
             **self._tp_of(r),
+            **self._sell_of(r),
             last_sale_at=as_aware(as_datetime(r["last_at"])),
             windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
             units_24h=int(r["u24"] or 0),
@@ -2007,6 +2147,20 @@ class Board:
         if not self.tp:
             return {}
         return dict(total_tp=_nullable_cents(r["tg_tp"]), tp_incompletos=int(r["tp_incompletos"] or 0))
+
+    def _sell_of(self, r: Any) -> Dict[str, Any]:
+        """The `Row`/`Kpis` sell in / sell out fields of a summed row: none with `sell_in_out` OFF, and no markup
+        population with "Costos TP" ON (see `SellInOut`)."""
+        if not self.sell:
+            return {}
+        return dict(
+            sell_in=cents(r["sell_in"]),
+            sell_out=cents(r["sell_out"]),
+            m_sell_in=None if self.tp else cents(r["m_sell_in"]),
+            m_sell_out=None if self.tp else cents(r["m_sell_out"]),
+            sell_out_pendientes=int(r["sell_out_pendientes"] or 0),
+            sell_out_estimados=int(r["sell_out_estimados"] or 0),
+        )
 
     # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
 
@@ -2056,6 +2210,7 @@ class Board:
             markup_prev.label("markup_prev"),
             (markup - markup_prev).label("markup_delta"),
             func.coalesce(g.c.last_day, g.c.start_day).label("ref_day"),
+            *self._sell_sort_columns(g),
         )
         if self.f.solo_con_ventas:
             q = q.where(self._has_activity(g.c))
@@ -2128,6 +2283,10 @@ class Board:
                         [func.sum(rows.c.tg_tp).label("tg_tp"), func.sum(rows.c.tp_incompletos).label("tp_incompletos")]
                         if self.tp
                         else []
+                    ),
+                    *(
+                        func.coalesce(func.sum(rows.c[name]), 0).label(name)
+                        for name in (grouping.SELL_SUM_COLUMNS if self.sell else ())
                     ),
                     func.count().label("rows"),
                     func.coalesce(func.sum(case((rows.c.units > 0, 1), else_=0)), 0).label("with_sales"),
@@ -2205,6 +2364,7 @@ class Board:
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
             ads=ads,
             **self._tp_of(totals),
+            **self._sell_of(totals),
         )
 
     def _ads_kpis(self) -> AdsKpis:

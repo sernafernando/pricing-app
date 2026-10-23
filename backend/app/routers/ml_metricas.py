@@ -46,9 +46,11 @@ from app.services.ml_daily_metrics.kpi_strip import (
     BoardKpisWithAds,
     BoardPeriod,
     KpiAgeing,  # noqa: F401 -- part of this router's public surface (its tests import it from here)
+    SellInOutFigures,
     build_board_kpis,
     round_money,
     round_pp,
+    sell_in_out_of,
 )
 from app.services import pm_scope
 from app.services.permisos_service import PermisosService
@@ -67,8 +69,17 @@ EXPORT_PAGE_SIZE = 500
 # `tplink.solo`: the one "Agrupado" dimension it may read, and the Gauss figures it never gets -- the response keys
 # (dropped at any depth by `_tp_solo_response`) and the CSV columns. Its markup fields carry Markup TP.
 TP_SOLO_DIMENSION = "tienda"
-TP_SOLO_DENY_KEYS = frozenset({"total_gauss"})
-TP_SOLO_DENY_CSV = frozenset({"Total Gauss"})
+# Sell in / sell out (sell-in-sell-out T11) are on the Gauss basis too.
+SELL_CSV_HEADER = (
+    "Sell in",
+    "Sell out",
+    "Sell out pendientes",
+    "Costo c/ sell in",
+    "Total Gauss c/ sell in/out",
+    "Markup c/ sell in/out %",
+)
+TP_SOLO_DENY_KEYS = frozenset({"total_gauss", "sell_in_out"})
+TP_SOLO_DENY_CSV = frozenset({"Total Gauss", *SELL_CSV_HEADER})
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +156,8 @@ class BoardRow(BaseModel):
     # its TP-store sold lines without a TP cost.
     total_tp: Optional[float] = None
     tp_incompletos: Optional[int] = None
+    # Sell in / sell out (sell-in-sell-out T11): only with `ml_metricas.ver_ganancia`.
+    sell_in_out: Optional[SellInOutFigures] = None
     last_sale_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
     # `productos_erp.stock` of the row's product (a publication row: its
@@ -409,8 +422,8 @@ def _tp_solo_filter(db: Session, f: board.BoardFilter) -> board.BoardFilter:
         raise HTTPException(status_code=422, detail="tplink.solo: el filtro por PM no está disponible")
     if f.group_by == "group" and f.dimension != TP_SOLO_DIMENSION:
         raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
-    if f.sort == "total_gauss":
-        raise HTTPException(status_code=422, detail="tplink.solo: no se ordena por Total Gauss")
+    if f.sort == "total_gauss" or f.sort in board.SELL_SORTS:
+        raise HTTPException(status_code=422, detail="tplink.solo: no se ordena por Total Gauss ni por sell in/out")
     tp_ids = _tp_store_ids(db)
     return replace(
         f,
@@ -421,14 +434,17 @@ def _tp_solo_filter(db: Session, f: board.BoardFilter) -> board.BoardFilter:
     )
 
 
-def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> None:
+def _margin_gate(f: board.BoardFilter, can_see_margin: bool) -> board.BoardFilter:
+    """403 for a margin sort, filter or toggle without the profit view; the filter with the sell in / sell out
+    figures (profit figures too) read only with it."""
     if can_see_margin:
-        return
+        return replace(f, sell_in_out=True)
     if f.restar_publicidad or f.sort in board.MARGIN_SORTS or "margen_cayendo" in f.alerts:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Ordenar o filtrar por margen, o restar publicidad, requiere {PERMISO_GANANCIA}",
         )
+    return f
 
 
 # ── Shaping ──────────────────────────────────────────────────────
@@ -469,6 +485,7 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, lea
         ads=RowAds(cost=round_money(row.ads_cost)) if can_see_margin and row.ads_cost is not None else None,
         total_tp=round_money(row.total_tp) if can_see_margin else None,
         tp_incompletos=row.tp_incompletos if can_see_margin else None,
+        sell_in_out=sell_in_out_of(row) if can_see_margin else None,
         last_sale_at=row.last_sale_at,
         ageing_days=row.ageing_days,
         stock=row.stock,
@@ -601,7 +618,7 @@ def get_board(
     (`ml_daily_metrics.sales.sale_lines`), the same rules as Ventas ML."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
     can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
-    _margin_gate(f, can_see_margin)
+    f = _margin_gate(f, can_see_margin)
     response = build_board_response(
         db, f, limit=limit, offset=offset, can_see_margin=can_see_margin, scope_pairs=scope_pairs
     )
@@ -626,7 +643,7 @@ def get_product_publications(
     product row."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
     can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
-    _margin_gate(f, can_see_margin)
+    f = _margin_gate(f, can_see_margin)
     by_pub = replace(
         f,
         group_by="publication",
@@ -697,7 +714,7 @@ def get_group_nodes(
     thousands of products), in the board's sort order."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
     can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
-    _margin_gate(f, can_see_margin)
+    f = _margin_gate(f, can_see_margin)
     if tp_solo and f.dimension != TP_SOLO_DIMENSION:
         raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
     scope = _parse_path(path, f.dimension)
@@ -763,7 +780,12 @@ def _csv_layout(f: board.BoardFilter) -> CsvLayout:
 
 
 def _csv_line(
-    row: board.Row, can_see_margin: bool, layout: CsvLayout, with_ads: bool = False, tp: bool = False
+    row: board.Row,
+    can_see_margin: bool,
+    layout: CsvLayout,
+    with_ads: bool = False,
+    tp: bool = False,
+    sell: bool = False,
 ) -> list:
     """One CSV line: the layout's own columns, then the ones every layout
     shares, in the same order (units and windows, money, margin when allowed,
@@ -771,7 +793,8 @@ def _csv_line(
     off, margin allowed): the row's ads cost right after Total Gauss, which
     already has it subtracted -- the board's column order and figures. `tp`
     ("Costos TP"): Total TP and the incomplete count after them (Total TP is
-    net of the same ads)."""
+    net of the same ads). `sell`: the sell in / sell out figures after the
+    markups (`SELL_CSV_HEADER`)."""
     line = layout.head_of(row) + [
         row.units,
         row.units_24h,
@@ -790,6 +813,15 @@ def _csv_line(
             _csv_money(round_pp(row.markup_prev)),
             _csv_money(round_pp(row.markup_delta)),
         ]
+        if sell:
+            line += [
+                _csv_money(round_money(row.sell_in)),
+                _csv_money(round_money(row.sell_out)),
+                row.sell_out_pendientes,
+                _csv_money(round_money(row.costo_sell_in)),
+                _csv_money(round_money(row.total_gauss_sell)),
+                _csv_money(round_pp(row.markup_sell)),
+            ]
     line += [
         row.last_sale_at.isoformat() if row.last_sale_at else "",
         row.ageing_days if row.ageing_days is not None else "",
@@ -839,7 +871,7 @@ def export_board(
     explicit error line."""
     tp_solo = _tp_solo_of(tp_solo, db, current_user)
     can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
-    _margin_gate(f, can_see_margin)
+    f = _margin_gate(f, can_see_margin)
     # The CSV follows the board's "Publicidad" position: off keeps the pre-ads file byte for byte.
     with_ads = can_see_margin and f.restar_publicidad
     # `scope_pairs` is resolved ONCE, above, on the request session: every page
@@ -870,7 +902,7 @@ def export_board(
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";")
         for row in rows:
-            line = _csv_line(row, can_see_margin, layout, with_ads, tp=f.costos_tp)
+            line = _csv_line(row, can_see_margin, layout, with_ads, tp=f.costos_tp, sell=f.sell_in_out)
             writer.writerow([line[i] for i in kept])
         return buffer.getvalue()
 
@@ -887,6 +919,7 @@ def export_board(
             "Markup %",
             "Markup anterior %",
             "Variación pp",
+            *(SELL_CSV_HEADER if f.sell_in_out else ()),
         ]
     header += ["Última venta", "Ageing (días)", "Stock"]
     # `tplink.solo`: the Gauss columns never reach the file (header and every line).

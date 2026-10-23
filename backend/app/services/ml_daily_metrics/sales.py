@@ -384,6 +384,7 @@ def persisted_lines(
     product: Optional[int] = None,
     mlas: Optional[Any] = None,
     tp: bool = False,
+    keyed: bool = False,
 ):
     """The same lines as `sale_lines` (same columns, same numbers), read from the
     persisted `ml_sale_lines` instead of derived: no joins, no windows. The table
@@ -393,13 +394,15 @@ def persisted_lines(
     `mlas` (a list or a one-column select) limits it to those MLAs: each line is
     independent, so no other line of the group is needed. `tp=True` adds the
     TP-Link shares under the same queue rule, but NULL (unknown) where the
-    Gauss columns say 0, as the live derivation does."""
+    Gauss columns say 0, as the live derivation does. `keyed=True` adds the line's
+    `item_row_id`."""
     L = MlSaleLine
     o2 = aliased(MlOrdersOps)
     queued_orders = select(D.order_id)
     queued_groups = select(group_key_expr(o2)).select_from(o2).join(D, D.order_id == o2.order_id)
     order_queued, group_queued = L.order_id.in_(queued_orders), L.group_key.in_(queued_groups)
     q = select(
+        *([L.item_row_id] if keyed else []),
         L.product,
         L.mla,
         L.group_date,
@@ -444,15 +447,17 @@ def lines_source(
     groups: Optional[Any] = None,
     mlas: Optional[Any] = None,
     tp: bool = False,
+    keyed: bool = False,
 ):
     """The sold lines (`sale_lines` columns) from the source `reads_persisted_lines`
     picks. `groups` bounds only the live derivation and `mlas` only the persisted
     read: the persisted lines are independent rows, while the live ones need their
     whole groups (the caller still keeps the lines of its MLAs there). `tp=True`
-    adds the TP-Link shares (`tg_tp`, `mtg_tp`, `mcosto_tp`) from either source."""
+    adds the TP-Link shares (`tg_tp`, `mtg_tp`, `mcosto_tp`) from either source, `keyed=True`
+    the line's `item_row_id` (the persisted read adds only that one)."""
     if reads_persisted_lines(sqlite):
-        return persisted_lines(ranges=ranges, product=product, mlas=mlas, tp=tp)
-    return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups, tp=tp)
+        return persisted_lines(ranges=ranges, product=product, mlas=mlas, tp=tp, keyed=keyed)
+    return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups, tp=tp, keyed=keyed)
 
 
 def persisted_last_sales(

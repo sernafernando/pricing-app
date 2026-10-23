@@ -141,11 +141,22 @@ def _board_response(session, name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-TP_FIELDS = ("total_tp", "tp_incompletos")
+TP_FIELDS = (
+    "total_tp",
+    "tp_incompletos",
+    # sell-in-sell-out T11, null with `sell_in_out` OFF.
+    "sell_in",
+    "sell_out",
+    "m_sell_in",
+    "m_sell_out",
+    "sell_out_pendientes",
+    "sell_out_estimados",
+)
 
 
 def _without_null_tp(row: Dict[str, Any]) -> Dict[str, Any]:
-    """A row minus the "Costos TP" fields while they are null (the toggle OFF): additive, not pinned here."""
+    """A row minus the "Costos TP" and sell in / sell out fields while they are null (their toggles OFF):
+    additive, not pinned here."""
     return {k: v for k, v in row.items() if k not in TP_FIELDS or v is not None}
 
 

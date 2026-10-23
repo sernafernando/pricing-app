@@ -8,7 +8,7 @@ and period. Without `can_see_margin` the profit figures (Total Gauss, markup) co
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -164,12 +164,46 @@ class KpiTp(BaseModel):
     incompletos: int = 0
 
 
+class SellInOutFigures(BaseModel):
+    """Sell in / sell out of a board row or of the KPI strip (sell-in-sell-out T11, see `board.SellInOut`): what
+    they add (ARS), how many sold lines have a USD sell out without its rate yet (`sell_out` leaves them out, never
+    counts them as 0) or with an estimated one, and the figures WITH them next to the ones without. `costo` is the
+    markup's cost; it, the cost with sell in and the markup with them are null with "Costos TP" ON."""
+
+    sell_in: float
+    sell_out: float
+    sell_out_pendientes: int
+    sell_out_estimados: int
+    costo: Optional[float] = None
+    costo_sell_in: Optional[float] = None
+    total_gauss: float
+    markup_pct: Optional[float] = None
+
+
+def sell_in_out_of(x: Union[board.Row, board.Kpis]) -> Optional[SellInOutFigures]:
+    """The sell in / sell out figures of a row or the strip; None with `sell_in_out` OFF."""
+    if x.sell_in is None:
+        return None
+    return SellInOutFigures(
+        sell_in=round_money(x.sell_in),
+        sell_out=round_money(x.sell_out),
+        sell_out_pendientes=x.sell_out_pendientes,
+        sell_out_estimados=x.sell_out_estimados,
+        costo=None if x.costo_sell_in is None else round_money(x.costo),
+        costo_sell_in=round_money(x.costo_sell_in),
+        total_gauss=round_money(x.total_gauss_sell),
+        markup_pct=round_pp(x.markup_sell),
+    )
+
+
 class BoardKpisWithAds(BoardKpis):
-    """The Métricas board's strip: the shared one plus the ads block (null with the toggle OFF) and Total TP (null
-    with "Costos TP" OFF). Publicaciones keeps `BoardKpis`, so its strip never carries those fields."""
+    """The Métricas board's strip: the shared one plus the ads block (null with the toggle OFF), Total TP (null
+    with "Costos TP" OFF) and sell in / sell out (null without the profit view). Publicaciones keeps `BoardKpis`,
+    so its strip never carries those fields."""
 
     ads: Optional[KpiAds] = None
     total_tp: Optional[KpiTp] = None
+    sell_in_out: Optional[SellInOutFigures] = None
 
 
 def round_money(value) -> Optional[float]:
@@ -288,4 +322,5 @@ def build_board_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpisWithAds:
         if can_see_margin and k.tp_incompletos is not None
         else None
     )
-    return BoardKpisWithAds(**build_kpis(k, can_see_margin).model_dump(), ads=ads, total_tp=tp)
+    sell = sell_in_out_of(k) if can_see_margin else None
+    return BoardKpisWithAds(**build_kpis(k, can_see_margin).model_dump(), ads=ads, total_tp=tp, sell_in_out=sell)
