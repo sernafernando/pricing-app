@@ -123,9 +123,15 @@ def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Op
 def campanas_por_venta(db: Session, ventas: Iterable[Tuple[int, date]]) -> Set[int]:
     """The ACTIVE campaigns reaching some `(item_id, fecha)` sale inside their range, in ONE query
     over the sales' products and overall dates (sell-out queue fan-out, T7 S3)."""
+    return set().union(*campanas_por_item(db, ventas).values())
+
+
+def campanas_por_item(db: Session, ventas: Iterable[Tuple[int, date]]) -> Dict[int, Set[int]]:
+    """`{item_id: campaign ids}`: `campanas_por_venta` keeping which product each campaign reaches
+    (an item none reaches is absent). ONE query."""
     ventas = set(ventas)
     if not ventas:
-        return set()
+        return {}
     c, g = SellOutCampana, SellOutCampanaGrupo
     rows = (
         _alcanzados(db, c.id, ProductoERP.item_id, c.fecha_desde, c.fecha_hasta)
@@ -141,7 +147,11 @@ def campanas_por_venta(db: Session, ventas: Iterable[Tuple[int, date]]) -> Set[i
     fechas: Dict[int, Set[date]] = defaultdict(set)
     for item, dia in ventas:
         fechas[item].add(dia)
-    return {cid for cid, item, desde, hasta in rows if any(desde <= dia <= hasta for dia in fechas[item])}
+    salida: Dict[int, Set[int]] = defaultdict(set)
+    for cid, item, desde, hasta in rows:
+        if any(desde <= dia <= hasta for dia in fechas[item]):
+            salida[item].add(cid)
+    return dict(salida)
 
 
 def en_campana(campana: SellOutCampana, venta: Venta) -> bool:

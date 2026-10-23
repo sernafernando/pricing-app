@@ -158,6 +158,25 @@ def _tasa(c: SellOutCampana, fecha: date, tasas: _Tasas) -> Decimal:
     return Decimal(tasa)
 
 
+def credito_unitario(
+    c: SellOutCampana, fecha: date, iva: Optional[Decimal], base_ars: Optional[Decimal], bna: Optional[Decimal]
+) -> Optional[Tuple[Decimal, Decimal]]:
+    """A unit not sold yet, on `fecha`: `(its credit in the campaign currency, the rate to ARS)`, by
+    this allocator's rules (`_tasa`, `tope.credito_unitario`); the rate is 1 for ARS. `base_ars` is
+    the percentage base per unit, ARS, without VAT; `bna` the BNA of `fecha`, also taken as the
+    current one. None when a percentage base is unknown; a missing rate or VAT rate raises."""
+    tasa = Decimal(1) if c.moneda == "ARS" else _tasa(c, fecha, _Tasas({fecha: bna}, bna))
+    if c.monto_incluye_iva and iva is None:
+        raise SellOutAsignacionError(f"campaign {c.id}: a product it reaches has no VAT rate")
+    base = None
+    if c.tipo == "porcentaje":
+        if base_ars is None:
+            return None
+        base = Decimal(base_ars) / tasa
+    linea = tope.Linea("", 0, 0, fecha, 1, iva_pct=iva or Decimal(0), base_unit=base)
+    return tope.credito_unitario(_tope(c), linea), tasa
+
+
 def _base_registrada(c: SellOutCampana, v: alcance.Venta) -> Optional[Decimal]:
     return v.costo_unit if c.base_porcentaje == "costo" else v.precio_unit
 

@@ -26,6 +26,7 @@ from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.schemas.costo_ppp import PppPayload
+from app.schemas.sell_in_out_producto import SellInOutProducto
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ class ProductoResponse(BaseModel):
 
     # PPP (ERP weighted-average cost) — informational only, never persisted.
     ppp: Optional[PppPayload] = None
+    sell_in_out: Optional[SellInOutProducto] = None  # sell-in-sell-out T9; None when neither applies
 
     # PxQ wholesale tiers quick view (cross-DB, mlwebhook — FAIL-OPEN: both
     # stay None when that read fails, so the row renders without the chip
