@@ -70,6 +70,8 @@ export const SCREENS = [
   { path: '/metricas-ml', label: 'Métricas ML', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'data' },
   // dashboard_ml.py, ventas_ml.py operaciones and /rentabilidad (TabRentabilidad) -> pm_scope.
   { path: '/dashboard-metricas-ml', label: 'Métricas ML (anterior)', section: 'Reportes', permisos: ['ventas_ml.ver_dashboard'], scope: 'data' },
+  // ml_ads router GET /ml-ads/campaigns (brand contributions to Product Ads campaigns; costs need ver_ganancia).
+  { path: '/ml-ads-aportes', label: 'Aportes de marcas (Ads ML)', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'permiso' },
   { path: '/ml-ventas-listado', label: 'Ventas ML', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
   { path: '/dashboard-tplink', label: 'Dashboard TP-Link', section: 'Reportes', permisos: ['dashboard_tplink.ver'], scope: 'permiso' },
   { path: '/dashboard-ventas-fuera', label: 'Ventas por Fuera', section: 'Reportes', permisos: ['ventas_fuera.ver_dashboard'], scope: 'permiso' },
@@ -161,6 +163,7 @@ export const PERMISOS_ADICIONALES = {
     administracion: ['/administracion/compras'],
     rma: ['/rma'],
     ml_ops: ['/ml-publicaciones'],
+    ml_metricas: ['/metricas-ml'],
     produccion: ['/produccion'],
     rrhh: ['/rrhh/empleados'],
     tickets: ['/tickets'],
@@ -214,6 +217,7 @@ export const PERMISOS_ADICIONALES = {
     '/metricas-ml': ['ml_metricas.ver_ganancia', 'ventas_ml.ver_todas_marcas', 'tplink.solo'],
     '/dashboard-metricas-ml': ['ventas_ml.ver_todas_marcas'],
     '/ml-publicaciones': ['ml_metricas.ver_ganancia'],
+    '/ml-ads-aportes': ['ml_metricas.ver_ganancia', 'ml_metricas.gestionar_aportes_ads'],
     '/notificaciones': ['reportes.recibir_notificaciones_markup'],
     '/rrhh/empleados': ['rrhh.config', 'rrhh.gestionar', 'documentos.imprimir'],
     '/rrhh/presentismo': ['rrhh.gestionar', 'documentos.imprimir'],

@@ -137,6 +137,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         // name; the old dashboard keeps its URL, relabelled.
         { label: 'Métricas ML', path: '/metricas-ml', permiso: 'ml_metricas.ver', badge: 'Nuevo' },
         { label: 'Métricas ML (anterior)', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
+        // The route opens with ml_metricas.ver (screen catalog), but the menu lists it only for ver_ganancia: without it
+        // the page shows nothing but a notice.
+        { label: 'Aportes de marcas (Ads ML)', path: '/ml-ads-aportes', permiso: 'ml_metricas.ver_ganancia', badge: 'Nuevo' },
         { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'ml_ops.ver', badge: 'Nuevo' },
         { label: 'Ventas ML', path: '/ml-ventas-listado', permiso: 'ml_ops.ver' },
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },

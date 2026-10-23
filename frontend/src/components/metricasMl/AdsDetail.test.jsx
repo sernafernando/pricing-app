@@ -17,6 +17,18 @@ describe('AdsKpiBlock', () => {
     expect(block.getByText('96.247')).toBeInTheDocument();
   });
 
+  it('shows the brand contribution when there is one', () => {
+    render(<AdsKpiBlock ads={{ ...ADS_KPIS, contribution: 250000.5 }} />);
+    const block = within(screen.getByRole('region', { name: 'Publicidad (ML Ads)' }));
+    expect(block.getByText('Aporte de marcas')).toBeInTheDocument();
+    expect(block.getByText('$ 250.000,50')).toBeInTheDocument();
+  });
+
+  it('shows no brand contribution when it is zero', () => {
+    render(<AdsKpiBlock ads={{ ...ADS_KPIS, contribution: 0 }} />);
+    expect(screen.queryByText('Aporte de marcas')).not.toBeInTheDocument();
+  });
+
   it('shows a dash for a ratio whose denominator was zero', () => {
     render(<AdsKpiBlock ads={{ ...ADS_KPIS, acos_pct: null, roas: null }} />);
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
