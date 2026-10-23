@@ -1,28 +1,10 @@
 import { Barcode, CircleDashed, Link2, Store, TriangleAlert, Unlink } from 'lucide-react';
-import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../../utils/mlSellerPanel';
 import MlSellerLinks from './MlSellerLinks';
 import { SKU_DIVERGENCE_KINDS } from './skuDivergence';
 import styles from './PublicationCell.module.css';
 
-const MLA_SHORTCUTS = 'Alt+clic: ver en el panel de ML · Mayús+clic: ver promociones en ML';
-
-/**
- * Alt+click on the MLA opens the seller panel listing, Shift+click its
- * promotions. Ctrl/Cmd and plain clicks go on to the row as before.
- */
-function handleMlaClick(event, itemId) {
-  if (event.ctrlKey || event.metaKey) return;
-  const build = event.altKey ? buildMlSellerListingUrl : event.shiftKey ? buildMlSellerPromosUrl : null;
-  if (!build) return;
-  event.preventDefault();
-  event.stopPropagation();
-  openMlSellerUrl(build(itemId));
-}
-
-// Shift+click would otherwise extend the text selection over the row.
-const preventShiftSelection = (event) => {
-  if (event.shiftKey) event.preventDefault();
-};
+// The row's click shortcuts (the page handles them on the whole row, the MLA included).
+const MLA_SHORTCUTS = 'Ctrl+clic: abrir en ML · Alt+clic: ver en el panel de ML · Mayús+clic: ver promociones en ML';
 
 // The link to an ERP product, as a toned icon: the state's name is its accessible name.
 const LINK_STATES = {
@@ -116,13 +98,8 @@ export default function PublicationCell({ item }) {
           {item.title ?? 'Sin título'}
         </span>
         <span className={styles.meta}>
-          {/* Mouse-only shortcut; the links beside it are the keyboard path. */}
-          <span
-            className={styles.mla}
-            title={MLA_SHORTCUTS}
-            onClick={(event) => handleMlaClick(event, item.item_id)}
-            onMouseDown={preventShiftSelection}
-          >
+          {/* Mouse-only shortcuts on the row; the links beside it are the keyboard path. */}
+          <span className={styles.mla} title={MLA_SHORTCUTS}>
             {item.item_id}
           </span>
           <MlSellerLinks itemId={item.item_id} />
