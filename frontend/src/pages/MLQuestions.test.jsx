@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import MLQuestions, { loadColumnSizing, saveColumnSizing, LLM_PROVIDER_MODELS } from './MLQuestions';
@@ -444,7 +444,7 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
     });
   }
 
-  it('renders the question arrival date column (the table had none before)', async () => {
+  it('renders the question arrival date on the card (the table had none before)', async () => {
     mockQuestionsList({
       id: 1,
       question_text: '¿Hay stock?',
@@ -454,7 +454,6 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
 
     await renderWithRouter(<MLQuestions />);
 
-    expect(await screen.findByText('Fecha')).toBeInTheDocument();
     expect(await screen.findByText(new Date('2026-08-20T10:00:00Z').toLocaleString())).toBeInTheDocument();
   });
 
@@ -519,7 +518,7 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
     expect(screen.queryByText(/Intentos:/)).not.toBeInTheDocument();
   });
 
-  it('keeps the empty/loading row colSpan in sync with the new column count (Preguntas)', async () => {
+  it('renders the empty state as a card-list message, not a table row (Preguntas)', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
       if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [], total: 0 } });
@@ -530,8 +529,45 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
 
     await renderWithRouter(<MLQuestions />);
 
-    const emptyCell = await screen.findByText('No hay preguntas para mostrar');
-    expect(emptyCell.closest('td').getAttribute('colspan')).toBe('8');
+    const emptyState = await screen.findByText('No hay preguntas para mostrar');
+    expect(emptyState.closest('table')).toBeNull();
+  });
+
+  it('shows a visible "Reintentar" button on a failed question that re-publishes it', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList({
+      id: 6,
+      question_text: '¿Viene con factura A?',
+      status: 'failed',
+      drafted_answer: 'Sí, emitimos factura A.',
+      attempts: 3,
+      last_error: 'timeout',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    const retry = await screen.findByRole('button', { name: 'Reintentar publicación' });
+    expect(retry).toHaveTextContent('Reintentar');
+    expect(retry).toBeEnabled();
+    await user.click(retry);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/ml-bot/questions/6/publish-now');
+    });
+  });
+
+  it('shows "esperando aprobación" instead of a countdown on a waiting question when auto-publish is OFF', async () => {
+    mockQuestionsList({
+      id: 8,
+      question_text: '¿Hacen envíos a Córdoba?',
+      status: 'waiting',
+      drafted_answer: 'Sí, enviamos a todo el país.',
+      wait_until: '2026-08-20T10:05:00Z',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText('esperando aprobación')).toBeInTheDocument();
   });
 });
 
@@ -660,183 +696,215 @@ describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
     await user.click(tabButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/JUAN_PEREZ/)).toBeInTheDocument();
-      expect(screen.getByText(/MARIA_LOPEZ/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /JUAN_PEREZ/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /MARIA_LOPEZ/ })).toBeInTheDocument();
     });
 
-    // JUAN_PEREZ header should announce "2 mensajes" (grouped), MARIA_LOPEZ "1 mensaje"
+    // JUAN_PEREZ card should announce "2 mensajes" (grouped), MARIA_LOPEZ "1 mensaje"
     expect(screen.getByText(/2 mensajes/)).toBeInTheDocument();
     expect(screen.getByText(/1 mensaje$/)).toBeInTheDocument();
-    // All three message texts render
-    expect(screen.getByText('Buen día me pasas la factura')).toBeInTheDocument();
-    expect(screen.getByText('Es factura A')).toBeInTheDocument();
-    expect(screen.getByText('Solicito factura A. Gracias')).toBeInTheDocument();
 
-    // Thread grouping structure survives the new <colgroup>: header row
-    // colSpan=5, each message row has 5 cells (thin indent + mensaje +
-    // recibido + leido + moderacion).
-    const table = screen.getByText(/JUAN_PEREZ/).closest('table');
-    const headerCell = screen.getByText(/JUAN_PEREZ/).closest('td');
-    expect(headerCell).toHaveAttribute('colspan', '5');
-    const messageRow = screen.getByText('Buen día me pasas la factura').closest('tr');
-    expect(messageRow.querySelectorAll('td').length).toBe(5);
-    const cols = table.querySelectorAll('colgroup > col');
-    expect(cols.length).toBe(5);
+    // Master-detail: the most recent conversation (MARIA_LOPEZ) opens by
+    // default; picking JUAN_PEREZ shows both of his grouped messages.
+    const pane = screen.getByRole('region', { name: 'Conversación seleccionada' });
+    expect(within(pane).getByText('Solicito factura A. Gracias')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /JUAN_PEREZ/ }));
+    expect(within(pane).getByText('Buen día me pasas la factura')).toBeInTheDocument();
+    expect(within(pane).getByText('Es factura A')).toBeInTheDocument();
+    expect(within(pane).queryByText('Solicito factura A. Gracias')).not.toBeInTheDocument();
   });
 });
 
-describe('Mensajes table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
-  beforeEach(() => {
+describe('Mensajes — master-detail instead of a resizable table', () => {
+  it('renders conversations as cards with no table, column headers or resize grips', async () => {
     localStorage.clear();
-  });
-
-  it('returns {} when the key is absent', () => {
-    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
-    localStorage.setItem(MENSAJES_COLUMN_SIZING_KEY, '{not valid json');
-    expect(() => loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).not.toThrow();
-    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('round-trips a valid columnSizing object under its own key', () => {
-    const sizing = { mensaje: 380 };
-    saveColumnSizing(sizing, MENSAJES_COLUMN_SIZING_KEY);
-    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual(sizing);
-  });
-});
-
-describe('Mensajes table — TanStack column-sizing render structure', () => {
-  it('renders one <col> per header and a resize grip only on "Mensaje" (Comprador · Pack is not resizable)', async () => {
-    localStorage.clear();
+    mockMessagesList([AWAITING_MESSAGE]);
     const user = userEvent.setup();
     await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
 
-    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
-    await user.click(tabButton);
-
-    await waitFor(() => {
-      expect(screen.getByText('Mensaje')).toBeInTheDocument();
-    });
-
-    const table = screen.getByText('Mensaje').closest('table');
-    const cols = table.querySelectorAll('colgroup > col');
-    const headers = table.querySelectorAll('thead th');
-    expect(cols.length).toBe(headers.length);
-    expect(cols.length).toBe(5);
-
-    // Only "Mensaje" is resizable — "Comprador · Pack" has no identity in
-    // per-message rows (thin indent cell only), so it stays fixed-width.
-    const grips = table.querySelectorAll('thead [role="separator"]');
-    expect(grips.length).toBe(1);
+    const card = await screen.findByRole('button', { name: /JUAN_PEREZ/ });
+    expect(card.closest('table')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Mensaje' })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[role="separator"]').length).toBe(0);
+    expect(screen.getByRole('region', { name: 'Conversación seleccionada' })).toBeInTheDocument();
   });
 
-  it('shows the reset-columns control only once sizing has been customized', async () => {
-    localStorage.clear();
-    const user = userEvent.setup();
-    await renderWithRouter(<MLQuestions />);
-
-    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
-    await user.click(tabButton);
-
-    await waitFor(() => {
-      expect(screen.getByText('Mensaje')).toBeInTheDocument();
-    });
-    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
-  });
-
-  it('mounts with a previously persisted custom width and shows the reset control', async () => {
+  it('never shows the reset-columns control, even with a previously persisted Mensajes width', async () => {
     localStorage.setItem(MENSAJES_COLUMN_SIZING_KEY, JSON.stringify({ mensaje: 400 }));
+    mockMessagesList([AWAITING_MESSAGE]);
     const user = userEvent.setup();
     await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
 
-    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
-    await user.click(tabButton);
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
-    });
-    localStorage.clear();
-  });
-});
-
-describe('Preguntas table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it('returns {} when the key is absent', () => {
-    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
-    localStorage.setItem(COLUMN_SIZING_KEY, '{not valid json');
-    expect(() => loadColumnSizing(COLUMN_SIZING_KEY)).not.toThrow();
-    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('round-trips a valid columnSizing object', () => {
-    const sizing = { pregunta: 200, item: 130 };
-    saveColumnSizing(sizing, COLUMN_SIZING_KEY);
-    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual(sizing);
-  });
-
-  it('ignores unknown/stale column ids on load (fail-open, still an object)', () => {
-    localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 200, columnaFantasma: 999 }));
-    const loaded = loadColumnSizing(COLUMN_SIZING_KEY);
-    // Loader itself doesn't filter by known ids (TanStack ignores unknown ids
-    // at consumption time) — assert it still returns a safe plain object.
-    expect(loaded).toEqual({ pregunta: 200, columnaFantasma: 999 });
-  });
-
-  it('saveColumnSizing never throws when localStorage.setItem throws', () => {
-    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('quota exceeded');
-    });
-    expect(() => saveColumnSizing({ pregunta: 200 }, COLUMN_SIZING_KEY)).not.toThrow();
-    spy.mockRestore();
-  });
-});
-
-describe('Preguntas table — TanStack column-sizing render structure', () => {
-  it('renders one <col> per header and resize grips only on resizable headers', async () => {
-    localStorage.clear();
-    await renderWithRouter(<MLQuestions />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Pregunta')).toBeInTheDocument();
-    });
-
-    const table = screen.getByText('Pregunta').closest('table');
-    const cols = table.querySelectorAll('colgroup > col');
-    const headers = table.querySelectorAll('thead th');
-    expect(cols.length).toBe(headers.length);
-    expect(cols.length).toBe(8);
-
-    // Resizable: Pregunta, Item, Respuesta (borrador). Fixed: Fecha, Estado,
-    // Confianza, Cuenta regresiva, Acciones.
-    const grips = table.querySelectorAll('thead [role="separator"]');
-    expect(grips.length).toBe(3);
-  });
-
-  it('shows the reset-columns control only once sizing has been customized', async () => {
-    localStorage.clear();
-    await renderWithRouter(<MLQuestions />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Pregunta')).toBeInTheDocument();
-    });
+    await screen.findByRole('button', { name: /JUAN_PEREZ/ });
     expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
+    localStorage.clear();
   });
 
-  it('mounts with a previously persisted custom width and shows the reset control', async () => {
-    localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 250 }));
+  it('shows the empty state and a placeholder pane when there are no messages', async () => {
+    mockMessagesList([]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    expect(await screen.findByText('No hay mensajes para mostrar')).toBeInTheDocument();
+    const pane = screen.getByRole('region', { name: 'Conversación seleccionada' });
+    expect(within(pane).getByText(/seleccioná una conversación/i)).toBeInTheDocument();
+  });
+
+  it('shows the messages and draft of a second conversation when its card is clicked', async () => {
+    const OTHER_MESSAGE = {
+      ...AWAITING_MESSAGE,
+      id: 20,
+      pack_id: '2000017320250138',
+      buyer_id: 85885085,
+      buyer_nickname: 'MARIA_LOPEZ',
+      text: 'Solicito factura A. Gracias',
+      received_at: '2026-07-10T15:11:11Z',
+      drafted_answer: 'Te la mandamos hoy mismo',
+    };
+    mockMessagesList([AWAITING_MESSAGE, OTHER_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
+    // Newest conversation is selected by default.
+    expect(await within(pane).findByText('Te la mandamos hoy mismo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /MARIA_LOPEZ/ })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: /JUAN_PEREZ/ }));
+
+    expect(within(pane).getByText('Buen día me pasas la factura')).toBeInTheDocument();
+    expect(within(pane).getByText('Claro, te la envío enseguida')).toBeInTheDocument();
+    expect(within(pane).queryByText('Te la mandamos hoy mismo')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /JUAN_PEREZ/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /MARIA_LOPEZ/ })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('never swaps the picked conversation for another one when it leaves the list', async () => {
+    const OTHER_MESSAGE = {
+      ...AWAITING_MESSAGE,
+      id: 20,
+      pack_id: '2000017320250138',
+      buyer_id: 85885085,
+      buyer_nickname: 'MARIA_LOPEZ',
+      text: 'Solicito factura A. Gracias',
+      received_at: '2026-07-10T15:11:11Z',
+      drafted_answer: 'Te la mandamos hoy mismo',
+    };
+    mockMessagesList([AWAITING_MESSAGE, OTHER_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
+    await user.click(await screen.findByRole('button', { name: /JUAN_PEREZ/ }));
+    expect(within(pane).getByText('Claro, te la envío enseguida')).toBeInTheDocument();
+
+    // A refetch (here triggered by a filter) no longer returns JUAN_PEREZ's
+    // thread: the pane must not fall through to MARIA_LOPEZ and offer to
+    // send her draft.
+    mockMessagesList([OTHER_MESSAGE]);
+    await user.click(screen.getByLabelText(/incluir moderados/i));
+
+    expect(await within(pane).findByText(/ya no está en la lista/i)).toBeInTheDocument();
+    expect(within(pane).queryByText('Te la mandamos hoy mismo')).not.toBeInTheDocument();
+    expect(within(pane).queryByRole('button', { name: /enviar/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps the default conversation open when a newer one arrives on refetch', async () => {
+    const NEWER_MESSAGE = {
+      ...AWAITING_MESSAGE,
+      id: 21,
+      pack_id: '2000017320250199',
+      buyer_id: 85885099,
+      buyer_nickname: 'MARIA_LOPEZ',
+      text: 'Solicito factura A. Gracias',
+      received_at: '2030-01-01T10:00:00Z',
+      drafted_answer: 'Te la mandamos hoy mismo',
+    };
+    mockMessagesList([AWAITING_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
+    expect(await within(pane).findByText('Claro, te la envío enseguida')).toBeInTheDocument();
+
+    // A newer conversation lands on top of the list. The operator never
+    // clicked anything, but the open conversation must not change under them.
+    mockMessagesList([NEWER_MESSAGE, AWAITING_MESSAGE]);
+    await user.click(screen.getByLabelText(/incluir moderados/i));
+
+    expect(await screen.findByRole('button', { name: /MARIA_LOPEZ/ })).toBeInTheDocument();
+    expect(within(pane).getByText('Claro, te la envío enseguida')).toBeInTheDocument();
+    expect(within(pane).queryByText('Te la mandamos hoy mismo')).not.toBeInTheDocument();
+  });
+
+  it('shows the last error of a failed conversation as an alert in the thread pane', async () => {
+    mockMessagesList([{ ...AWAITING_MESSAGE, bot_status: 'failed', last_error: 'ML rechazó el mensaje (400)' }]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
+    const alert = await within(pane).findByRole('alert');
+    expect(alert).toHaveTextContent('ML rechazó el mensaje (400)');
+  });
+
+  it('shows no error alert on a conversation that has not failed', async () => {
+    mockMessagesList([{ ...AWAITING_MESSAGE, last_error: 'viejo error' }]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
+    await within(pane).findByText('Claro, te la envío enseguida');
+    expect(within(pane).queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('Preguntas list — row cards instead of a resizable table', () => {
+  function mockOneQuestion() {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') {
+        return Promise.resolve({
+          data: {
+            questions: [{ id: 1, question_text: 'Hola, tienen stock?', status: 'taken_over', drafted_answer: 'Sí' }],
+            total: 1,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders each question as a card with labeled actions and no table, headers or resize grips', async () => {
+    localStorage.clear();
+    mockOneQuestion();
     await renderWithRouter(<MLQuestions />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
-    });
+    const question = await screen.findByText('Hola, tienen stock?');
+    expect(question.closest('table')).toBeNull();
+    expect(question.closest('article')).not.toBeNull();
+    expect(document.querySelectorAll('[role="separator"]').length).toBe(0);
+
+    expect(screen.getByRole('button', { name: 'Publicar ahora' })).toHaveTextContent('Publicar ahora');
+    expect(screen.getByRole('button', { name: 'Retener para la mañana' })).toHaveTextContent('Retener para la mañana');
+    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
+  });
+
+  it('never shows the reset-columns control, even with a previously persisted Preguntas width', async () => {
+    localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 250 }));
+    mockOneQuestion();
+    await renderWithRouter(<MLQuestions />);
+
+    await screen.findByText('Hola, tienen stock?');
+    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
     localStorage.clear();
   });
 });
@@ -1015,7 +1083,7 @@ async function openMensajesTab(user) {
 }
 
 describe('Mensajes tab — send the bot draft without opening the detail', () => {
-  it('shows the bot draft inline on the collapsed thread row', async () => {
+  it('shows the bot draft of the selected conversation without opening anything', async () => {
     const user = userEvent.setup();
     mockMessagesList([AWAITING_MESSAGE]);
 
@@ -1049,7 +1117,7 @@ describe('Mensajes tab — send the bot draft without opening the detail', () =>
     await renderWithRouter(<MLQuestions />);
     await openMensajesTab(user);
 
-    await screen.findByText(/JUAN_PEREZ/);
+    await screen.findByRole('button', { name: /JUAN_PEREZ/ });
     expect(screen.queryByLabelText('Enviar la respuesta del bot')).not.toBeInTheDocument();
   });
 
@@ -1061,6 +1129,7 @@ describe('Mensajes tab — send the bot draft without opening the detail', () =>
     await openMensajesTab(user);
 
     expect(await screen.findByLabelText('Enviar la respuesta del bot')).toBeDisabled();
+    expect(screen.getByText('Envío deshabilitado — habilitá messages_send_enabled')).toBeInTheDocument();
   });
 
   it('never offers a direct send on a claim', async () => {
@@ -1070,7 +1139,7 @@ describe('Mensajes tab — send the bot draft without opening the detail', () =>
     await renderWithRouter(<MLQuestions />);
     await openMensajesTab(user);
 
-    await screen.findByText(/JUAN_PEREZ/);
+    await screen.findByRole('button', { name: /JUAN_PEREZ/ });
     expect(screen.queryByLabelText('Enviar la respuesta del bot')).not.toBeInTheDocument();
   });
 
@@ -1134,7 +1203,7 @@ describe('Mensajes tab — send the bot draft without opening the detail', () =>
     await renderWithRouter(<MLQuestions />);
     await openMensajesTab(user);
 
-    expect(await screen.findByText('Enviando…')).toBeInTheDocument();
+    expect((await screen.findAllByText('Enviando…')).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText('Tomar el mensaje')).not.toBeInTheDocument();
   });
 
@@ -1145,7 +1214,7 @@ describe('Mensajes tab — send the bot draft without opening the detail', () =>
     await renderWithRouter(<MLQuestions />);
     await openMensajesTab(user);
 
-    await screen.findByText(/JUAN_PEREZ/);
+    await screen.findByRole('button', { name: /JUAN_PEREZ/ });
     expect(screen.queryByLabelText('Enviar la respuesta del bot')).not.toBeInTheDocument();
   });
 
@@ -1212,7 +1281,7 @@ describe('Mensajes tab — thread-header actions (permission-gated)', () => {
     await openMensajesTab(user);
 
     await waitFor(() => {
-      expect(screen.getByText(/JUAN_PEREZ/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /JUAN_PEREZ/ })).toBeInTheDocument();
     });
 
     expect(screen.queryByRole('button', { name: /tomar el mensaje/i })).not.toBeInTheDocument();
@@ -1384,7 +1453,7 @@ describe('Mensajes tab — blocked_claim badge (no bot-send affordance)', () => 
     await openMensajesTab(user);
 
     await waitFor(() => {
-      expect(screen.getByText(/Reclamo — el bot no responde/i, { selector: 'span' })).toBeInTheDocument();
+      expect(screen.getAllByText(/Reclamo — el bot no responde/i, { selector: 'span' }).length).toBeGreaterThan(0);
     });
 
     expect(screen.getByRole('button', { name: /tomar el mensaje/i })).toBeInTheDocument();
@@ -1420,7 +1489,7 @@ describe('Mensajes tab — bot_status filter (PR6)', () => {
     await openMensajesTab(user);
 
     await waitFor(() => {
-      expect(screen.getByText('Pendiente', { selector: 'span' })).toBeInTheDocument();
+      expect(screen.getAllByText('Pendiente', { selector: 'span' }).length).toBeGreaterThan(0);
     });
   });
 });
@@ -1433,9 +1502,6 @@ describe('Mensajes tab — sent_at rendering (PR6)', () => {
     await renderWithRouter(<MLQuestions />);
     await openMensajesTab(user);
 
-    const expandButton = await screen.findByRole('button', { name: /ver detalle completo/i });
-    await user.click(expandButton);
-
     expect(await screen.findByText('Enviado')).toBeInTheDocument();
     expect(screen.getByText(new Date(sentMessage.sent_at).toLocaleString())).toBeInTheDocument();
   });
@@ -1447,15 +1513,12 @@ describe('Mensajes tab — sent_at rendering (PR6)', () => {
     await renderWithRouter(<MLQuestions />);
     await openMensajesTab(user);
 
-    const expandButton = await screen.findByRole('button', { name: /ver detalle completo/i });
-    await user.click(expandButton);
-
     expect(await screen.findByText('Enviada (fecha desconocida)')).toBeInTheDocument();
   });
 });
 
-describe('Mensajes tab — detail spoiler (thread + draft + ML link)', () => {
-  it('expands to show the full thread, the drafted answer, and a ML conversation link with the right href', async () => {
+describe('Mensajes tab — thread pane (thread + draft + ML link)', () => {
+  it('shows the full thread, the drafted answer, and a ML conversation link with the right href for the selected conversation', async () => {
     mockTienePermiso.mockImplementation(() => true);
     mockMessagesList([AWAITING_MESSAGE]);
     const user = userEvent.setup();
@@ -1463,10 +1526,8 @@ describe('Mensajes tab — detail spoiler (thread + draft + ML link)', () => {
     await openMensajesTab(user);
 
     await waitFor(() => {
-      expect(screen.getByText(/JUAN_PEREZ/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /JUAN_PEREZ/ })).toBeInTheDocument();
     });
-
-    await user.click(screen.getByRole('button', { name: /ver detalle completo/i }));
 
     await waitFor(() => {
       expect(screen.getByText('Claro, te la envío enseguida')).toBeInTheDocument();
@@ -1640,6 +1701,41 @@ describe('Pendientes — done modal captures resolved_cuit', () => {
   });
 });
 
+describe('Pendientes — labeled row actions', () => {
+  useDeterministicClock();
+
+  it('shows visible Tomar/Resolver/Cancelar on a Nuevo row and Liberar instead of Tomar on an En progreso row', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockPendingList([
+      { ...PENDING_ROW, id: 1, status: 'new' },
+      { ...PENDING_ROW, id: 2, status: 'in_progress' },
+    ]);
+
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('20147683511').length).toBe(2);
+    });
+
+    const [nuevoRow, enProgresoRow] = screen.getAllByText('20147683511').map((el) => el.closest('tr'));
+
+    const nuevo = within(nuevoRow);
+    expect(nuevo.getByRole('button', { name: 'Tomar pendiente' })).toHaveTextContent('Tomar');
+    expect(nuevo.getByRole('button', { name: /Resolver/ })).toHaveTextContent('Resolver');
+    expect(nuevo.getByRole('button', { name: 'Cancelar pendiente' })).toHaveTextContent('Cancelar');
+    expect(nuevo.queryByRole('button', { name: 'Liberar pendiente' })).not.toBeInTheDocument();
+
+    const enProgreso = within(enProgresoRow);
+    expect(enProgreso.getByRole('button', { name: 'Liberar pendiente' })).toHaveTextContent('Liberar');
+    expect(enProgreso.queryByRole('button', { name: 'Tomar pendiente' })).not.toBeInTheDocument();
+    expect(enProgreso.getByRole('button', { name: /Resolver/ })).toHaveTextContent('Resolver');
+    expect(enProgreso.getByRole('button', { name: 'Cancelar pendiente' })).toHaveTextContent('Cancelar');
+  });
+});
+
 describe('Pendientes table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -1792,5 +1888,87 @@ describe('LLM roster editor — a stored model outside the curated list', () => 
     await user.click(await screen.findByRole('button', { name: /Configuración/i }));
 
     expect(await screen.findByDisplayValue('llama-3.3-70b')).toBeInTheDocument();
+  });
+});
+
+describe('Configuración tab — roster card and business variables', () => {
+  const ROSTER = '[{"name":"groq","model":"openai/gpt-oss-120b","enabled":true}]';
+
+  function mockConfig(items) {
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/config') return Promise.resolve({ data: { items } });
+      if (url === '/ml-bot/examples') return Promise.resolve({ data: { examples: [] } });
+      return base(url, config);
+    });
+  }
+
+  const ITEMS = [
+    { clave: 'llm_providers', valor: ROSTER, tipo: 'string', descripcion: 'Roster' },
+    { clave: 'nombre_tienda', valor: 'Gauss', tipo: 'string', descripcion: 'Nombre de la tienda' },
+  ];
+
+  async function openConfig(user) {
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByRole('button', { name: /Configuración/i }));
+    await screen.findByRole('heading', { name: /Proveedores LLM/i });
+  }
+
+  it('adds a new provider row defaulting to the first curated groq model', async () => {
+    const user = userEvent.setup();
+    mockConfig([{ clave: 'llm_providers', valor: '[]', tipo: 'string', descripcion: '' }]);
+    await openConfig(user);
+
+    await user.click(screen.getByRole('button', { name: /Agregar proveedor/i }));
+
+    expect(screen.getByRole('combobox', { name: 'Proveedor 1' })).toHaveValue('groq');
+    expect(screen.getByRole('combobox', { name: 'Modelo 1' })).toHaveValue(LLM_PROVIDER_MODELS.groq[0]);
+  });
+
+  it('saves the llm_providers key from the roster card "Guardar cambios" button', async () => {
+    const user = userEvent.setup();
+    mockConfig(ITEMS);
+    await openConfig(user);
+
+    const save = screen.getByRole('button', { name: 'Guardar cambios' });
+    expect(save).toBeDisabled();
+
+    await user.click(screen.getByRole('checkbox', { name: /Activo/i }));
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/ml-bot/config/llm_providers', {
+        valor: '[{"name":"groq","model":"openai/gpt-oss-120b","enabled":false}]',
+        descripcion: 'Roster',
+        tipo: 'string',
+      });
+    });
+    expect(api.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the roster out of the variables list and saves a variable by its own key', async () => {
+    const user = userEvent.setup();
+    mockConfig(ITEMS);
+    await openConfig(user);
+
+    expect(screen.queryByLabelText('llm_providers')).not.toBeInTheDocument();
+    expect(screen.queryByText('modificado')).not.toBeInTheDocument();
+
+    const input = screen.getByLabelText('nombre_tienda');
+    await user.clear(input);
+    await user.type(input, 'Gauss Oficial');
+    expect(screen.getByText('modificado')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Guardar nombre_tienda' }));
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/ml-bot/config/nombre_tienda', {
+        valor: 'Gauss Oficial',
+        descripcion: 'Nombre de la tienda',
+        tipo: 'string',
+      });
+    });
+    expect(api.put).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,6 +3,7 @@
 .container {
   padding: var(--spacing-lg);
   width: 100%;
+  box-sizing: border-box;
 }
 
 .detailLink {
@@ -150,9 +151,9 @@
   font-size: 0.85rem;
 }
 
-/* Table cells */
+/* Table cells (Historial del comprador, Mensajes, Pendientes) */
 /* Text columns size fluidly so the table fits on notebooks without pushing
-   the Estado/Acciones columns off-screen. Full text stays available via the
+   the trailing columns off-screen. Full text stays available via the
    cell's `title` tooltip. Horizontal scroll remains only as a last resort. */
 .cellQuestion {
   max-width: clamp(140px, 18vw, 320px);
@@ -160,12 +161,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.82rem;
-}
-
-.buyerNick {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--cf-text-tertiary);
 }
 
 .cellItem {
@@ -194,24 +189,6 @@
   white-space: nowrap;
   font-size: 0.82rem;
   color: var(--cf-text-secondary);
-}
-
-.cellCenter {
-  text-align: center;
-  white-space: nowrap;
-}
-
-.cellClave {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.cellDescripcion,
-.cellMotivo {
-  font-size: 0.8rem;
-  color: var(--cf-text-secondary);
-  max-width: 320px;
 }
 
 /* Badges */
@@ -251,56 +228,395 @@
   color: var(--cf-accent-red);
 }
 
+/* ── Preguntas tab: toolbar card ─────────────────────────────────────── */
+.toolbarCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.toolbarRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm) var(--spacing-md);
+}
+
+.toolbarField {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.toolbarLabel {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.toolbarHint {
+  font-size: 0.76rem;
+  color: var(--cf-text-tertiary);
+}
+
+.reasonChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Preguntas tab: row cards ───────────────────────────────────────────
+   One card per question. Stacked zones on narrow screens; a 12-column grid
+   (question 4 · draft 5 · status/actions 3) from notebook width up. */
+.questionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.questionCard {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.questionCard:hover {
+  border-color: var(--cf-border-strong);
+}
+
+.questionCardExpanded,
+.questionCardExpanded:hover {
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 1px var(--cf-accent-blue);
+}
+
+.questionCardMain {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+}
+
+.questionZone,
+.draftZone,
+.statusZone {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.questionText {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--cf-text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.questionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  min-width: 0;
+  font-size: 0.74rem;
+  color: var(--cf-text-tertiary);
+}
+
+.questionBuyer {
+  font-family: var(--font-mono, monospace);
+  color: var(--cf-text-secondary);
+}
+
+.questionItem {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+}
+
+.questionItem a {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.questionDate {
+  white-space: nowrap;
+}
+
+.draftZone {
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--cf-border-subtle);
+}
+
+.draftPreview {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--cf-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.draftLabel {
+  font-weight: 600;
+  color: var(--cf-accent-blue);
+}
+
+.draftMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.confidenceChip {
+  padding: 1px 6px;
+  border: 1px solid var(--cf-accent-green);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--cf-accent-green) 12%, transparent);
+  color: var(--cf-accent-green);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.providerText {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--cf-text-tertiary);
+  word-break: break-all;
+}
+
+.failureNote {
+  font-size: 0.76rem;
+  color: var(--cf-accent-red);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.publishedNote {
+  font-size: 0.76rem;
+  color: var(--cf-accent-green);
+}
+
+.statusZone {
+  gap: var(--spacing-sm);
+}
+
+.statusStack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusHint {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  color: var(--cf-accent-orange);
+}
+
 .injectionFlag {
   display: inline-flex;
-  margin-left: 6px;
   color: var(--cf-accent-red);
-  vertical-align: middle;
 }
 
 .countdown {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.8rem;
+  padding: 1px 6px;
+  border: 1px solid var(--cf-accent-orange);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.74rem;
   font-weight: 600;
   color: var(--cf-accent-orange);
 }
 
-.publishedNote {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--cf-accent-green);
-}
-
-.failureNote {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--cf-accent-red);
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.actionsCell {
+.cardActions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardActions button {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
+}
+
+@media (min-width: 1024px) {
+  .questionCardMain {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .questionZone {
+    grid-column: span 4;
+  }
+
+  .draftZone {
+    grid-column: span 5;
+    padding-top: 0;
+    padding-left: var(--spacing-md);
+    border-top: none;
+    border-left: 1px solid var(--cf-border-subtle);
+  }
+
+  .statusZone {
+    grid-column: span 3;
+    align-items: flex-end;
+  }
+
+  .statusStack,
+  .cardActions {
+    justify-content: flex-end;
+  }
+}
+
+/* Expanded drawer: same two sub-tabs, two-column inspector for Detalle. */
+.questionDrawer {
+  padding: var(--spacing-md);
+  background: var(--cf-bg-app);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.inspectorGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-md);
+}
+
+.inspectorColumn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.inspectorPanel {
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.inspectorLabel {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.inspectorFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--cf-border-subtle);
+}
+
+@media (min-width: 900px) {
+  .inspectorGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* Config section */
 .configSection {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-lg);
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
 }
 
-.sectionTitle {
+.configCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.configCardHeader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.configCardTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
   font-size: 1rem;
   font-weight: 600;
   color: var(--cf-text-primary);
-  margin: var(--spacing-sm) 0 0;
+}
+
+.configCardIcon {
+  color: var(--cf-accent-blue);
+  flex-shrink: 0;
+}
+
+.configCardSubtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--cf-text-secondary);
+}
+
+.configCardFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
 }
 
 .configInput {
@@ -313,17 +629,40 @@
   font-size: 0.82rem;
 }
 
+/* LLM roster */
 .rosterEditor {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
 }
 
 .rosterRow {
   display: flex;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
   align-items: center;
   flex-wrap: wrap;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.rosterRowDisabled {
+  opacity: 0.55;
+}
+
+.rosterOrder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
 }
 
 .rosterSelect {
@@ -332,27 +671,242 @@
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-sm);
   color: var(--cf-text-primary);
-  font-size: 0.82rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
 }
 
-.rosterEnabledLabel {
+.rosterModel {
+  flex: 1;
+  min-width: 180px;
+  width: auto;
+  font-family: var(--font-mono, monospace);
+}
+
+.rosterSwitch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 0.82rem;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.rosterSwitchInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.rosterSwitchTrack {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--cf-border-strong);
+  transition: background 0.15s ease;
+}
+
+.rosterSwitchTrack::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--cf-bg-card);
+  transition: transform 0.15s ease;
+}
+
+.rosterSwitchInput:checked + .rosterSwitchTrack {
+  background: var(--cf-accent-blue);
+}
+
+.rosterSwitchInput:checked + .rosterSwitchTrack::after {
+  transform: translateX(16px);
+}
+
+.rosterSwitchInput:focus-visible + .rosterSwitchTrack {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
+.rosterAddButton {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  padding: var(--spacing-sm);
+  background: transparent;
+  border: 1px dashed var(--cf-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.rosterAddButton:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+/* Business variables */
+.varList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.varRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: var(--spacing-md);
+  align-items: center;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.varRow:last-child {
+  border-bottom: none;
+}
+
+.varMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.varKey {
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+  color: var(--cf-accent-blue);
+  font-family: var(--font-mono, monospace);
   font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.varDescription {
+  font-size: 0.8rem;
   color: var(--cf-text-secondary);
 }
 
-.newExampleForm {
+.varDirty {
+  font-size: 0.72rem;
+  color: var(--cf-accent-orange);
+}
+
+.varControl {
   display: flex;
   gap: var(--spacing-sm);
-  flex-wrap: wrap;
   align-items: center;
 }
 
-.newExampleForm .configInput {
-  flex: 1;
-  min-width: 180px;
+/* Few-shot examples */
+.newExampleForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.formFieldFull {
+  grid-column: 1 / -1;
+}
+
+.formLabel {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  color: var(--cf-text-secondary);
+}
+
+.exampleTextarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.formActions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.exampleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exampleCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.exampleCardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.exampleChip {
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-blue-light);
+  color: var(--cf-accent-blue);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+.exampleQuestion,
+.exampleAnswer {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.exampleAnswer {
+  padding-left: var(--spacing-sm);
+  border-left: 2px solid var(--cf-accent-blue);
+  color: var(--cf-text-secondary);
+}
+
+.examplePrefix {
+  font-family: var(--font-mono, monospace);
+  color: var(--cf-text-tertiary);
+}
+
+@media (max-width: 768px) {
+  .varRow,
+  .newExampleForm,
+  .exampleGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Edit modal */
@@ -399,14 +953,10 @@
   margin-top: var(--spacing-sm);
 }
 
-/* Expandable row detail panel (panel-v2 requirements #3 + #5) */
+/* Expandable row detail (Pendientes) */
 .detailRow td {
   background: var(--cf-bg-secondary, rgba(128, 128, 128, 0.05));
   padding: 0;
-}
-
-.detailPanel {
-  padding: var(--spacing-md);
 }
 
 .detailTabBar {
@@ -417,6 +967,9 @@
 }
 
 .detailTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: none;
   border: none;
   padding: 6px 10px;
@@ -427,8 +980,8 @@
 }
 
 .detailTabActive {
-  color: var(--cf-accent-orange);
-  border-bottom-color: var(--cf-accent-orange);
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
   font-weight: 600;
 }
 
@@ -442,112 +995,6 @@
   white-space: pre-wrap;
   word-break: break-word;
   margin: 4px 0 0;
-}
-
-/* Pendientes tab — detail/prefill side-by-side comparison (Phase 6, PR3).
-   Extracted (buyer message) vs AFIP/stored data, so the operator sees the
-   discrepancy at a glance (design "Data Flow"). */
-.prefillCompare {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-md);
-}
-
-@media (max-width: 900px) {
-  .prefillCompare {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Message threading (grouped by pack_id + buyer_id) */
-.threadGroup {
-  border-top: 1px solid var(--cf-border);
-}
-
-.threadGroup:first-of-type {
-  border-top: none;
-}
-
-.threadHeader td {
-  background: var(--cf-bg-hover);
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-size: 0.8rem;
-  color: var(--cf-text-secondary);
-  border-bottom: 1px solid var(--cf-border);
-}
-
-/* Thread-header actions (Phase A, PR3) — actions live INSIDE the thread
-   header's colSpan cell (right-aligned) so the shared <colgroup> from #960
-   is never touched. */
-.threadHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
-
-.threadHeaderInfo {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-/* Bot draft shown inline on the collapsed thread row, so an operator can
-   judge the answer without opening the detail panel. Full width (the header
-   row wraps), clamped to two lines with the rest on hover via `title`. */
-.threadDraftPreview {
-  flex-basis: 100%;
-  margin: 2px 0 0;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.threadErrorText {
-  color: var(--cf-accent-red);
-  font-size: 0.72rem;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.threadBuyer {
-  font-weight: 600;
-  color: var(--cf-text-primary);
-}
-
-.threadPack {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.78rem;
-}
-
-.threadCount {
-  color: var(--cf-text-tertiary);
-}
-
-.threadSeparator {
-  color: var(--cf-text-tertiary);
-  margin: 0 6px;
-}
-
-.threadRow td {
-  padding-top: 6px;
-  padding-bottom: 6px;
-}
-
-.threadRowIndent {
-  width: 16px;
-  padding: 0;
-  border-right: 2px solid var(--cf-accent-orange);
-  opacity: 0.4;
 }
 
 /* Preguntas table — TanStack column-sizing engine (scoped, table-tesla.css
@@ -617,24 +1064,614 @@ table.resizableTable {
   }
 }
 
-/* Purchase + shipping context on the collapsed thread row: what the buyer
-   bought and where it is, so the draft can be judged without leaving the
-   list. Item titles are long, so they clamp to one line with the full list
-   on hover. */
-.threadOrderContext {
-  flex-basis: 100%;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 2px;
+/* ── Mensajes tab: master-detail ────────────────────────────────────────
+   Conversation list (filters, cards, pagination) on the left and the
+   selected thread on the right. Stacked on narrow screens; side by side
+   from 1024px, where both panes share one viewport-bound height and scroll
+   internally so the page itself never grows a horizontal scrollbar. */
+.mensajesLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
 }
 
-.threadOrderItems {
-  color: var(--text-secondary);
-  font-size: 0.74rem;
-  max-width: 420px;
+.mensajesListPane,
+.threadPane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.mensajesFilters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.mensajesFilterGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  align-items: end;
+  gap: var(--spacing-sm);
+}
+
+.mensajesFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm) var(--spacing-md);
+}
+
+.stackField {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stackFieldHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 24px;
+}
+
+.filterInput {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.sinPackToggle {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.checkField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+}
+
+.statusFilterField {
+  margin-left: auto;
+}
+
+.conversationList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+.conversationCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--cf-border-default);
+  border-left: 3px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.conversationCard:hover {
+  background: var(--cf-bg-hover);
+}
+
+.conversationCard:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: -2px;
+}
+
+.conversationCardSelected,
+.conversationCardSelected:hover {
+  background: var(--cf-bg-hover);
+  border-left-color: var(--cf-accent-blue);
+}
+
+.conversationTop,
+.conversationBottom {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.conversationBuyer {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.conversationPack {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.conversationTime {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.conversationPreview {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+}
+
+.conversationChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.conversationCount {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.74rem;
+  color: var(--cf-text-tertiary);
+}
+
+.mensajesPagination {
+  padding: var(--spacing-sm) var(--spacing-md) 0;
+  border-top: 1px solid var(--cf-border-default);
+  font-size: 0.78rem;
+  color: var(--cf-text-secondary);
+}
+
+/* Right pane: the selected thread. */
+.threadPaneHeader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.threadPaneTitleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.threadPaneTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.threadAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--cf-avatar-bg, var(--cf-bg-hover));
+  color: var(--cf-avatar-text, var(--cf-text-primary));
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.threadPaneBuyer {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.threadPanePack {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.74rem;
+  color: var(--cf-text-tertiary);
+}
+
+.threadPaneLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+/* Purchase + shipping context: what the buyer bought and where it is, so
+   the draft can be judged without leaving the panel. */
+.threadOrderContext {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.orderChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--cf-text-secondary);
+}
+
+.orderChipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orderChipInfo {
+  border-color: color-mix(in srgb, var(--cf-accent-blue) 40%, transparent);
+  background: color-mix(in srgb, var(--cf-accent-blue) 10%, transparent);
+  color: var(--cf-accent-blue);
+}
+
+.orderChipSuccess {
+  border-color: color-mix(in srgb, var(--cf-accent-green) 40%, transparent);
+  background: color-mix(in srgb, var(--cf-accent-green) 10%, transparent);
+  color: var(--cf-accent-green);
+}
+
+.threadMessages {
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+}
+
+.messageItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: min(80%, 640px);
+}
+
+.messageMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.messageAuthor {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.messageTime {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  color: var(--cf-text-tertiary);
+}
+
+.messageBubble {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--cf-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.messageRead {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  color: var(--cf-accent-blue);
+}
+
+.threadPaneFooter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.threadAlert {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--cf-accent-red) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+  color: var(--cf-accent-red);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.draftCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.draftCardHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.draftCardTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-primary);
+}
+
+.draftCardChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.draftCardText {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--cf-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.draftCardSent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--cf-accent-green);
+}
+
+.threadActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.threadActionsGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.threadSendGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.threadActions button,
+.threadSendGroup button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sendHint {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  color: var(--cf-text-tertiary);
+  text-align: right;
+}
+
+.threadPanePlaceholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  min-height: 240px;
+  padding: var(--spacing-lg);
+  color: var(--cf-text-tertiary);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+@media (min-width: 1024px) {
+  .mensajesLayout {
+    grid-template-columns: clamp(340px, 38%, 520px) minmax(0, 1fr);
+    height: calc(100vh - 220px);
+    min-height: 520px;
+  }
+
+  .mensajesListPane,
+  .threadPane {
+    min-height: 0;
+  }
+
+  .conversationList {
+    max-height: none;
+  }
+}
+
+/* ── Pendientes tab ─────────────────────────────────────────────────────
+   Keeps its resizable table; cells reuse the chip/badge language of the
+   other tabs and actions are labeled small buttons. */
+.toolbarEnd {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pendingIdentity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pendingPack,
+.pendingMono {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.76rem;
+  color: var(--cf-text-primary);
+}
+
+.pendingPack,
+.pendingNickname,
+.pendingText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingNickname {
+  font-size: 0.74rem;
+  color: var(--cf-text-secondary);
+}
+
+.pendingText {
+  font-size: 0.82rem;
+}
+
+.pendingDate {
+  font-size: 0.76rem;
+  color: var(--cf-text-secondary);
+}
+
+.pendingActions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Tighter than the shared `.btn-tesla.sm` padding so the four labeled
+   actions fit their fixed column. */
+.pendingActions :global(.btn-tesla.sm) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 var(--spacing-sm);
+  white-space: nowrap;
+}
+
+/* Three classes so it beats the shared `.btn-tesla.ghost` color. */
+.pendingActions button.ghostDanger {
+  color: var(--cf-accent-red);
+}
+
+.pendingActions button.ghostDanger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+}
+
+.fieldList {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--spacing-sm) var(--spacing-md);
+  margin: var(--spacing-sm) 0 0;
+}
+
+.fieldLabel {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+  padding-top: 2px;
+}
+
+.fieldValue,
+.fieldValueMono {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--cf-text-primary);
+  word-break: break-word;
+}
+
+.fieldValueMono {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+}
+
+.quoteBlock {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-left: 2px solid var(--cf-border-default);
+  background: var(--cf-bg-app);
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-secondary);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.supersededList {
+  margin: var(--spacing-sm) 0 0;
+  padding-left: var(--spacing-md);
 }

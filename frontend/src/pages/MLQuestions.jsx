@@ -54,6 +54,16 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Server,
+  Braces,
+  MessagesSquare,
+  Info,
+  History,
+  Pencil,
+  Package,
+  CheckCheck,
+  Sparkles,
+  Undo2,
 } from 'lucide-react';
 import styles from './MLQuestions.module.css';
 
@@ -205,10 +215,16 @@ function LlmProviderRosterEditor({ value, onChange }) {
       {entries.map((entry, index) => {
         const curated = LLM_PROVIDER_MODELS[entry.name] || [];
         const isCustomModel = !entry.model || !curated.includes(entry.model);
+        const enabled = entry.enabled !== false;
         return (
-          <div key={index} className={styles.rosterRow}>
+          <div
+            key={index}
+            className={`${styles.rosterRow} ${enabled ? '' : styles.rosterRowDisabled}`}
+          >
+            <span className={styles.rosterOrder}>{index + 1}</span>
             <select
               className={styles.rosterSelect}
+              aria-label={`Proveedor ${index + 1}`}
               value={entry.name || ''}
               onChange={(e) => updateEntry(index, { name: e.target.value, model: '' })}
             >
@@ -218,7 +234,8 @@ function LlmProviderRosterEditor({ value, onChange }) {
               <option value="">otro (personalizado)</option>
             </select>
             <select
-              className={styles.rosterSelect}
+              className={`${styles.rosterSelect} ${styles.rosterModel}`}
+              aria-label={`Modelo ${index + 1}`}
               value={isCustomModel ? CUSTOM_MODEL_OPTION : entry.model}
               onChange={(e) => {
                 const next = e.target.value;
@@ -233,33 +250,36 @@ function LlmProviderRosterEditor({ value, onChange }) {
             {isCustomModel && (
               <input
                 type="text"
-                className={styles.configInput}
+                className={`${styles.configInput} ${styles.rosterModel}`}
                 placeholder="modelo personalizado"
                 value={entry.model || ''}
                 onChange={(e) => updateEntry(index, { model: e.target.value })}
               />
             )}
-            <label className={styles.rosterEnabledLabel}>
+            <label className={styles.rosterSwitch}>
               <input
                 type="checkbox"
-                checked={entry.enabled !== false}
+                className={styles.rosterSwitchInput}
+                checked={enabled}
                 onChange={(e) => updateEntry(index, { enabled: e.target.checked })}
               />
-              activo
+              <span className={styles.rosterSwitchTrack} aria-hidden="true" />
+              Activo
             </label>
             <button
               type="button"
-              className="btn-tesla outline-subtle-danger sm"
+              className="btn-tesla ghost sm"
               onClick={() => removeEntry(index)}
               aria-label="Quitar proveedor"
+              title="Quitar proveedor"
             >
-              <Trash2 size={14} />
+              <Trash2 size={16} />
             </button>
           </div>
         );
       })}
-      <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={addEntry}>
-        <Plus size={14} /> Agregar variante
+      <button type="button" className={styles.rosterAddButton} onClick={addEntry}>
+        <Plus size={14} /> Agregar proveedor
       </button>
     </div>
   );
@@ -278,37 +298,18 @@ function checkSoftDenylist(text) {
   return null;
 }
 
-// TanStack column-sizing engine adopted for the Preguntas table ONLY
-// (#956 fixed — a hand-rolled resizer failed 4x on drag math/specificity).
-// We consume the library purely as a column-sizing engine: `data: []`, no
-// row model — the body stays the existing hand-rendered `.map()` +
-// `Fragment` + `renderDetailRow`. The shared `<colgroup>` (driven by
-// `getVisibleLeafColumns()`) is the single source of truth for both the
-// TanStack-rendered header row and the untouched body rows under
-// `table-layout: fixed`.
-//
-// Locked sizing (tasks.md override — notebook-fit ~1024px, supersedes the
-// design doc's 1105px default): sum = 1024px on a true ~1024px notebook,
-// `.table-container-tesla` already has `overflow-x:auto` as a fallback.
-// Acciones is fixed at 280px — measured floor for the worst-case
-// `taken_over` row (chevron + Editar + PublicarAhora + Retener ≈ 267px).
-// Readable default sizes (sum ~1110px). Minor horizontal scroll on a small
-// notebook is fine — the columns are resizable and persist, and the shared
-// .table-container-tesla already provides overflow-x. The Acciones floor (280)
-// fits up to 5 `btn-tesla sm` buttons without clipping (the #956 failure mode).
-const PREGUNTAS_COLUMNS = [
-  { id: 'pregunta', header: 'Pregunta', size: 200, minSize: 120, maxSize: 600, enableResizing: true },
-  { id: 'item', header: 'Item', size: 120, minSize: 100, maxSize: 400, enableResizing: true },
-  { id: 'fecha', header: 'Fecha', size: 130, enableResizing: false },
-  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
-  { id: 'respuesta', header: 'Respuesta (borrador)', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
-  { id: 'confianza', header: 'Confianza', size: 70, enableResizing: false },
-  { id: 'cuentaRegresiva', header: 'Cuenta regresiva', size: 150, enableResizing: false },
-  { id: 'acciones', header: 'Acciones', size: 280, minSize: 280, maxSize: 280, enableResizing: false },
-];
+// TanStack column-sizing engine (#956 fixed — a hand-rolled resizer failed
+// 4x on drag math/specificity), used by the Historial and Pendientes
+// tables. We consume the library purely as a column-sizing engine:
+// `data: []`, no row model — each body stays hand-rendered. The shared
+// `<colgroup>` (driven by `getVisibleLeafColumns()`) is the single source of
+// truth for both the TanStack-rendered header row and the body rows under
+// `table-layout: fixed`. The Preguntas tab renders row cards and the Mensajes
+// tab a master-detail layout instead of a table, so neither has column
+// sizing.
 
-// Historial del comprador table (inside the expanded detail row) — same
-// TanStack column-sizing engine pattern as PREGUNTAS_COLUMNS above, applied
+// Historial del comprador table (inside the expanded question card) — same
+// TanStack column-sizing engine pattern, applied
 // to the read-only 5-column buyer-history table. No action buttons here, so
 // there's no #956-style clipping concern; sizes are just readable defaults.
 const HISTORIAL_COLUMNS = [
@@ -319,36 +320,23 @@ const HISTORIAL_COLUMNS = [
   { id: 'respuesta', header: 'Respuesta', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
 ];
 
-// Mensajes tab table (thread-grouped) — same TanStack sizing-engine pattern,
-// but structurally different: the buyer identity lives in a `colSpan={5}`
-// thread-header row, not in a per-message cell. Column 1 ("Comprador ·
-// Pack") in message rows is just a thin indent `<td>` (`threadRowIndent`),
-// so it carries NO resizable content — only "Mensaje" (col 2) is resizable.
-const MENSAJES_COLUMNS = [
-  { id: 'comprador', header: 'Comprador · Pack', size: 150, enableResizing: false },
-  { id: 'mensaje', header: 'Mensaje', size: 320, minSize: 120, maxSize: 600, enableResizing: true },
-  { id: 'recibido', header: 'Recibido', size: 150, enableResizing: false },
-  { id: 'leido', header: 'Leído', size: 150, enableResizing: false },
-  { id: 'moderacion', header: 'Moderación', size: 120, enableResizing: false },
-];
-
 // Pendientes tab table (admin-pending queue) — same TanStack sizing-engine
 // pattern as the tables above (`data: []`, no row model; the body stays the
 // existing hand-rendered `.map()` + `Fragment` + detail row). Nine columns:
 // the three text columns (Pack/Comprador, CUIT extraído, Nombre extraído) are
 // resizable; the badge/status/date columns stay fixed. Acciones is a fixed
-// 200px floor sized for its worst-case row (chevron + Tomar/Liberar +
-// Resolver + Cancelar), mirroring the Preguntas Acciones fixed-floor pattern.
+// 340px floor sized for its worst-case row of labeled buttons (Tomar/Liberar
+// + Resolver + Cancelar + chevron).
 const PENDIENTES_COLUMNS = [
-  { id: 'packComprador', header: 'Pack / Comprador', size: 160, minSize: 120, maxSize: 400, enableResizing: true },
-  { id: 'origen', header: 'Origen', size: 110, enableResizing: false },
-  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
-  { id: 'cuit', header: 'CUIT extraído', size: 130, minSize: 100, maxSize: 300, enableResizing: true },
-  { id: 'nombre', header: 'Nombre extraído', size: 140, minSize: 100, maxSize: 400, enableResizing: true },
+  { id: 'packComprador', header: 'Pack / Comprador', size: 150, minSize: 120, maxSize: 400, enableResizing: true },
+  { id: 'origen', header: 'Origen', size: 90, enableResizing: false },
+  { id: 'estado', header: 'Estado', size: 100, enableResizing: false },
+  { id: 'cuit', header: 'CUIT extraído', size: 150, minSize: 100, maxSize: 300, enableResizing: true },
+  { id: 'nombre', header: 'Nombre extraído', size: 130, minSize: 100, maxSize: 400, enableResizing: true },
   { id: 'alertas', header: 'Alertas', size: 120, enableResizing: false },
-  { id: 'afip', header: 'AFIP', size: 80, enableResizing: false },
+  { id: 'afip', header: 'AFIP', size: 70, enableResizing: false },
   { id: 'creado', header: 'Creado', size: 150, enableResizing: false },
-  { id: 'acciones', header: 'Acciones', size: 200, minSize: 200, maxSize: 200, enableResizing: false },
+  { id: 'acciones', header: 'Acciones', size: 340, minSize: 340, maxSize: 340, enableResizing: false },
 ];
 
 // Stable empty array reference — we never call `getRowModel()`, TanStack
@@ -535,7 +523,28 @@ export default function MLQuestions() {
   const [editMessageText, setEditMessageText] = useState('');
   const [msgActionLoadingId, setMsgActionLoadingId] = useState(null);
   const [msgActionError, setMsgActionError] = useState(null);
-  const [expandedThreadKey, setExpandedThreadKey] = useState(null);
+  // Master-detail selection for the Mensajes tab. Stored as the thread key
+  // (not the thread object) so an SSE refetch keeps the same conversation
+  // open. The first thread is only a default while nothing was picked: once
+  // the operator picks a thread, it never silently swaps for another one.
+  // If the picked thread leaves the list (SSE refetch, filter, page), the
+  // pane shows a placeholder instead, so a send can never reach a buyer the
+  // operator did not choose.
+  const [selectedThreadKey, setSelectedThreadKey] = useState(null);
+  const selectedThread =
+    selectedThreadKey === null
+      ? messageThreads[0] ?? null
+      : messageThreads.find((t) => t.key === selectedThreadKey) ?? null;
+  const selectedThreadGone = selectedThreadKey !== null && selectedThread === null;
+  // Pin the default as soon as it is shown: otherwise "the first thread"
+  // would follow whatever arrives newest, and the open conversation (and its
+  // send button) would change under an operator who never clicked anything.
+  const defaultThreadKey = messageThreads[0]?.key ?? null;
+  useEffect(() => {
+    if (selectedThreadKey === null && defaultThreadKey !== null) {
+      setSelectedThreadKey(defaultThreadKey);
+    }
+  }, [selectedThreadKey, defaultThreadKey]);
 
   // Pendientes tab (Phase 6, PR3) — admin-pending queue state. Kept separate
   // from the Preguntas/Mensajes state above since it's an independent
@@ -589,29 +598,10 @@ export default function MLQuestions() {
   // from) never overwrites the history of the row that's now expanded.
   const expandedIdRef = useRef(null);
 
-  // Preguntas table — TanStack column-sizing engine (see PREGUNTAS_COLUMNS
-  // above), state/persistence via the shared `useColumnSizing` hook (PR4,
-  // ml-bot-panel-operador ADR-3).
-  const {
-    columnSizing,
-    onColumnSizingChange: handleColumnSizingChange,
-    reset: handleResetColumnSizing,
-    hasCustom: hasCustomColumnSizing,
-  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.preguntas);
-
-  const preguntasTable = useReactTable({
-    columns: PREGUNTAS_COLUMNS,
-    data: EMPTY_TABLE_DATA,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-    state: { columnSizing },
-    onColumnSizingChange: handleColumnSizingChange,
-  });
-
   // Historial del comprador table — same sizing-engine pattern, own
   // localStorage key. There is only ever one expanded row (`expandedId`), so
   // a single shared top-level instance is correct (must NOT be instantiated
-  // inside `renderDetailRow` — that would violate the Rules of Hooks by
+  // inside `renderQuestionDetail` — that would violate the Rules of Hooks by
   // calling a hook conditionally/per-row).
   const {
     columnSizing: historialColumnSizing,
@@ -627,25 +617,6 @@ export default function MLQuestions() {
     getCoreRowModel: getCoreRowModel(),
     state: { columnSizing: historialColumnSizing },
     onColumnSizingChange: handleHistorialColumnSizingChange,
-  });
-
-  // Mensajes table — same sizing-engine pattern, own localStorage key. Only
-  // one instance needed (the table itself is not duplicated per thread —
-  // threads are body rows under one shared header).
-  const {
-    columnSizing: mensajesColumnSizing,
-    onColumnSizingChange: handleMensajesColumnSizingChange,
-    reset: handleResetMensajesColumnSizing,
-    hasCustom: hasCustomMensajesColumnSizing,
-  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.mensajes);
-
-  const mensajesTable = useReactTable({
-    columns: MENSAJES_COLUMNS,
-    data: EMPTY_TABLE_DATA,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-    state: { columnSizing: mensajesColumnSizing },
-    onColumnSizingChange: handleMensajesColumnSizingChange,
   });
 
   // Pendientes table — same sizing-engine pattern, own localStorage key.
@@ -1086,10 +1057,6 @@ export default function MLQuestions() {
     closeMessageEdit();
   }, editMessage.id);
 
-  const toggleThreadDetail = (threadKey) => {
-    setExpandedThreadKey((prev) => (prev === threadKey ? null : threadKey));
-  };
-
   // SSE-driven reload: instant panel update on any bot state transition.
   const reloadFromSSE = useCallback(() => {
     if (puedeVer) {
@@ -1305,181 +1272,377 @@ export default function MLQuestions() {
   const softWarning = checkSoftDenylist(editText);
   const messageSoftWarning = checkSoftDenylist(editMessageText);
 
-  // Detail spoiler for a message thread (mirrors `renderDetailRow` above) —
-  // full pack conversation in order, current draft + category/confidence,
-  // and the ML conversation link (T0.2-verified format).
-  const renderMessageDetailRow = (thread) => {
+  // Right pane of the Mensajes master-detail layout: the selected
+  // conversation. Shows ONLY what the panel already loads — the buyer's
+  // messages, the bot's draft on the anchor message and its order context.
+  // Seller/operator replies are not part of the payload, so none are drawn.
+  const renderMessageThreadPane = (thread) => {
     const link = buildMlConversationLink(thread.pack_id);
     const anchor = thread.anchorMessage;
+    const buyerLabel = thread.buyer_nickname || thread.buyer_id || 'comprador desconocido';
+    const canTakeOver = anchor && MESSAGE_TAKE_OVER_STATES.includes(anchor.bot_status);
+    const canRespond = anchor?.bot_status === 'taken_over';
+    // Mirrors the Preguntas tab's publish-now: a draft the bot already
+    // wrote goes out in one click. The backend stamps taken_over_by on
+    // a direct send, so responsibility is recorded either way.
+    const canSendDirect = anchor?.bot_status === 'awaiting_human' && !!anchor?.drafted_answer;
+    const showsSendButton = puedeResponderMensajes && (canSendDirect || canRespond);
+    const showActions = (puedeResponderMensajes && (canTakeOver || canRespond || canSendDirect)) || puedeGestionarPendientes;
+    const orderCtx = thread.pack_id ? orderContexts[thread.pack_id] : null;
+    const orderItemLabels = (orderCtx?.items || []).map(
+      (it) => `${it.quantity ?? '?'}x ${it.title ?? 'sin título'}`
+    );
     return (
-      <tr key={`${thread.key}-detail`} className={styles.detailRow}>
-        <td colSpan={mensajesTable.getVisibleLeafColumns().length}>
-          <div className={styles.detailPanel}>
-            <div className={styles.detailContent}>
-              <div>
-                <strong>Conversación del pack (mensajes cargados)</strong>
-                {thread.messages.map((m) => (
-                  <p key={m.id} className={styles.detailText}>
-                    <em>Comprador{m.received_at ? ` · ${new Date(m.received_at).toLocaleString()}` : ''}:</em>{' '}
-                    {m.text}
-                  </p>
-                ))}
-              </div>
-              <div>
-                <strong>Respuesta (borrador)</strong>
-                <p className={styles.detailText}>{anchor?.drafted_answer || '—'}</p>
-              </div>
-              {anchor?.intent_category && (
-                <div>
-                  <strong>Categoría</strong>
-                  <p className={styles.detailText}>{anchor.intent_category}</p>
-                </div>
+      <>
+        <header className={styles.threadPaneHeader}>
+          <div className={styles.threadPaneTitleRow}>
+            <div className={styles.threadPaneTitle}>
+              <span className={styles.threadAvatar} aria-hidden="true">
+                {String(buyerLabel).charAt(0).toUpperCase()}
+              </span>
+              <h2 className={styles.threadPaneBuyer}>{buyerLabel}</h2>
+              <span className={styles.threadPanePack}>
+                {thread.pack_id ? `Pack #${thread.pack_id}` : 'sin pack'}
+              </span>
+              {anchor?.bot_status && (
+                <span className={`${styles.badge} ${styles[MESSAGE_BOT_STATUS_BADGE_CLASS[anchor.bot_status]] || ''}`}>
+                  {MESSAGE_BOT_STATUS_LABELS[anchor.bot_status] || anchor.bot_status}
+                </span>
               )}
-              {anchor?.confidence != null && (
-                <div>
-                  <strong>Confianza</strong>
-                  <p className={styles.detailText}>{Math.round(anchor.confidence * 100)}%</p>
-                </div>
+            </div>
+            {link && (
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`btn-tesla outline-subtle-primary sm ${styles.threadPaneLink}`}
+              >
+                Ver en MercadoLibre <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
+          {orderCtx && (orderItemLabels.length > 0 || orderCtx.shipping?.status || orderCtx.order_status) && (
+            /* Qué compró y dónde está el envío, para decidir sin salir del
+               panel. */
+            <div className={styles.threadOrderContext}>
+              {orderItemLabels.map((label, i) => (
+                <span key={`${label}-${i}`} className={styles.orderChip} title={label}>
+                  <Package size={12} aria-hidden="true" />
+                  <span className={styles.orderChipText}>{label}</span>
+                </span>
+              ))}
+              {orderCtx.shipping?.status && (
+                <span className={`${styles.orderChip} ${styles.orderChipInfo}`}>
+                  envío: {orderCtx.shipping.status}
+                  {orderCtx.shipping.substatus ? ` / ${orderCtx.shipping.substatus}` : ''}
+                </span>
               )}
-              {anchor?.bot_status === 'sent' && (
+              {orderCtx.order_status && (
+                <span className={`${styles.orderChip} ${styles.orderChipSuccess}`}>
+                  orden: {orderCtx.order_status}
+                </span>
+              )}
+            </div>
+          )}
+        </header>
+
+        <div className={styles.threadMessages}>
+          {thread.messages.map((m) => (
+            <div key={m.id} className={styles.messageItem}>
+              <div className={styles.messageMeta}>
+                <span className={styles.messageAuthor}>{thread.buyer_nickname || 'Comprador'}</span>
+                <span className={styles.messageTime}>
+                  {m.received_at ? new Date(m.received_at).toLocaleString() : '—'}
+                </span>
+                {m.moderation_status && m.moderation_status !== 'clean' && (
+                  <span className={`${styles.badge} ${styles.badgeWarning}`}>
+                    {MESSAGE_STATUS_LABELS[m.moderation_status] || m.moderation_status}
+                  </span>
+                )}
+              </div>
+              <p className={styles.messageBubble}>{m.text}</p>
+              {m.read_at && (
+                <span className={styles.messageRead} title={new Date(m.read_at).toLocaleString()}>
+                  <CheckCheck size={12} aria-hidden="true" />
+                  Leído
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.threadPaneFooter}>
+          {anchor?.bot_status === 'failed' && anchor?.last_error && (
+            <div className={styles.threadAlert} role="alert">
+              <AlertTriangle size={14} aria-hidden="true" />
+              <span>{anchor.last_error}</span>
+            </div>
+          )}
+
+          {anchor && (
+            <section className={styles.draftCard} aria-label="Respuesta (borrador)">
+              <div className={styles.draftCardHeader}>
+                <span className={styles.draftCardTitle}>
+                  <Sparkles size={14} aria-hidden="true" />
+                  Respuesta (borrador)
+                </span>
+                <div className={styles.draftCardChips}>
+                  {anchor.intent_category && (
+                    <span className={styles.reasonChip}>categoría: {anchor.intent_category}</span>
+                  )}
+                  {anchor.confidence != null && (
+                    <span className={styles.confidenceChip}>
+                      confianza: {Math.round(anchor.confidence * 100)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className={styles.draftCardText}>{anchor.drafted_answer || '—'}</p>
+              {anchor.bot_status === 'sent' && (
                 /* `sent_at` es NULL en filas históricas (nunca se
                    backfillea desde `bot_updated_at`, que es una señal
                    distinta — PR6). Un mensaje `sent` siempre se muestra
                    como enviado, con fecha desconocida si hace falta —
                    nunca en blanco, que se leería como "no enviado". */
-                <div>
+                <p className={styles.draftCardSent}>
                   <strong>Enviado</strong>
-                  <p className={styles.detailText}>
+                  <span>
                     {anchor.sent_at ? new Date(anchor.sent_at).toLocaleString() : 'Enviada (fecha desconocida)'}
-                  </p>
+                  </span>
+                </p>
+              )}
+            </section>
+          )}
+
+          {showActions && (
+            <div className={styles.threadActions}>
+              <div className={styles.threadActionsGroup}>
+                {puedeResponderMensajes && canTakeOver && (
+                  <button
+                    type="button"
+                    className="btn-tesla outline-subtle-primary sm"
+                    onClick={() => handleTakeOverMessage(anchor)}
+                    disabled={msgActionLoadingId === anchor.id}
+                    title="Tomar el mensaje"
+                    aria-label="Tomar el mensaje"
+                  >
+                    <UserCheck size={14} />
+                    Tomar
+                  </button>
+                )}
+                {puedeResponderMensajes && canRespond && (
+                  <button
+                    type="button"
+                    className="btn-tesla outline-subtle-primary sm"
+                    onClick={() => openMessageEdit(anchor)}
+                    disabled={msgActionLoadingId === anchor.id}
+                  >
+                    <Pencil size={14} />
+                    Editar
+                  </button>
+                )}
+                {puedeGestionarPendientes && (
+                  <button
+                    type="button"
+                    className="btn-tesla ghost sm"
+                    onClick={() => openManualCreate({
+                      pack_id: thread.pack_id,
+                      buyer_id: thread.buyer_id,
+                      raw_text: anchor?.text,
+                    })}
+                    title="Crear pendiente (el clasificador no lo detectó)"
+                  >
+                    <Plus size={14} />
+                    Crear pendiente
+                  </button>
+                )}
+              </div>
+              {showsSendButton && (
+                <div className={styles.threadSendGroup}>
+                  {canSendDirect && (
+                    <button
+                      type="button"
+                      className="btn-tesla primary sm"
+                      onClick={() => handleSendMessage(anchor)}
+                      disabled={msgActionLoadingId === anchor.id || !messagesSendEnabled}
+                      title={
+                        messagesSendEnabled
+                          ? 'Enviar la respuesta del bot'
+                          : 'Envío deshabilitado — habilitá messages_send_enabled'
+                      }
+                      aria-label="Enviar la respuesta del bot"
+                    >
+                      <Send size={14} />
+                      Enviar respuesta del bot
+                    </button>
+                  )}
+                  {canRespond && (
+                    <button
+                      type="button"
+                      className="btn-tesla primary sm"
+                      onClick={() => handleSendMessage(anchor)}
+                      disabled={msgActionLoadingId === anchor.id || !anchor.drafted_answer || !messagesSendEnabled}
+                      title={messagesSendEnabled ? 'Enviar respuesta' : 'Envío deshabilitado — habilitá messages_send_enabled'}
+                      aria-label="Enviar respuesta"
+                    >
+                      <Send size={14} />
+                      Enviar respuesta
+                    </button>
+                  )}
+                  {!messagesSendEnabled && (
+                    <span className={styles.sendHint}>Envío deshabilitado — habilitá messages_send_enabled</span>
+                  )}
                 </div>
               )}
-              <div>
-                <strong>Conversación en ML</strong>
-                <p>
-                  {link ? (
-                    <a href={link} target="_blank" rel="noopener noreferrer" className={styles.detailLink}>
-                      Ver en MercadoLibre <ExternalLink size={12} />
-                    </a>
-                  ) : '—'}
-                </p>
-              </div>
             </div>
-          </div>
-        </td>
-      </tr>
+          )}
+        </div>
+      </>
     );
   };
 
-  // Expanded detail panel for a single row — rendered as the immediate
-  // sibling <tr> right after its parent row (inside the map), never at the
-  // end of <tbody>, so it stays visually attached to the row the operator
-  // expanded regardless of how many other rows are in the table.
-  const renderDetailRow = (q) => {
+  // The ML item link for a question: its stored permalink when it is a real
+  // https URL, else the link built from the item id, else the bare item id.
+  const renderItemLink = (q) => {
+    if (q.item_permalink && q.item_permalink.startsWith('https://')) {
+      return (
+        <a
+          href={q.item_permalink}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={q.item_title || q.item_id}
+          className={styles.detailLink}
+        >
+          {q.item_title || q.item_id}
+        </a>
+      );
+    }
+    const fallbackLink = buildFallbackItemLink(q.item_id);
+    return fallbackLink ? (
+      <a
+        href={fallbackLink}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={q.item_id}
+        className={styles.detailLink}
+      >
+        {q.item_id}
+      </a>
+    ) : (
+      q.item_id
+    );
+  };
+
+  // Expanded drawer of a question card — rendered inside the card itself,
+  // under its main grid, so it stays attached to the card the operator
+  // expanded regardless of how many other cards are in the list.
+  const renderQuestionDetail = (q) => {
     const fallbackLink = buildFallbackItemLink(q.item_id);
     const itemLink = (q.item_permalink && q.item_permalink.startsWith('https://'))
       ? q.item_permalink
       : fallbackLink;
     return (
-      <tr key={`${q.id}-detail`} className={styles.detailRow}>
-        <td colSpan={preguntasTable.getVisibleLeafColumns().length}>
-          <div className={styles.detailPanel}>
-            <div className={styles.detailTabBar}>
-              <button
-                type="button"
-                className={`${styles.detailTab} ${expandedTab === 'detalle' ? styles.detailTabActive : ''}`}
-                onClick={() => setExpandedTab('detalle')}
-              >
-                Detalle
-              </button>
-              <button
-                type="button"
-                className={`${styles.detailTab} ${expandedTab === 'historial' ? styles.detailTabActive : ''}`}
-                onClick={() => openExpandTab(q, 'historial')}
-              >
-                Historial del comprador
-              </button>
+      <div className={styles.questionDrawer}>
+        <div className={styles.detailTabBar}>
+          <button
+            type="button"
+            className={`${styles.detailTab} ${expandedTab === 'detalle' ? styles.detailTabActive : ''}`}
+            onClick={() => setExpandedTab('detalle')}
+          >
+            <Info size={14} />
+            Detalle
+          </button>
+          <button
+            type="button"
+            className={`${styles.detailTab} ${expandedTab === 'historial' ? styles.detailTabActive : ''}`}
+            onClick={() => openExpandTab(q, 'historial')}
+          >
+            <History size={14} />
+            Historial del comprador
+          </button>
+        </div>
+
+        {expandedTab === 'detalle' && (
+          <div className={styles.inspectorGrid}>
+            <div className={styles.inspectorColumn}>
+              <section className={styles.inspectorPanel}>
+                <h3 className={styles.inspectorLabel}>Pregunta completa</h3>
+                <p className={styles.detailText}>{q.question_text}</p>
+              </section>
+              <section className={styles.inspectorPanel}>
+                <h3 className={styles.inspectorLabel}>Publicación</h3>
+                <p className={styles.detailText}>
+                  {itemLink ? (
+                    <a
+                      href={itemLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.detailLink}
+                    >
+                      {q.item_title || q.item_id} <ExternalLink size={12} />
+                    </a>
+                  ) : (
+                    q.item_id
+                  )}
+                </p>
+              </section>
             </div>
-
-            {expandedTab === 'detalle' && (
-              <div className={styles.detailContent}>
-                <div>
-                  <strong>Pregunta completa</strong>
-                  <p className={styles.detailText}>{q.question_text}</p>
-                </div>
-                <div>
-                  <strong>Respuesta (borrador)</strong>
-                  <p className={styles.detailText}>{q.drafted_answer || '—'}</p>
-                </div>
+            <div className={styles.inspectorColumn}>
+              <section className={styles.inspectorPanel}>
+                <h3 className={styles.inspectorLabel}>Respuesta (borrador)</h3>
+                <p className={styles.detailText}>{q.drafted_answer || '—'}</p>
                 {q.llm_provider && (
-                  <div>
-                    <strong>Proveedor LLM</strong>
-                    <p className={styles.detailText}>{q.llm_provider}</p>
+                  <div className={styles.inspectorFooter}>
+                    <span className={styles.inspectorLabel}>Proveedor LLM</span>
+                    <span className={styles.providerText}>{q.llm_provider}</span>
                   </div>
                 )}
-                <div>
-                  <strong>Publicación</strong>
-                  <p>
-                    {itemLink ? (
-                      <a
-                        href={itemLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.detailLink}
-                      >
-                        {q.item_title || q.item_id} <ExternalLink size={12} />
-                      </a>
-                    ) : (
-                      q.item_id
-                    )}
-                  </p>
-                </div>
-              </div>
-            )}
+              </section>
+            </div>
+          </div>
+        )}
 
-            {expandedTab === 'historial' && (
-              <div className={styles.detailContent}>
-                {historyLoading ? (
-                  <div className={styles.loadingCell}>Cargando...</div>
-                ) : historyError ? (
-                  <div className={styles.errorBar}>
-                    <AlertTriangle size={14} />
-                    {historyError}
-                  </div>
-                ) : q.buyer_id == null ? (
-                  <div className={styles.emptyCell}>Esta pregunta no tiene comprador identificado</div>
-                ) : historyItems.length === 0 ? (
-                  <div className={styles.emptyCell}>No hay preguntas anteriores de este comprador</div>
-                ) : (
-                  <ResizableTableShell
-                    table={historialTable}
-                    hasCustomSizing={hasCustomHistorialColumnSizing}
-                    onResetSizing={handleResetHistorialColumnSizing}
-                  >
-                    <tbody className="table-tesla-body">
-                      {historyItems.map((h) => (
-                        <tr key={h.id}>
-                          <td>{new Date(h.question_date).toLocaleString()}</td>
-                          <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
-                          <td className={styles.cellItem}>{h.item_title || '—'}</td>
-                          <td>
-                            <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
-                              {STATUS_LABELS[h.status] || h.status}
-                            </span>
-                          </td>
-                          <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
-                            {h.drafted_answer || '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </ResizableTableShell>
-                )}
+        {expandedTab === 'historial' && (
+          <div className={styles.detailContent}>
+            {historyLoading ? (
+              <div className={styles.loadingCell}>Cargando...</div>
+            ) : historyError ? (
+              <div className={styles.errorBar}>
+                <AlertTriangle size={14} />
+                {historyError}
               </div>
+            ) : q.buyer_id == null ? (
+              <div className={styles.emptyCell}>Esta pregunta no tiene comprador identificado</div>
+            ) : historyItems.length === 0 ? (
+              <div className={styles.emptyCell}>No hay preguntas anteriores de este comprador</div>
+            ) : (
+              <ResizableTableShell
+                table={historialTable}
+                hasCustomSizing={hasCustomHistorialColumnSizing}
+                onResetSizing={handleResetHistorialColumnSizing}
+              >
+                <tbody className="table-tesla-body">
+                  {historyItems.map((h) => (
+                    <tr key={h.id}>
+                      <td>{new Date(h.question_date).toLocaleString()}</td>
+                      <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
+                      <td className={styles.cellItem}>{h.item_title || '—'}</td>
+                      <td>
+                        <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
+                          {STATUS_LABELS[h.status] || h.status}
+                        </span>
+                      </td>
+                      <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
+                        {h.drafted_answer || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </ResizableTableShell>
             )}
           </div>
-        </td>
-      </tr>
+        )}
+      </div>
     );
   };
 
@@ -1589,34 +1752,43 @@ export default function MLQuestions() {
       {/* ====== TAB: Preguntas ====== */}
       {activeTab === 'preguntas' && (
         <>
-          <div className={styles.filtersBar}>
-            <select value={statusFilter} onChange={(e) => handleStatusFilterChange(e.target.value)} className={styles.select}>
-              <option value="">Todos los estados</option>
-              {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={fallbackReasonFilter}
-              onChange={(e) => handleFallbackReasonFilterChange(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todas las razones de fallback</option>
-              {Object.entries(FALLBACK_REASON_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-
-          {Object.keys(fallbackReasonCounts).length > 0 && (
-            <div className={styles.filtersBar}>
-              {Object.entries(fallbackReasonCounts).map(([reason, count]) => (
-                <span key={reason} className={`${styles.badge} ${styles.badgeNeutral}`}>
-                  {FALLBACK_REASON_LABELS[reason] || reason}: {count}
-                </span>
-              ))}
+          <div className={styles.toolbarCard}>
+            <div className={styles.toolbarRow}>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Estado</span>
+                <select value={statusFilter} onChange={(e) => handleStatusFilterChange(e.target.value)} className={styles.select}>
+                  <option value="">Todos los estados</option>
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Razón de fallback</span>
+                <select
+                  value={fallbackReasonFilter}
+                  onChange={(e) => handleFallbackReasonFilterChange(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todas las razones de fallback</option>
+                  {Object.entries(FALLBACK_REASON_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
-          )}
+
+            {Object.keys(fallbackReasonCounts).length > 0 && (
+              <div className={styles.toolbarRow}>
+                <span className={styles.toolbarHint}>Por razón de fallback:</span>
+                {Object.entries(fallbackReasonCounts).map(([reason, count]) => (
+                  <span key={reason} className={styles.reasonChip}>
+                    {FALLBACK_REASON_LABELS[reason] || reason}: {count}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className={styles.errorBar}>
@@ -1640,65 +1812,71 @@ export default function MLQuestions() {
             </div>
           )}
 
-          <ResizableTableShell
-            table={preguntasTable}
-            hasCustomSizing={hasCustomColumnSizing}
-            onResetSizing={handleResetColumnSizing}
-          >
-              <tbody className="table-tesla-body">
-                {loading ? (
-                  <tr><td colSpan={preguntasTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
-                ) : questions.length === 0 ? (
-                  <tr><td colSpan={preguntasTable.getVisibleLeafColumns().length} className={styles.emptyCell}>No hay preguntas para mostrar</td></tr>
-                ) : (
-                  questions.map((q) => {
-                    const remaining = q.status === 'waiting' ? secondsRemaining(q.wait_until, now) : null;
-                    return (
-                      <Fragment key={q.id}>
-                      <tr>
-                        <td className={styles.cellQuestion} title={q.question_text}>
-                          {q.question_text}
-                          {q.buyer_nickname && <span className={styles.buyerNick}>{q.buyer_nickname}</span>}
-                        </td>
-                        <td className={styles.cellItem}>
-                          {q.item_permalink && q.item_permalink.startsWith('https://') ? (
-                            <a
-                              href={q.item_permalink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={q.item_title || q.item_id}
-                              className={styles.detailLink}
-                            >
-                              {q.item_title || q.item_id}
-                            </a>
-                          ) : (
-                            (() => {
-                              const fallbackLink = buildFallbackItemLink(q.item_id);
-                              return fallbackLink ? (
-                                <a
-                                  href={fallbackLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title={q.item_id}
-                                  className={styles.detailLink}
-                                >
-                                  {q.item_id}
-                                </a>
-                              ) : (
-                                q.item_id
-                              );
-                            })()
+          <div className={styles.questionList}>
+            {loading ? (
+              <div className={styles.loadingCell}>Cargando...</div>
+            ) : questions.length === 0 ? (
+              <div className={styles.emptyCell}>No hay preguntas para mostrar</div>
+            ) : (
+              questions.map((q) => {
+                const remaining = q.status === 'waiting' ? secondsRemaining(q.wait_until, now) : null;
+                const isExpanded = expandedId === q.id;
+                return (
+                  <article
+                    key={q.id}
+                    className={`${styles.questionCard} ${isExpanded ? styles.questionCardExpanded : ''}`}
+                  >
+                    <div className={styles.questionCardMain}>
+                      {/* Left zone: the question and who asked it, about what, when. */}
+                      <div className={styles.questionZone}>
+                        <p className={styles.questionText} title={q.question_text}>{q.question_text}</p>
+                        <div className={styles.questionMeta}>
+                          {q.buyer_nickname && (
+                            <span className={styles.questionBuyer}>{q.buyer_nickname}</span>
                           )}
-                        </td>
-                        <td className={styles.cellCenter}>
-                          {q.question_date ? new Date(q.question_date).toLocaleString() : '—'}
-                        </td>
-                        <td>
+                          <span className={styles.questionItem}>{renderItemLink(q)}</span>
+                          <span className={styles.questionDate}>
+                            {q.question_date ? new Date(q.question_date).toLocaleString() : '—'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Middle zone: the bot's draft and how it was produced. */}
+                      <div className={styles.draftZone}>
+                        <p className={styles.draftPreview} title={q.drafted_answer || ''}>
+                          <span className={styles.draftLabel}>Borrador:</span> {q.drafted_answer || '—'}
+                        </p>
+                        {q.status === 'failed' && (
+                          <span className={styles.failureNote} title={q.last_error || ''}>
+                            Intentos: {q.attempts ?? 0}
+                            {q.last_error ? ` — ${q.last_error}` : ''}
+                          </span>
+                        )}
+                        {q.status === 'published' && (
+                          <span className={styles.publishedNote}>
+                            {q.published_at
+                              ? `Publicada: ${new Date(q.published_at).toLocaleString()}`
+                              : 'Publicada (fecha desconocida)'}
+                          </span>
+                        )}
+                        {(q.confidence != null || q.llm_provider) && (
+                          <div className={styles.draftMeta}>
+                            {q.confidence != null && (
+                              <span className={styles.confidenceChip}>{Math.round(q.confidence * 100)}%</span>
+                            )}
+                            {q.llm_provider && <span className={styles.providerText}>{q.llm_provider}</span>}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right zone: status, what it is waiting on, and the actions. */}
+                      <div className={styles.statusZone}>
+                        <div className={styles.statusStack}>
                           <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[q.status]] || ''}`}>
                             {STATUS_LABELS[q.status] || q.status}
                           </span>
                           {q.fallback_reason && (
-                            <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                            <span className={styles.statusHint}>
                               {FALLBACK_REASON_LABELS[q.fallback_reason] || q.fallback_reason}
                             </span>
                           )}
@@ -1707,28 +1885,7 @@ export default function MLQuestions() {
                               <ShieldAlert size={12} />
                             </span>
                           )}
-                          {q.status === 'published' && (
-                            <span className={styles.publishedNote}>
-                              {q.published_at
-                                ? `Publicada: ${new Date(q.published_at).toLocaleString()}`
-                                : 'Publicada (fecha desconocida)'}
-                            </span>
-                          )}
-                          {q.status === 'failed' && (
-                            <span className={styles.failureNote} title={q.last_error || ''}>
-                              Intentos: {q.attempts ?? 0}
-                              {q.last_error ? ` — ${q.last_error}` : ''}
-                            </span>
-                          )}
-                        </td>
-                        <td className={styles.cellAnswer} title={q.drafted_answer || ''}>
-                          {q.drafted_answer || '—'}
-                        </td>
-                        <td className={styles.cellCenter}>
-                          {q.confidence != null ? `${Math.round(q.confidence * 100)}%` : '—'}
-                        </td>
-                        <td className={styles.cellCenter}>
-                          {q.status === 'waiting' ? (
+                          {q.status === 'waiting' && (
                             !autoPublishEnabled ? (
                               <span className={styles.countdown}>
                                 <ShieldAlert size={12} />
@@ -1740,23 +1897,15 @@ export default function MLQuestions() {
                                 {formatCountdown(remaining)}
                               </span>
                             )
-                          ) : '—'}
-                        </td>
-                        <td>
-                          <div className={styles.actionsCell}>
-                            <button
-                              className="btn-tesla ghost sm"
-                              onClick={() => toggleExpand(q)}
-                              title={expandedId === q.id ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-label={expandedId === q.id ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-expanded={expandedId === q.id}
-                            >
-                              {expandedId === q.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </button>
-                            {puedeResponder && (
-                              <>
+                          )}
+                        </div>
+
+                        <div className={styles.cardActions}>
+                          {puedeResponder && (
+                            <>
                               {['received', 'waiting', 'pending_morning', 'failed'].includes(q.status) && (
                                 <button
+                                  type="button"
                                   className="btn-tesla ghost sm"
                                   onClick={() => handleTakeOver(q)}
                                   disabled={actionLoadingId === q.id}
@@ -1764,19 +1913,23 @@ export default function MLQuestions() {
                                   aria-label="Tomar la pregunta"
                                 >
                                   <UserCheck size={14} />
+                                  Tomar
                                 </button>
                               )}
                               {q.status === 'taken_over' && (
                                 <button
+                                  type="button"
                                   className="btn-tesla outline-subtle-primary sm"
                                   onClick={() => openEdit(q)}
                                   disabled={actionLoadingId === q.id}
                                 >
+                                  <Pencil size={14} />
                                   Editar
                                 </button>
                               )}
                               {['waiting', 'taken_over', 'pending_morning', 'failed'].includes(q.status) && (
                                 <button
+                                  type="button"
                                   className="btn-tesla outline-subtle-primary sm"
                                   onClick={() => handlePublishNow(q)}
                                   disabled={actionLoadingId === q.id || !q.drafted_answer}
@@ -1784,10 +1937,12 @@ export default function MLQuestions() {
                                   aria-label={q.status === 'failed' ? 'Reintentar publicación' : 'Publicar ahora'}
                                 >
                                   {q.status === 'failed' ? <RotateCcw size={14} /> : <Send size={14} />}
+                                  {q.status === 'failed' ? 'Reintentar' : 'Publicar ahora'}
                                 </button>
                               )}
                               {['waiting', 'taken_over'].includes(q.status) && (
                                 <button
+                                  type="button"
                                   className="btn-tesla ghost sm"
                                   onClick={() => handleHold(q)}
                                   disabled={actionLoadingId === q.id}
@@ -1795,20 +1950,31 @@ export default function MLQuestions() {
                                   aria-label="Retener para la mañana"
                                 >
                                   <PauseCircle size={14} />
+                                  Retener para la mañana
                                 </button>
                               )}
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                      {expandedId === q.id && renderDetailRow(q)}
-                    </Fragment>
-                    );
-                  })
-                )}
-              </tbody>
-          </ResizableTableShell>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-tesla ghost sm"
+                            onClick={() => toggleExpand(q)}
+                            title={isExpanded ? 'Ocultar detalle' : 'Ver detalle completo'}
+                            aria-label={isExpanded ? 'Ocultar detalle' : 'Ver detalle completo'}
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {isExpanded && renderQuestionDetail(q)}
+                  </article>
+                );
+              })
+            )}
+          </div>
 
           <PaginationBar
             offset={preguntasOffset}
@@ -1820,61 +1986,9 @@ export default function MLQuestions() {
         </>
       )}
 
-      {/* ====== TAB: Mensajes (Phase 5, PR3 — read-only MVP) ====== */}
+      {/* ====== TAB: Mensajes — master-detail (conversation list + thread) ====== */}
       {activeTab === 'mensajes' && puedeVerMensajes && (
         <>
-          <div className={styles.filtersBar}>
-            <input
-              type="text"
-              placeholder="Buscar por comprador (ID)"
-              className={styles.configInput}
-              value={buyerFilter}
-              onChange={handleBuyerFilterChange}
-            />
-            <input
-              type="text"
-              placeholder="Pack ID"
-              className={styles.configInput}
-              value={packFilter}
-              disabled={sinPack}
-              onChange={handlePackFilterChange}
-            />
-            <button
-              type="button"
-              className={`btn-tesla sm ${sinPack ? '' : 'outline-subtle-primary'}`}
-              onClick={handleSinPackToggle}
-              aria-pressed={sinPack}
-            >
-              Sin pack
-            </button>
-            <label className={styles.rosterEnabledLabel}>
-              <input
-                type="checkbox"
-                checked={includeModerated}
-                onChange={handleIncludeModeratedChange}
-              />
-              Incluir moderados
-            </label>
-            <label className={styles.rosterEnabledLabel}>
-              <input
-                type="checkbox"
-                checked={hasReadFilter === 'true'}
-                onChange={handleHasReadFilterChange}
-              />
-              Leídos
-            </label>
-            <select
-              value={messageBotStatusFilter}
-              onChange={handleMessageBotStatusFilterChange}
-              className={styles.select}
-            >
-              <option value="">Todos los estados del bot</option>
-              {MESSAGE_BOT_STATUS_FILTER_OPTIONS.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-
           {messagesError && (
             <div className={styles.errorBar}>
               <AlertTriangle size={14} />
@@ -1897,60 +2011,112 @@ export default function MLQuestions() {
             </div>
           )}
 
-          <ResizableTableShell
-            table={mensajesTable}
-            hasCustomSizing={hasCustomMensajesColumnSizing}
-            onResetSizing={handleResetMensajesColumnSizing}
-            striped={false}
-          >
-              {messagesLoading ? (
-                <tbody className="table-tesla-body">
-                  <tr><td colSpan={mensajesTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
-                </tbody>
-              ) : messageThreads.length === 0 ? (
-                <tbody className="table-tesla-body">
-                  <tr><td colSpan={mensajesTable.getVisibleLeafColumns().length} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
-                </tbody>
-              ) : (
-                messageThreads.map((thread) => {
-                  const anchor = thread.anchorMessage;
-                  const canTakeOver = anchor && MESSAGE_TAKE_OVER_STATES.includes(anchor.bot_status);
-                  const canRespond = anchor?.bot_status === 'taken_over';
-                  // Mirrors the Preguntas tab's publish-now: a draft the bot already
-                  // wrote goes out in one click. The backend stamps taken_over_by on
-                  // a direct send, so responsibility is recorded either way.
-                  const canSendDirect = anchor?.bot_status === 'awaiting_human' && !!anchor?.drafted_answer;
-                  const orderCtx = thread.pack_id ? orderContexts[thread.pack_id] : null;
-                  const orderItemLabels = (orderCtx?.items || []).map(
-                    (it) => `${it.quantity ?? '?'}x ${it.title ?? 'sin título'}`
-                  );
-                  return (
-                  <tbody key={thread.key} className={`table-tesla-body ${styles.threadGroup}`}>
-                    <tr className={styles.threadHeader}>
-                      <td colSpan={mensajesTable.getVisibleLeafColumns().length}>
-                        <div className={styles.threadHeaderRow}>
-                          <div className={styles.threadHeaderInfo}>
-                            <button
-                              type="button"
-                              className="btn-tesla ghost sm"
-                              onClick={() => toggleThreadDetail(thread.key)}
-                              title={expandedThreadKey === thread.key ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-label={expandedThreadKey === thread.key ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-expanded={expandedThreadKey === thread.key}
-                            >
-                              {expandedThreadKey === thread.key ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </button>
-                            <span className={styles.threadBuyer}>
-                              {thread.buyer_nickname || thread.buyer_id || 'comprador desconocido'}
-                            </span>
-                            <span className={styles.threadSeparator}>·</span>
-                            <span className={styles.threadPack}>
-                              {thread.pack_id ? `pack ${thread.pack_id}` : 'sin pack'}
-                            </span>
-                            <span className={styles.threadSeparator}>·</span>
-                            <span className={styles.threadCount}>
-                              {thread.messages.length} mensaje{thread.messages.length === 1 ? '' : 's'}
-                            </span>
+          <div className={styles.mensajesLayout}>
+            <section className={styles.mensajesListPane} aria-label="Conversaciones">
+              <div className={styles.mensajesFilters}>
+                <div className={styles.mensajesFilterGrid}>
+                  <label className={styles.stackField}>
+                    <span className={styles.toolbarLabel}>Comprador (ID)</span>
+                    <input
+                      type="text"
+                      placeholder="Buscar por comprador (ID)"
+                      className={`${styles.configInput} ${styles.filterInput}`}
+                      value={buyerFilter}
+                      onChange={handleBuyerFilterChange}
+                    />
+                  </label>
+                  <div className={styles.stackField}>
+                    <div className={styles.stackFieldHead}>
+                      <label htmlFor="mlq-mensajes-pack" className={styles.toolbarLabel}>Pack ID</label>
+                      <button
+                        type="button"
+                        className={`btn-tesla sm ${sinPack ? '' : 'ghost'} ${styles.sinPackToggle}`}
+                        onClick={handleSinPackToggle}
+                        aria-pressed={sinPack}
+                      >
+                        Sin pack
+                      </button>
+                    </div>
+                    <input
+                      id="mlq-mensajes-pack"
+                      type="text"
+                      placeholder="Pack ID"
+                      className={`${styles.configInput} ${styles.filterInput}`}
+                      value={packFilter}
+                      disabled={sinPack}
+                      onChange={handlePackFilterChange}
+                    />
+                  </div>
+                </div>
+                <div className={styles.mensajesFilterRow}>
+                  <label className={styles.checkField}>
+                    <input
+                      type="checkbox"
+                      checked={includeModerated}
+                      onChange={handleIncludeModeratedChange}
+                    />
+                    Incluir moderados
+                  </label>
+                  <label className={styles.checkField}>
+                    <input
+                      type="checkbox"
+                      checked={hasReadFilter === 'true'}
+                      onChange={handleHasReadFilterChange}
+                    />
+                    Leídos
+                  </label>
+                  <label className={`${styles.toolbarField} ${styles.statusFilterField}`}>
+                    <span className={styles.toolbarLabel}>Estado del bot</span>
+                    <select
+                      value={messageBotStatusFilter}
+                      onChange={handleMessageBotStatusFilterChange}
+                      className={styles.select}
+                    >
+                      <option value="">Todos los estados del bot</option>
+                      {MESSAGE_BOT_STATUS_FILTER_OPTIONS.map(({ value, label }) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className={styles.conversationList}>
+                {messagesLoading ? (
+                  <div className={styles.loadingCell}>Cargando...</div>
+                ) : messageThreads.length === 0 ? (
+                  <div className={styles.emptyCell}>No hay mensajes para mostrar</div>
+                ) : (
+                  messageThreads.map((thread) => {
+                    const anchor = thread.anchorMessage;
+                    const lastMessage = thread.messages[thread.messages.length - 1];
+                    const isSelected = selectedThread?.key === thread.key;
+                    const domId = `mlq-thread-${thread.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                    return (
+                      <button
+                        key={thread.key}
+                        type="button"
+                        className={`${styles.conversationCard} ${isSelected ? styles.conversationCardSelected : ''}`}
+                        onClick={() => setSelectedThreadKey(thread.key)}
+                        aria-pressed={isSelected}
+                        aria-labelledby={`${domId}-buyer ${domId}-pack`}
+                      >
+                        <span className={styles.conversationTop}>
+                          <span id={`${domId}-buyer`} className={styles.conversationBuyer}>
+                            {thread.buyer_nickname || thread.buyer_id || 'comprador desconocido'}
+                          </span>
+                          <span id={`${domId}-pack`} className={styles.conversationPack}>
+                            {thread.pack_id ? `pack ${thread.pack_id}` : 'sin pack'}
+                          </span>
+                          <span className={styles.conversationTime}>
+                            {thread.latest_received_at ? new Date(thread.latest_received_at).toLocaleString() : '—'}
+                          </span>
+                        </span>
+                        <span className={styles.conversationPreview} title={lastMessage?.text || ''}>
+                          {lastMessage?.text || '—'}
+                        </span>
+                        <span className={styles.conversationBottom}>
+                          <span className={styles.conversationChips}>
                             {anchor?.bot_status && (
                               <span className={`${styles.badge} ${styles[MESSAGE_BOT_STATUS_BADGE_CLASS[anchor.bot_status]] || ''}`}>
                                 {MESSAGE_BOT_STATUS_LABELS[anchor.bot_status] || anchor.bot_status}
@@ -1968,197 +2134,112 @@ export default function MLQuestions() {
                                 {anchor.answer_source === 'fallback' ? 'fallback' : 'bot'}
                               </span>
                             )}
-                            {anchor?.bot_status === 'failed' && anchor?.last_error && (
-                              <span className={styles.threadErrorText} title={anchor.last_error}>
-                                {anchor.last_error}
-                              </span>
-                            )}
-                          </div>
-                          {orderCtx && (
-                            /* Qué compró y dónde está el envío, para decidir sin
-                               salir del panel. */
-                            <div className={styles.threadOrderContext}>
-                              {orderItemLabels.length > 0 && (
-                                <span className={styles.threadOrderItems} title={orderItemLabels.join('\n')}>
-                                  {orderItemLabels.join(' · ')}
-                                </span>
-                              )}
-                              {orderCtx.shipping?.status && (
-                                <span className={`${styles.badge} ${styles.badgeNeutral}`}>
-                                  envío: {orderCtx.shipping.status}
-                                  {orderCtx.shipping.substatus ? ` / ${orderCtx.shipping.substatus}` : ''}
-                                </span>
-                              )}
-                              {orderCtx.order_status && (
-                                <span className={`${styles.badge} ${styles.badgeNeutral}`}>
-                                  orden: {orderCtx.order_status}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          {anchor?.drafted_answer && expandedThreadKey !== thread.key && (
-                            /* The whole point of the row: read what the bot wants
-                               to say without opening the detail panel. Hidden once
-                               the detail is expanded, which already shows it in
-                               full — no duplicate copy on screen. */
-                            <p className={styles.threadDraftPreview} title={anchor.drafted_answer}>
-                              {anchor.drafted_answer}
-                            </p>
-                          )}
-                          {(puedeResponderMensajes && (canTakeOver || canRespond || canSendDirect)) || puedeGestionarPendientes ? (
-                            <div className={styles.actionsCell}>
-                              {puedeGestionarPendientes && (
-                                <button
-                                  className="btn-tesla ghost sm"
-                                  onClick={() => openManualCreate({
-                                    pack_id: thread.pack_id,
-                                    buyer_id: thread.buyer_id,
-                                    raw_text: anchor?.text,
-                                  })}
-                                  title="Crear pendiente (el clasificador no lo detectó)"
-                                  aria-label="Crear pendiente manual"
-                                >
-                                  <Plus size={14} />
-                                </button>
-                              )}
-                              {puedeResponderMensajes && canTakeOver && (
-                                <button
-                                  className="btn-tesla ghost sm"
-                                  onClick={() => handleTakeOverMessage(anchor)}
-                                  disabled={msgActionLoadingId === anchor.id}
-                                  title="Tomar el mensaje"
-                                  aria-label="Tomar el mensaje"
-                                >
-                                  <UserCheck size={14} />
-                                </button>
-                              )}
-                              {puedeResponderMensajes && canSendDirect && (
-                                <button
-                                  className="btn-tesla sm"
-                                  onClick={() => handleSendMessage(anchor)}
-                                  disabled={msgActionLoadingId === anchor.id || !messagesSendEnabled}
-                                  title={
-                                    messagesSendEnabled
-                                      ? 'Enviar la respuesta del bot'
-                                      : 'Envío deshabilitado — habilitá messages_send_enabled'
-                                  }
-                                  aria-label="Enviar la respuesta del bot"
-                                >
-                                  <Send size={14} />
-                                </button>
-                              )}
-                              {puedeResponderMensajes && canRespond && (
-                                <>
-                                  <button
-                                    className="btn-tesla outline-subtle-primary sm"
-                                    onClick={() => openMessageEdit(anchor)}
-                                    disabled={msgActionLoadingId === anchor.id}
-                                  >
-                                    Editar
-                                  </button>
-                                  <button
-                                    className="btn-tesla sm"
-                                    onClick={() => handleSendMessage(anchor)}
-                                    disabled={msgActionLoadingId === anchor.id || !anchor.drafted_answer || !messagesSendEnabled}
-                                    title={messagesSendEnabled ? 'Enviar respuesta' : 'Envío deshabilitado — habilitá messages_send_enabled'}
-                                    aria-label="Enviar respuesta"
-                                  >
-                                    <Send size={14} />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                    {thread.messages.map((m) => (
-                      <tr key={m.id} className={styles.threadRow}>
-                        <td className={styles.threadRowIndent} aria-hidden="true" />
-                        <td className={styles.cellQuestion} title={m.text}>{m.text}</td>
-                        <td>{m.received_at ? new Date(m.received_at).toLocaleString() : '—'}</td>
-                        <td>{m.read_at ? new Date(m.read_at).toLocaleString() : '—'}</td>
-                        <td>
-                          {m.moderation_status && m.moderation_status !== 'clean' ? (
-                            <span className={`${styles.badge} ${styles.badgeWarning}`}>
-                              {MESSAGE_STATUS_LABELS[m.moderation_status] || m.moderation_status}
-                            </span>
-                          ) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                    {expandedThreadKey === thread.key && renderMessageDetailRow(thread)}
-                  </tbody>
-                  );
-                })
-              )}
-          </ResizableTableShell>
+                          </span>
+                          <span className={styles.conversationCount}>
+                            {thread.messages.length} mensaje{thread.messages.length === 1 ? '' : 's'}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
 
-          {/* ponytail: pagination here is by raw message row (matches the
-              honest `total` the backend returns), but the UI groups rows into
-              threads by pack_id. A thread that straddles the page boundary
-              renders split — worst case its anchor message (the only one
-              carrying bot_status) lands on the other page, so the visible
-              half shows no status badge and no Tomar/Enviar actions. Existed
-              before this PR at limit=100 too, just less often; fixing it
-              needs thread-aware pagination on the backend, out of PR1 scope
-              (ml-bot-panel-operador spec item 1 covers only the honest
-              total/offset, not per-thread grouping). The label below says
-              "mensajes", not "conversaciones", so the count is never
-              misread as a thread count. */}
-          <PaginationBar
-            offset={mensajesOffset}
-            pageSize={PAGINATION_PAGE_SIZE}
-            total={mensajesTotal}
-            unitLabel="mensajes"
-            onOffsetChange={setMensajesOffset}
-          />
+              {/* ponytail: pagination here is by raw message row (matches the
+                  honest `total` the backend returns), but the UI groups rows
+                  into threads by pack_id. A thread that straddles the page
+                  boundary renders split — worst case its anchor message (the
+                  only one carrying bot_status) lands on the other page, so the
+                  visible half shows no status badge and no Tomar/Enviar
+                  actions. Fixing it needs thread-aware pagination on the
+                  backend. The label below says "mensajes", not
+                  "conversaciones", so the count is never misread as a thread
+                  count. */}
+              <div className={styles.mensajesPagination}>
+                <PaginationBar
+                  offset={mensajesOffset}
+                  pageSize={PAGINATION_PAGE_SIZE}
+                  total={mensajesTotal}
+                  unitLabel="mensajes"
+                  onOffsetChange={setMensajesOffset}
+                />
+              </div>
+            </section>
+
+            <section className={styles.threadPane} aria-label="Conversación seleccionada">
+              {!messagesLoading && selectedThread ? (
+                renderMessageThreadPane(selectedThread)
+              ) : (
+                <div className={styles.threadPanePlaceholder}>
+                  <MessagesSquare size={28} aria-hidden="true" />
+                  <span>
+                    {messagesLoading
+                      ? 'Cargando conversación...'
+                      : selectedThreadGone
+                        ? 'La conversación seleccionada ya no está en la lista. Elegí otra.'
+                        : 'Seleccioná una conversación para ver sus mensajes'}
+                  </span>
+                </div>
+              )}
+            </section>
+          </div>
         </>
       )}
 
       {/* ====== TAB: Pendientes (Phase 6, PR3 — derive-to-admin lane) ====== */}
       {activeTab === 'pendientes' && puedeVerPendientes && (
         <>
-          <div className={styles.filtersBar}>
-            <select
-              value={pendingStatusFilter}
-              onChange={(e) => setPendingStatusFilter(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todos los estados</option>
-              {Object.entries(PENDING_STATUS_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={pendingSourceFilter}
-              onChange={(e) => setPendingSourceFilter(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todos los orígenes</option>
-              {Object.entries(PENDING_SOURCE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={pendingCuitValidFilter}
-              onChange={(e) => setPendingCuitValidFilter(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">CUIT: cualquiera</option>
-              <option value="true">CUIT válido</option>
-              <option value="false">CUIT inválido</option>
-            </select>
-            {puedeGestionarPendientes && (
-              <button
-                type="button"
-                className="btn-tesla outline-subtle-primary sm"
-                onClick={() => openManualCreate()}
-              >
-                <Plus size={14} />
-                Crear pendiente
-              </button>
-            )}
+          <div className={styles.toolbarCard}>
+            <div className={styles.toolbarRow}>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Estado</span>
+                <select
+                  value={pendingStatusFilter}
+                  onChange={(e) => setPendingStatusFilter(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todos los estados</option>
+                  {Object.entries(PENDING_STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Origen</span>
+                <select
+                  value={pendingSourceFilter}
+                  onChange={(e) => setPendingSourceFilter(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todos los orígenes</option>
+                  {Object.entries(PENDING_SOURCE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>CUIT</span>
+                <select
+                  value={pendingCuitValidFilter}
+                  onChange={(e) => setPendingCuitValidFilter(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">CUIT: cualquiera</option>
+                  <option value="true">CUIT válido</option>
+                  <option value="false">CUIT inválido</option>
+                </select>
+              </label>
+              {puedeGestionarPendientes && (
+                <button
+                  type="button"
+                  className={`btn-tesla primary sm ${styles.toolbarEnd}`}
+                  onClick={() => openManualCreate()}
+                >
+                  <Plus size={14} />
+                  Crear pendiente
+                </button>
+              )}
+            </div>
           </div>
 
           {pendingError && (
@@ -2197,11 +2278,23 @@ export default function MLQuestions() {
                   pendingRequests.map((row) => (
                     <Fragment key={row.id}>
                       <tr>
-                        <td className={styles.cellItem}>
-                          {row.pack_id ? `pack ${row.pack_id}` : (row.buyer_id ?? '—')}
+                        <td>
+                          <div className={styles.pendingIdentity}>
+                            <span
+                              className={styles.pendingPack}
+                              title={row.pack_id ? `pack ${row.pack_id}` : String(row.buyer_id ?? '')}
+                            >
+                              {row.pack_id ? `pack ${row.pack_id}` : (row.buyer_id ?? '—')}
+                            </span>
+                            {row.prefill_nickname && (
+                              <span className={styles.pendingNickname} title={row.prefill_nickname}>
+                                {row.prefill_nickname}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td>
-                          <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                          <span className={styles.reasonChip}>
                             {PENDING_SOURCE_LABELS[row.source] || row.source}
                           </span>
                         </td>
@@ -2210,8 +2303,12 @@ export default function MLQuestions() {
                             {PENDING_STATUS_LABELS[row.status] || row.status}
                           </span>
                         </td>
-                        <td className={styles.cellItem}>{row.extracted_cuit || '—'}</td>
-                        <td className={styles.cellItem}>{row.extracted_name || '—'}</td>
+                        <td>
+                          <span className={styles.pendingMono}>{row.extracted_cuit || '—'}</span>
+                        </td>
+                        <td className={styles.pendingText} title={row.extracted_name || undefined}>
+                          {row.extracted_name || '—'}
+                        </td>
                         <td>
                           {row.cuit_valid === false ? (
                             <span className={`${styles.badge} ${styles.badgeDanger}`}>CUIT inválido</span>
@@ -2219,13 +2316,70 @@ export default function MLQuestions() {
                         </td>
                         <td>
                           {row.afip_status ? (
-                            <span className={`${styles.badge} ${styles.badgeNeutral}`}>{row.afip_status}</span>
+                            <span className={styles.reasonChip}>{row.afip_status}</span>
                           ) : '—'}
                         </td>
-                        <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '—'}</td>
+                        <td className={styles.pendingDate}>
+                          {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
+                        </td>
                         <td>
-                          <div className={styles.actionsCell}>
+                          <div className={styles.pendingActions}>
+                            {puedeGestionarPendientes && (
+                              <>
+                                {row.status === 'new' && (
+                                  <button
+                                    type="button"
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => handleClaimPending(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Tomar"
+                                    aria-label="Tomar pendiente"
+                                  >
+                                    <UserCheck size={14} />
+                                    Tomar
+                                  </button>
+                                )}
+                                {row.status === 'in_progress' && (
+                                  <button
+                                    type="button"
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => handleReleasePending(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Liberar"
+                                    aria-label="Liberar pendiente"
+                                  >
+                                    <Undo2 size={14} />
+                                    Liberar
+                                  </button>
+                                )}
+                                {['new', 'in_progress'].includes(row.status) && (
+                                  <button
+                                    type="button"
+                                    className="btn-tesla primary sm"
+                                    onClick={() => openDoneModal(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                  >
+                                    <CheckCheck size={14} />
+                                    Resolver
+                                  </button>
+                                )}
+                                {['new', 'in_progress'].includes(row.status) && (
+                                  <button
+                                    type="button"
+                                    className={`btn-tesla ghost sm ${styles.ghostDanger}`}
+                                    onClick={() => openCancelModal(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Cancelar"
+                                    aria-label="Cancelar pendiente"
+                                  >
+                                    <Trash2 size={14} />
+                                    Cancelar
+                                  </button>
+                                )}
+                              </>
+                            )}
                             <button
+                              type="button"
                               className="btn-tesla ghost sm"
                               onClick={() => abrirDetallePendiente(row)}
                               title={expandedPendingId === row.id ? 'Ocultar detalle' : 'Ver detalle'}
@@ -2234,59 +2388,13 @@ export default function MLQuestions() {
                             >
                               {expandedPendingId === row.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                             </button>
-                            {puedeGestionarPendientes && (
-                              <>
-                                {row.status === 'new' && (
-                                  <button
-                                    className="btn-tesla ghost sm"
-                                    onClick={() => handleClaimPending(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                    title="Tomar"
-                                    aria-label="Tomar pendiente"
-                                  >
-                                    <UserCheck size={14} />
-                                  </button>
-                                )}
-                                {row.status === 'in_progress' && (
-                                  <button
-                                    className="btn-tesla ghost sm"
-                                    onClick={() => handleReleasePending(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                    title="Liberar"
-                                    aria-label="Liberar pendiente"
-                                  >
-                                    <RotateCcw size={14} />
-                                  </button>
-                                )}
-                                {['new', 'in_progress'].includes(row.status) && (
-                                  <button
-                                    className="btn-tesla outline-subtle-primary sm"
-                                    onClick={() => openDoneModal(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                  >
-                                    Resolver
-                                  </button>
-                                )}
-                                {['new', 'in_progress'].includes(row.status) && (
-                                  <button
-                                    className="btn-tesla ghost sm"
-                                    onClick={() => openCancelModal(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                    title="Cancelar"
-                                    aria-label="Cancelar pendiente"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
-                              </>
-                            )}
                           </div>
                         </td>
                       </tr>
                       {expandedPendingId === row.id && (
                         <tr className={styles.detailRow}>
                           <td colSpan={pendientesTable.getVisibleLeafColumns().length}>
-                            <div className={styles.detailPanel}>
+                            <div className={styles.questionDrawer}>
                               {pendingDetailLoading ? (
                                 <div className={styles.loadingCell}>Cargando...</div>
                               ) : pendingDetailError ? (
@@ -2295,48 +2403,66 @@ export default function MLQuestions() {
                                   {pendingDetailError}
                                 </div>
                               ) : pendingDetail ? (
-                                <div className={styles.detailContent}>
-                                  <div className={styles.prefillCompare}>
-                                    <div>
-                                      <strong>Extraído (mensaje del comprador)</strong>
-                                      <p className={styles.detailText}>CUIT: {pendingDetail.extracted_cuit || '—'}</p>
-                                      <p className={styles.detailText}>Nombre: {pendingDetail.extracted_name || '—'}</p>
-                                      <p className={styles.detailText}>Texto: {pendingDetail.raw_text || '—'}</p>
-                                    </div>
-                                    <div>
-                                      <strong>AFIP / almacenado</strong>
-                                      <p className={styles.detailText}>Razón social: {pendingDetail.afip_razon_social || '—'}</p>
-                                      <p className={styles.detailText}>Condición IVA: {pendingDetail.afip_condicion_iva || '—'}</p>
-                                      <p className={styles.detailText}>Domicilio: {pendingDetail.afip_domicilio || '—'}</p>
-                                      <p className={styles.detailText}>Doc. facturación: {pendingDetail.prefill_billing_doc_number || '—'}</p>
-                                    </div>
+                                <div className={styles.inspectorColumn}>
+                                  <div className={styles.inspectorGrid}>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>Extraído (mensaje del comprador)</h3>
+                                      <dl className={styles.fieldList}>
+                                        <dt className={styles.fieldLabel}>CUIT</dt>
+                                        <dd className={styles.fieldValueMono}>{pendingDetail.extracted_cuit || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Nombre</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.extracted_name || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Texto</dt>
+                                        <dd className={styles.fieldValue}>
+                                          {pendingDetail.raw_text ? (
+                                            <blockquote className={styles.quoteBlock}>{pendingDetail.raw_text}</blockquote>
+                                          ) : '—'}
+                                        </dd>
+                                      </dl>
+                                    </section>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>AFIP / almacenado</h3>
+                                      <dl className={styles.fieldList}>
+                                        <dt className={styles.fieldLabel}>Razón social</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.afip_razon_social || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Condición IVA</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.afip_condicion_iva || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Domicilio</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.afip_domicilio || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Doc. facturación</dt>
+                                        <dd className={styles.fieldValueMono}>{pendingDetail.prefill_billing_doc_number || '—'}</dd>
+                                      </dl>
+                                    </section>
                                   </div>
                                   {Array.isArray(pendingDetail.superseded_values) && pendingDetail.superseded_values.length > 0 && (
-                                    <div>
-                                      <strong>Historial de valores reemplazados</strong>
-                                      <ul>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>Historial de valores reemplazados</h3>
+                                      <ul className={styles.supersededList}>
                                         {pendingDetail.superseded_values.map((sv, i) => (
                                           <li key={i} className={styles.detailText}>
                                             {sv.cuit || '—'} · {sv.name || '—'} · {sv.at ? new Date(sv.at).toLocaleString() : '—'}
                                           </li>
                                         ))}
                                       </ul>
-                                    </div>
+                                    </section>
                                   )}
                                   {pendingDetail.suggested_ack_template && (
-                                    <div>
-                                      <strong>Plantilla de acuse sugerida</strong>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>Plantilla de acuse sugerida</h3>
                                       <p className={styles.detailText}>{pendingDetail.suggested_ack_template}</p>
                                       {row.message_id && (
-                                        <button
-                                          type="button"
-                                          className="btn-tesla outline-subtle-primary sm"
-                                          onClick={() => handlePrepararAcuse(row, pendingDetail.suggested_ack_template)}
-                                        >
-                                          Preparar acuse
-                                        </button>
+                                        <div className={styles.inspectorFooter}>
+                                          <button
+                                            type="button"
+                                            className="btn-tesla outline-subtle-primary sm"
+                                            onClick={() => handlePrepararAcuse(row, pendingDetail.suggested_ack_template)}
+                                          >
+                                            <Send size={14} />
+                                            Preparar acuse
+                                          </button>
+                                        </div>
                                       )}
-                                    </div>
+                                    </section>
                                   )}
                                 </div>
                               ) : null}
@@ -2353,131 +2479,202 @@ export default function MLQuestions() {
       )}
 
       {/* ====== TAB: Configuración ====== */}
-      {activeTab === 'config' && puedeConfigurar && (
-        <div className={styles.configSection}>
-          {configError && (
-            <div className={styles.errorBar}>
-              <AlertTriangle size={14} />
-              {configError}
-            </div>
-          )}
-
-          <h2 className={styles.sectionTitle}>Variables de negocio</h2>
-          {configLoading ? (
-            <div className={styles.loadingCell}>Cargando...</div>
-          ) : (
-            <div className="table-container-tesla">
-              <table className="table-tesla striped">
-                <thead className="table-tesla-head">
-                  <tr>
-                    <th>Clave</th>
-                    <th>Valor</th>
-                    <th>Descripción</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody className="table-tesla-body">
-                  {configItems.map((item) => (
-                    <tr key={item.clave}>
-                      <td className={styles.cellClave}>{item.clave}</td>
-                      <td>
-                        {item.clave === LLM_ROSTER_CONFIG_KEY ? (
-                          <LlmProviderRosterEditor
-                            value={configDrafts[item.clave] ?? ''}
-                            onChange={(next) => setConfigDrafts((prev) => ({ ...prev, [item.clave]: next }))}
-                          />
-                        ) : (
-                          <input
-                            type="text"
-                            className={styles.configInput}
-                            value={configDrafts[item.clave] ?? ''}
-                            onChange={(e) => setConfigDrafts((prev) => ({ ...prev, [item.clave]: e.target.value }))}
-                          />
-                        )}
-                      </td>
-                      <td className={styles.cellDescripcion}>{item.descripcion || '—'}</td>
-                      <td>
-                        <button
-                          className="btn-tesla outline-subtle-primary sm"
-                          onClick={() => handleConfigSave(item.clave)}
-                          disabled={savingClave === item.clave || configDrafts[item.clave] === item.valor}
-                        >
-                          {savingClave === item.clave ? <Loader size={14} className={styles.spinning} /> : 'Guardar'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <h2 className={styles.sectionTitle}>Ejemplos de tono (few-shot)</h2>
-          {examplesLoading ? (
-            <div className={styles.loadingCell}>Cargando...</div>
-          ) : (
-            <>
-              <div className="table-container-tesla">
-                <table className="table-tesla striped">
-                  <thead className="table-tesla-head">
-                    <tr>
-                      <th>Pregunta ejemplo</th>
-                      <th>Respuesta ejemplo</th>
-                      <th>Categoría</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody className="table-tesla-body">
-                    {examples.map((ex) => (
-                      <tr key={ex.id}>
-                        <td className={styles.cellMotivo}>{ex.question_example}</td>
-                        <td className={styles.cellMotivo}>{ex.answer_example}</td>
-                        <td>{ex.category || '—'}</td>
-                        <td>
-                          <button className="btn-tesla ghost sm" onClick={() => handleDeleteExample(ex.id)} title="Eliminar" aria-label="Eliminar ejemplo">
-                            <Trash2 size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {examples.length === 0 && (
-                      <tr><td colSpan={4} className={styles.emptyCell}>No hay ejemplos cargados</td></tr>
-                    )}
-                  </tbody>
-                </table>
+      {activeTab === 'config' && puedeConfigurar && (() => {
+        const rosterItem = configItems.find((item) => item.clave === LLM_ROSTER_CONFIG_KEY);
+        const variableItems = configItems.filter((item) => item.clave !== LLM_ROSTER_CONFIG_KEY);
+        const setDraft = (clave, valor) => setConfigDrafts((prev) => ({ ...prev, [clave]: valor }));
+        return (
+          <div className={styles.configSection}>
+            {configError && (
+              <div className={styles.errorBar}>
+                <AlertTriangle size={14} />
+                {configError}
               </div>
+            )}
+
+            {configLoading ? (
+              <section className={styles.configCard}>
+                <div className={styles.loadingCell}>Cargando...</div>
+              </section>
+            ) : (
+              <>
+                {rosterItem && (
+                  <section className={styles.configCard} aria-labelledby="config-llm-title">
+                    <header className={styles.configCardHeader}>
+                      <h2 id="config-llm-title" className={styles.configCardTitle}>
+                        <Server size={18} className={styles.configCardIcon} />
+                        Proveedores LLM
+                      </h2>
+                      <p className={styles.configCardSubtitle}>
+                        Round-robin por pregunta; si uno falla, pasa al siguiente.
+                      </p>
+                    </header>
+                    <LlmProviderRosterEditor
+                      value={configDrafts[LLM_ROSTER_CONFIG_KEY] ?? ''}
+                      onChange={(next) => setDraft(LLM_ROSTER_CONFIG_KEY, next)}
+                    />
+                    <footer className={styles.configCardFooter}>
+                      <button
+                        type="button"
+                        className="btn-tesla secondary sm"
+                        onClick={() => setDraft(LLM_ROSTER_CONFIG_KEY, rosterItem.valor)}
+                        disabled={
+                          savingClave === LLM_ROSTER_CONFIG_KEY
+                          || configDrafts[LLM_ROSTER_CONFIG_KEY] === rosterItem.valor
+                        }
+                      >
+                        Descartar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tesla primary sm"
+                        onClick={() => handleConfigSave(LLM_ROSTER_CONFIG_KEY)}
+                        disabled={
+                          savingClave === LLM_ROSTER_CONFIG_KEY
+                          || configDrafts[LLM_ROSTER_CONFIG_KEY] === rosterItem.valor
+                        }
+                      >
+                        {savingClave === LLM_ROSTER_CONFIG_KEY
+                          ? <Loader size={14} className={styles.spinning} />
+                          : 'Guardar cambios'}
+                      </button>
+                    </footer>
+                  </section>
+                )}
+
+                <section className={styles.configCard} aria-labelledby="config-vars-title">
+                  <header className={styles.configCardHeader}>
+                    <h2 id="config-vars-title" className={styles.configCardTitle}>
+                      <Braces size={18} className={styles.configCardIcon} />
+                      Variables de negocio
+                    </h2>
+                  </header>
+                  <ul className={styles.varList}>
+                    {variableItems.map((item) => {
+                      const inputId = `config-var-${item.clave}`;
+                      const dirty = configDrafts[item.clave] !== item.valor;
+                      return (
+                        <li key={item.clave} className={styles.varRow}>
+                          <div className={styles.varMeta}>
+                            <label htmlFor={inputId} className={styles.varKey}>{item.clave}</label>
+                            {item.descripcion && (
+                              <span className={styles.varDescription}>{item.descripcion}</span>
+                            )}
+                            {dirty && <span className={styles.varDirty}>modificado</span>}
+                          </div>
+                          <div className={styles.varControl}>
+                            <input
+                              id={inputId}
+                              type="text"
+                              className={styles.configInput}
+                              value={configDrafts[item.clave] ?? ''}
+                              onChange={(e) => setDraft(item.clave, e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className="btn-tesla outline-subtle-primary sm"
+                              onClick={() => handleConfigSave(item.clave)}
+                              disabled={savingClave === item.clave || !dirty}
+                              aria-label={`Guardar ${item.clave}`}
+                            >
+                              {savingClave === item.clave ? <Loader size={14} className={styles.spinning} /> : 'Guardar'}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              </>
+            )}
+
+            <section className={styles.configCard} aria-labelledby="config-examples-title">
+              <header className={styles.configCardHeader}>
+                <h2 id="config-examples-title" className={styles.configCardTitle}>
+                  <MessagesSquare size={18} className={styles.configCardIcon} />
+                  Ejemplos de tono (few-shot)
+                </h2>
+                <p className={styles.configCardSubtitle}>Pares pregunta/respuesta que el bot imita.</p>
+              </header>
 
               <div className={styles.newExampleForm}>
-                <input
-                  type="text"
-                  placeholder="Pregunta ejemplo"
-                  className={styles.configInput}
-                  value={newExample.question_example}
-                  onChange={(e) => setNewExample((prev) => ({ ...prev, question_example: e.target.value }))}
-                />
-                <input
-                  type="text"
-                  placeholder="Respuesta ejemplo"
-                  className={styles.configInput}
-                  value={newExample.answer_example}
-                  onChange={(e) => setNewExample((prev) => ({ ...prev, answer_example: e.target.value }))}
-                />
-                <input
-                  type="text"
-                  placeholder="Categoría (opcional)"
-                  className={styles.configInput}
-                  value={newExample.category}
-                  onChange={(e) => setNewExample((prev) => ({ ...prev, category: e.target.value }))}
-                />
-                <button className="btn-tesla outline-subtle-primary sm" onClick={handleCreateExample} disabled={savingExample}>
-                  <Plus size={14} />
-                  Agregar
-                </button>
+                <label className={styles.formField}>
+                  <span className={styles.formLabel}>Categoría (opcional)</span>
+                  <input
+                    type="text"
+                    placeholder="Categoría (opcional)"
+                    className={styles.configInput}
+                    value={newExample.category}
+                    onChange={(e) => setNewExample((prev) => ({ ...prev, category: e.target.value }))}
+                  />
+                </label>
+                <label className={styles.formField}>
+                  <span className={styles.formLabel}>Pregunta ejemplo</span>
+                  <input
+                    type="text"
+                    placeholder="Pregunta ejemplo"
+                    className={styles.configInput}
+                    value={newExample.question_example}
+                    onChange={(e) => setNewExample((prev) => ({ ...prev, question_example: e.target.value }))}
+                  />
+                </label>
+                <label className={`${styles.formField} ${styles.formFieldFull}`}>
+                  <span className={styles.formLabel}>Respuesta ejemplo</span>
+                  <textarea
+                    rows={3}
+                    placeholder="Respuesta ejemplo"
+                    className={`${styles.configInput} ${styles.exampleTextarea}`}
+                    value={newExample.answer_example}
+                    onChange={(e) => setNewExample((prev) => ({ ...prev, answer_example: e.target.value }))}
+                  />
+                </label>
+                <div className={styles.formActions}>
+                  <button
+                    type="button"
+                    className="btn-tesla outline-subtle-primary sm"
+                    onClick={handleCreateExample}
+                    disabled={savingExample}
+                  >
+                    <Plus size={14} />
+                    Agregar
+                  </button>
+                </div>
               </div>
-            </>
-          )}
-        </div>
-      )}
+
+              {examplesLoading ? (
+                <div className={styles.loadingCell}>Cargando...</div>
+              ) : examples.length === 0 ? (
+                <div className={styles.emptyCell}>No hay ejemplos cargados</div>
+              ) : (
+                <ul className={styles.exampleGrid}>
+                  {examples.map((ex) => (
+                    <li key={ex.id} className={styles.exampleCard}>
+                      <div className={styles.exampleCardTop}>
+                        {ex.category ? <span className={styles.exampleChip}>{ex.category}</span> : <span />}
+                        <button
+                          type="button"
+                          className="btn-tesla ghost sm"
+                          onClick={() => handleDeleteExample(ex.id)}
+                          title="Eliminar"
+                          aria-label="Eliminar ejemplo"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <p className={styles.exampleQuestion}>
+                        <span className={styles.examplePrefix}>P:</span> {ex.question_example}
+                      </p>
+                      <p className={styles.exampleAnswer}>
+                        <span className={styles.examplePrefix}>R:</span> {ex.answer_example}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        );
+      })()}
 
       {/* Edit / publish modal */}
       <ModalTesla
