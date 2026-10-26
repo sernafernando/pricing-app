@@ -14,12 +14,14 @@ stays an exact budget for the process. It combines:
   family's rate for ten minutes, then it is restored in steps. A 429 never slows
   the other families; all of them keep sharing the global gate.
 
-Each gate admits one call per interval (a one-token bucket), so in any window
-of one interval there is at most one call: the observed rate never exceeds the
-budget, not even by a start-up burst. A caller is given its slot before it
-sleeps, so callers asking at once are spread over the budget instead of waking
-up together. A slot given before a 429 of its family is forfeited: the caller
-waits out the cooldown and takes a new one.
+Each gate gives one slot per interval (a one-token bucket), so the budget is
+never exceeded, not even by a start-up burst; a call fires when its caller wakes
+up, so a late wake-up can only bring it closer to the next slot by that delay. A
+caller first waits out its family's own constraints holding nothing (so a
+throttled family never makes the others wait), then is given its global slot
+before it sleeps, so callers asking at once are spread over the budget instead
+of waking up together. A slot given before a 429 of its family is forfeited: the
+caller waits out the cooldown and takes a new one.
 
 `acquire` never sleeps past the caller's deadline: when the wait would cross it
 the call is refused (`DEADLINE`) and nothing is consumed (a forfeited slot
@@ -85,7 +87,7 @@ class _Gate:
 @dataclass
 class _Family:
     """One endpoint family's 429 state: its cooldown, backoff exponent and AIMD penalty, and the gate that applies
-    the penalty (at full rate it never binds before the global gate)."""
+    the penalty (only spent while the family is penalized)."""
 
     gate: _Gate = field(default_factory=_Gate)
     cooldown_until: float = float("-inf")
@@ -200,40 +202,53 @@ class Pacer:
 
     def acquire(self, family: str, deadline: Optional[datetime] = None) -> str:
         """Wait for a slot and spend it. Returns `DEADLINE` (nothing spent, nothing slept) when
-        the wait would cross `deadline`."""
+        the wait would cross `deadline`.
+
+        Two steps: first the family's own wait (its cooldown, its penalty, the stock or replenishment budget),
+        holding nothing, so a throttled family never makes the others wait; then, once the family may call, a
+        global slot, given under the lock before sleeping toward it."""
         if deadline is not None and deadline.tzinfo is None:
             raise ValueError("deadline must be timezone-aware")
         while True:
             with self._lock:
-                wait = self._reserve(family, deadline)
-            if wait is None:
-                return DEADLINE
+                now = self._clock.monotonic()
+                family_ready = self._family_ready(family)
+                reserved = family_ready <= now
+                wait = max(now, self._global.next_at) - now if reserved else family_ready - now
+                if deadline is not None and wait > (deadline - self._clock.now()).total_seconds():
+                    return DEADLINE
+                if reserved:
+                    self._spend(family, now + wait)
             if wait > 0:
                 self._clock.sleep(wait)
+            if not reserved:
+                continue  # the family may call now: take a global slot
             with self._lock:
                 # A 429 of the family may have landed while this caller slept toward its slot.
                 if self._family(family).cooldown_until <= self._clock.monotonic():
                     return GRANTED
 
-    def _reserve(self, family: str, deadline: Optional[datetime]) -> Optional[float]:
-        """Under the lock: give the caller the next slot every gate it spends allows, and return how long to wait
-        for it; None (nothing given) when the wait would cross `deadline`."""
-        now = self._clock.monotonic()
-        state = self._family(family)
-        gates = [self._global, state.gate]
+    def _gates(self, family: str) -> list[_Gate]:
+        """The family's own gates: its penalty gate, and the stock or replenishment budget it also spends."""
+        gates = [self._family(family).gate]
         if family == STOCK_FAMILY:
             gates.append(self._stock)
         if family == REPLENISHMENT_FAMILY:
             gates.append(self._replenishment)
-        slot = max([now, state.cooldown_until, *(gate.next_at for gate in gates)])
-        wait = slot - now
-        if deadline is not None and wait > (deadline - self._clock.now()).total_seconds():
-            return None
+        return gates
+
+    def _family_ready(self, family: str) -> float:
+        """Under the lock: when the family's own constraints let it call (its cooldown and its gates)."""
+        return max([self._family(family).cooldown_until, *(gate.next_at for gate in self._gates(family))])
+
+    def _spend(self, family: str, slot: float) -> None:
+        """Under the lock: give the caller the global slot `slot` and spend the family's gates from it."""
+        state = self._family(family)
         factor = self._factor(state, slot)
         self._global.next_at = slot + 1.0 / self._rate_per_sec
-        state.gate.next_at = slot + 1.0 / (self._rate_per_sec * factor)
+        if factor < 1.0:  # at full rate the global gate already spaces the family's calls
+            state.gate.next_at = slot + 1.0 / (self._rate_per_sec * factor)
         if family == STOCK_FAMILY:
             self._stock.next_at = slot + 60.0 / (self._stock_rate_per_min * factor)
         if family == REPLENISHMENT_FAMILY:
             self._replenishment.next_at = slot + 60.0 / (self._replenishment_rate_per_min * factor)
-        return wait

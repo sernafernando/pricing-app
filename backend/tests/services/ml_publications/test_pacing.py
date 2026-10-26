@@ -315,3 +315,48 @@ class TestConcurrentCallers:
         start = clock.monotonic()
         assert pacer.acquire("items_bulk", deadline=clock.now() + timedelta(seconds=60)) == GRANTED
         assert clock.monotonic() - start >= 30.0
+
+
+class HeldClock(FakeClock):
+    """The thread named "held" blocks inside its sleep until released, so another caller acts while it waits."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiting = threading.Event()
+        self.release = threading.Event()
+
+    def sleep(self, seconds: float) -> None:
+        if threading.current_thread().name == "held":
+            self.waiting.set()
+            self.release.wait(5)
+        super().sleep(seconds)
+
+
+class TestAWaitingFamilyHoldsNoGlobalSlot:
+    """A caller waiting out its family's cooldown or penalty holds no global slot, so the other families keep
+    calling meanwhile (verifier B1: a queued caller of a throttled family made every family wait behind it)."""
+
+    def _other_family_waits_while_held(self, pacer: Pacer, clock: HeldClock) -> float:
+        held = threading.Thread(target=lambda: pacer.acquire("items_bulk"), name="held")
+        held.start()
+        assert clock.waiting.wait(5)
+        start = clock.monotonic()
+        assert pacer.acquire("description") == GRANTED
+        waited = clock.monotonic() - start
+        clock.release.set()
+        held.join(5)
+        return waited
+
+    def test_during_a_cooldown(self) -> None:
+        clock = HeldClock()
+        pacer = Pacer(clock=clock, rng=random.Random(7))
+        pacer.on_rate_limited("items_bulk", "30")
+        assert self._other_family_waits_while_held(pacer, clock) < 1.0
+
+    def test_during_a_penalty(self) -> None:
+        clock = HeldClock()
+        pacer = Pacer(clock=clock, rate_per_sec=2.0, rng=random.Random(7))
+        for _ in range(4):
+            pacer.on_rate_limited("items_bulk", "0")  # items_bulk now at 1/16 of the rate: one call every 8 s
+        assert pacer.acquire("items_bulk") == GRANTED
+        assert self._other_family_waits_while_held(pacer, clock) < 1.0
