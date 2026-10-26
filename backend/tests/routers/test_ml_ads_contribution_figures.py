@@ -1,7 +1,7 @@
 """ml-ads-contribution-redesign T1 (S6) -- the contribution figures the loading page shows.
 
 `GET /api/ml-ads/campaigns` carries each campaign's `contribution` in the range and its `advertiser_name`;
-`POST /api/ml-ads/contributions/preview` answers the modal line without writing. Both follow the Métricas ML board's
+`GET /api/ml-ads/contributions/preview` answers the modal line, taking the create body as its query. Both follow the Métricas ML board's
 rule over the item rows (`ml_ads_item_days`). Campaigns, item days and contributions are DERIVED rows in the SQLite
 test DB.
 """
@@ -103,8 +103,8 @@ def test_each_campaign_names_its_advertiser_when_known(client, auth_headers, fig
 
 
 def _preview(client, auth_headers, **body):
-    payload = {"advertiser_id": ADV, "campaign_id": PCT, **OCTOBER, **body}
-    return client.post(f"{BASE}/contributions/preview", headers=auth_headers, json=payload)
+    params = {"advertiser_id": ADV, "campaign_id": PCT, **OCTOBER, **body}
+    return client.get(f"{BASE}/contributions/preview", headers=auth_headers, params=params)
 
 
 @pytest.mark.parametrize(

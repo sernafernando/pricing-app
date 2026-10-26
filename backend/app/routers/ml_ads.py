@@ -11,7 +11,7 @@ writes are the brand contributions the team loads.
   (informational only, no net cost). Never attributed to an MLA.
 - `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions, its cost in the range
   (ml-ads-brand-contribution S8) and what those contributions cover of it (ml-ads-contribution-redesign S6).
-  `POST /ml-ads/contributions/preview` answers what a contribution body would cover, writing nothing.
+  `GET /ml-ads/contributions/preview` answers what a contribution would cover, taking the create body as its query.
   `POST /ml-ads/contributions`, `PUT|DELETE /ml-ads/contributions/{id}` load, edit and delete a contribution and also
   need `ml_metricas.gestionar_aportes_ads` (S7); they write only that table.
 
@@ -28,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, Field, model_validator
@@ -384,8 +384,8 @@ def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) ->
     )
 
 
-@router.post("/contributions/preview", response_model=PreviewOut)
-def preview_contribution(body: ContributionIn, db: Session = Depends(get_db)) -> PreviewOut:
+@router.get("/contributions/preview", response_model=PreviewOut)
+def preview_contribution(body: Annotated[ContributionIn, Query()], db: Session = Depends(get_db)) -> PreviewOut:
     result = contributions.preview(db, _data(body))
     return PreviewOut(
         spend=_money(result.spend), counted=_money(result.counted), net=_money(result.spend - result.counted)
