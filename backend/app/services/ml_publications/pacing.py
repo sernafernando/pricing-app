@@ -12,7 +12,9 @@ stays an exact budget for the process. It combines:
   honoring `Retry-After` (seconds or HTTP date) or, without a usable header,
   exponential backoff with jitter capped at 60 s; and AIMD: each 429 halves that
   family's rate for ten minutes, then it is restored in steps. A 429 never slows
-  the other families; all of them keep sharing the global gate.
+  the other families; all of them keep sharing the global gate. The 429s of calls
+  sent before the family's last 429 was registered (calls in flight together) are
+  the same episode: they may lengthen the cooldown but never halve or back off again.
 
 Each gate gives one slot per interval (a one-token bucket), so the budget is
 never exceeded, not even by a start-up burst; a call fires when its caller wakes
@@ -37,7 +39,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 GRANTED = "granted"
 DEADLINE = "deadline"
@@ -56,6 +58,8 @@ AIMD_PENALTY_SECONDS = 600.0
 AIMD_RECOVERY_STEP_SECONDS = 60.0
 AIMD_RECOVERY_STEP = 0.125
 AIMD_FLOOR = 1.0 / 16
+# A caller that may be told to stop sleeps in steps of at most this, checking `should_stop` between them.
+STOP_CHECK_SECONDS = 0.5
 
 
 class Clock(Protocol):
@@ -94,6 +98,7 @@ class _Family:
     consecutive_429: int = 0
     penalized: float = 1.0
     penalty_until: float = float("-inf")
+    last_429_at: float = float("-inf")  # when the latest rate-limit episode started
 
 
 def parse_retry_after(header: Optional[str], now: datetime) -> Optional[float]:
@@ -174,13 +179,26 @@ class Pacer:
 
     # --- 429 handling -----------------------------------------------------------------
 
-    def on_rate_limited(self, family: str, retry_after: Optional[str]) -> float:
-        """Register a 429 of `family`: start its cooldown and halve its rate. Returns the cooldown in seconds."""
+    def stamp(self) -> float:
+        """The pacer's clock now: a caller stamps the moment it sends a call and passes it to `on_rate_limited`."""
+        return self._clock.monotonic()
+
+    def on_rate_limited(self, family: str, retry_after: Optional[str], sent_at: Optional[float] = None) -> float:
+        """Register a 429 of `family`: start its cooldown and halve its rate. Returns the cooldown in seconds.
+
+        `sent_at` (from `stamp`) is when the limited call was sent. A call sent no later than the family's last 429 was
+        registered was in flight with it: same episode, so its `Retry-After` may lengthen the cooldown but the rate
+        is not halved again nor the backoff bumped. Without `sent_at` every 429 is a new episode."""
         with self._lock:
             state = self._family(family)
             now = self._clock.monotonic()
-            state.consecutive_429 += 1
             delay = parse_retry_after(retry_after, self._clock.now())
+            if sent_at is not None and sent_at <= state.last_429_at:
+                if delay is not None:
+                    state.cooldown_until = max(state.cooldown_until, now + min(delay, MAX_COOLDOWN_SECONDS))
+                return max(0.0, state.cooldown_until - now)
+            state.consecutive_429 += 1
+            state.last_429_at = now
             if delay is None:
                 cap = min(2.0**state.consecutive_429, BACKOFF_CAP_SECONDS)
                 delay = cap * self._rng.uniform(0.5, 1.0)
@@ -200,9 +218,16 @@ class Pacer:
 
     # --- admission --------------------------------------------------------------------
 
-    def acquire(self, family: str, deadline: Optional[datetime] = None) -> str:
+    def acquire(
+        self,
+        family: str,
+        deadline: Optional[datetime] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
+    ) -> str:
         """Wait for a slot and spend it. Returns `DEADLINE` (nothing spent, never sleeping past `deadline`) when
         the wait would cross `deadline`: before the family's own wait, or once it is over, before the global slot.
+        Also `DEADLINE` as soon as `should_stop()` is true, checked at least every `STOP_CHECK_SECONDS` of the wait
+        (a slot already given is then forfeited).
 
         Two steps: first the family's own wait (its cooldown, its penalty, the stock or replenishment budget),
         holding nothing, so a throttled family never makes the others wait; then, once the family may call, a
@@ -210,6 +235,8 @@ class Pacer:
         if deadline is not None and deadline.tzinfo is None:
             raise ValueError("deadline must be timezone-aware")
         while True:
+            if should_stop is not None and should_stop():
+                return DEADLINE
             with self._lock:
                 now = self._clock.monotonic()
                 family_ready = self._family_ready(family)
@@ -219,14 +246,27 @@ class Pacer:
                     return DEADLINE
                 if reserved:
                     self._spend(family, now + wait)
-            if wait > 0:
-                self._clock.sleep(wait)
+            if wait > 0 and not self._sleep(wait, should_stop):
+                return DEADLINE
             if not reserved:
                 continue  # the family may call now: take a global slot
             with self._lock:
                 # A 429 of the family may have landed while this caller slept toward its slot.
                 if self._family(family).cooldown_until <= self._clock.monotonic():
                     return GRANTED
+
+    def _sleep(self, seconds: float, should_stop: Optional[Callable[[], bool]]) -> bool:
+        """Sleep `seconds`, in steps when the caller may be told to stop; False once `should_stop()` is true."""
+        if should_stop is None:
+            self._clock.sleep(seconds)
+            return True
+        while seconds > 0:
+            if should_stop():
+                return False
+            step = min(seconds, STOP_CHECK_SECONDS)
+            self._clock.sleep(step)
+            seconds -= step
+        return True
 
     def _gates(self, family: str) -> list[_Gate]:
         """The family's own gates: its penalty gate, and the stock or replenishment budget it also spends."""

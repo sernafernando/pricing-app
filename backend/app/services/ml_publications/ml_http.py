@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -83,11 +84,15 @@ class Counters:
 
     _counts: Dict[str, Dict[str, int]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(int)))
 
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
     def inc(self, family: str, outcome: str) -> None:
-        self._counts[family][outcome] += 1
+        with self._lock:
+            self._counts[family][outcome] += 1
 
     def snapshot(self) -> Dict[str, Dict[str, int]]:
-        return {family: dict(outcomes) for family, outcomes in self._counts.items()}
+        with self._lock:
+            return {family: dict(outcomes) for family, outcomes in self._counts.items()}
 
 
 def _checked_extra_headers(headers: Optional[Mapping[str, str]]) -> Dict[str, str]:
@@ -119,6 +124,8 @@ class MlHttpClient:
         self._http = httpx.Client(base_url=base_url, transport=transport, timeout=timeout, follow_redirects=False)
         self._token: Optional[str] = None
         self._token_expires_epoch = 0.0
+        # Calls may run concurrently (ml-sync-pipeline T4): one token read at a time, never one per caller.
+        self._token_lock = threading.Lock()
 
     def __enter__(self) -> "MlHttpClient":
         return self
@@ -132,6 +139,10 @@ class MlHttpClient:
     # --- token ------------------------------------------------------------------------
 
     def _bearer(self, *, refresh: bool = False) -> Optional[str]:
+        with self._token_lock:
+            return self._bearer_locked(refresh=refresh)
+
+    def _bearer_locked(self, *, refresh: bool) -> Optional[str]:
         if (
             not refresh
             and self._token
@@ -162,8 +173,11 @@ class MlHttpClient:
         *,
         deadline: Optional[datetime] = None,
         headers: Optional[Mapping[str, str]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> MlResponse:
         """One paced GET. Re-reads the token once and retries once on a 401.
+
+        `should_stop` ends a wait in the pacer early (answered as `DEADLINE`, no call made).
 
         `headers` are extra request headers (e.g. `Api-Version`); the Authorization header is
         owned by this client, so passing one (any case) raises `ValueError` before any call.
@@ -178,12 +192,12 @@ class MlHttpClient:
             logger.error("no ML access token available; refusing ML call %s", family)
             return self._no_call(family, OUTCOME_NO_TOKEN)
 
-        response = self._attempt(family, path, params, token, deadline, extra)
+        response = self._attempt(family, path, params, token, deadline, extra, should_stop)
         if response.status == 401:
             token = self._bearer(refresh=True)
             if token is None:
                 return response
-            response = self._attempt(family, path, params, token, deadline, extra)
+            response = self._attempt(family, path, params, token, deadline, extra, should_stop)
         return response
 
     def _attempt(
@@ -194,19 +208,21 @@ class MlHttpClient:
         token: str,
         deadline: Optional[datetime],
         extra_headers: Optional[Mapping[str, str]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> MlResponse:
-        if self.pacer.acquire(family, deadline) != GRANTED:
+        if self.pacer.acquire(family, deadline, should_stop) != GRANTED:
             return self._no_call(family, DEADLINE)
+        sent_at = self.pacer.stamp()
         started = self._now()
         try:
             raw = self._http.get(
                 path, params=params, headers={**(extra_headers or {}), "Authorization": f"Bearer {token}"}
             )
         except httpx.TimeoutException:
-            return self._finish(MlResponse(family, 0, None, {}, started, self._now(), error=ERROR_TIMEOUT))
+            return self._finish(MlResponse(family, 0, None, {}, started, self._now(), error=ERROR_TIMEOUT), sent_at)
         except httpx.TransportError as exc:
             logger.warning("ML transport error on %s: %s", family, type(exc).__name__)
-            return self._finish(MlResponse(family, 0, None, {}, started, self._now(), error=ERROR_NETWORK))
+            return self._finish(MlResponse(family, 0, None, {}, started, self._now(), error=ERROR_NETWORK), sent_at)
         received = self._now()
         headers = {k.lower(): v for k, v in raw.headers.items() if k.lower() not in _DROPPED_RESPONSE_HEADERS}
         body: Any = None
@@ -216,12 +232,12 @@ class MlHttpClient:
                 body = json.loads(raw.content)
             except ValueError:
                 error = ERROR_INVALID_JSON if 200 <= raw.status_code < 300 else None
-        return self._finish(MlResponse(family, raw.status_code, body, headers, started, received, error=error))
+        return self._finish(MlResponse(family, raw.status_code, body, headers, started, received, error=error), sent_at)
 
-    def _finish(self, response: MlResponse) -> MlResponse:
+    def _finish(self, response: MlResponse, sent_at: float) -> MlResponse:
         self.counters.inc(response.endpoint, response.outcome)
         if response.status == 429:
-            self.pacer.on_rate_limited(response.endpoint, response.headers.get("retry-after"))
+            self.pacer.on_rate_limited(response.endpoint, response.headers.get("retry-after"), sent_at=sent_at)
         elif response.outcome == "2xx":
             self.pacer.on_success(response.endpoint)
         return response

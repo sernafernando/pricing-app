@@ -360,3 +360,61 @@ class TestAWaitingFamilyHoldsNoGlobalSlot:
             pacer.on_rate_limited("items_bulk", "0")  # items_bulk now at 1/16 of the rate: one call every 8 s
         assert pacer.acquire("items_bulk") == GRANTED
         assert self._other_family_waits_while_held(pacer, clock) < 1.0
+
+
+class TestABurstOfInFlight429s:
+    """ml-sync-pipeline T4 (T2 verifier A1): calls of one family run concurrently, so a burst of 429s can answer
+    calls that were all sent before the first one was registered. That is ONE rate-limit episode: the family's rate
+    is halved once and its backoff exponent bumped once, never once per call in flight (4 calls -> 1/16 for 10 min)."""
+
+    def test_429s_of_calls_sent_before_the_first_one_count_once(self, clock) -> None:
+        pacer = make(clock, rate_per_sec=2.0)
+        sent = pacer.stamp()
+        delays = []
+        for _ in range(4):
+            clock.advance(0.1)
+            delays.append(pacer.on_rate_limited("items_bulk", None, sent_at=sent))
+
+        assert pacer.effective_rate("items_bulk") == 1.0
+        assert max(delays) <= 2.0  # still the first backoff step: 2 ** 1 with jitter
+
+    def test_a_call_sent_after_the_first_429_starts_a_new_episode(self, clock) -> None:
+        pacer = make(clock, rate_per_sec=2.0)
+        pacer.on_rate_limited("items_bulk", "1", sent_at=pacer.stamp())
+        clock.advance(1.5)
+        delay = pacer.on_rate_limited("items_bulk", None, sent_at=pacer.stamp())
+
+        assert pacer.effective_rate("items_bulk") == 0.5
+        assert 2.0 <= delay <= 4.0  # the exponent grew: second consecutive 429
+
+    def test_a_longer_retry_after_in_the_burst_still_extends_the_cooldown(self, clock) -> None:
+        pacer = make(clock, rate_per_sec=2.0)
+        sent = pacer.stamp()
+        pacer.on_rate_limited("items_bulk", "5", sent_at=sent)
+        pacer.on_rate_limited("items_bulk", "30", sent_at=sent)
+
+        assert pacer.cooldown_remaining("items_bulk") == pytest.approx(30.0)
+        assert pacer.effective_rate("items_bulk") == 1.0
+
+
+class TestAStoppedWaitEnds:
+    """ml-sync-pipeline T4 (verifier advisory 1): a caller waiting out a cooldown gives up as soon as `should_stop`
+    turns true (the worker is stopping, or its batch already ended), instead of sleeping the whole cooldown."""
+
+    def test_a_wait_ends_once_should_stop_is_true_and_nothing_is_granted(self, clock) -> None:
+        pacer = make(clock)
+        pacer.on_rate_limited("items_bulk", "30")
+        start = clock.monotonic()
+
+        outcome = pacer.acquire("items_bulk", should_stop=lambda: len(clock.sleeps) >= 1)
+
+        assert outcome == DEADLINE
+        assert clock.monotonic() - start <= 1.0
+
+    def test_without_a_stop_the_wait_is_the_whole_cooldown(self, clock) -> None:
+        pacer = make(clock)
+        pacer.on_rate_limited("items_bulk", "30")
+        start = clock.monotonic()
+
+        assert pacer.acquire("items_bulk", should_stop=lambda: False) == GRANTED
+        assert clock.monotonic() - start >= 30.0

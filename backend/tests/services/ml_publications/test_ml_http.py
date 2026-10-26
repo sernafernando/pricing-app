@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import random
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -321,3 +323,27 @@ def test_module_reuses_the_bridge_token_loader_instead_of_copying_it() -> None:
     from app.services import ml_api_client
 
     assert ml_http._load_token_from_mlwebhook is ml_api_client._load_token_from_mlwebhook
+
+
+class TestConcurrentCallsShareOneClient:
+    """ml-sync-pipeline T4: the refresh handler runs a batch's calls concurrently through one client."""
+
+    def test_429s_of_calls_in_flight_together_halve_the_family_once(self) -> None:
+        """Synthetic fault: four calls are all in flight when ML answers each of them 429 (T2 verifier A1)."""
+        in_flight = threading.Barrier(4, timeout=5)
+
+        def all_limited(_request: httpx.Request) -> httpx.Response:
+            in_flight.wait()
+            return httpx.Response(429, json={})
+
+        client = MlHttpClient(
+            pacer=Pacer(rate_per_sec=20.0, rng=random.Random(1)),
+            transport=httpx.MockTransport(all_limited),
+            token_loader=Tokens(),
+        )
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            outcomes = list(pool.map(lambda _: client.get("prices", "/items/MLA1/prices").outcome, range(4)))
+
+        assert outcomes == ["429"] * 4
+        assert client.pacer.effective_rate("prices") == 10.0
+        assert client.counters.snapshot() == {"prices": {"429": 4}}
