@@ -3,14 +3,14 @@
  * (sub-pm-bulk-assignment Slice 4).
  *
  * Scope:
- *   - Pick the TARGET USER first; picker shows a grant count per user,
+ *   - Pick the TARGET USER first from the user list; each shows a grant count,
  *     including (0), sourced from GET /marcas-pm/sub-pms/conteos.
  *   - Selecting a user pre-checks their granted pairs (GET .../usuario/{id}).
  *   - Pair source split by contract: admin -> GET /marcas-pm; titular ->
  *     GET /marcas-pm/mis-titularidades. 403-only fallback for admin.
  *   - Save disabled until the checked set differs from the baseline.
  *   - One confirm shows a +N/-N diff summary before the PUT.
- *   - Success updates the picker count locally, no reload.
+ *   - Success updates the user count locally, no reload.
  *   - A 403 with a dict `detail.pares_rechazados` renders WHICH pairs were
  *     rejected and states nothing was applied.
  */
@@ -63,29 +63,35 @@ beforeEach(() => {
   permisosDenegados.add('admin.gestionar_pms'); // default: non-admin titular
 });
 
-// The picker is disabled until the pair source resolves with at least one
-// pair (security invariant: the global PM user list is only fetched once we
-// know the caller has scope — see MisSubPMs.jsx). Tests must wait for that
-// before interacting with the `<select>`, or `selectOptions` hits a disabled
-// element / a not-yet-populated option list.
-async function pickerHabilitado() {
-  const picker = await screen.findByLabelText(/usuario/i);
-  await waitFor(() => expect(picker).toBeEnabled());
-  // Also wait for the user options themselves — `listarUsuariosPM` only
-  // starts once the picker becomes enabled, so it can still be pending for
-  // a tick after the <select> itself is no longer disabled.
-  await waitFor(() => expect(within(picker).getAllByRole('option').length).toBeGreaterThan(1));
-  return picker;
+// The user list stays empty until the pair source resolves with at least
+// one pair (security invariant: the global PM user list is only fetched once
+// we know the caller has scope — see MisSubPMs.jsx). Tests wait for a user
+// button before interacting.
+function botonUsuario(nombre) {
+  return screen.findByRole('button', { name: new RegExp(`^${nombre} \\(`) });
 }
 
-describe('MisSubPMs — user picker', () => {
+async function elegirUsuario(user, nombre) {
+  await user.click(await botonUsuario(nombre));
+}
+
+describe('MisSubPMs — user list', () => {
   it('shows a grant count next to each user, including (0)', async () => {
     marcasPmAPI.obtenerConteosSubPMs.mockResolvedValue({ data: { conteos: [{ usuario_id: 5, total: 12 }] } });
     render(<MisSubPMs />);
     await screen.findByLabelText('Seleccionar Samsung / Celulares');
     await waitFor(() => expect(marcasPmAPI.obtenerConteosSubPMs).toHaveBeenCalled());
-    expect(await screen.findByRole('option', { name: 'Ana (12)' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Beto (0)' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Ana (12)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Beto (0)' })).toBeInTheDocument();
+  });
+
+  it('filters the user list by name', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await botonUsuario('Ana');
+    await user.type(screen.getByRole('searchbox', { name: /buscar usuario/i }), 'bet');
+    expect(screen.queryByRole('button', { name: /^Ana \(/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Beto \(/ })).toBeInTheDocument();
   });
 
   it('uses "Mis Sub-PMs" copy for titulares and "Sub-PMs" for admins', async () => {
@@ -103,9 +109,8 @@ describe('MisSubPMs — user list fetch gated on having pairs in scope (security
     marcasPmAPI.misTitularidades.mockResolvedValue({ data: { pares: [], total: 0 } });
     render(<MisSubPMs />);
 
-    const picker = await screen.findByLabelText(/usuario/i);
     expect(await screen.findByText(/no tenés marcas\/categorías en tu scope/i)).toBeInTheDocument();
-    expect(picker).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Ana \(/ })).not.toBeInTheDocument();
     expect(marcasPmAPI.listarUsuariosPM).not.toHaveBeenCalled();
     expect(marcasPmAPI.obtenerConteosSubPMs).not.toHaveBeenCalled();
   });
@@ -135,7 +140,7 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
       data: { pares: [{ marca: 'Samsung', categoria: 'Celulares' }], total: 1 },
     });
     render(<MisSubPMs />);
-    await user.selectOptions(await pickerHabilitado(), '5');
+    await elegirUsuario(user, 'Ana');
     await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledWith(5));
 
     const samsungCheckbox = await screen.findByLabelText('Seleccionar Samsung / Celulares');
@@ -147,7 +152,7 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
   it('disables save until the checked set differs from the baseline', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
-    await user.selectOptions(await pickerHabilitado(), '5');
+    await elegirUsuario(user, 'Ana');
     await screen.findByLabelText('Seleccionar Samsung / Celulares');
 
     const guardar = screen.getByRole('button', { name: /guardar cambios/i });
@@ -164,7 +169,7 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
 describe('MisSubPMs — confirm and save', () => {
   async function pickUserAndToggle(user) {
     render(<MisSubPMs />);
-    await user.selectOptions(await pickerHabilitado(), '5');
+    await elegirUsuario(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
     await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
   }
@@ -178,7 +183,7 @@ describe('MisSubPMs — confirm and save', () => {
     expect(marcasPmAPI.asignarSubPMsBulk).not.toHaveBeenCalled();
   });
 
-  it('applies the bulk PUT on confirm and updates the picker count without reload', async () => {
+  it('applies the bulk PUT on confirm and updates the user count without reload', async () => {
     const user = userEvent.setup();
     marcasPmAPI.asignarSubPMsBulk.mockResolvedValue({ data: { otorgados: 1, revocados: 0, total: 1 } });
     await pickUserAndToggle(user);
@@ -187,7 +192,7 @@ describe('MisSubPMs — confirm and save', () => {
 
     await waitFor(() => expect(marcasPmAPI.asignarSubPMsBulk).toHaveBeenCalledWith(5, [{ marca: 'Samsung', categoria: 'Celulares' }]));
     expect(marcasPmAPI.listarUsuariosPM).toHaveBeenCalledTimes(1); // no reload
-    expect(await screen.findByRole('option', { name: 'Ana (1)' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Ana (1)' })).toBeInTheDocument();
 
     const guardar = screen.getByRole('button', { name: /guardar cambios/i });
     expect(guardar).toBeDisabled();
@@ -218,18 +223,17 @@ describe('MisSubPMs — dirty-guard on user switch', () => {
   it('with pending changes, asks for confirmation and keeps the original user + selection on cancel', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
-    const picker = await pickerHabilitado();
-    await user.selectOptions(picker, '5');
+    await elegirUsuario(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
 
-    await user.selectOptions(picker, '6');
+    await elegirUsuario(user, 'Beto');
 
     expect(await screen.findByText(/tenés cambios sin guardar/i)).toBeInTheDocument();
     expect(marcasPmAPI.obtenerGrantsUsuario).not.toHaveBeenCalledWith(6);
 
     await user.click(screen.getByRole('button', { name: /cancelar cambio de usuario/i }));
 
-    expect(picker).toHaveValue('5');
+    expect(await botonUsuario('Ana')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeChecked();
   });
 
@@ -239,15 +243,14 @@ describe('MisSubPMs — dirty-guard on user switch', () => {
       Promise.resolve({ data: { pares: id === 6 ? [{ marca: 'LG', categoria: 'Televisores' }] : [], total: 0 } }),
     );
     render(<MisSubPMs />);
-    const picker = await pickerHabilitado();
-    await user.selectOptions(picker, '5');
+    await elegirUsuario(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
 
-    await user.selectOptions(picker, '6');
+    await elegirUsuario(user, 'Beto');
     await user.click(await screen.findByRole('button', { name: /sí, cambiar/i }));
 
     await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledWith(6));
-    expect(picker).toHaveValue('6');
+    expect(await botonUsuario('Beto')).toHaveAttribute('aria-pressed', 'true');
     expect(await screen.findByLabelText('Seleccionar LG / Televisores')).toBeChecked();
     expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).not.toBeChecked();
   });
@@ -255,15 +258,29 @@ describe('MisSubPMs — dirty-guard on user switch', () => {
   it('with no pending changes, switching users does not prompt', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
-    const picker = await pickerHabilitado();
-    await user.selectOptions(picker, '5');
+    await elegirUsuario(user, 'Ana');
     await screen.findByLabelText('Seleccionar Samsung / Celulares');
 
-    await user.selectOptions(picker, '6');
+    await elegirUsuario(user, 'Beto');
 
     expect(screen.queryByText(/tenés cambios sin guardar/i)).not.toBeInTheDocument();
     await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledWith(6));
-    expect(picker).toHaveValue('6');
+    expect(await botonUsuario('Beto')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('MisSubPMs — selecting the current user', () => {
+  it('clicking the already selected user does not prompt nor reload it', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
+
+    await elegirUsuario(user, 'Ana');
+
+    expect(screen.queryByText(/tenés cambios sin guardar/i)).not.toBeInTheDocument();
+    expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeChecked();
   });
 });
 
@@ -281,40 +298,40 @@ describe('MisSubPMs — pre-check race (gate finding #1, CRITICAL)', () => {
       return Promise.resolve({ data: { pares: [{ marca: 'LG', categoria: 'Televisores' }], total: 1 } });
     });
     render(<MisSubPMs />);
-    const picker = await pickerHabilitado();
 
-    await user.selectOptions(picker, '5'); // Ana: request in flight, no dirty edits yet — not blocked
-    await user.selectOptions(picker, '6'); // Beto: supersedes Ana before her response lands
+    await elegirUsuario(user, 'Ana'); // Ana: request in flight, no dirty edits yet — not blocked
+    await elegirUsuario(user, 'Beto'); // Beto: supersedes Ana before her response lands
 
     await waitFor(() => expect(screen.getByLabelText('Seleccionar LG / Televisores')).toBeChecked());
-    expect(picker).toHaveValue('6');
+    expect(await botonUsuario('Beto')).toHaveAttribute('aria-pressed', 'true');
 
     // Ana's slow response finally lands — it must be discarded, not applied.
     resolveAna({ data: { pares: [{ marca: 'Samsung', categoria: 'Celulares' }], total: 1 } });
     await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledWith(5));
 
     // Still Beto's baseline: Ana's stale grant must not have landed anywhere.
-    expect(picker).toHaveValue('6');
+    expect(await botonUsuario('Beto')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByLabelText('Seleccionar LG / Televisores')).toBeChecked();
     expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).not.toBeChecked();
   });
 
-  it('does not leave the spinner stuck when deselecting back to "no user" while a pre-check is still in flight', async () => {
+  it('does not leave the spinner stuck when a pick is superseded while its pre-check is still in flight', async () => {
     const user = userEvent.setup();
     let resolveAna;
-    marcasPmAPI.obtenerGrantsUsuario.mockImplementation(
-      () => new Promise((resolve) => { resolveAna = resolve; }),
+    marcasPmAPI.obtenerGrantsUsuario.mockImplementation((id) =>
+      id === 5
+        ? new Promise((resolve) => { resolveAna = resolve; })
+        : Promise.resolve({ data: { pares: [], total: 0 } }),
     );
     render(<MisSubPMs />);
-    const picker = await pickerHabilitado();
 
-    await user.selectOptions(picker, '5'); // Ana: request in flight, never resolved yet
+    await elegirUsuario(user, 'Ana'); // Ana: request in flight, never resolved yet
     expect(await screen.findByText(/cargando sub-pms delegados/i)).toBeInTheDocument();
 
-    await user.selectOptions(picker, ''); // back to "no user" before Ana's response lands
+    await elegirUsuario(user, 'Beto'); // Beto supersedes Ana before her response lands
 
     // The pair table must render again — not stuck behind the loading state
-    // forever, even though Ana's superseded response hasn't landed yet.
+    // Ana turned on, even though her superseded response hasn't landed yet.
     expect(await screen.findByLabelText('Seleccionar Samsung / Celulares')).toBeInTheDocument();
     expect(screen.queryByText(/cargando sub-pms delegados/i)).not.toBeInTheDocument();
 
@@ -336,28 +353,26 @@ describe('MisSubPMs — save/switch race (review finding #1, merge-blocking)', (
       Promise.resolve({ data: { pares: id === 6 ? [{ marca: 'LG', categoria: 'Televisores' }] : [], total: 0 } }),
     );
     render(<MisSubPMs />);
-    const picker = await pickerHabilitado();
-    await user.selectOptions(picker, '5');
+    await elegirUsuario(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
     await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
     await user.click(screen.getByRole('button', { name: /sí, guardar/i }));
 
-    // Save in flight: the select must be disabled (UX guard)...
-    expect(picker).toBeDisabled();
-
-    // ...and even a programmatic change event that bypasses the disabled
-    // attribute must be refused by the handler itself (correctness guard) —
-    // never dereferences into a switch while the PUT is outstanding.
-    fireEvent.change(picker, { target: { value: '6' } });
+    // Save in flight: every user button is disabled, so no switch can start.
+    // A raw DOM click (no pointer-events check, unlike user-event) must not
+    // start one either. The handler's own `if (saving) return` is not
+    // reachable through the DOM while the buttons are disabled.
+    const beto = await botonUsuario('Beto');
+    expect(beto).toBeDisabled();
+    fireEvent.click(beto);
     expect(marcasPmAPI.obtenerGrantsUsuario).not.toHaveBeenCalledWith(6);
-    expect(picker).toHaveValue('5');
 
     resolveGuardar({ data: { otorgados: 1, revocados: 0, total: 1 } });
-    await waitFor(() => expect(picker).not.toBeDisabled());
+    await waitFor(() => expect(beto).not.toBeDisabled());
 
     // Still viewing user 5; its baseline reflects the completed save and was
     // never corrupted by an in-flight switch.
-    expect(picker).toHaveValue('5');
+    expect(await botonUsuario('Ana')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeChecked();
     expect(screen.getByRole('button', { name: /guardar cambios/i })).toBeDisabled();
   });
@@ -374,7 +389,7 @@ describe('MisSubPMs — stale checked pair (review finding #2, #3)', () => {
       data: { pares: [{ marca: 'Fantasma', categoria: 'Descontinuada' }], total: 1 },
     });
     render(<MisSubPMs />);
-    await user.selectOptions(await pickerHabilitado(), '5');
+    await elegirUsuario(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
     await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
     await user.click(screen.getByRole('button', { name: /sí, guardar/i }));
@@ -393,23 +408,23 @@ describe('MisSubPMs — stale checked pair (review finding #2, #3)', () => {
 });
 
 describe('MisSubPMs — counts vs users failure isolation (review finding #3)', () => {
-  it('keeps the user picker usable and marks counts as unknown when only the counts call fails', async () => {
+  it('keeps the user list usable and marks counts as unknown when only the counts call fails', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     marcasPmAPI.obtenerConteosSubPMs.mockRejectedValue(new Error('boom'));
     render(<MisSubPMs />);
-    expect(await screen.findByRole('option', { name: /Ana \(\?\)/ })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Beto \(\?\)/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Ana (?)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Beto (?)' })).toBeInTheDocument();
     expect(await screen.findByText(/no se pudieron cargar los conteos/i)).toBeInTheDocument();
     consoleErrorSpy.mockRestore();
   });
 
-  it('surfaces an error and empties the picker only when the users call itself fails', async () => {
+  it('surfaces an error and empties the list only when the users call itself fails', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     marcasPmAPI.listarUsuariosPM.mockRejectedValue(new Error('boom'));
     render(<MisSubPMs />);
     await screen.findByLabelText('Seleccionar Samsung / Celulares');
     expect(await screen.findByText(/error al cargar los usuarios/i)).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: /Ana/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Ana/ })).not.toBeInTheDocument();
     consoleErrorSpy.mockRestore();
   });
 
