@@ -112,6 +112,15 @@ describe('MisSubPMs — user list', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it('says no user matches when the search finds nobody', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await botonUsuario('Ana');
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar usuario' }), 'zzz');
+    expect(screen.getByText('Ningún usuario coincide.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Ana \(/ })).not.toBeInTheDocument();
+  });
+
   it('uses "Mis Sub-PMs" copy for titulares and "Sub-PMs" for admins', async () => {
     render(<MisSubPMs />);
     expect(await screen.findByRole('heading', { name: 'Mis Sub-PMs' })).toBeInTheDocument();

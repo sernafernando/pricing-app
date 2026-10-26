@@ -61,7 +61,7 @@ export default function UsuariosLista({
       {aviso ? (
         <p className={styles.aviso}>{aviso}</p>
       ) : (
-        <ul className={styles.lista}>
+        <ul className={styles.lista} aria-label="Lista de usuarios">
           {visibles.map((u) => {
             const total = conteosError ? '?' : conteos[u.id] ?? 0;
             const activo = u.id === seleccionadoId;
