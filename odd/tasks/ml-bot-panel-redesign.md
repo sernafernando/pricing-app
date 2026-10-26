@@ -20,11 +20,11 @@ Branch: `feat/ml-bot-panel-redesign` (from origin/main). Delivery: ask-on-risk (
 
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
-| T1 | S2, S6 | delegated (context backstop) | pending | |
-| T2 | S3, S6 | delegated (context backstop) | pending | |
-| T3 | S4, S6 | delegated (context backstop) | pending | |
-| T4 | S5, S6 | delegated (context backstop) | pending | |
-| T5 | S7 | inline | pending | |
+| T1 | S2, S6 | delegated (context backstop) | done | 84c731e0a |
+| T2 | S3, S6 | delegated (context backstop) | done | 9cb2bb74a |
+| T3 | S4, S6 | delegated (context backstop) | done | 54eb53e2f |
+| T4 | S5, S6 | delegated (context backstop) | done | 8f98b369a |
+| T5 | S7 | inline | done | (this commit) |
 
 ## Log
 
@@ -33,3 +33,6 @@ Branch: `feat/ml-bot-panel-redesign` (from origin/main). Delivery: ask-on-risk (
 - L3 (2026-10-26) user: "dale, implementá todo"
 - L4 Decision: the card and master-detail layouts drop the resizable columns (`ResizableTableShell` and "Restablecer columnas") in Preguntas and Mensajes. Pendientes keeps its table. Tests that pin column resizing for those two tabs are updated with the layout.
 - L5 Reference screenshots (job scratch): Configuración, Preguntas and Mensajes PNGs from Stitch; the Stitch HTML was read by the parent.
+- L6 Verification: `vitest run src/pages/MLQuestions.test.jsx` 92 passed (was 84 at baseline; resize tests for Preguntas/Mensajes replaced per L4), novedades parser test green, eslint clean. Writers screenshotted light+dark with throwaway visual tests (deleted).
+- L7 Extra fixes: `.container` box-sizing (page overflowed 48px), send buttons `btn-tesla primary sm` (disabled was invisible in dark), Mensajes filter inputs border-box.
+- L8 Open: Pendientes table scrolls ~118px horizontally inside its own wrapper at 1280px (9 columns + labeled actions); "CUIT inválido" shows inline and in Alertas column. Backend default models in provider_rotation.py still llama/gpt-oss-20b:free (only used when roster is unset; prod roster is set).
