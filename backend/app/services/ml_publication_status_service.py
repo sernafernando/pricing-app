@@ -128,9 +128,10 @@ def _queue_unseen(mla_ids: List[str]) -> None:
     The store discovers items by scanning the seller's listing, and ML's scan never returns a deleted item:
     one deleted before the store existed never gets a row, so it read "Sin datos de ML" forever (owner,
     MLA1816578183: inactive, `[forbidden, deleted]`). A direct fetch records ML's real status (or a 404).
-    Manual lane: someone is looking at the publication, so it does not wait behind the reconcile backlog (an
-    entry already queued in a lower lane moves up). The queue dedupes, so asking again is harmless. Its own
-    short transaction, never the caller's; FAIL-OPEN like the read: a failure only leaves the MLA for the next reader."""
+    Manual lane: someone is looking at the publication, so it does not wait behind the reconcile backlog
+    (an entry already queued in a lower lane moves up). The queue dedupes, so asking again is harmless. Its
+    own short transaction, never the caller's; FAIL-OPEN like the read: a failure only leaves the MLA for the
+    next reader."""
     if not mla_ids:
         return
     entries = [
