@@ -18,9 +18,14 @@ function describeError(error) {
   return 'No se pudieron guardar los datos. Probá de nuevo.';
 }
 
-/** Why the form cannot be saved as it is, or null: the server rejects a blank title or attribute value. */
-function blankError(form) {
+/**
+ * Why the form cannot be saved as it is, or null: the server rejects a blank title or attribute value, and keeps
+ * pictures by their ML id (a picture copied without one can only be removed).
+ */
+function formError(form) {
   if (!form.titulo.trim()) return 'El título no puede quedar vacío.';
+  const sinId = form.fotos.findIndex((foto) => !foto.id);
+  if (sinId >= 0) return `La foto ${sinId + 1} vino de ML sin identificador y no se puede guardar: quitala.`;
   const blank = form.atributos.find((atributo) => !atributo.value_name.trim());
   return blank ? `Completá el valor de ${blank.name ?? blank.id} o quitalo.` : null;
 }
@@ -64,7 +69,7 @@ export default function ProductDataForm({ itemId, datos, onSaved, onCancel }) {
   const save = async (event) => {
     event.preventDefault();
     if (saving) return; // a second click before the re-render
-    const invalid = blankError(form);
+    const invalid = formError(form);
     if (invalid) {
       setError(invalid);
       return;

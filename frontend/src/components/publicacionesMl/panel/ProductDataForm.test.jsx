@@ -178,6 +178,21 @@ describe('what cannot be saved', () => {
     expect(productosPropiosAPI.saveDatos).not.toHaveBeenCalled();
   });
 
+  it('a copied picture ML gave no id cannot be kept: says so and sends nothing', async () => {
+    const user = userEvent.setup();
+    productosPropiosAPI.saveDatos.mockResolvedValue({ data: {} });
+    renderForm({ ...DATOS, fotos: [DATOS.fotos[0], { id: null, url: 'https://x/sin-id.webp' }] });
+
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('La foto 2 vino de ML sin identificador y no se puede guardar: quitala.');
+    expect(productosPropiosAPI.saveDatos).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar foto 2' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(productosPropiosAPI.saveDatos).toHaveBeenCalledWith(70, { ...UNCHANGED, fotos: ['P1'] });
+  });
+
   it.each([
     [409, 'Elegí primero la publicación de la que se copian los datos.', 'Elegí primero la publicación de la que se copian los datos.'],
     [422, 'Fotos que no se copiaron de la publicación: P9.', 'Fotos que no se copiaron de la publicación: P9.'],
