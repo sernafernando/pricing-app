@@ -219,14 +219,14 @@ export default function AportesAdsML() {
           <span className={styles.kpiLabel}>Costo Ads del período</span>
           <span className={styles.kpiValue}>{money(totals.cost)}</span>
           <span className={styles.kpiSub}>
-            {visible.length} {visible.length === 1 ? 'campaña' : 'campañas'}
+            {loading ? '—' : `${visible.length} ${visible.length === 1 ? 'campaña' : 'campañas'}`}
           </span>
         </div>
         <div className={styles.kpi}>
           <span className={styles.kpiLabel}>Aporte de marcas</span>
           <span className={`${styles.kpiValue} ${styles.positive}`}>{money(totals.contribution)}</span>
           <span className={styles.kpiSub}>
-            {totals.cost > 0 ? `${formatPercent((totals.contribution / totals.cost) * 100)} del costo` : '—'}
+            {!loading && totals.cost > 0 ? `${formatPercent((totals.contribution / totals.cost) * 100)} del costo` : '—'}
           </span>
         </div>
         <div className={styles.kpi}>
@@ -237,7 +237,13 @@ export default function AportesAdsML() {
         <div className={styles.kpi}>
           <span className={styles.kpiLabel}>Campañas con aporte</span>
           <span className={styles.kpiValue}>
-            {visible.filter(withContribution).length} <span className={styles.kpiOf}>de {visible.length}</span>
+            {loading ? (
+              '—'
+            ) : (
+              <>
+                {visible.filter(withContribution).length} <span className={styles.kpiOf}>de {visible.length}</span>
+              </>
+            )}
           </span>
           <span className={styles.kpiSub}>Con un aporte que toca el rango</span>
         </div>

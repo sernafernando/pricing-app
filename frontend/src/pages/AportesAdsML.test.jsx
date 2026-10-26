@@ -184,7 +184,8 @@ describe('summary tiles', () => {
     render(<AportesAdsML />);
     const tiles = within(screen.getByRole('region', { name: 'Resumen de aportes' }));
     expect(tiles.queryByText('$ 0,00')).not.toBeInTheDocument();
-    expect(tiles.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    expect(tiles.queryByText(/campañas?$/)).not.toBeInTheDocument();
+    expect(tiles.queryByText(/^de /)).not.toBeInTheDocument();
   });
 });
 
