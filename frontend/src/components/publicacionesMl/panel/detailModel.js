@@ -75,6 +75,7 @@ export function readDetail(raw, { canSeeMargin = false } = {}) {
     sellInOut: canSeeMargin ? (raw.sell_in_out ?? null) : null,
     freshness: raw.freshness ?? [],
     canResync: raw.can_resync === true,
+    canChangeStatus: raw.can_change_status === true,
   };
 }
 
