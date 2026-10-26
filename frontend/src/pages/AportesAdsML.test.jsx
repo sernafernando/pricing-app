@@ -142,6 +142,18 @@ describe('campaign list', () => {
   });
 });
 
+describe('total row', () => {
+  it('says "1 campaña" and greys a zero contribution like the rows do', async () => {
+    api.get.mockResolvedValue({
+      data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Sola', status: null, cost: 500, contribution: 0, contributions: [] }] },
+    });
+    render(<AportesAdsML />);
+    const total = within(await screen.findByText('Total (1 campaña)').then((cell) => cell.closest('tr')));
+    const rowZero = within(rowOf('Sola')).getByText('$ 0,00');
+    expect(total.getByText('$ 0,00')).toHaveClass(rowZero.className);
+  });
+});
+
 describe('range changes', () => {
   it('keeps the newest range when an older response arrives last', async () => {
     let resolveOld;

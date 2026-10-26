@@ -278,9 +278,13 @@ export default function AportesAdsML() {
           {!loading && campaigns.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={2}>Total ({campaigns.length} campañas)</td>
+                <td colSpan={2}>
+                  Total ({campaigns.length} {campaigns.length === 1 ? 'campaña' : 'campañas'})
+                </td>
                 <td className={styles.num}>{formatSignedMoney(totals.cost)}</td>
-                <td className={`${styles.num} ${styles.positive}`}>{formatSignedMoney(totals.contribution)}</td>
+                <td className={`${styles.num} ${totals.contribution > 0 ? styles.positive : styles.muted}`}>
+                  {formatSignedMoney(totals.contribution)}
+                </td>
                 <td className={styles.num}>{formatSignedMoney(totals.cost - totals.contribution)}</td>
                 <td />
               </tr>
@@ -291,7 +295,7 @@ export default function AportesAdsML() {
 
       <p className={styles.footnote}>
         <Info size={14} aria-hidden="true" /> El aporte de monto fijo se reparte por costo entre los días del rango.
-        &apos;Devuelve diferencia&apos; cuenta como máximo lo gastado en el rango.
+        Un aporte «Diferencia» cuenta como máximo lo gastado en el rango.
       </p>
 
       {creatingFor && (
