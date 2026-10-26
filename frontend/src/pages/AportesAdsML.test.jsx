@@ -178,7 +178,31 @@ describe('total row', () => {
   });
 });
 
+describe('summary tiles', () => {
+  it('shows a dash, not $ 0,00, while the range loads', async () => {
+    api.get.mockImplementation(() => new Promise(() => {}));
+    render(<AportesAdsML />);
+    const tiles = within(screen.getByRole('region', { name: 'Resumen de aportes' }));
+    expect(tiles.queryByText('$ 0,00')).not.toBeInTheDocument();
+    expect(tiles.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe('toolbar filters', () => {
+  it('drops an advertiser filter the new range no longer offers', async () => {
+    const user = userEvent.setup();
+    await renderOctober();
+    await user.selectOptions(screen.getByLabelText('Anunciante'), 'TPLINK');
+    api.get.mockResolvedValueOnce({
+      data: {
+        campaigns: [{ advertiser_id: 25713, advertiser_name: 'GAUSS', campaign_id: 9, name: 'Solo Gauss', status: null, cost: 10, contribution: 0, contributions: [] }],
+      },
+    });
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-09-01' } });
+    expect(await screen.findByText('Solo Gauss')).toBeInTheDocument();
+    expect(screen.getByLabelText('Anunciante')).toHaveValue('');
+  });
+
   it('says so when the filters leave no campaign, and counts one campaña in the singular', async () => {
     const user = userEvent.setup();
     await renderOctober();

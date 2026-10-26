@@ -171,14 +171,17 @@ export default function AportesAdsML() {
 
   const withContribution = (c) => c.contributions.some((k) => touchesRange(k, range));
   const advertisers = [...new Set(campaigns.map(advertiserLabel))].sort();
+  // A range without the chosen advertiser drops the filter instead of hiding every row behind "Todos".
+  const advertiserFilter = advertisers.includes(advertiser) ? advertiser : '';
   const needle = search.trim().toLowerCase();
   const visible = campaigns.filter(
     (c) =>
       (!needle || (c.name || '').toLowerCase().includes(needle) || String(c.campaign_id).includes(needle)) &&
       (segment === 'all' || withContribution(c) === (segment === 'with')) &&
-      (!advertiser || advertiserLabel(c) === advertiser),
+      (!advertiserFilter || advertiserLabel(c) === advertiserFilter),
   );
   const totals = { cost: sumOf(visible, 'cost'), contribution: sumOf(visible, 'contribution') };
+  const money = (amount) => (loading ? '—' : formatSignedMoney(amount));
 
   return (
     <div className={styles.container}>
@@ -214,21 +217,21 @@ export default function AportesAdsML() {
       <section className={styles.kpis} aria-label="Resumen de aportes">
         <div className={styles.kpi}>
           <span className={styles.kpiLabel}>Costo Ads del período</span>
-          <span className={styles.kpiValue}>{formatSignedMoney(totals.cost)}</span>
+          <span className={styles.kpiValue}>{money(totals.cost)}</span>
           <span className={styles.kpiSub}>
             {visible.length} {visible.length === 1 ? 'campaña' : 'campañas'}
           </span>
         </div>
         <div className={styles.kpi}>
           <span className={styles.kpiLabel}>Aporte de marcas</span>
-          <span className={`${styles.kpiValue} ${styles.positive}`}>{formatSignedMoney(totals.contribution)}</span>
+          <span className={`${styles.kpiValue} ${styles.positive}`}>{money(totals.contribution)}</span>
           <span className={styles.kpiSub}>
             {totals.cost > 0 ? `${formatPercent((totals.contribution / totals.cost) * 100)} del costo` : '—'}
           </span>
         </div>
         <div className={styles.kpi}>
           <span className={styles.kpiLabel}>Costo neto</span>
-          <span className={styles.kpiValue}>{formatSignedMoney(totals.cost - totals.contribution)}</span>
+          <span className={styles.kpiValue}>{money(totals.cost - totals.contribution)}</span>
           <span className={styles.kpiSub}>Lo que se resta en Métricas ML</span>
         </div>
         <div className={styles.kpi}>
@@ -255,7 +258,7 @@ export default function AportesAdsML() {
         <SegmentedControl label="Aportes" options={SEGMENTS} value={segment} onChange={setSegment} />
         <label className={styles.advertiser}>
           <span>Anunciante</span>
-          <select className={styles.advertiserSelect} value={advertiser} onChange={(e) => setAdvertiser(e.target.value)}>
+          <select className={styles.advertiserSelect} value={advertiserFilter} onChange={(e) => setAdvertiser(e.target.value)}>
             <option value="">Todos</option>
             {advertisers.map((name) => (
               <option key={name} value={name}>
