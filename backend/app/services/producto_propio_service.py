@@ -25,10 +25,11 @@ from sqlalchemy import and_, exists, func, or_, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.models.ml_publications import MlItem, MlItemDescription, MlItemProductLink, MlItemVariation
+from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariation
 from app.models.producto import ProductoERP
 from app.models.producto_propio import ProductoPropio
 from app.services.ml_publications.links import sku_key
+from app.services.ml_publications.publication_data import publication_data
 from app.services.ml_publications.view.filters import LINK_ITEM_LEVEL
 
 
@@ -190,27 +191,7 @@ def _is_source_candidate(db: Session, item_id: int, mla: str) -> bool:
 
 def _copy_of(db: Session, mla: str) -> dict[str, Any]:
     """The title, description, pictures and attributes of the publication as stored by the last read of ML."""
-    item = db.get(MlItem, mla)
-    raw = item.raw if isinstance(item.raw, dict) else {}
-    description = db.get(MlItemDescription, mla)
-    description_raw = description.raw if description is not None and description.gone_at is None else None
-    fotos = []
-    for picture in raw.get("pictures") or []:
-        url = picture.get("secure_url") or picture.get("url")
-        if url:
-            fotos.append({"id": picture.get("id"), "url": url})
-    atributos = [
-        {"id": attribute.get("id"), "name": attribute.get("name"), "value_name": attribute["value_name"]}
-        for attribute in raw.get("attributes") or []
-        if attribute.get("value_name") is not None
-    ]
-    return {
-        "fuente_mla": mla,
-        "titulo": item.title or raw.get("title"),
-        "descripcion": description_raw.get("plain_text") if isinstance(description_raw, dict) else None,
-        "fotos": fotos,
-        "atributos": atributos,
-    }
+    return {"fuente_mla": mla, **publication_data(db, db.get(MlItem, mla))}
 
 
 def choose_source(db: Session, item_id: int, mla: str, usuario_id: int) -> Optional[ProductoPropioView]:
