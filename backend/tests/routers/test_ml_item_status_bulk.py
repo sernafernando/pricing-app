@@ -63,6 +63,11 @@ class TestStatusItemIds:
         response = client.get(URL, headers=admin_auth_headers, params={"target": "paused"})
         assert response.status_code == 403 and PAUSAR in response.json()["error"]["message"]
 
+    def test_who_may_ask_is_checked_before_what_is_asked(self, client, rows, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER)
+        response = client.get(URL, headers=admin_auth_headers, params={"target": "paused", "estado": "bogus"})
+        assert response.status_code == 403
+
     def test_pausing_names_the_active_ones_and_counts_the_rest(self, client, rows, allowed) -> None:
         # The default list hides the deleted MLA4: the set is MLA1, MLA2, MLA3, MLA5, MLA6.
         assert body(client, allowed, target="paused") == {"item_ids": ["MLA1", "MLA2"], "count": 2, "no_aplican": 3}

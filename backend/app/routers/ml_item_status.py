@@ -98,6 +98,9 @@ async def change_items_status(
     body: ItemStatusBulkRequest,
     user: Usuario = Depends(require_permiso(PERMISO_PAUSAR)),
 ) -> dict:
+    """Writes one batch of a bulk pause / activate: each publication once (a repeated MLA is dropped), in the order
+    asked, each through `set_item_status`, which checks it again. Always 200, with every publication's own outcome:
+    one refused never stops the rest. At most `BULK_BATCH_SIZE` per request -- the page sends the set in batches."""
     results = []
     for item_id in dict.fromkeys(body.item_ids):  # one write per publication, in the order asked
         outcome = await set_item_status(item_id, body.status, user.id)

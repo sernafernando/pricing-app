@@ -59,5 +59,7 @@ def status_item_ids(
     count = found[0].total if found else 0
     if count > MAX_STATUS_ITEM_IDS:
         raise TooManyPublications(int(count), MAX_STATUS_ITEM_IDS)
+    # A second read, informative only (the confirmation's "N no aplican"): it may differ from the list by a
+    # publication that changed in between, and nothing is written from it.
     rest = db.execute(select(func.count()).select_from(members).where(not_(members.c.eligible))).scalar_one()
     return StatusTargets([row.mla for row in found], int(rest))

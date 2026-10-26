@@ -1160,7 +1160,13 @@ class ProductIdsResponse(BaseModel):
 PRODUCT_IDS_OVER_CAP = "demasiados_productos"
 
 
-def _check_markup_filter(user, auth_db: Session, markup_neg, markup_min, markup_max) -> bool:
+def _check_markup_filter(
+    user: Usuario,
+    auth_db: Session,
+    markup_neg: Optional[bool],
+    markup_min: Optional[str],
+    markup_max: Optional[str],
+) -> bool:
     """Whether the request filters by markup; doing so needs `ml_metricas.ver_ganancia` (403 otherwise)."""
     asks_for_margin = bool(markup_neg or (markup_min or "").strip() or (markup_max or "").strip())
     if asks_for_margin and not PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA):
@@ -1172,7 +1178,9 @@ def _check_markup_filter(user, auth_db: Session, markup_neg, markup_min, markup_
     return asks_for_margin
 
 
-def _markup_query(auth_db: Session, markup_neg, markup_min, markup_max) -> MarkupQuery:
+def _markup_query(
+    auth_db: Session, markup_neg: Optional[bool], markup_min: Optional[str], markup_max: Optional[str]
+) -> MarkupQuery:
     markup_filter = parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
     return MarkupQuery(auth_db, markup_filter)
 
@@ -1235,6 +1243,7 @@ STATUS_ITEM_IDS_OVER_CAP = "demasiadas_publicaciones"
 def get_status_item_ids(
     target: Literal["paused", "active"] = Query(..., description="the status the bulk action asks for"),
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    _may_change: Usuario = Depends(require_permiso(PERMISO_PAUSAR)),
     f: PublicationFilter = Depends(filter_query),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia), as in /items"),
     markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
@@ -1246,12 +1255,6 @@ def get_status_item_ids(
     a bulk pause / activate acts on: only active ones are paused, only paused ones activated, never a deleted one.
     Needs `ml_publicaciones.pausar`. Over `caps.MAX_STATUS_ITEM_IDS` it is a 422 naming the count, never a
     truncated list."""
-    if not PermisosService(auth_db).tiene_permiso(user, PERMISO_PAUSAR):
-        raise api_error(
-            status.HTTP_403_FORBIDDEN,
-            ErrorCode.INSUFFICIENT_PERMISSIONS,
-            f"Se requiere el permiso {PERMISO_PAUSAR} para pausar o activar publicaciones",
-        )
     asks_for_margin = _check_markup_filter(user, auth_db, markup_neg, markup_min, markup_max)
     try:
         markup = _markup_query(auth_db, markup_neg, markup_min, markup_max) if asks_for_margin else None
