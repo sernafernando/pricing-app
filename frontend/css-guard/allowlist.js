@@ -256,7 +256,6 @@ export const CONTROL_BOX_ALLOWLIST = [
   'src/pages/GestionAlertas.module.css',
   'src/pages/Login.module.css',
   'src/pages/MLQuestions.module.css',
-  'src/pages/MisSubPMs.module.css',
   'src/pages/PedidosPreparacion.module.css',
   'src/pages/PrearmadasDisponibles.module.css',
   'src/pages/Prearmado.module.css',
