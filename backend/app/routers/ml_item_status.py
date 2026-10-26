@@ -4,15 +4,18 @@ The decision lives in `ml_item_status_write_service`; this router gates it and m
 a write done or not needed is 200, a write that may have landed is 202 (the item is being re-read), a publication that
 cannot take that status is 409, ML refusing it is 422 with ML's message, and nothing reaching ML (the kill switch
 off, the proxy not sending it, the store unreadable) is 503.
+
+The bulk route writes one small batch the page sends in turn (the set comes from `view/status-item-ids`), so no
+request waits on hundreds of ML writes; it answers each publication's outcome, always 200.
 """
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.api.deps import require_permiso
 from app.models.usuario import Usuario
@@ -30,6 +33,9 @@ from app.services.ml_item_status_write_service import (
 from app.services.ml_publications import admin
 
 PERMISO_PAUSAR = "ml_publicaciones.pausar"
+
+# The most publications one bulk request writes: each is a separate write through the proxy's throttle.
+BULK_BATCH_SIZE = 20
 
 router = APIRouter(prefix="/ml-publications", tags=["ML Publications Status"])
 
@@ -67,3 +73,33 @@ async def change_item_status(
         status_code=_HTTP_STATUS[outcome.status],
         content=ItemStatusResponse(status=outcome.status, message=outcome.message).model_dump(),
     )
+
+
+ItemId = Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]
+
+
+class ItemStatusBulkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["paused", "active"]
+    item_ids: list[ItemId] = Field(..., min_length=1, max_length=BULK_BATCH_SIZE)
+
+
+class ItemStatusBulkResult(ItemStatusResponse):
+    item_id: str
+
+
+class ItemStatusBulkResponse(BaseModel):
+    results: list[ItemStatusBulkResult]
+
+
+@router.post("/items/status-bulk", response_model=ItemStatusBulkResponse)
+async def change_items_status(
+    body: ItemStatusBulkRequest,
+    user: Usuario = Depends(require_permiso(PERMISO_PAUSAR)),
+) -> dict:
+    results = []
+    for item_id in dict.fromkeys(body.item_ids):  # one write per publication, in the order asked
+        outcome = await set_item_status(item_id, body.status, user.id)
+        results.append({"item_id": item_id, "status": outcome.status, "message": outcome.message})
+    return {"results": results}

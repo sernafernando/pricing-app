@@ -71,6 +71,7 @@ from app.services.ml_publications.view import (
     products,
     row_metrics,
     status_block,
+    status_targets,
     variations,
 )
 from app.services.ml_publications.view.ads import AdsCostProvider, AdsStatus, get_ads_provider, resolve_ads
@@ -1159,6 +1160,23 @@ class ProductIdsResponse(BaseModel):
 PRODUCT_IDS_OVER_CAP = "demasiados_productos"
 
 
+def _check_markup_filter(user, auth_db: Session, markup_neg, markup_min, markup_max) -> bool:
+    """Whether the request filters by markup; doing so needs `ml_metricas.ver_ganancia` (403 otherwise)."""
+    asks_for_margin = bool(markup_neg or (markup_min or "").strip() or (markup_max or "").strip())
+    if asks_for_margin and not PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA):
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
+        )
+    return asks_for_margin
+
+
+def _markup_query(auth_db: Session, markup_neg, markup_min, markup_max) -> MarkupQuery:
+    markup_filter = parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
+    return MarkupQuery(auth_db, markup_filter)
+
+
 @router.get("/product-ids", response_model=ProductIdsResponse)
 def get_product_ids(
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
@@ -1172,18 +1190,9 @@ def get_product_ids(
     """The linked products of the publications the filters select -- the markup filters included, applied as
     `/items` applies them: the set a bulk pricing action acts on. Over `products.MAX_PRODUCT_IDS` it is a 422
     naming the count, never a truncated list."""
-    asks_for_margin = bool(markup_neg or (markup_min or "").strip() or (markup_max or "").strip())
-    if asks_for_margin and not PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA):
-        raise api_error(
-            status.HTTP_403_FORBIDDEN,
-            ErrorCode.INSUFFICIENT_PERMISSIONS,
-            f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
-        )
+    asks_for_margin = _check_markup_filter(user, auth_db, markup_neg, markup_min, markup_max)
     try:
-        markup = None
-        if asks_for_margin:
-            markup_filter = parse_markup_filter(markup_neg=markup_neg, markup_min=markup_min, markup_max=markup_max)
-            markup = MarkupQuery(auth_db, markup_filter)
+        markup = _markup_query(auth_db, markup_neg, markup_min, markup_max) if asks_for_margin else None
         if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
@@ -1211,6 +1220,63 @@ def get_product_ids(
         "sin_producto": found.sin_producto,
         "fuera_de_catalogo": found.fuera_de_catalogo,
     }
+
+
+class StatusItemIdsResponse(BaseModel):
+    item_ids: list[str]
+    count: int
+    no_aplican: int  # the rest of the filtered set: another status, or deleted -- the bulk action leaves them alone
+
+
+STATUS_ITEM_IDS_OVER_CAP = "demasiadas_publicaciones"
+
+
+@router.get("/status-item-ids", response_model=StatusItemIdsResponse)
+def get_status_item_ids(
+    target: Literal["paused", "active"] = Query(..., description="the status the bulk action asks for"),
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia), as in /items"),
+    markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
+    markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission checks and the pricing tables (see `get_items`)
+) -> dict[str, Any]:
+    """The publications of the filtered set -- the markup filters included, applied as `/items` applies them -- that
+    a bulk pause / activate acts on: only active ones are paused, only paused ones activated, never a deleted one.
+    Needs `ml_publicaciones.pausar`. Over `caps.MAX_STATUS_ITEM_IDS` it is a 422 naming the count, never a
+    truncated list."""
+    if not PermisosService(auth_db).tiene_permiso(user, PERMISO_PAUSAR):
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_PAUSAR} para pausar o activar publicaciones",
+        )
+    asks_for_margin = _check_markup_filter(user, auth_db, markup_neg, markup_min, markup_max)
+    try:
+        markup = _markup_query(auth_db, markup_neg, markup_min, markup_max) if asks_for_margin else None
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        found = status_targets.status_item_ids(db, f, target, markup)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except status_targets.TooManyPublications as exc:
+        error = api_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            STATUS_ITEM_IDS_OVER_CAP,
+            f"El filtro selecciona {exc.count} publicaciones; una acción masiva admite hasta {exc.cap}. Acotá el filtro.",
+        )
+        error.detail["count"] = exc.count
+        error.detail["max"] = exc.cap
+        raise error from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
 
 
 # ── CSV export of the current view ───────────────────────────────
