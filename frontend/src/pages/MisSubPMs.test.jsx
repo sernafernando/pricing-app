@@ -75,11 +75,22 @@ async function elegirUsuario(user, nombre) {
   await user.click(await botonUsuario(nombre));
 }
 
+// Pairs live inside a collapsed accordion per marca; open every marca so the
+// per-pair checkboxes are reachable.
+async function expandirTodo(user) {
+  await user.click(await screen.findByRole('button', { name: /expandir todo/i }));
+}
+
+async function elegirYExpandir(user, nombre) {
+  await elegirUsuario(user, nombre);
+  await expandirTodo(user);
+}
+
 describe('MisSubPMs — user list', () => {
   it('shows a grant count next to each user, including (0)', async () => {
     marcasPmAPI.obtenerConteosSubPMs.mockResolvedValue({ data: { conteos: [{ usuario_id: 5, total: 12 }] } });
     render(<MisSubPMs />);
-    await screen.findByLabelText('Seleccionar Samsung / Celulares');
+    await botonUsuario('Ana');
     await waitFor(() => expect(marcasPmAPI.obtenerConteosSubPMs).toHaveBeenCalled());
     expect(await screen.findByRole('button', { name: 'Ana (12)' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Beto (0)' })).toBeInTheDocument();
@@ -154,7 +165,7 @@ describe('MisSubPMs — user list fetch gated on having pairs in scope (security
 
   it('fetches the user list once pairs in scope are confirmed to exist', async () => {
     render(<MisSubPMs />);
-    await screen.findByLabelText('Seleccionar Samsung / Celulares');
+    await botonUsuario('Ana');
     await waitFor(() => expect(marcasPmAPI.listarUsuariosPM).toHaveBeenCalled());
     await waitFor(() => expect(marcasPmAPI.obtenerConteosSubPMs).toHaveBeenCalled());
   });
@@ -167,7 +178,7 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
       data: { pares: [{ marca: 'Samsung', categoria: 'Celulares' }], total: 1 },
     });
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledWith(5));
 
     const samsungCheckbox = await screen.findByLabelText('Seleccionar Samsung / Celulares');
@@ -179,7 +190,7 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
   it('disables save until the checked set differs from the baseline', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await screen.findByLabelText('Seleccionar Samsung / Celulares');
 
     const guardar = screen.getByRole('button', { name: /guardar cambios/i });
@@ -193,10 +204,122 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
   });
 });
 
+describe('MisSubPMs — grouped by marca', () => {
+  const PARES_DOS_MARCAS = {
+    pares: [
+      { id: 1, marca: 'LENOVO', categoria: 'Monitores', usuario_id: 1, usuario_nombre: 'Titular' },
+      { id: 2, marca: 'LENOVO', categoria: 'Notebooks', usuario_id: 1, usuario_nombre: 'Titular' },
+      { id: 3, marca: 'SAMSUNG', categoria: 'Monitores', usuario_id: 1, usuario_nombre: 'Titular' },
+      { id: 4, marca: 'SAMSUNG', categoria: 'Celulares', usuario_id: 1, usuario_nombre: 'Titular' },
+    ],
+    total: 4,
+  };
+
+  beforeEach(() => {
+    marcasPmAPI.misTitularidades.mockResolvedValue({ data: PARES_DOS_MARCAS });
+  });
+
+  it('asks to pick a user before showing any pair', async () => {
+    render(<MisSubPMs />);
+    await botonUsuario('Ana');
+    expect(screen.getByText('Elegí un usuario')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Seleccionar toda la marca LENOVO')).not.toBeInTheDocument();
+  });
+
+  it('grants a whole marca with its checkbox and one more pair, and saves exactly those pairs', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockResolvedValue({ data: { otorgados: 3, revocados: 0, total: 3 } });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+
+    await user.click(await screen.findByLabelText('Seleccionar toda la marca LENOVO'));
+    await user.click(screen.getByRole('button', { name: /SAMSUNG/ }));
+    await user.click(screen.getByLabelText('Seleccionar SAMSUNG / Monitores'));
+
+    expect(screen.getByText('2 sin guardar')).toBeInTheDocument();
+    expect(screen.getByText('1 sin guardar')).toBeInTheDocument();
+    expect(screen.getByLabelText('Seleccionar toda la marca SAMSUNG')).toHaveProperty('indeterminate', true);
+
+    await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
+    await user.click(screen.getByRole('button', { name: /sí, guardar/i }));
+
+    await waitFor(() => expect(marcasPmAPI.asignarSubPMsBulk).toHaveBeenCalledTimes(1));
+    const [usuarioId, enviados] = marcasPmAPI.asignarSubPMsBulk.mock.calls[0];
+    expect(usuarioId).toBe(5);
+    expect(enviados).toHaveLength(3);
+    expect(enviados).toEqual(
+      expect.arrayContaining([
+        { marca: 'LENOVO', categoria: 'Monitores' },
+        { marca: 'LENOVO', categoria: 'Notebooks' },
+        { marca: 'SAMSUNG', categoria: 'Monitores' },
+      ]),
+    );
+  });
+
+  it('unchecking a whole marca removes every pair of it', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.obtenerGrantsUsuario.mockResolvedValue({
+      data: { pares: [{ marca: 'LENOVO', categoria: 'Monitores' }, { marca: 'LENOVO', categoria: 'Notebooks' }], total: 2 },
+    });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+
+    await user.click(await screen.findByLabelText('Seleccionar toda la marca LENOVO'));
+    await user.click(screen.getByRole('button', { name: /LENOVO/ }));
+
+    expect(screen.getByLabelText('Seleccionar LENOVO / Monitores')).not.toBeChecked();
+    expect(screen.getByLabelText('Seleccionar LENOVO / Notebooks')).not.toBeChecked();
+    expect(screen.getAllByText('Se quita')).toHaveLength(2);
+  });
+
+  it('a marca checkbox only affects the rows the search leaves visible', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+
+    await user.type(await screen.findByRole('searchbox', { name: /buscar marca o categoría/i }), 'monit');
+    await user.click(screen.getByLabelText('Seleccionar toda la marca SAMSUNG'));
+
+    expect(screen.getByLabelText('Seleccionar SAMSUNG / Monitores')).toBeChecked();
+    expect(screen.queryByLabelText('Seleccionar SAMSUNG / Celulares')).not.toBeInTheDocument();
+    expect(screen.getByText('1 sin guardar')).toBeInTheDocument();
+  });
+
+  it('marks pending rows: "Se agrega" for a new pair and "Se quita" for a removed one', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.obtenerGrantsUsuario.mockResolvedValue({
+      data: { pares: [{ marca: 'LENOVO', categoria: 'Monitores' }], total: 1 },
+    });
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Notebooks'));
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Monitores'));
+
+    expect(screen.getByText('Se agrega')).toBeInTheDocument();
+    expect(screen.getByText('Se quita')).toBeInTheDocument();
+  });
+
+  it('"Mostrar solo lo asignado" hides pairs the user neither has nor is adding', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.obtenerGrantsUsuario.mockResolvedValue({
+      data: { pares: [{ marca: 'LENOVO', categoria: 'Monitores' }], total: 1 },
+    });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+
+    await user.click(await screen.findByLabelText(/mostrar solo lo asignado/i));
+
+    expect(screen.getByLabelText('Seleccionar LENOVO / Monitores')).toBeChecked();
+    expect(screen.queryByLabelText('Seleccionar LENOVO / Notebooks')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Seleccionar toda la marca SAMSUNG')).not.toBeInTheDocument();
+  });
+});
+
 describe('MisSubPMs — confirm and save', () => {
   async function pickUserAndToggle(user) {
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
     await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
   }
@@ -250,7 +373,7 @@ describe('MisSubPMs — dirty-guard on user switch', () => {
   it('with pending changes, asks for confirmation and keeps the original user + selection on cancel', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
 
     await elegirUsuario(user, 'Beto');
@@ -270,7 +393,7 @@ describe('MisSubPMs — dirty-guard on user switch', () => {
       Promise.resolve({ data: { pares: id === 6 ? [{ marca: 'LG', categoria: 'Televisores' }] : [], total: 0 } }),
     );
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
 
     await elegirUsuario(user, 'Beto');
@@ -278,14 +401,15 @@ describe('MisSubPMs — dirty-guard on user switch', () => {
 
     await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledWith(6));
     expect(await botonUsuario('Beto')).toHaveAttribute('aria-pressed', 'true');
-    expect(await screen.findByLabelText('Seleccionar LG / Televisores')).toBeChecked();
+    await expandirTodo(user);
+    expect(screen.getByLabelText('Seleccionar LG / Televisores')).toBeChecked();
     expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).not.toBeChecked();
   });
 
   it('with no pending changes, switching users does not prompt', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await screen.findByLabelText('Seleccionar Samsung / Celulares');
 
     await elegirUsuario(user, 'Beto');
@@ -300,7 +424,7 @@ describe('MisSubPMs — selecting the current user', () => {
   it('clicking the already selected user does not prompt nor reload it', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
 
     await elegirUsuario(user, 'Ana');
@@ -329,6 +453,7 @@ describe('MisSubPMs — pre-check race (gate finding #1, CRITICAL)', () => {
     await elegirUsuario(user, 'Ana'); // Ana: request in flight, no dirty edits yet — not blocked
     await elegirUsuario(user, 'Beto'); // Beto: supersedes Ana before her response lands
 
+    await expandirTodo(user);
     await waitFor(() => expect(screen.getByLabelText('Seleccionar LG / Televisores')).toBeChecked());
     expect(await botonUsuario('Beto')).toHaveAttribute('aria-pressed', 'true');
 
@@ -359,7 +484,8 @@ describe('MisSubPMs — pre-check race (gate finding #1, CRITICAL)', () => {
 
     // The pair table must render again — not stuck behind the loading state
     // Ana turned on, even though her superseded response hasn't landed yet.
-    expect(await screen.findByLabelText('Seleccionar Samsung / Celulares')).toBeInTheDocument();
+    await expandirTodo(user);
+    expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeInTheDocument();
     expect(screen.queryByText(/cargando sub-pms delegados/i)).not.toBeInTheDocument();
 
     // And Ana's late response landing afterwards must not resurrect it either.
@@ -380,7 +506,7 @@ describe('MisSubPMs — save/switch race (review finding #1, merge-blocking)', (
       Promise.resolve({ data: { pares: id === 6 ? [{ marca: 'LG', categoria: 'Televisores' }] : [], total: 0 } }),
     );
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
     await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
     await user.click(screen.getByRole('button', { name: /sí, guardar/i }));
@@ -416,7 +542,7 @@ describe('MisSubPMs — stale checked pair (review finding #2, #3)', () => {
       data: { pares: [{ marca: 'Fantasma', categoria: 'Descontinuada' }], total: 1 },
     });
     render(<MisSubPMs />);
-    await elegirUsuario(user, 'Ana');
+    await elegirYExpandir(user, 'Ana');
     await user.click(await screen.findByLabelText('Seleccionar Samsung / Celulares'));
     await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
     await user.click(screen.getByRole('button', { name: /sí, guardar/i }));
@@ -449,7 +575,6 @@ describe('MisSubPMs — counts vs users failure isolation (review finding #3)', 
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     marcasPmAPI.listarUsuariosPM.mockRejectedValue(new Error('boom'));
     render(<MisSubPMs />);
-    await screen.findByLabelText('Seleccionar Samsung / Celulares');
     expect(await screen.findByText(/error al cargar los usuarios/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Ana/ })).not.toBeInTheDocument();
     consoleErrorSpy.mockRestore();
@@ -506,25 +631,32 @@ describe('MisSubPMs — clavesDesdePayload (gate finding: baseline must reflect 
 
 describe('MisSubPMs — pair source split', () => {
   it('titular gets pairs from mis-titularidades, not GET /marcas-pm', async () => {
+    const user = userEvent.setup();
     render(<MisSubPMs />);
-    await screen.findByLabelText('Seleccionar Samsung / Celulares');
+    await elegirYExpandir(user, 'Ana');
+    expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeInTheDocument();
     expect(marcasPmAPI.listarTodosLosPares).not.toHaveBeenCalled();
     expect(marcasPmAPI.misTitularidades).toHaveBeenCalled();
   });
 
   it('admin gets every pair from GET /marcas-pm, including pairs with no titular', async () => {
+    const user = userEvent.setup();
     permisosDenegados.clear();
     render(<MisSubPMs />);
-    await waitFor(() => expect(marcasPmAPI.listarTodosLosPares).toHaveBeenCalled());
+    await elegirYExpandir(user, 'Ana');
+    expect(marcasPmAPI.listarTodosLosPares).toHaveBeenCalled();
     expect(marcasPmAPI.misTitularidades).not.toHaveBeenCalled();
-    expect(await screen.findByLabelText('Seleccionar Huerfana / Sin Titular')).toBeInTheDocument();
+    expect(screen.getByLabelText('Seleccionar Huerfana / Sin Titular')).toBeInTheDocument();
+    expect(screen.getByText('Sin titular')).toBeInTheDocument();
   });
 
   it('falls back to titular scope on 403 only', async () => {
+    const user = userEvent.setup();
     permisosDenegados.clear();
     marcasPmAPI.listarTodosLosPares.mockRejectedValue({ response: { status: 403, data: { detail: 'No tienes permisos' } } });
     render(<MisSubPMs />);
-    expect(await screen.findByLabelText('Seleccionar Samsung / Celulares')).toBeInTheDocument();
+    await elegirYExpandir(user, 'Ana');
+    expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeInTheDocument();
     expect(marcasPmAPI.misTitularidades).toHaveBeenCalled();
   });
 
