@@ -630,7 +630,7 @@
 .manualTag {
   margin-left: var(--spacing-xs);
   padding: 0 var(--spacing-xs);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-sm);
   font-size: var(--font-xs);
   color: var(--cf-text-secondary);
@@ -638,4 +638,40 @@
 
 .identityEdit {
   align-self: flex-start;
+}
+
+.subTitle {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+}
+
+.description {
+  margin: 0;
+  max-height: 12rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.pictures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: var(--spacing-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.picture {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
 }

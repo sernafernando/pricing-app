@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { Pencil } from 'lucide-react';
 import { productosPropiosAPI } from '../../../services/api';
 import { Field, Fields, Section } from './PanelParts';
+import ProductData from './ProductData';
 import styles from './panel.module.css';
 
 /** What to tell the operator when the save did not go through. */
@@ -47,10 +48,13 @@ function computedValues(product) {
  * never pins today's computed value. The linked publications' SKUs are offered as suggestions. Mount with
  * `key={productItemId}`.
  *
+ * Below it, the product's data copied from one of its publications (`ProductData`), from the same read.
+ *
  * @param {object} props
  * @param {number} props.productItemId
+ * @param {object[]} [props.publications] The product's publications the panel lists (the copy's possible sources).
  */
-export default function ProductIdentity({ productItemId }) {
+export default function ProductIdentity({ productItemId, publications = [] }) {
   const [product, setProduct] = useState(null);
   const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState(null); // { sku, ean, status: 'editing' | 'saving', error }
@@ -123,6 +127,7 @@ export default function ProductIdentity({ productItemId }) {
   const computed = computedValues(product);
 
   return (
+    <>
     <Section title="Identificación">
       {form ? (
         <form className={styles.identityForm} onSubmit={save}>
@@ -191,5 +196,7 @@ export default function ProductIdentity({ productItemId }) {
         </>
       )}
     </Section>
+    <ProductData product={product} publications={publications} onSaved={setProduct} />
+    </>
   );
 }

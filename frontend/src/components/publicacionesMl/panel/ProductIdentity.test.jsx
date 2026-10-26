@@ -55,6 +55,15 @@ describe('reading', () => {
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 
+  it('shows the copied data under it, offering the publications the panel lists', async () => {
+    const publications = [{ item_id: 'MLA1', title: 'Router', status: 'active' }];
+    productosPropiosAPI.get.mockResolvedValue({ data: product({ can_edit: true, datos: null }) });
+    render(<ProductIdentity productItemId={70} publications={publications} />);
+
+    expect(await screen.findByRole('region', { name: 'Datos del producto' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'MLA1 · Router' })).toBeInTheDocument();
+  });
+
   it('marks the manual values', async () => {
     await renderWith(product({ sku: 'MIO', sku_manual: true, ean: '123', ean_manual: true }));
 

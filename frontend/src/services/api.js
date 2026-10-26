@@ -885,6 +885,8 @@ export const productosPropiosAPI = {
   get: (itemId) => api.get(`/productos-propios/${itemId}`),
   // `{ sku, ean }`: null or blank drops the manual value (back to the computed one).
   save: (itemId, body) => api.put(`/productos-propios/${itemId}`, body),
+  // Copy the title, description, pictures and attributes of one of the product's publications (replaces a copy).
+  chooseSource: (itemId, mla) => api.post(`/productos-propios/${itemId}/fuente`, { mla }),
 };
 
 // =============================================================================
