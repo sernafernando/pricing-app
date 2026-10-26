@@ -82,6 +82,22 @@ FETCHERS: Dict[str, SubFetcher] = {
     )
 }
 
+# The order a batch fetches sub-resources in, across its entries: every entry's fast data (what the owner needs
+# current: prices, promotions, stock, the buy-box competition) before any entry's slow data, so a run cut short
+# leaves descriptions and families pending, never prices (ml-sync-pipeline S2). The core goes first on its own.
+FAST_RESOURCES: tuple = (
+    "prices",
+    "sale_price",
+    PROMOTIONS_RESOURCE,
+    "stock",
+    COMPETITION_RESOURCE,
+    MODERATION_RESOURCE,
+    "user_product",
+)
+SLOW_RESOURCES: tuple = ("description", "family", PERFORMANCE_RESOURCE, VISITS_RESOURCE, REPLENISHMENT_RESOURCE)
+FETCH_ORDER: tuple = FAST_RESOURCES + SLOW_RESOURCES
+
+
 # Never part of the bundle (design D12: no notification topic, too costly per sale-triggered event): an entry
 # reaches them only by naming them, which the sweeps do. Listing them in `bundle_resources` enables the named
 # request; the bundle itself skips them.

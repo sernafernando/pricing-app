@@ -354,6 +354,53 @@ class TestInterruptions:
         assert (queued["attempts"], queued["claimed_at"], queued["resources"]) == (0, None, ["prices"])
 
 
+class TestFastDataFirst:
+    """ml-sync-pipeline S2 (owner, 2026-10-26): "precios y promos cambian todo el tiempo lo mismo stock, eso no
+    puede quedar pendiente". A batch fetches every entry's fast data before any entry's slow data, so a run cut
+    short leaves descriptions pending, never prices."""
+
+    OTHER = "MLA934406852"
+
+    def test_every_entry_gets_its_prices_before_any_description(self, env) -> None:
+        enable_refresh(bundle_resources=["core", "description", "prices"])
+        enqueue_items(ITEM, self.OTHER)
+        transport = ScriptedTransport(responder_with())
+
+        make_handler(transport).run(context())
+
+        called = paths(transport)
+        last_price = max(i for i, path in enumerate(called) if path.endswith("/prices"))
+        first_description = min(i for i, path in enumerate(called) if path.endswith("/description"))
+        assert sum(path.endswith("/prices") for path in called) == 2
+        assert last_price < first_description
+        assert queue_row(env, ITEM) is None and queue_row(env, self.OTHER) is None
+
+    def test_a_deadline_after_the_prices_leaves_only_the_descriptions_pending(self, env, monkeypatch) -> None:
+        enable_refresh(bundle_resources=["core", "description", "prices"])
+        enqueue_items(ITEM, self.OTHER)
+        ctx = context(seconds=30)
+        original = subresource_store.apply_subresource
+        applied: list[str] = []
+
+        def spend_the_deadline_after_two(spec, *args, **kwargs):
+            outcome = original(spec, *args, **kwargs)
+            applied.append(spec.name)
+            if len(applied) == 2:
+                object.__setattr__(ctx, "deadline", datetime.now(timezone.utc) - timedelta(seconds=1))
+            return outcome
+
+        monkeypatch.setattr(subresource_store, "apply_subresource", spend_the_deadline_after_two)
+
+        result = make_handler(ScriptedTransport(responder_with())).run(ctx)
+
+        assert result.detail["stopped"] == "deadline"
+        assert applied == ["prices", "prices"]
+        for item in (ITEM, self.OTHER):
+            assert sub_row(env, "ml_item_prices", item)["http_status"] == 200, item
+            queued = queue_row(env, item)
+            assert (queued["attempts"], queued["resources"]) == (0, ["description"]), item
+
+
 class TestInterruptionKeepsTheMinimumAge:
     def test_an_entry_not_reached_before_a_429_does_not_keep_a_resource_that_is_too_recent(self, env) -> None:
         """Synthetic fault: prices answers 429 for the first item walked."""
@@ -391,13 +438,14 @@ class TestInterruptionKeepsTheMinimumAge:
 
 class TestFailuresBeforeAnInterruption:
     def test_a_failure_then_a_429_charges_it_and_keeps_only_the_sub_resources_left_never_the_core(self, env) -> None:
-        """Synthetic faults: description 500, then prices 429 (the core was already applied)."""
+        """Synthetic faults: prices 500, then sale_price 429 (the core was already applied; description, slow data,
+        comes after them and is not reached)."""
         enable_refresh(bundle_resources=["core", "description", "prices", "sale_price"])
         enqueue_items(ITEM)
         error_body = {"message": "internal", "error": "internal_error", "status": 500, "cause": []}
         limited = json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
         transport = ScriptedTransport(
-            responder_with({"description": json_response(error_body, status=500), "prices": limited})
+            responder_with({"prices": json_response(error_body, status=500), "sale_price": limited})
         )
 
         result = make_handler(transport).run(context())
@@ -405,7 +453,7 @@ class TestFailuresBeforeAnInterruption:
         assert result.detail["stopped"] == "rate_limited"
         queued = queue_row(env, ITEM)
         assert queued["resources"] == ["description", "prices", "sale_price"]  # no `bundle`, no `core`
-        assert queued["attempts"] == 1 and "description: HTTP 500" in queued["last_error"]
+        assert queued["attempts"] == 1 and "prices: HTTP 500" in queued["last_error"]
 
         release_backoff(env)
         retry = ScriptedTransport(responder_with())

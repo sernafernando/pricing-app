@@ -402,8 +402,11 @@ class RefreshHandler:
                     work.done.add(resource)
         self._settle_not_applicable(walking)
         fetched: Dict[Tuple[str, str], Optional[str]] = {}  # (resource, id) -> failure, for this batch
-        for position, work in enumerate(walking):
-            for resource in sorted(work.pending):
+        # Resource by resource in `bundle.FETCH_ORDER`, across the entries: every entry's fast data first.
+        for resource in bundle.FETCH_ORDER:
+            for work in walking:
+                if resource not in work.pending:
+                    continue
                 if _utcnow() >= ctx.deadline:
                     interruption: Optional[_Interruption] = _Interruption("stopped", "deadline", _utcnow())
                 else:
@@ -411,8 +414,9 @@ class RefreshHandler:
                     interruption = self._fetch_one(ctx, work, bundle.FETCHERS[resource], key, fetched, run)
                 if interruption:
                     self._end_run(run, interruption)
-                    self._stop_walking(walking[position:], interruption)
+                    self._stop_walking(walking, interruption)
                     return
+        for work in walking:
             self._finish(work)
 
     def _targets(self, works: Sequence[_Work]) -> Dict[Tuple[str, str], Dict[str, str]]:
@@ -573,11 +577,11 @@ class RefreshHandler:
             work.done.add(resource)
 
     def _stop_walking(self, works: Sequence[_Work], interruption: _Interruption) -> None:
-        """The run ended inside the sub-resource phase; `works[0]` is the entry being walked."""
+        """The run ended inside the sub-resource phase; `works` are the batch's walked entries, none settled."""
         for work in works:
             if work.failed:
-                # Failures already observed are real (a failed fetch of the entry being walked, or an id the
-                # entry cannot be fetched by): charge them, keep what was not reached queued by name.
+                # Failures already observed are real (a failed fetch earlier in the walk, or an id the entry
+                # cannot be fetched by): charge them, keep what was not reached queued by name.
                 self._finish(work, interrupted=True)
             elif not work.pending:  # everything was skipped by minimum age: nothing left to retry
                 self._finish(work)
