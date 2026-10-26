@@ -201,8 +201,8 @@ class Pacer:
     # --- admission --------------------------------------------------------------------
 
     def acquire(self, family: str, deadline: Optional[datetime] = None) -> str:
-        """Wait for a slot and spend it. Returns `DEADLINE` (nothing spent, nothing slept) when
-        the wait would cross `deadline`.
+        """Wait for a slot and spend it. Returns `DEADLINE` (nothing spent, never sleeping past `deadline`) when
+        the wait would cross `deadline`: before the family's own wait, or once it is over, before the global slot.
 
         Two steps: first the family's own wait (its cooldown, its penalty, the stock or replenishment budget),
         holding nothing, so a throttled family never makes the others wait; then, once the family may call, a
