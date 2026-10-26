@@ -385,7 +385,8 @@ class RefreshHandler:
         config: Dict[str, settings_store.Setting],
         run: _Run,
     ) -> None:
-        """Walk each remaining entry's sub-resources; an entry settles once all of them were tried."""
+        """Walk the remaining entries' sub-resources, resource by resource in `bundle.FETCH_ORDER` across the
+        entries; every entry settles once the whole batch was tried."""
         walking: List[_Work] = []
         for work in works:
             if work.core_status == 404:  # the item is gone: its sub-resources would only answer 404

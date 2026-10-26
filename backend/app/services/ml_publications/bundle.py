@@ -85,14 +85,16 @@ FETCHERS: Dict[str, SubFetcher] = {
 # The order a batch fetches sub-resources in, across its entries: every entry's fast data (what the owner needs
 # current: prices, promotions, stock, the buy-box competition) before any entry's slow data, so a run cut short
 # leaves descriptions and families pending, never prices (ml-sync-pipeline S2). The core goes first on its own.
+# Stock closes the fast data: its own per-minute budget makes a run of stock calls wait, and that wait must not
+# hold back the competition behind it.
 FAST_RESOURCES: tuple = (
     "prices",
     "sale_price",
     PROMOTIONS_RESOURCE,
-    "stock",
     COMPETITION_RESOURCE,
     MODERATION_RESOURCE,
     "user_product",
+    "stock",
 )
 SLOW_RESOURCES: tuple = ("description", "family", PERFORMANCE_RESOURCE, VISITS_RESOURCE, REPLENISHMENT_RESOURCE)
 FETCH_ORDER: tuple = FAST_RESOURCES + SLOW_RESOURCES
