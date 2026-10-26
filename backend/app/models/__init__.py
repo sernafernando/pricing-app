@@ -22,6 +22,7 @@ from app.models.calculo_pricing import CalculoPricing
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.ml_publication_link import MlPublicationLink
+from app.models.producto_propio import ProductoPropio
 from app.models.ml_item_relation import MlItemRelation
 from app.models.tb_item_serials import TbItemSerial
 from app.models.tb_item_transaction_serials import TbItemTransactionSerial
@@ -477,4 +478,5 @@ __all__ = [
     "SellOutDirty",
     "SellDirty",
     "ComboComponente",
+    "ProductoPropio",
 ]
