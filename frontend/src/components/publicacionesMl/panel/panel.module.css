@@ -606,3 +606,36 @@
 .technicalToggle {
   margin-left: auto;
 }
+
+.identityForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.identityField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.identityInput {
+  composes: input inputSm from '../../../styles/forms-tesla.css';
+  width: 100%;
+  max-width: 20rem;
+}
+
+.manualTag {
+  margin-left: var(--spacing-xs);
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.identityEdit {
+  align-self: flex-start;
+}

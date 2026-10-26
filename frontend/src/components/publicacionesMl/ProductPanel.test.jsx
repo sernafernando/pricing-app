@@ -29,6 +29,10 @@ vi.mock('../pricing/ProductPrices', () => ({
   ),
 }));
 
+vi.mock('./panel/ProductIdentity', () => ({
+  default: ({ productItemId }) => <div data-testid="product-identity">{`identity of ${productItemId}`}</div>,
+}));
+
 const FILTERS = { vista: 'producto', estado: ['active'] };
 const SUMMARY = readProduct(makeProductRow());
 const NO_PRODUCT = readProduct(PRODUCT_ROWS[2]);
@@ -154,6 +158,16 @@ describe('ProductPanel', () => {
     expect(screen.getByText('2 publicaciones')).toBeInTheDocument();
     expect(figures()).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Publicaciones' })).toBeInTheDocument();
+  });
+
+  it('shows the SKU and EAN of the product under Resumen', () => {
+    renderPanel();
+    expect(screen.getByTestId('product-identity')).toHaveTextContent(`identity of ${SUMMARY.productoItemId}`);
+  });
+
+  it('has no SKU and EAN for "Sin producto"', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.queryByTestId('product-identity')).not.toBeInTheDocument();
   });
 
   it('shows the skeleton while the product loads', () => {

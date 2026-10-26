@@ -19,7 +19,7 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { offsetsGananciaAPI, preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
@@ -66,6 +66,14 @@ vi.mock('../../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  productosPropiosAPI: {
+    get: vi.fn(() =>
+      Promise.resolve({
+        data: { item_id: 4101, codigo: '6935364099589', descripcion: 'Router Archer AX55', ean: '6935364099589', ean_manual: false, sku: 'ARCHER-AX55', sku_manual: false, sku_candidatos: ['ARCHER-AX55'], can_edit: false },
+      }),
+    ),
+    save: vi.fn(),
+  },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
@@ -740,6 +748,30 @@ describe('Publicaciones ML Producto view (visual)', () => {
         // The product row is the highlighted one, and it was not expanded.
         expect(rowWith(scroller, 'Router Archer AX55').getAttribute('aria-current')).toBe('true');
         expect(scroller.textContent).not.toContain('Router TP-Link Archer AX55 por color');
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's SKU and EAN, and their edit, fit inside the panel`, async () => {
+        productosPropiosAPI.get.mockResolvedValueOnce({
+          data: { item_id: 4101, codigo: '6935364099589', descripcion: 'Router Archer AX55', ean: '6935364099589', ean_manual: true, sku: null, sku_manual: false, sku_candidatos: ['ARCHER-AX55', 'ARCHER-AX55-V2'], can_edit: true },
+        });
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await expect.element(aside.getByText('Las publicaciones tienen SKUs distintos: ARCHER-AX55, ARCHER-AX55-V2')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-identity-${width}-${theme}.png` });
+        await aside.getByRole('button', { name: 'Editar' }).click();
+        await expect.element(aside.getByLabelText('SKU')).toBeVisible();
+        const box = rect(panel);
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        for (const control of panel.querySelectorAll('input, button')) {
+          expect(rect(control).right, control.textContent || control.getAttribute('aria-label')).toBeLessThanOrEqual(box.right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-identity-edit-${width}-${theme}.png` });
         screen.unmount();
       });
     }

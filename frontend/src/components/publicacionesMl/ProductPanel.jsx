@@ -12,6 +12,7 @@ import { UnitsCell } from './MetricsCells';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelShell from './panel/PanelShell';
 import PanelTabs from './panel/PanelTabs';
+import ProductIdentity from './panel/ProductIdentity';
 import { Field, Fields, Section } from './panel/PanelParts';
 import { amount, count } from './panel/format';
 import useProductPanel, { NO_PRODUCT_KEY } from './panel/useProductPanel';
@@ -40,7 +41,8 @@ const PRECIOS = { key: 'precios', label: 'Precios' };
  * The figures are the columns of the list (`buildColumns`) a product row draws, so the permissions hide exactly
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
  *
- * Those go under the Resumen tab. Precios mounts the product's prices (the same `ProductPrices` a publication's
+ * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
+ * `ml_publicaciones.editar_producto`). Precios mounts the product's prices (the same `ProductPrices` a publication's
  * Precios tab mounts) for whoever may see them; "Sin producto" has none. Opening another product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
  *
@@ -110,6 +112,7 @@ export default function ProductPanel({
             />
           ) : (
             <>
+              {productItemId != null && <ProductIdentity key={productItemId} productItemId={productItemId} />}
               {figures.length > 0 && (
                 <Section title="Cifras">
                   <p className={panelStyles.note}>Con los filtros actuales</p>

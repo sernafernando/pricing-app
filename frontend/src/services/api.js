@@ -881,6 +881,13 @@ export const horasExtrasApi = {
 // =============================================================================
 // Publicaciones ML (publicaciones-ml-vista): management screen reads
 // =============================================================================
+// Our own product (Publicaciones ML): the SKU and EAN of an ERP product, computed or manual.
+export const productosPropiosAPI = {
+  get: (itemId) => api.get(`/productos-propios/${itemId}`),
+  // `{ sku, ean }`: null or blank drops the manual value (back to the computed one).
+  save: (itemId, body) => api.put(`/productos-propios/${itemId}`, body),
+};
+
 export const publicacionesMlAPI = {
   // One page of publications. `params` are the query params of
   // `GET /ml-publications/view/items` (see `buildItemsParams`).
