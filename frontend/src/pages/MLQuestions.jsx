@@ -108,14 +108,14 @@ function buildFallbackItemLink(itemId) {
 // models the providers reject.
 // eslint-disable-next-line react-refresh/only-export-components
 export const LLM_PROVIDER_MODELS = {
-  groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'],
-  cerebras: ['gpt-oss-120b'],
-  openrouter: [
-    'openrouter/free',
-    'nvidia/nemotron-3-super-120b-a12b:free',
-    'thinkingmachines/inkling:free',
-    'google/gemma-4-31b-it:free',
+  groq: [
+    'llama-3.3-70b-versatile',
+    'qwen/qwen3-32b',
+    'llama-3.1-8b-instant',
+    'openai/gpt-oss-120b',
   ],
+  cerebras: ['gpt-oss-120b', 'zai-glm-4.7', 'gemma-4-31b'],
+  openrouter: ['openai/gpt-oss-20b:free'],
 };
 const LLM_ROSTER_CONFIG_KEY = 'llm_providers';
 const CUSTOM_MODEL_OPTION = '__custom__';
@@ -525,10 +525,17 @@ export default function MLQuestions() {
   const [msgActionError, setMsgActionError] = useState(null);
   // Master-detail selection for the Mensajes tab. Stored as the thread key
   // (not the thread object) so an SSE refetch keeps the same conversation
-  // open; `selectedThread` falls back to the first thread when the key is
-  // gone (filter change, page change, or nothing picked yet).
+  // open. The first thread is only a default while nothing was picked: once
+  // the operator picks a thread, it never silently swaps for another one.
+  // If the picked thread leaves the list (SSE refetch, filter, page), the
+  // pane shows a placeholder instead, so a send can never reach a buyer the
+  // operator did not choose.
   const [selectedThreadKey, setSelectedThreadKey] = useState(null);
-  const selectedThread = messageThreads.find((t) => t.key === selectedThreadKey) ?? messageThreads[0] ?? null;
+  const selectedThread =
+    selectedThreadKey === null
+      ? messageThreads[0] ?? null
+      : messageThreads.find((t) => t.key === selectedThreadKey) ?? null;
+  const selectedThreadGone = selectedThreadKey !== null && selectedThread === null;
 
   // Pendientes tab (Phase 6, PR3) — admin-pending queue state. Kept separate
   // from the Preguntas/Mensajes state above since it's an independent
@@ -1550,11 +1557,11 @@ export default function MLQuestions() {
           <div className={styles.inspectorGrid}>
             <div className={styles.inspectorColumn}>
               <section className={styles.inspectorPanel}>
-                <h4 className={styles.inspectorLabel}>Pregunta completa</h4>
+                <h3 className={styles.inspectorLabel}>Pregunta completa</h3>
                 <p className={styles.detailText}>{q.question_text}</p>
               </section>
               <section className={styles.inspectorPanel}>
-                <h4 className={styles.inspectorLabel}>Publicación</h4>
+                <h3 className={styles.inspectorLabel}>Publicación</h3>
                 <p className={styles.detailText}>
                   {itemLink ? (
                     <a
@@ -1573,7 +1580,7 @@ export default function MLQuestions() {
             </div>
             <div className={styles.inspectorColumn}>
               <section className={styles.inspectorPanel}>
-                <h4 className={styles.inspectorLabel}>Respuesta (borrador)</h4>
+                <h3 className={styles.inspectorLabel}>Respuesta (borrador)</h3>
                 <p className={styles.detailText}>{q.drafted_answer || '—'}</p>
                 {q.llm_provider && (
                   <div className={styles.inspectorFooter}>
@@ -1764,7 +1771,7 @@ export default function MLQuestions() {
 
             {Object.keys(fallbackReasonCounts).length > 0 && (
               <div className={styles.toolbarRow}>
-                <span className={styles.toolbarHint}>Filtrar por fallback:</span>
+                <span className={styles.toolbarHint}>Por razón de fallback:</span>
                 {Object.entries(fallbackReasonCounts).map(([reason, count]) => (
                   <span key={reason} className={styles.reasonChip}>
                     {FALLBACK_REASON_LABELS[reason] || reason}: {count}
@@ -2157,7 +2164,11 @@ export default function MLQuestions() {
                 <div className={styles.threadPanePlaceholder}>
                   <MessagesSquare size={28} aria-hidden="true" />
                   <span>
-                    {messagesLoading ? 'Cargando conversación...' : 'Seleccioná una conversación para ver sus mensajes'}
+                    {messagesLoading
+                      ? 'Cargando conversación...'
+                      : selectedThreadGone
+                        ? 'La conversación seleccionada ya no está en la lista. Elegí otra.'
+                        : 'Seleccioná una conversación para ver sus mensajes'}
                   </span>
                 </div>
               )}
@@ -2284,12 +2295,7 @@ export default function MLQuestions() {
                           </span>
                         </td>
                         <td>
-                          <div className={styles.pendingCuit}>
-                            <span className={styles.pendingMono}>{row.extracted_cuit || '—'}</span>
-                            {row.cuit_valid === false && (
-                              <span className={`${styles.badge} ${styles.badgeDanger}`}>CUIT inválido</span>
-                            )}
-                          </div>
+                          <span className={styles.pendingMono}>{row.extracted_cuit || '—'}</span>
                         </td>
                         <td className={styles.pendingText} title={row.extracted_name || undefined}>
                           {row.extracted_name || '—'}

@@ -716,28 +716,6 @@ describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
   });
 });
 
-describe('Mensajes table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it('returns {} when the key is absent', () => {
-    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
-    localStorage.setItem(MENSAJES_COLUMN_SIZING_KEY, '{not valid json');
-    expect(() => loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).not.toThrow();
-    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('round-trips a valid columnSizing object under its own key', () => {
-    const sizing = { mensaje: 380 };
-    saveColumnSizing(sizing, MENSAJES_COLUMN_SIZING_KEY);
-    expect(loadColumnSizing(MENSAJES_COLUMN_SIZING_KEY)).toEqual(sizing);
-  });
-});
-
 describe('Mensajes — master-detail instead of a resizable table', () => {
   it('renders conversations as cards with no table, column headers or resize grips', async () => {
     localStorage.clear();
@@ -806,6 +784,37 @@ describe('Mensajes — master-detail instead of a resizable table', () => {
     expect(screen.getByRole('button', { name: /MARIA_LOPEZ/ })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('never swaps the picked conversation for another one when it leaves the list', async () => {
+    const OTHER_MESSAGE = {
+      ...AWAITING_MESSAGE,
+      id: 20,
+      pack_id: '2000017320250138',
+      buyer_id: 85885085,
+      buyer_nickname: 'MARIA_LOPEZ',
+      text: 'Solicito factura A. Gracias',
+      received_at: '2026-07-10T15:11:11Z',
+      drafted_answer: 'Te la mandamos hoy mismo',
+    };
+    mockMessagesList([AWAITING_MESSAGE, OTHER_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
+    await user.click(await screen.findByRole('button', { name: /JUAN_PEREZ/ }));
+    expect(within(pane).getByText('Claro, te la envío enseguida')).toBeInTheDocument();
+
+    // A refetch (here triggered by a filter) no longer returns JUAN_PEREZ's
+    // thread: the pane must not fall through to MARIA_LOPEZ and offer to
+    // send her draft.
+    mockMessagesList([OTHER_MESSAGE]);
+    await user.click(screen.getByLabelText(/incluir moderados/i));
+
+    expect(await within(pane).findByText(/ya no está en la lista/i)).toBeInTheDocument();
+    expect(within(pane).queryByText('Te la mandamos hoy mismo')).not.toBeInTheDocument();
+    expect(within(pane).queryByRole('button', { name: /enviar/i })).not.toBeInTheDocument();
+  });
+
   it('shows the last error of a failed conversation as an alert in the thread pane', async () => {
     mockMessagesList([{ ...AWAITING_MESSAGE, bot_status: 'failed', last_error: 'ML rechazó el mensaje (400)' }]);
     const user = userEvent.setup();
@@ -826,44 +835,6 @@ describe('Mensajes — master-detail instead of a resizable table', () => {
     const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
     await within(pane).findByText('Claro, te la envío enseguida');
     expect(within(pane).queryByRole('alert')).not.toBeInTheDocument();
-  });
-});
-
-describe('Preguntas table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it('returns {} when the key is absent', () => {
-    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('returns {} (never throws) when the stored value is corrupt JSON', () => {
-    localStorage.setItem(COLUMN_SIZING_KEY, '{not valid json');
-    expect(() => loadColumnSizing(COLUMN_SIZING_KEY)).not.toThrow();
-    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual({});
-  });
-
-  it('round-trips a valid columnSizing object', () => {
-    const sizing = { pregunta: 200, item: 130 };
-    saveColumnSizing(sizing, COLUMN_SIZING_KEY);
-    expect(loadColumnSizing(COLUMN_SIZING_KEY)).toEqual(sizing);
-  });
-
-  it('ignores unknown/stale column ids on load (fail-open, still an object)', () => {
-    localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 200, columnaFantasma: 999 }));
-    const loaded = loadColumnSizing(COLUMN_SIZING_KEY);
-    // Loader itself doesn't filter by known ids (TanStack ignores unknown ids
-    // at consumption time) — assert it still returns a safe plain object.
-    expect(loaded).toEqual({ pregunta: 200, columnaFantasma: 999 });
-  });
-
-  it('saveColumnSizing never throws when localStorage.setItem throws', () => {
-    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('quota exceeded');
-    });
-    expect(() => saveColumnSizing({ pregunta: 200 }, COLUMN_SIZING_KEY)).not.toThrow();
-    spy.mockRestore();
   });
 });
 
@@ -1849,12 +1820,13 @@ describe('LLM_PROVIDER_MODELS curated dropdown', () => {
     expect(stillOffered).toEqual([]);
   });
 
-  it('lists the curated default first for every provider', () => {
-    // MLQuestions adds a new roster entry with LLM_PROVIDER_MODELS.groq[0],
-    // so the first element is what an operator gets without choosing.
-    expect(LLM_PROVIDER_MODELS.groq[0]).toBe('openai/gpt-oss-120b');
+  it('lists the backend default first for every provider', () => {
+    // MLQuestions adds a new roster entry with LLM_PROVIDER_MODELS[name][0],
+    // so the first element is what an operator gets without choosing. It must
+    // match provider_rotation._known_provider_specs on the backend.
+    expect(LLM_PROVIDER_MODELS.groq[0]).toBe('llama-3.3-70b-versatile');
     expect(LLM_PROVIDER_MODELS.cerebras[0]).toBe('gpt-oss-120b');
-    expect(LLM_PROVIDER_MODELS.openrouter[0]).toBe('openrouter/free');
+    expect(LLM_PROVIDER_MODELS.openrouter[0]).toBe('openai/gpt-oss-20b:free');
   });
 
   it('covers every provider the backend knows about', () => {

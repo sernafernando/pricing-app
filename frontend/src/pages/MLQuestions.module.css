@@ -1595,13 +1595,6 @@ table.resizableTable {
   color: var(--cf-text-secondary);
 }
 
-.pendingCuit {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-}
-
 .pendingText {
   font-size: 0.82rem;
 }
