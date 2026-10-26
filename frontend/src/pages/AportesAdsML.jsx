@@ -60,9 +60,11 @@ function ContributionItem({ c, canManage, onEdit, onDelete }) {
       <span className={styles.chipValue}>{value}</span>
       {details && <span className={styles.srOnly}>{details}</span>}
       {badge && (
-        <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
-          {badge.text}
-        </StatusPill>
+        <span className={styles.keep}>
+          <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
+            {badge.text}
+          </StatusPill>
+        </span>
       )}
       <span className={styles.chipRange}>
         {formatDay(c.date_from)} → {formatDay(c.date_to)}
@@ -356,13 +358,19 @@ export default function AportesAdsML() {
                     <td>
                       <div className={styles.campaign}>
                         <span className={styles.campaignName}>{c.name || `Campaña ${c.campaign_id}`}</span>
-                        <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
+                        <span className={styles.keep}>
+                          <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
+                        </span>
                       </div>
                       <span className={styles.campaignId}>{c.campaign_id}</span>
                     </td>
                     <td>
                       {status ? (
-                        <StatusPill tone={status.tone} dot>{status.text}</StatusPill>
+                        <span className={styles.keep}>
+                          <StatusPill tone={status.tone} dot>
+                            {status.text}
+                          </StatusPill>
+                        </span>
                       ) : (
                         <span className={styles.muted}>{c.status || '—'}</span>
                       )}

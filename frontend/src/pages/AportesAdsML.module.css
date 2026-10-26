@@ -217,6 +217,26 @@
   white-space: nowrap;
 }
 
+.table th.num {
+  font-family: inherit;
+}
+
+/* `.table td` sets the text colour, so the money tones need the same weight to apply. */
+.table .positive {
+  color: var(--money-positive);
+}
+
+.table .muted {
+  color: var(--cf-text-tertiary);
+}
+
+/* The kit's pill wraps inside a narrow column; a campaign's anunciante and estado are one word and stay whole. */
+.keep {
+  display: inline-block;
+  flex-shrink: 0;
+  min-width: max-content;
+}
+
 .campaign {
   display: flex;
   align-items: center;
@@ -240,7 +260,6 @@
 .chips {
   display: flex;
   align-items: flex-start;
-  flex-wrap: wrap;
   gap: var(--spacing-sm);
 }
 
@@ -250,6 +269,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-1);
 }
 
@@ -310,11 +330,11 @@
 }
 
 .btnIcon {
-  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+  composes: btn-tesla ghost icon-only xs from '../styles/buttons-tesla.css';
 }
 
 .btnIconDanger {
-  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+  composes: btn-tesla ghost icon-only xs from '../styles/buttons-tesla.css';
   color: var(--cf-accent-red);
 }
 
