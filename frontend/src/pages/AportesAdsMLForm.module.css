@@ -11,15 +11,19 @@
 }
 
 .field {
-  composes: field from './AportesAdsML.module.css';
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
 }
 
 .label {
-  composes: label from './AportesAdsML.module.css';
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cf-text-secondary);
 }
 
 .input {
-  composes: input from './AportesAdsML.module.css';
+  composes: input from '../styles/forms-tesla.css';
 }
 
 .alertError {

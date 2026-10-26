@@ -1,14 +1,20 @@
+/* Aportes de marcas (Ads ML), from the Stitch redesign (ml-ads-contribution-redesign S3, "Precision Operations"):
+   a table card with mono money and one-line contribution chips. Colours are the app's tokens,
+   so dark mode follows on its own. */
+
 .container {
   padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
 }
 
 .header {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
 }
 
 .title {
@@ -25,72 +31,165 @@
   max-width: 640px;
 }
 
-.filters {
+.range {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
-.field {
+.rangeField {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
-.label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--cf-text-secondary);
+.rangeInput {
+  composes: inputSm from '../styles/forms-tesla.css';
+  width: auto;
+  font-family: var(--font-mono);
 }
 
-.input {
-  composes: input from '../styles/forms-tesla.css';
+.positive {
+  color: var(--money-positive);
 }
 
-.num {
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tableCard {
+  overflow-x: auto;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  padding: var(--space-3);
+  text-align: left;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-hover);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.table td {
+  padding: var(--space-3);
+  vertical-align: middle;
+  color: var(--cf-text-primary);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.table tbody tr:hover td {
+  background: var(--cf-bg-hover);
+}
+
+.table tfoot td {
+  font-weight: var(--font-semibold);
+  border-top: 1px solid var(--cf-border-default);
+  border-bottom: none;
+}
+
+.table .num {
   text-align: right;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.muted {
-  color: var(--cf-text-tertiary);
-  font-size: 0.8rem;
+.campaign {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
 }
 
-.contributions {
+.campaignName {
+  font-weight: var(--font-semibold);
+}
+
+.campaignId {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.muted {
+  color: var(--cf-text-tertiary);
+}
+
+.chips {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.chipList {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--space-1);
 }
 
-.contribution {
-  display: flex;
-  flex-wrap: wrap;
+.chip {
+  display: inline-flex;
   align-items: center;
-  gap: 6px 10px;
+  gap: var(--spacing-sm);
+  height: 28px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  white-space: nowrap;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
 }
 
-.contributionValue {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+.chipValue {
+  font-family: var(--font-mono);
+  font-weight: var(--font-semibold);
 }
 
-.pill {
-  padding: 2px 9px;
-  border-radius: 10px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--cf-accent-blue) 14%, transparent);
+.chipRange {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.none {
+  font-style: italic;
+  color: var(--cf-text-tertiary);
+  line-height: 28px;
+}
+
+.addLink {
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
   color: var(--cf-accent-blue);
+  white-space: nowrap;
 }
 
-.note {
-  flex-basis: 100%;
-  font-size: 0.78rem;
-  color: var(--cf-text-secondary);
+.footnote {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
 .alertError {
@@ -99,16 +198,11 @@
   gap: var(--spacing-sm);
   color: var(--cf-accent-red);
   font-size: 0.82rem;
-  margin-bottom: 12px;
 }
 
 .btnSecondary {
   composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
   white-space: nowrap;
-}
-
-.colActions {
-  text-align: right;
 }
 
 .btnIcon {
@@ -122,8 +216,9 @@
 
 .actions {
   display: flex;
-  gap: var(--spacing-xs);
-  margin-left: auto;
+  gap: 2px;
+  padding-left: var(--space-1);
+  border-left: 1px solid var(--cf-border-subtle);
 }
 
 .btnDanger {

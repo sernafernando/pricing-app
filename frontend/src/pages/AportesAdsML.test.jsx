@@ -1,7 +1,8 @@
 /**
  * AportesAdsML (ml-ads-brand-contribution S10): the page that shows the brand contributions loaded on Product Ads
  * campaigns, with each campaign's cost in the chosen range, and loads, edits and deletes them: the fixed-amount
- * settlement rule (S6), the manage permission (S7) and the backend's 422 message.
+ * settlement rule (S6), the manage permission (S7) and the backend's 422 message. Its layout follows the Stitch
+ * redesign (ml-ads-contribution-redesign S3): APORTE/NETO columns, one-line chips and a Total row.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
@@ -38,16 +39,39 @@ const CONTRIBUTION = {
 
 const CAMPAIGNS = {
   campaigns: [
-    { advertiser_id: 714700, campaign_id: 55, name: 'Routers', status: 'active', cost: 98765.4, contributions: [CONTRIBUTION] },
+    {
+      advertiser_id: 714700,
+      advertiser_name: 'TPLINK',
+      campaign_id: 55,
+      name: 'Routers',
+      status: 'active',
+      cost: 98765.4,
+      contribution: 50000,
+      contributions: [CONTRIBUTION],
+    },
     {
       advertiser_id: 25713,
+      advertiser_name: 'GAUSS',
       campaign_id: 66,
       name: 'Notebooks',
       status: 'paused',
       cost: 1200,
-      contributions: [{ ...CONTRIBUTION, id: 8, kind: 'percentage', value: 25, settlement: null, brand: null, note: null }],
+      contribution: 0,
+      contributions: [
+        {
+          ...CONTRIBUTION,
+          id: 8,
+          kind: 'percentage',
+          value: 25,
+          settlement: null,
+          brand: null,
+          note: null,
+          date_from: '2025-01-01',
+          date_to: '2025-01-31',
+        },
+      ],
     },
-    { advertiser_id: 25713, campaign_id: 77, name: null, status: null, cost: 0, contributions: [] },
+    { advertiser_id: 25713, advertiser_name: 'GAUSS', campaign_id: 77, name: null, status: null, cost: 800, contribution: 0, contributions: [] },
   ],
 };
 
@@ -76,7 +100,7 @@ beforeEach(() => {
 });
 
 describe('campaign list', () => {
-  it('lists the campaigns of the range with their cost and contributions', async () => {
+  it('lists each campaign with its cost, contribution, net and one-line contribution chips', async () => {
     render(<AportesAdsML />);
     expect(await screen.findByText('Routers')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/ml-ads/campaigns', {
@@ -84,17 +108,30 @@ describe('campaign list', () => {
     });
 
     const routers = within(rowOf('Routers'));
+    expect(routers.getByText('55')).toBeInTheDocument();
+    expect(routers.getByText('TPLINK')).toBeInTheDocument();
+    expect(routers.getByText('Activa')).toBeInTheDocument();
     expect(routers.getByText('$ 98.765,40')).toBeInTheDocument();
+    expect(routers.getByText('$ 50.000,00')).toBeInTheDocument();
+    expect(routers.getByText('$ 48.765,40')).toBeInTheDocument();
     expect(routers.getByText('$ 150.000,00')).toBeInTheDocument();
-    expect(routers.getByText('Se devuelve la diferencia')).toBeInTheDocument();
-    expect(routers.getByText('01/10/2026 – 31/10/2026 · TP-Link')).toBeInTheDocument();
-    expect(routers.getByText('Acuerdo trimestral')).toBeInTheDocument();
+    const badge = routers.getByText('Diferencia');
+    expect(badge).toHaveAttribute('title', 'Se devuelve la diferencia');
+    expect(routers.getByText('01/10/26 → 31/10/26')).toBeInTheDocument();
+    expect(badge.closest('li')).toHaveAttribute('title', 'TP-Link · Acuerdo trimestral');
+    expect(badge.closest('li')).toHaveTextContent('TP-Link · Acuerdo trimestral');
 
     const notebooks = within(rowOf('Notebooks'));
+    expect(notebooks.getByText('Pausada')).toBeInTheDocument();
     expect(notebooks.getByText('25%')).toBeInTheDocument();
-    expect(notebooks.queryByText(/Se recibe todo|Se devuelve la diferencia/)).not.toBeInTheDocument();
+    expect(notebooks.queryByText(/^(Todo|Diferencia)$/)).not.toBeInTheDocument();
 
     expect(within(rowOf('Campaña 77')).getByText('Sin aportes')).toBeInTheDocument();
+
+    const total = within(rowOf('Total (3 campañas)'));
+    expect(total.getByText('$ 100.765,40')).toBeInTheDocument();
+    expect(total.getByText('$ 50.000,00')).toBeInTheDocument();
+    expect(total.getByText('$ 50.765,40')).toBeInTheDocument();
   });
 
   it('shows the backend message when the list fails', async () => {
@@ -106,13 +143,25 @@ describe('campaign list', () => {
   });
 });
 
+describe('total row', () => {
+  it('says "1 campaña" and greys a zero contribution like the rows do', async () => {
+    api.get.mockResolvedValue({
+      data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Sola', status: null, cost: 500, contribution: 0, contributions: [] }] },
+    });
+    render(<AportesAdsML />);
+    const total = within(await screen.findByText('Total (1 campaña)').then((cell) => cell.closest('tr')));
+    const rowZero = within(rowOf('Sola')).getByText('$ 0,00');
+    expect(total.getByText('$ 0,00')).toHaveClass(rowZero.className);
+  });
+});
+
 describe('range changes', () => {
   it('keeps the newest range when an older response arrives last', async () => {
     let resolveOld;
     api.get
       .mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve)))
       .mockResolvedValueOnce({
-        data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Nuevo rango', status: null, cost: 0, contributions: [] }] },
+        data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Nuevo rango', status: null, cost: 0, contribution: 0, contributions: [] }] },
       });
     render(<AportesAdsML />);
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-09-01' } });
