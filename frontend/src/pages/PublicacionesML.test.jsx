@@ -36,6 +36,7 @@ vi.mock('../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
+  productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
