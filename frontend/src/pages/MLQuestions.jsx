@@ -108,14 +108,14 @@ function buildFallbackItemLink(itemId) {
 // models the providers reject.
 // eslint-disable-next-line react-refresh/only-export-components
 export const LLM_PROVIDER_MODELS = {
-  groq: [
-    'llama-3.3-70b-versatile',
-    'qwen/qwen3-32b',
-    'llama-3.1-8b-instant',
-    'openai/gpt-oss-120b',
-  ],
+  groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'],
   cerebras: ['gpt-oss-120b', 'zai-glm-4.7', 'gemma-4-31b'],
-  openrouter: ['openai/gpt-oss-20b:free'],
+  openrouter: [
+    'openrouter/free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
+    'thinkingmachines/inkling:free',
+    'google/gemma-4-31b-it:free',
+  ],
 };
 const LLM_ROSTER_CONFIG_KEY = 'llm_providers';
 const CUSTOM_MODEL_OPTION = '__custom__';

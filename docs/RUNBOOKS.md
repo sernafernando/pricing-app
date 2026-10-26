@@ -286,9 +286,9 @@ failover if one is rate-limited/down (`provider_rotation.py`).
    via `PUT /api/ml-bot/config/{clave}`:
    ```json
    [
-     {"name": "groq", "model": "llama-3.3-70b-versatile", "enabled": true},
+     {"name": "groq", "model": "openai/gpt-oss-120b", "enabled": true},
      {"name": "cerebras", "model": "gpt-oss-120b", "enabled": true},
-     {"name": "openrouter", "model": "openai/gpt-oss-20b:free", "enabled": true}
+     {"name": "openrouter", "model": "openrouter/free", "enabled": true}
    ]
    ```
    `model` is optional per entry (falls back to each provider's default in

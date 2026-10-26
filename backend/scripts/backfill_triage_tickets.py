@@ -26,7 +26,7 @@ way the ml-questions bot's own background cycles open their own
 
 `--dry-run` is the DEFAULT (lists candidates, makes ZERO Groq calls).
 `--apply` is required to do real work. Groq's free tier for
-`llama-3.3-70b-versatile` is 30 RPM / 1K RPD (obs #1299) — a fixed sleep
+`openai/gpt-oss-120b` is 30 RPM / 1K RPD — a fixed sleep
 between calls keeps a backlog from tripping a 429, which
 `OpenAICompatProvider` treats as PERMANENT (no retry): the ticket is simply
 left unclassified. `run_triage` never re-raises that failure (spec:

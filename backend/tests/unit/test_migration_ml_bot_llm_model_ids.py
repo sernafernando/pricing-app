@@ -112,16 +112,11 @@ class TestRosterParsesWithTheRotationLoader:
 class TestCodeDefaultsMatchTheVerifiedIds:
     """The migration only fixes rows that carry an explicit `model`. A roster
     entry omitting it falls back to `_known_provider_specs`, so those defaults
-    must name the same verified ids — otherwise the bug simply moves.
+    must not name the ids this migration retired — otherwise the bug simply
+    moves. The live ids the defaults name today are pinned in
+    `test_llm_default_models.py`: this migration's roster is history, and some
+    of its ids have since been retired too (Groq dropped Llama on 2026-08-16).
     """
-
-    def test_defaults_are_the_verified_model_ids(self, migration) -> None:
-        from app.services.ml_questions import provider_rotation
-
-        specs = provider_rotation._known_provider_specs()
-        expected = {entry["name"]: entry["model"] for entry in json.loads(migration.FIXED_ROSTER)}
-        for name, model in expected.items():
-            assert specs[name].default_model == model, f"default_model for {name} drifted from the verified roster"
 
     def test_no_default_points_at_a_retired_id(self, migration) -> None:
         from app.services.ml_questions import provider_rotation
