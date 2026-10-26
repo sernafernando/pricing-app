@@ -739,19 +739,20 @@ def grants_en_scope(
     """
     Every sub-PM grant on the caller's writable pairs, in one query, so the
     Sub-PMs screen can show who else manages each pair without one request
-    per pair. Same scope rule as `conteos_sub_pms`: grants on pairs outside
-    the caller's scope are filtered out, never rejected.
+    per pair. Same scope rule as `_resolve_writable_pairs`: grants on pairs
+    outside the caller's scope are filtered out, never rejected. The scope
+    is applied as a join on `marcas_pm` instead of an IN list, so an admin
+    (whose scope is every pair) does not send two bind parameters per pair.
     """
-    writable_pairs = _resolve_writable_pairs(db, current_user)
-    if not writable_pairs:
-        return GrantsScopeResponse(grants=[])
-
-    grants = (
+    query = (
         db.query(MarcaSubPM)
+        .join(MarcaPM, (MarcaPM.marca == MarcaSubPM.marca) & (MarcaPM.categoria == MarcaSubPM.categoria))
         .options(joinedload(MarcaSubPM.usuario))
-        .filter(tuple_(MarcaSubPM.marca, MarcaSubPM.categoria).in_(writable_pairs))
-        .all()
     )
+    if current_user.rol not in (RolUsuario.ADMIN, RolUsuario.SUPERADMIN):
+        query = query.filter(MarcaPM.usuario_id == current_user.id)
+
+    grants = query.all()
 
     return GrantsScopeResponse(
         grants=[
