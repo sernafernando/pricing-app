@@ -6,15 +6,15 @@
  * (`AportesAdsMLForm`) and deletes them behind a confirmation modal. A contribution is a percentage or a fixed amount over a date range (S3/S4); a fixed amount
  * says how it settles (S6). Métricas ML stops subtracting the part of the cost a contribution covers (S9).
  *
- * Layout from the Stitch redesign (ml-ads-contribution-redesign S3): APORTE and NETO per campaign as the backend
- * computes them, one-line contribution chips and a Total row.
+ * Layout from the Stitch redesign (ml-ads-contribution-redesign S3): KPI tiles over the range, a toolbar that filters
+ * the loaded rows (no new request), APORTE and NETO per campaign as the backend computes them, and a Total row.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle, Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Info, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import ModalTesla from '../components/ModalTesla';
-import { StatusPill } from '../components/kit';
+import { SegmentedControl, StatusPill } from '../components/kit';
 import AportesAdsMLForm from './AportesAdsMLForm';
 import { registrarPagina } from '../registry/tabRegistry';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
@@ -30,6 +30,11 @@ const SETTLEMENT_BADGES = {
   refund_difference: { text: 'Diferencia', tone: 'warning' },
 };
 const STATUS_PILLS = { active: { text: 'Activa', tone: 'success' }, paused: { text: 'Pausada', tone: 'neutral' } };
+const SEGMENTS = [
+  { value: 'all', label: 'Todas' },
+  { value: 'with', label: 'Con aporte' },
+  { value: 'without', label: 'Sin aporte' },
+];
 
 const isoDay = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -40,8 +45,10 @@ const formatDay = (iso) => {
   return `${day}/${month}/${year.slice(2)}`;
 };
 
+const touchesRange = (c, range) => c.date_from <= range.to && c.date_to >= range.from;
 const advertiserLabel = (c) => c.advertiser_name || `Anunciante ${c.advertiser_id}`;
 const sumOf = (rows, key) => rows.reduce((total, row) => total + (row[key] || 0), 0);
+const formatPercent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`;
 
 function ContributionItem({ c, canManage, onEdit, onDelete }) {
   const value = c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value);
@@ -85,6 +92,9 @@ export default function AportesAdsML() {
     to: isoDay(today),
   });
   const [campaigns, setCampaigns] = useState([]);
+  const [search, setSearch] = useState('');
+  const [segment, setSegment] = useState('all');
+  const [advertiser, setAdvertiser] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
@@ -159,7 +169,16 @@ export default function AportesAdsML() {
     }
   };
 
-  const totals = { cost: sumOf(campaigns, 'cost'), contribution: sumOf(campaigns, 'contribution') };
+  const withContribution = (c) => c.contributions.some((k) => touchesRange(k, range));
+  const advertisers = [...new Set(campaigns.map(advertiserLabel))].sort();
+  const needle = search.trim().toLowerCase();
+  const visible = campaigns.filter(
+    (c) =>
+      (!needle || (c.name || '').toLowerCase().includes(needle) || String(c.campaign_id).includes(needle)) &&
+      (segment === 'all' || withContribution(c) === (segment === 'with')) &&
+      (!advertiser || advertiserLabel(c) === advertiser),
+  );
+  const totals = { cost: sumOf(visible, 'cost'), contribution: sumOf(visible, 'contribution') };
 
   return (
     <div className={styles.container}>
@@ -192,6 +211,58 @@ export default function AportesAdsML() {
         </div>
       </header>
 
+      <section className={styles.kpis} aria-label="Resumen de aportes">
+        <div className={styles.kpi}>
+          <span className={styles.kpiLabel}>Costo Ads del período</span>
+          <span className={styles.kpiValue}>{formatSignedMoney(totals.cost)}</span>
+          <span className={styles.kpiSub}>{visible.length} campañas</span>
+        </div>
+        <div className={styles.kpi}>
+          <span className={styles.kpiLabel}>Aporte de marcas</span>
+          <span className={`${styles.kpiValue} ${styles.positive}`}>{formatSignedMoney(totals.contribution)}</span>
+          <span className={styles.kpiSub}>
+            {totals.cost > 0 ? `${formatPercent((totals.contribution / totals.cost) * 100)} del costo` : '—'}
+          </span>
+        </div>
+        <div className={styles.kpi}>
+          <span className={styles.kpiLabel}>Costo neto</span>
+          <span className={styles.kpiValue}>{formatSignedMoney(totals.cost - totals.contribution)}</span>
+          <span className={styles.kpiSub}>Lo que se resta en Métricas ML</span>
+        </div>
+        <div className={styles.kpi}>
+          <span className={styles.kpiLabel}>Campañas con aporte</span>
+          <span className={styles.kpiValue}>
+            {visible.filter(withContribution).length} <span className={styles.kpiOf}>de {visible.length}</span>
+          </span>
+          <span className={styles.kpiSub}>Con un aporte que toca el rango</span>
+        </div>
+      </section>
+
+      <div className={styles.toolbar}>
+        <label className={styles.search}>
+          <Search size={14} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Buscar campaña"
+            placeholder="Buscar campaña…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+        <SegmentedControl label="Aportes" options={SEGMENTS} value={segment} onChange={setSegment} />
+        <label className={styles.advertiser}>
+          <span>Anunciante</span>
+          <select value={advertiser} onChange={(e) => setAdvertiser(e.target.value)}>
+            <option value="">Todos</option>
+            {advertisers.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       {loadError && (
         <div className={styles.alertError} role="alert">
           <AlertTriangle size={16} /> {loadError}
@@ -222,7 +293,7 @@ export default function AportesAdsML() {
               </tr>
             )}
             {!loading &&
-              campaigns.map((c) => {
+              visible.map((c) => {
                 const status = STATUS_PILLS[c.status];
                 return (
                   <tr key={`${c.advertiser_id}-${c.campaign_id}`}>
@@ -282,7 +353,7 @@ export default function AportesAdsML() {
             <tfoot>
               <tr>
                 <td colSpan={2}>
-                  Total ({campaigns.length} {campaigns.length === 1 ? 'campaña' : 'campañas'})
+                  Total ({visible.length} de {campaigns.length} {campaigns.length === 1 ? 'campaña' : 'campañas'})
                 </td>
                 <td className={styles.num}>{formatSignedMoney(totals.cost)}</td>
                 <td className={`${styles.num} ${totals.contribution > 0 ? styles.positive : styles.muted}`}>

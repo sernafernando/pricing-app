@@ -2,7 +2,7 @@
  * AportesAdsML (ml-ads-brand-contribution S10): the page that shows the brand contributions loaded on Product Ads
  * campaigns, with each campaign's cost in the chosen range, and loads, edits and deletes them: the fixed-amount
  * settlement rule (S6), the manage permission (S7) and the backend's 422 message. Its layout follows the Stitch
- * redesign (ml-ads-contribution-redesign S3): APORTE/NETO columns, one-line chips and a Total row.
+ * redesign (ml-ads-contribution-redesign S3): KPI tiles, toolbar filters, APORTE/NETO columns and a Total row.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
@@ -77,6 +77,18 @@ const CAMPAIGNS = {
 
 const rowOf = (text) => screen.getByText(text).closest('tr');
 
+// The page opens on the current month; these tests pin October 2026, the range CONTRIBUTION covers.
+async function renderOctober() {
+  render(<AportesAdsML />);
+  await screen.findByText('Routers');
+  fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-10-01' } });
+  fireEvent.change(screen.getByLabelText('Hasta'), { target: { value: '2026-10-31' } });
+  await waitFor(() => expect(api.get).toHaveBeenLastCalledWith('/ml-ads/campaigns', {
+    params: { date_from: '2026-10-01', date_to: '2026-10-31' },
+  }));
+  await screen.findByText('Routers');
+}
+
 async function openCreate(user, campaign = 'Notebooks') {
   render(<AportesAdsML />);
   await screen.findByText(campaign);
@@ -128,10 +140,21 @@ describe('campaign list', () => {
 
     expect(within(rowOf('Campaña 77')).getByText('Sin aportes')).toBeInTheDocument();
 
-    const total = within(rowOf('Total (3 campañas)'));
+    const total = within(rowOf('Total (3 de 3 campañas)'));
     expect(total.getByText('$ 100.765,40')).toBeInTheDocument();
     expect(total.getByText('$ 50.000,00')).toBeInTheDocument();
     expect(total.getByText('$ 50.765,40')).toBeInTheDocument();
+  });
+
+  it('sums the range in the KPI tiles', async () => {
+    await renderOctober();
+    const tiles = within(screen.getByRole('region', { name: 'Resumen de aportes' }));
+    expect(tiles.getByText('Costo Ads del período').parentElement).toHaveTextContent('$ 100.765,40');
+    expect(tiles.getByText('Aporte de marcas').parentElement).toHaveTextContent('$ 50.000,00');
+    expect(tiles.getByText('Aporte de marcas').parentElement).toHaveTextContent('49,6 % del costo');
+    expect(tiles.getByText('Costo neto').parentElement).toHaveTextContent('$ 50.765,40');
+    // Only Routers has a contribution touching the range: Notebooks' is from January 2025.
+    expect(tiles.getByText('Campañas con aporte').parentElement).toHaveTextContent('1 de 3');
   });
 
   it('shows the backend message when the list fails', async () => {
@@ -149,9 +172,39 @@ describe('total row', () => {
       data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Sola', status: null, cost: 500, contribution: 0, contributions: [] }] },
     });
     render(<AportesAdsML />);
-    const total = within(await screen.findByText('Total (1 campaña)').then((cell) => cell.closest('tr')));
+    const total = within(await screen.findByText('Total (1 de 1 campaña)').then((cell) => cell.closest('tr')));
     const rowZero = within(rowOf('Sola')).getByText('$ 0,00');
     expect(total.getByText('$ 0,00')).toHaveClass(rowZero.className);
+  });
+});
+
+describe('toolbar filters', () => {
+  it('narrows the loaded rows by search, contribution and advertiser without asking again', async () => {
+    const user = userEvent.setup();
+    await renderOctober();
+    const requests = api.get.mock.calls.length;
+
+    await user.type(screen.getByPlaceholderText('Buscar campaña…'), 'note');
+    expect(screen.queryByText('Routers')).not.toBeInTheDocument();
+    expect(screen.getByText('Notebooks')).toBeInTheDocument();
+    await user.clear(screen.getByPlaceholderText('Buscar campaña…'));
+    await user.type(screen.getByPlaceholderText('Buscar campaña…'), '77');
+    expect(screen.getByText('Campaña 77')).toBeInTheDocument();
+    expect(screen.queryByText('Notebooks')).not.toBeInTheDocument();
+    await user.clear(screen.getByPlaceholderText('Buscar campaña…'));
+
+    await user.click(screen.getByRole('button', { name: 'Con aporte' }));
+    expect(screen.getByText('Routers')).toBeInTheDocument();
+    expect(screen.queryByText('Notebooks')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Sin aporte' }));
+    expect(screen.queryByText('Routers')).not.toBeInTheDocument();
+    expect(screen.getByText('Campaña 77')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Todas' }));
+
+    await user.selectOptions(screen.getByLabelText('Anunciante'), 'GAUSS');
+    expect(screen.queryByText('Routers')).not.toBeInTheDocument();
+    expect(screen.getByText('Total (2 de 3 campañas)')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(requests);
   });
 });
 

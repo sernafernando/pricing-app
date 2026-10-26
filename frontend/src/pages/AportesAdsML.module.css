@@ -1,5 +1,5 @@
 /* Aportes de marcas (Ads ML), from the Stitch redesign (ml-ads-contribution-redesign S3, "Precision Operations"):
-   a table card with mono money and one-line contribution chips. Colours are the app's tokens,
+   KPI tiles, a toolbar, a table card with mono money and one-line contribution chips. Colours are the app's tokens,
    so dark mode follows on its own. */
 
 .container {
@@ -50,6 +50,59 @@
   font-family: var(--font-mono);
 }
 
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@media (min-width: 1024px) {
+  .kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.kpiLabel {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.kpiValue {
+  font-family: var(--font-mono);
+  font-size: clamp(18px, 1.6vw, 26px);
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kpiOf {
+  font-family: inherit;
+  font-size: var(--font-sm);
+  font-weight: normal;
+  color: var(--cf-text-tertiary);
+}
+
+.kpiSub {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
 .positive {
   color: var(--money-positive);
 }
@@ -61,6 +114,58 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1 1 240px;
+  max-width: 340px;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-tertiary);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.advertiser {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-left: auto;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.advertiser select {
+  height: 34px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
 }
 
 .tableCard {
