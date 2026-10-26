@@ -536,6 +536,15 @@ export default function MLQuestions() {
       ? messageThreads[0] ?? null
       : messageThreads.find((t) => t.key === selectedThreadKey) ?? null;
   const selectedThreadGone = selectedThreadKey !== null && selectedThread === null;
+  // Pin the default as soon as it is shown: otherwise "the first thread"
+  // would follow whatever arrives newest, and the open conversation (and its
+  // send button) would change under an operator who never clicked anything.
+  const defaultThreadKey = messageThreads[0]?.key ?? null;
+  useEffect(() => {
+    if (selectedThreadKey === null && defaultThreadKey !== null) {
+      setSelectedThreadKey(defaultThreadKey);
+    }
+  }, [selectedThreadKey, defaultThreadKey]);
 
   // Pendientes tab (Phase 6, PR3) — admin-pending queue state. Kept separate
   // from the Preguntas/Mensajes state above since it's an independent

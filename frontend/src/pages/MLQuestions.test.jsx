@@ -815,6 +815,35 @@ describe('Mensajes — master-detail instead of a resizable table', () => {
     expect(within(pane).queryByRole('button', { name: /enviar/i })).not.toBeInTheDocument();
   });
 
+  it('keeps the default conversation open when a newer one arrives on refetch', async () => {
+    const NEWER_MESSAGE = {
+      ...AWAITING_MESSAGE,
+      id: 21,
+      pack_id: '2000017320250199',
+      buyer_id: 85885099,
+      buyer_nickname: 'MARIA_LOPEZ',
+      text: 'Solicito factura A. Gracias',
+      received_at: '2030-01-01T10:00:00Z',
+      drafted_answer: 'Te la mandamos hoy mismo',
+    };
+    mockMessagesList([AWAITING_MESSAGE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const pane = await screen.findByRole('region', { name: 'Conversación seleccionada' });
+    expect(await within(pane).findByText('Claro, te la envío enseguida')).toBeInTheDocument();
+
+    // A newer conversation lands on top of the list. The operator never
+    // clicked anything, but the open conversation must not change under them.
+    mockMessagesList([NEWER_MESSAGE, AWAITING_MESSAGE]);
+    await user.click(screen.getByLabelText(/incluir moderados/i));
+
+    expect(await screen.findByRole('button', { name: /MARIA_LOPEZ/ })).toBeInTheDocument();
+    expect(within(pane).getByText('Claro, te la envío enseguida')).toBeInTheDocument();
+    expect(within(pane).queryByText('Te la mandamos hoy mismo')).not.toBeInTheDocument();
+  });
+
   it('shows the last error of a failed conversation as an alert in the thread pane', async () => {
     mockMessagesList([{ ...AWAITING_MESSAGE, bot_status: 'failed', last_error: 'ML rechazó el mensaje (400)' }]);
     const user = userEvent.setup();
