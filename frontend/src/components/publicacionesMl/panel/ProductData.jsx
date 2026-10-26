@@ -1,18 +1,21 @@
 import { useId, useState } from 'react';
 import { Copy, Pencil } from 'lucide-react';
 import { productosPropiosAPI } from '../../../services/api';
+import { apiErrorMessage } from '../../../utils/apiErrorMessage';
 import { isDeletedPublication } from '../publicationStatus';
 import { Field, Fields, Section } from './PanelParts';
 import ProductDataForm from './ProductDataForm';
 import { date } from './format';
 import styles from './panel.module.css';
 
+const COPY_FAILED = 'No se pudieron copiar los datos. Probá de nuevo.';
+
 /** What to tell the operator when the copy did not go through (a 409 is the server's own reason). */
 function describeError(error) {
   const status = error?.response?.status;
   if (status === 403) return 'No tenés permiso para copiar los datos del producto.';
-  if (status === 409 && error.response.data?.detail) return error.response.data.detail;
-  return 'No se pudieron copiar los datos. Probá de nuevo.';
+  if (status === 409) return apiErrorMessage(error, COPY_FAILED);
+  return COPY_FAILED;
 }
 
 /** The publications a copy may come from: the live ones (the server checks it again). */

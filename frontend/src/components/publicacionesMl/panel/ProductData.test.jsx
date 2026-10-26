@@ -18,7 +18,11 @@ vi.mock('../../../services/api', () => ({
   registerAuthFailureHandler: vi.fn(),
 }));
 
-const httpError = (status, detail) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data: { detail } } });
+// The app's error envelope: a reason in words comes as `error.message`; FastAPI's own 422 keeps its `detail` list.
+const httpError = (status, detail) =>
+  Object.assign(new Error(`HTTP ${status}`), {
+    response: { status, data: typeof detail === 'string' ? { error: { code: 'error', message: detail } } : { detail } },
+  });
 
 const DATOS = {
   fuente_mla: 'MLA1',
