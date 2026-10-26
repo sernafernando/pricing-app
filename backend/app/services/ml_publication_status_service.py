@@ -123,17 +123,19 @@ def fetch_publication_status_by_mla(db: Session, mla_ids: List[str]) -> Dict[str
 
 
 def _queue_unseen(mla_ids: List[str]) -> None:
-    """Queues the MLAs the store has no row for, for a direct fetch of the item (reconcile lane).
+    """Queues the MLAs the store has no row for, for a direct fetch of the item in the manual lane.
 
     The store discovers items by scanning the seller's listing, and ML's scan never returns a deleted item:
     one deleted before the store existed never gets a row, so it read "Sin datos de ML" forever (owner,
     MLA1816578183: inactive, `[forbidden, deleted]`). A direct fetch records ML's real status (or a 404).
-    The queue dedupes, so asking again is harmless. Its own short transaction, never the caller's;
-    FAIL-OPEN like the read: a failure only leaves the MLA for the next reader."""
+    Manual lane: someone is looking at the publication, so it does not wait behind the reconcile backlog
+    (an entry already queued in a lower lane moves up). The queue dedupes, so asking again is harmless. Its
+    own short transaction, never the caller's; FAIL-OPEN like the read: a failure only leaves the MLA for the
+    next reader."""
     if not mla_ids:
         return
     entries = [
-        queue.EnqueueEntry(kind="item", entity_id=mla, lane=queue.LANE_RECONCILE, resources=(CORE_RESOURCE,))
+        queue.EnqueueEntry(kind="item", entity_id=mla, lane=queue.LANE_MANUAL, resources=(CORE_RESOURCE,))
         for mla in mla_ids
     ]
     try:

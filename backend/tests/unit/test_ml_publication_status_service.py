@@ -185,7 +185,7 @@ class TestAnMlaTheStoreNeverSawIsFetched:
         (entries,), _ = enqueue.call_args
         # Only the one the store has no row for (a row not fetched yet is already the store's business); once.
         assert [(e.kind, e.entity_id, e.lane, e.resources) for e in entries] == [
-            ("item", "MLA_Q_GHOST", queue.LANE_RECONCILE, (CORE_RESOURCE,))
+            ("item", "MLA_Q_GHOST", queue.LANE_MANUAL, (CORE_RESOURCE,))
         ]
 
     def test_nothing_is_queued_when_every_mla_has_a_row(self, db) -> None:
