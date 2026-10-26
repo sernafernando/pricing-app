@@ -201,19 +201,6 @@
   white-space: nowrap;
 }
 
-.cellClave {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.cellDescripcion,
-.cellMotivo {
-  font-size: 0.8rem;
-  color: var(--cf-text-secondary);
-  max-width: 320px;
-}
-
 /* Badges */
 .badge {
   display: inline-block;
@@ -293,14 +280,57 @@
 .configSection {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-lg);
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
 }
 
-.sectionTitle {
+.configCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.configCardHeader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.configCardTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0;
   font-size: 1rem;
   font-weight: 600;
   color: var(--cf-text-primary);
-  margin: var(--spacing-sm) 0 0;
+}
+
+.configCardIcon {
+  color: var(--cf-accent-blue);
+  flex-shrink: 0;
+}
+
+.configCardSubtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--cf-text-secondary);
+}
+
+.configCardFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--cf-border-default);
 }
 
 .configInput {
@@ -313,17 +343,40 @@
   font-size: 0.82rem;
 }
 
+/* LLM roster */
 .rosterEditor {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
 }
 
 .rosterRow {
   display: flex;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
   align-items: center;
   flex-wrap: wrap;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.rosterRowDisabled {
+  opacity: 0.55;
+}
+
+.rosterOrder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
 }
 
 .rosterSelect {
@@ -332,7 +385,66 @@
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-sm);
   color: var(--cf-text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+}
+
+.rosterModel {
+  flex: 1;
+  min-width: 180px;
+  width: auto;
+  font-family: var(--font-mono, monospace);
+}
+
+.rosterSwitch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   font-size: 0.82rem;
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.rosterSwitchInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.rosterSwitchTrack {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--cf-border-strong);
+  transition: background 0.15s ease;
+}
+
+.rosterSwitchTrack::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--cf-bg-card);
+  transition: transform 0.15s ease;
+}
+
+.rosterSwitchInput:checked + .rosterSwitchTrack {
+  background: var(--cf-accent-blue);
+}
+
+.rosterSwitchInput:checked + .rosterSwitchTrack::after {
+  transform: translateX(16px);
+}
+
+.rosterSwitchInput:focus-visible + .rosterSwitchTrack {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
 }
 
 .rosterEnabledLabel {
@@ -343,16 +455,180 @@
   color: var(--cf-text-secondary);
 }
 
-.newExampleForm {
+.rosterAddButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  padding: var(--spacing-sm);
+  background: transparent;
+  border: 1px dashed var(--cf-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.rosterAddButton:hover {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+/* Business variables */
+.varList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.varRow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: var(--spacing-md);
+  align-items: center;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.varRow:last-child {
+  border-bottom: none;
+}
+
+.varMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.varKey {
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-hover);
+  color: var(--cf-accent-blue);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.varDescription {
+  font-size: 0.8rem;
+  color: var(--cf-text-secondary);
+}
+
+.varDirty {
+  font-size: 0.72rem;
+  color: var(--cf-accent-orange);
+}
+
+.varControl {
   display: flex;
   gap: var(--spacing-sm);
-  flex-wrap: wrap;
   align-items: center;
 }
 
-.newExampleForm .configInput {
-  flex: 1;
-  min-width: 180px;
+/* Few-shot examples */
+.newExampleForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.formFieldFull {
+  grid-column: 1 / -1;
+}
+
+.formLabel {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  color: var(--cf-text-secondary);
+}
+
+.exampleTextarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.formActions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.exampleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exampleCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.exampleCardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.exampleChip {
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--cf-accent-blue-light);
+  color: var(--cf-accent-blue);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+.exampleQuestion,
+.exampleAnswer {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.exampleAnswer {
+  padding-left: var(--spacing-sm);
+  border-left: 2px solid var(--cf-accent-blue);
+  color: var(--cf-text-secondary);
+}
+
+.examplePrefix {
+  font-family: var(--font-mono, monospace);
+  color: var(--cf-text-tertiary);
+}
+
+@media (max-width: 768px) {
+  .varRow,
+  .newExampleForm,
+  .exampleGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Edit modal */

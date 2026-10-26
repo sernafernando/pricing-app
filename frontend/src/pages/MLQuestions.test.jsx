@@ -1753,13 +1753,12 @@ describe('LLM_PROVIDER_MODELS curated dropdown', () => {
     expect(stillOffered).toEqual([]);
   });
 
-  it('lists the backend default first for every provider', () => {
-    // MLQuestions adds a new roster entry with LLM_PROVIDER_MODELS[name][0],
-    // so the first element is what an operator gets without choosing. It must
-    // match provider_rotation._known_provider_specs on the backend.
-    expect(LLM_PROVIDER_MODELS.groq[0]).toBe('llama-3.3-70b-versatile');
+  it('lists the curated default first for every provider', () => {
+    // MLQuestions adds a new roster entry with LLM_PROVIDER_MODELS.groq[0],
+    // so the first element is what an operator gets without choosing.
+    expect(LLM_PROVIDER_MODELS.groq[0]).toBe('openai/gpt-oss-120b');
     expect(LLM_PROVIDER_MODELS.cerebras[0]).toBe('gpt-oss-120b');
-    expect(LLM_PROVIDER_MODELS.openrouter[0]).toBe('openai/gpt-oss-20b:free');
+    expect(LLM_PROVIDER_MODELS.openrouter[0]).toBe('openrouter/free');
   });
 
   it('covers every provider the backend knows about', () => {
@@ -1792,5 +1791,87 @@ describe('LLM roster editor — a stored model outside the curated list', () => 
     await user.click(await screen.findByRole('button', { name: /Configuración/i }));
 
     expect(await screen.findByDisplayValue('llama-3.3-70b')).toBeInTheDocument();
+  });
+});
+
+describe('Configuración tab — roster card and business variables', () => {
+  const ROSTER = '[{"name":"groq","model":"openai/gpt-oss-120b","enabled":true}]';
+
+  function mockConfig(items) {
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/config') return Promise.resolve({ data: { items } });
+      if (url === '/ml-bot/examples') return Promise.resolve({ data: { examples: [] } });
+      return base(url, config);
+    });
+  }
+
+  const ITEMS = [
+    { clave: 'llm_providers', valor: ROSTER, tipo: 'string', descripcion: 'Roster' },
+    { clave: 'nombre_tienda', valor: 'Gauss', tipo: 'string', descripcion: 'Nombre de la tienda' },
+  ];
+
+  async function openConfig(user) {
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByRole('button', { name: /Configuración/i }));
+    await screen.findByRole('heading', { name: /Proveedores LLM/i });
+  }
+
+  it('adds a new provider row defaulting to the first curated groq model', async () => {
+    const user = userEvent.setup();
+    mockConfig([{ clave: 'llm_providers', valor: '[]', tipo: 'string', descripcion: '' }]);
+    await openConfig(user);
+
+    await user.click(screen.getByRole('button', { name: /Agregar proveedor/i }));
+
+    expect(screen.getByRole('combobox', { name: 'Proveedor 1' })).toHaveValue('groq');
+    expect(screen.getByRole('combobox', { name: 'Modelo 1' })).toHaveValue(LLM_PROVIDER_MODELS.groq[0]);
+  });
+
+  it('saves the llm_providers key from the roster card "Guardar cambios" button', async () => {
+    const user = userEvent.setup();
+    mockConfig(ITEMS);
+    await openConfig(user);
+
+    const save = screen.getByRole('button', { name: 'Guardar cambios' });
+    expect(save).toBeDisabled();
+
+    await user.click(screen.getByRole('checkbox', { name: /Activo/i }));
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/ml-bot/config/llm_providers', {
+        valor: '[{"name":"groq","model":"openai/gpt-oss-120b","enabled":false}]',
+        descripcion: 'Roster',
+        tipo: 'string',
+      });
+    });
+    expect(api.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the roster out of the variables list and saves a variable by its own key', async () => {
+    const user = userEvent.setup();
+    mockConfig(ITEMS);
+    await openConfig(user);
+
+    expect(screen.queryByLabelText('llm_providers')).not.toBeInTheDocument();
+    expect(screen.queryByText('modificado')).not.toBeInTheDocument();
+
+    const input = screen.getByLabelText('nombre_tienda');
+    await user.clear(input);
+    await user.type(input, 'Gauss Oficial');
+    expect(screen.getByText('modificado')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Guardar nombre_tienda' }));
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/ml-bot/config/nombre_tienda', {
+        valor: 'Gauss Oficial',
+        descripcion: 'Nombre de la tienda',
+        tipo: 'string',
+      });
+    });
+    expect(api.put).toHaveBeenCalledTimes(1);
   });
 });

@@ -54,6 +54,9 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Server,
+  Braces,
+  MessagesSquare,
 } from 'lucide-react';
 import styles from './MLQuestions.module.css';
 
@@ -98,14 +101,14 @@ function buildFallbackItemLink(itemId) {
 // models the providers reject.
 // eslint-disable-next-line react-refresh/only-export-components
 export const LLM_PROVIDER_MODELS = {
-  groq: [
-    'llama-3.3-70b-versatile',
-    'qwen/qwen3-32b',
-    'llama-3.1-8b-instant',
-    'openai/gpt-oss-120b',
+  groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'],
+  cerebras: ['gpt-oss-120b'],
+  openrouter: [
+    'openrouter/free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
+    'thinkingmachines/inkling:free',
+    'google/gemma-4-31b-it:free',
   ],
-  cerebras: ['gpt-oss-120b', 'zai-glm-4.7', 'gemma-4-31b'],
-  openrouter: ['openai/gpt-oss-20b:free'],
 };
 const LLM_ROSTER_CONFIG_KEY = 'llm_providers';
 const CUSTOM_MODEL_OPTION = '__custom__';
@@ -205,10 +208,16 @@ function LlmProviderRosterEditor({ value, onChange }) {
       {entries.map((entry, index) => {
         const curated = LLM_PROVIDER_MODELS[entry.name] || [];
         const isCustomModel = !entry.model || !curated.includes(entry.model);
+        const enabled = entry.enabled !== false;
         return (
-          <div key={index} className={styles.rosterRow}>
+          <div
+            key={index}
+            className={`${styles.rosterRow} ${enabled ? '' : styles.rosterRowDisabled}`}
+          >
+            <span className={styles.rosterOrder}>{index + 1}</span>
             <select
               className={styles.rosterSelect}
+              aria-label={`Proveedor ${index + 1}`}
               value={entry.name || ''}
               onChange={(e) => updateEntry(index, { name: e.target.value, model: '' })}
             >
@@ -218,7 +227,8 @@ function LlmProviderRosterEditor({ value, onChange }) {
               <option value="">otro (personalizado)</option>
             </select>
             <select
-              className={styles.rosterSelect}
+              className={`${styles.rosterSelect} ${styles.rosterModel}`}
+              aria-label={`Modelo ${index + 1}`}
               value={isCustomModel ? CUSTOM_MODEL_OPTION : entry.model}
               onChange={(e) => {
                 const next = e.target.value;
@@ -233,33 +243,36 @@ function LlmProviderRosterEditor({ value, onChange }) {
             {isCustomModel && (
               <input
                 type="text"
-                className={styles.configInput}
+                className={`${styles.configInput} ${styles.rosterModel}`}
                 placeholder="modelo personalizado"
                 value={entry.model || ''}
                 onChange={(e) => updateEntry(index, { model: e.target.value })}
               />
             )}
-            <label className={styles.rosterEnabledLabel}>
+            <label className={styles.rosterSwitch}>
               <input
                 type="checkbox"
-                checked={entry.enabled !== false}
+                className={styles.rosterSwitchInput}
+                checked={enabled}
                 onChange={(e) => updateEntry(index, { enabled: e.target.checked })}
               />
-              activo
+              <span className={styles.rosterSwitchTrack} aria-hidden="true" />
+              Activo
             </label>
             <button
               type="button"
-              className="btn-tesla outline-subtle-danger sm"
+              className="btn-tesla ghost sm"
               onClick={() => removeEntry(index)}
               aria-label="Quitar proveedor"
+              title="Quitar proveedor"
             >
-              <Trash2 size={14} />
+              <Trash2 size={16} />
             </button>
           </div>
         );
       })}
-      <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={addEntry}>
-        <Plus size={14} /> Agregar variante
+      <button type="button" className={styles.rosterAddButton} onClick={addEntry}>
+        <Plus size={14} /> Agregar proveedor
       </button>
     </div>
   );
@@ -2353,131 +2366,202 @@ export default function MLQuestions() {
       )}
 
       {/* ====== TAB: Configuración ====== */}
-      {activeTab === 'config' && puedeConfigurar && (
-        <div className={styles.configSection}>
-          {configError && (
-            <div className={styles.errorBar}>
-              <AlertTriangle size={14} />
-              {configError}
-            </div>
-          )}
-
-          <h2 className={styles.sectionTitle}>Variables de negocio</h2>
-          {configLoading ? (
-            <div className={styles.loadingCell}>Cargando...</div>
-          ) : (
-            <div className="table-container-tesla">
-              <table className="table-tesla striped">
-                <thead className="table-tesla-head">
-                  <tr>
-                    <th>Clave</th>
-                    <th>Valor</th>
-                    <th>Descripción</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody className="table-tesla-body">
-                  {configItems.map((item) => (
-                    <tr key={item.clave}>
-                      <td className={styles.cellClave}>{item.clave}</td>
-                      <td>
-                        {item.clave === LLM_ROSTER_CONFIG_KEY ? (
-                          <LlmProviderRosterEditor
-                            value={configDrafts[item.clave] ?? ''}
-                            onChange={(next) => setConfigDrafts((prev) => ({ ...prev, [item.clave]: next }))}
-                          />
-                        ) : (
-                          <input
-                            type="text"
-                            className={styles.configInput}
-                            value={configDrafts[item.clave] ?? ''}
-                            onChange={(e) => setConfigDrafts((prev) => ({ ...prev, [item.clave]: e.target.value }))}
-                          />
-                        )}
-                      </td>
-                      <td className={styles.cellDescripcion}>{item.descripcion || '—'}</td>
-                      <td>
-                        <button
-                          className="btn-tesla outline-subtle-primary sm"
-                          onClick={() => handleConfigSave(item.clave)}
-                          disabled={savingClave === item.clave || configDrafts[item.clave] === item.valor}
-                        >
-                          {savingClave === item.clave ? <Loader size={14} className={styles.spinning} /> : 'Guardar'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <h2 className={styles.sectionTitle}>Ejemplos de tono (few-shot)</h2>
-          {examplesLoading ? (
-            <div className={styles.loadingCell}>Cargando...</div>
-          ) : (
-            <>
-              <div className="table-container-tesla">
-                <table className="table-tesla striped">
-                  <thead className="table-tesla-head">
-                    <tr>
-                      <th>Pregunta ejemplo</th>
-                      <th>Respuesta ejemplo</th>
-                      <th>Categoría</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody className="table-tesla-body">
-                    {examples.map((ex) => (
-                      <tr key={ex.id}>
-                        <td className={styles.cellMotivo}>{ex.question_example}</td>
-                        <td className={styles.cellMotivo}>{ex.answer_example}</td>
-                        <td>{ex.category || '—'}</td>
-                        <td>
-                          <button className="btn-tesla ghost sm" onClick={() => handleDeleteExample(ex.id)} title="Eliminar" aria-label="Eliminar ejemplo">
-                            <Trash2 size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {examples.length === 0 && (
-                      <tr><td colSpan={4} className={styles.emptyCell}>No hay ejemplos cargados</td></tr>
-                    )}
-                  </tbody>
-                </table>
+      {activeTab === 'config' && puedeConfigurar && (() => {
+        const rosterItem = configItems.find((item) => item.clave === LLM_ROSTER_CONFIG_KEY);
+        const variableItems = configItems.filter((item) => item.clave !== LLM_ROSTER_CONFIG_KEY);
+        const setDraft = (clave, valor) => setConfigDrafts((prev) => ({ ...prev, [clave]: valor }));
+        return (
+          <div className={styles.configSection}>
+            {configError && (
+              <div className={styles.errorBar}>
+                <AlertTriangle size={14} />
+                {configError}
               </div>
+            )}
+
+            {configLoading ? (
+              <section className={styles.configCard}>
+                <div className={styles.loadingCell}>Cargando...</div>
+              </section>
+            ) : (
+              <>
+                {rosterItem && (
+                  <section className={styles.configCard} aria-labelledby="config-llm-title">
+                    <header className={styles.configCardHeader}>
+                      <h2 id="config-llm-title" className={styles.configCardTitle}>
+                        <Server size={18} className={styles.configCardIcon} />
+                        Proveedores LLM
+                      </h2>
+                      <p className={styles.configCardSubtitle}>
+                        Round-robin por pregunta; si uno falla, pasa al siguiente.
+                      </p>
+                    </header>
+                    <LlmProviderRosterEditor
+                      value={configDrafts[LLM_ROSTER_CONFIG_KEY] ?? ''}
+                      onChange={(next) => setDraft(LLM_ROSTER_CONFIG_KEY, next)}
+                    />
+                    <footer className={styles.configCardFooter}>
+                      <button
+                        type="button"
+                        className="btn-tesla secondary sm"
+                        onClick={() => setDraft(LLM_ROSTER_CONFIG_KEY, rosterItem.valor)}
+                        disabled={
+                          savingClave === LLM_ROSTER_CONFIG_KEY
+                          || configDrafts[LLM_ROSTER_CONFIG_KEY] === rosterItem.valor
+                        }
+                      >
+                        Descartar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-tesla primary sm"
+                        onClick={() => handleConfigSave(LLM_ROSTER_CONFIG_KEY)}
+                        disabled={
+                          savingClave === LLM_ROSTER_CONFIG_KEY
+                          || configDrafts[LLM_ROSTER_CONFIG_KEY] === rosterItem.valor
+                        }
+                      >
+                        {savingClave === LLM_ROSTER_CONFIG_KEY
+                          ? <Loader size={14} className={styles.spinning} />
+                          : 'Guardar cambios'}
+                      </button>
+                    </footer>
+                  </section>
+                )}
+
+                <section className={styles.configCard} aria-labelledby="config-vars-title">
+                  <header className={styles.configCardHeader}>
+                    <h2 id="config-vars-title" className={styles.configCardTitle}>
+                      <Braces size={18} className={styles.configCardIcon} />
+                      Variables de negocio
+                    </h2>
+                  </header>
+                  <ul className={styles.varList}>
+                    {variableItems.map((item) => {
+                      const inputId = `config-var-${item.clave}`;
+                      const dirty = configDrafts[item.clave] !== item.valor;
+                      return (
+                        <li key={item.clave} className={styles.varRow}>
+                          <div className={styles.varMeta}>
+                            <label htmlFor={inputId} className={styles.varKey}>{item.clave}</label>
+                            {item.descripcion && (
+                              <span className={styles.varDescription}>{item.descripcion}</span>
+                            )}
+                            {dirty && <span className={styles.varDirty}>modificado</span>}
+                          </div>
+                          <div className={styles.varControl}>
+                            <input
+                              id={inputId}
+                              type="text"
+                              className={styles.configInput}
+                              value={configDrafts[item.clave] ?? ''}
+                              onChange={(e) => setDraft(item.clave, e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className="btn-tesla outline-subtle-primary sm"
+                              onClick={() => handleConfigSave(item.clave)}
+                              disabled={savingClave === item.clave || !dirty}
+                              aria-label={`Guardar ${item.clave}`}
+                            >
+                              {savingClave === item.clave ? <Loader size={14} className={styles.spinning} /> : 'Guardar'}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              </>
+            )}
+
+            <section className={styles.configCard} aria-labelledby="config-examples-title">
+              <header className={styles.configCardHeader}>
+                <h2 id="config-examples-title" className={styles.configCardTitle}>
+                  <MessagesSquare size={18} className={styles.configCardIcon} />
+                  Ejemplos de tono (few-shot)
+                </h2>
+                <p className={styles.configCardSubtitle}>Pares pregunta/respuesta que el bot imita.</p>
+              </header>
 
               <div className={styles.newExampleForm}>
-                <input
-                  type="text"
-                  placeholder="Pregunta ejemplo"
-                  className={styles.configInput}
-                  value={newExample.question_example}
-                  onChange={(e) => setNewExample((prev) => ({ ...prev, question_example: e.target.value }))}
-                />
-                <input
-                  type="text"
-                  placeholder="Respuesta ejemplo"
-                  className={styles.configInput}
-                  value={newExample.answer_example}
-                  onChange={(e) => setNewExample((prev) => ({ ...prev, answer_example: e.target.value }))}
-                />
-                <input
-                  type="text"
-                  placeholder="Categoría (opcional)"
-                  className={styles.configInput}
-                  value={newExample.category}
-                  onChange={(e) => setNewExample((prev) => ({ ...prev, category: e.target.value }))}
-                />
-                <button className="btn-tesla outline-subtle-primary sm" onClick={handleCreateExample} disabled={savingExample}>
-                  <Plus size={14} />
-                  Agregar
-                </button>
+                <label className={styles.formField}>
+                  <span className={styles.formLabel}>Categoría (opcional)</span>
+                  <input
+                    type="text"
+                    placeholder="Categoría (opcional)"
+                    className={styles.configInput}
+                    value={newExample.category}
+                    onChange={(e) => setNewExample((prev) => ({ ...prev, category: e.target.value }))}
+                  />
+                </label>
+                <label className={styles.formField}>
+                  <span className={styles.formLabel}>Pregunta ejemplo</span>
+                  <input
+                    type="text"
+                    placeholder="Pregunta ejemplo"
+                    className={styles.configInput}
+                    value={newExample.question_example}
+                    onChange={(e) => setNewExample((prev) => ({ ...prev, question_example: e.target.value }))}
+                  />
+                </label>
+                <label className={`${styles.formField} ${styles.formFieldFull}`}>
+                  <span className={styles.formLabel}>Respuesta ejemplo</span>
+                  <textarea
+                    rows={3}
+                    placeholder="Respuesta ejemplo"
+                    className={`${styles.configInput} ${styles.exampleTextarea}`}
+                    value={newExample.answer_example}
+                    onChange={(e) => setNewExample((prev) => ({ ...prev, answer_example: e.target.value }))}
+                  />
+                </label>
+                <div className={styles.formActions}>
+                  <button
+                    type="button"
+                    className="btn-tesla outline-subtle-primary sm"
+                    onClick={handleCreateExample}
+                    disabled={savingExample}
+                  >
+                    <Plus size={14} />
+                    Agregar
+                  </button>
+                </div>
               </div>
-            </>
-          )}
-        </div>
-      )}
+
+              {examplesLoading ? (
+                <div className={styles.loadingCell}>Cargando...</div>
+              ) : examples.length === 0 ? (
+                <div className={styles.emptyCell}>No hay ejemplos cargados</div>
+              ) : (
+                <ul className={styles.exampleGrid}>
+                  {examples.map((ex) => (
+                    <li key={ex.id} className={styles.exampleCard}>
+                      <div className={styles.exampleCardTop}>
+                        {ex.category ? <span className={styles.exampleChip}>{ex.category}</span> : <span />}
+                        <button
+                          type="button"
+                          className="btn-tesla ghost sm"
+                          onClick={() => handleDeleteExample(ex.id)}
+                          title="Eliminar"
+                          aria-label="Eliminar ejemplo"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <p className={styles.exampleQuestion}>
+                        <span className={styles.examplePrefix}>P:</span> {ex.question_example}
+                      </p>
+                      <p className={styles.exampleAnswer}>
+                        <span className={styles.examplePrefix}>R:</span> {ex.answer_example}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        );
+      })()}
 
       {/* Edit / publish modal */}
       <ModalTesla
