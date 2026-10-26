@@ -131,19 +131,21 @@
 
 .badgeAgrega {
   composes: badge;
+  justify-self: end;
   background: color-mix(in srgb, var(--cf-accent-green) 15%, transparent);
   color: var(--cf-accent-green);
 }
 
 .badgeQuita {
   composes: badge;
+  justify-self: end;
   background: color-mix(in srgb, var(--cf-accent-red) 15%, transparent);
   color: var(--cf-accent-red);
 }
 
 .fila {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1.2fr) auto;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1.2fr) 84px;
   align-items: center;
   gap: 12px;
   padding: 7px 12px 7px 36px;
