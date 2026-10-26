@@ -618,3 +618,19 @@ class TestCounters:
 
         row = sql_one(env, "SELECT * FROM worker_job_state WHERE name = :n", n=HANDLER_NAME)
         assert row["last_success_at"] is not None and row["detail"]["counters"]["endpoints"]["items_bulk"] == {"2xx": 1}
+
+
+class TestItsOwnThread:
+    """ml-sync-pipeline S4: refresh is not cut every 30 s (the generic runtime deadline), below the claim lease."""
+
+    def test_refresh_runs_in_its_own_thread_and_the_other_ml_handlers_do_not(self) -> None:
+        from app.workers.registry import ML_PUBLICATIONS_REGISTRY
+
+        own = [h.name for h in ML_PUBLICATIONS_REGISTRY if getattr(h, "own_thread", False)]
+        assert own == [HANDLER_NAME]
+
+    def test_its_deadline_is_half_the_lease_so_no_claim_outlives_it(self, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "ML_PUB_LEASE_SECONDS", 300)
+        assert handlers.refresh.deadline_seconds == 150
+        monkeypatch.setattr(settings, "ML_PUB_LEASE_SECONDS", 120)
+        assert handlers.refresh.deadline_seconds == 60
