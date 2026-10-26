@@ -57,6 +57,9 @@ import {
   Server,
   Braces,
   MessagesSquare,
+  Info,
+  History,
+  Pencil,
 } from 'lucide-react';
 import styles from './MLQuestions.module.css';
 
@@ -291,37 +294,17 @@ function checkSoftDenylist(text) {
   return null;
 }
 
-// TanStack column-sizing engine adopted for the Preguntas table ONLY
-// (#956 fixed — a hand-rolled resizer failed 4x on drag math/specificity).
-// We consume the library purely as a column-sizing engine: `data: []`, no
-// row model — the body stays the existing hand-rendered `.map()` +
-// `Fragment` + `renderDetailRow`. The shared `<colgroup>` (driven by
-// `getVisibleLeafColumns()`) is the single source of truth for both the
-// TanStack-rendered header row and the untouched body rows under
-// `table-layout: fixed`.
-//
-// Locked sizing (tasks.md override — notebook-fit ~1024px, supersedes the
-// design doc's 1105px default): sum = 1024px on a true ~1024px notebook,
-// `.table-container-tesla` already has `overflow-x:auto` as a fallback.
-// Acciones is fixed at 280px — measured floor for the worst-case
-// `taken_over` row (chevron + Editar + PublicarAhora + Retener ≈ 267px).
-// Readable default sizes (sum ~1110px). Minor horizontal scroll on a small
-// notebook is fine — the columns are resizable and persist, and the shared
-// .table-container-tesla already provides overflow-x. The Acciones floor (280)
-// fits up to 5 `btn-tesla sm` buttons without clipping (the #956 failure mode).
-const PREGUNTAS_COLUMNS = [
-  { id: 'pregunta', header: 'Pregunta', size: 200, minSize: 120, maxSize: 600, enableResizing: true },
-  { id: 'item', header: 'Item', size: 120, minSize: 100, maxSize: 400, enableResizing: true },
-  { id: 'fecha', header: 'Fecha', size: 130, enableResizing: false },
-  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
-  { id: 'respuesta', header: 'Respuesta (borrador)', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
-  { id: 'confianza', header: 'Confianza', size: 70, enableResizing: false },
-  { id: 'cuentaRegresiva', header: 'Cuenta regresiva', size: 150, enableResizing: false },
-  { id: 'acciones', header: 'Acciones', size: 280, minSize: 280, maxSize: 280, enableResizing: false },
-];
+// TanStack column-sizing engine (#956 fixed — a hand-rolled resizer failed
+// 4x on drag math/specificity), used by the Historial, Mensajes and
+// Pendientes tables. We consume the library purely as a column-sizing engine:
+// `data: []`, no row model — each body stays hand-rendered. The shared
+// `<colgroup>` (driven by `getVisibleLeafColumns()`) is the single source of
+// truth for both the TanStack-rendered header row and the body rows under
+// `table-layout: fixed`. The Preguntas tab renders row cards instead of a
+// table, so it has no column sizing.
 
-// Historial del comprador table (inside the expanded detail row) — same
-// TanStack column-sizing engine pattern as PREGUNTAS_COLUMNS above, applied
+// Historial del comprador table (inside the expanded question card) — same
+// TanStack column-sizing engine pattern, applied
 // to the read-only 5-column buyer-history table. No action buttons here, so
 // there's no #956-style clipping concern; sizes are just readable defaults.
 const HISTORIAL_COLUMNS = [
@@ -602,29 +585,10 @@ export default function MLQuestions() {
   // from) never overwrites the history of the row that's now expanded.
   const expandedIdRef = useRef(null);
 
-  // Preguntas table — TanStack column-sizing engine (see PREGUNTAS_COLUMNS
-  // above), state/persistence via the shared `useColumnSizing` hook (PR4,
-  // ml-bot-panel-operador ADR-3).
-  const {
-    columnSizing,
-    onColumnSizingChange: handleColumnSizingChange,
-    reset: handleResetColumnSizing,
-    hasCustom: hasCustomColumnSizing,
-  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.preguntas);
-
-  const preguntasTable = useReactTable({
-    columns: PREGUNTAS_COLUMNS,
-    data: EMPTY_TABLE_DATA,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-    state: { columnSizing },
-    onColumnSizingChange: handleColumnSizingChange,
-  });
-
   // Historial del comprador table — same sizing-engine pattern, own
   // localStorage key. There is only ever one expanded row (`expandedId`), so
   // a single shared top-level instance is correct (must NOT be instantiated
-  // inside `renderDetailRow` — that would violate the Rules of Hooks by
+  // inside `renderQuestionDetail` — that would violate the Rules of Hooks by
   // calling a hook conditionally/per-row).
   const {
     columnSizing: historialColumnSizing,
@@ -1318,7 +1282,7 @@ export default function MLQuestions() {
   const softWarning = checkSoftDenylist(editText);
   const messageSoftWarning = checkSoftDenylist(editMessageText);
 
-  // Detail spoiler for a message thread (mirrors `renderDetailRow` above) —
+  // Detail spoiler for a message thread (mirrors `renderQuestionDetail` above) —
   // full pack conversation in order, current draft + category/confidence,
   // and the ML conversation link (T0.2-verified format).
   const renderMessageDetailRow = (thread) => {
@@ -1384,115 +1348,148 @@ export default function MLQuestions() {
     );
   };
 
-  // Expanded detail panel for a single row — rendered as the immediate
-  // sibling <tr> right after its parent row (inside the map), never at the
-  // end of <tbody>, so it stays visually attached to the row the operator
-  // expanded regardless of how many other rows are in the table.
-  const renderDetailRow = (q) => {
+  // The ML item link for a question: its stored permalink when it is a real
+  // https URL, else the link built from the item id, else the bare item id.
+  const renderItemLink = (q) => {
+    if (q.item_permalink && q.item_permalink.startsWith('https://')) {
+      return (
+        <a
+          href={q.item_permalink}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={q.item_title || q.item_id}
+          className={styles.detailLink}
+        >
+          {q.item_title || q.item_id}
+        </a>
+      );
+    }
+    const fallbackLink = buildFallbackItemLink(q.item_id);
+    return fallbackLink ? (
+      <a
+        href={fallbackLink}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={q.item_id}
+        className={styles.detailLink}
+      >
+        {q.item_id}
+      </a>
+    ) : (
+      q.item_id
+    );
+  };
+
+  // Expanded drawer of a question card — rendered inside the card itself,
+  // under its main grid, so it stays attached to the card the operator
+  // expanded regardless of how many other cards are in the list.
+  const renderQuestionDetail = (q) => {
     const fallbackLink = buildFallbackItemLink(q.item_id);
     const itemLink = (q.item_permalink && q.item_permalink.startsWith('https://'))
       ? q.item_permalink
       : fallbackLink;
     return (
-      <tr key={`${q.id}-detail`} className={styles.detailRow}>
-        <td colSpan={preguntasTable.getVisibleLeafColumns().length}>
-          <div className={styles.detailPanel}>
-            <div className={styles.detailTabBar}>
-              <button
-                type="button"
-                className={`${styles.detailTab} ${expandedTab === 'detalle' ? styles.detailTabActive : ''}`}
-                onClick={() => setExpandedTab('detalle')}
-              >
-                Detalle
-              </button>
-              <button
-                type="button"
-                className={`${styles.detailTab} ${expandedTab === 'historial' ? styles.detailTabActive : ''}`}
-                onClick={() => openExpandTab(q, 'historial')}
-              >
-                Historial del comprador
-              </button>
+      <div className={styles.questionDrawer}>
+        <div className={styles.detailTabBar}>
+          <button
+            type="button"
+            className={`${styles.detailTab} ${expandedTab === 'detalle' ? styles.detailTabActive : ''}`}
+            onClick={() => setExpandedTab('detalle')}
+          >
+            <Info size={14} />
+            Detalle
+          </button>
+          <button
+            type="button"
+            className={`${styles.detailTab} ${expandedTab === 'historial' ? styles.detailTabActive : ''}`}
+            onClick={() => openExpandTab(q, 'historial')}
+          >
+            <History size={14} />
+            Historial del comprador
+          </button>
+        </div>
+
+        {expandedTab === 'detalle' && (
+          <div className={styles.inspectorGrid}>
+            <div className={styles.inspectorColumn}>
+              <section className={styles.inspectorPanel}>
+                <h4 className={styles.inspectorLabel}>Pregunta completa</h4>
+                <p className={styles.detailText}>{q.question_text}</p>
+              </section>
+              <section className={styles.inspectorPanel}>
+                <h4 className={styles.inspectorLabel}>Publicación</h4>
+                <p className={styles.detailText}>
+                  {itemLink ? (
+                    <a
+                      href={itemLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.detailLink}
+                    >
+                      {q.item_title || q.item_id} <ExternalLink size={12} />
+                    </a>
+                  ) : (
+                    q.item_id
+                  )}
+                </p>
+              </section>
             </div>
-
-            {expandedTab === 'detalle' && (
-              <div className={styles.detailContent}>
-                <div>
-                  <strong>Pregunta completa</strong>
-                  <p className={styles.detailText}>{q.question_text}</p>
-                </div>
-                <div>
-                  <strong>Respuesta (borrador)</strong>
-                  <p className={styles.detailText}>{q.drafted_answer || '—'}</p>
-                </div>
+            <div className={styles.inspectorColumn}>
+              <section className={styles.inspectorPanel}>
+                <h4 className={styles.inspectorLabel}>Respuesta (borrador)</h4>
+                <p className={styles.detailText}>{q.drafted_answer || '—'}</p>
                 {q.llm_provider && (
-                  <div>
-                    <strong>Proveedor LLM</strong>
-                    <p className={styles.detailText}>{q.llm_provider}</p>
+                  <div className={styles.inspectorFooter}>
+                    <span className={styles.inspectorLabel}>Proveedor LLM</span>
+                    <span className={styles.providerText}>{q.llm_provider}</span>
                   </div>
                 )}
-                <div>
-                  <strong>Publicación</strong>
-                  <p>
-                    {itemLink ? (
-                      <a
-                        href={itemLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.detailLink}
-                      >
-                        {q.item_title || q.item_id} <ExternalLink size={12} />
-                      </a>
-                    ) : (
-                      q.item_id
-                    )}
-                  </p>
-                </div>
-              </div>
-            )}
+              </section>
+            </div>
+          </div>
+        )}
 
-            {expandedTab === 'historial' && (
-              <div className={styles.detailContent}>
-                {historyLoading ? (
-                  <div className={styles.loadingCell}>Cargando...</div>
-                ) : historyError ? (
-                  <div className={styles.errorBar}>
-                    <AlertTriangle size={14} />
-                    {historyError}
-                  </div>
-                ) : q.buyer_id == null ? (
-                  <div className={styles.emptyCell}>Esta pregunta no tiene comprador identificado</div>
-                ) : historyItems.length === 0 ? (
-                  <div className={styles.emptyCell}>No hay preguntas anteriores de este comprador</div>
-                ) : (
-                  <ResizableTableShell
-                    table={historialTable}
-                    hasCustomSizing={hasCustomHistorialColumnSizing}
-                    onResetSizing={handleResetHistorialColumnSizing}
-                  >
-                    <tbody className="table-tesla-body">
-                      {historyItems.map((h) => (
-                        <tr key={h.id}>
-                          <td>{new Date(h.question_date).toLocaleString()}</td>
-                          <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
-                          <td className={styles.cellItem}>{h.item_title || '—'}</td>
-                          <td>
-                            <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
-                              {STATUS_LABELS[h.status] || h.status}
-                            </span>
-                          </td>
-                          <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
-                            {h.drafted_answer || '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </ResizableTableShell>
-                )}
+        {expandedTab === 'historial' && (
+          <div className={styles.detailContent}>
+            {historyLoading ? (
+              <div className={styles.loadingCell}>Cargando...</div>
+            ) : historyError ? (
+              <div className={styles.errorBar}>
+                <AlertTriangle size={14} />
+                {historyError}
               </div>
+            ) : q.buyer_id == null ? (
+              <div className={styles.emptyCell}>Esta pregunta no tiene comprador identificado</div>
+            ) : historyItems.length === 0 ? (
+              <div className={styles.emptyCell}>No hay preguntas anteriores de este comprador</div>
+            ) : (
+              <ResizableTableShell
+                table={historialTable}
+                hasCustomSizing={hasCustomHistorialColumnSizing}
+                onResetSizing={handleResetHistorialColumnSizing}
+              >
+                <tbody className="table-tesla-body">
+                  {historyItems.map((h) => (
+                    <tr key={h.id}>
+                      <td>{new Date(h.question_date).toLocaleString()}</td>
+                      <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
+                      <td className={styles.cellItem}>{h.item_title || '—'}</td>
+                      <td>
+                        <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
+                          {STATUS_LABELS[h.status] || h.status}
+                        </span>
+                      </td>
+                      <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
+                        {h.drafted_answer || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </ResizableTableShell>
             )}
           </div>
-        </td>
-      </tr>
+        )}
+      </div>
     );
   };
 
@@ -1602,34 +1599,43 @@ export default function MLQuestions() {
       {/* ====== TAB: Preguntas ====== */}
       {activeTab === 'preguntas' && (
         <>
-          <div className={styles.filtersBar}>
-            <select value={statusFilter} onChange={(e) => handleStatusFilterChange(e.target.value)} className={styles.select}>
-              <option value="">Todos los estados</option>
-              {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={fallbackReasonFilter}
-              onChange={(e) => handleFallbackReasonFilterChange(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todas las razones de fallback</option>
-              {Object.entries(FALLBACK_REASON_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-
-          {Object.keys(fallbackReasonCounts).length > 0 && (
-            <div className={styles.filtersBar}>
-              {Object.entries(fallbackReasonCounts).map(([reason, count]) => (
-                <span key={reason} className={`${styles.badge} ${styles.badgeNeutral}`}>
-                  {FALLBACK_REASON_LABELS[reason] || reason}: {count}
-                </span>
-              ))}
+          <div className={styles.toolbarCard}>
+            <div className={styles.toolbarRow}>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Estado</span>
+                <select value={statusFilter} onChange={(e) => handleStatusFilterChange(e.target.value)} className={styles.select}>
+                  <option value="">Todos los estados</option>
+                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Razón de fallback</span>
+                <select
+                  value={fallbackReasonFilter}
+                  onChange={(e) => handleFallbackReasonFilterChange(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todas las razones de fallback</option>
+                  {Object.entries(FALLBACK_REASON_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
-          )}
+
+            {Object.keys(fallbackReasonCounts).length > 0 && (
+              <div className={styles.toolbarRow}>
+                <span className={styles.toolbarHint}>Filtrar por fallback:</span>
+                {Object.entries(fallbackReasonCounts).map(([reason, count]) => (
+                  <span key={reason} className={styles.reasonChip}>
+                    {FALLBACK_REASON_LABELS[reason] || reason}: {count}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className={styles.errorBar}>
@@ -1653,65 +1659,71 @@ export default function MLQuestions() {
             </div>
           )}
 
-          <ResizableTableShell
-            table={preguntasTable}
-            hasCustomSizing={hasCustomColumnSizing}
-            onResetSizing={handleResetColumnSizing}
-          >
-              <tbody className="table-tesla-body">
-                {loading ? (
-                  <tr><td colSpan={preguntasTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
-                ) : questions.length === 0 ? (
-                  <tr><td colSpan={preguntasTable.getVisibleLeafColumns().length} className={styles.emptyCell}>No hay preguntas para mostrar</td></tr>
-                ) : (
-                  questions.map((q) => {
-                    const remaining = q.status === 'waiting' ? secondsRemaining(q.wait_until, now) : null;
-                    return (
-                      <Fragment key={q.id}>
-                      <tr>
-                        <td className={styles.cellQuestion} title={q.question_text}>
-                          {q.question_text}
-                          {q.buyer_nickname && <span className={styles.buyerNick}>{q.buyer_nickname}</span>}
-                        </td>
-                        <td className={styles.cellItem}>
-                          {q.item_permalink && q.item_permalink.startsWith('https://') ? (
-                            <a
-                              href={q.item_permalink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={q.item_title || q.item_id}
-                              className={styles.detailLink}
-                            >
-                              {q.item_title || q.item_id}
-                            </a>
-                          ) : (
-                            (() => {
-                              const fallbackLink = buildFallbackItemLink(q.item_id);
-                              return fallbackLink ? (
-                                <a
-                                  href={fallbackLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title={q.item_id}
-                                  className={styles.detailLink}
-                                >
-                                  {q.item_id}
-                                </a>
-                              ) : (
-                                q.item_id
-                              );
-                            })()
+          <div className={styles.questionList}>
+            {loading ? (
+              <div className={styles.loadingCell}>Cargando...</div>
+            ) : questions.length === 0 ? (
+              <div className={styles.emptyCell}>No hay preguntas para mostrar</div>
+            ) : (
+              questions.map((q) => {
+                const remaining = q.status === 'waiting' ? secondsRemaining(q.wait_until, now) : null;
+                const isExpanded = expandedId === q.id;
+                return (
+                  <article
+                    key={q.id}
+                    className={`${styles.questionCard} ${isExpanded ? styles.questionCardExpanded : ''}`}
+                  >
+                    <div className={styles.questionCardMain}>
+                      {/* Left zone: the question and who asked it, about what, when. */}
+                      <div className={styles.questionZone}>
+                        <p className={styles.questionText} title={q.question_text}>{q.question_text}</p>
+                        <div className={styles.questionMeta}>
+                          {q.buyer_nickname && (
+                            <span className={styles.questionBuyer}>{q.buyer_nickname}</span>
                           )}
-                        </td>
-                        <td className={styles.cellCenter}>
-                          {q.question_date ? new Date(q.question_date).toLocaleString() : '—'}
-                        </td>
-                        <td>
+                          <span className={styles.questionItem}>{renderItemLink(q)}</span>
+                          <span className={styles.questionDate}>
+                            {q.question_date ? new Date(q.question_date).toLocaleString() : '—'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Middle zone: the bot's draft and how it was produced. */}
+                      <div className={styles.draftZone}>
+                        <p className={styles.draftPreview} title={q.drafted_answer || ''}>
+                          <span className={styles.draftLabel}>Borrador:</span> {q.drafted_answer || '—'}
+                        </p>
+                        {q.status === 'failed' && (
+                          <span className={styles.failureNote} title={q.last_error || ''}>
+                            Intentos: {q.attempts ?? 0}
+                            {q.last_error ? ` — ${q.last_error}` : ''}
+                          </span>
+                        )}
+                        {q.status === 'published' && (
+                          <span className={styles.publishedNote}>
+                            {q.published_at
+                              ? `Publicada: ${new Date(q.published_at).toLocaleString()}`
+                              : 'Publicada (fecha desconocida)'}
+                          </span>
+                        )}
+                        {(q.confidence != null || q.llm_provider) && (
+                          <div className={styles.draftMeta}>
+                            {q.confidence != null && (
+                              <span className={styles.confidenceChip}>{Math.round(q.confidence * 100)}%</span>
+                            )}
+                            {q.llm_provider && <span className={styles.providerText}>{q.llm_provider}</span>}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right zone: status, what it is waiting on, and the actions. */}
+                      <div className={styles.statusZone}>
+                        <div className={styles.statusStack}>
                           <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[q.status]] || ''}`}>
                             {STATUS_LABELS[q.status] || q.status}
                           </span>
                           {q.fallback_reason && (
-                            <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                            <span className={styles.statusHint}>
                               {FALLBACK_REASON_LABELS[q.fallback_reason] || q.fallback_reason}
                             </span>
                           )}
@@ -1720,28 +1732,7 @@ export default function MLQuestions() {
                               <ShieldAlert size={12} />
                             </span>
                           )}
-                          {q.status === 'published' && (
-                            <span className={styles.publishedNote}>
-                              {q.published_at
-                                ? `Publicada: ${new Date(q.published_at).toLocaleString()}`
-                                : 'Publicada (fecha desconocida)'}
-                            </span>
-                          )}
-                          {q.status === 'failed' && (
-                            <span className={styles.failureNote} title={q.last_error || ''}>
-                              Intentos: {q.attempts ?? 0}
-                              {q.last_error ? ` — ${q.last_error}` : ''}
-                            </span>
-                          )}
-                        </td>
-                        <td className={styles.cellAnswer} title={q.drafted_answer || ''}>
-                          {q.drafted_answer || '—'}
-                        </td>
-                        <td className={styles.cellCenter}>
-                          {q.confidence != null ? `${Math.round(q.confidence * 100)}%` : '—'}
-                        </td>
-                        <td className={styles.cellCenter}>
-                          {q.status === 'waiting' ? (
+                          {q.status === 'waiting' && (
                             !autoPublishEnabled ? (
                               <span className={styles.countdown}>
                                 <ShieldAlert size={12} />
@@ -1753,23 +1744,15 @@ export default function MLQuestions() {
                                 {formatCountdown(remaining)}
                               </span>
                             )
-                          ) : '—'}
-                        </td>
-                        <td>
-                          <div className={styles.actionsCell}>
-                            <button
-                              className="btn-tesla ghost sm"
-                              onClick={() => toggleExpand(q)}
-                              title={expandedId === q.id ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-label={expandedId === q.id ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-expanded={expandedId === q.id}
-                            >
-                              {expandedId === q.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </button>
-                            {puedeResponder && (
-                              <>
+                          )}
+                        </div>
+
+                        <div className={styles.cardActions}>
+                          {puedeResponder && (
+                            <>
                               {['received', 'waiting', 'pending_morning', 'failed'].includes(q.status) && (
                                 <button
+                                  type="button"
                                   className="btn-tesla ghost sm"
                                   onClick={() => handleTakeOver(q)}
                                   disabled={actionLoadingId === q.id}
@@ -1777,19 +1760,23 @@ export default function MLQuestions() {
                                   aria-label="Tomar la pregunta"
                                 >
                                   <UserCheck size={14} />
+                                  Tomar
                                 </button>
                               )}
                               {q.status === 'taken_over' && (
                                 <button
+                                  type="button"
                                   className="btn-tesla outline-subtle-primary sm"
                                   onClick={() => openEdit(q)}
                                   disabled={actionLoadingId === q.id}
                                 >
+                                  <Pencil size={14} />
                                   Editar
                                 </button>
                               )}
                               {['waiting', 'taken_over', 'pending_morning', 'failed'].includes(q.status) && (
                                 <button
+                                  type="button"
                                   className="btn-tesla outline-subtle-primary sm"
                                   onClick={() => handlePublishNow(q)}
                                   disabled={actionLoadingId === q.id || !q.drafted_answer}
@@ -1797,10 +1784,12 @@ export default function MLQuestions() {
                                   aria-label={q.status === 'failed' ? 'Reintentar publicación' : 'Publicar ahora'}
                                 >
                                   {q.status === 'failed' ? <RotateCcw size={14} /> : <Send size={14} />}
+                                  {q.status === 'failed' ? 'Reintentar' : 'Publicar ahora'}
                                 </button>
                               )}
                               {['waiting', 'taken_over'].includes(q.status) && (
                                 <button
+                                  type="button"
                                   className="btn-tesla ghost sm"
                                   onClick={() => handleHold(q)}
                                   disabled={actionLoadingId === q.id}
@@ -1808,20 +1797,31 @@ export default function MLQuestions() {
                                   aria-label="Retener para la mañana"
                                 >
                                   <PauseCircle size={14} />
+                                  Retener para la mañana
                                 </button>
                               )}
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                      {expandedId === q.id && renderDetailRow(q)}
-                    </Fragment>
-                    );
-                  })
-                )}
-              </tbody>
-          </ResizableTableShell>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-tesla ghost sm"
+                            onClick={() => toggleExpand(q)}
+                            title={isExpanded ? 'Ocultar detalle' : 'Ver detalle completo'}
+                            aria-label={isExpanded ? 'Ocultar detalle' : 'Ver detalle completo'}
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {isExpanded && renderQuestionDetail(q)}
+                  </article>
+                );
+              })
+            )}
+          </div>
 
           <PaginationBar
             offset={preguntasOffset}

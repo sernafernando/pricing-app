@@ -444,7 +444,7 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
     });
   }
 
-  it('renders the question arrival date column (the table had none before)', async () => {
+  it('renders the question arrival date on the card (the table had none before)', async () => {
     mockQuestionsList({
       id: 1,
       question_text: '¿Hay stock?',
@@ -454,7 +454,6 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
 
     await renderWithRouter(<MLQuestions />);
 
-    expect(await screen.findByText('Fecha')).toBeInTheDocument();
     expect(await screen.findByText(new Date('2026-08-20T10:00:00Z').toLocaleString())).toBeInTheDocument();
   });
 
@@ -519,7 +518,7 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
     expect(screen.queryByText(/Intentos:/)).not.toBeInTheDocument();
   });
 
-  it('keeps the empty/loading row colSpan in sync with the new column count (Preguntas)', async () => {
+  it('renders the empty state as a card-list message, not a table row (Preguntas)', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
       if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [], total: 0 } });
@@ -530,8 +529,45 @@ describe('Preguntas — send visibility & failure legibility (PR3)', () => {
 
     await renderWithRouter(<MLQuestions />);
 
-    const emptyCell = await screen.findByText('No hay preguntas para mostrar');
-    expect(emptyCell.closest('td').getAttribute('colspan')).toBe('8');
+    const emptyState = await screen.findByText('No hay preguntas para mostrar');
+    expect(emptyState.closest('table')).toBeNull();
+  });
+
+  it('shows a visible "Reintentar" button on a failed question that re-publishes it', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList({
+      id: 6,
+      question_text: '¿Viene con factura A?',
+      status: 'failed',
+      drafted_answer: 'Sí, emitimos factura A.',
+      attempts: 3,
+      last_error: 'timeout',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    const retry = await screen.findByRole('button', { name: 'Reintentar publicación' });
+    expect(retry).toHaveTextContent('Reintentar');
+    expect(retry).toBeEnabled();
+    await user.click(retry);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/ml-bot/questions/6/publish-now');
+    });
+  });
+
+  it('shows "esperando aprobación" instead of a countdown on a waiting question when auto-publish is OFF', async () => {
+    mockQuestionsList({
+      id: 8,
+      question_text: '¿Hacen envíos a Córdoba?',
+      status: 'waiting',
+      drafted_answer: 'Sí, enviamos a todo el país.',
+      wait_until: '2026-08-20T10:05:00Z',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText('esperando aprobación')).toBeInTheDocument();
   });
 });
 
@@ -799,44 +835,44 @@ describe('Preguntas table — column-sizing persistence (loadColumnSizing/saveCo
   });
 });
 
-describe('Preguntas table — TanStack column-sizing render structure', () => {
-  it('renders one <col> per header and resize grips only on resizable headers', async () => {
+describe('Preguntas list — row cards instead of a resizable table', () => {
+  function mockOneQuestion() {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') {
+        return Promise.resolve({
+          data: {
+            questions: [{ id: 1, question_text: 'Hola, tienen stock?', status: 'taken_over', drafted_answer: 'Sí' }],
+            total: 1,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders each question as a card with labeled actions and no table, headers or resize grips', async () => {
     localStorage.clear();
+    mockOneQuestion();
     await renderWithRouter(<MLQuestions />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Pregunta')).toBeInTheDocument();
-    });
+    const question = await screen.findByText('Hola, tienen stock?');
+    expect(question.closest('table')).toBeNull();
+    expect(question.closest('article')).not.toBeNull();
+    expect(document.querySelectorAll('[role="separator"]').length).toBe(0);
 
-    const table = screen.getByText('Pregunta').closest('table');
-    const cols = table.querySelectorAll('colgroup > col');
-    const headers = table.querySelectorAll('thead th');
-    expect(cols.length).toBe(headers.length);
-    expect(cols.length).toBe(8);
-
-    // Resizable: Pregunta, Item, Respuesta (borrador). Fixed: Fecha, Estado,
-    // Confianza, Cuenta regresiva, Acciones.
-    const grips = table.querySelectorAll('thead [role="separator"]');
-    expect(grips.length).toBe(3);
+    expect(screen.getByRole('button', { name: 'Publicar ahora' })).toHaveTextContent('Publicar ahora');
+    expect(screen.getByRole('button', { name: 'Retener para la mañana' })).toHaveTextContent('Retener para la mañana');
+    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
   });
 
-  it('shows the reset-columns control only once sizing has been customized', async () => {
-    localStorage.clear();
-    await renderWithRouter(<MLQuestions />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Pregunta')).toBeInTheDocument();
-    });
-    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
-  });
-
-  it('mounts with a previously persisted custom width and shows the reset control', async () => {
+  it('never shows the reset-columns control, even with a previously persisted Preguntas width', async () => {
     localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify({ pregunta: 250 }));
+    mockOneQuestion();
     await renderWithRouter(<MLQuestions />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /restablecer columnas/i })).toBeInTheDocument();
-    });
+    await screen.findByText('Hola, tienen stock?');
+    expect(screen.queryByRole('button', { name: /restablecer columnas/i })).not.toBeInTheDocument();
     localStorage.clear();
   });
 });
