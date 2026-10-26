@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { publicacionesMlAPI } from '../../../services/api';
 import { formatDateTime, timeAgo } from '../../../utils/ventasMlFormat';
 import { RESOURCE_NAMES, RESOURCE_STATE_LABELS, label } from './labels';
+import StatusAction from './StatusAction';
 import styles from './panel.module.css';
 
 // What a resync asks for: the item's own data plus the Full replenishment report.
@@ -40,16 +41,18 @@ function Freshness({ entries }) {
 }
 
 /**
- * Footer of the panel: how fresh each resource is, and "Resincronizar" for who
- * may manage the store. Mount it with `key={itemId}` so one publication's
+ * Footer of the panel: how fresh each resource is, "Pausar" / "Activar" for who
+ * may change the publication's status, and "Resincronizar" for who may manage
+ * the store. Mount it with `key={itemId}` so one publication's
  * feedback is never shown under the next.
  *
  * @param {object} props
  * @param {object} props.detail The read detail (`detailModel`).
  * @param {string} props.itemId
  * @param {boolean} props.canManage `ml_ops.gestionar`; the server enforces it too.
+ * @param {() => void} [props.onStatusChanged] Re-reads the panel and the list after a status write.
  */
-export default function PanelFooter({ detail, itemId, canManage }) {
+export default function PanelFooter({ detail, itemId, canManage, onStatusChanged }) {
   const [state, setState] = useState({ status: 'idle', result: null, error: null });
   const canResync = canManage && detail.canResync;
 
@@ -69,28 +72,31 @@ export default function PanelFooter({ detail, itemId, canManage }) {
   return (
     <footer className={styles.footer}>
       <Freshness entries={detail.freshness} />
-      {canResync && (
-        <div className={styles.resync}>
-          <button type="button" className="btn-tesla outline sm" onClick={resync} disabled={state.status === 'sending'}>
-            <RefreshCw size={14} aria-hidden="true" />
-            Resincronizar
-          </button>
-          {state.status === 'done' && (
-            <div className={styles.feedback} role="status">
-              <span>Resincronización pedida. Los datos se actualizan en unos minutos.</span>
-              {state.result?.note && <span>{state.result.note}</span>}
-              {missing.length > 0 && (
-                <span>No habilitado en la sincronización: {missing.map((name) => label(MISSING_NAMES, name)).join(', ')}.</span>
-              )}
-            </div>
-          )}
-          {state.status === 'error' && (
-            <div className={styles.feedback} role="alert">
-              {describeError(state.error)}
-            </div>
-          )}
-        </div>
-      )}
+      <div className={styles.footerActions}>
+        <StatusAction detail={detail} itemId={itemId} onChanged={onStatusChanged} />
+        {canResync && (
+          <div className={styles.resync}>
+            <button type="button" className="btn-tesla outline sm" onClick={resync} disabled={state.status === 'sending'}>
+              <RefreshCw size={14} aria-hidden="true" />
+              Resincronizar
+            </button>
+            {state.status === 'done' && (
+              <div className={styles.feedback} role="status">
+                <span>Resincronización pedida. Los datos se actualizan en unos minutos.</span>
+                {state.result?.note && <span>{state.result.note}</span>}
+                {missing.length > 0 && (
+                  <span>No habilitado en la sincronización: {missing.map((name) => label(MISSING_NAMES, name)).join(', ')}.</span>
+                )}
+              </div>
+            )}
+            {state.status === 'error' && (
+              <div className={styles.feedback} role="alert">
+                {describeError(state.error)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </footer>
   );
 }

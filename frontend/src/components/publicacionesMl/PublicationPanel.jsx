@@ -107,7 +107,7 @@ export default function PublicationPanel({
         </PanelTabs>
       )}
 
-      {status === 'ready' && <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} />}
+      {status === 'ready' && <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} onStatusChanged={handleWritten} />}
     </PanelShell>
   );
 }

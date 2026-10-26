@@ -16,7 +16,7 @@ vi.mock('../../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { enqueue: vi.fn() },
+  publicacionesMlAPI: { enqueue: vi.fn(), setItemStatus: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -180,5 +180,18 @@ describe('resyncing', () => {
     await screen.findByRole('status');
     rerender(<PanelFooter key="MLA1100000002" detail={readDetail(makeDetail({ can_resync: true }))} itemId="MLA1100000002" canManage />);
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+});
+
+describe('pause / activate', () => {
+  it('is offered next to the freshness to who may change the status, even without resync', () => {
+    renderFooter({ canManage: false, raw: makeDetail({ can_change_status: true }) });
+    expect(screen.getByRole('button', { name: 'Pausar' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Resincronizar' })).not.toBeInTheDocument();
+  });
+
+  it('is not offered without the permission', () => {
+    renderFooter({ raw: makeDetail({ can_resync: true, can_change_status: false }) });
+    expect(screen.queryByRole('button', { name: 'Pausar' })).not.toBeInTheDocument();
   });
 });

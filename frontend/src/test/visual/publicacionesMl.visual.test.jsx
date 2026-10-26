@@ -65,7 +65,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
@@ -819,14 +819,14 @@ const PANEL_VIEWPORTS = [
   { width: 1920, height: 1080 },
 ];
 
-const renderWithPanel = async ({ width, height, theme, margin = false, tab = '', linked = false }) => {
+const renderWithPanel = async ({ width, height, theme, margin = false, tab = '', linked = false, detailExtra = {} }) => {
   canSeeMargin = margin;
   const base = { ...MANY[0], is_full: true, variations_count: 3 };
   publicacionesMlAPI.items.mockResolvedValue({
     data: margin ? { ...MARGIN_RESPONSE, items: [{ ...base, markup: MARGIN_ITEMS[1].markup }, ...MANY.slice(1)] } : { ...RESPONSE, items: [base, ...MANY.slice(1)] },
   });
   const detail = linked ? (margin ? DETAIL_LINKED_MARGIN : DETAIL_LINKED) : margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE;
-  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, row: base } });
+  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, ...detailExtra, row: base } });
   publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
   publicacionesMlAPI.history.mockImplementation((itemId, params) =>
     Promise.resolve({ data: params?.tecnicos ? HISTORY_TECNICOS_RESPONSE : HISTORY_RESPONSE }),
@@ -937,6 +937,26 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         const values = [...panelOf().querySelectorAll('dd')].filter((el) => /^[\d.,/: ]+(ARS|%)?$/.test(el.textContent.trim()));
         expect(values.length).toBeGreaterThan(4);
         expect(wrapped(values)).toEqual([]);
+        screen.unmount();
+      });
+    }
+  }
+
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: Pausar and its confirmation sit in the footer, inside the panel`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, detailExtra: { can_resync: true, can_change_status: true } });
+        await screen.getByRole('button', { name: 'Pausar' }).click();
+        await expect.element(screen.getByText('¿Pausar la publicación en Mercado Libre?')).toBeVisible();
+        const panel = panelOf();
+        const footer = panel.querySelector('footer');
+        for (const name of ['Confirmar', 'Cancelar', 'Resincronizar']) {
+          const button = [...footer.querySelectorAll('button')].find((el) => el.textContent.trim() === name);
+          expect(button, name).toBeDefined();
+          expect(rect(button).right, name).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          expect(rect(button).bottom, name).toBeLessThanOrEqual(rect(panel).bottom + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/publication-pausar-${width}-${theme}.png` });
         screen.unmount();
       });
     }

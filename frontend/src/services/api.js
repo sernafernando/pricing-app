@@ -904,6 +904,8 @@ export const publicacionesMlAPI = {
   // Asks the store to refresh publications (`ml_ops.gestionar`). The panel's
   // "Resincronizar" sends `{ item_ids: [itemId], resources: ['bundle', 'replenishment'] }`.
   enqueue: (body) => api.post('/ml-publications/enqueue', body),
+  // Pause or activate one publication at ML (`ml_publicaciones.pausar`); `status` is 'paused' or 'active'.
+  setItemStatus: (itemId, status) => api.post(`/ml-publications/items/${encodeURIComponent(itemId)}/status`, { status }),
   // The KPI strip over the MLAs the filters select (`ml_metricas.ver`). `config.signal` aborts a stale request.
   kpis: (params, config) => api.get('/ml-publications/view/kpis', { params, ...config }),
   // The linked products of the publications the filters select, for a bulk pricing action (see
