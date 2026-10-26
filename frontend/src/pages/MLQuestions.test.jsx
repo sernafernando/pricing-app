@@ -1701,6 +1701,41 @@ describe('Pendientes — done modal captures resolved_cuit', () => {
   });
 });
 
+describe('Pendientes — labeled row actions', () => {
+  useDeterministicClock();
+
+  it('shows visible Tomar/Resolver/Cancelar on a Nuevo row and Liberar instead of Tomar on an En progreso row', async () => {
+    mockTienePermiso.mockImplementation(() => true);
+    mockPendingList([
+      { ...PENDING_ROW, id: 1, status: 'new' },
+      { ...PENDING_ROW, id: 2, status: 'in_progress' },
+    ]);
+
+    const user = setupUserWithClock();
+    await renderWithRouter(<MLQuestions />);
+    const tabButton = await screen.findByRole('button', { name: /Pendientes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('20147683511').length).toBe(2);
+    });
+
+    const [nuevoRow, enProgresoRow] = screen.getAllByText('20147683511').map((el) => el.closest('tr'));
+
+    const nuevo = within(nuevoRow);
+    expect(nuevo.getByRole('button', { name: 'Tomar pendiente' })).toHaveTextContent('Tomar');
+    expect(nuevo.getByRole('button', { name: /Resolver/ })).toHaveTextContent('Resolver');
+    expect(nuevo.getByRole('button', { name: 'Cancelar pendiente' })).toHaveTextContent('Cancelar');
+    expect(nuevo.queryByRole('button', { name: 'Liberar pendiente' })).not.toBeInTheDocument();
+
+    const enProgreso = within(enProgresoRow);
+    expect(enProgreso.getByRole('button', { name: 'Liberar pendiente' })).toHaveTextContent('Liberar');
+    expect(enProgreso.queryByRole('button', { name: 'Tomar pendiente' })).not.toBeInTheDocument();
+    expect(enProgreso.getByRole('button', { name: /Resolver/ })).toHaveTextContent('Resolver');
+    expect(enProgreso.getByRole('button', { name: 'Cancelar pendiente' })).toHaveTextContent('Cancelar');
+  });
+});
+
 describe('Pendientes table — column-sizing persistence (loadColumnSizing/saveColumnSizing)', () => {
   beforeEach(() => {
     localStorage.clear();

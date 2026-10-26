@@ -63,6 +63,7 @@ import {
   Package,
   CheckCheck,
   Sparkles,
+  Undo2,
 } from 'lucide-react';
 import styles from './MLQuestions.module.css';
 
@@ -324,18 +325,18 @@ const HISTORIAL_COLUMNS = [
 // existing hand-rendered `.map()` + `Fragment` + detail row). Nine columns:
 // the three text columns (Pack/Comprador, CUIT extraído, Nombre extraído) are
 // resizable; the badge/status/date columns stay fixed. Acciones is a fixed
-// 200px floor sized for its worst-case row (chevron + Tomar/Liberar +
-// Resolver + Cancelar), mirroring the Preguntas Acciones fixed-floor pattern.
+// 340px floor sized for its worst-case row of labeled buttons (Tomar/Liberar
+// + Resolver + Cancelar + chevron).
 const PENDIENTES_COLUMNS = [
-  { id: 'packComprador', header: 'Pack / Comprador', size: 160, minSize: 120, maxSize: 400, enableResizing: true },
-  { id: 'origen', header: 'Origen', size: 110, enableResizing: false },
-  { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
-  { id: 'cuit', header: 'CUIT extraído', size: 130, minSize: 100, maxSize: 300, enableResizing: true },
-  { id: 'nombre', header: 'Nombre extraído', size: 140, minSize: 100, maxSize: 400, enableResizing: true },
+  { id: 'packComprador', header: 'Pack / Comprador', size: 150, minSize: 120, maxSize: 400, enableResizing: true },
+  { id: 'origen', header: 'Origen', size: 90, enableResizing: false },
+  { id: 'estado', header: 'Estado', size: 100, enableResizing: false },
+  { id: 'cuit', header: 'CUIT extraído', size: 150, minSize: 100, maxSize: 300, enableResizing: true },
+  { id: 'nombre', header: 'Nombre extraído', size: 130, minSize: 100, maxSize: 400, enableResizing: true },
   { id: 'alertas', header: 'Alertas', size: 120, enableResizing: false },
-  { id: 'afip', header: 'AFIP', size: 80, enableResizing: false },
+  { id: 'afip', header: 'AFIP', size: 70, enableResizing: false },
   { id: 'creado', header: 'Creado', size: 150, enableResizing: false },
-  { id: 'acciones', header: 'Acciones', size: 200, minSize: 200, maxSize: 200, enableResizing: false },
+  { id: 'acciones', header: 'Acciones', size: 340, minSize: 340, maxSize: 340, enableResizing: false },
 ];
 
 // Stable empty array reference — we never call `getRowModel()`, TanStack
@@ -2168,46 +2169,57 @@ export default function MLQuestions() {
       {/* ====== TAB: Pendientes (Phase 6, PR3 — derive-to-admin lane) ====== */}
       {activeTab === 'pendientes' && puedeVerPendientes && (
         <>
-          <div className={styles.filtersBar}>
-            <select
-              value={pendingStatusFilter}
-              onChange={(e) => setPendingStatusFilter(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todos los estados</option>
-              {Object.entries(PENDING_STATUS_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={pendingSourceFilter}
-              onChange={(e) => setPendingSourceFilter(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">Todos los orígenes</option>
-              {Object.entries(PENDING_SOURCE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <select
-              value={pendingCuitValidFilter}
-              onChange={(e) => setPendingCuitValidFilter(e.target.value)}
-              className={styles.select}
-            >
-              <option value="">CUIT: cualquiera</option>
-              <option value="true">CUIT válido</option>
-              <option value="false">CUIT inválido</option>
-            </select>
-            {puedeGestionarPendientes && (
-              <button
-                type="button"
-                className="btn-tesla outline-subtle-primary sm"
-                onClick={() => openManualCreate()}
-              >
-                <Plus size={14} />
-                Crear pendiente
-              </button>
-            )}
+          <div className={styles.toolbarCard}>
+            <div className={styles.toolbarRow}>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Estado</span>
+                <select
+                  value={pendingStatusFilter}
+                  onChange={(e) => setPendingStatusFilter(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todos los estados</option>
+                  {Object.entries(PENDING_STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>Origen</span>
+                <select
+                  value={pendingSourceFilter}
+                  onChange={(e) => setPendingSourceFilter(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">Todos los orígenes</option>
+                  {Object.entries(PENDING_SOURCE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.toolbarField}>
+                <span className={styles.toolbarLabel}>CUIT</span>
+                <select
+                  value={pendingCuitValidFilter}
+                  onChange={(e) => setPendingCuitValidFilter(e.target.value)}
+                  className={styles.select}
+                >
+                  <option value="">CUIT: cualquiera</option>
+                  <option value="true">CUIT válido</option>
+                  <option value="false">CUIT inválido</option>
+                </select>
+              </label>
+              {puedeGestionarPendientes && (
+                <button
+                  type="button"
+                  className={`btn-tesla primary sm ${styles.toolbarEnd}`}
+                  onClick={() => openManualCreate()}
+                >
+                  <Plus size={14} />
+                  Crear pendiente
+                </button>
+              )}
+            </div>
           </div>
 
           {pendingError && (
@@ -2246,11 +2258,23 @@ export default function MLQuestions() {
                   pendingRequests.map((row) => (
                     <Fragment key={row.id}>
                       <tr>
-                        <td className={styles.cellItem}>
-                          {row.pack_id ? `pack ${row.pack_id}` : (row.buyer_id ?? '—')}
+                        <td>
+                          <div className={styles.pendingIdentity}>
+                            <span
+                              className={styles.pendingPack}
+                              title={row.pack_id ? `pack ${row.pack_id}` : String(row.buyer_id ?? '')}
+                            >
+                              {row.pack_id ? `pack ${row.pack_id}` : (row.buyer_id ?? '—')}
+                            </span>
+                            {row.prefill_nickname && (
+                              <span className={styles.pendingNickname} title={row.prefill_nickname}>
+                                {row.prefill_nickname}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td>
-                          <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                          <span className={styles.reasonChip}>
                             {PENDING_SOURCE_LABELS[row.source] || row.source}
                           </span>
                         </td>
@@ -2259,8 +2283,17 @@ export default function MLQuestions() {
                             {PENDING_STATUS_LABELS[row.status] || row.status}
                           </span>
                         </td>
-                        <td className={styles.cellItem}>{row.extracted_cuit || '—'}</td>
-                        <td className={styles.cellItem}>{row.extracted_name || '—'}</td>
+                        <td>
+                          <div className={styles.pendingCuit}>
+                            <span className={styles.pendingMono}>{row.extracted_cuit || '—'}</span>
+                            {row.cuit_valid === false && (
+                              <span className={`${styles.badge} ${styles.badgeDanger}`}>CUIT inválido</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className={styles.pendingText} title={row.extracted_name || undefined}>
+                          {row.extracted_name || '—'}
+                        </td>
                         <td>
                           {row.cuit_valid === false ? (
                             <span className={`${styles.badge} ${styles.badgeDanger}`}>CUIT inválido</span>
@@ -2268,13 +2301,70 @@ export default function MLQuestions() {
                         </td>
                         <td>
                           {row.afip_status ? (
-                            <span className={`${styles.badge} ${styles.badgeNeutral}`}>{row.afip_status}</span>
+                            <span className={styles.reasonChip}>{row.afip_status}</span>
                           ) : '—'}
                         </td>
-                        <td>{row.created_at ? new Date(row.created_at).toLocaleString() : '—'}</td>
+                        <td className={styles.pendingDate}>
+                          {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
+                        </td>
                         <td>
-                          <div className={styles.actionsCell}>
+                          <div className={styles.pendingActions}>
+                            {puedeGestionarPendientes && (
+                              <>
+                                {row.status === 'new' && (
+                                  <button
+                                    type="button"
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => handleClaimPending(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Tomar"
+                                    aria-label="Tomar pendiente"
+                                  >
+                                    <UserCheck size={14} />
+                                    Tomar
+                                  </button>
+                                )}
+                                {row.status === 'in_progress' && (
+                                  <button
+                                    type="button"
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => handleReleasePending(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Liberar"
+                                    aria-label="Liberar pendiente"
+                                  >
+                                    <Undo2 size={14} />
+                                    Liberar
+                                  </button>
+                                )}
+                                {['new', 'in_progress'].includes(row.status) && (
+                                  <button
+                                    type="button"
+                                    className="btn-tesla primary sm"
+                                    onClick={() => openDoneModal(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                  >
+                                    <CheckCheck size={14} />
+                                    Resolver
+                                  </button>
+                                )}
+                                {['new', 'in_progress'].includes(row.status) && (
+                                  <button
+                                    type="button"
+                                    className={`btn-tesla ghost sm ${styles.ghostDanger}`}
+                                    onClick={() => openCancelModal(row)}
+                                    disabled={pendingActionLoadingId === row.id}
+                                    title="Cancelar"
+                                    aria-label="Cancelar pendiente"
+                                  >
+                                    <Trash2 size={14} />
+                                    Cancelar
+                                  </button>
+                                )}
+                              </>
+                            )}
                             <button
+                              type="button"
                               className="btn-tesla ghost sm"
                               onClick={() => abrirDetallePendiente(row)}
                               title={expandedPendingId === row.id ? 'Ocultar detalle' : 'Ver detalle'}
@@ -2283,59 +2373,13 @@ export default function MLQuestions() {
                             >
                               {expandedPendingId === row.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                             </button>
-                            {puedeGestionarPendientes && (
-                              <>
-                                {row.status === 'new' && (
-                                  <button
-                                    className="btn-tesla ghost sm"
-                                    onClick={() => handleClaimPending(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                    title="Tomar"
-                                    aria-label="Tomar pendiente"
-                                  >
-                                    <UserCheck size={14} />
-                                  </button>
-                                )}
-                                {row.status === 'in_progress' && (
-                                  <button
-                                    className="btn-tesla ghost sm"
-                                    onClick={() => handleReleasePending(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                    title="Liberar"
-                                    aria-label="Liberar pendiente"
-                                  >
-                                    <RotateCcw size={14} />
-                                  </button>
-                                )}
-                                {['new', 'in_progress'].includes(row.status) && (
-                                  <button
-                                    className="btn-tesla outline-subtle-primary sm"
-                                    onClick={() => openDoneModal(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                  >
-                                    Resolver
-                                  </button>
-                                )}
-                                {['new', 'in_progress'].includes(row.status) && (
-                                  <button
-                                    className="btn-tesla ghost sm"
-                                    onClick={() => openCancelModal(row)}
-                                    disabled={pendingActionLoadingId === row.id}
-                                    title="Cancelar"
-                                    aria-label="Cancelar pendiente"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
-                              </>
-                            )}
                           </div>
                         </td>
                       </tr>
                       {expandedPendingId === row.id && (
                         <tr className={styles.detailRow}>
                           <td colSpan={pendientesTable.getVisibleLeafColumns().length}>
-                            <div className={styles.detailPanel}>
+                            <div className={styles.questionDrawer}>
                               {pendingDetailLoading ? (
                                 <div className={styles.loadingCell}>Cargando...</div>
                               ) : pendingDetailError ? (
@@ -2344,48 +2388,66 @@ export default function MLQuestions() {
                                   {pendingDetailError}
                                 </div>
                               ) : pendingDetail ? (
-                                <div className={styles.detailContent}>
-                                  <div className={styles.prefillCompare}>
-                                    <div>
-                                      <strong>Extraído (mensaje del comprador)</strong>
-                                      <p className={styles.detailText}>CUIT: {pendingDetail.extracted_cuit || '—'}</p>
-                                      <p className={styles.detailText}>Nombre: {pendingDetail.extracted_name || '—'}</p>
-                                      <p className={styles.detailText}>Texto: {pendingDetail.raw_text || '—'}</p>
-                                    </div>
-                                    <div>
-                                      <strong>AFIP / almacenado</strong>
-                                      <p className={styles.detailText}>Razón social: {pendingDetail.afip_razon_social || '—'}</p>
-                                      <p className={styles.detailText}>Condición IVA: {pendingDetail.afip_condicion_iva || '—'}</p>
-                                      <p className={styles.detailText}>Domicilio: {pendingDetail.afip_domicilio || '—'}</p>
-                                      <p className={styles.detailText}>Doc. facturación: {pendingDetail.prefill_billing_doc_number || '—'}</p>
-                                    </div>
+                                <div className={styles.inspectorColumn}>
+                                  <div className={styles.inspectorGrid}>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>Extraído (mensaje del comprador)</h3>
+                                      <dl className={styles.fieldList}>
+                                        <dt className={styles.fieldLabel}>CUIT</dt>
+                                        <dd className={styles.fieldValueMono}>{pendingDetail.extracted_cuit || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Nombre</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.extracted_name || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Texto</dt>
+                                        <dd className={styles.fieldValue}>
+                                          {pendingDetail.raw_text ? (
+                                            <blockquote className={styles.quoteBlock}>{pendingDetail.raw_text}</blockquote>
+                                          ) : '—'}
+                                        </dd>
+                                      </dl>
+                                    </section>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>AFIP / almacenado</h3>
+                                      <dl className={styles.fieldList}>
+                                        <dt className={styles.fieldLabel}>Razón social</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.afip_razon_social || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Condición IVA</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.afip_condicion_iva || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Domicilio</dt>
+                                        <dd className={styles.fieldValue}>{pendingDetail.afip_domicilio || '—'}</dd>
+                                        <dt className={styles.fieldLabel}>Doc. facturación</dt>
+                                        <dd className={styles.fieldValueMono}>{pendingDetail.prefill_billing_doc_number || '—'}</dd>
+                                      </dl>
+                                    </section>
                                   </div>
                                   {Array.isArray(pendingDetail.superseded_values) && pendingDetail.superseded_values.length > 0 && (
-                                    <div>
-                                      <strong>Historial de valores reemplazados</strong>
-                                      <ul>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>Historial de valores reemplazados</h3>
+                                      <ul className={styles.supersededList}>
                                         {pendingDetail.superseded_values.map((sv, i) => (
                                           <li key={i} className={styles.detailText}>
                                             {sv.cuit || '—'} · {sv.name || '—'} · {sv.at ? new Date(sv.at).toLocaleString() : '—'}
                                           </li>
                                         ))}
                                       </ul>
-                                    </div>
+                                    </section>
                                   )}
                                   {pendingDetail.suggested_ack_template && (
-                                    <div>
-                                      <strong>Plantilla de acuse sugerida</strong>
+                                    <section className={styles.inspectorPanel}>
+                                      <h3 className={styles.inspectorLabel}>Plantilla de acuse sugerida</h3>
                                       <p className={styles.detailText}>{pendingDetail.suggested_ack_template}</p>
                                       {row.message_id && (
-                                        <button
-                                          type="button"
-                                          className="btn-tesla outline-subtle-primary sm"
-                                          onClick={() => handlePrepararAcuse(row, pendingDetail.suggested_ack_template)}
-                                        >
-                                          Preparar acuse
-                                        </button>
+                                        <div className={styles.inspectorFooter}>
+                                          <button
+                                            type="button"
+                                            className="btn-tesla outline-subtle-primary sm"
+                                            onClick={() => handlePrepararAcuse(row, pendingDetail.suggested_ack_template)}
+                                          >
+                                            <Send size={14} />
+                                            Preparar acuse
+                                          </button>
+                                        </div>
                                       )}
-                                    </div>
+                                    </section>
                                   )}
                                 </div>
                               ) : null}
