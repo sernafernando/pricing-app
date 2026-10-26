@@ -65,7 +65,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
@@ -946,7 +946,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     for (const theme of THEMES) {
       it(`${width}x${height} ${theme}: Pausar and its confirmation sit in the footer, inside the panel`, async () => {
         const screen = await renderWithPanel({ width, height, theme, detailExtra: { can_resync: true, can_change_status: true } });
-        await screen.getByRole('button', { name: 'Pausar' }).click();
+        await screen.getByRole('button', { name: 'Pausar', exact: true }).click();
         await expect.element(screen.getByText('¿Pausar la publicación en Mercado Libre?')).toBeVisible();
         const panel = panelOf();
         const footer = panel.querySelector('footer');
@@ -1232,4 +1232,38 @@ describe('Publicaciones ML KPI strip (visual, P12b)', () => {
     expect(scrollerOf()).not.toBeNull();
     screen.unmount();
   });
+});
+
+describe('Publicaciones ML bulk pause / activate (visual)', () => {
+  beforeEach(() => {
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+    publicacionesMlAPI.statusItemIds.mockReset();
+    publicacionesMlAPI.statusItemIds.mockResolvedValue({
+      data: { item_ids: ['MLA1100000100', 'MLA1100000104'], count: 2, no_aplican: 3 },
+    });
+  });
+
+  for (const { width, height } of VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the toolbar keeps its buttons inside the page and the confirmation fits the screen`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        const button = screen.getByRole('button', { name: 'Pausar / activar' });
+        await expect.element(button).toBeVisible();
+        expect(rect(button.element()).right).toBeLessThanOrEqual(width + 0.5);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        await button.click();
+        await screen.getByRole('menuitem', { name: 'Pausar las del filtro' }).click();
+        const region = screen.getByRole('region', { name: 'Pausar o activar publicaciones' });
+        await expect.element(region).toHaveTextContent('Se van a pausar 2 publicaciones en Mercado Libre.');
+        const box = rect(region.element());
+        expect(box.right).toBeLessThanOrEqual(width + 0.5);
+        expect(box.bottom).toBeLessThanOrEqual(height + 0.5);
+        await expect.element(screen.getByRole('button', { name: 'Confirmar' })).toBeVisible();
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/bulk-status-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+  }
 });

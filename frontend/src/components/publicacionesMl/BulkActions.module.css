@@ -66,3 +66,39 @@
 .item:focus-visible {
   background: var(--cf-bg-hover);
 }
+
+.statusBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-primary);
+}
+
+.statusBody p {
+  margin: 0;
+}
+
+.statusBody [role='alert'] {
+  color: var(--tone-danger-fg);
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.failures {
+  max-height: 200px;
+  margin: 0;
+  padding-left: var(--spacing-md);
+  overflow-y: auto;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.statusButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}

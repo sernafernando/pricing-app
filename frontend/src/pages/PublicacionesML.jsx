@@ -16,6 +16,7 @@ import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
+import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
@@ -449,6 +450,7 @@ export default function PublicacionesML() {
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
           />
+          <BulkStatusActions filters={filters} canSeeMargin={canSeeMargin} onDone={reloadList} />
           <ColumnPicker table={pickerTable} />
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
