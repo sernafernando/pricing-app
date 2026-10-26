@@ -1,6 +1,8 @@
 """Brand contributions to Product Ads campaigns: reads and writes (ml-ads-brand-contribution S4, S7, S8).
 
-Only stores what the team loads (S2). How a contribution lowers the subtracted cost (S5, S6) is the Board's job.
+Only stores what the team loads (S2). How a contribution lowers the subtracted cost (S5, S6) is the Board's job; the
+loading page's figures (`contribution_in`, `preview`, ml-ads-contribution-redesign S6) repeat the Board's rule over the
+same item rows so both show the same amount.
 """
 
 from __future__ import annotations
@@ -14,9 +16,12 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay
+from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay, MlAdsItemDay
 
 logger = logging.getLogger(__name__)
+
+# No advertiser name is stored; these are the two the Ads API lists for the account. Any other shows its id.
+ADVERTISER_NAMES = {25713: "GAUSS", 714700: "TPLINK"}
 
 
 class ContributionError(Exception):
@@ -45,6 +50,13 @@ class CampaignRow:
     campaign: MlAdsCampaign
     cost: Decimal
     contributions: list[MlAdsCampaignContribution] = field(default_factory=list)
+    contribution: Decimal = Decimal(0)  # what the contributions cover of the range's cost
+
+
+@dataclass(frozen=True)
+class Preview:
+    spend: Decimal  # the campaign's item-row cost over the contribution's range
+    counted: Decimal  # what the Board subtracts of it
 
 
 def list_campaigns(db: Session, date_from: date, date_to: date) -> list[CampaignRow]:
@@ -71,7 +83,50 @@ def list_campaigns(db: Session, date_from: date, date_to: date) -> list[Campaign
         row = rows.get((contribution.advertiser_id, contribution.campaign_id))
         if row is not None:
             row.contributions.append(contribution)
+            row.contribution += contribution_in(db, contribution, date_from, date_to)
     return list(rows.values())
+
+
+def _spend(db: Session, advertiser_id: int, campaign_id: int, start: date, end: date) -> Decimal:
+    """The campaign's Product Ads cost over `[start, end]` on the Board's basis: its item rows."""
+    item = MlAdsItemDay
+    total = (
+        db.query(func.sum(item.cost))
+        .filter(item.advertiser_id == advertiser_id, item.campaign_id == campaign_id, item.day.between(start, end))
+        .scalar()
+    )
+    return Decimal(total or 0)
+
+
+def _counted(kind: str, value: Decimal, settlement: Optional[str], spend: Decimal) -> Decimal:
+    """What a contribution covers of a range that spent `spend` (S5, S6): p% of it, or the fixed amount (`full`: all of
+    it; `refund_difference`: at most `spend`). A fixed amount needs spend to spread over, as on the Board."""
+    if kind == "percentage":
+        return spend * value / 100
+    if spend <= 0:
+        return Decimal(0)
+    return value if settlement == "full" else min(value, spend)
+
+
+def contribution_in(db: Session, row: MlAdsCampaignContribution, date_from: date, date_to: date) -> Decimal:
+    """The part of `row` that falls on `[date_from, date_to]`: a fixed amount reaches the window by the window's share
+    of the WHOLE range's spend, like the Board's per-row spread."""
+    start, end = max(row.date_from, date_from), min(row.date_to, date_to)
+    if start > end:
+        return Decimal(0)
+    window = _spend(db, row.advertiser_id, row.campaign_id, start, end)
+    if row.kind == "percentage":
+        return _counted(row.kind, Decimal(row.value), None, window)
+    spend = _spend(db, row.advertiser_id, row.campaign_id, row.date_from, row.date_to)
+    if spend <= 0:
+        return Decimal(0)
+    return _counted(row.kind, Decimal(row.value), row.settlement, spend) * window / spend
+
+
+def preview(db: Session, data: ContributionData) -> Preview:
+    """What `data` would cover if saved, over its whole range. Writes nothing."""
+    spend = _spend(db, data.advertiser_id, data.campaign_id, data.date_from, data.date_to)
+    return Preview(spend, _counted(data.kind, data.value, data.settlement, spend))
 
 
 def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None) -> None:

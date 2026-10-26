@@ -37,7 +37,7 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 | T2 | S5, S6, S9 | delegated writer (context backstop) | merged (#1716) | verifier B1 fixed in the PR |
 | T3a | S10 read (exposes S3, S4, S6, S9) | delegated writer (context backstop) | merged (#1718) | branch `feat/ml-ads-contribution-ui`: `70f66a1c1` KPI "Aporte de marcas", `b62d83c40` read-only page + route + sidebar + novedades; GREEN 26 unit + 8 visual |
 | T3b-i | S10 create (exposes S3, S4, S6, S7) | delegated writer (context backstop) | merged (#1719) | branch `feat/ml-ads-contribution-ui-manage`, stacked on T3a: `16487f951`; RED 3 failed, GREEN 7 page + 13 novedades |
-| T3b-ii | S10 edit + delete (exposes S6, S7) | delegated writer (context backstop) | PR open | branch `feat/ml-ads-contribution-ui-delete`, stacked on T3b-i |
+| T3b-ii | S10 edit + delete (exposes S6, S7) | delegated writer (context backstop) | merged | #1720, head `8b8c5e136` (ancestor of origin/main verified) |
 
 ## Log
 
@@ -69,3 +69,4 @@ Branches: `feat/ml-ads-brand-contribution-api` (T1a, merged #1704), `feat/ml-ads
 - 2026-10-23 (T3b-ii): pencil and trash per contribution (gated like "Agregar aporte"); edit reuses `AportesAdsMLForm` with the contribution as `initial` and a PUT `submit`; delete behind a confirmation modal (error shown in the modal); novedades `aportes-marcas-ads-ml-editar-borrar`. RED 2 failed (edit with PUT, delete after confirming); GREEN page 9 passed, novedades 13 passed, eslint clean.
 - 2026-10-23: #1719 merged (ancestor verified). T3b-ii rebased on main.
 - 2026-10-23: after rebasing T3b-ii on #1719, the delete path still called the removed page helper (eslint no-undef; no test covered a failed delete). New test: a failed delete keeps the confirmation open with the backend message (RED, GREEN); it uses `apiErrorMessage` and its error has role=alert. Page+registry+novedades 85 passed, eslint clean.
+- 2026-10-23: #1720 merged (head 8b8c5e136 verified ancestor of origin/main). All tasks T1a-T3b-ii merged: feature closed. Advisories kept: Publicaciones view and /ml-ads/by-mla|by-product do not reflect contributions (outside S9); overlapping ranges inserted directly in the DB would double-count (only the API rejects them).
