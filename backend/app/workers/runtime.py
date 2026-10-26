@@ -17,6 +17,12 @@ Loop (design D4 steps 1-5):
 5. A supervised `HeartbeatThread` runs the whole time; if it dies or stalls
    the main loop logs CRITICAL, stops starting new work, and exits(70) so
    systemd (`Restart=always`) restarts the process.
+
+A handler marked `own_thread` (ml-sync-pipeline T4: `ml_publications.refresh`)
+never takes a turn in the drain pass: it runs in a thread of its own, every
+`interval`, so its long runs never delay the other handlers and they never delay
+it. Its thread is supervised like the heartbeat. Any handler may declare its own
+`deadline_seconds` (default `DEFAULT_HANDLER_DEADLINE_SECONDS`).
 """
 
 from __future__ import annotations
@@ -55,6 +61,8 @@ MAX_LAST_RESULT_KEY_CHARS = 30
 # systemd `Restart=always` treats this as a normal supervised restart, not a
 # crash loop (design D4 step 5 "Thread death detection").
 HEARTBEAT_DEATH_EXIT_CODE = 70
+# On stop, how long the loop waits for the own threads to finish their run (below systemd's 90 s stop timeout).
+OWN_THREAD_JOIN_SECONDS = 60.0
 
 
 class WorkerRuntime:
@@ -77,9 +85,16 @@ class WorkerRuntime:
         self._stop_event = threading.Event()
         self.heartbeat: Optional[HeartbeatThread] = None
         self._held_tokens: set = set()
-        self._draining = False
+        # Handlers running right now, across the main loop and the own threads (`detail.draining`).
+        self._running = 0
+        self._running_lock = threading.Lock()
+        self._own_threads: List[threading.Thread] = []
         # Injectable for tests; every handler's deadline is read from it when that handler STARTS.
         self._clock: Callable[[], datetime] = clock or (lambda: datetime.now(timezone.utc))
+
+    @property
+    def _draining(self) -> bool:
+        return self._running > 0
 
     @property
     def listener_mode(self) -> str:
@@ -187,12 +202,20 @@ class WorkerRuntime:
         the moment it starts -- never from the drain pass's scheduling
         instant: a pass used to share one deadline, so after a handler that
         spent its whole budget every later handler started already expired
-        and "succeeded" with zero work (prod, 2026-10-19)."""
-        deadline = self._clock() + timedelta(seconds=DEFAULT_HANDLER_DEADLINE_SECONDS)
-        ctx = WorkerContext(deadline=deadline, worker_name=self.worker_name, held_tokens=self._held_tokens)
+        and "succeeded" with zero work (prod, 2026-10-19). The budget is the
+        handler's `deadline_seconds` when it declares one."""
+        budget = getattr(handler, "deadline_seconds", DEFAULT_HANDLER_DEADLINE_SECONDS)
+        deadline = self._clock() + timedelta(seconds=budget)
+        ctx = WorkerContext(
+            deadline=deadline,
+            worker_name=self.worker_name,
+            held_tokens=self._held_tokens,
+            stop_requested=self._stop_event.is_set,
+        )
         # PR3.T6a: `worker_job_state.detail.draining` and the heartbeat's
         # lease renewal both key off this flag while a claiming handler runs.
-        self._draining = True
+        with self._running_lock:
+            self._running += 1
         try:
             result = handler.run(ctx)
             success = result.success
@@ -201,7 +224,8 @@ class WorkerRuntime:
             result = JobResult(success=False, error=f"{type(exc).__name__}: {exc}")
             success = False
         finally:
-            self._draining = False
+            with self._running_lock:
+                self._running -= 1
         self._record_job_run(handler.name, success, result)
         return success
 
@@ -285,6 +309,8 @@ class WorkerRuntime:
         to_run: List[JobHandler] = []
         seen = set()
         for handler in due + channel_driven + requested:
+            if getattr(handler, "own_thread", False):
+                continue  # runs in its own thread (`start_own_threads`), never in the pass
             if handler.name not in seen:
                 seen.add(handler.name)
                 to_run.append(handler)
@@ -296,8 +322,49 @@ class WorkerRuntime:
             if success and handler.name in requested_names:
                 self._clear_requested(handler.name)
 
+    # -- own threads ---------------------------------------------------------
+    def start_own_threads(self) -> None:
+        """Start one thread per `own_thread` handler; each runs its handler, then waits its `interval`."""
+        for handler in self.registry:
+            if getattr(handler, "own_thread", False):
+                # Daemon: once the stop join (`OWN_THREAD_JOIN_SECONDS`) is over, a run that did not notice the stop
+                # must not keep the process alive into systemd's SIGKILL.
+                thread = threading.Thread(
+                    target=self._own_thread_loop,
+                    args=(handler,),
+                    name=f"{self.worker_name}:{handler.name}",
+                    daemon=True,
+                )
+                thread.start()
+                self._own_threads.append(thread)
+
+    def _own_thread_loop(self, handler: JobHandler) -> None:
+        pause = handler.interval.total_seconds() if handler.interval is not None else self.safety_poll_interval
+        while not self._stop_event.is_set():
+            try:
+                # The drain pass never runs this handler, so its on-demand flag is cleared here (same rule: success only).
+                requested = handler in self._requested_handlers()
+                if self._run_handler(handler) and requested:
+                    self._clear_requested(handler.name)
+            except Exception:  # noqa: BLE001 -- the bookkeeping write failed (DB down): keep the thread alive
+                logger.exception("own thread of %s: run bookkeeping failed", handler.name)
+            self._stop_event.wait(pause)
+
+    def join_own_threads(self, timeout: Optional[float] = None) -> None:
+        for thread in self._own_threads:
+            thread.join(timeout)
+
     # -- heartbeat health check ---------------------------------------------
     def _check_heartbeat_or_die(self) -> None:
+        dead = [t.name for t in self._own_threads if not t.is_alive()]
+        if dead and not self._stop_event.is_set():
+            logger.critical(
+                "own thread(s) %s of worker=%s died -- exiting(%d) for systemd to restart",
+                dead,
+                self.worker_name,
+                HEARTBEAT_DEATH_EXIT_CODE,
+            )
+            sys.exit(HEARTBEAT_DEATH_EXIT_CODE)
         if self.heartbeat is not None and not self.heartbeat.is_healthy():
             logger.critical(
                 "heartbeat thread for worker=%s died or stalled -- stopping work and exiting(%d) for systemd to restart",
@@ -328,6 +395,7 @@ class WorkerRuntime:
             detail_provider=lambda: {"draining": self._draining, "listener_mode": self.listener_mode},
         )
         self.heartbeat.start()
+        self.start_own_threads()
 
         # Startup: full drain before the first LISTEN wait (design D4 step 3).
         self.drain_once()
@@ -378,6 +446,9 @@ class WorkerRuntime:
                     conn.close()
                 except Exception:  # noqa: BLE001
                     pass
+            # A stopping handler sees `ctx.stop_requested()` and ends its run between units of work.
+            self._stop_event.set()
+            self.join_own_threads(timeout=OWN_THREAD_JOIN_SECONDS)
             if self.heartbeat is not None:
                 self.heartbeat.stop()
                 self.heartbeat.join(timeout=5)
