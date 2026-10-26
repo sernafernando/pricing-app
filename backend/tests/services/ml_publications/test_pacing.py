@@ -6,6 +6,7 @@ All timing runs on an injected fake clock: no test sleeps for real.
 from __future__ import annotations
 
 import random
+import threading
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 
@@ -109,14 +110,14 @@ class TestRateLimited:
         pacer = make(clock)
         assert pacer.acquire("items_bulk") == GRANTED
         start = clock.monotonic()
-        assert pacer.on_rate_limited("30") == 30.0
+        assert pacer.on_rate_limited("items_bulk", "30") == 30.0
         assert pacer.acquire("items_bulk") == GRANTED
         assert clock.monotonic() - start >= 30.0
 
     def test_retry_after_http_date_is_parsed(self, clock) -> None:
         pacer = make(clock)
         header = format_datetime(clock.now() + timedelta(seconds=45), usegmt=True)
-        assert pacer.on_rate_limited(header) == pytest.approx(45.0)
+        assert pacer.on_rate_limited("items_bulk", header) == pytest.approx(45.0)
         start = clock.monotonic()
         assert pacer.acquire("items_bulk") == GRANTED
         assert clock.monotonic() - start >= 45.0
@@ -124,12 +125,12 @@ class TestRateLimited:
     def test_http_date_in_the_past_means_no_extra_wait(self, clock) -> None:
         pacer = make(clock)
         header = format_datetime(clock.now() - timedelta(seconds=10), usegmt=True)
-        assert pacer.on_rate_limited(header) == 0.0
+        assert pacer.on_rate_limited("items_bulk", header) == 0.0
 
     @pytest.mark.parametrize("header", [None, "", "soon", "-5"])
     def test_missing_or_unusable_header_uses_exponential_backoff_with_jitter(self, clock, header) -> None:
         pacer = make(clock)
-        delays = [pacer.on_rate_limited(header) for _ in range(10)]
+        delays = [pacer.on_rate_limited("items_bulk", header) for _ in range(10)]
         for n, delay in enumerate(delays, start=1):
             cap = min(2.0**n, 60.0)
             assert 0.5 * cap - 1e-9 <= delay <= cap + 1e-9
@@ -139,15 +140,15 @@ class TestRateLimited:
     def test_success_resets_the_backoff_exponent(self, clock) -> None:
         pacer = make(clock)
         for _ in range(5):
-            pacer.on_rate_limited(None)
-        pacer.on_success()
-        assert pacer.on_rate_limited(None) <= 2.0
+            pacer.on_rate_limited("items_bulk", None)
+        pacer.on_success("items_bulk")
+        assert pacer.on_rate_limited("items_bulk", None) <= 2.0
 
     @pytest.mark.parametrize("header", ["999999", "86400"])
     def test_an_absurd_retry_after_is_capped_so_the_job_is_never_parked_for_days(self, clock, header) -> None:
         pacer = make(clock)
-        assert pacer.on_rate_limited(header) == MAX_COOLDOWN_SECONDS == 3600.0
-        assert pacer.cooldown_remaining() == pytest.approx(3600.0)
+        assert pacer.on_rate_limited("items_bulk", header) == MAX_COOLDOWN_SECONDS == 3600.0
+        assert pacer.cooldown_remaining("items_bulk") == pytest.approx(3600.0)
         before = clock.monotonic()
         assert pacer.acquire("items_bulk") == GRANTED
         assert clock.monotonic() - before == pytest.approx(3600.0)
@@ -155,45 +156,45 @@ class TestRateLimited:
     def test_an_http_date_far_in_the_future_is_capped_too(self, clock) -> None:
         pacer = make(clock)
         header = format_datetime(clock.now() + timedelta(days=3), usegmt=True)
-        assert pacer.on_rate_limited(header) == MAX_COOLDOWN_SECONDS
+        assert pacer.on_rate_limited("items_bulk", header) == MAX_COOLDOWN_SECONDS
 
     def test_a_longer_existing_cooldown_is_never_shortened(self, clock) -> None:
         pacer = make(clock)
-        pacer.on_rate_limited("120")
-        pacer.on_rate_limited("5")
-        assert pacer.cooldown_remaining() == pytest.approx(120.0)
+        pacer.on_rate_limited("items_bulk", "120")
+        pacer.on_rate_limited("items_bulk", "5")
+        assert pacer.cooldown_remaining("items_bulk") == pytest.approx(120.0)
 
 
 class TestAimd:
     def test_429_halves_the_effective_rate_for_ten_minutes_then_restores_stepwise(self, clock) -> None:
         pacer = make(clock, rate_per_sec=2.0)
-        assert pacer.effective_rate() == 2.0
-        pacer.on_rate_limited("1")
-        assert pacer.effective_rate() == 1.0
+        assert pacer.effective_rate("items_bulk") == 2.0
+        pacer.on_rate_limited("items_bulk", "1")
+        assert pacer.effective_rate("items_bulk") == 1.0
         clock.advance(599)
-        assert pacer.effective_rate() == 1.0
+        assert pacer.effective_rate("items_bulk") == 1.0
         clock.advance(61)  # 660 s after the 429: first restore step
-        assert 1.0 < pacer.effective_rate() < 2.0
+        assert 1.0 < pacer.effective_rate("items_bulk") < 2.0
         clock.advance(600)
-        assert pacer.effective_rate() == 2.0
+        assert pacer.effective_rate("items_bulk") == 2.0
 
     def test_halved_rate_spaces_calls_twice_as_far_apart(self, clock) -> None:
         pacer = make(clock, rate_per_sec=2.0)
-        pacer.on_rate_limited("0")
+        pacer.on_rate_limited("items_bulk", "0")
         times = grant_times(pacer, clock, ["items_bulk"] * 3)
         assert times[2] - times[1] == pytest.approx(1.0)
 
     def test_repeated_429s_keep_halving_down_to_a_floor(self, clock) -> None:
         pacer = make(clock, rate_per_sec=2.0)
         for _ in range(10):
-            pacer.on_rate_limited("0")
-        assert pacer.effective_rate() == pytest.approx(2.0 / 16)
+            pacer.on_rate_limited("items_bulk", "0")
+        assert pacer.effective_rate("items_bulk") == pytest.approx(2.0 / 16)
 
 
 class TestDeadline:
     def test_never_sleeps_past_the_deadline(self, clock) -> None:
         pacer = make(clock)
-        pacer.on_rate_limited("30")
+        pacer.on_rate_limited("items_bulk", "30")
         before = clock.monotonic()
         assert pacer.acquire("items_bulk", deadline=clock.now() + timedelta(seconds=10)) == DEADLINE
         assert clock.monotonic() == before
@@ -206,7 +207,7 @@ class TestDeadline:
 
     def test_a_deadline_beyond_the_wait_is_granted_after_sleeping(self, clock) -> None:
         pacer = make(clock)
-        pacer.on_rate_limited("30")
+        pacer.on_rate_limited("items_bulk", "30")
         assert pacer.acquire("items_bulk", deadline=clock.now() + timedelta(seconds=60)) == GRANTED
         assert clock.sleeps and sum(clock.sleeps) >= 30.0
 
@@ -217,3 +218,145 @@ class TestDeadline:
         assert pacer.acquire("items_bulk", deadline=deadline) == DEADLINE
         assert pacer.acquire("items_bulk") == GRANTED  # the refused call did not eat the slot
         assert clock.monotonic() - 1000.0 == pytest.approx(0.5)
+
+
+class TestRateLimitedPerFamily:
+    """ML limits per Client ID and per endpoint: a 429 on one endpoint family cools down that family only; every
+    family keeps spending the one global budget (owner, 2026-10-26: "pero por qué hacemos las llamadas en serie?")."""
+
+    def test_a_429_cools_down_only_its_family(self, clock) -> None:
+        pacer = make(clock)
+        pacer.on_rate_limited("items_bulk", "30")
+        start = clock.monotonic()
+        assert pacer.acquire("description") == GRANTED
+        assert clock.monotonic() - start < 1.0  # description does not wait out items_bulk's cooldown
+        assert pacer.cooldown_remaining("description") == 0.0
+        assert pacer.acquire("items_bulk") == GRANTED
+        assert clock.monotonic() - start >= 30.0
+
+    def test_a_429_halves_only_its_familys_rate(self, clock) -> None:
+        pacer = make(clock, rate_per_sec=2.0)
+        pacer.on_rate_limited("items_bulk", "0")
+        assert pacer.effective_rate("items_bulk") == 1.0
+        assert pacer.effective_rate("description") == 2.0
+        times = grant_times(pacer, clock, ["description"] * 3)
+        assert times[2] - times[1] == pytest.approx(0.5)
+        times = grant_times(pacer, clock, ["items_bulk"] * 3)
+        assert times[2] - times[1] == pytest.approx(1.0)
+
+    def test_the_backoff_exponent_is_per_family(self, clock) -> None:
+        pacer = make(clock)
+        for _ in range(5):
+            pacer.on_rate_limited("items_bulk", None)
+        pacer.on_success("description")  # another family's success does not reset items_bulk's exponent
+        assert pacer.on_rate_limited("items_bulk", None) > 30.0
+        assert pacer.on_rate_limited("description", None) <= 2.0
+
+    def test_families_still_share_the_global_ceiling(self, clock) -> None:
+        pacer = make(clock, rate_per_sec=2.0)
+        pacer.on_rate_limited("items_bulk", "0")
+        times = grant_times(pacer, clock, ["description", "prices", "promotions", "stock"] * 10)
+        assert all(times[i + 2] - times[i] >= 1.0 - 1e-9 for i in range(len(times) - 2))
+
+
+class StillClock(FakeClock):
+    """Time never moves: `sleep` only records, so every caller's wait shows the slot it was given."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.lock = threading.Lock()
+
+    def sleep(self, seconds: float) -> None:
+        with self.lock:
+            self.sleeps.append(seconds)
+
+
+class TestConcurrentCallers:
+    """Calls run concurrently (ml-sync-pipeline S3): each caller is given its own slot before it sleeps, so callers
+    that ask at the same moment are spread over the budget instead of waking up together."""
+
+    def test_callers_asking_at_once_get_consecutive_slots(self) -> None:
+        clock = StillClock()
+        pacer = Pacer(clock=clock, rate_per_sec=2.0, rng=random.Random(7))
+        assert pacer.acquire("items_bulk") == GRANTED
+        assert pacer.acquire("items_bulk") == GRANTED
+        assert pacer.acquire("items_bulk") == GRANTED
+        assert clock.sleeps == [pytest.approx(0.5), pytest.approx(1.0)]
+
+    def test_threads_never_share_a_slot(self) -> None:
+        clock = StillClock()
+        pacer = Pacer(clock=clock, rate_per_sec=2.0, rng=random.Random(7))
+        start = threading.Barrier(16)
+
+        def call(family: str) -> None:
+            start.wait()
+            for _ in range(10):
+                assert pacer.acquire(family) == GRANTED
+
+        threads = [threading.Thread(target=call, args=(f,)) for f in ["items_bulk", "description"] * 8]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        # 160 calls at t=0: one is granted at once, the others wait 0.5, 1.0, ... 79.5 s, each slot once.
+        assert sorted(clock.sleeps) == pytest.approx([0.5 * k for k in range(1, 160)])
+
+    def test_a_slot_given_before_a_429_waits_out_its_familys_cooldown(self) -> None:
+        clock = FakeClock()
+        pacer = Pacer(clock=clock, rate_per_sec=2.0, rng=random.Random(7))
+        assert pacer.acquire("items_bulk") == GRANTED
+
+        def throttled_sleep(seconds: float, sleep=clock.sleep) -> None:
+            sleep(seconds)
+            if len(clock.sleeps) == 1:  # the 429 lands while this caller sleeps toward its slot
+                pacer.on_rate_limited("items_bulk", "30")
+
+        clock.sleep = throttled_sleep
+        start = clock.monotonic()
+        assert pacer.acquire("items_bulk", deadline=clock.now() + timedelta(seconds=60)) == GRANTED
+        assert clock.monotonic() - start >= 30.0
+
+
+class HeldClock(FakeClock):
+    """The thread named "held" blocks inside its sleep until released, so another caller acts while it waits."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiting = threading.Event()
+        self.release = threading.Event()
+
+    def sleep(self, seconds: float) -> None:
+        if threading.current_thread().name == "held":
+            self.waiting.set()
+            self.release.wait(5)
+        super().sleep(seconds)
+
+
+class TestAWaitingFamilyHoldsNoGlobalSlot:
+    """A caller waiting out its family's cooldown or penalty holds no global slot, so the other families keep
+    calling meanwhile (verifier B1: a queued caller of a throttled family made every family wait behind it)."""
+
+    def _other_family_waits_while_held(self, pacer: Pacer, clock: HeldClock) -> float:
+        held = threading.Thread(target=lambda: pacer.acquire("items_bulk"), name="held")
+        held.start()
+        assert clock.waiting.wait(5)
+        start = clock.monotonic()
+        assert pacer.acquire("description") == GRANTED
+        waited = clock.monotonic() - start
+        clock.release.set()
+        held.join(5)
+        return waited
+
+    def test_during_a_cooldown(self) -> None:
+        clock = HeldClock()
+        pacer = Pacer(clock=clock, rng=random.Random(7))
+        pacer.on_rate_limited("items_bulk", "30")
+        assert self._other_family_waits_while_held(pacer, clock) < 1.0
+
+    def test_during_a_penalty(self) -> None:
+        clock = HeldClock()
+        pacer = Pacer(clock=clock, rate_per_sec=2.0, rng=random.Random(7))
+        for _ in range(4):
+            pacer.on_rate_limited("items_bulk", "0")  # items_bulk now at 1/16 of the rate: one call every 8 s
+        assert pacer.acquire("items_bulk") == GRANTED
+        assert self._other_family_waits_while_held(pacer, clock) < 1.0

@@ -1,32 +1,40 @@
 """One in-process ML budget for every call the store makes (design D11).
 
-The worker runtime is single-threaded, so a per-process pacer is an exact
-budget. It combines:
+Callers may run concurrently (ml-sync-pipeline S3): the pacer is thread-safe and
+stays an exact budget for the process. It combines:
 
 - a global gate (`rate_per_sec`, default 2/s) spending one slot per call;
 - a stock sub-gate (`stock_rate_per_min`, at most the documented 100/min) that
   `stock` calls spend IN ADDITION to the global one;
 - a replenishment sub-gate (`replenishment_rate_per_min`, default 30, at most 100/min) that
   `replenishment` calls spend IN ADDITION to the global one;
-- a 429 cooldown honoring `Retry-After` (seconds or HTTP date) or, without a
-  usable header, exponential backoff with jitter capped at 60 s;
-- AIMD: each 429 halves the effective rate for ten minutes, then the rate is
-  restored in steps.
+- per endpoint family (ML limits per Client ID and per endpoint), a 429 cooldown
+  honoring `Retry-After` (seconds or HTTP date) or, without a usable header,
+  exponential backoff with jitter capped at 60 s; and AIMD: each 429 halves that
+  family's rate for ten minutes, then it is restored in steps. A 429 never slows
+  the other families; all of them keep sharing the global gate.
 
-Each gate admits one call per interval (a one-token bucket), so in any window
-of one interval there is at most one call: the observed rate never exceeds the
-budget, not even by a start-up burst.
+Each gate gives one slot per interval (a one-token bucket), so the budget is
+never exceeded, not even by a start-up burst; a call fires when its caller wakes
+up, so a late wake-up can only bring it closer to the next slot by that delay. A
+caller first waits out its family's own constraints holding nothing (so a
+throttled family never makes the others wait), then is given its global slot
+before it sleeps, so callers asking at once are spread over the budget instead
+of waking up together. A slot given before a 429 of its family is forfeited: the
+caller waits out the cooldown and takes a new one.
 
 `acquire` never sleeps past the caller's deadline: when the wait would cross it
-the call is refused (`DEADLINE`) and nothing is consumed. Time comes from an
-injectable clock so the budget is testable without sleeping.
+the call is refused (`DEADLINE`) and nothing is consumed (a forfeited slot
+aside). Time comes from an injectable clock so the budget is testable without
+sleeping.
 """
 
 from __future__ import annotations
 
 import random
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Optional, Protocol
@@ -76,6 +84,18 @@ class _Gate:
     next_at: float = float("-inf")
 
 
+@dataclass
+class _Family:
+    """One endpoint family's 429 state: its cooldown, backoff exponent and AIMD penalty, and the gate that applies
+    the penalty (only spent while the family is penalized)."""
+
+    gate: _Gate = field(default_factory=_Gate)
+    cooldown_until: float = float("-inf")
+    consecutive_429: int = 0
+    penalized: float = 1.0
+    penalty_until: float = float("-inf")
+
+
 def parse_retry_after(header: Optional[str], now: datetime) -> Optional[float]:
     """Seconds to wait from a `Retry-After` value (delta-seconds or HTTP date), or None if unusable."""
     if header is None:
@@ -106,13 +126,11 @@ class Pacer:
     ) -> None:
         self._clock: Clock = clock or SystemClock()
         self._rng = rng or random.Random()
+        self._lock = threading.Lock()
         self._global = _Gate()
         self._stock = _Gate()
         self._replenishment = _Gate()
-        self._cooldown_until = float("-inf")
-        self._consecutive_429 = 0
-        self._penalized = 1.0
-        self._penalty_until = float("-inf")
+        self._families: dict[str, _Family] = {}
         self._replenishment_rate_per_min = DEFAULT_REPLENISHMENT_PER_MIN
         self.configure(
             rate_per_sec=rate_per_sec,
@@ -131,69 +149,106 @@ class Pacer:
             raise ValueError(f"stock_rate_per_min must be between 1 and {MAX_STOCK_PER_MIN}")
         if replenishment_rate_per_min is not None and not 1 <= replenishment_rate_per_min <= MAX_REPLENISHMENT_PER_MIN:
             raise ValueError(f"replenishment_rate_per_min must be between 1 and {MAX_REPLENISHMENT_PER_MIN}")
-        self._rate_per_sec = float(rate_per_sec)
-        self._stock_rate_per_min = int(stock_rate_per_min)
-        if replenishment_rate_per_min is not None:
-            self._replenishment_rate_per_min = int(replenishment_rate_per_min)
+        with self._lock:
+            self._rate_per_sec = float(rate_per_sec)
+            self._stock_rate_per_min = int(stock_rate_per_min)
+            if replenishment_rate_per_min is not None:
+                self._replenishment_rate_per_min = int(replenishment_rate_per_min)
+
+    def _family(self, family: str) -> _Family:
+        return self._families.setdefault(family, _Family())
 
     # --- AIMD -------------------------------------------------------------------------
 
-    def _factor(self, now: float) -> float:
-        if now < self._penalty_until:
-            return self._penalized
-        steps = int((now - self._penalty_until) // AIMD_RECOVERY_STEP_SECONDS) if self._penalized < 1.0 else 0
-        return min(1.0, self._penalized + steps * AIMD_RECOVERY_STEP)
+    @staticmethod
+    def _factor(state: _Family, now: float) -> float:
+        if now < state.penalty_until:
+            return state.penalized
+        steps = int((now - state.penalty_until) // AIMD_RECOVERY_STEP_SECONDS) if state.penalized < 1.0 else 0
+        return min(1.0, state.penalized + steps * AIMD_RECOVERY_STEP)
 
-    def effective_rate(self) -> float:
-        return self._rate_per_sec * self._factor(self._clock.monotonic())
+    def effective_rate(self, family: str) -> float:
+        """The rate `family` may call at now: the global one, halved by each recent 429 of the family."""
+        with self._lock:
+            return self._rate_per_sec * self._factor(self._family(family), self._clock.monotonic())
 
     # --- 429 handling -----------------------------------------------------------------
 
-    def on_rate_limited(self, retry_after: Optional[str]) -> float:
-        """Register a 429: start a cooldown and halve the effective rate. Returns the cooldown in seconds."""
-        now = self._clock.monotonic()
-        self._consecutive_429 += 1
-        delay = parse_retry_after(retry_after, self._clock.now())
-        if delay is None:
-            cap = min(2.0**self._consecutive_429, BACKOFF_CAP_SECONDS)
-            delay = cap * self._rng.uniform(0.5, 1.0)
-        delay = min(delay, MAX_COOLDOWN_SECONDS)
-        self._cooldown_until = max(self._cooldown_until, now + delay)
-        self._penalized = max(self._factor(now) / 2, AIMD_FLOOR)
-        self._penalty_until = now + AIMD_PENALTY_SECONDS
-        return delay
+    def on_rate_limited(self, family: str, retry_after: Optional[str]) -> float:
+        """Register a 429 of `family`: start its cooldown and halve its rate. Returns the cooldown in seconds."""
+        with self._lock:
+            state = self._family(family)
+            now = self._clock.monotonic()
+            state.consecutive_429 += 1
+            delay = parse_retry_after(retry_after, self._clock.now())
+            if delay is None:
+                cap = min(2.0**state.consecutive_429, BACKOFF_CAP_SECONDS)
+                delay = cap * self._rng.uniform(0.5, 1.0)
+            delay = min(delay, MAX_COOLDOWN_SECONDS)
+            state.cooldown_until = max(state.cooldown_until, now + delay)
+            state.penalized = max(self._factor(state, now) / 2, AIMD_FLOOR)
+            state.penalty_until = now + AIMD_PENALTY_SECONDS
+            return delay
 
-    def on_success(self) -> None:
-        self._consecutive_429 = 0
+    def on_success(self, family: str) -> None:
+        with self._lock:
+            self._family(family).consecutive_429 = 0
 
-    def cooldown_remaining(self) -> float:
-        return max(0.0, self._cooldown_until - self._clock.monotonic())
+    def cooldown_remaining(self, family: str) -> float:
+        with self._lock:
+            return max(0.0, self._family(family).cooldown_until - self._clock.monotonic())
 
     # --- admission --------------------------------------------------------------------
 
     def acquire(self, family: str, deadline: Optional[datetime] = None) -> str:
-        """Wait for a slot and spend it. Returns `DEADLINE` (nothing spent, nothing slept) when
-        the wait would cross `deadline`."""
+        """Wait for a slot and spend it. Returns `DEADLINE` (nothing spent, never sleeping past `deadline`) when
+        the wait would cross `deadline`: before the family's own wait, or once it is over, before the global slot.
+
+        Two steps: first the family's own wait (its cooldown, its penalty, the stock or replenishment budget),
+        holding nothing, so a throttled family never makes the others wait; then, once the family may call, a
+        global slot, given under the lock before sleeping toward it."""
         if deadline is not None and deadline.tzinfo is None:
             raise ValueError("deadline must be timezone-aware")
-        now = self._clock.monotonic()
-        is_stock = family == STOCK_FAMILY
-        ready_at = max(self._cooldown_until, self._global.next_at)
-        if is_stock:
-            ready_at = max(ready_at, self._stock.next_at)
-        is_replenishment = family == REPLENISHMENT_FAMILY
-        if is_replenishment:
-            ready_at = max(ready_at, self._replenishment.next_at)
-        wait = max(0.0, ready_at - now)
-        if deadline is not None and wait > (deadline - self._clock.now()).total_seconds():
-            return DEADLINE
-        if wait > 0:
-            self._clock.sleep(wait)
-        granted_at = self._clock.monotonic()
-        factor = self._factor(granted_at)
-        self._global.next_at = granted_at + 1.0 / (self._rate_per_sec * factor)
-        if is_stock:
-            self._stock.next_at = granted_at + 60.0 / (self._stock_rate_per_min * factor)
-        if is_replenishment:
-            self._replenishment.next_at = granted_at + 60.0 / (self._replenishment_rate_per_min * factor)
-        return GRANTED
+        while True:
+            with self._lock:
+                now = self._clock.monotonic()
+                family_ready = self._family_ready(family)
+                reserved = family_ready <= now
+                wait = max(now, self._global.next_at) - now if reserved else family_ready - now
+                if deadline is not None and wait > (deadline - self._clock.now()).total_seconds():
+                    return DEADLINE
+                if reserved:
+                    self._spend(family, now + wait)
+            if wait > 0:
+                self._clock.sleep(wait)
+            if not reserved:
+                continue  # the family may call now: take a global slot
+            with self._lock:
+                # A 429 of the family may have landed while this caller slept toward its slot.
+                if self._family(family).cooldown_until <= self._clock.monotonic():
+                    return GRANTED
+
+    def _gates(self, family: str) -> list[_Gate]:
+        """The family's own gates: its penalty gate, and the stock or replenishment budget it also spends."""
+        gates = [self._family(family).gate]
+        if family == STOCK_FAMILY:
+            gates.append(self._stock)
+        if family == REPLENISHMENT_FAMILY:
+            gates.append(self._replenishment)
+        return gates
+
+    def _family_ready(self, family: str) -> float:
+        """Under the lock: when the family's own constraints let it call (its cooldown and its gates)."""
+        return max([self._family(family).cooldown_until, *(gate.next_at for gate in self._gates(family))])
+
+    def _spend(self, family: str, slot: float) -> None:
+        """Under the lock: give the caller the global slot `slot` and spend the family's gates from it."""
+        state = self._family(family)
+        factor = self._factor(state, slot)
+        self._global.next_at = slot + 1.0 / self._rate_per_sec
+        if factor < 1.0:  # at full rate the global gate already spaces the family's calls
+            state.gate.next_at = slot + 1.0 / (self._rate_per_sec * factor)
+        if family == STOCK_FAMILY:
+            self._stock.next_at = slot + 60.0 / (self._stock_rate_per_min * factor)
+        if family == REPLENISHMENT_FAMILY:
+            self._replenishment.next_at = slot + 60.0 / (self._replenishment_rate_per_min * factor)

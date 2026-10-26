@@ -296,7 +296,7 @@ class RefreshHandler:
             reason = "unauthorized" if response.status == 401 else str(response.error)
             return _Interruption("error", reason, _utcnow() + UNAUTHORIZED_DELAY)
         if response.status == 429:
-            wait = timedelta(seconds=max(1.0, self.pacer.cooldown_remaining()))
+            wait = timedelta(seconds=max(1.0, self.pacer.cooldown_remaining(response.endpoint)))
             return _Interruption("stopped", "rate_limited", _utcnow() + wait)
         return None
 

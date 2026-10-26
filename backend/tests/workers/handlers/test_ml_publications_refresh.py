@@ -487,7 +487,7 @@ class TestRefreshCorePath:
         enable_refresh()
         enqueue_items("MLA935110613", "MLA934406852")
         pacer = Pacer(clock=FakeClock())
-        pacer.on_rate_limited("120")  # a 120 s cooldown: the wait crosses the 30 s deadline
+        pacer.on_rate_limited("items_bulk", "120")  # a 120 s cooldown: the wait crosses the 30 s deadline
         transport = NoCallTransport()
 
         make_handler(transport, pacer=pacer).run(context())

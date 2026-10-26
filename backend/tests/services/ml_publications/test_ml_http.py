@@ -147,7 +147,7 @@ class TestTypedResponse:
             client.get("items_bulk", "/items/bulk")
         # The broken 200 kept the exponent: this is the 2nd consecutive 429, delay in [2, 4].
         # Had the 200 reset it, the delay would be at most 2.
-        assert 2.0 < client.pacer.cooldown_remaining() <= 4.0
+        assert 2.0 < client.pacer.cooldown_remaining("items_bulk") <= 4.0
 
 
 class TestTransportFaults:
@@ -173,14 +173,14 @@ class TestTransportFaults:
         response = client.get("items_bulk", "/items/bulk")
         assert response.outcome == "429"
         assert response.headers["retry-after"] == "30"
-        assert client.pacer.cooldown_remaining() == pytest.approx(30.0)
+        assert client.pacer.cooldown_remaining("items_bulk") == pytest.approx(30.0)
 
     def test_success_resets_the_pacer_backoff(self) -> None:
         statuses = iter([429, 429, 200, 429])
         client, _ = build(lambda r: httpx.Response(next(statuses), json={}))
         for _ in range(4):
             client.get("items_bulk", "/items/bulk")
-        assert client.pacer.cooldown_remaining() <= 2.0  # exponent restarted after the 200
+        assert client.pacer.cooldown_remaining("items_bulk") <= 2.0  # exponent restarted after the 200
 
 
 class TestTokenHandling:
@@ -265,7 +265,7 @@ class TestFailClosed:
     def test_pacer_deadline_refuses_the_call(self) -> None:
         clock = FakeClock()
         client, seen = build(ok_bulk, clock=clock)
-        client.pacer.on_rate_limited("30")
+        client.pacer.on_rate_limited("items_bulk", "30")
         response = client.get("items_bulk", "/items/bulk", deadline=clock.now() + timedelta(seconds=5))
         assert (response.status, response.outcome, response.error) == (0, DEADLINE, DEADLINE)
         assert seen == []
@@ -300,7 +300,7 @@ class TestCounters:
         client, _ = build(lambda r: httpx.Response(next(statuses), json={}))
         for _ in range(5):
             client.get("items_bulk", "/items/bulk")
-        client.pacer.on_success()
+        client.pacer.on_success("items_bulk")
 
         def boom(request):
             raise httpx.ConnectError("x", request=request)

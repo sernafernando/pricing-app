@@ -88,8 +88,8 @@ class TestRateLimited:
         )
         response = client.get("replenishment", "/marketplace/fbm/user-products/MLAU1/replenishment", {"country": "AR"})
         assert response.status == 429
-        assert client.pacer.cooldown_remaining() == pytest.approx(30.0)
-        assert client.pacer.effective_rate() < 2.0  # AIMD halved the shared rate
+        assert client.pacer.cooldown_remaining("replenishment") == pytest.approx(30.0)
+        assert client.pacer.effective_rate("replenishment") < 2.0  # AIMD halved the replenishment rate
 
 
 class TestSetting:
