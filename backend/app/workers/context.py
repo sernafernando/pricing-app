@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 
 @dataclass(frozen=True)
@@ -32,11 +32,16 @@ class WorkerContext:
     every lease this process actually still holds. `None` when the runtime
     was built without heartbeat wiring (e.g. a bare unit test) -- handlers
     must tolerate that.
+
+    `stop_requested`: true once the worker is stopping (SIGTERM). A handler
+    with a long deadline (`deadline_seconds`) checks it between units of
+    work, so a restart does not wait for its whole deadline.
     """
 
     deadline: datetime
     worker_name: str = "worker"
     held_tokens: Optional[Set[str]] = None
+    stop_requested: Callable[[], bool] = field(default=lambda: False, compare=False)
 
 
 @dataclass(frozen=True)
