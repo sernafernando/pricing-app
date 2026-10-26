@@ -318,7 +318,9 @@ class CampaignOut(BaseModel):
     name: Optional[str] = None
     status: Optional[str] = None
     cost: float  # `ml_ads_campaign_days.cost` summed over the requested range
-    contribution: float  # what the contributions cover of the range, on the Métricas ML board's rule
+    # What the contributions cover of the range: the Métricas ML board's rule over `ml_ads_item_days`, so it equals the
+    # board's figure. `cost` keeps the campaign rows; both bases match unless a day's item rows are incomplete.
+    contribution: float
     contributions: list[ContributionOut]
 
 

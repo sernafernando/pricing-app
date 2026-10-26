@@ -13,14 +13,15 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay, MlAdsItemDay
 
 logger = logging.getLogger(__name__)
 
-# No advertiser name is stored; these are the two the Ads API lists for the account. Any other shows its id.
+# ponytail: advertiser names hardcoded (not stored); persist them from the Ads API when the catalogue sync gains them.
+# These are the two advertisers the Ads API lists for the account; any other shows its id.
 ADVERTISER_NAMES = {25713: "GAUSS", 714700: "TPLINK"}
 
 
@@ -76,15 +77,47 @@ def list_campaigns(db: Session, date_from: date, date_to: date) -> list[Campaign
         (c.advertiser_id, c.campaign_id): CampaignRow(c, Decimal(costs.get((c.advertiser_id, c.campaign_id)) or 0))
         for c in db.query(MlAdsCampaign).order_by(MlAdsCampaign.advertiser_id, MlAdsCampaign.campaign_id)
     }
-    contributions = db.query(MlAdsCampaignContribution).order_by(
-        MlAdsCampaignContribution.date_from, MlAdsCampaignContribution.id
+    contributions = (
+        db.query(MlAdsCampaignContribution)
+        .order_by(MlAdsCampaignContribution.date_from, MlAdsCampaignContribution.id)
+        .all()
     )
+    daily = _daily_spend(db, contributions)
     for contribution in contributions:
         row = rows.get((contribution.advertiser_id, contribution.campaign_id))
         if row is not None:
             row.contributions.append(contribution)
-            row.contribution += contribution_in(db, contribution, date_from, date_to)
+            row.contribution += contribution_in(daily, contribution, date_from, date_to)
     return list(rows.values())
+
+
+DailySpend = dict[tuple[int, int], dict[date, Decimal]]
+
+
+def _daily_spend(db: Session, contributions: list[MlAdsCampaignContribution]) -> DailySpend:
+    """In one query, the item-row cost per (advertiser, campaign) and day of every campaign with a contribution,
+    over the span its contributions cover."""
+    if not contributions:
+        return {}
+    item = MlAdsItemDay
+    keys = {(c.advertiser_id, c.campaign_id) for c in contributions}
+    rows = (
+        db.query(item.advertiser_id, item.campaign_id, item.day, func.sum(item.cost))
+        .filter(
+            tuple_(item.advertiser_id, item.campaign_id).in_(keys),
+            item.day.between(min(c.date_from for c in contributions), max(c.date_to for c in contributions)),
+        )
+        .group_by(item.advertiser_id, item.campaign_id, item.day)
+    )
+    daily: DailySpend = {}
+    for advertiser, campaign, day, total in rows:
+        daily.setdefault((advertiser, campaign), {})[day] = Decimal(total or 0)
+    return daily
+
+
+def _sum_spend(daily: DailySpend, row: MlAdsCampaignContribution, start: date, end: date) -> Decimal:
+    days = daily.get((row.advertiser_id, row.campaign_id), {})
+    return sum((cost for day, cost in days.items() if start <= day <= end), Decimal(0))
 
 
 def _spend(db: Session, advertiser_id: int, campaign_id: int, start: date, end: date) -> Decimal:
@@ -108,16 +141,16 @@ def _counted(kind: str, value: Decimal, settlement: Optional[str], spend: Decima
     return value if settlement == "full" else min(value, spend)
 
 
-def contribution_in(db: Session, row: MlAdsCampaignContribution, date_from: date, date_to: date) -> Decimal:
+def contribution_in(daily: DailySpend, row: MlAdsCampaignContribution, date_from: date, date_to: date) -> Decimal:
     """The part of `row` that falls on `[date_from, date_to]`: a fixed amount reaches the window by the window's share
-    of the WHOLE range's spend, like the Board's per-row spread."""
+    of the WHOLE range's spend, like the Board's per-row spread. `daily` comes from `_daily_spend`."""
     start, end = max(row.date_from, date_from), min(row.date_to, date_to)
     if start > end:
         return Decimal(0)
-    window = _spend(db, row.advertiser_id, row.campaign_id, start, end)
+    window = _sum_spend(daily, row, start, end)
     if row.kind == "percentage":
         return _counted(row.kind, Decimal(row.value), None, window)
-    spend = _spend(db, row.advertiser_id, row.campaign_id, row.date_from, row.date_to)
+    spend = _sum_spend(daily, row, row.date_from, row.date_to)
     if spend <= 0:
         return Decimal(0)
     return _counted(row.kind, Decimal(row.value), row.settlement, spend) * window / spend
