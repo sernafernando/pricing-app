@@ -55,6 +55,7 @@ export default function ProductIdentity({ productItemId }) {
   const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState(null); // { sku, ean, status: 'editing' | 'saving', error }
   const [saved, setSaved] = useState(false);
+  const [attempt, setAttempt] = useState(0); // bumped by Reintentar: loads again
   const listId = useId();
 
   useEffect(() => {
@@ -66,18 +67,34 @@ export default function ProductIdentity({ productItemId }) {
     return () => {
       current = false;
     };
-  }, [productItemId]);
+  }, [productItemId, attempt]);
+
+  const retry = () => {
+    setLoadError(false);
+    setAttempt((n) => n + 1);
+  };
 
   if (loadError) {
     return (
       <Section title="Identificación">
-        <p className={styles.feedback} role="alert">
-          No se pudieron cargar el SKU y el EAN.
-        </p>
+        <div className={styles.resync}>
+          <p className={styles.feedback} role="alert">
+            No se pudieron cargar el SKU y el EAN.
+          </p>
+          <button type="button" className="btn-tesla outline sm" onClick={retry}>
+            Reintentar
+          </button>
+        </div>
       </Section>
     );
   }
-  if (!product) return null;
+  if (!product) {
+    return (
+      <Section title="Identificación">
+        <p className={styles.note}>Cargando SKU y EAN…</p>
+      </Section>
+    );
+  }
 
   const edit = () => {
     setSaved(false);

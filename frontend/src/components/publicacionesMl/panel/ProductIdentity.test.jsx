@@ -67,11 +67,23 @@ describe('reading', () => {
     expect(screen.getByText('Las publicaciones tienen SKUs distintos: SKU-A, SKU-B')).toBeInTheDocument();
   });
 
-  it('says so when it cannot load', async () => {
-    productosPropiosAPI.get.mockRejectedValue(httpError(500));
+  it('says it is loading until the values arrive', () => {
+    productosPropiosAPI.get.mockReturnValue(new Promise(() => {}));
+    render(<ProductIdentity productItemId={70} />);
+
+    expect(screen.getByText('Cargando SKU y EAN…')).toBeInTheDocument();
+  });
+
+  it('says so when it cannot load, and Reintentar asks again', async () => {
+    const user = userEvent.setup();
+    productosPropiosAPI.get.mockRejectedValueOnce(httpError(500)).mockResolvedValueOnce({ data: product() });
     render(<ProductIdentity productItemId={70} />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar el SKU y el EAN.');
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+
+    expect(await screen.findByText('TL-WR840N')).toBeInTheDocument();
+    expect(productosPropiosAPI.get).toHaveBeenCalledTimes(2);
   });
 });
 
