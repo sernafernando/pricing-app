@@ -151,6 +151,18 @@ class ConteosUsuarioResponse(BaseModel):
     conteos: List[ConteoUsuarioItem]
 
 
+class GrantScopeItem(BaseModel):
+    id: int
+    marca: str
+    categoria: str
+    usuario_id: int
+    usuario_nombre: Optional[str] = None
+
+
+class GrantsScopeResponse(BaseModel):
+    grants: List[GrantScopeItem]
+
+
 class BulkSubPMRequest(BaseModel):
     """Desired full set of (marca, categoria) pairs for a user, confined to
     the caller's writable scope."""
@@ -717,6 +729,43 @@ def conteos_sub_pms(
 
     items = [ConteoUsuarioItem(usuario_id=uid, total=total) for uid, total in conteos.items()]
     return ConteosUsuarioResponse(conteos=items)
+
+
+@router.get("/marcas-pm/sub-pms/scope", response_model=GrantsScopeResponse)
+def grants_en_scope(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> GrantsScopeResponse:
+    """
+    Every sub-PM grant on the caller's writable pairs, in one query, so the
+    Sub-PMs screen can show who else manages each pair without one request
+    per pair. Same scope rule as `_resolve_writable_pairs`: grants on pairs
+    outside the caller's scope are filtered out, never rejected. The scope
+    is applied as a join on `marcas_pm` instead of an IN list, so an admin
+    (whose scope is every pair) does not send two bind parameters per pair.
+    """
+    query = (
+        db.query(MarcaSubPM)
+        .join(MarcaPM, (MarcaPM.marca == MarcaSubPM.marca) & (MarcaPM.categoria == MarcaSubPM.categoria))
+        .options(joinedload(MarcaSubPM.usuario))
+    )
+    if current_user.rol not in (RolUsuario.ADMIN, RolUsuario.SUPERADMIN):
+        query = query.filter(MarcaPM.usuario_id == current_user.id)
+
+    grants = query.all()
+
+    return GrantsScopeResponse(
+        grants=[
+            GrantScopeItem(
+                id=g.id,
+                marca=g.marca,
+                categoria=g.categoria,
+                usuario_id=g.usuario_id,
+                usuario_nombre=g.usuario.nombre if g.usuario else None,
+            )
+            for g in grants
+        ]
+    )
 
 
 # ── Bulk assignment write (Slice 2 of sub-pm-bulk-assignment) ───────────────

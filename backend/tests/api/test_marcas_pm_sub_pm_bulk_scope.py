@@ -216,3 +216,44 @@ class TestConteosPorUsuario:
         )
         assert resp.status_code == 200
         assert calls["marca_sub_pm_queries"] == 1
+
+
+# ── GET /marcas-pm/sub-pms/scope ────────────────────────────────────────
+
+
+class TestGrantsScope:
+    def test_admin_ve_todos_los_grants_con_nombre(self, client, db, admin_user, par, par_sin_titular, grantee):
+        g1 = MarcaSubPM(marca=par.marca, categoria=par.categoria, usuario_id=grantee.id)
+        g2 = MarcaSubPM(marca=par_sin_titular.marca, categoria=par_sin_titular.categoria, usuario_id=grantee.id)
+        db.add_all([g1, g2])
+        db.commit()
+
+        resp = client.get("/api/marcas-pm/sub-pms/scope", headers=_headers(admin_user))
+        assert resp.status_code == 200
+        grants = resp.json()["grants"]
+        assert {(g["id"], g["marca"], g["categoria"], g["usuario_id"], g["usuario_nombre"]) for g in grants} == {
+            (g1.id, "Nike", "Zapatillas", grantee.id, grantee.nombre),
+            (g2.id, "Adidas", "Ropa", grantee.id, grantee.nombre),
+        }
+
+    def test_titular_solo_ve_grants_de_sus_pares(self, client, db, titular, par, par_otro, par_sin_titular, grantee):
+        db.add(MarcaSubPM(marca=par.marca, categoria=par.categoria, usuario_id=grantee.id))
+        db.add(MarcaSubPM(marca=par_otro.marca, categoria=par_otro.categoria, usuario_id=grantee.id))
+        db.add(MarcaSubPM(marca=par_sin_titular.marca, categoria=par_sin_titular.categoria, usuario_id=grantee.id))
+        db.commit()
+
+        resp = client.get("/api/marcas-pm/sub-pms/scope", headers=_headers(titular))
+        assert resp.status_code == 200
+        assert {(g["marca"], g["categoria"]) for g in resp.json()["grants"]} == {("Nike", "Zapatillas")}
+
+    def test_sin_pares_en_scope_devuelve_vacio(self, client, db, titular, par_otro, grantee):
+        db.add(MarcaSubPM(marca=par_otro.marca, categoria=par_otro.categoria, usuario_id=grantee.id))
+        db.commit()
+
+        resp = client.get("/api/marcas-pm/sub-pms/scope", headers=_headers(titular))
+        assert resp.status_code == 200
+        assert resp.json() == {"grants": []}
+
+    def test_sin_token_401(self, client):
+        resp = client.get("/api/marcas-pm/sub-pms/scope")
+        assert resp.status_code == 401
