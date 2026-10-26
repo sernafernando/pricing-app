@@ -123,6 +123,19 @@ describe('editing', () => {
     expect(screen.getByText('TL-WR840N')).toBeInTheDocument();
   });
 
+  it('locks the fields while saving, so nothing typed meanwhile is lost', async () => {
+    const user = userEvent.setup();
+    await renderWith(product({ can_edit: true }));
+    productosPropiosAPI.save.mockReturnValue(new Promise(() => {}));
+
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    await user.type(screen.getByLabelText('SKU'), 'X');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(screen.getByLabelText('SKU')).toBeDisabled();
+    expect(screen.getByLabelText('EAN')).toBeDisabled();
+  });
+
   it.each([
     [403, 'No tenés permiso para editar el SKU y el EAN.'],
     [422, 'Revisá los valores: hasta 100 caracteres cada uno.'],

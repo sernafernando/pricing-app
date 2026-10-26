@@ -29,6 +29,15 @@ function SkuValue({ product }) {
   return null;
 }
 
+/** What a blank field goes back to: the SKU the linked publications share (none when they disagree), the ERP code. */
+function computedValues(product) {
+  const sharedSku = product.sku_candidatos.length === 1 ? product.sku_candidatos[0] : '';
+  return {
+    sku: product.sku_manual ? sharedSku : (product.sku ?? ''),
+    ean: product.ean_manual ? (product.codigo ?? '') : (product.ean ?? ''),
+  };
+}
+
 /**
  * The SKU and EAN of our own product (the ERP `item_id`), under the product panel's Resumen. The server computes them
  * (EAN: the ERP code; SKU: the one its linked publications share) unless someone typed one (`manual`).
@@ -94,8 +103,7 @@ export default function ProductIdentity({ productItemId }) {
     }
   };
 
-  const computedSku = product.sku_manual ? (product.sku_candidatos.length === 1 ? product.sku_candidatos[0] : '') : (product.sku ?? '');
-  const computedEan = product.ean_manual ? (product.codigo ?? '') : (product.ean ?? '');
+  const computed = computedValues(product);
 
   return (
     <Section title="Identificación">
@@ -106,9 +114,10 @@ export default function ProductIdentity({ productItemId }) {
             <input
               className={styles.identityInput}
               value={form.sku}
-              placeholder={computedSku}
+              placeholder={computed.sku}
               list={listId}
               maxLength={100}
+              disabled={form.status === 'saving'}
               onChange={(event) => setForm({ ...form, sku: event.target.value })}
             />
           </label>
@@ -122,8 +131,9 @@ export default function ProductIdentity({ productItemId }) {
             <input
               className={styles.identityInput}
               value={form.ean}
-              placeholder={computedEan}
+              placeholder={computed.ean}
               maxLength={100}
+              disabled={form.status === 'saving'}
               onChange={(event) => setForm({ ...form, ean: event.target.value })}
             />
           </label>
