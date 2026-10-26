@@ -6,8 +6,8 @@ import Toast from '../Toast';
 import AplicarMarkupMasivoModal from '../AplicarMarkupMasivoModal';
 import CalcularWebModal from '../CalcularWebModal';
 import CalcularPVPModal from '../CalcularPVPModal';
-import { buildItemsParams, buildProductIdsParams } from '../../hooks/usePublicacionesMLFilters';
 import useBulkProductSet from './useBulkProductSet';
+import { resolverParams } from './bulkParams';
 import styles from './BulkActions.module.css';
 
 // Productos' bulk actions, behind Productos' own permissions.
@@ -18,20 +18,6 @@ const ACTIONS = [
 ];
 
 const plural = (n, one, many) => (n === 1 ? one : many);
-const MARKUP_KEYS = ['markup_neg', 'markup_min', 'markup_max'];
-
-/**
- * What the resolver is asked: the list's filters and, where the list applies them (the publication list, with
- * `ml_metricas.ver_ganancia`), its markup filters exactly as `/items` gets them -- the resolver applies them the
- * same way, so the set is the products of the publications the operator sees.
- */
-function resolverParams(filters, canSeeMargin) {
-  const params = buildProductIdsParams(filters);
-  if (!canSeeMargin || filters.vista === 'producto' || filters.vista === 'agrupado') return params;
-  const listed = buildItemsParams(filters, 1, { canSeeMargin: true });
-  for (const key of MARKUP_KEYS) if (key in listed) params[key] = listed[key];
-  return params;
-}
 
 /**
  * Productos' bulk pricing actions (web transferencia, PVP, markup + cuotas) over Publicaciones ML. Pricing is per
