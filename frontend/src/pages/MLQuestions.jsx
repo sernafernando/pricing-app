@@ -60,6 +60,9 @@ import {
   Info,
   History,
   Pencil,
+  Package,
+  CheckCheck,
+  Sparkles,
 } from 'lucide-react';
 import styles from './MLQuestions.module.css';
 
@@ -295,13 +298,14 @@ function checkSoftDenylist(text) {
 }
 
 // TanStack column-sizing engine (#956 fixed — a hand-rolled resizer failed
-// 4x on drag math/specificity), used by the Historial, Mensajes and
-// Pendientes tables. We consume the library purely as a column-sizing engine:
+// 4x on drag math/specificity), used by the Historial and Pendientes
+// tables. We consume the library purely as a column-sizing engine:
 // `data: []`, no row model — each body stays hand-rendered. The shared
 // `<colgroup>` (driven by `getVisibleLeafColumns()`) is the single source of
 // truth for both the TanStack-rendered header row and the body rows under
-// `table-layout: fixed`. The Preguntas tab renders row cards instead of a
-// table, so it has no column sizing.
+// `table-layout: fixed`. The Preguntas tab renders row cards and the Mensajes
+// tab a master-detail layout instead of a table, so neither has column
+// sizing.
 
 // Historial del comprador table (inside the expanded question card) — same
 // TanStack column-sizing engine pattern, applied
@@ -313,19 +317,6 @@ const HISTORIAL_COLUMNS = [
   { id: 'item', header: 'Item', size: 120, minSize: 80, maxSize: 400, enableResizing: true },
   { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
   { id: 'respuesta', header: 'Respuesta', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
-];
-
-// Mensajes tab table (thread-grouped) — same TanStack sizing-engine pattern,
-// but structurally different: the buyer identity lives in a `colSpan={5}`
-// thread-header row, not in a per-message cell. Column 1 ("Comprador ·
-// Pack") in message rows is just a thin indent `<td>` (`threadRowIndent`),
-// so it carries NO resizable content — only "Mensaje" (col 2) is resizable.
-const MENSAJES_COLUMNS = [
-  { id: 'comprador', header: 'Comprador · Pack', size: 150, enableResizing: false },
-  { id: 'mensaje', header: 'Mensaje', size: 320, minSize: 120, maxSize: 600, enableResizing: true },
-  { id: 'recibido', header: 'Recibido', size: 150, enableResizing: false },
-  { id: 'leido', header: 'Leído', size: 150, enableResizing: false },
-  { id: 'moderacion', header: 'Moderación', size: 120, enableResizing: false },
 ];
 
 // Pendientes tab table (admin-pending queue) — same TanStack sizing-engine
@@ -531,7 +522,12 @@ export default function MLQuestions() {
   const [editMessageText, setEditMessageText] = useState('');
   const [msgActionLoadingId, setMsgActionLoadingId] = useState(null);
   const [msgActionError, setMsgActionError] = useState(null);
-  const [expandedThreadKey, setExpandedThreadKey] = useState(null);
+  // Master-detail selection for the Mensajes tab. Stored as the thread key
+  // (not the thread object) so an SSE refetch keeps the same conversation
+  // open; `selectedThread` falls back to the first thread when the key is
+  // gone (filter change, page change, or nothing picked yet).
+  const [selectedThreadKey, setSelectedThreadKey] = useState(null);
+  const selectedThread = messageThreads.find((t) => t.key === selectedThreadKey) ?? messageThreads[0] ?? null;
 
   // Pendientes tab (Phase 6, PR3) — admin-pending queue state. Kept separate
   // from the Preguntas/Mensajes state above since it's an independent
@@ -604,25 +600,6 @@ export default function MLQuestions() {
     getCoreRowModel: getCoreRowModel(),
     state: { columnSizing: historialColumnSizing },
     onColumnSizingChange: handleHistorialColumnSizingChange,
-  });
-
-  // Mensajes table — same sizing-engine pattern, own localStorage key. Only
-  // one instance needed (the table itself is not duplicated per thread —
-  // threads are body rows under one shared header).
-  const {
-    columnSizing: mensajesColumnSizing,
-    onColumnSizingChange: handleMensajesColumnSizingChange,
-    reset: handleResetMensajesColumnSizing,
-    hasCustom: hasCustomMensajesColumnSizing,
-  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.mensajes);
-
-  const mensajesTable = useReactTable({
-    columns: MENSAJES_COLUMNS,
-    data: EMPTY_TABLE_DATA,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-    state: { columnSizing: mensajesColumnSizing },
-    onColumnSizingChange: handleMensajesColumnSizingChange,
   });
 
   // Pendientes table — same sizing-engine pattern, own localStorage key.
@@ -1063,10 +1040,6 @@ export default function MLQuestions() {
     closeMessageEdit();
   }, editMessage.id);
 
-  const toggleThreadDetail = (threadKey) => {
-    setExpandedThreadKey((prev) => (prev === threadKey ? null : threadKey));
-  };
-
   // SSE-driven reload: instant panel update on any bot state transition.
   const reloadFromSSE = useCallback(() => {
     if (puedeVer) {
@@ -1282,69 +1255,232 @@ export default function MLQuestions() {
   const softWarning = checkSoftDenylist(editText);
   const messageSoftWarning = checkSoftDenylist(editMessageText);
 
-  // Detail spoiler for a message thread (mirrors `renderQuestionDetail` above) —
-  // full pack conversation in order, current draft + category/confidence,
-  // and the ML conversation link (T0.2-verified format).
-  const renderMessageDetailRow = (thread) => {
+  // Right pane of the Mensajes master-detail layout: the selected
+  // conversation. Shows ONLY what the panel already loads — the buyer's
+  // messages, the bot's draft on the anchor message and its order context.
+  // Seller/operator replies are not part of the payload, so none are drawn.
+  const renderMessageThreadPane = (thread) => {
     const link = buildMlConversationLink(thread.pack_id);
     const anchor = thread.anchorMessage;
+    const buyerLabel = thread.buyer_nickname || thread.buyer_id || 'comprador desconocido';
+    const canTakeOver = anchor && MESSAGE_TAKE_OVER_STATES.includes(anchor.bot_status);
+    const canRespond = anchor?.bot_status === 'taken_over';
+    // Mirrors the Preguntas tab's publish-now: a draft the bot already
+    // wrote goes out in one click. The backend stamps taken_over_by on
+    // a direct send, so responsibility is recorded either way.
+    const canSendDirect = anchor?.bot_status === 'awaiting_human' && !!anchor?.drafted_answer;
+    const showsSendButton = puedeResponderMensajes && (canSendDirect || canRespond);
+    const showActions = (puedeResponderMensajes && (canTakeOver || canRespond || canSendDirect)) || puedeGestionarPendientes;
+    const orderCtx = thread.pack_id ? orderContexts[thread.pack_id] : null;
+    const orderItemLabels = (orderCtx?.items || []).map(
+      (it) => `${it.quantity ?? '?'}x ${it.title ?? 'sin título'}`
+    );
     return (
-      <tr key={`${thread.key}-detail`} className={styles.detailRow}>
-        <td colSpan={mensajesTable.getVisibleLeafColumns().length}>
-          <div className={styles.detailPanel}>
-            <div className={styles.detailContent}>
-              <div>
-                <strong>Conversación del pack (mensajes cargados)</strong>
-                {thread.messages.map((m) => (
-                  <p key={m.id} className={styles.detailText}>
-                    <em>Comprador{m.received_at ? ` · ${new Date(m.received_at).toLocaleString()}` : ''}:</em>{' '}
-                    {m.text}
-                  </p>
-                ))}
-              </div>
-              <div>
-                <strong>Respuesta (borrador)</strong>
-                <p className={styles.detailText}>{anchor?.drafted_answer || '—'}</p>
-              </div>
-              {anchor?.intent_category && (
-                <div>
-                  <strong>Categoría</strong>
-                  <p className={styles.detailText}>{anchor.intent_category}</p>
-                </div>
+      <>
+        <header className={styles.threadPaneHeader}>
+          <div className={styles.threadPaneTitleRow}>
+            <div className={styles.threadPaneTitle}>
+              <span className={styles.threadAvatar} aria-hidden="true">
+                {String(buyerLabel).charAt(0).toUpperCase()}
+              </span>
+              <h2 className={styles.threadPaneBuyer}>{buyerLabel}</h2>
+              <span className={styles.threadPanePack}>
+                {thread.pack_id ? `Pack #${thread.pack_id}` : 'sin pack'}
+              </span>
+              {anchor?.bot_status && (
+                <span className={`${styles.badge} ${styles[MESSAGE_BOT_STATUS_BADGE_CLASS[anchor.bot_status]] || ''}`}>
+                  {MESSAGE_BOT_STATUS_LABELS[anchor.bot_status] || anchor.bot_status}
+                </span>
               )}
-              {anchor?.confidence != null && (
-                <div>
-                  <strong>Confianza</strong>
-                  <p className={styles.detailText}>{Math.round(anchor.confidence * 100)}%</p>
-                </div>
+            </div>
+            {link && (
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`btn-tesla outline-subtle-primary sm ${styles.threadPaneLink}`}
+              >
+                Ver en MercadoLibre <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
+          {orderCtx && (orderItemLabels.length > 0 || orderCtx.shipping?.status || orderCtx.order_status) && (
+            /* Qué compró y dónde está el envío, para decidir sin salir del
+               panel. */
+            <div className={styles.threadOrderContext}>
+              {orderItemLabels.map((label, i) => (
+                <span key={`${label}-${i}`} className={styles.orderChip} title={label}>
+                  <Package size={12} aria-hidden="true" />
+                  <span className={styles.orderChipText}>{label}</span>
+                </span>
+              ))}
+              {orderCtx.shipping?.status && (
+                <span className={`${styles.orderChip} ${styles.orderChipInfo}`}>
+                  envío: {orderCtx.shipping.status}
+                  {orderCtx.shipping.substatus ? ` / ${orderCtx.shipping.substatus}` : ''}
+                </span>
               )}
-              {anchor?.bot_status === 'sent' && (
+              {orderCtx.order_status && (
+                <span className={`${styles.orderChip} ${styles.orderChipSuccess}`}>
+                  orden: {orderCtx.order_status}
+                </span>
+              )}
+            </div>
+          )}
+        </header>
+
+        <div className={styles.threadMessages}>
+          {thread.messages.map((m) => (
+            <div key={m.id} className={styles.messageItem}>
+              <div className={styles.messageMeta}>
+                <span className={styles.messageAuthor}>{thread.buyer_nickname || 'Comprador'}</span>
+                <span className={styles.messageTime}>
+                  {m.received_at ? new Date(m.received_at).toLocaleString() : '—'}
+                </span>
+                {m.moderation_status && m.moderation_status !== 'clean' && (
+                  <span className={`${styles.badge} ${styles.badgeWarning}`}>
+                    {MESSAGE_STATUS_LABELS[m.moderation_status] || m.moderation_status}
+                  </span>
+                )}
+              </div>
+              <p className={styles.messageBubble}>{m.text}</p>
+              {m.read_at && (
+                <span className={styles.messageRead} title={new Date(m.read_at).toLocaleString()}>
+                  <CheckCheck size={12} aria-hidden="true" />
+                  Leído
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.threadPaneFooter}>
+          {anchor?.bot_status === 'failed' && anchor?.last_error && (
+            <div className={styles.threadAlert} role="alert">
+              <AlertTriangle size={14} aria-hidden="true" />
+              <span>{anchor.last_error}</span>
+            </div>
+          )}
+
+          {anchor && (
+            <section className={styles.draftCard} aria-label="Respuesta (borrador)">
+              <div className={styles.draftCardHeader}>
+                <span className={styles.draftCardTitle}>
+                  <Sparkles size={14} aria-hidden="true" />
+                  Respuesta (borrador)
+                </span>
+                <div className={styles.draftCardChips}>
+                  {anchor.intent_category && (
+                    <span className={styles.reasonChip}>categoría: {anchor.intent_category}</span>
+                  )}
+                  {anchor.confidence != null && (
+                    <span className={styles.confidenceChip}>
+                      confianza: {Math.round(anchor.confidence * 100)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className={styles.draftCardText}>{anchor.drafted_answer || '—'}</p>
+              {anchor.bot_status === 'sent' && (
                 /* `sent_at` es NULL en filas históricas (nunca se
                    backfillea desde `bot_updated_at`, que es una señal
                    distinta — PR6). Un mensaje `sent` siempre se muestra
                    como enviado, con fecha desconocida si hace falta —
                    nunca en blanco, que se leería como "no enviado". */
-                <div>
+                <p className={styles.draftCardSent}>
                   <strong>Enviado</strong>
-                  <p className={styles.detailText}>
+                  <span>
                     {anchor.sent_at ? new Date(anchor.sent_at).toLocaleString() : 'Enviada (fecha desconocida)'}
-                  </p>
+                  </span>
+                </p>
+              )}
+            </section>
+          )}
+
+          {showActions && (
+            <div className={styles.threadActions}>
+              <div className={styles.threadActionsGroup}>
+                {puedeResponderMensajes && canTakeOver && (
+                  <button
+                    type="button"
+                    className="btn-tesla outline-subtle-primary sm"
+                    onClick={() => handleTakeOverMessage(anchor)}
+                    disabled={msgActionLoadingId === anchor.id}
+                    title="Tomar el mensaje"
+                    aria-label="Tomar el mensaje"
+                  >
+                    <UserCheck size={14} />
+                    Tomar
+                  </button>
+                )}
+                {puedeResponderMensajes && canRespond && (
+                  <button
+                    type="button"
+                    className="btn-tesla outline-subtle-primary sm"
+                    onClick={() => openMessageEdit(anchor)}
+                    disabled={msgActionLoadingId === anchor.id}
+                  >
+                    <Pencil size={14} />
+                    Editar
+                  </button>
+                )}
+                {puedeGestionarPendientes && (
+                  <button
+                    type="button"
+                    className="btn-tesla ghost sm"
+                    onClick={() => openManualCreate({
+                      pack_id: thread.pack_id,
+                      buyer_id: thread.buyer_id,
+                      raw_text: anchor?.text,
+                    })}
+                    title="Crear pendiente (el clasificador no lo detectó)"
+                  >
+                    <Plus size={14} />
+                    Crear pendiente
+                  </button>
+                )}
+              </div>
+              {showsSendButton && (
+                <div className={styles.threadSendGroup}>
+                  {canSendDirect && (
+                    <button
+                      type="button"
+                      className="btn-tesla primary sm"
+                      onClick={() => handleSendMessage(anchor)}
+                      disabled={msgActionLoadingId === anchor.id || !messagesSendEnabled}
+                      title={
+                        messagesSendEnabled
+                          ? 'Enviar la respuesta del bot'
+                          : 'Envío deshabilitado — habilitá messages_send_enabled'
+                      }
+                      aria-label="Enviar la respuesta del bot"
+                    >
+                      <Send size={14} />
+                      Enviar respuesta del bot
+                    </button>
+                  )}
+                  {canRespond && (
+                    <button
+                      type="button"
+                      className="btn-tesla primary sm"
+                      onClick={() => handleSendMessage(anchor)}
+                      disabled={msgActionLoadingId === anchor.id || !anchor.drafted_answer || !messagesSendEnabled}
+                      title={messagesSendEnabled ? 'Enviar respuesta' : 'Envío deshabilitado — habilitá messages_send_enabled'}
+                      aria-label="Enviar respuesta"
+                    >
+                      <Send size={14} />
+                      Enviar respuesta
+                    </button>
+                  )}
+                  {!messagesSendEnabled && (
+                    <span className={styles.sendHint}>Envío deshabilitado — habilitá messages_send_enabled</span>
+                  )}
                 </div>
               )}
-              <div>
-                <strong>Conversación en ML</strong>
-                <p>
-                  {link ? (
-                    <a href={link} target="_blank" rel="noopener noreferrer" className={styles.detailLink}>
-                      Ver en MercadoLibre <ExternalLink size={12} />
-                    </a>
-                  ) : '—'}
-                </p>
-              </div>
             </div>
-          </div>
-        </td>
-      </tr>
+          )}
+        </div>
+      </>
     );
   };
 
@@ -1833,61 +1969,9 @@ export default function MLQuestions() {
         </>
       )}
 
-      {/* ====== TAB: Mensajes (Phase 5, PR3 — read-only MVP) ====== */}
+      {/* ====== TAB: Mensajes — master-detail (conversation list + thread) ====== */}
       {activeTab === 'mensajes' && puedeVerMensajes && (
         <>
-          <div className={styles.filtersBar}>
-            <input
-              type="text"
-              placeholder="Buscar por comprador (ID)"
-              className={styles.configInput}
-              value={buyerFilter}
-              onChange={handleBuyerFilterChange}
-            />
-            <input
-              type="text"
-              placeholder="Pack ID"
-              className={styles.configInput}
-              value={packFilter}
-              disabled={sinPack}
-              onChange={handlePackFilterChange}
-            />
-            <button
-              type="button"
-              className={`btn-tesla sm ${sinPack ? '' : 'outline-subtle-primary'}`}
-              onClick={handleSinPackToggle}
-              aria-pressed={sinPack}
-            >
-              Sin pack
-            </button>
-            <label className={styles.rosterEnabledLabel}>
-              <input
-                type="checkbox"
-                checked={includeModerated}
-                onChange={handleIncludeModeratedChange}
-              />
-              Incluir moderados
-            </label>
-            <label className={styles.rosterEnabledLabel}>
-              <input
-                type="checkbox"
-                checked={hasReadFilter === 'true'}
-                onChange={handleHasReadFilterChange}
-              />
-              Leídos
-            </label>
-            <select
-              value={messageBotStatusFilter}
-              onChange={handleMessageBotStatusFilterChange}
-              className={styles.select}
-            >
-              <option value="">Todos los estados del bot</option>
-              {MESSAGE_BOT_STATUS_FILTER_OPTIONS.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-
           {messagesError && (
             <div className={styles.errorBar}>
               <AlertTriangle size={14} />
@@ -1910,60 +1994,112 @@ export default function MLQuestions() {
             </div>
           )}
 
-          <ResizableTableShell
-            table={mensajesTable}
-            hasCustomSizing={hasCustomMensajesColumnSizing}
-            onResetSizing={handleResetMensajesColumnSizing}
-            striped={false}
-          >
-              {messagesLoading ? (
-                <tbody className="table-tesla-body">
-                  <tr><td colSpan={mensajesTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
-                </tbody>
-              ) : messageThreads.length === 0 ? (
-                <tbody className="table-tesla-body">
-                  <tr><td colSpan={mensajesTable.getVisibleLeafColumns().length} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
-                </tbody>
-              ) : (
-                messageThreads.map((thread) => {
-                  const anchor = thread.anchorMessage;
-                  const canTakeOver = anchor && MESSAGE_TAKE_OVER_STATES.includes(anchor.bot_status);
-                  const canRespond = anchor?.bot_status === 'taken_over';
-                  // Mirrors the Preguntas tab's publish-now: a draft the bot already
-                  // wrote goes out in one click. The backend stamps taken_over_by on
-                  // a direct send, so responsibility is recorded either way.
-                  const canSendDirect = anchor?.bot_status === 'awaiting_human' && !!anchor?.drafted_answer;
-                  const orderCtx = thread.pack_id ? orderContexts[thread.pack_id] : null;
-                  const orderItemLabels = (orderCtx?.items || []).map(
-                    (it) => `${it.quantity ?? '?'}x ${it.title ?? 'sin título'}`
-                  );
-                  return (
-                  <tbody key={thread.key} className={`table-tesla-body ${styles.threadGroup}`}>
-                    <tr className={styles.threadHeader}>
-                      <td colSpan={mensajesTable.getVisibleLeafColumns().length}>
-                        <div className={styles.threadHeaderRow}>
-                          <div className={styles.threadHeaderInfo}>
-                            <button
-                              type="button"
-                              className="btn-tesla ghost sm"
-                              onClick={() => toggleThreadDetail(thread.key)}
-                              title={expandedThreadKey === thread.key ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-label={expandedThreadKey === thread.key ? 'Ocultar detalle' : 'Ver detalle completo'}
-                              aria-expanded={expandedThreadKey === thread.key}
-                            >
-                              {expandedThreadKey === thread.key ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </button>
-                            <span className={styles.threadBuyer}>
-                              {thread.buyer_nickname || thread.buyer_id || 'comprador desconocido'}
-                            </span>
-                            <span className={styles.threadSeparator}>·</span>
-                            <span className={styles.threadPack}>
-                              {thread.pack_id ? `pack ${thread.pack_id}` : 'sin pack'}
-                            </span>
-                            <span className={styles.threadSeparator}>·</span>
-                            <span className={styles.threadCount}>
-                              {thread.messages.length} mensaje{thread.messages.length === 1 ? '' : 's'}
-                            </span>
+          <div className={styles.mensajesLayout}>
+            <section className={styles.mensajesListPane} aria-label="Conversaciones">
+              <div className={styles.mensajesFilters}>
+                <div className={styles.mensajesFilterGrid}>
+                  <label className={styles.stackField}>
+                    <span className={styles.toolbarLabel}>Comprador (ID)</span>
+                    <input
+                      type="text"
+                      placeholder="Buscar por comprador (ID)"
+                      className={`${styles.configInput} ${styles.filterInput}`}
+                      value={buyerFilter}
+                      onChange={handleBuyerFilterChange}
+                    />
+                  </label>
+                  <div className={styles.stackField}>
+                    <div className={styles.stackFieldHead}>
+                      <label htmlFor="mlq-mensajes-pack" className={styles.toolbarLabel}>Pack ID</label>
+                      <button
+                        type="button"
+                        className={`btn-tesla sm ${sinPack ? '' : 'ghost'} ${styles.sinPackToggle}`}
+                        onClick={handleSinPackToggle}
+                        aria-pressed={sinPack}
+                      >
+                        Sin pack
+                      </button>
+                    </div>
+                    <input
+                      id="mlq-mensajes-pack"
+                      type="text"
+                      placeholder="Pack ID"
+                      className={`${styles.configInput} ${styles.filterInput}`}
+                      value={packFilter}
+                      disabled={sinPack}
+                      onChange={handlePackFilterChange}
+                    />
+                  </div>
+                </div>
+                <div className={styles.mensajesFilterRow}>
+                  <label className={styles.checkField}>
+                    <input
+                      type="checkbox"
+                      checked={includeModerated}
+                      onChange={handleIncludeModeratedChange}
+                    />
+                    Incluir moderados
+                  </label>
+                  <label className={styles.checkField}>
+                    <input
+                      type="checkbox"
+                      checked={hasReadFilter === 'true'}
+                      onChange={handleHasReadFilterChange}
+                    />
+                    Leídos
+                  </label>
+                  <label className={`${styles.toolbarField} ${styles.statusFilterField}`}>
+                    <span className={styles.toolbarLabel}>Estado del bot</span>
+                    <select
+                      value={messageBotStatusFilter}
+                      onChange={handleMessageBotStatusFilterChange}
+                      className={styles.select}
+                    >
+                      <option value="">Todos los estados del bot</option>
+                      {MESSAGE_BOT_STATUS_FILTER_OPTIONS.map(({ value, label }) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className={styles.conversationList}>
+                {messagesLoading ? (
+                  <div className={styles.loadingCell}>Cargando...</div>
+                ) : messageThreads.length === 0 ? (
+                  <div className={styles.emptyCell}>No hay mensajes para mostrar</div>
+                ) : (
+                  messageThreads.map((thread) => {
+                    const anchor = thread.anchorMessage;
+                    const lastMessage = thread.messages[thread.messages.length - 1];
+                    const isSelected = selectedThread?.key === thread.key;
+                    const domId = `mlq-thread-${thread.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                    return (
+                      <button
+                        key={thread.key}
+                        type="button"
+                        className={`${styles.conversationCard} ${isSelected ? styles.conversationCardSelected : ''}`}
+                        onClick={() => setSelectedThreadKey(thread.key)}
+                        aria-pressed={isSelected}
+                        aria-labelledby={`${domId}-buyer ${domId}-pack`}
+                      >
+                        <span className={styles.conversationTop}>
+                          <span id={`${domId}-buyer`} className={styles.conversationBuyer}>
+                            {thread.buyer_nickname || thread.buyer_id || 'comprador desconocido'}
+                          </span>
+                          <span id={`${domId}-pack`} className={styles.conversationPack}>
+                            {thread.pack_id ? `pack ${thread.pack_id}` : 'sin pack'}
+                          </span>
+                          <span className={styles.conversationTime}>
+                            {thread.latest_received_at ? new Date(thread.latest_received_at).toLocaleString() : '—'}
+                          </span>
+                        </span>
+                        <span className={styles.conversationPreview} title={lastMessage?.text || ''}>
+                          {lastMessage?.text || '—'}
+                        </span>
+                        <span className={styles.conversationBottom}>
+                          <span className={styles.conversationChips}>
                             {anchor?.bot_status && (
                               <span className={`${styles.badge} ${styles[MESSAGE_BOT_STATUS_BADGE_CLASS[anchor.bot_status]] || ''}`}>
                                 {MESSAGE_BOT_STATUS_LABELS[anchor.bot_status] || anchor.bot_status}
@@ -1981,151 +2117,51 @@ export default function MLQuestions() {
                                 {anchor.answer_source === 'fallback' ? 'fallback' : 'bot'}
                               </span>
                             )}
-                            {anchor?.bot_status === 'failed' && anchor?.last_error && (
-                              <span className={styles.threadErrorText} title={anchor.last_error}>
-                                {anchor.last_error}
-                              </span>
-                            )}
-                          </div>
-                          {orderCtx && (
-                            /* Qué compró y dónde está el envío, para decidir sin
-                               salir del panel. */
-                            <div className={styles.threadOrderContext}>
-                              {orderItemLabels.length > 0 && (
-                                <span className={styles.threadOrderItems} title={orderItemLabels.join('\n')}>
-                                  {orderItemLabels.join(' · ')}
-                                </span>
-                              )}
-                              {orderCtx.shipping?.status && (
-                                <span className={`${styles.badge} ${styles.badgeNeutral}`}>
-                                  envío: {orderCtx.shipping.status}
-                                  {orderCtx.shipping.substatus ? ` / ${orderCtx.shipping.substatus}` : ''}
-                                </span>
-                              )}
-                              {orderCtx.order_status && (
-                                <span className={`${styles.badge} ${styles.badgeNeutral}`}>
-                                  orden: {orderCtx.order_status}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          {anchor?.drafted_answer && expandedThreadKey !== thread.key && (
-                            /* The whole point of the row: read what the bot wants
-                               to say without opening the detail panel. Hidden once
-                               the detail is expanded, which already shows it in
-                               full — no duplicate copy on screen. */
-                            <p className={styles.threadDraftPreview} title={anchor.drafted_answer}>
-                              {anchor.drafted_answer}
-                            </p>
-                          )}
-                          {(puedeResponderMensajes && (canTakeOver || canRespond || canSendDirect)) || puedeGestionarPendientes ? (
-                            <div className={styles.actionsCell}>
-                              {puedeGestionarPendientes && (
-                                <button
-                                  className="btn-tesla ghost sm"
-                                  onClick={() => openManualCreate({
-                                    pack_id: thread.pack_id,
-                                    buyer_id: thread.buyer_id,
-                                    raw_text: anchor?.text,
-                                  })}
-                                  title="Crear pendiente (el clasificador no lo detectó)"
-                                  aria-label="Crear pendiente manual"
-                                >
-                                  <Plus size={14} />
-                                </button>
-                              )}
-                              {puedeResponderMensajes && canTakeOver && (
-                                <button
-                                  className="btn-tesla ghost sm"
-                                  onClick={() => handleTakeOverMessage(anchor)}
-                                  disabled={msgActionLoadingId === anchor.id}
-                                  title="Tomar el mensaje"
-                                  aria-label="Tomar el mensaje"
-                                >
-                                  <UserCheck size={14} />
-                                </button>
-                              )}
-                              {puedeResponderMensajes && canSendDirect && (
-                                <button
-                                  className="btn-tesla sm"
-                                  onClick={() => handleSendMessage(anchor)}
-                                  disabled={msgActionLoadingId === anchor.id || !messagesSendEnabled}
-                                  title={
-                                    messagesSendEnabled
-                                      ? 'Enviar la respuesta del bot'
-                                      : 'Envío deshabilitado — habilitá messages_send_enabled'
-                                  }
-                                  aria-label="Enviar la respuesta del bot"
-                                >
-                                  <Send size={14} />
-                                </button>
-                              )}
-                              {puedeResponderMensajes && canRespond && (
-                                <>
-                                  <button
-                                    className="btn-tesla outline-subtle-primary sm"
-                                    onClick={() => openMessageEdit(anchor)}
-                                    disabled={msgActionLoadingId === anchor.id}
-                                  >
-                                    Editar
-                                  </button>
-                                  <button
-                                    className="btn-tesla sm"
-                                    onClick={() => handleSendMessage(anchor)}
-                                    disabled={msgActionLoadingId === anchor.id || !anchor.drafted_answer || !messagesSendEnabled}
-                                    title={messagesSendEnabled ? 'Enviar respuesta' : 'Envío deshabilitado — habilitá messages_send_enabled'}
-                                    aria-label="Enviar respuesta"
-                                  >
-                                    <Send size={14} />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                    {thread.messages.map((m) => (
-                      <tr key={m.id} className={styles.threadRow}>
-                        <td className={styles.threadRowIndent} aria-hidden="true" />
-                        <td className={styles.cellQuestion} title={m.text}>{m.text}</td>
-                        <td>{m.received_at ? new Date(m.received_at).toLocaleString() : '—'}</td>
-                        <td>{m.read_at ? new Date(m.read_at).toLocaleString() : '—'}</td>
-                        <td>
-                          {m.moderation_status && m.moderation_status !== 'clean' ? (
-                            <span className={`${styles.badge} ${styles.badgeWarning}`}>
-                              {MESSAGE_STATUS_LABELS[m.moderation_status] || m.moderation_status}
-                            </span>
-                          ) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                    {expandedThreadKey === thread.key && renderMessageDetailRow(thread)}
-                  </tbody>
-                  );
-                })
-              )}
-          </ResizableTableShell>
+                          </span>
+                          <span className={styles.conversationCount}>
+                            {thread.messages.length} mensaje{thread.messages.length === 1 ? '' : 's'}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
 
-          {/* ponytail: pagination here is by raw message row (matches the
-              honest `total` the backend returns), but the UI groups rows into
-              threads by pack_id. A thread that straddles the page boundary
-              renders split — worst case its anchor message (the only one
-              carrying bot_status) lands on the other page, so the visible
-              half shows no status badge and no Tomar/Enviar actions. Existed
-              before this PR at limit=100 too, just less often; fixing it
-              needs thread-aware pagination on the backend, out of PR1 scope
-              (ml-bot-panel-operador spec item 1 covers only the honest
-              total/offset, not per-thread grouping). The label below says
-              "mensajes", not "conversaciones", so the count is never
-              misread as a thread count. */}
-          <PaginationBar
-            offset={mensajesOffset}
-            pageSize={PAGINATION_PAGE_SIZE}
-            total={mensajesTotal}
-            unitLabel="mensajes"
-            onOffsetChange={setMensajesOffset}
-          />
+              {/* ponytail: pagination here is by raw message row (matches the
+                  honest `total` the backend returns), but the UI groups rows
+                  into threads by pack_id. A thread that straddles the page
+                  boundary renders split — worst case its anchor message (the
+                  only one carrying bot_status) lands on the other page, so the
+                  visible half shows no status badge and no Tomar/Enviar
+                  actions. Fixing it needs thread-aware pagination on the
+                  backend. The label below says "mensajes", not
+                  "conversaciones", so the count is never misread as a thread
+                  count. */}
+              <div className={styles.mensajesPagination}>
+                <PaginationBar
+                  offset={mensajesOffset}
+                  pageSize={PAGINATION_PAGE_SIZE}
+                  total={mensajesTotal}
+                  unitLabel="mensajes"
+                  onOffsetChange={setMensajesOffset}
+                />
+              </div>
+            </section>
+
+            <section className={styles.threadPane} aria-label="Conversación seleccionada">
+              {!messagesLoading && selectedThread ? (
+                renderMessageThreadPane(selectedThread)
+              ) : (
+                <div className={styles.threadPanePlaceholder}>
+                  <MessagesSquare size={28} aria-hidden="true" />
+                  <span>
+                    {messagesLoading ? 'Cargando conversación...' : 'Seleccioná una conversación para ver sus mensajes'}
+                  </span>
+                </div>
+              )}
+            </section>
+          </div>
         </>
       )}
 
