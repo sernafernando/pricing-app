@@ -179,6 +179,16 @@ describe('total row', () => {
 });
 
 describe('toolbar filters', () => {
+  it('says so when the filters leave no campaign, and counts one campaña in the singular', async () => {
+    const user = userEvent.setup();
+    await renderOctober();
+    await user.type(screen.getByPlaceholderText('Buscar campaña…'), 'zzz');
+    expect(screen.getByText('Ninguna campaña coincide con los filtros.')).toBeInTheDocument();
+    await user.clear(screen.getByPlaceholderText('Buscar campaña…'));
+    await user.type(screen.getByPlaceholderText('Buscar campaña…'), 'Routers');
+    expect(within(screen.getByRole('region', { name: 'Resumen de aportes' })).getByText('1 campaña')).toBeInTheDocument();
+  });
+
   it('narrows the loaded rows by search, contribution and advertiser without asking again', async () => {
     const user = userEvent.setup();
     await renderOctober();

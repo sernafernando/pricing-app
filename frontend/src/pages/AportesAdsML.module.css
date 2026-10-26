@@ -133,20 +133,13 @@
   gap: var(--spacing-sm);
   flex: 1 1 240px;
   max-width: 340px;
-  height: 34px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
   color: var(--cf-text-tertiary);
 }
 
-.search input {
+.searchInput {
+  composes: inputSm from '../styles/forms-tesla.css';
   flex: 1;
   min-width: 0;
-  border: none;
-  background: transparent;
-  color: var(--cf-text-primary);
-  font-size: var(--font-sm);
 }
 
 .advertiser {
@@ -158,14 +151,9 @@
   color: var(--cf-text-tertiary);
 }
 
-.advertiser select {
-  height: 34px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-  color: var(--cf-text-primary);
-  font-size: var(--font-sm);
+.advertiserSelect {
+  composes: selectSm from '../styles/forms-tesla.css';
+  width: auto;
 }
 
 .tableCard {

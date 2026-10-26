@@ -215,7 +215,9 @@ export default function AportesAdsML() {
         <div className={styles.kpi}>
           <span className={styles.kpiLabel}>Costo Ads del período</span>
           <span className={styles.kpiValue}>{formatSignedMoney(totals.cost)}</span>
-          <span className={styles.kpiSub}>{visible.length} campañas</span>
+          <span className={styles.kpiSub}>
+            {visible.length} {visible.length === 1 ? 'campaña' : 'campañas'}
+          </span>
         </div>
         <div className={styles.kpi}>
           <span className={styles.kpiLabel}>Aporte de marcas</span>
@@ -243,6 +245,7 @@ export default function AportesAdsML() {
           <Search size={14} aria-hidden="true" />
           <input
             type="search"
+            className={styles.searchInput}
             aria-label="Buscar campaña"
             placeholder="Buscar campaña…"
             value={search}
@@ -252,7 +255,7 @@ export default function AportesAdsML() {
         <SegmentedControl label="Aportes" options={SEGMENTS} value={segment} onChange={setSegment} />
         <label className={styles.advertiser}>
           <span>Anunciante</span>
-          <select value={advertiser} onChange={(e) => setAdvertiser(e.target.value)}>
+          <select className={styles.advertiserSelect} value={advertiser} onChange={(e) => setAdvertiser(e.target.value)}>
             <option value="">Todos</option>
             {advertisers.map((name) => (
               <option key={name} value={name}>
@@ -285,6 +288,11 @@ export default function AportesAdsML() {
             {loading && (
               <tr>
                 <td colSpan={6} className={styles.muted}>Cargando...</td>
+              </tr>
+            )}
+            {!loading && campaigns.length > 0 && visible.length === 0 && (
+              <tr>
+                <td colSpan={6} className={styles.muted}>Ninguna campaña coincide con los filtros.</td>
               </tr>
             )}
             {!loading && campaigns.length === 0 && !loadError && (
