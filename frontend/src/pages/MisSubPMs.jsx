@@ -4,6 +4,7 @@ import { marcasPmAPI } from '../services/api';
 import { ModalAlert, ModalLoading } from '../components/ModalTesla';
 import UsuariosLista from '../components/subpms/UsuariosLista';
 import MarcasAcordeon from '../components/subpms/MarcasAcordeon';
+import ChipsPorMarca from '../components/subpms/ChipsPorMarca';
 import { parKey } from '../components/parKey';
 import { clavesDesdePayload } from './misSubPMsHelpers';
 import { useAuthStore } from '../store/authStore';
@@ -55,7 +56,7 @@ function extraerError(err, fallback) {
  * one user across N pairs) with: pick the target user, pre-check their
  * current grants, edit the full set, confirm a named diff, one PUT.
  * Pairs are grouped by marca (`MarcasAcordeon`) so a whole marca is one
- * click.
+ * click, and the save bar stays pinned to the bottom of the page.
  *
  * Pair source stays split by contract, same as before: admin
  * (`admin.gestionar_pms`) -> GET /marcas-pm (`listarTodosLosPares`,
@@ -77,6 +78,9 @@ export default function MisSubPMs() {
   const [usuarios, setUsuarios] = useState([]);
   const [conteos, setConteos] = useState({}); // usuario_id -> total
   const [conteosError, setConteosError] = useState(false); // counts failed to load; render "?" instead of a fake (0)
+  // Every grant on the caller's pairs, only to show "who else manages this
+  // pair". Cosmetic like the counts: a failure leaves it empty, never blocks.
+  const [grantsScope, setGrantsScope] = useState([]);
 
   // Number|null — `UsuariosLista` passes the user's numeric `id` as is,
   // matching `usuario_id`'s type everywhere else — avoids scattering
@@ -187,6 +191,21 @@ export default function MisSubPMs() {
     })();
   }, [hayParesEnScope]);
 
+  const cargarGrantsScope = useCallback(async () => {
+    try {
+      const { data } = await marcasPmAPI.listarGrantsScope();
+      setGrantsScope(Array.isArray(data?.grants) ? data.grants : []);
+    } catch (err) {
+      console.error('Error al cargar los sub-PMs de los pares', err);
+      setGrantsScope([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hayParesEnScope) return;
+    cargarGrantsScope();
+  }, [hayParesEnScope, cargarGrantsScope]);
+
   // A titular is never a valid delegation target for their own pairs (the
   // backend also rejects self-grant with 400).
   const usuariosDisponibles = useMemo(
@@ -278,6 +297,18 @@ export default function MisSubPMs() {
       }
       return next;
     });
+  };
+
+  const quitarMarca = (marca) => {
+    marcarPares(
+      pares.filter((par) => par.marca === marca),
+      false,
+    );
+  };
+
+  const descartar = () => {
+    setChecked(new Set(baseline));
+    setConfirmando(false);
   };
 
   const { toGrant, toRevoke } = diffContraBaseline(checked, baseline);
@@ -385,6 +416,7 @@ export default function MisSubPMs() {
         setChecked(nuevaBase);
         setConfirmando(false);
       }
+      cargarGrantsScope();
       const nombreGuardado =
         usuariosDisponibles.find((u) => u.id === usuarioGuardado)?.nombre || `usuario #${usuarioGuardado}`;
       const sufijoOmitidos =
@@ -402,6 +434,39 @@ export default function MisSubPMs() {
       setSaving(false);
     }
   };
+
+  const otrosPorPar = useMemo(() => {
+    const map = new Map();
+    for (const g of grantsScope) {
+      if (g.usuario_id === targetUserId) continue;
+      const key = parKey(g.marca, g.categoria);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(g.usuario_nombre || `Usuario #${g.usuario_id}`);
+    }
+    return map;
+  }, [grantsScope, targetUserId]);
+
+  // Chips show the CURRENT selection (pending changes included), one per
+  // marca; a chip is flagged when its count differs from what is saved.
+  const chipsPorMarca = useMemo(() => {
+    const contar = (keys) => {
+      const porMarca = new Map();
+      for (const key of keys) {
+        const par = pairsByKey.get(key);
+        if (!par) continue;
+        porMarca.set(par.marca, (porMarca.get(par.marca) || 0) + 1);
+      }
+      return porMarca;
+    };
+    const actual = contar(checked);
+    const guardado = contar(baseline);
+    return [...actual.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([marca, total]) => ({ marca, total, cambiado: guardado.get(marca) !== total }));
+  }, [checked, baseline, pairsByKey]);
+
+  const marcasGuardadas = new Set([...baseline].map((key) => pairsByKey.get(key)?.marca).filter(Boolean)).size;
+  const paresGuardados = [...baseline].filter((key) => pairsByKey.has(key)).length;
 
   return (
     <div className={styles.container}>
@@ -472,57 +537,78 @@ export default function MisSubPMs() {
 
           {loadingPares ? (
             <ModalLoading message="Cargando..." />
+          ) : targetUserId == null ? (
+            <div className={styles.emptyDetail}>
+              <strong>Elegí un usuario</strong>
+              <span>Vas a ver las marcas y categorías que gestiona y podés sumarle una marca entera de un clic.</span>
+            </div>
+          ) : loadingGrants ? (
+            <ModalLoading message="Cargando sub-PMs delegados..." />
           ) : (
             <>
-              {targetUserId == null ? (
-                <div className={styles.emptyDetail}>
-                  <strong>Elegí un usuario</strong>
-                  <span>Vas a ver las marcas y categorías que gestiona y podés sumarle una marca entera de un clic.</span>
-                </div>
-              ) : loadingGrants ? (
-                <ModalLoading message="Cargando sub-PMs delegados..." />
-              ) : (
-                <MarcasAcordeon
-                  pares={pares}
-                  checked={checked}
-                  baseline={baseline}
-                  onToggle={toggle}
-                  onMarcarPares={marcarPares}
-                  disabled={saving}
-                />
-              )}
-
-              {confirmando && (
-                <div className={styles.confirmBox} data-testid="confirmarGuardarBox">
-                  <span>
-                    ¿Confirmás guardar los cambios para {usuarioSeleccionado?.nombre || `usuario #${targetUserId}`}?
-                    {' '}Se otorgarán <strong>+{toGrant.length}</strong> pares y se revocarán <strong>−{toRevoke.length}</strong> pares.
-                  </span>
-                  <div className={styles.confirmActions}>
-                    <button className="btn-tesla outline-subtle-primary sm" onClick={guardar} disabled={saving}>
-                      {saving ? 'Guardando...' : 'Sí, guardar'}
-                    </button>
-                    <button className="btn-tesla ghost sm" onClick={() => setConfirmando(false)} disabled={saving}>
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className={styles.addRow}>
-                <button
-                  className="btn-tesla outline-subtle-primary sm"
-                  onClick={() => setConfirmando(true)}
-                  disabled={targetUserId == null || !dirty || saving || usuarioPendiente != null}
-                >
-                  <Save size={14} />
-                  Guardar cambios
-                </button>
-              </div>
+              <header className={styles.resumen}>
+                <h2 className={styles.resumenNombre}>{usuarioSeleccionado?.nombre || `Usuario #${targetUserId}`}</h2>
+                <span className={styles.resumenTexto}>
+                  Gestiona <strong>{paresGuardados}</strong> {paresGuardados === 1 ? 'par' : 'pares'} en{' '}
+                  <strong>{marcasGuardadas}</strong> {marcasGuardadas === 1 ? 'marca' : 'marcas'}
+                </span>
+                <ChipsPorMarca grupos={chipsPorMarca} onQuitarMarca={quitarMarca} disabled={saving} />
+              </header>
+              <MarcasAcordeon
+                pares={pares}
+                checked={checked}
+                baseline={baseline}
+                otrosPorPar={otrosPorPar}
+                onToggle={toggle}
+                onMarcarPares={marcarPares}
+                disabled={saving}
+              />
             </>
           )}
         </section>
       </div>
+
+      <footer className={styles.actionBar}>
+        {confirmando ? (
+          <div className={styles.actionConfirm} data-testid="confirmarGuardarBox">
+            <span>
+              ¿Confirmás guardar los cambios para {usuarioSeleccionado?.nombre || `usuario #${targetUserId}`}?
+              {' '}Se otorgarán <strong>+{toGrant.length}</strong> pares y se revocarán <strong>−{toRevoke.length}</strong> pares.
+            </span>
+            <div className={styles.confirmActions}>
+              <button className="btn-tesla outline-subtle-primary sm" onClick={guardar} disabled={saving}>
+                {saving ? 'Guardando...' : 'Sí, guardar'}
+              </button>
+              <button className="btn-tesla ghost sm" onClick={() => setConfirmando(false)} disabled={saving}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <span className={toGrant.length > 0 ? styles.contadorAgrega : styles.contador}>+{toGrant.length} agregar</span>
+            <span className={toRevoke.length > 0 ? styles.contadorQuita : styles.contador}>−{toRevoke.length} quitar</span>
+            <span className={styles.actionTexto}>
+              {targetUserId == null
+                ? 'Elegí un usuario para guardar cambios de delegación.'
+                : dirty
+                  ? `${usuarioSeleccionado?.nombre || `Usuario #${targetUserId}`}: ${toGrant.length + toRevoke.length} cambios sin guardar`
+                  : `Sin cambios pendientes para ${usuarioSeleccionado?.nombre || `usuario #${targetUserId}`}`}
+            </span>
+            <button className="btn-tesla ghost sm" onClick={descartar} disabled={!dirty || saving}>
+              Descartar
+            </button>
+            <button
+              className="btn-tesla outline-subtle-primary sm"
+              onClick={() => setConfirmando(true)}
+              disabled={targetUserId == null || !dirty || saving || usuarioPendiente != null}
+            >
+              <Save size={14} />
+              Guardar cambios
+            </button>
+          </>
+        )}
+      </footer>
     </div>
   );
 }

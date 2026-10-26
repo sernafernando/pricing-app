@@ -145,7 +145,7 @@
 
 .fila {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1.2fr) 84px;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1fr) minmax(140px, 1.2fr) 84px;
   align-items: center;
   gap: 12px;
   padding: 7px 12px 7px 36px;
@@ -186,5 +186,13 @@
 
 .sinTitular {
   font-style: italic;
+  color: var(--cf-text-tertiary);
+}
+
+.otros {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
