@@ -24,7 +24,7 @@ Branches off `origin/main`, one PR per task, each merged before the next (stacke
 | T2a | S2, S3 | inline | merged #1749 | table with aporte/neto/one-line chips; css-guard rule 2 fix (range inputs compose inputSm) |
 | T2b | S3 | inline | merged #1750 | KPI tiles + toolbar filters; GGA fixes with RED tests (empty filter message, stale advertiser, loading dash) |
 | T3a | S4 | inline | merged #1753 | add modal with campaign choice and debounced preview; value input composes forms-tesla input |
-| T3b | S5 | inline | this PR | delete summary; visual test aportesAdsMl (1440/1920, light/dark) pins one-line chips and whole pills |
+| T3b | S5 | inline | this PR | delete summary; visual test aportesAdsMl (1280/1440/1920, light/dark) pins one-line chips and whole pills; delete modal cannot close mid-delete |
 
 ## Log
 

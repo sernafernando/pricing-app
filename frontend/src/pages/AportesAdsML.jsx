@@ -184,7 +184,9 @@ export default function AportesAdsML() {
     fetchCampaigns();
   };
 
+  // Closing mid-delete would let a late failure surface on the next contribution's modal.
   const closeDelete = () => {
+    if (deleting) return;
     setDeleteTarget(null);
     setDeleteError(null);
   };
@@ -194,7 +196,7 @@ export default function AportesAdsML() {
     setDeleteError(null);
     try {
       await api.delete(`/ml-ads/contributions/${deleteTarget.contribution.id}`);
-      closeDelete();
+      setDeleteTarget(null);
       fetchCampaigns();
     } catch (err) {
       setDeleteError(apiErrorMessage(err, 'No se pudo borrar el aporte'));
@@ -465,7 +467,7 @@ export default function AportesAdsML() {
         size="sm"
         footer={
           <div className={styles.modalFooter}>
-            <button type="button" className={styles.btnSecondary} onClick={closeDelete}>
+            <button type="button" className={styles.btnSecondary} onClick={closeDelete} disabled={deleting}>
               Cancelar
             </button>
             <button type="button" className={styles.btnDanger} onClick={handleConfirmDelete} disabled={deleting}>

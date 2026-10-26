@@ -1,7 +1,7 @@
 /**
  * Aportes de marcas (Ads ML) -- the real page, real CSS, real Chromium (ml-ads-contribution-redesign S3-S5).
  *
- * The layout promises of the Stitch design, at the two widths operators use, in both themes:
+ * The layout promises of the Stitch design, at the widths operators use (1280-1920), in both themes:
  *  - every contribution chip stays on ONE line;
  *  - money never wraps and the table never pushes the page sideways;
  *  - the add and delete modals open with their content.

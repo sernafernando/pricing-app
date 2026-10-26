@@ -367,6 +367,16 @@ describe('manage contributions', () => {
     await waitFor(() => expect(campaignRequests()).toBe(2));
   });
 
+  it('keeps the delete modal open while the delete is in flight, so its error never leaks to another one', async () => {
+    const user = userEvent.setup();
+    api.delete.mockImplementation(() => new Promise(() => {}));
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(within(rowOf('Routers')).getByRole('button', { name: /borrar aporte/i }));
+    await user.click(screen.getByRole('button', { name: 'Borrar aporte' }));
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+  });
+
   it('deletes a contribution after confirming and refreshes the list', async () => {
     const user = userEvent.setup();
     render(<AportesAdsML />);
