@@ -24,38 +24,23 @@
   composes: alertError from './AportesAdsML.module.css';
 }
 
+/* The value's unit sits beside the control, so the control keeps the shared box and focus ring. */
 .affixed {
   display: flex;
   align-items: center;
-  height: 40px;
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-card);
-}
-
-.affixed:focus-within {
-  border-color: var(--cf-accent-blue);
+  gap: var(--space-2);
 }
 
 .affix {
-  padding: 0 var(--space-3);
   color: var(--cf-text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .affixedInput {
+  composes: input from '../styles/forms-tesla.css';
   flex: 1;
   min-width: 0;
-  height: 100%;
-  padding: 0 var(--space-3);
-  border: none;
-  background: transparent;
-  color: var(--cf-text-primary);
   font-family: var(--font-mono);
-  font-size: var(--font-sm);
-}
-
-.affixedInput:focus {
-  outline: none;
 }
 
 /* "Cómo se liquida": two option cards side by side; the radio stays for keyboard and screen readers. */
