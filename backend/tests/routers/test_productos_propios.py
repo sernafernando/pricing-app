@@ -187,7 +187,7 @@ class TestEdit:
         assert response.status_code == 200, response.text
         assert stored(pg).sku == "X" * 100
 
-    def test_a_blank_or_null_value_drops_the_manual_one_and_both_gone_drops_the_row(self, client, pg, editor):
+    def test_a_blank_or_null_value_drops_the_manual_one(self, client, pg, editor):
         with pg.begin() as conn:
             product(conn)
             publication(conn, "MLA1", 70, seller_sku="FROM-MLA")
@@ -199,7 +199,7 @@ class TestEdit:
 
         body = client.put(f"{BASE}/70", headers=editor, json={"sku": None, "ean": None}).json()
         assert (body["ean"], body["ean_manual"]) == ("7791234567890", False)
-        assert stored(pg) is None
+        assert tuple(stored(pg))[:2] == (None, None)  # the row stays: it may hold the copied data (T7)
 
     def test_editing_needs_the_edit_permission(self, client, pg, reader):
         with pg.begin() as conn:
