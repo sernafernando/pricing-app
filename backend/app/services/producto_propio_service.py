@@ -36,6 +36,14 @@ class FuenteNoValida(Exception):
     """The publication cannot be the product's source: it is not a live publication linked to the product."""
 
 
+class SinFuente(Exception):
+    """The product's data cannot be edited: no source publication was chosen yet, so there is nothing copied."""
+
+
+class DatosNoValidos(Exception):
+    """The edit names a picture or an attribute that was not copied, or one twice."""
+
+
 @dataclass(frozen=True)
 class DatosCopiados:
     fuente_mla: str
@@ -214,5 +222,51 @@ def choose_source(db: Session, item_id: int, mla: str, usuario_id: int) -> Optio
         raise FuenteNoValida(f"La publicación {mla} no es una publicación vigente de este producto.")
     copy = _copy_of(db, mla)
     _upsert(db, item_id, {**copy, "fuente_copiada_por": usuario_id, "fuente_copiada_at": func.now()})
+    db.commit()
+    return read_producto_propio(db, item_id)
+
+
+def _pick(copied: list[dict[str, Any]], ids: list[str], what: str) -> list[dict[str, Any]]:
+    """The copied entries named by `ids`, in that order: each one copied, and once."""
+    by_id = {entry.get("id"): entry for entry in copied}
+    if len(set(ids)) != len(ids):
+        raise DatosNoValidos(f"Hay {what} repetidos.")
+    unknown = [entry_id for entry_id in ids if entry_id not in by_id]
+    if unknown:
+        raise DatosNoValidos(f"{what.capitalize()} que no se copiaron de la publicación: {', '.join(unknown)}.")
+    return [by_id[entry_id] for entry_id in ids]
+
+
+def edit_datos(
+    db: Session,
+    item_id: int,
+    titulo: str,
+    descripcion: Optional[str],
+    fotos: list[str],
+    atributos: list[tuple[str, str]],
+    usuario_id: int,
+) -> Optional[ProductoPropioView]:
+    """Save the edited copy and commit; None when the product is unknown.
+
+    `fotos` are copied picture ids in the new order (dropping is leaving one out); `atributos` are `(id, value_name)`
+    of copied attributes (the name stays the copied one). A blank description is None. Raises `SinFuente` before a
+    source is chosen and `DatosNoValidos` for a picture or attribute that was not copied or is repeated.
+    """
+    if db.get(ProductoERP, item_id) is None:
+        return None
+    # Locked until the commit: a source chosen meanwhile waits, so the edit is checked against the copy it replaces.
+    row = db.get(ProductoPropio, item_id, with_for_update=True)
+    if row is None or row.fuente_mla is None:
+        raise SinFuente("Elegí primero la publicación de la que se copian los datos.")
+    new_fotos = _pick(row.fotos or [], fotos, "fotos")
+    copied_atributos = _pick(row.atributos or [], [attribute_id for attribute_id, _ in atributos], "atributos")
+    new_atributos = [
+        {**copied, "value_name": value_name} for copied, (_, value_name) in zip(copied_atributos, atributos)
+    ]
+    row.titulo = titulo
+    row.descripcion = _manual_value(descripcion)
+    row.fotos = new_fotos
+    row.atributos = new_atributos
+    row.updated_by = usuario_id
     db.commit()
     return read_producto_propio(db, item_id)

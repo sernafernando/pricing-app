@@ -23,9 +23,12 @@ from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.ml_publications import admin
 from app.services.producto_propio_service import (
+    DatosNoValidos,
     FuenteNoValida,
+    SinFuente,
     ProductoPropioView,
     choose_source,
+    edit_datos,
     read_producto_propio,
     save_producto_propio,
 )
@@ -71,6 +74,34 @@ class FuenteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mla: Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]
+
+
+# The title and attribute values have no fixed ML limit across categories: only a generous cap here.
+MAX_TITULO_LENGTH = 255
+MAX_ATRIBUTO_VALUE_LENGTH = 255
+MAX_DESCRIPCION_LENGTH = 50000  # ML's limit on a description
+
+NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class AtributoEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: NonBlank
+    value_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_ATRIBUTO_VALUE_LENGTH)
+    ]
+
+
+class DatosRequest(BaseModel):
+    """Every field is required: the edit is the whole copy, not a patch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    titulo: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_TITULO_LENGTH)]
+    descripcion: Optional[Annotated[str, StringConstraints(max_length=MAX_DESCRIPCION_LENGTH)]]
+    fotos: list[NonBlank]  # copied picture ids, in the new order
+    atributos: list[AtributoEdit]  # copied attributes with their new value
 
 
 class ProductoPropioRequest(BaseModel):
@@ -132,6 +163,34 @@ def post_fuente(
         view = choose_source(db, item_id, body.mla, user.id)
     except FuenteNoValida as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if view is None:
+        raise _not_found(item_id)
+    return _response(view, True)
+
+
+@router.put("/{item_id}/datos", response_model=ProductoPropioResponse)
+def put_datos(
+    body: DatosRequest,
+    item_id: int = Path(..., ge=1),
+    user: Usuario = Depends(require_permiso(PERMISO_EDITAR)),
+    db: Session = Depends(get_productos_propios_db),
+) -> ProductoPropioResponse:
+    """Save the edited copy: title, description, the copied pictures kept (in order) and the copied attributes kept
+    (with their values). 409 before a source is chosen; 422 for a picture or attribute that was not copied."""
+    try:
+        view = edit_datos(
+            db,
+            item_id,
+            body.titulo,
+            body.descripcion,
+            body.fotos,
+            [(atributo.id, atributo.value_name) for atributo in body.atributos],
+            user.id,
+        )
+    except SinFuente as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except DatosNoValidos as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if view is None:
         raise _not_found(item_id)
     return _response(view, True)
