@@ -16,7 +16,9 @@ function iniciales(nombre) {
  *
  * Replaces the former native `<select>`: every user is visible with their
  * grant count, so picking one is a single click. `conteosError` renders
- * "?" instead of a fake 0, same contract the old picker had.
+ * "?" instead of a fake 0, same contract the old picker had. The panel
+ * sticks to the top of the page and scrolls on its own, so the list stays
+ * reachable while the pair list below is long.
  */
 export default function UsuariosLista({
   usuarios,
@@ -29,9 +31,11 @@ export default function UsuariosLista({
 }) {
   const [busqueda, setBusqueda] = useState('');
 
+  // The selected user stays listed while a search hides the others: it is
+  // still the save target, so it must stay visible.
   const termino = busqueda.trim().toLowerCase();
   const visibles = termino
-    ? usuarios.filter((u) => (u.nombre || '').toLowerCase().includes(termino))
+    ? usuarios.filter((u) => u.id === seleccionadoId || (u.nombre || '').toLowerCase().includes(termino))
     : usuarios;
 
   return (
@@ -78,7 +82,7 @@ export default function UsuariosLista({
               </li>
             );
           })}
-          {visibles.length === 0 && <li className={styles.vacio}>Ningún usuario coincide.</li>}
+          {termino && visibles.length === 0 && <li className={styles.vacio}>Ningún usuario coincide.</li>}
         </ul>
       )}
     </aside>

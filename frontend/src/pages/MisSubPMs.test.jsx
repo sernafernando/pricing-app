@@ -94,6 +94,24 @@ describe('MisSubPMs — user list', () => {
     expect(screen.getByRole('button', { name: /^Beto \(/ })).toBeInTheDocument();
   });
 
+  it('keeps the selected user listed while a search hides the others', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    await user.type(screen.getByRole('searchbox', { name: /buscar usuario/i }), 'bet');
+    expect(screen.getByRole('button', { name: /^Ana \(/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Beto \(/ })).toBeInTheDocument();
+  });
+
+  it('says no user matches only when a search is active', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    marcasPmAPI.listarUsuariosPM.mockRejectedValue(new Error('boom'));
+    render(<MisSubPMs />);
+    expect(await screen.findByText(/error al cargar los usuarios/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ningún usuario coincide/i)).not.toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('uses "Mis Sub-PMs" copy for titulares and "Sub-PMs" for admins', async () => {
     render(<MisSubPMs />);
     expect(await screen.findByRole('heading', { name: 'Mis Sub-PMs' })).toBeInTheDocument();
