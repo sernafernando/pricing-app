@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import { productosPropiosAPI } from '../../../services/api';
+import { apiErrorMessage } from '../../../utils/apiErrorMessage';
 import styles from './panel.module.css';
 
 // The server's limits (`productos_propios` router): titles and attribute values, and ML's limit on a description.
@@ -11,10 +12,9 @@ const MAX_DESCRIPCION_LENGTH = 50000;
 /** What to tell the operator when the save did not go through (a 409, or a 422 in words, is the server's own). */
 function describeError(error) {
   const status = error?.response?.status;
-  const detail = error?.response?.data?.detail;
   if (status === 403) return 'No tenés permiso para editar los datos del producto.';
-  if ((status === 409 || status === 422) && typeof detail === 'string') return detail;
-  if (status === 422) return 'Revisá los datos: el título y cada valor, hasta 255 caracteres.';
+  if (status === 409) return apiErrorMessage(error, 'No se pudieron guardar los datos. Probá de nuevo.');
+  if (status === 422) return apiErrorMessage(error, 'Revisá los datos: el título y cada valor, hasta 255 caracteres.');
   return 'No se pudieron guardar los datos. Probá de nuevo.';
 }
 
