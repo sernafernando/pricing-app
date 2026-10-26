@@ -73,6 +73,7 @@ vi.mock('../../services/api', () => ({
       }),
     ),
     save: vi.fn(),
+    chooseSource: vi.fn(),
   },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
@@ -755,7 +756,29 @@ describe('Publicaciones ML Producto view (visual)', () => {
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product's SKU and EAN, and their edit, fit inside the panel`, async () => {
         productosPropiosAPI.get.mockResolvedValueOnce({
-          data: { item_id: 4101, codigo: '6935364099589', descripcion: 'Router Archer AX55', ean: '6935364099589', ean_manual: true, sku: null, sku_manual: false, sku_candidatos: ['ARCHER-AX55', 'ARCHER-AX55-V2'], can_edit: true },
+          data: {
+            item_id: 4101,
+            codigo: '6935364099589',
+            descripcion: 'Router Archer AX55',
+            ean: '6935364099589',
+            ean_manual: true,
+            sku: null,
+            sku_manual: false,
+            sku_candidatos: ['ARCHER-AX55', 'ARCHER-AX55-V2'],
+            can_edit: true,
+            datos: {
+              fuente_mla: 'MLA1100000001',
+              titulo: 'Router TP-Link Archer AX55 Wi-Fi 6 Dual Band 3000 Mbps',
+              descripcion: 'Router Wi-Fi 6 de doble banda.\nHasta 3000 Mbps, con OneMesh y 4 antenas de alta ganancia que cubren toda la casa sin cortes.',
+              fotos: [1, 2, 3, 4, 5, 6, 7].map((n) => ({ id: `P${n}`, url: `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>` })),
+              atributos: [
+                { id: 'BRAND', name: 'Marca', value_name: 'TP-Link' },
+                { id: 'MODEL', name: 'Modelo', value_name: 'Archer AX55' },
+                { id: 'WIFI', name: 'Estándares Wi-Fi compatibles', value_name: '802.11 a/b/g/n/ac/ax' },
+              ],
+              copiado_at: '2026-10-26T15:00:00Z',
+            },
+          },
         });
         const screen = await renderProducts({ width, height, theme });
         await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
@@ -763,6 +786,15 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await expect.element(aside.getByText('Las publicaciones tienen SKUs distintos: ARCHER-AX55, ARCHER-AX55-V2')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-identity-${width}-${theme}.png` });
+        // The copied data: the pictures' grid and the description stay inside the panel.
+        const data = document.querySelector('section[aria-labelledby] img')?.closest('section');
+        expect(data, 'the copied data section with its pictures').not.toBeNull();
+        data.scrollIntoView();
+        for (const el of data.querySelectorAll('img, p, dd')) {
+          expect(rect(el).right, el.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-data-${width}-${theme}.png` });
+        panel.querySelector('section').scrollIntoView();
         await aside.getByRole('button', { name: 'Editar' }).click();
         await expect.element(aside.getByLabelText('SKU')).toBeVisible();
         const box = rect(panel);
