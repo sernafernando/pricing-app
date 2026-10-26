@@ -94,7 +94,11 @@ export default function ProductData({ product, publications, onSaved }) {
     <Section title="Datos del producto">
       {datos ? <Copied datos={datos} /> : <p className={styles.note}>Todavía no se copiaron datos de ninguna publicación.</p>}
 
-      {picking && (
+      {picking && candidates.length === 0 && (
+        <p className={styles.note}>No hay publicaciones vigentes en la lista para copiar. Probá cambiando los filtros.</p>
+      )}
+
+      {picking && candidates.length > 0 && (
         <div className={styles.identityForm}>
           <label className={styles.identityField} htmlFor={selectId}>
             <span>Publicación de origen</span>

@@ -101,6 +101,13 @@ describe('choosing the source', () => {
     expect(onSaved).toHaveBeenCalledWith(copied);
   });
 
+  it('says so when the panel lists no live publication to copy from', () => {
+    renderData({ product: product({ can_edit: true }), publications: [PUBLICATIONS[2]] });
+
+    expect(screen.getByText('No hay publicaciones vigentes en la lista para copiar. Probá cambiando los filtros.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Publicación de origen')).not.toBeInTheDocument();
+  });
+
   it('asks before replacing an earlier copy, and Cancelar leaves it', async () => {
     const user = userEvent.setup();
     renderData({ product: product({ datos: DATOS, can_edit: true }) });

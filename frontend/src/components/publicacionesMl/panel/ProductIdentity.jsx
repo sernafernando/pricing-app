@@ -128,75 +128,75 @@ export default function ProductIdentity({ productItemId, publications = [] }) {
 
   return (
     <>
-    <Section title="Identificación">
-      {form ? (
-        <form className={styles.identityForm} onSubmit={save}>
-          <label className={styles.identityField}>
-            <span>SKU</span>
-            <input
-              className={styles.identityInput}
-              value={form.sku}
-              placeholder={computed.sku}
-              list={listId}
-              maxLength={100}
-              disabled={form.status === 'saving'}
-              onChange={(event) => setForm({ ...form, sku: event.target.value })}
-            />
-          </label>
-          <datalist id={listId}>
-            {product.sku_candidatos.map((sku) => (
-              <option key={sku} value={sku} />
-            ))}
-          </datalist>
-          <label className={styles.identityField}>
-            <span>EAN</span>
-            <input
-              className={styles.identityInput}
-              value={form.ean}
-              placeholder={computed.ean}
-              maxLength={100}
-              disabled={form.status === 'saving'}
-              onChange={(event) => setForm({ ...form, ean: event.target.value })}
-            />
-          </label>
-          <p className={styles.note}>Vacío: el SKU de las publicaciones y el EAN del ERP.</p>
-          <div className={styles.statusConfirm}>
-            <button type="submit" className="btn-tesla primary sm" disabled={form.status === 'saving'}>
-              Guardar
-            </button>
-            <button type="button" className="btn-tesla outline sm" onClick={() => setForm(null)} disabled={form.status === 'saving'}>
-              Cancelar
-            </button>
-          </div>
-          {form.error && (
-            <p className={styles.feedback} role="alert">
-              {form.error}
-            </p>
-          )}
-        </form>
-      ) : (
-        <>
-          <Fields>
-            <Field label="EAN">{product.ean != null && <Value value={product.ean} manual={product.ean_manual} />}</Field>
-            <Field label="SKU">
-              {(product.sku != null || product.sku_candidatos.length > 1) && <SkuValue product={product} />}
-            </Field>
-          </Fields>
-          {product.can_edit && (
-            <button type="button" className={`btn-tesla outline sm ${styles.identityEdit}`} onClick={edit}>
-              <Pencil size={14} aria-hidden="true" />
-              Editar
-            </button>
-          )}
-          {saved && (
-            <p className={styles.feedback} role="status">
-              Guardado.
-            </p>
-          )}
-        </>
-      )}
-    </Section>
-    <ProductData product={product} publications={publications} onSaved={setProduct} />
+      <Section title="Identificación">
+        {form ? (
+          <form className={styles.identityForm} onSubmit={save}>
+            <label className={styles.identityField}>
+              <span>SKU</span>
+              <input
+                className={styles.identityInput}
+                value={form.sku}
+                placeholder={computed.sku}
+                list={listId}
+                maxLength={100}
+                disabled={form.status === 'saving'}
+                onChange={(event) => setForm({ ...form, sku: event.target.value })}
+              />
+            </label>
+            <datalist id={listId}>
+              {product.sku_candidatos.map((sku) => (
+                <option key={sku} value={sku} />
+              ))}
+            </datalist>
+            <label className={styles.identityField}>
+              <span>EAN</span>
+              <input
+                className={styles.identityInput}
+                value={form.ean}
+                placeholder={computed.ean}
+                maxLength={100}
+                disabled={form.status === 'saving'}
+                onChange={(event) => setForm({ ...form, ean: event.target.value })}
+              />
+            </label>
+            <p className={styles.note}>Vacío: el SKU de las publicaciones y el EAN del ERP.</p>
+            <div className={styles.statusConfirm}>
+              <button type="submit" className="btn-tesla primary sm" disabled={form.status === 'saving'}>
+                Guardar
+              </button>
+              <button type="button" className="btn-tesla outline sm" onClick={() => setForm(null)} disabled={form.status === 'saving'}>
+                Cancelar
+              </button>
+            </div>
+            {form.error && (
+              <p className={styles.feedback} role="alert">
+                {form.error}
+              </p>
+            )}
+          </form>
+        ) : (
+          <>
+            <Fields>
+              <Field label="EAN">{product.ean != null && <Value value={product.ean} manual={product.ean_manual} />}</Field>
+              <Field label="SKU">
+                {(product.sku != null || product.sku_candidatos.length > 1) && <SkuValue product={product} />}
+              </Field>
+            </Fields>
+            {product.can_edit && (
+              <button type="button" className={`btn-tesla outline sm ${styles.identityEdit}`} onClick={edit}>
+                <Pencil size={14} aria-hidden="true" />
+                Editar
+              </button>
+            )}
+            {saved && (
+              <p className={styles.feedback} role="status">
+                Guardado.
+              </p>
+            )}
+          </>
+        )}
+      </Section>
+      <ProductData product={product} publications={publications} onSaved={setProduct} />
     </>
   );
 }
