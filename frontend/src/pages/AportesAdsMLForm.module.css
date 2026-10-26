@@ -4,12 +4,6 @@
   gap: 14px;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
-}
-
 .field {
   display: flex;
   flex-direction: column;
@@ -30,22 +24,103 @@
   composes: alertError from './AportesAdsML.module.css';
 }
 
-.settlement {
-  border: 1px solid var(--cf-border-subtle);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.radio {
+/* The value's unit sits beside the control, so the control keeps the shared box and focus ring. */
+.affixed {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  font-size: 0.85rem;
+  gap: var(--space-2);
+}
+
+.affix {
+  color: var(--cf-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.affixedInput {
+  composes: input from '../styles/forms-tesla.css';
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+/* "Cómo se liquida": two option cards side by side; the radio stays for keyboard and screen readers. */
+.settlement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.settlement legend {
+  margin-bottom: var(--spacing-xs);
+}
+
+.optionCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  padding-right: var(--space-8);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.optionCard input {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  accent-color: var(--cf-accent-blue);
+}
+
+.optionCardActive {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-accent-blue-light);
+}
+
+.optionTitle {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
   color: var(--cf-text-primary);
+}
+
+.optionCardActive .optionTitle {
+  color: var(--cf-accent-blue);
+}
+
+.optionText {
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  color: var(--cf-text-secondary);
+}
+
+.dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.dateField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.preview {
+  margin: 0;
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
 }
 
 .modalFooter {

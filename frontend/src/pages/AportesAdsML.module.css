@@ -31,6 +31,17 @@
   max-width: 640px;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.btnPrimary {
+  composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
+  white-space: nowrap;
+}
+
 .range {
   display: flex;
   gap: var(--space-3);

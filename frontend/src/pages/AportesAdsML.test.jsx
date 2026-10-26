@@ -95,9 +95,14 @@ async function openCreate(user, campaign = 'Notebooks') {
   await user.click(within(rowOf(campaign)).getByRole('button', { name: /agregar aporte/i }));
 }
 
+// The form also asks `/ml-ads/contributions/preview`; a refresh is a new `/ml-ads/campaigns` request.
+const campaignRequests = () => api.get.mock.calls.filter(([url]) => url === '/ml-ads/campaigns').length;
+
+const valueInput = () => screen.getByLabelText(/^(Porcentaje|Monto)$/);
+
 async function fillCommon(user, { value = '10' } = {}) {
-  await user.clear(screen.getByLabelText('Valor'));
-  await user.type(screen.getByLabelText('Valor'), value);
+  await user.clear(valueInput());
+  await user.type(valueInput(), value);
   await user.type(screen.getByLabelText('Desde', { selector: '#aporte-desde' }), '2026-10-01');
   await user.type(screen.getByLabelText('Hasta', { selector: '#aporte-hasta' }), '2026-10-15');
 }
@@ -105,7 +110,9 @@ async function fillCommon(user, { value = '10' } = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   permisosDenegados.clear();
-  api.get.mockResolvedValue({ data: CAMPAIGNS });
+  api.get.mockImplementation((url) =>
+    Promise.resolve({ data: url.endsWith('/preview') ? { spend: 742300, counted: 500000, net: 242300 } : CAMPAIGNS }),
+  );
   api.post.mockResolvedValue({ data: {} });
   api.put.mockResolvedValue({ data: {} });
   api.delete.mockResolvedValue({ data: {} });
@@ -297,7 +304,7 @@ describe('manage contributions', () => {
   it('requires a settlement choice for a fixed amount and sends it', async () => {
     const user = userEvent.setup();
     await openCreate(user);
-    await user.selectOptions(screen.getByLabelText('Tipo'), 'fixed_amount');
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
     await fillCommon(user, { value: '50000' });
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     expect(await screen.findByText(/elegí si se recibe todo o se devuelve la diferencia/i)).toBeInTheDocument();
@@ -330,7 +337,7 @@ describe('manage contributions', () => {
     const [, body] = api.post.mock.calls[0];
     expect(body).toMatchObject({ kind: 'percentage', value: 25, brand: 'Lenovo' });
     expect(body).not.toHaveProperty('settlement');
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(campaignRequests()).toBe(2));
     expect(screen.queryByRole('button', { name: 'Guardar aporte' })).not.toBeInTheDocument();
   });
 
@@ -339,9 +346,11 @@ describe('manage contributions', () => {
     render(<AportesAdsML />);
     await screen.findByText('Routers');
     await user.click(within(rowOf('Routers')).getByRole('button', { name: /editar aporte/i }));
-    expect(screen.getByLabelText('Se devuelve la diferencia')).toBeChecked();
-    await user.clear(screen.getByLabelText('Valor'));
-    await user.type(screen.getByLabelText('Valor'), '200000');
+    expect(screen.getByLabelText('Devuelve la diferencia')).toBeChecked();
+    // An edit cannot move a contribution to another campaign (the API answers 422).
+    expect(screen.getByLabelText('Campaña')).toBeDisabled();
+    await user.clear(valueInput());
+    await user.type(valueInput(), '200000');
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
     expect(api.put).toHaveBeenCalledWith(
@@ -355,7 +364,7 @@ describe('manage contributions', () => {
         note: 'Acuerdo trimestral',
       }),
     );
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(campaignRequests()).toBe(2));
   });
 
   it('deletes a contribution after confirming and refreshes the list', async () => {
@@ -366,7 +375,7 @@ describe('manage contributions', () => {
     expect(api.delete).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Borrar' }));
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/ml-ads/contributions/7'));
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(campaignRequests()).toBe(2));
   });
 
   it('keeps the confirmation open with the backend message when a delete fails', async () => {
@@ -378,6 +387,48 @@ describe('manage contributions', () => {
     await user.click(screen.getByRole('button', { name: 'Borrar' }));
     expect(await screen.findByText('contribution 7 does not exist')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Borrar' })).toBeInTheDocument();
+  });
+
+  it('loads a contribution from the header button, choosing its campaign', async () => {
+    const user = userEvent.setup();
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(screen.getByRole('button', { name: 'Agregar aporte' }));
+    await fillCommon(user, { value: '25' });
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(await screen.findByText('Elegí la campaña.')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Campaña'), '25713-66');
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/ml-ads/contributions',
+        expect.objectContaining({ advertiser_id: 25713, campaign_id: 66, kind: 'percentage', value: 25 }),
+      ),
+    );
+  });
+
+  it('previews what the contribution would cover before saving', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '500000' });
+    await user.click(screen.getByLabelText('Devuelve la diferencia'));
+    expect(
+      await screen.findByText('Costo de la campaña en el rango: $ 742.300,00 · Aporte que cuenta: $ 500.000,00 · Neto: $ 242.300,00'),
+    ).toBeInTheDocument();
+    expect(api.get).toHaveBeenLastCalledWith('/ml-ads/contributions/preview', {
+      params: {
+        advertiser_id: 25713,
+        campaign_id: 66,
+        kind: 'fixed_amount',
+        value: 500000,
+        date_from: '2026-10-01',
+        date_to: '2026-10-15',
+        settlement: 'refund_difference',
+        brand: null,
+        note: null,
+      },
+    });
   });
 
   it("shows the backend's 422 message and keeps the form open", async () => {
@@ -403,6 +454,6 @@ describe('manage contributions', () => {
     await openCreate(user);
     await fillCommon(user);
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo guardar el aporte');
+    expect(await screen.findByText('No se pudo guardar el aporte')).toHaveAttribute('role', 'alert');
   });
 });
