@@ -5,12 +5,16 @@
  * and all its contributions; with `ml_metricas.gestionar_aportes_ads` (S7) it also loads and edits them
  * (`AportesAdsMLForm`) and deletes them behind a confirmation modal. A contribution is a percentage or a fixed amount over a date range (S3/S4); a fixed amount
  * says how it settles (S6). Métricas ML stops subtracting the part of the cost a contribution covers (S9).
+ *
+ * Layout from the Stitch redesign (ml-ads-contribution-redesign S3): APORTE and NETO per campaign as the backend
+ * computes them, one-line contribution chips and a Total row.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import ModalTesla from '../components/ModalTesla';
+import { StatusPill } from '../components/kit';
 import AportesAdsMLForm from './AportesAdsMLForm';
 import { registrarPagina } from '../registry/tabRegistry';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
@@ -20,21 +24,38 @@ import styles from './AportesAdsML.module.css';
 registrarPagina({ pagePath: '/ml-ads-aportes', pageLabel: 'Aportes de marcas (Ads ML)', tabs: [] });
 
 const SETTLEMENT_LABELS = { full: 'Se recibe todo', refund_difference: 'Se devuelve la diferencia' };
+// The chip's short badge; the full label is its title.
+const SETTLEMENT_BADGES = {
+  full: { text: 'Todo', tone: 'info' },
+  refund_difference: { text: 'Diferencia', tone: 'warning' },
+};
+const STATUS_PILLS = { active: { text: 'Activa', tone: 'success' }, paused: { text: 'Pausada', tone: 'neutral' } };
 
 const isoDay = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-const formatDay = (iso) => iso.split('-').reverse().join('/');
+// `2026-10-01` -> `01/10/26`: a contribution may sit in any year, the chip has no room for four digits.
+const formatDay = (iso) => {
+  const [year, month, day] = iso.split('-');
+  return `${day}/${month}/${year.slice(2)}`;
+};
+
+const advertiserLabel = (c) => c.advertiser_name || `Anunciante ${c.advertiser_id}`;
+const sumOf = (rows, key) => rows.reduce((total, row) => total + (row[key] || 0), 0);
 
 function ContributionItem({ c, canManage, onEdit, onDelete }) {
   const value = c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value);
+  const badge = SETTLEMENT_BADGES[c.settlement];
   return (
-    <li className={styles.contribution}>
-      <span className={styles.contributionValue}>{value}</span>
-      {c.settlement && <span className={styles.pill}>{SETTLEMENT_LABELS[c.settlement]}</span>}
-      <span className={styles.muted}>
-        {formatDay(c.date_from)} – {formatDay(c.date_to)}
-        {c.brand ? ` · ${c.brand}` : ''}
+    <li className={styles.chip} title={[c.brand, c.note].filter(Boolean).join(' · ') || undefined}>
+      <span className={styles.chipValue}>{value}</span>
+      {badge && (
+        <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
+          {badge.text}
+        </StatusPill>
+      )}
+      <span className={styles.chipRange}>
+        {formatDay(c.date_from)} → {formatDay(c.date_to)}
       </span>
       {canManage && (
         <span className={styles.actions}>
@@ -46,7 +67,6 @@ function ContributionItem({ c, canManage, onEdit, onDelete }) {
           </button>
         </span>
       )}
-      {c.note && <span className={styles.note}>{c.note}</span>}
     </li>
   );
 }
@@ -136,36 +156,38 @@ export default function AportesAdsML() {
     }
   };
 
+  const totals = { cost: sumOf(campaigns, 'cost'), contribution: sumOf(campaigns, 'contribution') };
+
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
+      <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Aportes de marcas (Ads ML)</h1>
           <p className={styles.description}>
-            La parte del costo de una campaña de Product Ads que paga la marca no se descuenta en Métricas ML.
+            Lo que una marca paga de una campaña de Product Ads deja de restarse en Métricas ML.
           </p>
         </div>
-        <div className={styles.filters}>
-          <label className={styles.field}>
-            <span className={styles.label}>Desde</span>
+        <div className={styles.range}>
+          <label className={styles.rangeField}>
+            <span>Desde</span>
             <input
               type="date"
-              className={styles.input}
+              className={styles.rangeInput}
               value={range.from}
               onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
             />
           </label>
-          <label className={styles.field}>
-            <span className={styles.label}>Hasta</span>
+          <label className={styles.rangeField}>
+            <span>Hasta</span>
             <input
               type="date"
-              className={styles.input}
+              className={styles.rangeInput}
               value={range.to}
               onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
             />
           </label>
         </div>
-      </div>
+      </header>
 
       {loadError && (
         <div className={styles.alertError} role="alert">
@@ -173,67 +195,104 @@ export default function AportesAdsML() {
         </div>
       )}
 
-      <div className="table-container-tesla">
-        <table className="table-tesla">
-          <thead className="table-tesla-head">
+      <div className={styles.tableCard}>
+        <table className={styles.table}>
+          <thead>
             <tr>
               <th>Campaña</th>
               <th>Estado</th>
               <th className={styles.num}>Costo del período</th>
-              <th>Aportes</th>
-              {canManage && <th aria-label="Acciones" />}
+              <th className={styles.num}>Aporte</th>
+              <th className={styles.num}>Neto</th>
+              <th>Aportes cargados</th>
             </tr>
           </thead>
-          <tbody className="table-tesla-body">
+          <tbody>
             {loading && (
               <tr>
-                <td colSpan={canManage ? 5 : 4} className={styles.muted}>Cargando...</td>
+                <td colSpan={6} className={styles.muted}>Cargando...</td>
               </tr>
             )}
             {!loading && campaigns.length === 0 && !loadError && (
               <tr>
-                <td colSpan={canManage ? 5 : 4} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
+                <td colSpan={6} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
               </tr>
             )}
             {!loading &&
-              campaigns.map((c) => (
-                <tr key={`${c.advertiser_id}-${c.campaign_id}`}>
-                  <td>{c.name || `Campaña ${c.campaign_id}`}</td>
-                  <td className={styles.muted}>{c.status || '—'}</td>
-                  <td className={styles.num}>{formatSignedMoney(c.cost)}</td>
-                  <td>
-                    {c.contributions.length === 0 ? (
-                      <span className={styles.muted}>Sin aportes</span>
-                    ) : (
-                      <ul className={styles.contributions}>
-                        {c.contributions.map((k) => (
-                          <ContributionItem
-                            key={k.id}
-                            c={k}
-                            canManage={canManage}
-                            onEdit={setEditing}
-                            onDelete={setDeleteTarget}
-                          />
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                  {canManage && (
-                    <td className={styles.colActions}>
-                      <button
-                        type="button"
-                        className={styles.btnSecondary}
-                        onClick={() => setCreatingFor(c)}
-                      >
-                        <Plus size={14} /> Agregar aporte
-                      </button>
+              campaigns.map((c) => {
+                const status = STATUS_PILLS[c.status];
+                return (
+                  <tr key={`${c.advertiser_id}-${c.campaign_id}`}>
+                    <td>
+                      <div className={styles.campaign}>
+                        <span className={styles.campaignName}>{c.name || `Campaña ${c.campaign_id}`}</span>
+                        <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
+                      </div>
+                      <span className={styles.campaignId}>{c.campaign_id}</span>
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td>
+                      {status ? (
+                        <StatusPill tone={status.tone} dot>{status.text}</StatusPill>
+                      ) : (
+                        <span className={styles.muted}>{c.status || '—'}</span>
+                      )}
+                    </td>
+                    <td className={styles.num}>{formatSignedMoney(c.cost)}</td>
+                    <td className={`${styles.num} ${c.contribution > 0 ? styles.positive : styles.muted}`}>
+                      {formatSignedMoney(c.contribution)}
+                    </td>
+                    <td className={styles.num}>{formatSignedMoney(c.cost - c.contribution)}</td>
+                    <td>
+                      <div className={styles.chips}>
+                        {c.contributions.length === 0 ? (
+                          <span className={styles.none}>Sin aportes</span>
+                        ) : (
+                          <ul className={styles.chipList}>
+                            {c.contributions.map((k) => (
+                              <ContributionItem
+                                key={k.id}
+                                c={k}
+                                canManage={canManage}
+                                onEdit={setEditing}
+                                onDelete={setDeleteTarget}
+                              />
+                            ))}
+                          </ul>
+                        )}
+                        {canManage && (
+                          <button
+                            type="button"
+                            className={styles.addLink}
+                            aria-label="Agregar aporte"
+                            onClick={() => setCreatingFor(c)}
+                          >
+                            <Plus size={14} /> Aporte
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
+          {!loading && campaigns.length > 0 && (
+            <tfoot>
+              <tr>
+                <td colSpan={2}>Total ({campaigns.length} campañas)</td>
+                <td className={styles.num}>{formatSignedMoney(totals.cost)}</td>
+                <td className={`${styles.num} ${styles.positive}`}>{formatSignedMoney(totals.contribution)}</td>
+                <td className={styles.num}>{formatSignedMoney(totals.cost - totals.contribution)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
+
+      <p className={styles.footnote}>
+        <Info size={14} aria-hidden="true" /> El aporte de monto fijo se reparte por costo entre los días del rango.
+        &apos;Devuelve diferencia&apos; cuenta como máximo lo gastado en el rango.
+      </p>
 
       {creatingFor && (
         <AportesAdsMLForm
