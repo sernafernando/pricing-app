@@ -1,7 +1,7 @@
 /**
- * Sub-PMs — the save bar stays on screen however long the marca list gets,
- * and the user list sits beside the detail without overlapping it, in both
- * themes. Real Chromium geometry: jsdom does no layout.
+ * Sub-PMs — the save bar and the user list stay on screen however long the
+ * marca list gets, and the user list sits beside the detail without
+ * overlapping it, in both themes. Real Chromium geometry: jsdom does no layout.
  *
  * Screenshots are written only when `VITE_SUBPMS_SHOTS_DIR` is set (a DEV
  * aid, never a committed baseline).
@@ -103,7 +103,13 @@ describe.each([
     expect(barra.bottom).toBeLessThanOrEqual(height);
     expect(barra.top).toBeGreaterThanOrEqual(0);
 
+    // The user list sticks to the top too, so another user is one click away.
+    const listaScrolleada = document.querySelector('aside[aria-label="Usuarios"]').getBoundingClientRect();
+    expect(listaScrolleada.top).toBeGreaterThanOrEqual(0);
+    expect(listaScrolleada.top).toBeLessThan(height / 2);
+
     if (SHOTS_DIR) {
+      await page.screenshot({ path: `${SHOTS_DIR}/subpms-${theme}-${width}-scrolled.png` });
       window.scrollTo(0, 0);
       await page.screenshot({ path: `${SHOTS_DIR}/subpms-${theme}-${width}.png` });
     }
