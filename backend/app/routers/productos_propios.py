@@ -28,7 +28,8 @@ PERMISO_EDITAR = "ml_publicaciones.editar_producto"
 
 router = APIRouter(prefix="/productos-propios", tags=["Productos propios"])
 
-Code = Optional[Annotated[str, StringConstraints(max_length=MAX_CODE_LENGTH)]]
+# Trimmed before the length check: surrounding spaces typed in the panel do not count against the column width.
+Code = Optional[Annotated[str, StringConstraints(strip_whitespace=True, max_length=MAX_CODE_LENGTH)]]
 
 
 def get_productos_propios_db(db: Session = Depends(get_db)) -> Session:

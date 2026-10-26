@@ -178,6 +178,15 @@ class TestEdit:
         assert (body["sku"], body["sku_manual"], body["ean"], body["ean_manual"]) == ("MI-SKU", True, "779000", True)
         assert tuple(stored(pg)) == ("MI-SKU", "779000", admin_user.id)
 
+    def test_the_length_limit_applies_to_the_trimmed_value(self, client, pg, editor):
+        with pg.begin() as conn:
+            product(conn)
+
+        response = client.put(f"{BASE}/70", headers=editor, json={"sku": f"  {'X' * 100}  ", "ean": None})
+
+        assert response.status_code == 200, response.text
+        assert stored(pg).sku == "X" * 100
+
     def test_a_blank_or_null_value_drops_the_manual_one_and_both_gone_drops_the_row(self, client, pg, editor):
         with pg.begin() as conn:
             product(conn)

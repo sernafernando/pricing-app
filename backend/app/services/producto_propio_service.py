@@ -15,7 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import and_, or_, select, true
+from sqlalchemy import and_, delete, func, or_, select, true
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariation
@@ -114,14 +115,16 @@ def save_producto_propio(
     if db.get(ProductoERP, item_id) is None:
         return None
     sku, ean = _manual_value(sku), _manual_value(ean)
-    row = db.get(ProductoPropio, item_id)
     if sku is None and ean is None:
-        if row is not None:
-            db.delete(row)
+        db.execute(delete(ProductoPropio).where(ProductoPropio.item_id == item_id))
     else:
-        if row is None:
-            row = ProductoPropio(item_id=item_id)
-            db.add(row)
-        row.sku, row.ean, row.updated_by = sku, ean, usuario_id
+        # One upsert: two first edits of the same product at once both land (the last wins) instead of one
+        # failing on the primary key.
+        values = {"sku": sku, "ean": ean, "updated_by": usuario_id}
+        db.execute(
+            pg_insert(ProductoPropio)
+            .values(item_id=item_id, **values)
+            .on_conflict_do_update(index_elements=[ProductoPropio.item_id], set_={**values, "updated_at": func.now()})
+        )
     db.commit()
     return read_producto_propio(db, item_id)
