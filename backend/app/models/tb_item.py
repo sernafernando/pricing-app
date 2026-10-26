@@ -2,7 +2,8 @@
 Modelo para tbItem - Items/Productos
 """
 
-from sqlalchemy import Boolean, Column, Integer, String, DateTime
+from sqlalchemy import Boolean, Column, Integer, Numeric, String, DateTime, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from app.core.database import Base
 
 
@@ -25,6 +26,28 @@ class TBItem(Base):
     item_cd = Column(DateTime)  # created date
     item_LastUpdate = Column(DateTime)  # last update (generic)
     item_lastUpdate_byProcess = Column(DateTime)  # last update by process (más preciso para sync incremental)
+
+    # Whole scriptItem row as the ERP sent it: nothing the ERP returns is dropped.
+    raw = Column(JSONB, nullable=True)
+
+    # Dimensions (ERP spelling kept, including "higth")
+    item_weight = Column(Numeric(18, 9), nullable=True)
+    item_volume = Column(Numeric(18, 9), nullable=True)
+    item_wide = Column(Numeric(18, 9), nullable=True)
+    item_large = Column(Numeric(18, 9), nullable=True)
+    item_higth = Column(Numeric(18, 9), nullable=True)
+
+    # Website images
+    item_WebSite_url4Image1 = Column(Text, nullable=True)
+    item_WebSite_url4Image2 = Column(Text, nullable=True)
+    item_WebSite_url4Image3 = Column(Text, nullable=True)
+    item_WebSite_url4Image4 = Column(Text, nullable=True)
+    item_WebSite_url4Image5 = Column(Text, nullable=True)
+    item_WebSite_url4Image6 = Column(Text, nullable=True)
+    item_WebSite_url4Image7 = Column(Text, nullable=True)
+    item_WebSite_url4Image8 = Column(Text, nullable=True)
+    item_WebSite_url4Image9 = Column(Text, nullable=True)
+    item_WebSite_url4Image10 = Column(Text, nullable=True)
 
     def __repr__(self):
         return f"<TBItem(item_id={self.item_id}, item_code='{self.item_code}', item_desc='{self.item_desc}')>"

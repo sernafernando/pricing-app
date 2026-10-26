@@ -32,24 +32,12 @@ import app.models  # noqa - importar todos los modelos
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
 from app.models.tb_subcategory import TBSubCategory
-from app.models.tb_item import TBItem
+from app.services.tb_item_row import upsert_tb_item
 from app.models.tb_tax_name import TBTaxName
 from app.services.erp_item_taxes_sync import sync_item_taxes_full
 
 # URL del endpoint local que proxea al ERP
 GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
-
-
-def parse_date(date_str):
-    """Parsear fecha desde string"""
-    if not date_str:
-        return None
-    try:
-        if isinstance(date_str, str):
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        return date_str
-    except:
-        return None
 
 
 def to_int(value):
@@ -300,58 +288,11 @@ async def sync_items_full(db: Session):
         actualizados = 0
 
         for i, row in enumerate(data):
-            comp_id = to_int(row.get("comp_id"))
-            item_id = to_int(row.get("item_id"))
-            item_code = row.get("item_code")
-            item_desc = row.get("item_desc")
-            cat_id = to_int(row.get("cat_id"))
-            subcat_id = to_int(row.get("subcat_id"))
-            brand_id = to_int(row.get("brand_id"))
-            item_liquidation = row.get("item_liquidation")
-            # item_expser: BIT en SQL Server (0/1) → bool. None si no viene en el payload.
-            _expser_raw = to_int(row.get("item_expser"))
-            item_expser = bool(_expser_raw) if _expser_raw is not None else None
-            item_cd = parse_date(row.get("item_cd"))
-            item_LastUpdate = parse_date(row.get("item_LastUpdate"))
-            item_lastUpdate_byProcess = parse_date(row.get("item_lastUpdate_byProcess"))
-
-            existente = db.query(TBItem).filter(TBItem.comp_id == comp_id, TBItem.item_id == item_id).first()
-
-            if existente:
-                if (
-                    existente.item_code != item_code
-                    or existente.item_desc != item_desc
-                    or existente.cat_id != cat_id
-                    or existente.subcat_id != subcat_id
-                    or existente.brand_id != brand_id
-                ):
-                    existente.item_code = item_code
-                    existente.item_desc = item_desc
-                    existente.cat_id = cat_id
-                    existente.subcat_id = subcat_id
-                    existente.brand_id = brand_id
-                    existente.item_liquidation = item_liquidation
-                    existente.item_expser = item_expser
-                    existente.item_LastUpdate = item_LastUpdate
-                    existente.item_lastUpdate_byProcess = item_lastUpdate_byProcess
-                    actualizados += 1
-            else:
-                nuevo = TBItem(
-                    comp_id=comp_id,
-                    item_id=item_id,
-                    item_code=item_code,
-                    item_desc=item_desc,
-                    cat_id=cat_id,
-                    subcat_id=subcat_id,
-                    brand_id=brand_id,
-                    item_liquidation=item_liquidation,
-                    item_expser=item_expser,
-                    item_cd=item_cd,
-                    item_LastUpdate=item_LastUpdate,
-                    item_lastUpdate_byProcess=item_lastUpdate_byProcess,
-                )
-                db.add(nuevo)
+            resultado = upsert_tb_item(db, row)
+            if resultado == "nuevo":
                 nuevos += 1
+            elif resultado == "actualizado":
+                actualizados += 1
 
             # Commit cada 500 registros
             if (i + 1) % 500 == 0:
