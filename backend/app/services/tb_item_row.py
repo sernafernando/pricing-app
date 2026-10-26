@@ -41,7 +41,7 @@ def _to_decimal(value: Any) -> Optional[Decimal]:
 
 
 def _to_datetime(value: Any) -> Optional[datetime]:
-    """Naive datetime, like the `DateTime` columns store (an offset is dropped, as Postgres does for them)."""
+    """Naive datetime, like the `DateTime` columns store: an offset is dropped, keeping the ERP's wall-clock time."""
     if not value:
         return None
     if not isinstance(value, datetime):
@@ -88,7 +88,11 @@ def upsert_tb_item(db: Session, row: dict[str, Any], only_insert: bool = False) 
     With `only_insert`, an item that already exists is left untouched.
     """
     values = tb_item_values(row)
-    existing = db.query(TBItem).filter(TBItem.comp_id == values["comp_id"], TBItem.item_id == values["item_id"]).first()
+    existing = (
+        db.query(TBItem)
+        .filter(TBItem.comp_id == values.get("comp_id"), TBItem.item_id == values.get("item_id"))
+        .first()
+    )
     if existing is None:
         db.add(TBItem(**values))
         return "nuevo"

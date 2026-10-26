@@ -232,6 +232,7 @@ async def sync_items(
             if upsert_tb_item(db, item_data) == "nuevo":
                 insertados += 1
             else:
+                # Unchanged items count as updated too: this endpoint always reported every existing item that way.
                 actualizados += 1
 
             # Commit cada 500 items para evitar bloqueos largos
