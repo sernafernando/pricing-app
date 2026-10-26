@@ -17,7 +17,7 @@ from app.services.erp_worker_client import erp_worker_client
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
 from app.models.tb_subcategory import TBSubCategory
-from app.models.tb_item import TBItem
+from app.services.tb_item_row import upsert_tb_item
 from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
 from app.models.tb_supplier import TBSupplier
@@ -229,45 +229,10 @@ async def sync_items(
         actualizados = 0
 
         for item_data in items:
-            comp_id = item_data["comp_id"]
-            item_id_val = item_data["item_id"]
-
-            # Verificar si existe
-            existente = db.query(TBItem).filter(TBItem.comp_id == comp_id, TBItem.item_id == item_id_val).first()
-
-            # Convertir fechas de string a datetime
-            item_cd = None
-            if item_data.get("item_cd"):
-                item_cd = datetime.fromisoformat(item_data["item_cd"].replace("Z", "+00:00"))
-
-            item_lastupdate = None
-            if item_data.get("item_LastUpdate"):
-                item_lastupdate = datetime.fromisoformat(item_data["item_LastUpdate"].replace("Z", "+00:00"))
-
-            if existente:
-                existente.item_code = item_data["item_code"]
-                existente.item_desc = item_data.get("item_desc")
-                existente.cat_id = item_data.get("cat_id")
-                existente.subcat_id = item_data.get("subcat_id")
-                existente.brand_id = item_data.get("brand_id")
-                existente.item_liquidation = item_data.get("item_liquidation")
-                existente.item_LastUpdate = item_lastupdate
-                actualizados += 1
-            else:
-                nuevo = TBItem(
-                    comp_id=comp_id,
-                    item_id=item_id_val,
-                    item_code=item_data["item_code"],
-                    item_desc=item_data.get("item_desc"),
-                    cat_id=item_data.get("cat_id"),
-                    subcat_id=item_data.get("subcat_id"),
-                    brand_id=item_data.get("brand_id"),
-                    item_liquidation=item_data.get("item_liquidation"),
-                    item_cd=item_cd,
-                    item_LastUpdate=item_lastupdate,
-                )
-                db.add(nuevo)
+            if upsert_tb_item(db, item_data) == "nuevo":
                 insertados += 1
+            else:
+                actualizados += 1
 
             # Commit cada 500 items para evitar bloqueos largos
             if (insertados + actualizados) % 500 == 0:

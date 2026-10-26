@@ -36,6 +36,7 @@ from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
 from app.models.tb_subcategory import TBSubCategory
 from app.models.tb_item import TBItem
+from app.services.tb_item_row import upsert_tb_item
 from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
 
@@ -322,56 +323,13 @@ async def sync_items_incremental(db: Session, minutes: int = 15, usar_dia_comple
         items_procesados = []
 
         for row in data:
-            comp_id = to_int(row.get("comp_id"))
-            item_id = to_int(row.get("item_id"))
-            item_code = row.get("item_code")
-            item_desc = row.get("item_desc")
-            cat_id = to_int(row.get("cat_id"))
-            subcat_id = to_int(row.get("subcat_id"))
-            brand_id = to_int(row.get("brand_id"))
-            item_liquidation = row.get("item_liquidation")
-            item_cd = parse_date(row.get("item_cd"))
-            item_LastUpdate = parse_date(row.get("item_LastUpdate"))
-            item_lastUpdate_byProcess = parse_date(row.get("item_lastUpdate_byProcess"))
+            items_procesados.append(to_int(row.get("item_id")))
 
-            items_procesados.append(item_id)
-
-            existente = db.query(TBItem).filter(TBItem.comp_id == comp_id, TBItem.item_id == item_id).first()
-
-            if existente:
-                # Actualizar si hay cambios
-                if (
-                    existente.item_code != item_code
-                    or existente.item_desc != item_desc
-                    or existente.cat_id != cat_id
-                    or existente.subcat_id != subcat_id
-                    or existente.brand_id != brand_id
-                ):
-                    existente.item_code = item_code
-                    existente.item_desc = item_desc
-                    existente.cat_id = cat_id
-                    existente.subcat_id = subcat_id
-                    existente.brand_id = brand_id
-                    existente.item_liquidation = item_liquidation
-                    existente.item_LastUpdate = item_LastUpdate
-                    existente.item_lastUpdate_byProcess = item_lastUpdate_byProcess
-                    actualizados += 1
-            else:
-                nuevo = TBItem(
-                    comp_id=comp_id,
-                    item_id=item_id,
-                    item_code=item_code,
-                    item_desc=item_desc,
-                    cat_id=cat_id,
-                    subcat_id=subcat_id,
-                    brand_id=brand_id,
-                    item_liquidation=item_liquidation,
-                    item_cd=item_cd,
-                    item_LastUpdate=item_LastUpdate,
-                    item_lastUpdate_byProcess=item_lastUpdate_byProcess,
-                )
-                db.add(nuevo)
+            resultado = upsert_tb_item(db, row)
+            if resultado == "nuevo":
                 nuevos += 1
+            elif resultado == "actualizado":
+                actualizados += 1
 
             if (nuevos + actualizados) % 100 == 0:
                 db.commit()
@@ -506,19 +464,7 @@ async def verificar_items_faltantes(db: Session):
                     )
 
                     if not existente:
-                        nuevo = TBItem(
-                            comp_id=comp_id,
-                            item_id=row_item_id,
-                            item_code=row.get("item_code"),
-                            item_desc=row.get("item_desc"),
-                            cat_id=to_int(row.get("cat_id")),
-                            subcat_id=to_int(row.get("subcat_id")),
-                            brand_id=to_int(row.get("brand_id")),
-                            item_liquidation=row.get("item_liquidation"),
-                            item_cd=parse_date(row.get("item_cd")),
-                            item_LastUpdate=parse_date(row.get("item_LastUpdate")),
-                        )
-                        db.add(nuevo)
+                        upsert_tb_item(db, row)
                         items_sync.append(row_item_id)
                         sincronizados += 1
 
