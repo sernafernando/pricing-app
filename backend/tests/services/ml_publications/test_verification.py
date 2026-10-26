@@ -52,9 +52,9 @@ class RecordingPacer(Pacer):
         super().__init__(clock=FakeClock())
         self.families: List[str] = []
 
-    def acquire(self, family, deadline=None):
+    def acquire(self, family, deadline=None, should_stop=None):
         self.families.append(family)
-        return super().acquire(family, deadline)
+        return super().acquire(family, deadline, should_stop)
 
 
 class MlTransport(httpx.BaseTransport):
