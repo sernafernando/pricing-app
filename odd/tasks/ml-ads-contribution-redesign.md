@@ -20,9 +20,11 @@ Branches off `origin/main`, one PR per task, each merged before the next (stacke
 
 | ID | Specs | Route | Status | Evidence |
 |----|-------|-------|--------|----------|
-| T1 | S6 | inline | PR open | branch `feat/ml-ads-contribution-redesign-api`; RED 8 failed (KeyError contribution/advertiser_name, preview 404), GREEN 12 passed |
-| T2 | S2, S3 | inline | pending | |
-| T3 | S2, S4, S5 | inline | pending | |
+| T1 | S6 | inline | merged #1747 | RED 8 failed (KeyError contribution/advertiser_name, preview 404), GREEN 12 passed; preview made a GET after CI's write-route guard |
+| T2a | S2, S3 | inline | merged #1749 | table with aporte/neto/one-line chips; css-guard rule 2 fix (range inputs compose inputSm) |
+| T2b | S3 | inline | merged #1750 | KPI tiles + toolbar filters; GGA fixes with RED tests (empty filter message, stale advertiser, loading dash) |
+| T3a | S4 | inline | merged #1753 | add modal with campaign choice and debounced preview; value input composes forms-tesla input |
+| T3b | S5 | inline | this PR | delete summary; visual test aportesAdsMl (1440/1920, light/dark) pins one-line chips and whole pills |
 
 ## Log
 
@@ -33,3 +35,5 @@ Branches off `origin/main`, one PR per task, each merged before the next (stacke
 - 2026-10-26 (T1): `GET /ml-ads/campaigns` gains `contribution` (window share, Board rule over item rows) and `advertiser_name`; `POST /ml-ads/contributions/preview` takes the same body as create and returns spend, counted, net, writing nothing (a fixed amount on a range with no spend counts 0, as on the Board). RED 8 failed, GREEN figures + existing campaigns tests 12 passed, ruff clean. Risk: none (additive fields and a new read).
 - 2026-10-26 (T1, GGA): campaign figures read the item rows in one query (`_daily_spend`) instead of one or two per contribution; `ADVERTISER_NAMES` carries the ponytail marker; S6 fixed to POST and documents the two cost bases. 12 passed, ruff clean.
 - 2026-10-26 (T1, CI): `tests/routers/test_ml_ads.py::test_the_only_writes_are_the_brand_contributions` failed: the preview was a POST. It writes nothing, so it became `GET /ml-ads/contributions/preview` with the create body as a query model; the guard stays as it was.
+- 2026-10-26: T2 and T3 split to stay under ~400 lines each (T2a/T2b, T3a/T3b). A real-Chromium screenshot against the Stitch PNG caught what unit tests could not: the kit pill wraps one-word labels in narrow columns, `.btn-tesla.sm` outweighs module padding, and `.table td` colour outweighs the money tones; fixed and pinned in the visual test.
+- 2026-10-26: CI css-guard rule 2 rejects hand-rolled control boxes; the range, search, advertiser and value controls now compose forms-tesla. Feature closes with T3b.
