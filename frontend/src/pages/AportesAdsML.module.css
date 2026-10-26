@@ -33,31 +33,21 @@
 
 .range {
   display: flex;
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
+  gap: var(--space-3);
 }
 
 .rangeField {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 0 var(--space-3);
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
 
-.rangeField + .rangeField {
-  border-left: 1px solid var(--cf-border-default);
-}
-
 .rangeInput {
-  height: 36px;
-  border: none;
-  background: transparent;
-  color: var(--cf-text-primary);
+  composes: inputSm from '../styles/forms-tesla.css';
+  width: auto;
   font-family: var(--font-mono);
-  font-size: var(--font-sm);
 }
 
 .positive {
