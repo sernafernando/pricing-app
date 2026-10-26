@@ -73,12 +73,6 @@
   overflow: clip;
 }
 
-@media (max-width: 900px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .detalle {
   border-left: 1px solid var(--cf-border-default);
   display: flex;
@@ -86,6 +80,17 @@
   gap: var(--spacing-md);
   min-width: 0;
   padding: var(--spacing-md) var(--spacing-lg);
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detalle {
+    border-left: none;
+    border-top: 1px solid var(--cf-border-default);
+  }
 }
 
 .emptyDetail {

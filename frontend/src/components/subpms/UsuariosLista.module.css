@@ -137,3 +137,10 @@
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
+
+@media (max-width: 900px) {
+  .panel {
+    position: static;
+    max-height: 320px;
+  }
+}
