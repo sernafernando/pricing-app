@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.models.usuario import Usuario
-from app.routers.productos_propios import (
+from app.schemas.publication_data import (
     MAX_ATRIBUTO_VALUE_LENGTH,
     MAX_DESCRIPCION_LENGTH,
     MAX_TITULO_LENGTH,

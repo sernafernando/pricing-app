@@ -20,6 +20,12 @@ from app.api.deps import require_permiso
 from app.core.database import get_db
 from app.models.producto_propio import MAX_CODE_LENGTH
 from app.models.usuario import Usuario
+from app.schemas.publication_data import (
+    MAX_ATRIBUTO_VALUE_LENGTH,
+    MAX_DESCRIPCION_LENGTH,
+    MAX_TITULO_LENGTH,
+    NonBlank,
+)
 from app.services.permisos_service import PermisosService
 from app.services.ml_publications import admin
 from app.services.ml_publications.publication_data import DatosNoValidos
@@ -74,14 +80,6 @@ class FuenteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mla: Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]
-
-
-# The title and attribute values have no fixed ML limit across categories: only a generous cap here.
-MAX_TITULO_LENGTH = 255
-MAX_ATRIBUTO_VALUE_LENGTH = 255
-MAX_DESCRIPCION_LENGTH = 50000  # ML's limit on a description
-
-NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class AtributoEdit(BaseModel):
