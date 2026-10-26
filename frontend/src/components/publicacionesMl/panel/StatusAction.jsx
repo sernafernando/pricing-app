@@ -46,7 +46,11 @@ export default function StatusAction({ detail, itemId, onChanged }) {
     try {
       const { data } = await publicacionesMlAPI.setItemStatus(itemId, action.target);
       const message =
-        data?.status === 'unchanged' ? UNCHANGED[action.target] : data?.status === 'submitted' ? DONE[action.target] : data?.message;
+        data?.status === 'unchanged'
+          ? UNCHANGED[action.target]
+          : data?.status === 'submitted'
+            ? DONE[action.target]
+            : (data?.message ?? 'Cambio enviado a Mercado Libre.');
       setState({ status: 'done', message });
       onChanged?.();
     } catch (error) {

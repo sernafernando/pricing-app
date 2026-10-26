@@ -98,6 +98,14 @@ describe('what the server answered', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('La publicación ya estaba pausada.'));
   });
 
+  it('an answer without a message still says something', async () => {
+    publicacionesMlAPI.setItemStatus.mockResolvedValue({ status: 200, data: { status: 'queued', message: null } });
+    const user = userEvent.setup();
+    renderAction();
+    await confirm(user);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Cambio enviado a Mercado Libre.'));
+  });
+
   it('an ambiguous write shows the server message and still re-reads', async () => {
     publicacionesMlAPI.setItemStatus.mockResolvedValue({
       status: 202,
