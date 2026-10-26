@@ -1280,6 +1280,14 @@ class MLWebhookClient:
         responses have no `pxq_write` field. Folding this rule in there
         would turn every promotions non-2xx into an ambiguous write.
         """
+        return cls._classify_proxy_stamped_write(response, "pxq_write")
+
+    @classmethod
+    def _classify_proxy_stamped_write(cls, response: httpx.Response, field: str) -> Dict:
+        """The shared status-only verdict, refined by the `field` the proxy
+        stamps on the responses IT generates (`not_attempted` / `ambiguous`).
+        See `_classify_pxq_write_response` for why the field exists and why a
+        4xx without it stays a definitive rejection."""
         result = cls._classify_write_response(response)
         if result["ok"]:
             return result
@@ -1287,16 +1295,36 @@ class MLWebhookClient:
         body = result["body"]
         # Guarded: an error body is whatever the proxy or ML happened to
         # emit -- a list, a string, or nothing parseable at all.
-        pxq_write = body.get("pxq_write") if isinstance(body, dict) else None
+        stamp = body.get(field) if isinstance(body, dict) else None
 
-        if pxq_write == "not_attempted":
+        if stamp == "not_attempted":
             result["ambiguous"] = False
-        elif pxq_write == "ambiguous":
+        elif stamp == "ambiguous":
             result["ambiguous"] = True
         # Field absent: the shared status-only verdict already says the
         # right thing (5xx unknown, 4xx definitive), including the
         # deviation documented above.
         return result
+
+    # ── Item status (pause / activate) ───────────────────────────────
+    # `PUT /api/items/{item_id}/status` on the proxy, which stamps
+    # `status_write` the way the PxQ route stamps `pxq_write`.
+
+    async def put_item_status(self, item_id: str, status: str) -> Dict:
+        """Pauses or activates a publication (`status` is "paused" or
+        "active"). Single-shot, no retry, same contract as `post_pxq_prices`.
+
+        Returns:
+            `{ok, status_code, ambiguous, body}`.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.put(f"{self.base_url}/api/items/{item_id}/status", json={"status": status})
+        except Exception as e:
+            logger.error(f"Error (ambiguo) cambiando el estado del item {item_id}: {_describe_exc(e)}")
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        return self._classify_proxy_stamped_write(response, "status_write")
 
     async def get_pxq_seller_shipping_cost(self, item_id: str, quantity: int, tier_price: float) -> Optional[float]:
         """Fetches the whole-shipment shipping cost for an N-unit PxQ tier

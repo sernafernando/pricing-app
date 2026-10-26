@@ -19,7 +19,8 @@ joins it).
   paged. Each row's `params` select exactly its `publications_count` publications in `/items`. Figures and figure
   sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`.
 - `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
-  the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`.
+  the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`,
+  `can_change_status` from `ml_publicaciones.pausar`.
 - `GET /ml-publications/view/items/{item_id}/events` (`ml_ops.ver`): the publication's business events from
   `ml_item_events`, newest first, keyset-paged by an opaque cursor; an empty list while `events.enabled` is off.
 - `GET /ml-publications/view/items/{item_id}/history` (`ml_ops.ver`): its `ml_change_log` rows (and those of its user
@@ -91,6 +92,7 @@ PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto row's `params` carry with `con_oferta`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
+PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
 SLOW_QUERY_CODE = "consulta_lenta"
 
@@ -468,6 +470,7 @@ class ItemDetailResponse(BaseModel):
     sell_in_out: Optional[SellInOutProducto] = None
     freshness: list[FreshnessOut]
     can_resync: bool
+    can_change_status: bool
 
 
 class OriginOut(BaseModel):
@@ -1418,6 +1421,7 @@ def get_item_detail(
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_resync = permisos.tiene_permiso(user, PERMISO_GESTIONAR)
+    can_change_status = permisos.tiene_permiso(user, PERMISO_PAUSAR)
     try:
         with timer.stage("flags"):
             events_enabled = settings_store.get_setting("events.enabled").value is True
@@ -1435,6 +1439,7 @@ def get_item_detail(
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(links=len(found["links"]))
     found["can_resync"] = can_resync
+    found["can_change_status"] = can_change_status
     return found
 
 
