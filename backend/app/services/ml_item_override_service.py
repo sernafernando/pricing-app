@@ -24,17 +24,13 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_item_override import MlItemOverride
 from app.models.ml_publications import MlItem
-from app.services.ml_publications.publication_data import publication_data
+from app.services.ml_publications.publication_data import pick, publication_data
 
 FIELDS = ("titulo", "descripcion", "fotos", "atributos")
 
 
 class PublicacionNoEditable(Exception):
     """The publication was deleted (gone from ML, or deleted in its `sub_status`): it cannot be overridden."""
-
-
-class DatosNoValidos(Exception):
-    """The override names a picture or an attribute the publication does not have, or one twice."""
 
 
 @dataclass(frozen=True)
@@ -55,7 +51,7 @@ def _applicable(original: dict[str, Any], override: Optional[dict[str, Any]]) ->
     if override is None:
         return dict(original)
     applied = {field: original[field] if override[field] is None else override[field] for field in FIELDS}
-    applied["descripcion"] = applied["descripcion"] or None  # a blank override means no description
+    applied["descripcion"] = applied["descripcion"] or None  # blank (the override's or ML's) is no description
     return applied
 
 
@@ -77,15 +73,7 @@ def read_override(db: Session, mla: str) -> Optional[OverrideView]:
     )
 
 
-def _pick(available: list[dict[str, Any]], ids: list[str], what: str) -> list[dict[str, Any]]:
-    """The entries of `available` named by `ids`, in that order: each one the publication's, and once."""
-    by_id = {entry.get("id"): entry for entry in available}
-    if len(set(ids)) != len(ids):
-        raise DatosNoValidos(f"Hay {what} repetidos.")
-    unknown = [entry_id for entry_id in ids if entry_id not in by_id]
-    if unknown:
-        raise DatosNoValidos(f"{what.capitalize()} que no son de la publicación: {', '.join(unknown)}.")
-    return [by_id[entry_id] for entry_id in ids]
+_NOT_OWN = "que no son de la publicación"
 
 
 def save_override(
@@ -117,13 +105,13 @@ def save_override(
     values = {
         "titulo": titulo,
         "descripcion": descripcion,
-        "fotos": None if fotos is None else _pick(own_fotos, fotos, "fotos"),
+        "fotos": None if fotos is None else pick(own_fotos, fotos, "fotos", _NOT_OWN),
         "atributos": None
         if atributos is None
         else [
             {**kept, "value_name": value_name}
             for kept, (_, value_name) in zip(
-                _pick(own_atributos, [attribute_id for attribute_id, _ in atributos], "atributos"), atributos
+                pick(own_atributos, [attribute_id for attribute_id, _ in atributos], "atributos", _NOT_OWN), atributos
             )
         ],
     }

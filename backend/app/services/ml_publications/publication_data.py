@@ -1,7 +1,8 @@
 """A publication's title, description, pictures and attributes as the store last read them from ML.
 
 The one place that turns the stored body (`ml_items.raw`) and description into that data: the product's copy
-(Publicaciones ML T7) and a publication's original beside its override (T8) both read it here.
+(Publicaciones ML T7) and a publication's original beside its override (T8) both read it here, and both keep pictures
+and attributes from it through `pick`.
 """
 
 from __future__ import annotations
@@ -35,3 +36,19 @@ def publication_data(db: Session, item: MlItem) -> dict[str, Any]:
         "fotos": fotos,
         "atributos": atributos,
     }
+
+
+class DatosNoValidos(Exception):
+    """An edit names a picture or an attribute that is not among the ones it may keep, or one twice."""
+
+
+def pick(available: list[dict[str, Any]], ids: list[str], what: str, unknown: str) -> list[dict[str, Any]]:
+    """The entries of `available` named by `ids`, in that order: each one available, and once. `unknown` completes
+    the message for an id that is not (`"<What> <unknown>: <ids>."`)."""
+    by_id = {entry.get("id"): entry for entry in available}
+    if len(set(ids)) != len(ids):
+        raise DatosNoValidos(f"Hay {what} repetidos.")
+    missing = [entry_id for entry_id in ids if entry_id not in by_id]
+    if missing:
+        raise DatosNoValidos(f"{what.capitalize()} {unknown}: {', '.join(missing)}.")
+    return [by_id[entry_id] for entry_id in ids]

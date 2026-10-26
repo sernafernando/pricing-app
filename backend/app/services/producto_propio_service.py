@@ -29,7 +29,7 @@ from app.models.ml_publications import MlItem, MlItemProductLink, MlItemVariatio
 from app.models.producto import ProductoERP
 from app.models.producto_propio import ProductoPropio
 from app.services.ml_publications.links import sku_key
-from app.services.ml_publications.publication_data import publication_data
+from app.services.ml_publications.publication_data import pick, publication_data
 from app.services.ml_publications.view.filters import LINK_ITEM_LEVEL
 
 
@@ -39,10 +39,6 @@ class FuenteNoValida(Exception):
 
 class SinFuente(Exception):
     """The product's data cannot be edited: no source publication was chosen yet, so there is nothing copied."""
-
-
-class DatosNoValidos(Exception):
-    """The edit names a picture or an attribute that was not copied, or one twice."""
 
 
 @dataclass(frozen=True)
@@ -207,15 +203,7 @@ def choose_source(db: Session, item_id: int, mla: str, usuario_id: int) -> Optio
     return read_producto_propio(db, item_id)
 
 
-def _pick(copied: list[dict[str, Any]], ids: list[str], what: str) -> list[dict[str, Any]]:
-    """The copied entries named by `ids`, in that order: each one copied, and once."""
-    by_id = {entry.get("id"): entry for entry in copied}
-    if len(set(ids)) != len(ids):
-        raise DatosNoValidos(f"Hay {what} repetidos.")
-    unknown = [entry_id for entry_id in ids if entry_id not in by_id]
-    if unknown:
-        raise DatosNoValidos(f"{what.capitalize()} que no se copiaron de la publicación: {', '.join(unknown)}.")
-    return [by_id[entry_id] for entry_id in ids]
+_NOT_COPIED = "que no se copiaron de la publicación"
 
 
 def edit_datos(
@@ -239,8 +227,10 @@ def edit_datos(
     row = db.get(ProductoPropio, item_id, with_for_update=True)
     if row is None or row.fuente_mla is None:
         raise SinFuente("Elegí primero la publicación de la que se copian los datos.")
-    new_fotos = _pick(row.fotos or [], fotos, "fotos")
-    copied_atributos = _pick(row.atributos or [], [attribute_id for attribute_id, _ in atributos], "atributos")
+    new_fotos = pick(row.fotos or [], fotos, "fotos", _NOT_COPIED)
+    copied_atributos = pick(
+        row.atributos or [], [attribute_id for attribute_id, _ in atributos], "atributos", _NOT_COPIED
+    )
     new_atributos = [
         {**copied, "value_name": value_name} for copied, (_, value_name) in zip(copied_atributos, atributos)
     ]

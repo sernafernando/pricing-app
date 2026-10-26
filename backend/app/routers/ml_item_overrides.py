@@ -25,13 +25,13 @@ from app.routers.productos_propios import (
     NonBlank,
 )
 from app.services.ml_item_override_service import (
-    DatosNoValidos,
     OverrideView,
     PublicacionNoEditable,
     read_override,
     save_override,
 )
 from app.services.ml_publications import admin
+from app.services.ml_publications.publication_data import DatosNoValidos
 from app.services.permisos_service import PermisosService
 
 PERMISO_VER = "ml_ops.ver"

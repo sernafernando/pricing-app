@@ -22,8 +22,8 @@ from app.models.producto_propio import MAX_CODE_LENGTH
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.services.ml_publications import admin
+from app.services.ml_publications.publication_data import DatosNoValidos
 from app.services.producto_propio_service import (
-    DatosNoValidos,
     FuenteNoValida,
     SinFuente,
     ProductoPropioView,
