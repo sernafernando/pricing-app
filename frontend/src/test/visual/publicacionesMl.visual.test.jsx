@@ -788,6 +788,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-identity-${width}-${theme}.png` });
         // The copied data: the pictures' grid and the description stay inside the panel.
         const data = document.querySelector('section[aria-labelledby] img')?.closest('section');
+        expect(data, 'the copied data section with its pictures').not.toBeNull();
         data.scrollIntoView();
         for (const el of data.querySelectorAll('img, p, dd')) {
           expect(rect(el).right, el.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);

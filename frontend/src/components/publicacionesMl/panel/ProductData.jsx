@@ -76,6 +76,7 @@ export default function ProductData({ product, publications, onSaved }) {
   const candidates = liveOnly(publications);
 
   const send = async () => {
+    if (state.phase === 'sending') return; // a second click before the re-render
     setState({ ...state, phase: 'sending', error: null });
     try {
       const { data } = await productosPropiosAPI.chooseSource(product.item_id, state.mla);
@@ -140,12 +141,13 @@ export default function ProductData({ product, publications, onSaved }) {
               )}
             </div>
           )}
-          {state.error && (
-            <p className={styles.feedback} role="alert">
-              {state.error}
-            </p>
-          )}
         </div>
+      )}
+
+      {state.error && (
+        <p className={styles.feedback} role="alert">
+          {state.error}
+        </p>
       )}
 
       {product.can_edit && datos && state.phase === 'idle' && (
