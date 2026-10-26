@@ -135,6 +135,10 @@ class Settings(BaseSettings):
     # -- before permission, eligibility, or any ML call (design D4/spec
     # "Eligibility and kill-switch gating").
     PXQ_WRITE_ENABLED: bool = False
+    # Kill-switch for pausing / activating a publication from Publicaciones ML
+    # (`ml_item_status_write_service`). Default ON by the owner's decision: a
+    # pause is undone by an activate. Checked first, before any ML call.
+    ML_ITEM_STATUS_WRITE_ENABLED: bool = True
     # Kill-switch for the ML operations source-of-truth ingestion layer
     # (ml_orders_ops/ml_order_items_ops/ml_shipments_ops + sweep + link
     # resolver). Default OFF, following the

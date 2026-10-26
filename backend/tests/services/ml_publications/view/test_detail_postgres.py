@@ -499,6 +499,18 @@ class TestResync:
         assert body_of(client, analyst)["can_resync"] is False
 
 
+class TestChangeStatus:
+    def test_it_follows_ml_publicaciones_pausar(self, client, db, rol_admin, rows, reader, pricing) -> None:
+        grant(db, rol_admin, "ml_publicaciones.pausar")
+        assert body_of(client, reader)["can_change_status"] is True
+
+    def test_a_reader_cannot(self, client, rows, reader, pricing) -> None:
+        assert body_of(client, reader)["can_change_status"] is False
+
+    def test_ml_ops_gestionar_does_not_grant_it(self, client, rows, manager, pricing) -> None:
+        assert body_of(client, manager)["can_change_status"] is False
+
+
 class TestFreshness:
     def by_resource(self, body: dict) -> dict:
         return {entry["resource"]: entry for entry in body["freshness"]}

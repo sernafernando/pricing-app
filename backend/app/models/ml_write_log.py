@@ -23,6 +23,9 @@ from app.core.database import Base
 RESOURCE_PROMOTION = "promotion"
 ACTION_ENROLL = "enroll"
 ACTION_REMOVE = "remove"
+RESOURCE_ITEM = "item"
+ACTION_PAUSE = "pause"
+ACTION_ACTIVATE = "activate"
 
 
 class MlWriteLog(Base):
