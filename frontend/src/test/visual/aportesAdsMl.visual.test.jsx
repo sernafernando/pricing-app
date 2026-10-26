@@ -104,6 +104,7 @@ const renderPage = async ({ width, height, theme }) => {
 
 describe('Aportes de marcas (Ads ML) (visual)', () => {
   for (const [width, height] of [
+    [1280, 800],
     [1440, 900],
     [1920, 1080],
   ]) {
@@ -113,6 +114,9 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
         const chips = [...document.querySelectorAll('li[class*="chip"]')];
         expect(chips.length).toBe(5);
         for (const chip of chips) expect(chip.getBoundingClientRect().height).toBeLessThanOrEqual(30);
+        for (const name of document.querySelectorAll('span[class*="campaignName"]')) {
+          expect(name.getBoundingClientRect().height).toBeLessThanOrEqual(42);
+        }
         for (const pill of document.querySelectorAll('span[class*="keep"]')) {
           expect(pill.getBoundingClientRect().height).toBeLessThanOrEqual(24);
         }
@@ -132,7 +136,7 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
   it('opens the add modal with its preview and the delete modal with its summary', async () => {
     const screen = await renderPage({ width: 1440, height: 900, theme: 'light' });
     await userEvent.click(screen.getByRole('button', { name: 'Agregar aporte', exact: true }));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Campaña' }),'25713-351204887');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Campaña' }), '25713-351204887');
     await userEvent.click(screen.getByRole('button', { name: 'Monto fijo' }));
     await userEvent.fill(screen.getByLabelText('Monto'), '500000');
     await userEvent.click(screen.getByLabelText('Devuelve la diferencia'));

@@ -392,7 +392,7 @@ export default function AportesAdsML() {
                                 c={k}
                                 canManage={canManage}
                                 onEdit={setEditing}
-                                onDelete={(k) => setDeleteTarget({ contribution: k, campaign: c })}
+                                onDelete={(contribution) => setDeleteTarget({ contribution, campaign: c })}
                               />
                             ))}
                           </ul>

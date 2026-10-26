@@ -241,6 +241,8 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  /* Keeps a long campaign name to two lines; on a narrow screen the table card scrolls instead. */
+  min-width: 260px;
 }
 
 .campaignName {
