@@ -318,7 +318,7 @@ async def sync_items_incremental(db: Session, minutes: int = 15, usar_dia_comple
             elif resultado == "actualizado":
                 actualizados += 1
 
-            if (nuevos + actualizados) % 100 == 0:
+            if len(items_procesados) % 100 == 0:
                 db.commit()
 
         db.commit()

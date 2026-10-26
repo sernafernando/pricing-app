@@ -165,3 +165,9 @@ class TestUpsertTbItemKeepsWhatTheRowDoesNotSend:
         db.commit()
 
         assert db.query(TBItem).filter(TBItem.item_id == 4198).one().item_desc == "Heladera"
+
+    def test_numeric_code_from_the_worker_is_not_a_change_every_run(self, db) -> None:
+        upsert_tb_item(db, _erp_row(item_code=7790001))
+        db.commit()
+
+        assert upsert_tb_item(db, _erp_row(item_code=7790001)) == "sin_cambios"

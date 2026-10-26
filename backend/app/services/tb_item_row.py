@@ -31,6 +31,10 @@ def _to_int(value: Any) -> Optional[int]:
         return None
 
 
+def _to_text(value: Any) -> Optional[str]:
+    return None if value is None else str(value)
+
+
 def _to_decimal(value: Any) -> Optional[Decimal]:
     if value is None or value == "":
         return None
@@ -72,7 +76,7 @@ def tb_item_values(row: dict[str, Any]) -> dict[str, Any]:
     """
     converters: dict[str, Any] = {
         **{name: _to_int for name in INT_FIELDS},
-        **{name: (lambda value: value) for name in TEXT_FIELDS},
+        **{name: _to_text for name in TEXT_FIELDS},
         **{name: _to_datetime for name in DATE_FIELDS},
         **{name: _to_decimal for name in DIMENSION_FIELDS},
         "item_expser": _to_bool,
