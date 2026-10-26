@@ -41,14 +41,15 @@ def _to_decimal(value: Any) -> Optional[Decimal]:
 
 
 def _to_datetime(value: Any) -> Optional[datetime]:
+    """Naive datetime, like the `DateTime` columns store (an offset is dropped, as Postgres does for them)."""
     if not value:
         return None
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    if not isinstance(value, datetime):
+        try:
+            value = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return value.replace(tzinfo=None)
 
 
 def _to_bool(value: Any) -> Optional[bool]:
@@ -64,24 +65,37 @@ def _to_bool(value: Any) -> Optional[bool]:
 
 
 def tb_item_values(row: dict[str, Any]) -> dict[str, Any]:
-    """Column values for `tb_item` from one scriptItem row (the whole row goes to `raw`)."""
-    values: dict[str, Any] = {name: _to_int(row.get(name)) for name in INT_FIELDS}
-    values.update({name: row.get(name) for name in TEXT_FIELDS})
-    values.update({name: _to_datetime(row.get(name)) for name in DATE_FIELDS})
-    values.update({name: _to_decimal(row.get(name)) for name in DIMENSION_FIELDS})
-    values["item_expser"] = _to_bool(row.get("item_expser"))
+    """Column values for `tb_item` from one scriptItem row, only for the keys the row carries.
+
+    A source that sends fewer columns (an older script, the ERP worker) must not wipe what another sync stored.
+    `raw` is set to the row here; `upsert_tb_item` merges it over the stored one.
+    """
+    converters: dict[str, Any] = {
+        **{name: _to_int for name in INT_FIELDS},
+        **{name: (lambda value: value) for name in TEXT_FIELDS},
+        **{name: _to_datetime for name in DATE_FIELDS},
+        **{name: _to_decimal for name in DIMENSION_FIELDS},
+        "item_expser": _to_bool,
+    }
+    values = {name: convert(row[name]) for name, convert in converters.items() if name in row}
     values["raw"] = dict(row)
     return values
 
 
-def upsert_tb_item(db: Session, row: dict[str, Any]) -> UpsertResult:
-    """Insert or update one `tb_item` from a scriptItem row; any changed column counts as an update."""
+def upsert_tb_item(db: Session, row: dict[str, Any], only_insert: bool = False) -> UpsertResult:
+    """Insert or update one `tb_item` from a scriptItem row; any changed column counts as an update.
+
+    With `only_insert`, an item that already exists is left untouched.
+    """
     values = tb_item_values(row)
     existing = db.query(TBItem).filter(TBItem.comp_id == values["comp_id"], TBItem.item_id == values["item_id"]).first()
     if existing is None:
         db.add(TBItem(**values))
         return "nuevo"
+    if only_insert:
+        return "sin_cambios"
 
+    values["raw"] = {**(existing.raw or {}), **values["raw"]}
     changed = {name: value for name, value in values.items() if getattr(existing, name) != value}
     if not changed:
         return "sin_cambios"

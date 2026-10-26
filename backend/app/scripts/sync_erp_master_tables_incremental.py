@@ -35,25 +35,12 @@ import app.models  # noqa - importar todos los modelos
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
 from app.models.tb_subcategory import TBSubCategory
-from app.models.tb_item import TBItem
 from app.services.tb_item_row import upsert_tb_item
 from app.models.tb_tax_name import TBTaxName
 from app.models.tb_item_taxes import TBItemTaxes
 
 # URL del endpoint local que proxea al ERP
 GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
-
-
-def parse_date(date_str):
-    """Parsear fecha desde string"""
-    if not date_str:
-        return None
-    try:
-        if isinstance(date_str, str):
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        return date_str
-    except:
-        return None
 
 
 def to_int(value):
@@ -455,17 +442,9 @@ async def verificar_items_faltantes(db: Session):
                     continue
 
                 for row in data:
-                    comp_id = to_int(row.get("comp_id"))
-                    row_item_id = to_int(row.get("item_id"))
-
-                    # Verificar que no exista
-                    existente = (
-                        db.query(TBItem).filter(TBItem.comp_id == comp_id, TBItem.item_id == row_item_id).first()
-                    )
-
-                    if not existente:
-                        upsert_tb_item(db, row)
-                        items_sync.append(row_item_id)
+                    # Only items missing locally get here; an existing one is left as the other syncs keep it.
+                    if upsert_tb_item(db, row, only_insert=True) == "nuevo":
+                        items_sync.append(to_int(row.get("item_id")))
                         sincronizados += 1
 
             except Exception as e:

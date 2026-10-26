@@ -32,25 +32,12 @@ import app.models  # noqa - importar todos los modelos
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
 from app.models.tb_subcategory import TBSubCategory
-from app.models.tb_item import TBItem
 from app.services.tb_item_row import upsert_tb_item
 from app.models.tb_tax_name import TBTaxName
 from app.services.erp_item_taxes_sync import sync_item_taxes_full
 
 # URL del endpoint local que proxea al ERP
 GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
-
-
-def parse_date(date_str):
-    """Parsear fecha desde string"""
-    if not date_str:
-        return None
-    try:
-        if isinstance(date_str, str):
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        return date_str
-    except:
-        return None
 
 
 def to_int(value):

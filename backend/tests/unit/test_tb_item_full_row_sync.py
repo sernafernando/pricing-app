@@ -17,6 +17,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.tb_item import TBItem
+from app.services.tb_item_row import upsert_tb_item
 from app.scripts.sync_erp_master_tables_full import sync_items_full
 from app.scripts.sync_erp_master_tables_incremental import sync_items_incremental
 
@@ -129,3 +130,38 @@ class TestSyncItemsIncrementalStoresWholeRow:
         assert item.item_WebSite_url4Image1 == "https://img.example/new.jpg"
         assert item.raw == changed
         assert item.item_expser is True
+
+
+class TestUpsertTbItemKeepsWhatTheRowDoesNotSend:
+    def test_partial_row_does_not_wipe_stored_columns(self, db) -> None:
+        upsert_tb_item(db, _erp_row(item_expser="0"))
+        db.commit()
+
+        partial = {key: _erp_row()[key] for key in ("comp_id", "item_id", "item_code", "item_desc")}
+        partial["item_desc"] = "Heladera nueva"
+        assert upsert_tb_item(db, partial) == "actualizado"
+        db.commit()
+
+        item = db.query(TBItem).filter(TBItem.item_id == 4198).one()
+        assert item.item_desc == "Heladera nueva"
+        assert item.item_expser is False
+        assert item.item_weight == Decimal("12000")
+        assert item.item_WebSite_url4Image1 == "https://img.example/1.jpg"
+        assert item.raw["item_ML_title"] == "Heladera no frost"
+        assert item.raw["item_desc"] == "Heladera nueva"
+
+    def test_utc_suffixed_dates_do_not_count_as_a_change(self, db) -> None:
+        row = _erp_row(item_LastUpdate="2026-10-20T10:00:00Z", item_cd="2024-01-02T10:00:00Z")
+        upsert_tb_item(db, row)
+        db.commit()
+
+        assert upsert_tb_item(db, dict(row)) == "sin_cambios"
+
+    def test_only_insert_leaves_an_existing_item_untouched(self, db) -> None:
+        upsert_tb_item(db, _erp_row())
+        db.commit()
+
+        assert upsert_tb_item(db, _erp_row(item_desc="Otra"), only_insert=True) == "sin_cambios"
+        db.commit()
+
+        assert db.query(TBItem).filter(TBItem.item_id == 4198).one().item_desc == "Heladera"
