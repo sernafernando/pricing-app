@@ -9,7 +9,7 @@ network call.
 from app.core.config import settings
 from app.services.ml_questions.llm_provider import OpenAICompatProvider
 
-_TRIAGE_MODEL = "llama-3.3-70b-versatile"
+_TRIAGE_MODEL = "openai/gpt-oss-120b"
 
 
 def get_triage_provider() -> OpenAICompatProvider:

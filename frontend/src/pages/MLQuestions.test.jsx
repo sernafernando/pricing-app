@@ -1744,6 +1744,12 @@ const RETIRED_MODEL_IDS = [
   'llama-3.3-70b',
   'llama3.1-8b',
   'meta-llama/llama-3.3-70b-instruct:free',
+  // Groq dropped Llama and qwen3-32b from its free tier on 2026-08-16, and
+  // OpenRouter withdrew the free gpt-oss-20b variant.
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
+  'qwen/qwen3-32b',
+  'openai/gpt-oss-20b:free',
 ];
 
 describe('LLM_PROVIDER_MODELS curated dropdown', () => {
@@ -1757,9 +1763,9 @@ describe('LLM_PROVIDER_MODELS curated dropdown', () => {
     // MLQuestions adds a new roster entry with LLM_PROVIDER_MODELS[name][0],
     // so the first element is what an operator gets without choosing. It must
     // match provider_rotation._known_provider_specs on the backend.
-    expect(LLM_PROVIDER_MODELS.groq[0]).toBe('llama-3.3-70b-versatile');
+    expect(LLM_PROVIDER_MODELS.groq[0]).toBe('openai/gpt-oss-120b');
     expect(LLM_PROVIDER_MODELS.cerebras[0]).toBe('gpt-oss-120b');
-    expect(LLM_PROVIDER_MODELS.openrouter[0]).toBe('openai/gpt-oss-20b:free');
+    expect(LLM_PROVIDER_MODELS.openrouter[0]).toBe('openrouter/free');
   });
 
   it('covers every provider the backend knows about', () => {

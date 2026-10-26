@@ -87,7 +87,7 @@ def _known_provider_specs() -> dict:
         "groq": _ProviderSpec(
             base_url=settings.GROQ_BASE_URL,
             api_key=settings.GROQ_API_KEY,
-            default_model="llama-3.3-70b-versatile",
+            default_model="openai/gpt-oss-120b",
         ),
         # These defaults are the LAST line of defence: they only apply when a
         # roster entry omits `model`. They must name ids that actually exist
@@ -95,7 +95,8 @@ def _known_provider_specs() -> dict:
         # treats as permanent (no retry), so the provider drops out of the
         # rotation silently and its share goes to whoever is left. That is
         # precisely how `llama-3.3-70b` / `...-instruct:free` made groq answer
-        # 100% of questions until migration 20260727_fix_llm_ids.
+        # 100% of questions until migration 20260727_fix_llm_ids, and again
+        # when Groq dropped Llama from its free tier on 2026-08-16.
         # Verified against each provider's live catalogue — see
         # docs/RUNBOOKS.md §3 for the two commands to re-check before editing.
         "cerebras": _ProviderSpec(
@@ -103,11 +104,13 @@ def _known_provider_specs() -> dict:
             api_key=settings.CEREBRAS_API_KEY,
             default_model="gpt-oss-120b",
         ),
-        # Free-tier, panel-changeable — documented in docs/RUNBOOKS.md §3.
+        # `openrouter/free` routes to whichever free model is up, so it
+        # survives the free catalogue turning over (`openai/gpt-oss-20b:free`
+        # was withdrawn). Panel-changeable — documented in docs/RUNBOOKS.md §3.
         "openrouter": _ProviderSpec(
             base_url=settings.OPENROUTER_BASE_URL,
             api_key=settings.OPENROUTER_API_KEY,
-            default_model="openai/gpt-oss-20b:free",
+            default_model="openrouter/free",
         ),
     }
 
@@ -144,7 +147,7 @@ def _load_roster_entries(db: Any) -> List[dict]:
     entries: List[dict] = []
     # Dedupe key is (name, model) — not name alone (item #4, PR de pulido) —
     # so the SAME provider can appear multiple times with DIFFERENT models
-    # (e.g. groq/llama-3.3-70b-versatile then groq/llama-3.1-8b-instant as a
+    # (e.g. groq/openai/gpt-oss-120b then groq/openai/gpt-oss-20b as a
     # separate fallback entry, for per-model rate-limit fairness). Two
     # entries for the same provider AND the same model (including two
     # entries both leaving `model` unset/None) are still a true duplicate.

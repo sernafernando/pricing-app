@@ -35,7 +35,7 @@ _REQUIRED_FIELDS = frozenset({"answer", "confidence", "category", "can_answer"})
 # (questions bot) are entirely unaffected.
 _OPTIONAL_FIELDS = frozenset({"extracted_cuit", "extracted_name"})
 
-_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+_DEFAULT_MODEL = "openai/gpt-oss-120b"
 _DEFAULT_TIMEOUT_SECONDS = 15.0
 _MAX_RETRIES = 2  # retries on transient 5xx/network errors only
 _MAX_RESPONSE_BYTES = 256 * 1024  # 256 KB cap on the raw response body
