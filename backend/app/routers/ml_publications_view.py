@@ -19,7 +19,8 @@ joins it).
   paged. Each row's `params` select exactly its `publications_count` publications in `/items`. Figures and figure
   sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`.
 - `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
-  the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`, `can_change_status` from `ml_publicaciones.pausar`.
+  the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`,
+  `can_change_status` from `ml_publicaciones.pausar`.
 - `GET /ml-publications/view/items/{item_id}/events` (`ml_ops.ver`): the publication's business events from
   `ml_item_events`, newest first, keyset-paged by an opaque cursor; an empty list while `events.enabled` is off.
 - `GET /ml-publications/view/items/{item_id}/history` (`ml_ops.ver`): its `ml_change_log` rows (and those of its user

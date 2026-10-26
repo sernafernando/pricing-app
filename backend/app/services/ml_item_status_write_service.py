@@ -1,10 +1,11 @@
 """Pause or activate one publication at ML, through the ml-webhook proxy.
 
-Order: kill switch -> the store's status, read on its own short-lived session so no connection is held while ML
-answers (only an active publication is paused and only a paused one activated; a
+Order: kill switch -> the store's status (only an active publication is paused and only a paused one activated; a
 deleted one, one ML never reported, or one in any other status is refused without calling ML) -> one write, never
 retried -> on a confirmed write, an `ml_write_log` row with the user -> a manual-lane refresh of the item, also after an
 ambiguous write or a no-op, so the store learns what ML has now.
+
+Every database step runs off the event loop on its own short-lived session: no connection is held while ML answers.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Optional
+
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.core.database import get_background_db
@@ -57,7 +60,7 @@ async def set_item_status(mla: str, target: str, usuario_id: Optional[int]) -> I
     if not settings.ML_ITEM_STATUS_WRITE_ENABLED:
         return ItemStatusOutcome(DISABLED, "Pausar y activar publicaciones está deshabilitado.")
 
-    current = _read_status(mla)
+    current = await run_in_threadpool(_read_status, mla)
     if current is None:
         return ItemStatusOutcome(UNKNOWN_STATUS, "No se pudo leer el estado de la publicación: probá de nuevo.")
     if current.status == NO_ML_DATA:
@@ -65,18 +68,18 @@ async def set_item_status(mla: str, target: str, usuario_id: Optional[int]) -> I
     if current.status in (GONE, NEVER_EXISTED) or "deleted" in (current.sub_status or ()):
         return ItemStatusOutcome(NOT_ELIGIBLE, "La publicación está eliminada.")
     if current.status == target:
-        _enqueue_refresh_safely(mla)
+        await run_in_threadpool(_enqueue_refresh_safely, mla)
         return ItemStatusOutcome(UNCHANGED, None)
     if current.status != _FROM[target]:
         return ItemStatusOutcome(NOT_ELIGIBLE, f"Una publicación en estado {current.status} no se puede cambiar.")
 
     result = await MLWebhookClient().put_item_status(mla, target)
     if result["ok"]:
-        _record_write_log(mla, target, usuario_id)
-        _enqueue_refresh_safely(mla)
+        await run_in_threadpool(_record_write_log, mla, target, usuario_id)
+        await run_in_threadpool(_enqueue_refresh_safely, mla)
         return ItemStatusOutcome(SUBMITTED, None)
     if result["ambiguous"]:
-        _enqueue_refresh_safely(mla)
+        await run_in_threadpool(_enqueue_refresh_safely, mla)
         return ItemStatusOutcome(AMBIGUOUS, "No se sabe si Mercado Libre aplicó el cambio: se vuelve a consultar.")
     body = result["body"] if isinstance(result["body"], dict) else {}
     if body.get("status_write") == "not_attempted":
