@@ -254,7 +254,8 @@ def edit_datos(
     """
     if db.get(ProductoERP, item_id) is None:
         return None
-    row = db.get(ProductoPropio, item_id)
+    # Locked until the commit: a source chosen meanwhile waits, so the edit is checked against the copy it replaces.
+    row = db.get(ProductoPropio, item_id, with_for_update=True)
     if row is None or row.fuente_mla is None:
         raise SinFuente("Elegí primero la publicación de la que se copian los datos.")
     new_fotos = _pick(row.fotos or [], fotos, "fotos")

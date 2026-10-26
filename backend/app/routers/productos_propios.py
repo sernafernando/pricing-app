@@ -79,6 +79,7 @@ class FuenteRequest(BaseModel):
 # ML's limit on a description; the title has no fixed limit across categories, so only a generous cap here.
 MAX_TITULO_LENGTH = 255
 MAX_DESCRIPCION_LENGTH = 50000
+MAX_ATRIBUTO_VALUE_LENGTH = 255
 
 NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -87,7 +88,9 @@ class AtributoEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: NonBlank
-    value_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_TITULO_LENGTH)]
+    value_name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_ATRIBUTO_VALUE_LENGTH)
+    ]
 
 
 class DatosRequest(BaseModel):
