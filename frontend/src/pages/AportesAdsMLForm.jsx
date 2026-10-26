@@ -233,6 +233,14 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
           </div>
         </div>
 
+        {preview && (
+          <p className={styles.preview}>
+            {`Costo de la campaña en el rango: ${formatSignedMoney(preview.spend)} · Aporte que cuenta: ${formatSignedMoney(
+              preview.counted,
+            )} · Neto: ${formatSignedMoney(preview.net)}`}
+          </p>
+        )}
+
         <label className={styles.field} htmlFor="aporte-marca">
           <span className={styles.label}>Marca</span>
           <input
@@ -256,14 +264,6 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
             onChange={set('note')}
           />
         </label>
-
-        {preview && (
-          <p className={styles.preview}>
-            {`Costo de la campaña en el rango: ${formatSignedMoney(preview.spend)} · Aporte que cuenta: ${formatSignedMoney(
-              preview.counted,
-            )} · Neto: ${formatSignedMoney(preview.net)}`}
-          </p>
-        )}
       </form>
     </ModalTesla>
   );

@@ -49,9 +49,10 @@ const touchesRange = (c, range) => c.date_from <= range.to && c.date_to >= range
 const advertiserLabel = (c) => c.advertiser_name || `Anunciante ${c.advertiser_id}`;
 const sumOf = (rows, key) => rows.reduce((total, row) => total + (row[key] || 0), 0);
 const formatPercent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`;
+const contributionValue = (c) => (c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value));
 
 function ContributionItem({ c, canManage, onEdit, onDelete }) {
-  const value = c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value);
+  const value = contributionValue(c);
   const badge = SETTLEMENT_BADGES[c.settlement];
   // Shown on hover; the hidden copy reads it to keyboard and screen-reader users too.
   const details = [c.brand, c.note].filter(Boolean).join(' · ');
@@ -60,24 +61,58 @@ function ContributionItem({ c, canManage, onEdit, onDelete }) {
       <span className={styles.chipValue}>{value}</span>
       {details && <span className={styles.srOnly}>{details}</span>}
       {badge && (
-        <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
-          {badge.text}
-        </StatusPill>
+        <span className={styles.keep}>
+          <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
+            {badge.text}
+          </StatusPill>
+        </span>
       )}
       <span className={styles.chipRange}>
         {formatDay(c.date_from)} → {formatDay(c.date_to)}
       </span>
       {canManage && (
         <span className={styles.actions}>
-          <button type="button" className={styles.btnIcon} aria-label="Editar aporte" onClick={() => onEdit(c)}>
+          <button type="button" className={styles.btnIcon} aria-label={`Editar aporte ${value}`} onClick={() => onEdit(c)}>
             <Pencil size={14} />
           </button>
-          <button type="button" className={styles.btnIconDanger} aria-label="Borrar aporte" onClick={() => onDelete(c)}>
+          <button
+            type="button"
+            className={styles.btnIconDanger}
+            aria-label={`Borrar aporte ${value}`}
+            onClick={() => onDelete(c)}
+          >
             <Trash2 size={14} />
           </button>
         </span>
       )}
     </li>
+  );
+}
+
+function DeleteSummary({ contribution: c, campaign }) {
+  const badge = SETTLEMENT_BADGES[c.settlement];
+  const fullDay = (iso) => iso.split('-').reverse().join('/');
+  return (
+    <dl className={styles.summary}>
+      <dt>Campaña</dt>
+      <dd>
+        {campaign.name || `Campaña ${campaign.campaign_id}`}
+        <span className={styles.campaignId}>{campaign.campaign_id}</span>
+      </dd>
+      <dt>Aporte</dt>
+      <dd>
+        <span className={styles.chipValue}>{contributionValue(c)}</span>
+        {badge && (
+          <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
+            {badge.text}
+          </StatusPill>
+        )}
+      </dd>
+      <dt>Rango</dt>
+      <dd className={styles.chipRange}>
+        {fullDay(c.date_from)} → {fullDay(c.date_to)}
+      </dd>
+    </dl>
   );
 }
 
@@ -150,7 +185,9 @@ export default function AportesAdsML() {
     fetchCampaigns();
   };
 
+  // Closing mid-delete would let a late failure surface on the next contribution's modal.
   const closeDelete = () => {
+    if (deleting) return;
     setDeleteTarget(null);
     setDeleteError(null);
   };
@@ -159,8 +196,8 @@ export default function AportesAdsML() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await api.delete(`/ml-ads/contributions/${deleteTarget.id}`);
-      closeDelete();
+      await api.delete(`/ml-ads/contributions/${deleteTarget.contribution.id}`);
+      setDeleteTarget(null);
       fetchCampaigns();
     } catch (err) {
       setDeleteError(apiErrorMessage(err, 'No se pudo borrar el aporte'));
@@ -324,13 +361,19 @@ export default function AportesAdsML() {
                     <td>
                       <div className={styles.campaign}>
                         <span className={styles.campaignName}>{c.name || `Campaña ${c.campaign_id}`}</span>
-                        <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
+                        <span className={styles.keep}>
+                          <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
+                        </span>
                       </div>
                       <span className={styles.campaignId}>{c.campaign_id}</span>
                     </td>
                     <td>
                       {status ? (
-                        <StatusPill tone={status.tone} dot>{status.text}</StatusPill>
+                        <span className={styles.keep}>
+                          <StatusPill tone={status.tone} dot>
+                            {status.text}
+                          </StatusPill>
+                        </span>
                       ) : (
                         <span className={styles.muted}>{c.status || '—'}</span>
                       )}
@@ -352,7 +395,7 @@ export default function AportesAdsML() {
                                 c={k}
                                 canManage={canManage}
                                 onEdit={setEditing}
-                                onDelete={setDeleteTarget}
+                                onDelete={(contribution) => setDeleteTarget({ contribution, campaign: c })}
                               />
                             ))}
                           </ul>
@@ -421,22 +464,23 @@ export default function AportesAdsML() {
       <ModalTesla
         isOpen={deleteTarget != null}
         onClose={closeDelete}
-        title="Borrar aporte"
+        title="¿Borrar este aporte?"
         size="sm"
         footer={
           <div className={styles.modalFooter}>
-            <button type="button" className={styles.btnSecondary} onClick={closeDelete}>
+            <button type="button" className={styles.btnSecondary} onClick={closeDelete} disabled={deleting}>
               Cancelar
             </button>
             <button type="button" className={styles.btnDanger} onClick={handleConfirmDelete} disabled={deleting}>
-              <Trash2 size={14} /> Borrar
+              <Trash2 size={14} /> Borrar aporte
             </button>
           </div>
         }
       >
+        {deleteTarget && <DeleteSummary {...deleteTarget} />}
         <p className={styles.description}>El costo que cubría este aporte vuelve a descontarse en Métricas ML.</p>
         {deleteError && (
-          <div className={styles.alertError} role="alert">
+          <div className={styles.deleteError} role="alert">
             <AlertTriangle size={16} /> {deleteError}
           </div>
         )}
