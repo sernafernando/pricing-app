@@ -22,7 +22,7 @@ class Service:
         self.calls: list[tuple] = []
         self.outcome = write_service.ItemStatusOutcome(write_service.SUBMITTED, None)
 
-    async def __call__(self, db, mla, target, usuario_id):
+    async def __call__(self, mla, target, usuario_id):
         self.calls.append((mla, target, usuario_id))
         return self.outcome
 
@@ -69,6 +69,8 @@ def test_a_status_other_than_paused_or_active_is_422(client, allowed, service, b
         (write_service.NOT_ELIGIBLE, 409),
         (write_service.REJECTED, 422),
         (write_service.DISABLED, 503),
+        (write_service.NOT_SENT, 503),
+        (write_service.UNKNOWN_STATUS, 503),
     ],
 )
 def test_each_outcome_has_its_answer_with_the_message(client, allowed, service, outcome, code) -> None:

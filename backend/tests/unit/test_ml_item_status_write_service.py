@@ -33,9 +33,9 @@ class FakeClient:
 
 @pytest.fixture()
 def store(monkeypatch: pytest.MonkeyPatch):
-    """The store's status of MLA123, set per test."""
+    """The store's status of MLA123, set per test; `None` is a read that failed."""
     current = {"value": MlPublicationStatus("active")}
-    monkeypatch.setattr(write_service, "fetch_publication_status_by_mla", lambda db, ids: {MLA: current["value"]})
+    monkeypatch.setattr(write_service, "_read_status", lambda mla: current["value"])
     return current
 
 
@@ -80,7 +80,7 @@ def usuario(db) -> Usuario:
 
 
 def run(db, target: str, usuario_id=None) -> write_service.ItemStatusOutcome:
-    return asyncio.run(write_service.set_item_status(db, MLA, target, usuario_id))
+    return asyncio.run(write_service.set_item_status(MLA, target, usuario_id))
 
 
 def logged(db) -> list[tuple]:
@@ -100,6 +100,58 @@ def test_activates_a_paused_publication(db, store, ml, refreshed, bg_db) -> None
     assert run(db, "active").status == write_service.SUBMITTED
     assert ml.calls == [(MLA, "active")]
     assert logged(db) == [(MLA, RESOURCE_ITEM, ACTION_ACTIVATE, None)]
+
+
+def test_the_status_is_read_on_its_own_short_session_released_before_calling_ml(ml, refreshed, monkeypatch) -> None:
+    sessions: list[str] = []
+
+    @contextmanager
+    def tracked():
+        sessions.append("open")
+        yield "read-session"
+        sessions.append("closed")
+
+    real_put = ml.put_item_status
+
+    async def put(item_id, status):
+        assert sessions == ["open", "closed"]  # no connection held while ML answers
+        return await real_put(item_id, status)
+
+    def fetch(db, ids):
+        assert db == "read-session"
+        return {MLA: MlPublicationStatus("active")}
+
+    monkeypatch.setattr(write_service, "fetch_publication_status_by_mla", fetch)
+    monkeypatch.setattr(write_service, "get_background_db", tracked)
+    monkeypatch.setattr(write_service, "_record_write_log", lambda *args: None)
+    monkeypatch.setattr(ml, "put_item_status", put)
+    assert asyncio.run(write_service.set_item_status(MLA, "paused", None)).status == write_service.SUBMITTED
+
+
+def test_a_failing_read_is_unknown_not_no_data(monkeypatch) -> None:
+    @contextmanager
+    def session():
+        yield "read-session"
+
+    monkeypatch.setattr(write_service, "get_background_db", session)
+    monkeypatch.setattr(write_service, "fetch_publication_status_by_mla", lambda db, ids: {})  # its fail-open answer
+    assert write_service._read_status(MLA) is None
+
+
+def test_a_store_that_cannot_be_read_refuses_without_calling_ml_and_says_so(db, store, ml, refreshed) -> None:
+    store["value"] = None
+    outcome = run(db, "paused")
+    assert outcome.status == write_service.UNKNOWN_STATUS
+    assert "no se pudo leer" in outcome.message.lower()
+    assert ml.calls == [] and refreshed == []
+
+
+def test_a_write_the_proxy_did_not_send_is_not_blamed_on_ml(db, store, ml, refreshed, bg_db) -> None:
+    ml.result = {"ok": False, "status_code": 503, "ambiguous": False, "body": {"status_write": "not_attempted"}}
+    outcome = run(db, "paused")
+    assert outcome.status == write_service.NOT_SENT
+    assert "mercado libre" not in outcome.message.lower()
+    assert logged(db) == [] and refreshed == []
 
 
 def test_with_the_kill_switch_off_nothing_is_called(db, store, ml, refreshed, monkeypatch) -> None:

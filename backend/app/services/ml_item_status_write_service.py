@@ -1,6 +1,7 @@
 """Pause or activate one publication at ML, through the ml-webhook proxy.
 
-Order: kill switch -> the store's status (only an active publication is paused and only a paused one activated; a
+Order: kill switch -> the store's status, read on its own short-lived session so no connection is held while ML
+answers (only an active publication is paused and only a paused one activated; a
 deleted one, one ML never reported, or one in any other status is refused without calling ML) -> one write, never
 retried -> on a confirmed write, an `ml_write_log` row with the user -> a manual-lane refresh of the item, also after an
 ambiguous write or a no-op, so the store learns what ML has now.
@@ -12,8 +13,6 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy.orm import Session
-
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_write_log import ACTION_ACTIVATE, ACTION_PAUSE, RESOURCE_ITEM, MlWriteLog
@@ -21,6 +20,7 @@ from app.services.ml_publication_status_service import (
     GONE,
     NEVER_EXISTED,
     NO_ML_DATA,
+    MlPublicationStatus,
     fetch_publication_status_by_mla,
 )
 from app.services.ml_publications import queue as ml_pub_queue
@@ -35,6 +35,8 @@ NOT_ELIGIBLE = "not_eligible"
 UNCHANGED = "unchanged"
 REJECTED = "rejected"
 AMBIGUOUS = "ambiguous"
+NOT_SENT = "not_sent"  # the proxy refused to forward it (`status_write: not_attempted`): ML never saw it
+UNKNOWN_STATUS = "unknown_status"  # the store could not be read: nothing is written blind
 
 PAUSED = "paused"
 ACTIVE = "active"
@@ -51,12 +53,14 @@ class ItemStatusOutcome:
     message: Optional[str]
 
 
-async def set_item_status(db: Session, mla: str, target: str, usuario_id: Optional[int]) -> ItemStatusOutcome:
+async def set_item_status(mla: str, target: str, usuario_id: Optional[int]) -> ItemStatusOutcome:
     if not settings.ML_ITEM_STATUS_WRITE_ENABLED:
         return ItemStatusOutcome(DISABLED, "Pausar y activar publicaciones está deshabilitado.")
 
-    current = fetch_publication_status_by_mla(db, [mla]).get(mla)
-    if current is None or current.status == NO_ML_DATA:
+    current = _read_status(mla)
+    if current is None:
+        return ItemStatusOutcome(UNKNOWN_STATUS, "No se pudo leer el estado de la publicación: probá de nuevo.")
+    if current.status == NO_ML_DATA:
         return ItemStatusOutcome(NOT_ELIGIBLE, "Todavía no hay datos de Mercado Libre para esta publicación.")
     if current.status in (GONE, NEVER_EXISTED) or "deleted" in (current.sub_status or ()):
         return ItemStatusOutcome(NOT_ELIGIBLE, "La publicación está eliminada.")
@@ -74,9 +78,21 @@ async def set_item_status(db: Session, mla: str, target: str, usuario_id: Option
     if result["ambiguous"]:
         _enqueue_refresh_safely(mla)
         return ItemStatusOutcome(AMBIGUOUS, "No se sabe si Mercado Libre aplicó el cambio: se vuelve a consultar.")
-    body = result["body"]
-    message = body.get("message") if isinstance(body, dict) else None
-    return ItemStatusOutcome(REJECTED, message or "Mercado Libre rechazó el cambio.")
+    body = result["body"] if isinstance(result["body"], dict) else {}
+    if body.get("status_write") == "not_attempted":
+        return ItemStatusOutcome(NOT_SENT, "El cambio no se envió: el servicio de escritura lo rechazó.")
+    return ItemStatusOutcome(REJECTED, body.get("message") or "Mercado Libre rechazó el cambio.")
+
+
+def _read_status(mla: str) -> Optional[MlPublicationStatus]:
+    """The store's status of `mla`, or None when it cannot be read (`fetch_publication_status_by_mla` fails open
+    with an absent key; a session that cannot even open is the same unknown)."""
+    try:
+        with get_background_db() as db:
+            return fetch_publication_status_by_mla(db, [mla]).get(mla)
+    except Exception as e:
+        logger.error("ml_items status read failed for mla=%s before a status write: %s", mla, e)
+        return None
 
 
 def _record_write_log(mla: str, target: str, usuario_id: Optional[int]) -> None:
