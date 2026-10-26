@@ -221,7 +221,7 @@ class MlHttpClient:
     def _finish(self, response: MlResponse) -> MlResponse:
         self.counters.inc(response.endpoint, response.outcome)
         if response.status == 429:
-            self.pacer.on_rate_limited(response.headers.get("retry-after"))
+            self.pacer.on_rate_limited(response.endpoint, response.headers.get("retry-after"))
         elif response.outcome == "2xx":
-            self.pacer.on_success()
+            self.pacer.on_success(response.endpoint)
         return response
