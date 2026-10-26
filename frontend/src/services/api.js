@@ -431,6 +431,10 @@ export const marcasPmAPI = {
   // Aggregate grant counts by usuario_id, scoped to the caller's writable
   // pairs — feeds the "Juan Pérez (12)" picker counter without an N+1.
   obtenerConteosSubPMs: () => api.get('/marcas-pm/sub-pms/conteos'),
+  // Every grant on the caller's writable pairs (id, marca, categoria,
+  // usuario_id, usuario_nombre) in one call — feeds "who else manages this
+  // pair" without one request per pair.
+  listarGrantsScope: () => api.get('/marcas-pm/sub-pms/scope'),
   // Bulk assignment write (sub-pm-bulk-assignment Slice 2): replaces the
   // FULL desired set of (marca, categoria) pairs for `usuarioId`, confined
   // to the caller's writable scope. Fail-closed: any out-of-scope pair

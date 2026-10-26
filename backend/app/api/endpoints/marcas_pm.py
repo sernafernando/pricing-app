@@ -151,6 +151,18 @@ class ConteosUsuarioResponse(BaseModel):
     conteos: List[ConteoUsuarioItem]
 
 
+class GrantScopeItem(BaseModel):
+    id: int
+    marca: str
+    categoria: str
+    usuario_id: int
+    usuario_nombre: Optional[str] = None
+
+
+class GrantsScopeResponse(BaseModel):
+    grants: List[GrantScopeItem]
+
+
 class BulkSubPMRequest(BaseModel):
     """Desired full set of (marca, categoria) pairs for a user, confined to
     the caller's writable scope."""
@@ -717,6 +729,42 @@ def conteos_sub_pms(
 
     items = [ConteoUsuarioItem(usuario_id=uid, total=total) for uid, total in conteos.items()]
     return ConteosUsuarioResponse(conteos=items)
+
+
+@router.get("/marcas-pm/sub-pms/scope", response_model=GrantsScopeResponse)
+def grants_en_scope(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> GrantsScopeResponse:
+    """
+    Every sub-PM grant on the caller's writable pairs, in one query, so the
+    Sub-PMs screen can show who else manages each pair without one request
+    per pair. Same scope rule as `conteos_sub_pms`: grants on pairs outside
+    the caller's scope are filtered out, never rejected.
+    """
+    writable_pairs = _resolve_writable_pairs(db, current_user)
+    if not writable_pairs:
+        return GrantsScopeResponse(grants=[])
+
+    grants = (
+        db.query(MarcaSubPM)
+        .options(joinedload(MarcaSubPM.usuario))
+        .filter(tuple_(MarcaSubPM.marca, MarcaSubPM.categoria).in_(writable_pairs))
+        .all()
+    )
+
+    return GrantsScopeResponse(
+        grants=[
+            GrantScopeItem(
+                id=g.id,
+                marca=g.marca,
+                categoria=g.categoria,
+                usuario_id=g.usuario_id,
+                usuario_nombre=g.usuario.nombre if g.usuario else None,
+            )
+            for g in grants
+        ]
+    )
 
 
 # ── Bulk assignment write (Slice 2 of sub-pm-bulk-assignment) ───────────────
