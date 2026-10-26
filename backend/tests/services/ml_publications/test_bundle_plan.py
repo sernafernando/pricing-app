@@ -265,3 +265,20 @@ class TestMinAge:
 
     def test_a_zero_minimum_age_is_always_due(self) -> None:
         assert bundle.is_due(explicit=False, min_age=0, last_checked_at=NOW, now=NOW) is True
+
+
+class TestFetchOrder:
+    """A batch fetches resource by resource in `FETCH_ORDER` (ml-sync-pipeline S2): a fetcher missing from it would
+    be settled without ever being fetched."""
+
+    def test_the_order_names_every_fetcher_once(self) -> None:
+        assert sorted(bundle.FETCH_ORDER) == sorted(bundle.FETCHERS)
+        assert len(set(bundle.FETCH_ORDER)) == len(bundle.FETCH_ORDER)
+
+    def test_the_owners_fast_data_goes_before_any_slow_data(self) -> None:
+        # Owner: prices, promotions, stock "no puede quedar pendiente"; competition "si pierdo quiero saber quien me
+        # está ganando"; description and family rarely change.
+        fast = {"prices", "sale_price", "promotions", "stock", "competition"}
+        slow = {"description", "family", "performance", "visits", "replenishment"}
+        rank = {name: position for position, name in enumerate(bundle.FETCH_ORDER)}
+        assert max(rank[name] for name in fast) < min(rank[name] for name in slow)
