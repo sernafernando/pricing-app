@@ -74,6 +74,7 @@ vi.mock('../../services/api', () => ({
     ),
     save: vi.fn(),
     chooseSource: vi.fn(),
+    saveDatos: vi.fn(),
   },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
@@ -794,8 +795,29 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(el).right, el.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-data-${width}-${theme}.png` });
+        // Editing the copy: every field and button of the form stays inside the panel.
+        await aside.getByRole('button', { name: 'Editar datos' }).click();
+        await expect.element(aside.getByLabelText('Título')).toBeVisible();
+        const form = aside.getByLabelText('Título').element().closest('form');
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const control of form.querySelectorAll('input, textarea, button, img')) {
+          expect(rect(control).right, control.getAttribute('aria-label') || control.textContent || control.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        // Each picture's buttons stay inside its own tile, not over the next one.
+        for (const tile of form.querySelectorAll('li')) {
+          for (const button of tile.querySelectorAll('button')) {
+            expect(rect(button).left, button.getAttribute('aria-label')).toBeGreaterThanOrEqual(rect(tile).left - 0.5);
+            expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(tile).right + 0.5);
+          }
+        }
+        form.scrollIntoView();
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-data-edit-${width}-${theme}.png` });
+        form.querySelector('.btn-tesla.primary').scrollIntoView({ block: 'end' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-data-edit-end-${width}-${theme}.png` });
+        await aside.getByRole('button', { name: 'Cancelar' }).click();
+        await expect.element(aside.getByRole('button', { name: 'Editar datos' })).toBeVisible();
         panel.querySelector('section').scrollIntoView();
-        await aside.getByRole('button', { name: 'Editar' }).click();
+        await aside.getByRole('button', { name: 'Editar', exact: true }).click();
         await expect.element(aside.getByLabelText('SKU')).toBeVisible();
         const box = rect(panel);
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);

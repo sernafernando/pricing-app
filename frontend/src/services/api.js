@@ -887,6 +887,8 @@ export const productosPropiosAPI = {
   save: (itemId, body) => api.put(`/productos-propios/${itemId}`, body),
   // Copy the title, description, pictures and attributes of one of the product's publications (replaces a copy).
   chooseSource: (itemId, mla) => api.post(`/productos-propios/${itemId}/fuente`, { mla }),
+  // Save the edited copy whole: `{ titulo, descripcion, fotos: [id], atributos: [{ id, value_name }] }`.
+  saveDatos: (itemId, body) => api.put(`/productos-propios/${itemId}/datos`, body),
 };
 
 // =============================================================================
