@@ -46,9 +46,12 @@ const sumOf = (rows, key) => rows.reduce((total, row) => total + (row[key] || 0)
 function ContributionItem({ c, canManage, onEdit, onDelete }) {
   const value = c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value);
   const badge = SETTLEMENT_BADGES[c.settlement];
+  // Shown on hover; the hidden copy reads it to keyboard and screen-reader users too.
+  const details = [c.brand, c.note].filter(Boolean).join(' · ');
   return (
-    <li className={styles.chip} title={[c.brand, c.note].filter(Boolean).join(' · ') || undefined}>
+    <li className={styles.chip} title={details || undefined}>
       <span className={styles.chipValue}>{value}</span>
+      {details && <span className={styles.srOnly}>{details}</span>}
       {badge && (
         <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
           {badge.text}

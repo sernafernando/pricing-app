@@ -119,6 +119,7 @@ describe('campaign list', () => {
     expect(badge).toHaveAttribute('title', 'Se devuelve la diferencia');
     expect(routers.getByText('01/10/26 → 31/10/26')).toBeInTheDocument();
     expect(badge.closest('li')).toHaveAttribute('title', 'TP-Link · Acuerdo trimestral');
+    expect(badge.closest('li')).toHaveTextContent('TP-Link · Acuerdo trimestral');
 
     const notebooks = within(rowOf('Notebooks'));
     expect(notebooks.getByText('Pausada')).toBeInTheDocument();
@@ -160,7 +161,7 @@ describe('range changes', () => {
     api.get
       .mockImplementationOnce(() => new Promise((resolve) => (resolveOld = resolve)))
       .mockResolvedValueOnce({
-        data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Nuevo rango', status: null, cost: 0, contributions: [] }] },
+        data: { campaigns: [{ advertiser_id: 1, campaign_id: 9, name: 'Nuevo rango', status: null, cost: 0, contribution: 0, contributions: [] }] },
       });
     render(<AportesAdsML />);
     fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-09-01' } });
