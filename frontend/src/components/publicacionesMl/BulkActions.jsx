@@ -18,6 +18,7 @@ const ACTIONS = [
 ];
 
 const plural = (n, one, many) => (n === 1 ? one : many);
+
 /**
  * Productos' bulk pricing actions (web transferencia, PVP, markup + cuotas) over Publicaciones ML. Pricing is per
  * product, so they act on PRODUCTS: the ones the operator checked in the list, else the linked products of every

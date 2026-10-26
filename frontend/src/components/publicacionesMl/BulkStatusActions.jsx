@@ -57,6 +57,9 @@ function Summary({ action, results, total, stopped }) {
  * (`GET /ml-publications/view/status-item-ids`), so the confirmation says how many. Confirmed, it is written in
  * batches of `BATCH_SIZE` (each publication checked again by the server), with progress, then a summary.
  *
+ * Confirmar sends the set the confirmation showed, even if the filters changed meanwhile: the operator approved
+ * that set, not the new one (the server still checks each publication).
+ *
  * Fail closed: no set while resolving, when the resolver refuses (over its cap) or fails, or when it is empty --
  * nothing to confirm. A failed batch stops the run; what was written is still re-read (`onDone`).
  */
@@ -95,7 +98,7 @@ export default function BulkStatusActions({ filters, canSeeMargin, onDone }) {
     const { action, itemIds } = run;
     const results = [];
     let stopped = false;
-    setRun({ ...run, phase: 'sending', results });
+    setRun({ ...run, phase: 'sending', results: [] }); // `results` above only accumulates; state gets copies
     for (let start = 0; start < itemIds.length; start += BATCH_SIZE) {
       try {
         const { data } = await publicacionesMlAPI.statusBulk({ status: action.target, item_ids: itemIds.slice(start, start + BATCH_SIZE) });
