@@ -192,6 +192,7 @@ export default function AportesAdsML() {
             Lo que una marca paga de una campaña de Product Ads deja de restarse en Métricas ML.
           </p>
         </div>
+        <div className={styles.headerActions}>
         <div className={styles.range}>
           <label className={styles.rangeField}>
             <span>Desde</span>
@@ -211,6 +212,12 @@ export default function AportesAdsML() {
               onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
             />
           </label>
+        </div>
+        {canManage && (
+          <button type="button" className={styles.btnPrimary} onClick={() => setCreatingFor({})}>
+            <Plus size={14} /> Agregar aporte
+          </button>
+        )}
         </div>
       </header>
 
@@ -354,7 +361,7 @@ export default function AportesAdsML() {
                           <button
                             type="button"
                             className={styles.addLink}
-                            aria-label="Agregar aporte"
+                            aria-label={`Agregar aporte a ${c.name || `Campaña ${c.campaign_id}`}`}
                             onClick={() => setCreatingFor(c)}
                           >
                             <Plus size={14} /> Aporte
@@ -391,10 +398,10 @@ export default function AportesAdsML() {
 
       {creatingFor && (
         <AportesAdsMLForm
-          title="Nuevo aporte"
+          title="Agregar aporte"
           initial={{ advertiser_id: creatingFor.advertiser_id, campaign_id: creatingFor.campaign_id }}
+          campaigns={campaigns}
           submit={(body) => api.post('/ml-ads/contributions', body)}
-          settlementLabels={SETTLEMENT_LABELS}
           onClose={() => setCreatingFor(null)}
           onSaved={handleSaved}
         />
@@ -404,8 +411,8 @@ export default function AportesAdsML() {
         <AportesAdsMLForm
           title="Editar aporte"
           initial={editing}
+          campaigns={campaigns}
           submit={(body) => api.put(`/ml-ads/contributions/${editing.id}`, body)}
-          settlementLabels={SETTLEMENT_LABELS}
           onClose={() => setEditing(null)}
           onSaved={handleSaved}
         />
