@@ -418,15 +418,15 @@ describe('manage contributions', () => {
     ).toBeInTheDocument();
     expect(api.get).toHaveBeenLastCalledWith('/ml-ads/contributions/preview', {
       params: {
-      advertiser_id: 25713,
-      campaign_id: 66,
-      kind: 'fixed_amount',
-      value: 500000,
-      date_from: '2026-10-01',
-      date_to: '2026-10-15',
-      settlement: 'refund_difference',
-      brand: null,
-      note: null,
+        advertiser_id: 25713,
+        campaign_id: 66,
+        kind: 'fixed_amount',
+        value: 500000,
+        date_from: '2026-10-01',
+        date_to: '2026-10-15',
+        settlement: 'refund_difference',
+        brand: null,
+        note: null,
       },
     });
   });

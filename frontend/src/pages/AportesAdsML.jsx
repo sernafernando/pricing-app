@@ -193,31 +193,31 @@ export default function AportesAdsML() {
           </p>
         </div>
         <div className={styles.headerActions}>
-        <div className={styles.range}>
-          <label className={styles.rangeField}>
-            <span>Desde</span>
-            <input
-              type="date"
-              className={styles.rangeInput}
-              value={range.from}
-              onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
-            />
-          </label>
-          <label className={styles.rangeField}>
-            <span>Hasta</span>
-            <input
-              type="date"
-              className={styles.rangeInput}
-              value={range.to}
-              onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
-            />
-          </label>
-        </div>
-        {canManage && (
-          <button type="button" className={styles.btnPrimary} onClick={() => setCreatingFor({})}>
-            <Plus size={14} /> Agregar aporte
-          </button>
-        )}
+          <div className={styles.range}>
+            <label className={styles.rangeField}>
+              <span>Desde</span>
+              <input
+                type="date"
+                className={styles.rangeInput}
+                value={range.from}
+                onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+              />
+            </label>
+            <label className={styles.rangeField}>
+              <span>Hasta</span>
+              <input
+                type="date"
+                className={styles.rangeInput}
+                value={range.to}
+                onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+              />
+            </label>
+          </div>
+          {canManage && (
+            <button type="button" className={styles.btnPrimary} onClick={() => setCreatingFor({})}>
+              <Plus size={14} /> Agregar aporte
+            </button>
+          )}
         </div>
       </header>
 
