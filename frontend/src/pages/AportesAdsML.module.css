@@ -329,6 +329,44 @@
   composes: btn-tesla danger sm from '../styles/buttons-tesla.css';
 }
 
+.summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
+.summary dt {
+  color: var(--cf-text-tertiary);
+}
+
+.summary dd {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin: 0;
+  color: var(--cf-text-primary);
+}
+
+.deleteError {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+}
+
 .modalFooter {
   display: flex;
   justify-content: flex-end;

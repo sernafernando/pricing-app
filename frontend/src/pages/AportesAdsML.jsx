@@ -69,15 +69,47 @@ function ContributionItem({ c, canManage, onEdit, onDelete }) {
       </span>
       {canManage && (
         <span className={styles.actions}>
-          <button type="button" className={styles.btnIcon} aria-label="Editar aporte" onClick={() => onEdit(c)}>
+          <button type="button" className={styles.btnIcon} aria-label={`Editar aporte ${value}`} onClick={() => onEdit(c)}>
             <Pencil size={14} />
           </button>
-          <button type="button" className={styles.btnIconDanger} aria-label="Borrar aporte" onClick={() => onDelete(c)}>
+          <button
+            type="button"
+            className={styles.btnIconDanger}
+            aria-label={`Borrar aporte ${value}`}
+            onClick={() => onDelete(c)}
+          >
             <Trash2 size={14} />
           </button>
         </span>
       )}
     </li>
+  );
+}
+
+function DeleteSummary({ contribution: c, campaign }) {
+  const badge = SETTLEMENT_BADGES[c.settlement];
+  const fullDay = (iso) => iso.split('-').reverse().join('/');
+  return (
+    <dl className={styles.summary}>
+      <dt>Campaña</dt>
+      <dd>
+        {campaign.name || `Campaña ${campaign.campaign_id}`}
+        <span className={styles.campaignId}>{campaign.campaign_id}</span>
+      </dd>
+      <dt>Aporte</dt>
+      <dd>
+        <span className={styles.chipValue}>{c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value)}</span>
+        {badge && (
+          <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
+            {badge.text}
+          </StatusPill>
+        )}
+      </dd>
+      <dt>Rango</dt>
+      <dd className={styles.chipRange}>
+        {fullDay(c.date_from)} → {fullDay(c.date_to)}
+      </dd>
+    </dl>
   );
 }
 
@@ -159,7 +191,7 @@ export default function AportesAdsML() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await api.delete(`/ml-ads/contributions/${deleteTarget.id}`);
+      await api.delete(`/ml-ads/contributions/${deleteTarget.contribution.id}`);
       closeDelete();
       fetchCampaigns();
     } catch (err) {
@@ -352,7 +384,7 @@ export default function AportesAdsML() {
                                 c={k}
                                 canManage={canManage}
                                 onEdit={setEditing}
-                                onDelete={setDeleteTarget}
+                                onDelete={(k) => setDeleteTarget({ contribution: k, campaign: c })}
                               />
                             ))}
                           </ul>
@@ -421,7 +453,7 @@ export default function AportesAdsML() {
       <ModalTesla
         isOpen={deleteTarget != null}
         onClose={closeDelete}
-        title="Borrar aporte"
+        title="¿Borrar este aporte?"
         size="sm"
         footer={
           <div className={styles.modalFooter}>
@@ -429,14 +461,15 @@ export default function AportesAdsML() {
               Cancelar
             </button>
             <button type="button" className={styles.btnDanger} onClick={handleConfirmDelete} disabled={deleting}>
-              <Trash2 size={14} /> Borrar
+              <Trash2 size={14} /> Borrar aporte
             </button>
           </div>
         }
       >
+        {deleteTarget && <DeleteSummary {...deleteTarget} />}
         <p className={styles.description}>El costo que cubría este aporte vuelve a descontarse en Métricas ML.</p>
         {deleteError && (
-          <div className={styles.alertError} role="alert">
+          <div className={styles.deleteError} role="alert">
             <AlertTriangle size={16} /> {deleteError}
           </div>
         )}
