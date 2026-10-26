@@ -9,10 +9,11 @@ writes are the brand contributions the team loads.
 - `GET /ml-ads/by-product`: the read-time sum of those rows per owner, "sin producto" included. `product_ids` narrows.
 - `GET /ml-ads/account-level`: Display per campaign (subtractable: its IVA basis is measured) and Brand Ads
   (informational only, no net cost). Never attributed to an MLA.
-- `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions and its cost in the range
-  (ml-ads-brand-contribution S8). `POST /ml-ads/contributions`, `PUT|DELETE /ml-ads/contributions/{id}` load, edit and
-  delete a contribution and also need `ml_metricas.gestionar_aportes_ads` (S7); they write only that table and change
-  no number yet.
+- `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions, its cost in the range
+  (ml-ads-brand-contribution S8) and what those contributions cover of it (ml-ads-contribution-redesign S6).
+  `GET /ml-ads/contributions/preview` answers what a contribution would cover, taking the create body as its query.
+  `POST /ml-ads/contributions`, `PUT|DELETE /ml-ads/contributions/{id}` load, edit and delete a contribution and also
+  need `ml_metricas.gestionar_aportes_ads` (S7); they write only that table.
 
 Every cost read above carries the `coverage` of the same range (ledger days not fetched, and mismatch days), so a gap is
 never shown as zero spend. A range is `date_from <= date_to` and at most 366 days; `mlas` and `product_ids` take up
@@ -27,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, Field, model_validator
@@ -313,10 +314,20 @@ class ContributionOut(BaseModel):
 class CampaignOut(BaseModel):
     advertiser_id: int
     campaign_id: int
+    advertiser_name: Optional[str] = None  # None: an advertiser without a known name
     name: Optional[str] = None
     status: Optional[str] = None
     cost: float  # `ml_ads_campaign_days.cost` summed over the requested range
+    # What the contributions cover of the range: the Métricas ML board's rule over `ml_ads_item_days`, so it equals the
+    # board's figure. `cost` keeps the campaign rows; both bases match unless a day's item rows are incomplete.
+    contribution: float
     contributions: list[ContributionOut]
+
+
+class PreviewOut(BaseModel):
+    spend: float  # the campaign's cost over the contribution's range
+    counted: float  # what Métricas ML would subtract less
+    net: float  # spend - counted; negative when a `full` amount exceeds the spend
 
 
 class CampaignsOut(BaseModel):
@@ -361,13 +372,23 @@ def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) ->
             CampaignOut(
                 advertiser_id=r.campaign.advertiser_id,
                 campaign_id=r.campaign.campaign_id,
+                advertiser_name=contributions.ADVERTISER_NAMES.get(r.campaign.advertiser_id),
                 name=r.campaign.name,
                 status=r.campaign.status,
                 cost=_money(r.cost),
+                contribution=_money(r.contribution),
                 contributions=[_contribution_out(c) for c in r.contributions],
             )
             for r in rows
         ]
+    )
+
+
+@router.get("/contributions/preview", response_model=PreviewOut)
+def preview_contribution(body: Annotated[ContributionIn, Query()], db: Session = Depends(get_db)) -> PreviewOut:
+    result = contributions.preview(db, _data(body))
+    return PreviewOut(
+        spend=_money(result.spend), counted=_money(result.counted), net=_money(result.spend - result.counted)
     )
 
 
