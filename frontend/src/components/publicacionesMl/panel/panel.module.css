@@ -675,3 +675,35 @@
   border-radius: var(--radius-sm);
   background: var(--cf-bg-hover);
 }
+
+/* Editing the copied data: each picture carries its move and remove buttons, so the tiles are wider. */
+.picturesEdit {
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+}
+
+.pictureEdit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.pictureActions {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-xs);
+}
+
+.wideInput {
+  max-width: 100%;
+}
+
+.descriptionInput {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.attributeEdit {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+}

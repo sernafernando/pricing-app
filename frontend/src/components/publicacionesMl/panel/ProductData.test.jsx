@@ -14,7 +14,7 @@ vi.mock('../../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  productosPropiosAPI: { chooseSource: vi.fn() },
+  productosPropiosAPI: { chooseSource: vi.fn(), saveDatos: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -52,6 +52,7 @@ const renderData = (props = {}) => {
 
 beforeEach(() => {
   productosPropiosAPI.chooseSource.mockReset();
+  productosPropiosAPI.saveDatos.mockReset();
 });
 
 describe('reading', () => {
@@ -79,6 +80,40 @@ describe('reading', () => {
     expect(screen.getByText('Sin descripción.')).toBeInTheDocument();
     expect(screen.getByText('Sin fotos.')).toBeInTheDocument();
     expect(screen.getByText('Sin atributos.')).toBeInTheDocument();
+  });
+});
+
+describe('editing the copy', () => {
+  it('is not offered without the permission or before a copy', () => {
+    renderData({ product: product({ datos: DATOS }) });
+    expect(screen.queryByRole('button', { name: 'Editar datos' })).not.toBeInTheDocument();
+  });
+
+  it('opens the form on the copy, and saving shows what the server answered', async () => {
+    const user = userEvent.setup();
+    const saved = product({ datos: { ...DATOS, titulo: 'Router AX55' }, can_edit: true });
+    productosPropiosAPI.saveDatos.mockResolvedValue({ data: saved });
+    const onSaved = renderData({ product: product({ datos: DATOS, can_edit: true }) });
+
+    await user.click(screen.getByRole('button', { name: 'Editar datos' }));
+    expect(screen.getByLabelText('Título')).toHaveValue(DATOS.titulo);
+    expect(screen.queryByRole('button', { name: 'Cambiar publicación' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(onSaved).toHaveBeenCalledWith(saved);
+    expect(screen.queryByLabelText('Título')).not.toBeInTheDocument();
+    expect(await screen.findByRole('status')).toHaveTextContent('Guardado.');
+  });
+
+  it('Cancelar goes back to the copy', async () => {
+    const user = userEvent.setup();
+    renderData({ product: product({ datos: DATOS, can_edit: true }) });
+
+    await user.click(screen.getByRole('button', { name: 'Editar datos' }));
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByLabelText('Título')).not.toBeInTheDocument();
+    expect(screen.getByText('Router TP-Link Archer AX55')).toBeInTheDocument();
   });
 });
 

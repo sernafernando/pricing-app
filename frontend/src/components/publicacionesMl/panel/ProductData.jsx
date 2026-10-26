@@ -1,8 +1,9 @@
 import { useId, useState } from 'react';
-import { Copy } from 'lucide-react';
+import { Copy, Pencil } from 'lucide-react';
 import { productosPropiosAPI } from '../../../services/api';
 import { isDeletedPublication } from '../publicationStatus';
 import { Field, Fields, Section } from './PanelParts';
+import ProductDataForm from './ProductDataForm';
 import { date } from './format';
 import styles from './panel.module.css';
 
@@ -61,23 +62,27 @@ function Copied({ datos }) {
  *
  * With `can_edit` (`ml_publicaciones.editar_producto`; the server enforces it too) the operator picks the
  * publication to copy from among the product's live publications the panel lists (`publications`). Replacing an
- * earlier copy asks first: it also drops what was edited on it.
+ * earlier copy asks first: it also drops what was edited on it. Once copied, the data can be edited
+ * (`ProductDataForm`).
  *
  * @param {object} props
  * @param {object} props.product The read of `GET /productos-propios/{item_id}`.
  * @param {object[]} props.publications The product's publications as the panel lists them.
- * @param {(product: object) => void} props.onSaved Receives the product as the server answered the copy.
+ * @param {(product: object) => void} props.onSaved Receives the product as the server answered the copy or the edit.
  */
 export default function ProductData({ product, publications, onSaved }) {
   const datos = product.datos;
-  // idle: showing the copy; choosing: the picker open; confirming: replacing a copy; sending: the request is out
+  // idle: showing the copy; editing: the form open; choosing: the picker open; confirming: replacing a copy;
+  // sending: the copy request is out
   const [state, setState] = useState({ phase: datos ? 'idle' : 'choosing', mla: '', error: null });
+  const [saved, setSaved] = useState(false);
   const selectId = useId();
   const candidates = liveOnly(publications);
 
   const send = async () => {
     if (state.phase === 'sending') return; // a second click before the re-render
     setState({ ...state, phase: 'sending', error: null });
+    setSaved(false);
     try {
       const { data } = await productosPropiosAPI.chooseSource(product.item_id, state.mla);
       setState({ phase: 'idle', mla: '', error: null });
@@ -90,6 +95,20 @@ export default function ProductData({ product, publications, onSaved }) {
   const copy = () => (datos ? setState({ ...state, phase: 'confirming', error: null }) : send());
   const cancel = () => setState({ phase: datos ? 'idle' : 'choosing', mla: '', error: null });
   const picking = product.can_edit && ['choosing', 'confirming', 'sending'].includes(state.phase);
+
+  const edited = (data) => {
+    setState({ phase: 'idle', mla: '', error: null });
+    setSaved(true);
+    onSaved(data);
+  };
+
+  if (product.can_edit && datos && state.phase === 'editing') {
+    return (
+      <Section title="Datos del producto">
+        <ProductDataForm itemId={product.item_id} datos={datos} onSaved={edited} onCancel={cancel} />
+      </Section>
+    );
+  }
 
   return (
     <Section title="Datos del producto">
@@ -151,14 +170,36 @@ export default function ProductData({ product, publications, onSaved }) {
       )}
 
       {product.can_edit && datos && state.phase === 'idle' && (
-        <button
-          type="button"
-          className={`btn-tesla outline sm ${styles.identityEdit}`}
-          onClick={() => setState({ phase: 'choosing', mla: '', error: null })}
-        >
-          <Copy size={14} aria-hidden="true" />
-          Cambiar publicación
-        </button>
+        <div className={styles.statusConfirm}>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={() => {
+              setSaved(false);
+              setState({ phase: 'editing', mla: '', error: null });
+            }}
+          >
+            <Pencil size={14} aria-hidden="true" />
+            Editar datos
+          </button>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={() => {
+              setSaved(false);
+              setState({ phase: 'choosing', mla: '', error: null });
+            }}
+          >
+            <Copy size={14} aria-hidden="true" />
+            Cambiar publicación
+          </button>
+        </div>
+      )}
+
+      {saved && state.phase === 'idle' && (
+        <p className={styles.feedback} role="status">
+          Guardado.
+        </p>
       )}
     </Section>
   );
