@@ -49,9 +49,10 @@ const touchesRange = (c, range) => c.date_from <= range.to && c.date_to >= range
 const advertiserLabel = (c) => c.advertiser_name || `Anunciante ${c.advertiser_id}`;
 const sumOf = (rows, key) => rows.reduce((total, row) => total + (row[key] || 0), 0);
 const formatPercent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`;
+const contributionValue = (c) => (c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value));
 
 function ContributionItem({ c, canManage, onEdit, onDelete }) {
-  const value = c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value);
+  const value = contributionValue(c);
   const badge = SETTLEMENT_BADGES[c.settlement];
   // Shown on hover; the hidden copy reads it to keyboard and screen-reader users too.
   const details = [c.brand, c.note].filter(Boolean).join(' · ');
@@ -100,7 +101,7 @@ function DeleteSummary({ contribution: c, campaign }) {
       </dd>
       <dt>Aporte</dt>
       <dd>
-        <span className={styles.chipValue}>{c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value)}</span>
+        <span className={styles.chipValue}>{contributionValue(c)}</span>
         {badge && (
           <StatusPill tone={badge.tone} title={SETTLEMENT_LABELS[c.settlement]}>
             {badge.text}
