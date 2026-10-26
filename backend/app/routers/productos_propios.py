@@ -76,10 +76,10 @@ class FuenteRequest(BaseModel):
     mla: Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]
 
 
-# ML's limit on a description; the title has no fixed limit across categories, so only a generous cap here.
+# The title and attribute values have no fixed ML limit across categories: only a generous cap here.
 MAX_TITULO_LENGTH = 255
-MAX_DESCRIPCION_LENGTH = 50000
 MAX_ATRIBUTO_VALUE_LENGTH = 255
+MAX_DESCRIPCION_LENGTH = 50000  # ML's limit on a description
 
 NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
