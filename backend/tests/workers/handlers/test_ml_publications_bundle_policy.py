@@ -9,6 +9,8 @@ id, never by the body). Transport faults (500, 403, 429) are labelled synthetic:
 from __future__ import annotations
 
 import copy
+import threading
+import time
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -17,10 +19,12 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.services.ml_publications import store, subresource_store
+from app.workers.context import WorkerContext
 from tests.services.ml_publications.conftest import subresource_body, subresource_call
 from tests.workers.handlers.test_ml_publications_refresh import (
     NoCallTransport,
     ScriptedTransport,
+    bulk_answer,
     bulk_responder,
     context,
     counters_of,
@@ -473,3 +477,137 @@ class TestCounters:
         counters = counters_of(env)
         assert counters["subresources"] == {"description": {"first_seen": 1}, "prices": {"first_seen": 1}}
         assert set(counters["endpoints"]) == {"items_bulk", "description", "prices"}
+
+
+class TestConcurrentCalls:
+    """ml-sync-pipeline S3 (owner: "pero por qué hacemos las llamadas en serie?"): the entries' calls of one resource
+    are in flight together, at most `ML_PUB_MAX_IN_FLIGHT`, under the shared pacer; each answer is still stored in
+    its own short session, and the next resource starts only when this one is done (fast data first, S2)."""
+
+    # A third live item: the real capture of ITEM with one field changed, its id.
+    CLONE = "MLA900000001"
+    ITEMS = (ITEM, "MLA934406852", CLONE)
+
+    def test_a_resource_is_fetched_for_every_entry_at_once_up_to_the_cap(self, env, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "ML_PUB_MAX_IN_FLIGHT", 2)
+        enable_refresh(bundle_resources=["core", "prices"])
+        enqueue_items(*self.ITEMS)
+        lock, now_in_flight, peak = threading.Lock(), [0], [0]
+        serve = responder_with()
+
+        def slow_prices(request, call):
+            if request.url.path == "/items/bulk":
+                ids = request.url.params["ids"].split(",")
+                answer = bulk_answer([ITEM if i == self.CLONE else i for i in ids])
+                for element, requested in zip(answer, ids):
+                    element["body"]["id"] = element["id"] = requested
+                return json_response(answer)
+            if not request.url.path.endswith("/prices"):
+                return serve(request, call)
+            with lock:
+                now_in_flight[0] += 1
+                peak[0] = max(peak[0], now_in_flight[0])
+            time.sleep(0.2)
+            with lock:
+                now_in_flight[0] -= 1
+            return serve(request, call)
+
+        transport = ScriptedTransport(slow_prices)
+        make_handler(transport).run(context())
+
+        assert peak[0] == 2
+        assert sum(path.endswith("/prices") for path in paths(transport)) == 3
+        for item in self.ITEMS:
+            assert sub_row(env, "ml_item_prices", item)["http_status"] == 200, item
+            assert queue_row(env, item) is None, item
+
+    def test_a_stopping_worker_ends_the_run_before_the_next_resource_releasing_it_uncharged(
+        self, env, monkeypatch
+    ) -> None:
+        enable_refresh(bundle_resources=["core", "description", "prices"])
+        enqueue_items(ITEM)
+        stopping = threading.Event()
+        ctx = WorkerContext(
+            deadline=datetime.now(timezone.utc) + timedelta(seconds=30),
+            worker_name="worker-ml",
+            stop_requested=stopping.is_set,
+        )
+        original = subresource_store.apply_subresource
+
+        def stop_after_prices(spec, *args, **kwargs):
+            outcome = original(spec, *args, **kwargs)
+            stopping.set()  # SIGTERM while the prices were being stored
+            return outcome
+
+        monkeypatch.setattr(subresource_store, "apply_subresource", stop_after_prices)
+        transport = ScriptedTransport(responder_with())
+
+        result = make_handler(transport).run(ctx)
+
+        assert result.detail["stopped"] == "stopping"
+        assert not any(path.endswith("/description") for path in paths(transport))
+        queued = queue_row(env, ITEM)
+        assert (queued["attempts"], queued["claimed_at"], queued["resources"]) == (0, None, ["description"])
+
+    def test_a_429_ends_the_calls_of_its_resource_still_waiting_and_keeps_its_cooldown(self, env, monkeypatch) -> None:
+        """Synthetic fault: the first prices call answers 429. One call in flight at a time, so the others are still
+        waiting in the pacer: they give up instead of waiting out the 30 s cooldown and calling anyway."""
+        monkeypatch.setattr(settings, "ML_PUB_MAX_IN_FLIGHT", 1)
+        enable_refresh(bundle_resources=["core", "prices"])
+        enqueue_items(ITEM, "MLA934406852")
+        limited = json_response({"message": "too many"}, status=429, headers={"Retry-After": "30"})
+        transport = ScriptedTransport(responder_with({"prices": limited}))
+
+        result = make_handler(transport).run(context(seconds=120))
+
+        assert result.detail["stopped"] == "rate_limited"
+        assert sum(path.endswith("/prices") for path in paths(transport)) == 1
+        for item in (ITEM, "MLA934406852"):
+            queued = queue_row(env, item)
+            assert (queued["attempts"], queued["claimed_at"], queued["resources"]) == (0, None, ["prices"]), item
+            assert queued["not_before"] > datetime.now(timezone.utc) + timedelta(seconds=20), item
+
+    def test_a_stop_ends_the_calls_still_waiting_in_the_pacer(self, env, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "ML_PUB_MAX_IN_FLIGHT", 1)
+        enable_refresh(bundle_resources=["core", "prices"])
+        enqueue_items(ITEM, "MLA934406852")
+        stopping = threading.Event()
+        ctx = WorkerContext(
+            deadline=datetime.now(timezone.utc) + timedelta(seconds=120),
+            worker_name="worker-ml",
+            stop_requested=stopping.is_set,
+        )
+        serve = responder_with()
+
+        def stop_on_first_price(request, call):
+            if request.url.path.endswith("/prices"):
+                stopping.set()  # SIGTERM while the first price is in flight
+            return serve(request, call)
+
+        transport = ScriptedTransport(stop_on_first_price)
+        result = make_handler(transport).run(ctx)
+
+        assert result.detail["stopped"] == "stopping"
+        assert sum(path.endswith("/prices") for path in paths(transport)) == 1
+
+    def test_a_call_that_raises_ends_the_calls_still_waiting(self, env, monkeypatch) -> None:
+        """Synthetic fault: the first prices call raises something that is not an ML answer (e.g. the token
+        loader). The run fails as before, and no other call of the resource is made after it."""
+        monkeypatch.setattr(settings, "ML_PUB_MAX_IN_FLIGHT", 1)
+        enable_refresh(bundle_resources=["core", "prices"])
+        enqueue_items(ITEM, "MLA934406852")
+        serve = responder_with()
+
+        def explode_on_prices(request, call):
+            if request.url.path.endswith("/prices"):
+                raise RuntimeError("not an ML answer")
+            return serve(request, call)
+
+        transport = ScriptedTransport(explode_on_prices)
+        handler = make_handler(transport)
+
+        with pytest.raises(RuntimeError):
+            handler.run(context(seconds=120))
+        handler._calls().shutdown(wait=True)
+
+        assert sum(path.endswith("/prices") for path in paths(transport)) == 1

@@ -195,9 +195,11 @@ class Settings(BaseSettings):
     ML_PUB_STOCK_RATE_PER_MIN: int = Field(default=60, ge=1, le=100)
     # Sub-budget of the replenishment sweep (weekly data, no topic), on top of the global rate.
     ML_PUB_REPLENISHMENT_RATE_PER_MIN: int = Field(default=30, ge=1, le=100)
+    # Refresh: calls of one resource in flight together for a batch's entries (all still paced by the rate above).
+    ML_PUB_MAX_IN_FLIGHT: int = Field(default=8, ge=1, le=20)
     # `/items/bulk` accepts at most 20 ids per call.
     ML_PUB_BULK_MAX_IDS: int = Field(default=20, ge=1, le=20)
-    # Queue: claim lease (ten times the 30 s handler deadline) and poison limit.
+    # Queue: claim lease (refresh's run deadline is half of it, so no claim outlives it) and poison limit.
     ML_PUB_LEASE_SECONDS: int = Field(default=300, ge=30)
     ML_PUB_MAX_ATTEMPTS: int = Field(default=8, ge=1)
     # Share of claim batches that favour the LOW-priority lanes so backfill and

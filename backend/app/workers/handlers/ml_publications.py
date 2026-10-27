@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections import Counter, defaultdict
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
@@ -98,6 +100,23 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _worse(current: Optional[_Interruption], other: _Interruption) -> _Interruption:
+    """Of two interruptions of one batch, the one to end the run with: an error before a stop, then the latest
+    `not_before` (a 429's cooldown outlives a give-up of the calls it ended)."""
+    if current is None:
+        return other
+    return max(current, other, key=lambda i: (i.kind == "error", i.not_before))
+
+
+def _time_up(ctx: WorkerContext) -> Optional[str]:
+    """Why no new work may start: the worker is stopping, or the run's deadline passed."""
+    if ctx.stop_requested():
+        return "stopping"
+    if _utcnow() >= ctx.deadline:
+        return "deadline"
+    return None
+
+
 class _Run:
     """Tallies of one run; `error`/`stopped` end the claim loop."""
 
@@ -159,6 +178,10 @@ class RefreshHandler:
     item row; an item that has none skips them (`skipped_not_applicable`, not a failure), and two items of
     one user product in a batch fetch it once (`skipped_shared`).
 
+    It runs in its own thread of worker-ml (`own_thread`, ml-sync-pipeline S4) with a deadline of half the claim
+    lease, and a batch's calls of one resource are in flight together (at most `ML_PUB_MAX_IN_FLIGHT`, paced by the
+    shared pacer, S3); each answer is stored by this thread in its own short session.
+
     A sub-resource runs only when it is enabled in `bundle_resources` (default: the core only); promotions
     also need `promotions.enabled`. Performance and visits are sweep-only: a bundle never asks for them.
     Competition and moderation are also skipped, uncharged, for an item they do not apply to
@@ -173,6 +196,13 @@ class RefreshHandler:
     channels: Tuple[str, ...] = ()
     interval: Optional[timedelta] = timedelta(seconds=5)
     run_at_local: Optional[time] = None
+    own_thread = True
+
+    @property
+    def deadline_seconds(self) -> float:
+        """Half the claim lease: a claim is taken inside a run and no call starts past its deadline, so no claim
+        outlives its lease (which would charge it an attempt)."""
+        return settings.ML_PUB_LEASE_SECONDS / 2
 
     def __init__(
         self,
@@ -183,6 +213,8 @@ class RefreshHandler:
         self.pacer = pacer or Pacer()
         self._client_factory = client_factory or (lambda pacer: MlHttpClient(pacer=pacer))
         self._client: Optional[MlHttpClient] = None
+        self._executor: Optional[ThreadPoolExecutor] = None
+        self._executor_size = 0
         self._fairness: Optional[queue.LaneFairness] = None
         self._fairness_share: Optional[float] = None
         # Cumulative since process start, flushed into `worker_job_state.detail.counters`.
@@ -210,7 +242,7 @@ class RefreshHandler:
         self._links_enabled = config["links.enabled"].value is True
         run = _Run()
         try:
-            while _utcnow() < ctx.deadline:
+            while _time_up(ctx) is None:
                 if config["refresh.enabled"].value is not True:
                     run.stopped = "disabled"
                     break
@@ -254,6 +286,17 @@ class RefreshHandler:
             self._client = self._client_factory(self.pacer)
         return self._client
 
+    def _calls(self) -> ThreadPoolExecutor:
+        """The threads a batch's calls run in: they call ML (paced) and store nothing; the only database they may
+        touch is the short token read of the ml-webhook DB, never while waiting for ML."""
+        size = settings.ML_PUB_MAX_IN_FLIGHT
+        if self._executor is None or self._executor_size != size:
+            if self._executor is not None:
+                self._executor.shutdown(wait=False)
+            self._executor = ThreadPoolExecutor(max_workers=size, thread_name_prefix="ml-refresh-call")
+            self._executor_size = size
+        return self._executor
+
     # --- one batch ---------------------------------------------------------------------
 
     def _process_batch(
@@ -274,14 +317,15 @@ class RefreshHandler:
                 self._finish(work)
         core_works = [w for w in works if w.plan.needs_core]
         if core_works:
-            if _utcnow() >= ctx.deadline:
+            reason = _time_up(ctx)
+            if reason:
                 self._release(works, _utcnow())
-                run.stopped = "deadline"
+                run.stopped = reason
                 return
             run.called = True
             ids = [w.claim.entity_id for w in core_works]
             response = self._http().get("items_bulk", f"/items/bulk?ids={','.join(ids)}", deadline=ctx.deadline)
-            interruption = self._interruption(response)
+            interruption = self._interruption(ctx, response)
             if interruption:
                 self._end_run(run, interruption)
                 self._release(works, interruption.not_before)
@@ -289,9 +333,9 @@ class RefreshHandler:
             self._handle_core_response(ctx, core_works, response, run)
         self._fetch_subresources(ctx, [w for w in works if not w.settled], config, run)
 
-    def _interruption(self, response: MlResponse) -> Optional[_Interruption]:
-        if response.error == DEADLINE:
-            return _Interruption("stopped", "deadline", _utcnow())
+    def _interruption(self, ctx: WorkerContext, response: MlResponse) -> Optional[_Interruption]:
+        if response.error == DEADLINE:  # the deadline passed, or the wait was ended (`should_stop`)
+            return _Interruption("stopped", "stopping" if ctx.stop_requested() else "deadline", _utcnow())
         if response.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN) or response.status == 401:
             reason = "unauthorized" if response.status == 401 else str(response.error)
             return _Interruption("error", reason, _utcnow() + UNAUTHORIZED_DELAY)
@@ -321,8 +365,10 @@ class RefreshHandler:
             return
         spec = RESOURCES["item"]
         unprocessed: List[_Work] = []
+        reason: Optional[str] = None
         for work, element in zip(works, elements):
-            if _utcnow() >= ctx.deadline:
+            reason = reason or _time_up(ctx)
+            if reason:
                 unprocessed.append(work)
                 continue
             error = self._apply_one(spec, work.claim, element, response)
@@ -337,7 +383,7 @@ class RefreshHandler:
                 self._finish(work)
         if unprocessed:
             self._release(unprocessed, _utcnow())
-            run.stopped = "deadline"
+            run.stopped = reason
 
     def _apply_one(self, spec, claim: queue.QueueClaim, element: BulkElement, response: MlResponse) -> Optional[str]:
         """Write one element through the store; returns the failure to charge, or None."""
@@ -405,18 +451,18 @@ class RefreshHandler:
         fetched: Dict[Tuple[str, str], Optional[str]] = {}  # (resource, id) -> failure, for this batch
         # Resource by resource in `bundle.FETCH_ORDER`, across the entries: every entry's fast data first.
         for resource in bundle.FETCH_ORDER:
-            for work in walking:
-                if resource not in work.pending:
-                    continue
-                if _utcnow() >= ctx.deadline:
-                    interruption: Optional[_Interruption] = _Interruption("stopped", "deadline", _utcnow())
-                else:
-                    key = targets[work.claim.key][resource]
-                    interruption = self._fetch_one(ctx, work, bundle.FETCHERS[resource], key, fetched, run)
-                if interruption:
-                    self._end_run(run, interruption)
-                    self._stop_walking(walking, interruption)
-                    return
+            phase = [work for work in walking if resource in work.pending]
+            if not phase:
+                continue
+            reason = _time_up(ctx)
+            if reason:
+                interruption: Optional[_Interruption] = _Interruption("stopped", reason, _utcnow())
+            else:
+                interruption = self._fetch_resource(ctx, phase, resource, targets, fetched, run)
+            if interruption:
+                self._end_run(run, interruption)
+                self._stop_walking(walking, interruption)
+                return
         for work in walking:
             self._finish(work)
 
@@ -520,35 +566,66 @@ class RefreshHandler:
             for work in works
         }
 
-    def _fetch_one(
+    def _fetch_resource(
         self,
         ctx: WorkerContext,
-        work: _Work,
-        fetcher: bundle.SubFetcher,
-        key: str,
+        works: Sequence[_Work],
+        resource: str,
+        targets: Dict[Tuple[str, str], Dict[str, str]],
         fetched: Dict[Tuple[str, str], Optional[str]],
         run: _Run,
     ) -> Optional[_Interruption]:
-        """Fetch and store one sub-resource of one entry; returns an interruption that ends the run.
+        """Fetch and store `resource` for every entry of `works`; returns an interruption that ends the run.
 
-        `key` is the id the resource is fetched and stored by; `fetched` holds what this batch already
-        fetched (resource, id) -> failure to charge, so entries sharing a user product or family fetch it
-        once and share the outcome."""
-        resource = fetcher.resource
-        if (resource, key) in fetched:
-            self._skipped_shared[resource] += 1
-            self._settle(work, resource, fetched[(resource, key)])
-            return None
-        path, params = fetcher.request(key)
+        The calls are in flight together (one per id: entries sharing a user product or family fetch it once and
+        share the outcome, `fetched` holds (resource, id) -> failure to charge). Every answer is awaited and stored
+        here in entry order, so an interruption (deadline, 429, bad token) still keeps the answers that arrived;
+        the entries it hit stay pending. The first interruption makes the calls still waiting in the pacer give up
+        (a 429 would otherwise have them wait out its cooldown, then call anyway), and so does a stopping worker;
+        the run ends with the worst of them (`_worse`)."""
+        fetcher = bundle.FETCHERS[resource]
+        client = self._http()
+        ended = threading.Event()  # set by the first call that ends the run: the calls still waiting give up
+
+        def should_stop() -> bool:
+            return ended.is_set() or ctx.stop_requested()
+
+        def call(path: str, params: Any) -> MlResponse:
+            try:
+                response = client.get(resource, path, params, deadline=ctx.deadline, should_stop=should_stop)
+            except BaseException:  # not an ML answer: the run fails, the calls still waiting must not go on
+                ended.set()
+                raise
+            if self._interruption(ctx, response):
+                ended.set()
+            return response
+
+        calls: Dict[str, Future] = {}
+        for work in works:
+            key = targets[work.claim.key][resource]
+            if key not in calls:
+                calls[key] = self._calls().submit(call, *fetcher.request(key))
         run.called = True
-        response = self._http().get(resource, path, params, deadline=ctx.deadline)
-        interruption = self._interruption(response)
-        if interruption:
-            return interruption
-        failure = self._store_one(resource, key, response)
-        fetched[(resource, key)] = failure
-        self._settle(work, resource, failure)
-        return None
+        interruption: Optional[_Interruption] = None
+        try:
+            for work in works:
+                key = targets[work.claim.key][resource]
+                if (resource, key) in fetched:
+                    self._skipped_shared[resource] += 1
+                    self._settle(work, resource, fetched[(resource, key)])
+                    continue
+                response = calls[key].result()
+                stop = self._interruption(ctx, response)
+                if stop:
+                    interruption = _worse(interruption, stop)
+                    continue
+                failure = self._store_one(resource, key, response)
+                fetched[(resource, key)] = failure
+                self._settle(work, resource, failure)
+        except BaseException:  # the run fails here: the calls still waiting would only spend the ML budget
+            ended.set()
+            raise
+        return interruption
 
     def _store_one(self, resource: str, key: str, response: MlResponse) -> Optional[str]:
         """Apply one fetched response; returns the failure to charge to the resource, or None."""
