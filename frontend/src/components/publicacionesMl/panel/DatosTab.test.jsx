@@ -13,7 +13,7 @@ vi.mock('../../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  mlItemOverridesAPI: { get: vi.fn() },
+  mlItemOverridesAPI: { get: vi.fn(), save: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -48,6 +48,7 @@ const region = (name) => screen.getByRole('region', { name });
 
 beforeEach(() => {
   mlItemOverridesAPI.get.mockReset();
+  mlItemOverridesAPI.save.mockReset();
 });
 
 describe('reading', () => {
@@ -128,5 +129,52 @@ describe('reading', () => {
 
     await screen.findByRole('region', { name: 'Datos de la publicación' });
     expect(mlItemOverridesAPI.get).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('editing', () => {
+  it('without the permission offers no edit', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: read() });
+    render(<DatosTab itemId="MLA1" />);
+
+    await screen.findByRole('region', { name: 'Datos de la publicación' });
+    expect(screen.queryByRole('button', { name: 'Editar datos' })).not.toBeInTheDocument();
+  });
+
+  it('a deleted publication says it cannot be edited', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: read({ can_edit: true, editable: false }) });
+    render(<DatosTab itemId="MLA1" />);
+
+    expect(await screen.findByText('La publicación está eliminada: sus datos no se pueden editar.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Editar datos' })).not.toBeInTheDocument();
+  });
+
+  it('Editar datos opens the form on the applied data; saving shows what the server answered', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: read({ can_edit: true }) });
+    mlItemOverridesAPI.save.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar datos' }));
+    const title = screen.getByLabelText('Título');
+    await userEvent.clear(title);
+    await userEvent.type(title, 'Router Archer AX55 WiFi 6');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(mlItemOverridesAPI.save).toHaveBeenCalledWith('MLA1', { titulo: 'Router Archer AX55 WiFi 6', descripcion: null, fotos: null, atributos: null });
+    const aplicado = await screen.findByRole('region', { name: 'Datos que se usan' });
+    expect(within(aplicado).getByText('Router Archer AX55 WiFi 6')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Guardado. No se cambió nada en Mercado Libre.');
+  });
+
+  it('Cancelar closes the form and keeps the data', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: read({ can_edit: true }) });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar datos' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByLabelText('Título')).not.toBeInTheDocument();
+    expect(screen.getByText('Router TP-Link Archer AX55')).toBeInTheDocument();
+    expect(mlItemOverridesAPI.save).not.toHaveBeenCalled();
   });
 });
