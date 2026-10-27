@@ -13,7 +13,7 @@ from typing import Literal, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-OrigenLogistica = Literal["asignar", "masivo", "pistoleado", "manual"]
+OrigenLogistica = Literal["asignar", "masivo", "pistoleado", "manual", "deshacer"]
 
 _SET_CONFIG = text(
     "SELECT set_config('app.logistica_usuario_id', :usuario_id, true), "

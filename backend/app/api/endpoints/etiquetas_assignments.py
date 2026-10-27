@@ -27,6 +27,11 @@ from app.models.logistica import Logistica
 from app.models.transporte import Transporte
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
+from app.services.etiquetas.logistica_historial_consulta import (
+    historial_de_etiqueta,
+    motivo_no_deshacer,
+    ultimo_cambio,
+)
 from app.services.etiquetas.logistica_historial_origen import marcar_origen_logistica
 
 from app.api.endpoints.etiquetas_shared import (
@@ -39,8 +44,10 @@ from app.api.endpoints.etiquetas_shared import (
     CambiarFechaMasivoRequest,
     CambiarFechaRequest,
     CostoOverrideRequest,
+    DeshacerLogisticaRequest,
     FlagEnvioMasivoRequest,
     FlagEnvioRequest,
+    HistorialLogisticaResponse,
     RetornadoMasivoRequest,
     ShippingIdsRequest,
 )
@@ -82,6 +89,74 @@ def asignar_logistica(
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return {"ok": True, "shipping_id": shipping_id, "logistica_id": payload.logistica_id}
+
+
+@router.get(
+    "/etiquetas-envio/{shipping_id}/logistica/historial",
+    response_model=HistorialLogisticaResponse,
+    summary="Historial de cambios de logística de una etiqueta",
+)
+def historial_logistica(
+    shipping_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> HistorialLogisticaResponse:
+    """
+    Cambios de logística de una etiqueta, del más nuevo al más viejo (hasta 200),
+    y si el último se puede deshacer. No mira el permiso de deshacer: eso lo
+    resuelve el frontend con envios_flex.asignar_logistica.
+    """
+    _check_permiso(db, current_user, "envios_flex.ver")
+
+    etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    return HistorialLogisticaResponse(**historial_de_etiqueta(db, etiqueta))
+
+
+@router.post(
+    "/etiquetas-envio/{shipping_id}/logistica/deshacer",
+    response_model=dict,
+    summary="Deshacer el último cambio de logística de una etiqueta",
+)
+def deshacer_logistica(
+    shipping_id: str,
+    payload: Optional[DeshacerLogisticaRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict:
+    """
+    Vuelve la etiqueta a la logística anterior de su último cambio registrado
+    (origen "deshacer"). Deshacer dos veces seguidas alterna: el deshacer es el
+    nuevo último cambio.
+    """
+    _check_permiso(db, current_user, "envios_flex.asignar_logistica")
+
+    # Row lock: two concurrent undos (or an undo racing an assignment) must not both pass the check below.
+    etiqueta = (
+        db.query(EtiquetaEnvio)
+        .filter(EtiquetaEnvio.shipping_id == shipping_id)
+        .with_for_update(of=EtiquetaEnvio)
+        .first()
+    )
+    if not etiqueta:
+        raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
+
+    ultimo = ultimo_cambio(db, shipping_id)
+    motivo = motivo_no_deshacer(db, etiqueta, ultimo)
+    if motivo is not None:
+        db.rollback()
+        raise HTTPException(409, motivo)
+
+    operador_id = payload.operador_id if payload else None
+    marcar_origen_logistica(db, "deshacer", usuario_id=current_user.id, operador_id=operador_id)
+    destino = ultimo.logistica_anterior_id
+    etiqueta.logistica_id = destino
+    db.commit()
+    sse_publish_bg("etiquetas:changed", {"hint": "reload"})
+
+    return {"ok": True, "shipping_id": shipping_id, "logistica_id": destino}
 
 
 @router.put(
