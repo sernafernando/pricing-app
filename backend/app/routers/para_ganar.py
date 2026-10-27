@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_permiso
+from app.api.endpoints.productos_shared import parsear_tiendas_oficiales_mla
 from app.core.database import get_db
 from app.models.para_ganar_catalog_seller import (
     DISPOSITION_ACTIVE,
@@ -24,8 +25,30 @@ from app.models.para_ganar_catalog_seller import (
 )
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
+from app.services.pricing_columns import (
+    PRICELIST_TO_CAMPO,
+    PVP_PRICELIST_TO_CAMPO,
+    resolve_pvp_to_web,
+)
 
 router = APIRouter(prefix="/para-ganar", tags=["PARA GANAR"])
+
+# Internal publication types (not ML listing_type_id). Keys are API tokens.
+TIPO_PUBLICACION_OPCIONES: list[tuple[str, str]] = [
+    ("clasica", "Clásica"),
+    ("3", "3 cuotas"),
+    ("6", "6 cuotas"),
+    ("9", "9 cuotas"),
+    ("12", "12 cuotas"),
+]
+# Web pricelist_id that represents each internal tipo.
+TIPO_TO_WEB_PRICELIST: dict[str, int] = {
+    "clasica": 4,
+    "3": 17,
+    "6": 14,
+    "9": 13,
+    "12": 23,
+}
 
 
 class ParaGanarColaItem(BaseModel):
@@ -63,10 +86,22 @@ class ParaGanarPmOpcion(BaseModel):
     nombre: str
 
 
+class ParaGanarTipoPublicacionOpcion(BaseModel):
+    id: str
+    nombre: str
+
+
+class ParaGanarListaPrecioOpcion(BaseModel):
+    id: int
+    nombre: str
+
+
 class ParaGanarAlcanceOpciones(BaseModel):
     marcas: List[str]
     subcategorias: List[ParaGanarSubcategoriaOpcion]
     pms: List[ParaGanarPmOpcion]
+    tipos_publicacion: List[ParaGanarTipoPublicacionOpcion]
+    listas_precios: List[ParaGanarListaPrecioOpcion]
 
 
 def _precio_float(value: object) -> Optional[float]:
@@ -83,12 +118,27 @@ def _split_csv(raw: Optional[str]) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
+def _pricelists_for_tipos(tipos: list[str]) -> list[int]:
+    """Map internal tipo tokens → web + PVP pricelist ids that share that bucket."""
+    web_ids = {TIPO_TO_WEB_PRICELIST[t] for t in tipos if t in TIPO_TO_WEB_PRICELIST}
+    if not web_ids:
+        return []
+    known = set(PRICELIST_TO_CAMPO) | set(PVP_PRICELIST_TO_CAMPO)
+    return sorted(pl for pl in known if resolve_pvp_to_web(pl) in web_ids)
+
+
 def _build_alcance_where(
     *,
     q_norm: str,
     marcas: list[str],
     subcategorias: list[int],
     pms: list[int],
+    tipos_publicacion: list[str],
+    pricelist_ids: list[int],
+    tienda_ids: list[int],
+    incluir_sin_tienda: bool,
+    ean_norm: str,
+    catalog_product_id_norm: str,
     params: dict,
 ) -> str:
     """Append scope filters shared by count + page queries. Mutates `params`."""
@@ -138,6 +188,69 @@ def _build_alcance_where(
             WHERE mp.usuario_id IN ({", ".join(placeholders)})
               AND UPPER(mp.marca) = UPPER(e.marca)
               AND UPPER(mp.categoria) = UPPER(e.categoria)
+          )
+            """
+        )
+
+    # Tipo (Clásica / N cuotas) and explicit pricelist intersect when both set.
+    tipo_pricelists = _pricelists_for_tipos(tipos_publicacion)
+    effective_pricelists: list[int]
+    if tipo_pricelists and pricelist_ids:
+        tipo_set = set(tipo_pricelists)
+        effective_pricelists = [pid for pid in pricelist_ids if pid in tipo_set]
+        if not effective_pricelists:
+            # Impossible intersection → force empty result.
+            clauses.append(" AND 1=0")
+            return "".join(clauses)
+    elif tipo_pricelists:
+        effective_pricelists = tipo_pricelists
+    else:
+        effective_pricelists = pricelist_ids
+
+    if effective_pricelists:
+        placeholders = []
+        for i, pid in enumerate(effective_pricelists):
+            key = f"pricelist_{i}"
+            params[key] = pid
+            placeholders.append(f":{key}")
+        clauses.append(f" AND p.pricelist_id IN ({', '.join(placeholders)})")
+
+    if tienda_ids or incluir_sin_tienda:
+        store_parts: list[str] = []
+        if tienda_ids:
+            placeholders = []
+            for i, store_id in enumerate(tienda_ids):
+                key = f"tienda_{i}"
+                params[key] = store_id
+                placeholders.append(f":{key}")
+            store_parts.append(f"m.mlp_official_store_id IN ({', '.join(placeholders)})")
+        if incluir_sin_tienda:
+            store_parts.append("m.mlp_official_store_id IS NULL")
+        store_pred = " OR ".join(store_parts)
+        clauses.append(
+            f"""
+          AND EXISTS (
+            SELECT 1 FROM tb_mercadolibre_items_publicados m
+            WHERE m.mlp_publicationid = p.mla
+              AND ({store_pred})
+          )
+            """
+        )
+
+    if ean_norm:
+        # Sandbox ERP uses `codigo` as the operator-facing EAN/barcode key
+        # (same as Productos `ean:` search → codigo).
+        params["ean"] = f"%{ean_norm}%"
+        clauses.append(" AND COALESCE(e.codigo, '') ILIKE :ean")
+
+    if catalog_product_id_norm:
+        params["catalog_product_id"] = catalog_product_id_norm.upper()
+        clauses.append(
+            """
+          AND EXISTS (
+            SELECT 1 FROM ml_publication_links l_cat
+            WHERE l_cat.mla = p.mla
+              AND UPPER(COALESCE(l_cat.catalog_product_id, '')) = :catalog_product_id
           )
             """
         )
@@ -201,12 +314,32 @@ def listar_alcance_opciones(
         .all()
     )
 
+    lista_rows = (
+        db.execute(
+            text(
+                """
+            SELECT DISTINCT p.pricelist_id AS id,
+              COALESCE(NULLIF(p.lista_nombre, ''), CAST(p.pricelist_id AS TEXT)) AS nombre
+            FROM publicaciones_ml p
+            WHERE p.activo = true AND p.pricelist_id IS NOT NULL
+            ORDER BY nombre
+            """
+            )
+        )
+        .mappings()
+        .all()
+    )
+
     return ParaGanarAlcanceOpciones(
         marcas=[row[0] for row in marcas_rows],
         subcategorias=[
             ParaGanarSubcategoriaOpcion(id=int(row["id"]), nombre=str(row["nombre"])) for row in subcat_rows
         ],
         pms=[ParaGanarPmOpcion(id=int(row["id"]), nombre=str(row["nombre"])) for row in pm_rows],
+        tipos_publicacion=[
+            ParaGanarTipoPublicacionOpcion(id=tipo_id, nombre=nombre) for tipo_id, nombre in TIPO_PUBLICACION_OPCIONES
+        ],
+        listas_precios=[ParaGanarListaPrecioOpcion(id=int(row["id"]), nombre=str(row["nombre"])) for row in lista_rows],
     )
 
 
@@ -222,6 +355,13 @@ def listar_cola(
     marcas: Optional[str] = Query(None, description="Comma-separated brand names"),
     subcategorias: Optional[str] = Query(None, description="Comma-separated subcategory ids"),
     pms: Optional[str] = Query(None, description="Comma-separated PM user ids"),
+    tipos_publicacion: Optional[str] = Query(None, description="Comma-separated internal types: clasica,3,6,9,12"),
+    pricelists: Optional[str] = Query(None, description="Comma-separated pricelist ids"),
+    tiendas: Optional[str] = Query(None, description="Comma-separated official store ids and/or sin_tienda"),
+    ean: Optional[str] = Query(None, max_length=80, description="ERP codigo / EAN substring"),
+    catalog_product_id: Optional[str] = Query(
+        None, max_length=64, description="Exact catalog_product_id (e.g. MLA24106790)"
+    ),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarColaResponse:
@@ -241,6 +381,20 @@ def listar_cola(
             pm_list.append(int(raw))
         except ValueError:
             continue
+    tipos_list = [t.lower() for t in _split_csv(tipos_publicacion) if t.lower() in TIPO_TO_WEB_PRICELIST]
+    pricelist_list: list[int] = []
+    for raw in _split_csv(pricelists):
+        try:
+            pricelist_list.append(int(raw))
+        except ValueError:
+            continue
+    parsed_tiendas = parsear_tiendas_oficiales_mla(tiendas)
+    tienda_ids: list[int] = []
+    incluir_sin_tienda = False
+    if parsed_tiendas is not None:
+        tienda_ids, incluir_sin_tienda = parsed_tiendas
+    ean_norm = (ean or "").strip()
+    catalog_norm = (catalog_product_id or "").strip()
 
     params: dict = {"limit": page_size, "offset": offset}
     where_extra = _build_alcance_where(
@@ -248,6 +402,12 @@ def listar_cola(
         marcas=marcas_list,
         subcategorias=subcat_list,
         pms=pm_list,
+        tipos_publicacion=tipos_list,
+        pricelist_ids=pricelist_list,
+        tienda_ids=tienda_ids,
+        incluir_sin_tienda=incluir_sin_tienda,
+        ean_norm=ean_norm,
+        catalog_product_id_norm=catalog_norm,
         params=params,
     )
 

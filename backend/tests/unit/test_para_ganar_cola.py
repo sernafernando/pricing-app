@@ -36,6 +36,10 @@ def test_alcance_opciones_shape(client: TestClient, rma_superadmin_user) -> None
     assert isinstance(body["marcas"], list)
     assert isinstance(body["subcategorias"], list)
     assert isinstance(body["pms"], list)
+    assert isinstance(body["tipos_publicacion"], list)
+    assert isinstance(body["listas_precios"], list)
+    tipo_ids = {row["id"] for row in body["tipos_publicacion"]}
+    assert tipo_ids == {"clasica", "3", "6", "9", "12"}
 
 
 def test_cola_accepts_scope_filter_params(client: TestClient, rma_superadmin_user) -> None:
@@ -50,7 +54,36 @@ def test_cola_accepts_scope_filter_params(client: TestClient, rma_superadmin_use
             "marcas": "NOEXISTE",
             "subcategorias": "999999",
             "pms": "999999",
+            "tipos_publicacion": "clasica",
+            "pricelists": "4",
+            "tiendas": "999999",
+            "ean": "NOEXISTE",
+            "catalog_product_id": "MLA00000000",
         },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 0
+    assert body["items"] == []
+
+
+def test_cola_rejects_invalid_tienda_token(client: TestClient, rma_superadmin_user) -> None:
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    response = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"tiendas": "not_a_store"},
+    )
+    assert response.status_code == 400
+
+
+def test_cola_tipo_and_pricelist_intersection(client: TestClient, rma_superadmin_user) -> None:
+    """Clásica ∩ pricelist 17 (3 cuotas) is empty by definition."""
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    response = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"tipos_publicacion": "clasica", "pricelists": "17", "page_size": 5},
     )
     assert response.status_code == 200, response.text
     body = response.json()

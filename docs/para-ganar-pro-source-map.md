@@ -103,7 +103,7 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 - Route: `/para-ganar` (`productos.ver`); subvistas `?vista=advisor` (default) y `?vista=criterios`
 - Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — tabs Advisor | Criterios; misma cola MLA; detail distinto
-- Scope filters (shared): marca / subcategoría / PM + search — `ParaGanarScopeFilters`; options from `GET /api/para-ganar/alcance-opciones`; applied via `marcas` / `subcategorias` / `pms` / `q` on cola
+- Scope filters (shared): tipo (Clásica/3/6/9/12 cuotas), lista de precios, tienda oficial, marca, subcategoría, PM, EAN/código, MLA catálogo + search — `ParaGanarScopeFilters`; options from `GET /api/para-ganar/alcance-opciones` (+ `useTiendasOficiales`); cola params `tipos_publicacion` / `pricelists` / `tiendas` / `ean` / `catalog_product_id` / `marcas` / `subcategorias` / `pms` / `q`
 - API: `GET /api/para-ganar/cola` — active MLAs (precio, catálogo, par sync por `inventory_id`) with Productos-like scope params
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`

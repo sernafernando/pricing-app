@@ -1,114 +1,51 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import api from '../../services/api';
+import { useTiendasOficiales } from '../../hooks/useTiendasOficiales';
+import { STORE_NONE } from '../../constants/tiendasOficiales';
+import ScopeMultiSelect from './ScopeMultiSelect';
+import ScopeTextFilter from './ScopeTextFilter';
 import styles from './ParaGanarScopeFilters.module.css';
 
 /**
- * Shared marca / subcategoría / PM scope filters for Advisor and Criterios.
- * Options come from GET /para-ganar/alcance-opciones (sandbox-safe).
+ * Shared scope filters for Advisor and Criterios.
+ * Options: GET /para-ganar/alcance-opciones + useTiendasOficiales (Productos).
  */
-
-function MultiSelect({
-  label,
-  options,
-  selected,
-  onChange,
-  getKey,
-  getLabel,
-  emptyHint,
-  disabled,
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-  const listId = useId();
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDoc = (event) => {
-      if (rootRef.current && !rootRef.current.contains(event.target)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
-
-  const toggle = (key) => {
-    if (selected.includes(key)) {
-      onChange(selected.filter((item) => item !== key));
-    } else {
-      onChange([...selected, key]);
-    }
-  };
-
-  const count = selected.length;
-  const buttonLabel = count > 0 ? `${label} (${count})` : label;
-
-  return (
-    <div className={styles.selectWrap} ref={rootRef}>
-      <button
-        type="button"
-        className={`${styles.selectBtn} ${count > 0 ? styles.selectBtnActive : ''}`}
-        aria-expanded={open}
-        aria-controls={listId}
-        disabled={disabled}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span>{buttonLabel}</span>
-        <ChevronDown size={14} aria-hidden />
-      </button>
-      {open && (
-        <div className={styles.dropdown} id={listId} role="listbox" aria-label={label}>
-          {options.length === 0 ? (
-            <p className={styles.emptyHint}>{emptyHint}</p>
-          ) : (
-            <ul className={styles.optionList}>
-              {options.map((option) => {
-                const key = getKey(option);
-                const checked = selected.includes(key);
-                return (
-                  <li key={String(key)}>
-                    <label className={`${styles.option} ${checked ? styles.optionSelected : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggle(key)}
-                      />
-                      <span>{getLabel(option)}</span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          {count > 0 && (
-            <button
-              type="button"
-              className={styles.clearLocal}
-              onClick={() => onChange([])}
-            >
-              Limpiar {label.toLowerCase()}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function ParaGanarScopeFilters({
   marcas,
   subcategorias,
   pms,
+  tiposPublicacion,
+  pricelists,
+  tiendas,
+  ean,
+  catalogProductId,
   onMarcasChange,
   onSubcategoriasChange,
   onPmsChange,
+  onTiposPublicacionChange,
+  onPricelistsChange,
+  onTiendasChange,
+  onEanChange,
+  onCatalogProductIdChange,
   onClear,
 }) {
-  const [opciones, setOpciones] = useState({ marcas: [], subcategorias: [], pms: [] });
+  const [opciones, setOpciones] = useState({
+    marcas: [],
+    subcategorias: [],
+    pms: [],
+    tipos_publicacion: [],
+    listas_precios: [],
+  });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const { grupos: tiendasGrupos } = useTiendasOficiales();
+  const tiendaOptions = [
+    ...tiendasGrupos,
+    { value: STORE_NONE, label: 'Sin tienda oficial', ids: [STORE_NONE] },
+  ];
 
   useEffect(() => {
     let cancelled = false;
@@ -122,10 +59,18 @@ export default function ParaGanarScopeFilters({
           marcas: data.marcas || [],
           subcategorias: data.subcategorias || [],
           pms: data.pms || [],
+          tipos_publicacion: data.tipos_publicacion || [],
+          listas_precios: data.listas_precios || [],
         });
       } catch (err) {
         if (cancelled) return;
-        setOpciones({ marcas: [], subcategorias: [], pms: [] });
+        setOpciones({
+          marcas: [],
+          subcategorias: [],
+          pms: [],
+          tipos_publicacion: [],
+          listas_precios: [],
+        });
         if (err.response?.status === 403) {
           setLoadError('No tenés permiso para cargar filtros de alcance.');
         } else {
@@ -141,12 +86,23 @@ export default function ParaGanarScopeFilters({
     };
   }, [reloadToken]);
 
-  const hasActive = marcas.length > 0 || subcategorias.length > 0 || pms.length > 0;
+  const hasActive =
+    marcas.length > 0 ||
+    subcategorias.length > 0 ||
+    pms.length > 0 ||
+    tiposPublicacion.length > 0 ||
+    pricelists.length > 0 ||
+    tiendas.length > 0 ||
+    Boolean(ean.trim()) ||
+    Boolean(catalogProductId.trim());
+
   const emptyHint = (emptyLabel) => {
     if (loading) return 'Cargando…';
     if (loadError) return loadError;
     return emptyLabel;
   };
+
+  const disabledLists = loading || Boolean(loadError);
 
   return (
     <div className={styles.bar} aria-label="Filtros de alcance">
@@ -162,7 +118,37 @@ export default function ParaGanarScopeFilters({
           </button>
         </p>
       )}
-      <MultiSelect
+      <ScopeMultiSelect
+        label="Tipo"
+        options={opciones.tipos_publicacion}
+        selected={tiposPublicacion}
+        onChange={onTiposPublicacionChange}
+        getKey={(row) => row.id}
+        getLabel={(row) => row.nombre}
+        emptyHint={emptyHint('Sin tipos')}
+        disabled={disabledLists}
+      />
+      <ScopeMultiSelect
+        label="Lista"
+        options={opciones.listas_precios}
+        selected={pricelists}
+        onChange={onPricelistsChange}
+        getKey={(row) => row.id}
+        getLabel={(row) => row.nombre}
+        emptyHint={emptyHint('Sin listas en la cola')}
+        disabled={disabledLists}
+      />
+      <ScopeMultiSelect
+        label="Tienda"
+        options={tiendaOptions}
+        selected={tiendas}
+        onChange={onTiendasChange}
+        getKey={(row) => row.value}
+        getLabel={(row) => row.label}
+        emptyHint="Sin tiendas oficiales configuradas"
+        disabled={false}
+      />
+      <ScopeMultiSelect
         label="Marca"
         options={opciones.marcas}
         selected={marcas}
@@ -170,9 +156,9 @@ export default function ParaGanarScopeFilters({
         getKey={(marca) => marca}
         getLabel={(marca) => marca}
         emptyHint={emptyHint('Sin marcas en la cola')}
-        disabled={loading || Boolean(loadError)}
+        disabled={disabledLists}
       />
-      <MultiSelect
+      <ScopeMultiSelect
         label="Subcategoría"
         options={opciones.subcategorias}
         selected={subcategorias}
@@ -180,9 +166,9 @@ export default function ParaGanarScopeFilters({
         getKey={(row) => row.id}
         getLabel={(row) => row.nombre}
         emptyHint={emptyHint('Sin subcategorías en la cola')}
-        disabled={loading || Boolean(loadError)}
+        disabled={disabledLists}
       />
-      <MultiSelect
+      <ScopeMultiSelect
         label="PM"
         options={opciones.pms}
         selected={pms}
@@ -190,7 +176,21 @@ export default function ParaGanarScopeFilters({
         getKey={(row) => row.id}
         getLabel={(row) => row.nombre}
         emptyHint={emptyHint('Sin PMs asignados (sandbox)')}
-        disabled={loading || Boolean(loadError)}
+        disabled={disabledLists}
+      />
+      <ScopeTextFilter
+        label="EAN"
+        value={ean}
+        onChange={onEanChange}
+        placeholder="EAN / código"
+        disabled={false}
+      />
+      <ScopeTextFilter
+        label="MLA catálogo"
+        value={catalogProductId}
+        onChange={onCatalogProductIdChange}
+        placeholder="MLA catálogo"
+        disabled={false}
       />
       {hasActive && (
         <button type="button" className={styles.clearAll} onClick={onClear}>
