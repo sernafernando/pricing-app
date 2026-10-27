@@ -184,6 +184,16 @@ class TestWithTheProfitView:
         assert (row["Sell in"], row["Sell out"], row["Costo c/ sell in"]) == ("10,00", "5,00", "90,00")
         assert (row["Total Gauss c/ sell in/out"], row["Markup c/ sell in/out %"]) == ("45,00", "50,00")
 
+    def test_a_sell_in_that_does_not_apply_is_empty_on_screen_and_in_the_csv(self, client, admin_auth_headers) -> None:
+        # Owner: "en las filas que no aplica estaría bueno que directamente esté vacío así no hace ruido".
+        figures = _by_key(_get(client, admin_auth_headers))["12"]["sell_in_out"]
+        assert (figures["sell_in"], figures["costo_sell_in"], figures["costo"]) == (None, None, 100.0)
+
+        resp = client.get(URL + "/export", headers=admin_auth_headers)
+        header, *lines = list(csv.reader(io.StringIO(resp.text.lstrip("﻿")), delimiter=";"))
+        row = dict(zip(header, next(line for line in lines if "Switch" in line)))
+        assert (row["Sell in"], row["Costo c/ sell in"], row["Total Gauss c/ sell in/out"]) == ("", "", "40,00")
+
 
 class TestWithoutTheProfitView:
     @pytest.fixture(autouse=True)

@@ -32,6 +32,12 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
     expect(within(cardOf('Total Gauss')).getByTitle('3 ventas con sell out en dólares sin tipo de cambio: no se suman')).toBeInTheDocument();
   });
 
+  it('shows nothing of it when no sale in the period has a sell in or a sell out', () => {
+    strip({ ...OFF, sell_in_out: { ...SELL, sell_in: null, sell_out: null, costo_sell_in: null, total_gauss: null, markup_pct: null } });
+
+    expect(screen.queryByTestId('kpi-sell-in-out')).not.toBeInTheDocument();
+  });
+
   it('shows nothing of it without the figures', () => {
     strip({ ...OFF, sell_in_out: null });
 

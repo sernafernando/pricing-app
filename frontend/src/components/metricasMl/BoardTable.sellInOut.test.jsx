@@ -79,6 +79,31 @@ describe('BoardTable: sell in / sell out', () => {
     expect(within(sellOut).getByTitle(/1 venta con tipo de cambio estimado/)).toBeInTheDocument();
   });
 
+  // Owner: "en las filas que no aplica estaría bueno que directamente esté vacío así no hace ruido".
+  it('a row where sell in / sell out does not apply leaves those cells empty and keeps its cost', () => {
+    renderRow({
+      ...SELL,
+      sell_in: null,
+      sell_out: null,
+      costo_sell_in: null,
+      total_gauss: null,
+      markup_pct: null,
+    });
+
+    expect(cell('costo')).toHaveTextContent(formatSignedMoney(100));
+    for (const id of ['costo_sell_in', 'sell_in', 'sell_out', 'total_gauss_sell', 'markup_sell']) {
+      expect(cell(id)).toHaveTextContent(/^$/);
+    }
+  });
+
+  it('a row with sell out only leaves its sell in empty', () => {
+    renderRow({ ...SELL, sell_in: null, costo_sell_in: null });
+
+    expect(cell('sell_in')).toHaveTextContent(/^$/);
+    expect(cell('costo_sell_in')).toHaveTextContent(/^$/);
+    expect(cell('sell_out')).toHaveTextContent(formatSignedMoney(5));
+  });
+
   it('a row without the figures shows dashes, never a made-up zero', () => {
     renderRow(null);
 

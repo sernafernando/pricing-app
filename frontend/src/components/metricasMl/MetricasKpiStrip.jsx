@@ -160,7 +160,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
                   <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
                 </div>
               )}
-              {sell && <WithSellInOut pendientes={sell.sell_out_pendientes}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
+              {sell && sell.total_gauss != null && <WithSellInOut pendientes={sell.sell_out_pendientes}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
               <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
             </>
           ) : (
@@ -186,7 +186,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
               </div>
             )}
             {tp && <span className={styles.subtitle}>{TP_MARKUP_HINT}</span>}
-            {sell && <WithSellInOut>{formatPct(sell.markup_pct)}</WithSellInOut>}
+            {sell && sell.total_gauss != null && <WithSellInOut>{formatPct(sell.markup_pct)}</WithSellInOut>}
             <Sparkline values={markup.series} width={200} height={22} tone={deltaTone(markup.delta_pp)} className={styles.spark} label="Markup por día" />
           </>
         ) : (

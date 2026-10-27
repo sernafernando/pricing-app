@@ -168,15 +168,16 @@ class SellInOutFigures(BaseModel):
     """Sell in / sell out of a board row or of the KPI strip (sell-in-sell-out T11, see `board.SellInOut`): what
     they add (ARS), how many sold lines have a USD sell out without its rate yet (`sell_out` leaves them out, never
     counts them as 0) or with an estimated one, and the figures WITH them next to the ones without. `costo` is the
-    markup's cost; it, the cost with sell in and the markup with them are null with "Costos TP" ON."""
+    markup's cost; it, the cost with sell in and the markup with them are null with "Costos TP" ON. A figure that
+    does not apply (no sold line with a sell in, or a sell out) is null: the cell shows empty, not 0."""
 
-    sell_in: float
-    sell_out: float
+    sell_in: Optional[float] = None
+    sell_out: Optional[float] = None
     sell_out_pendientes: int
     sell_out_estimados: int
     costo: Optional[float] = None
     costo_sell_in: Optional[float] = None
-    total_gauss: float
+    total_gauss: Optional[float] = None
     markup_pct: Optional[float] = None
 
 
@@ -185,13 +186,14 @@ def sell_in_out_of(x: Union[board.Row, board.Kpis]) -> Optional[SellInOutFigures
     if x.sell_in is None:
         return None
     return SellInOutFigures(
-        sell_in=round_money(x.sell_in),
-        sell_out=round_money(x.sell_out),
+        sell_in=round_money(x.sell_in) if x.sell_in_lineas else None,
+        # A pending sell out has a line but no known ARS yet: it stays 0 next to its pending count.
+        sell_out=round_money(x.sell_out) if x.sell_out_lineas else None,
         sell_out_pendientes=x.sell_out_pendientes,
         sell_out_estimados=x.sell_out_estimados,
-        costo=None if x.costo_sell_in is None else round_money(x.costo),
-        costo_sell_in=round_money(x.costo_sell_in),
-        total_gauss=round_money(x.total_gauss_sell),
+        costo=None if x.m_sell_in is None else round_money(x.costo),
+        costo_sell_in=None if x.costo_sell_in is None else round_money(x.costo_sell_in),
+        total_gauss=None if x.total_gauss_sell is None else round_money(x.total_gauss_sell),
         markup_pct=round_pp(x.markup_sell),
     )
 

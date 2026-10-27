@@ -24,6 +24,7 @@ from sqlalchemy import insert, select, text
 from app.core.config import settings
 from app.models.ml_sale_line import MlSaleLine
 from app.services.ml_daily_metrics import board
+from app.services.ml_daily_metrics.kpi_strip import sell_in_out_of
 from app.services.ml_daily_metrics.sales import sale_lines
 from app.services.order_metrics.sale_lines_store import STORED_COLUMNS
 from tests.services.ml_daily_metrics.test_board_postgres import _group, _order
@@ -164,12 +165,25 @@ class TestBoardSellInOut:
         assert (row.sell_out_pendientes, row.sell_out_estimados) == (1, 1)
         assert row.total_gauss_sell == _d("44.00")
 
-    def test_a_row_without_sell_in_out_keeps_its_figures(self, catalog) -> None:
+    def test_a_row_without_sell_in_out_leaves_its_sell_figures_empty(self, catalog) -> None:
+        # Owner: "en las filas que no aplica estaría bueno que directamente esté vacío así no hace ruido".
         row = _rows(catalog, ON)["33"]
 
-        assert (row.sell_in, row.sell_out) == (_d("0.00"), _d("0.00"))
-        assert (row.costo_sell_in, row.total_gauss_sell) == (_d("50.00"), _d("10.00"))
-        assert row.markup_sell == row.markup
+        assert (row.sell_in_lineas, row.sell_out_lineas) == (0, 0)
+        assert (row.costo_sell_in, row.total_gauss_sell, row.markup_sell) == (None, None, None)
+        figures = sell_in_out_of(row)
+        assert (figures.sell_in, figures.sell_out, figures.costo_sell_in) == (None, None, None)
+        assert (figures.total_gauss, figures.markup_pct) == (None, None)
+        # The cost is the row's own, not a sell in figure.
+        assert figures.costo == 50.0
+
+    def test_a_row_with_sell_out_only_leaves_its_sell_in_empty(self, catalog) -> None:
+        row = _rows(catalog, ON)["32"]
+
+        assert (row.sell_in_lineas, row.sell_out_lineas) == (0, 2)
+        figures = sell_in_out_of(row)
+        assert (figures.sell_in, figures.costo_sell_in) == (None, None)
+        assert (figures.sell_out, figures.total_gauss) == (4.0, 44.0)
 
     def test_a_line_outside_the_markup_adds_to_total_gauss_only(self, catalog) -> None:
         row = _rows(catalog, ON)["34"]
@@ -181,8 +195,10 @@ class TestBoardSellInOut:
     def test_a_line_without_total_gauss_takes_no_sell_in_out(self, catalog) -> None:
         row = _rows(catalog, ON)["35"]
 
-        # Its Total Gauss is not known yet (0 in Total Gauss): its sell in would read as profit without the sale's.
-        assert (row.tg, row.sell_in, row.total_gauss_sell) == (_d("0"), _d("0"), _d("0"))
+        # Its Total Gauss is not known yet (0 in Total Gauss): its sell in would read as profit without the sale's,
+        # so the row has no sell in / sell out to show.
+        assert (row.tg, row.sell_in, row.sell_in_lineas) == (_d("0"), _d("0"), 0)
+        assert row.total_gauss_sell is None
 
     def test_sorts_by_total_gauss_with_sell_in_out(self, catalog) -> None:
         f = dataclasses.replace(ON, sort="total_gauss_sell", sort_desc=True)
@@ -234,6 +250,7 @@ def test_a_sell_in_above_the_cost_leaves_the_markup_unknown_like_the_sort() -> N
         costo=_d("5"),
         sell_in=_d("8"),
         sell_out=_d("0"),
+        sell_in_lineas=1,
     )
     row.m_sell_in, row.m_sell_out = _d("8"), _d("0")
 

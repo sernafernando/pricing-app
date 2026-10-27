@@ -127,7 +127,16 @@ TP_SUM_COLUMNS = ("tg_tp", "tp_incompletos")
 
 
 # The per-pair sums `sell_in_out` adds (sell-in-sell-out T11, see `board.SellInOut`).
-SELL_SUM_COLUMNS = ("sell_in", "sell_out", "m_sell_in", "m_sell_out", "sell_out_pendientes", "sell_out_estimados")
+SELL_SUM_COLUMNS = (
+    "sell_in",
+    "sell_out",
+    "m_sell_in",
+    "m_sell_out",
+    "sell_out_pendientes",
+    "sell_out_estimados",
+    "sell_in_lineas",
+    "sell_out_lineas",
+)
 
 
 def sum_columns(pairs: Any) -> tuple:

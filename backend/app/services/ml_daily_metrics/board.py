@@ -520,18 +520,28 @@ class SellInOut:
     the lines inside the markup population (`mtg`/`costo`), None with "Costos TP" ON: the markup's cost basis is
     then the TP cost, and a purchase discount on the Gauss cost does not apply to it. `sell_out` sums the KNOWN
     sell out only: `sell_out_pendientes` lines have a USD sell out without its rate yet (never read as 0) and
-    `sell_out_estimados` lines one whose campaign rate is still an estimate."""
+    `sell_out_estimados` lines one whose campaign rate is still an estimate.
+
+    A figure that does not apply is None, not 0 nor a copy of the one without (owner: "en las filas que no aplica
+    estaría bueno que directamente esté vacío así no hace ruido"): no sold line with a sell in (`sell_in_lineas`)
+    leaves the cost with sell in empty, and neither sell in nor sell out leaves the totals with them empty."""
+
+    @staticmethod
+    def applies(r: Any) -> bool:
+        return bool(r.sell_in_lineas or r.sell_out_lineas)
 
     @staticmethod
     def costo_sell_in(r: Any) -> Optional[Decimal]:
-        return None if r.m_sell_in is None else r.costo - r.m_sell_in
+        return None if r.m_sell_in is None or not r.sell_in_lineas else r.costo - r.m_sell_in
 
     @staticmethod
     def total_gauss_sell(r: Any) -> Optional[Decimal]:
-        return None if r.sell_in is None else r.tg + r.sell_in + r.sell_out
+        return None if r.sell_in is None or not SellInOut.applies(r) else r.tg + r.sell_in + r.sell_out
 
     @staticmethod
     def markup_sell(r: Any) -> Optional[Decimal]:
+        if not SellInOut.applies(r):
+            return None
         cost = None if r.m_sell_in is None else r.costo - r.m_sell_in
         # A sell in above the cost leaves no markup, as the sort reads it (`_sell_sort_columns`).
         if cost is None or cost <= 0:
@@ -581,6 +591,9 @@ class Row:
     m_sell_out: Optional[Decimal] = None
     sell_out_pendientes: Optional[int] = None
     sell_out_estimados: Optional[int] = None
+    # How many sold lines carry a sell in / a sell out (`SellInOut.applies`).
+    sell_in_lineas: Optional[int] = None
+    sell_out_lineas: Optional[int] = None
     windows: Dict[str, int] = field(default_factory=dict)
     units_24h: int = 0
     last_sale_at: Optional[datetime] = None
@@ -649,6 +662,9 @@ class Kpis:
     m_sell_out: Optional[Decimal] = None
     sell_out_pendientes: Optional[int] = None
     sell_out_estimados: Optional[int] = None
+    # How many sold lines carry a sell in / a sell out (`SellInOut.applies`).
+    sell_in_lineas: Optional[int] = None
+    sell_out_lineas: Optional[int] = None
 
     costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
     total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
@@ -1077,6 +1093,8 @@ class Board:
             func.sum(case((and_(in_gauss, sell_out.c.sin_tasa == 0, sell_out.c.estimados > 0), 1), else_=0)).label(
                 "sell_out_estimados"
             ),
+            func.sum(case((and_(in_gauss, sell_in.c.venta_ref.isnot(None)), 1), else_=0)).label("sell_in_lineas"),
+            func.sum(case((and_(in_gauss, sell_out.c.venta_ref.isnot(None)), 1), else_=0)).label("sell_out_lineas"),
         ]
 
     def _tp_mlas(self) -> Any:
@@ -2167,6 +2185,8 @@ class Board:
             m_sell_out=None if self.tp else cents(r["m_sell_out"]),
             sell_out_pendientes=int(r["sell_out_pendientes"] or 0),
             sell_out_estimados=int(r["sell_out_estimados"] or 0),
+            sell_in_lineas=int(r["sell_in_lineas"] or 0),
+            sell_out_lineas=int(r["sell_out_lineas"] or 0),
         )
 
     # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
