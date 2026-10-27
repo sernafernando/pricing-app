@@ -219,9 +219,9 @@ export default function PublicacionesML() {
   const layerKnown =
     filters.equipo === '' || equipos.some((equipo) => !equipo.es_global && String(equipo.id) === filters.equipo);
   const rowFilters = useMemo(() => (layerKnown ? filters : { ...filters, equipo: '' }), [filters, layerKnown]);
-  // What is painted, on the layer the rows were asked on, since the rows loaded -- here or by
+  // What is painted, on the layer and filters the rows were asked on, since the rows loaded -- here or by
   // anyone -- repaints them without asking the list again (the trees would close their open branches).
-  const colorOverlay = useColorOverlay(rowFilters.equipo);
+  const colorOverlay = useColorOverlay(rowFilters.equipo, filterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
   useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
