@@ -168,3 +168,39 @@
   font-size: var(--font-sm);
   color: var(--cf-text-secondary);
 }
+
+.tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tab {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.tabActiva {
+  composes: tab;
+  border-bottom-color: var(--cf-accent-blue);
+  color: var(--cf-text-primary);
+}
+
+/* "Por usuario" stays mounted while "Por marca / par" is open, so its
+   search and expanded marcas survive a tab switch. */
+.layout[hidden],
+.actionBar[hidden] {
+  display: none;
+}

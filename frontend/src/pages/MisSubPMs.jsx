@@ -5,6 +5,7 @@ import { ModalAlert, ModalLoading } from '../components/ModalTesla';
 import UsuariosLista from '../components/subpms/UsuariosLista';
 import MarcasAcordeon from '../components/subpms/MarcasAcordeon';
 import ChipsPorMarca from '../components/subpms/ChipsPorMarca';
+import VistaPorMarca from '../components/subpms/VistaPorMarca';
 import { parKey } from '../components/parKey';
 import { clavesDesdePayload } from './misSubPMsHelpers';
 import { useAuthStore } from '../store/authStore';
@@ -96,6 +97,7 @@ export default function MisSubPMs() {
   const [saving, setSaving] = useState(false);
 
   const [alerta, setAlerta] = useState(null); // { tipo, texto }
+  const [vista, setVista] = useState('usuario'); // 'usuario' | 'marca'
   const [rechazados, setRechazados] = useState([]);
 
   const showError = useCallback((err, fallback) => {
@@ -489,7 +491,32 @@ export default function MisSubPMs() {
         </div>
       )}
 
-      <div className={styles.layout}>
+      {hayParesEnScope && (
+        <div className={styles.tabs} role="tablist" aria-label="Vista">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={vista === 'usuario'}
+            className={vista === 'usuario' ? styles.tabActiva : styles.tab}
+            onClick={() => setVista('usuario')}
+          >
+            Por usuario
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={vista === 'marca'}
+            className={vista === 'marca' ? styles.tabActiva : styles.tab}
+            onClick={() => setVista('marca')}
+          >
+            Por marca / par
+          </button>
+        </div>
+      )}
+
+      {vista === 'marca' && hayParesEnScope && <VistaPorMarca pares={pares} grantsScope={grantsScope} />}
+
+      <div className={styles.layout} hidden={vista === 'marca'}>
         <UsuariosLista
           usuarios={hayParesEnScope ? usuariosDisponibles : []}
           conteos={conteos}
@@ -568,7 +595,7 @@ export default function MisSubPMs() {
         </section>
       </div>
 
-      <footer className={styles.actionBar}>
+      <footer className={styles.actionBar} hidden={vista === 'marca'}>
         {confirmando ? (
           <div className={styles.actionConfirm} data-testid="confirmarGuardarBox">
             <span>

@@ -114,4 +114,22 @@ describe.each([
       await page.screenshot({ path: `${SHOTS_DIR}/subpms-${theme}-${width}.png` });
     }
   });
+
+  it('lays out the "Por marca / par" tab beside the marca list without overflow', async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(<MisSubPMs />);
+
+    await screen.getByRole('tab', { name: 'Por marca / par' }).click();
+    await screen.getByRole('button', { name: /^LENOVO/ }).click();
+    await expect.element(screen.getByRole('cell', { name: 'Sofía Benítez' })).toBeVisible();
+
+    const lista = document.querySelector('aside[aria-label="Marcas"]').getBoundingClientRect();
+    const detalle = screen.getByRole('heading', { name: 'LENOVO' }).element().closest('section');
+    expect(lista.right).toBeLessThanOrEqual(detalle.getBoundingClientRect().left + 1);
+    expect(detalle.scrollWidth).toBeLessThanOrEqual(detalle.clientWidth);
+
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/subpms-por-marca-${theme}-${width}.png` });
+  });
 });
