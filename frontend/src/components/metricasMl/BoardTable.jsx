@@ -106,6 +106,7 @@ function TotalTpCell({ value, incompletos: raw }) {
 function SellOutCell({ figures }) {
   if (!figures) return <SellMoneyCell value={null} />;
   const { sell_out: value, sell_out_pendientes: pendientes, sell_out_estimados: estimados } = figures;
+  if (value == null) return null;
   return (
     <div className={styles.gaussCell}>
       <span className={styles.money} data-money>
@@ -409,16 +410,22 @@ function renderCell(colId, row, ctx) {
     case 'stock':
       // `productos_erp.stock` of the row's product; "—" when the ERP has none.
       return <StockCell value={row.stock} />;
-    // Sell in / sell out: null (dashes) when the backend sends none, never a made-up zero.
+    // Sell in / sell out: null (dashes) when the backend sends none, never a made-up zero. A figure that does
+    // not apply to the row (no sold line with a sell in, or a sell out) is left empty so it does not add noise.
     case 'costo':
+      return <SellMoneyCell value={row.sell_in_out?.costo} />;
     case 'costo_sell_in':
     case 'sell_in':
+      if (row.sell_in_out && row.sell_in_out[colId] == null) return null;
       return <SellMoneyCell value={row.sell_in_out?.[colId]} />;
     case 'sell_out':
       return <SellOutCell figures={row.sell_in_out} />;
     case 'total_gauss_sell':
+      if (row.sell_in_out && row.sell_in_out.total_gauss == null) return null;
       return <SellMoneyCell value={row.sell_in_out?.total_gauss} strong />;
     case 'markup_sell': {
+      // Empty when nothing applies; a dash when it applies but leaves no markup (a sell in above the cost).
+      if (row.sell_in_out && row.sell_in_out.total_gauss == null) return null;
       const value = row.sell_in_out?.markup_pct ?? null;
       const tone = markupTone(value);
       return <span className={`${styles.markup} ${tone ? styles[`tone_${tone}`] : styles.muted}`}>{formatPct(value)}</span>;

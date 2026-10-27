@@ -817,13 +817,15 @@ def _csv_line(
             _csv_money(round_pp(row.markup_delta)),
         ]
         if sell:
+            # The screen's figures: a sell in / sell out that does not apply to the row is an empty cell, not 0.
+            figures = sell_in_out_of(row)
             line += [
-                _csv_money(round_money(row.sell_in)),
-                _csv_money(round_money(row.sell_out)),
+                _csv_money(figures.sell_in),
+                _csv_money(figures.sell_out),
                 row.sell_out_pendientes,
-                _csv_money(round_money(row.costo_sell_in)),
-                _csv_money(round_money(row.total_gauss_sell)),
-                _csv_money(round_pp(row.markup_sell)),
+                _csv_money(figures.costo_sell_in),
+                _csv_money(figures.total_gauss),
+                _csv_money(figures.markup_pct),
             ]
     line += [
         row.last_sale_at.isoformat() if row.last_sale_at else "",
