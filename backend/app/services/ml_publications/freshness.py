@@ -3,12 +3,13 @@
 A notification leaves an entry with `source_received_at` and the resources it asks for. Resource R of that entry
 is late when R was not checked since the notification and has been due for longer than R's target, where due is
 the notification or R's last check plus its minimum age, whichever is later: the minimum age is a wait the store
-chose, not a delay. Once applied the entry leaves the queue and stops counting.
+chose, not a delay. Once applied the entry leaves the queue and stops counting. A parked entry keeps counting: the
+store gave up on that change, so its data stays stale until someone looks.
 
 Visits have no notification (the sweep laps them, design D17), so they are measured by the age of their last
 check on active items, and only while the sweep collects them (visits never collected show in the status
-report's completeness). Stock is not measured: it is the publication's
-available quantity, which nothing outside the store reads (owner, 2026-10-27).
+report's completeness). Stock is not measured: it is the publication's available quantity, which nothing outside
+the store reads (owner, 2026-10-27).
 """
 
 from __future__ import annotations
@@ -94,7 +95,8 @@ def _number(value: Any) -> Any:
 
 def measure(db: Session) -> Dict[str, Any]:
     """Per measured resource: its target, how many entries (items, for visits) are late and the oldest delay;
-    plus the waiting count and oldest wait of each queue lane."""
+    plus the waiting count and oldest wait of each queue lane. Read-only, under the status report's timeout."""
+    status.bounded_read_only(db)
     config = settings_store.get_settings(["bundle_resources", "min_age_seconds", "sweep.enabled"])
     collected: List[str] = config["bundle_resources"].value
     min_ages: Mapping[str, Any] = config["min_age_seconds"].value
@@ -165,10 +167,3 @@ def late_message(report: Mapping[str, Any]) -> str:
                 f"(objetivo {_duration(measured['target_seconds'])})"
             )
     return "\n".join(lines)
-
-
-BACK_MESSAGE = "Pricing: los datos de ML volvieron a estar al día."
-
-
-def late_resources(report: Mapping[str, Any]) -> List[str]:
-    return sorted(name for name, measured in report["resources"].items() if measured["late"])

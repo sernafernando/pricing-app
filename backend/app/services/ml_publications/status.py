@@ -444,6 +444,11 @@ def freshness_metrics(db: Session, bundle_resources: List[str]) -> Dict[str, Any
 # --- the report ----------------------------------------------------------------------------------------------
 
 
+def bounded_read_only(db: Session) -> None:
+    """Make the open transaction of `db` read-only and bound each statement by `STATEMENT_TIMEOUT`."""
+    _bounded_read_only(db)
+
+
 def _bounded_read_only(db: Session) -> None:
     db.execute(text("SET TRANSACTION READ ONLY"))
     db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
