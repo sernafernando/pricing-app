@@ -25,7 +25,7 @@ class EtiquetaEnvioLogisticaHistorial(Base):
     # No FK: a bad id in the transaction setting must never make the label write fail.
     usuario_id = Column(Integer, nullable=True)
     operador_id = Column(Integer, nullable=True)
-    origen = Column(Text, nullable=True)  # asignar / masivo / pistoleado / manual
+    origen = Column(Text, nullable=True)  # asignar / masivo / pistoleado / manual / deshacer
     cambiado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("idx_etiq_logistica_historial_shipping", "shipping_id", "cambiado_en"),)
