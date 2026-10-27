@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { TableShell } from '../kit';
 import VariationRows from './VariationRows';
 import { treeRowTone } from './rowColor';
@@ -28,6 +28,7 @@ export default function AgrupadoTable({
   onSelectItem,
   selectedKey,
   offset,
+  colorOverlay,
   emptyMessage = 'Ninguna publicación coincide con los filtros',
 }) {
   const { rows, toggle, loadMore } = useGroupTree({ filters, familias, dimension, canSeeMargin });
@@ -56,6 +57,9 @@ export default function AgrupadoTable({
   // The page selects by MLA; the table by row, so only one row is highlighted.
   const selectedRowId = selectedKey === undefined ? undefined : rows.find((row) => row.type === 'item' && row.item.item_id === selectedKey)?.id;
 
+  // The colors painted since the rows loaded (`useColorOverlay`) win over the rows' own.
+  const getRowTone = useCallback((row) => treeRowTone(row, colorOverlay), [colorOverlay]);
+
   const handleRowClick = (row, event) => {
     if (row.type === 'node') toggle(row);
     else if (row.type === 'item') onSelectItem(row.item, event);
@@ -67,7 +71,7 @@ export default function AgrupadoTable({
       rows={rows}
       getRowKey={(row) => row.id}
       getRowDepth={(row) => row.depth}
-      getRowTone={treeRowTone}
+      getRowTone={getRowTone}
       renderSubRows={(row) =>
         row.type === 'item' && row.item.variations_count > 1 && expandedIds.has(row.item.item_id) ? (
           <VariationRows item={row.item} columns={columns} canSeeMargin={canSeeMargin} depth={row.depth} />

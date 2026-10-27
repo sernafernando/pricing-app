@@ -1,0 +1,62 @@
+.anchor {
+  position: relative;
+}
+
+.count {
+  min-width: var(--space-5);
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  line-height: var(--space-5);
+  text-align: center;
+  color: var(--on-selection-fill);
+  background: var(--selection-fill);
+  border-radius: var(--radius-full);
+}
+
+.panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: max-content;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-sm);
+  text-align: left;
+  color: var(--cf-text-primary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--cf-bg-hover);
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-full);
+}
+
+.swatch[data-empty] {
+  background: var(--cf-bg-card);
+}

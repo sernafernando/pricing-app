@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { TableShell } from '../kit';
 import { PRODUCT_FIGURES } from './productFigures';
 import VariationRows from './VariationRows';
@@ -38,6 +38,7 @@ export default function ProductoTable({
   sort,
   onSort,
   offset,
+  colorOverlay,
   emptyMessage = 'Ningún producto coincide con los filtros',
   selection,
 }) {
@@ -77,6 +78,9 @@ export default function ProductoTable({
         ? rows.find((row) => row.type === 'node' && row.node.key === selectedProductKey)?.id
         : undefined;
 
+  // The colors painted since the rows loaded (`useColorOverlay`) win over the rows' own.
+  const getRowTone = useCallback((row) => treeRowTone(row, colorOverlay), [colorOverlay]);
+
   const handleRowClick = (row, event) => {
     if (row.type === 'node') onSelectProduct(row.node.key);
     else if (row.type === 'item') onSelectItem(row.item, event);
@@ -88,7 +92,7 @@ export default function ProductoTable({
       rows={rows}
       getRowKey={(row) => row.id}
       getRowDepth={(row) => row.depth}
-      getRowTone={treeRowTone}
+      getRowTone={getRowTone}
       renderSubRows={(row) =>
         row.type === 'item' && row.item.variations_count > 1 && expandedIds.has(row.item.item_id) ? (
           <VariationRows item={row.item} columns={columns} canSeeMargin={canSeeMargin} depth={row.depth} />

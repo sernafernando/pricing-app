@@ -15,7 +15,10 @@ import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
 import ColorLayerSelect from '../components/publicacionesMl/ColorLayerSelect';
+import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
+import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
+import { useSSEChannel } from '../hooks/useSSEChannel';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
@@ -207,6 +210,11 @@ export default function PublicacionesML() {
     [],
   );
   const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
+  // What is painted since the rows loaded -- here or by anyone -- repaints them without asking the list again
+  // (the trees would close their open branches).
+  const colorOverlay = useColorOverlay(filters.equipo, filterKey);
+  useSSEChannel('producto_color:changed', colorOverlay.apply);
+  const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
   useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
 
   const pageSize = filters.limite;
@@ -522,11 +530,20 @@ export default function PublicacionesML() {
             <span className={styles.filterLabel}>Estado:</span>
             {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, facets?.status)}
           </div>
-          <ColorLayerSelect
-            value={filters.equipo}
-            onChange={(equipo) => setFilters({ equipo })}
-            labelClassName={styles.filterLabel}
-          />
+          {/* The layer and what paints on it wrap together. */}
+          <div className={styles.filterGroup}>
+            <ColorLayerSelect
+              value={filters.equipo}
+              onChange={(equipo) => setFilters({ equipo })}
+              labelClassName={styles.filterLabel}
+            />
+            <PaintColorMenu
+              checkedIds={checkedIds}
+              equipo={filters.equipo}
+              onPainted={colorOverlay.apply}
+              onClearChecked={clearChecked}
+            />
+          </div>
           <span className={styles.spacer} />
           <button
             type="button"
@@ -640,6 +657,7 @@ export default function PublicacionesML() {
                 tree={productRows}
                 columns={selectableColumns}
                 selection={selection}
+                colorOverlay={colorOverlay.colors}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}
@@ -657,6 +675,7 @@ export default function PublicacionesML() {
                 filters={filters}
                 familias={filters.familias === '1'}
                 dimension={filters.agrupar}
+                colorOverlay={colorOverlay.colors}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}
@@ -669,7 +688,7 @@ export default function PublicacionesML() {
                 columns={selectableColumns}
                 rows={items}
                 getRowKey={(item) => item.item_id}
-                getRowTone={itemRowTone}
+                getRowTone={getItemTone}
                 renderSubRows={(item) =>
                   item.variations_count > 1 && expandedIds.has(item.item_id) ? (
                     <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />
