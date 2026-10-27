@@ -1,4 +1,4 @@
-"""`calcular-web-masivo` / `calcular-pvp-masivo` with an explicit `item_ids` write set.
+"""`calcular-web-masivo` / `calcular-pvp-masivo` / `recalcular-cuotas-masivo` with an explicit `item_ids` write set.
 
 Publicaciones ML resolves its own filters to products (`/ml-publications/view/product-ids`) and asks the bulk
 calculation over EXACTLY those ids. With `item_ids` the run touches those products and no other; `filtros` alongside
@@ -15,12 +15,14 @@ from app.api.endpoints.productos_pricing import (
     actualizar_config_cuotas_masivo,
     calcular_pvp_masivo,
     calcular_web_masivo,
+    recalcular_cuotas_masivo,
 )
 from app.api.endpoints.productos_shared import (
     MAX_EXPLICIT_PRODUCT_IDS,
     CalculoPVPMasivoRequest,
     CalculoWebMasivoRequest,
     ConfigCuotasMasivoRequest,
+    RecalcularCuotasMasivoRequest,
 )
 from app.models.auditoria import Auditoria
 from app.models.producto import ProductoPricing
@@ -133,3 +135,76 @@ def test_config_cuotas_with_an_id_not_in_the_catalog_writes_nothing(db, monkeypa
     assert exc_info.value.status_code == 422
     assert str(GONE) in str(exc_info.value.detail)
     assert _touched(db) == before
+
+
+_CUOTAS = [pytest.param("web", id="cuotas-web"), pytest.param("pvp", id="cuotas-pvp")]
+
+
+def _loaded(monkeypatch) -> list[list[int]]:
+    """The products each `recalcular-cuotas-masivo` run loads. The harness has no ML commissions, so the run skips
+    every product before stamping it; the set it loads (handed to the shipping-cost batch) is the one it would write."""
+    calls: list[list[int]] = []
+
+    def spy(_db, item_ids):
+        calls.append(sorted(item_ids))
+        return {}
+
+    monkeypatch.setattr("app.api.endpoints.productos_pricing.resolver_costos_envio_batch", spy)
+    return calls
+
+
+@pytest.mark.parametrize("lista_tipo", _CUOTAS)
+class TestRecalcularCuotasItemIds:
+    def test_the_run_loads_exactly_the_named_products(self, db, monkeypatch, lista_tipo) -> None:
+        user = _seed(db)
+        loaded = _loaded(monkeypatch)
+
+        recalcular_cuotas_masivo(
+            request=RecalcularCuotasMasivoRequest(lista_tipo=lista_tipo, item_ids=[2]), db=db, current_user=user
+        )
+
+        assert loaded == [[2]]
+
+    def test_without_item_ids_the_run_is_the_filtered_one_as_before(self, db, monkeypatch, lista_tipo) -> None:
+        user = _seed(db)
+        loaded = _loaded(monkeypatch)
+
+        for filtros in ({}, {"filtros": {"search": "Producto 1"}}):
+            recalcular_cuotas_masivo(
+                request=RecalcularCuotasMasivoRequest(lista_tipo=lista_tipo, **filtros), db=db, current_user=user
+            )
+
+        assert loaded == [[1, 2], [1]]
+
+    def test_filtros_alongside_item_ids_is_refused(self, db, lista_tipo) -> None:
+        with pytest.raises(ValidationError):
+            RecalcularCuotasMasivoRequest(lista_tipo=lista_tipo, item_ids=[1], filtros={"search": "Producto"})
+
+    def test_an_empty_id_list_is_refused_never_read_as_everything(self, db, lista_tipo) -> None:
+        with pytest.raises(ValidationError):
+            RecalcularCuotasMasivoRequest(lista_tipo=lista_tipo, item_ids=[])
+
+    def test_the_audit_counts_the_unique_ids(self, db, lista_tipo) -> None:
+        user = _seed(db)
+
+        recalcular_cuotas_masivo(
+            request=RecalcularCuotasMasivoRequest(lista_tipo=lista_tipo, item_ids=[2, 2, 2]), db=db, current_user=user
+        )
+
+        audit = db.query(Auditoria).order_by(Auditoria.id.desc()).first()
+        assert audit.valores_nuevos["item_ids_explicitos"] == 1
+
+    def test_an_id_not_in_the_catalog_refuses_the_whole_run(self, db, monkeypatch, lista_tipo) -> None:
+        user = _seed(db)
+        loaded = _loaded(monkeypatch)
+
+        with pytest.raises(HTTPException) as exc_info:
+            recalcular_cuotas_masivo(
+                request=RecalcularCuotasMasivoRequest(lista_tipo=lista_tipo, item_ids=[2, GONE]),
+                db=db,
+                current_user=user,
+            )
+
+        assert exc_info.value.status_code == 422
+        assert str(GONE) in str(exc_info.value.detail)
+        assert loaded == []
