@@ -8,6 +8,7 @@ import { useRef, useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TableShell from '../kit/TableShell';
+import ModalTesla from '../ModalTesla';
 import usePublicacionesMLKeyboard from './usePublicacionesMLKeyboard';
 
 const ROWS = Array.from({ length: 15 }, (_, index) => ({
@@ -95,6 +96,22 @@ describe('usePublicacionesMLKeyboard', () => {
     screen.getByRole('button', { name: 'Fuera de la lista' }).focus();
     await user.keyboard('{ArrowDown}');
     expect(screen.getByRole('button', { name: 'Fuera de la lista' })).toHaveFocus();
+  });
+
+  it('with another dialog open (a bulk action) no shortcut runs', async () => {
+    const onExport = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <>
+        <ModalTesla isOpen onClose={() => {}} title="Calcular Web Transf.">
+          <p>Modal abierto</p>
+        </ModalTesla>
+        <Harness onExport={onExport} />
+      </>,
+    );
+    await user.keyboard('{Control>}e{/Control}?');
+    expect(onExport).not.toHaveBeenCalled();
+    expect(screen.queryByText('Ayuda abierta')).not.toBeInTheDocument();
   });
 
   it('the arrows do nothing while the operator types in a field', async () => {

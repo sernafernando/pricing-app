@@ -1,5 +1,6 @@
 import ModalTesla from '../ModalTesla';
 import styles from './ShortcutsHelp.module.css';
+import { HELP_CLASS } from './usePublicacionesMLKeyboard';
 
 // What `usePublicacionesMLKeyboard` and the list's rows do, in the order an operator meets them.
 const SHORTCUTS = [
@@ -19,7 +20,7 @@ const SHORTCUTS = [
 /** The keyboard shortcuts of Publicaciones ML, opened with `?` or the header's button. */
 export default function ShortcutsHelp({ onClose }) {
   return (
-    <ModalTesla isOpen onClose={onClose} title="Atajos de teclado" size="sm">
+    <ModalTesla isOpen onClose={onClose} title="Atajos de teclado" size="sm" className={HELP_CLASS}>
       <dl className={styles.list}>
         {SHORTCUTS.map(({ keys, what }) => (
           <div key={what} className={styles.entry}>

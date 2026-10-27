@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 const ROW = 'tr[data-clickable][data-row-key]';
 const PAGE = 10;
 const TYPING = 'input, textarea, select, [contenteditable="true"]';
+// The shortcuts' own help is a dialog too, but `?` must still close it.
+export const HELP_CLASS = 'publicaciones-ml-shortcuts-help';
 
 // Productos' clipboard shortcuts (`useProductosKeyboard`): the product code and its two Mercado Libre links.
 const COPIES = {
@@ -68,7 +70,8 @@ function moveFocus(event) {
  *   `?` toggles the help.
  * - Ctrl+F1/F2/F3 (or Ctrl+Shift+1/2/3) copy the focused publication's product code and its two ML links.
  *
- * Nothing here runs while the operator types in a field, except Ctrl+F. `findRow(key)` maps a focused row's key to
+ * Nothing here runs while the operator types in a field, except Ctrl+F, nor while a dialog is open (the help only
+ * takes `?`, to close it). `findRow(key)` maps a focused row's key to
  * its row (a publication with `link.codigo`), so copying works wherever the rows are publications.
  */
 export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExport, onToggleHelp, showToast, disabled }) {
@@ -102,6 +105,15 @@ export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExpor
 
     const handleKeyDown = (event) => {
       const { searchRef: search, onExport: exportView, onToggleHelp: toggleHelp } = props.current;
+      // Another dialog (a bulk action, a confirmation) owns the keyboard, as in Productos; the help only lets `?` close it.
+      const dialog = document.querySelector('.modal-overlay-tesla');
+      if (dialog) {
+        if (event.key === '?' && toggleHelp && dialog.querySelector(`.${HELP_CLASS}`) && !isTyping(event.target)) {
+          event.preventDefault();
+          toggleHelp();
+        }
+        return;
+      }
       const action = copyAction(event);
       if (action) {
         event.preventDefault();
