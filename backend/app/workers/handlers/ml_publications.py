@@ -1228,7 +1228,7 @@ FRESHNESS_HANDLER = "ml_publications.freshness"
 
 class FreshnessHandler:
     """`ml_publications.freshness` (ml-sync-pipeline S5): every minute, how late the store is on what ML told it
-    changed, per resource, and the queue lag per lane, kept in its detail for the status report.
+    changed, per resource, and the queue lag per lane, kept in its `worker_job_state.detail`.
 
     A resource that becomes late sends the owner ONE WhatsApp; it is not repeated while the resource stays late,
     and one more says when everything is back. An alert wabot did not take is tried again on the next tick. The
