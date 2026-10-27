@@ -1644,7 +1644,7 @@ describe('keyboard export', () => {
     await user.keyboard('{Control>}e{/Control}');
     expect(screen.getByRole('button', { name: 'Exportando…' })).toBeDisabled();
     // Still taken from the browser (Chrome would jump to its address bar), and no second export starts.
-    expect(fireEvent.keyDown(document.body, { key: 'e', ctrlKey: true })).toBe(false);
+    expect(fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE', ctrlKey: true })).toBe(false);
     expect(exportPublicacionesCsv).toHaveBeenCalledTimes(1);
     await act(async () => finish());
   });

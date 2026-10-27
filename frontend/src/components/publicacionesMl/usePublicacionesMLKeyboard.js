@@ -70,8 +70,8 @@ function moveFocus(event) {
  *   `?` toggles the help.
  * - Ctrl+F1/F2/F3 (or Ctrl+Shift+1/2/3) copy the focused publication's product code and its two ML links.
  *
- * Nothing here runs while the operator types in a field, except Ctrl+F, nor while a dialog is open (the help only
- * takes `?`, to close it). `findRow(key)` maps a focused row's key to
+ * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
+ * editing too); nothing runs while a dialog is open (the help only takes `?`, to close it). `findRow(key)` maps a focused row's key to
  * its row (a publication with `link.codigo`), so copying works wherever the rows are publications.
  */
 export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExport, onToggleHelp, showToast, disabled }) {
@@ -124,13 +124,14 @@ export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExpor
         copy(action);
         return;
       }
-      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key === 'f' && search?.current) {
+      // `code`, not `key`: Caps Lock turns the key into 'F' / 'E'.
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.code === 'KeyF' && search?.current) {
         event.preventDefault();
         search.current.focus();
         return;
       }
       if (isTyping(event.target)) return;
-      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key === 'e' && exportView) {
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.code === 'KeyE' && exportView) {
         event.preventDefault();
         exportView();
         return;

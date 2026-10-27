@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { useRef, useState } from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TableShell from '../kit/TableShell';
 import ModalTesla from '../ModalTesla';
@@ -126,6 +126,15 @@ describe('usePublicacionesMLKeyboard', () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.keyboard('{ArrowDown}{Control>}f{/Control}');
+    expect(screen.getByLabelText('Buscar')).toHaveFocus();
+  });
+
+  it('Ctrl+F and Ctrl+E work with Caps Lock on', () => {
+    const onExport = vi.fn();
+    render(<Harness onExport={onExport} />);
+    fireEvent.keyDown(document.body, { key: 'E', code: 'KeyE', ctrlKey: true });
+    expect(onExport).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(document.body, { key: 'F', code: 'KeyF', ctrlKey: true });
     expect(screen.getByLabelText('Buscar')).toHaveFocus();
   });
 
