@@ -82,6 +82,8 @@ TRIGGERED_TABLES = frozenset(
         "ml_shipments_ops",
         "etiquetas_envio",
         "ml_venta_varios_pct",
+        # ventas-ml-impuestos-informativos: `triggers_tax_treatment.py`.
+        "ml_venta_impuesto_tratamiento",
         "logistica_costo_cordon",
         "cp_cordones",
         "configuracion",
