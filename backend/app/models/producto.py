@@ -21,7 +21,8 @@ class ProductoERP(Base):
     subcategoria_id = Column(Integer, index=True)
 
     costo = Column(Float)
-    moneda_costo = Column(SQLEnum(TipoMoneda), default=TipoMoneda.ARS)
+    # Production's column is VARCHAR holding 'ARS' / 'USD', with no `tipomoneda` type behind it.
+    moneda_costo = Column(SQLEnum(TipoMoneda, native_enum=False, length=3), default=TipoMoneda.ARS)
     iva = Column(Float, default=21.0)
     envio = Column(Float, default=0.0)
 
