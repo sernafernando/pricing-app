@@ -267,5 +267,7 @@ def test_a_write_the_proxy_did_not_send_is_not_sent(db, stored, ml, refreshed, b
         "body": {"description_write": "not_attempted"},
     }
     outcome = run()
+    assert outcome.status == push.NOT_SENT  # nothing reached ML: not "sent"
+    assert outcome.message == "Ningún cambio llegó a Mercado Libre: el servicio de escritura lo rechazó."
     assert [parte.estado for parte in outcome.partes] == [push.NOT_SENT, push.NOT_SENT]
     assert refreshed == []

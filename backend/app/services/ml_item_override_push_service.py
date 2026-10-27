@@ -34,7 +34,7 @@ from app.services.ml_webhook_client import MLWebhookClient
 logger = logging.getLogger(__name__)
 
 # The outcome of a push.
-SENT = "sent"  # at least one write went to the proxy: each field says how it went
+SENT = "sent"  # at least one write reached ML or may have: each field says how it went
 NOTHING = "nothing"  # nothing differs from ML, or nothing that differs can go
 DISABLED = "disabled"
 NOT_FOUND = "not_found"
@@ -197,6 +197,9 @@ async def push_override(mla: str, usuario_id: Optional[int]) -> PushOutcome:
         landed = landed or estado in (SUBMITTED, AMBIGUOUS)
     if landed:
         await run_in_threadpool(_enqueue_refresh_safely, mla)
+    if all(parte.estado == NOT_SENT for parte in partes):
+        message = "Ningún cambio llegó a Mercado Libre: el servicio de escritura lo rechazó."
+        return PushOutcome(NOT_SENT, message, tuple(partes) + omitted)
     return PushOutcome(SENT, None, tuple(partes) + omitted)
 
 
