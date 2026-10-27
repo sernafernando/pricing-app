@@ -733,6 +733,43 @@ class AsignarLogisticaRequest(BaseModel):
     )
 
 
+class DeshacerLogisticaRequest(BaseModel):
+    """Payload para deshacer el último cambio de logística de una etiqueta."""
+
+    operador_id: Optional[int] = Field(None, description="Operador que deshace el cambio (opcional).")
+
+
+class LogisticaRef(BaseModel):
+    """Logística como la muestra el historial: id, nombre y color del badge."""
+
+    id: int
+    nombre: str
+    color: Optional[str] = None
+
+
+class CambioLogisticaItem(BaseModel):
+    """Un cambio de logística de una etiqueta. `None` en anterior/nueva = sin asignar."""
+
+    id: int
+    cambiado_en: datetime
+    origen: Optional[str] = None
+    anterior: Optional[LogisticaRef] = None
+    nueva: Optional[LogisticaRef] = None
+    usuario_nombre: Optional[str] = None
+    operador_nombre: Optional[str] = None
+
+
+class HistorialLogisticaResponse(BaseModel):
+    """Historial de logística de una etiqueta, del cambio más nuevo al más viejo."""
+
+    shipping_id: str
+    logistica_actual: Optional[LogisticaRef] = None
+    puede_deshacer: bool
+    # Logística que pondría el deshacer; `None` = "Sin asignar" (solo tiene sentido con puede_deshacer).
+    deshacer_a: Optional[LogisticaRef] = None
+    cambios: List[CambioLogisticaItem]
+
+
 class CambiarFechaRequest(BaseModel):
     """Payload para cambiar fecha de envío."""
 
