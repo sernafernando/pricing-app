@@ -65,6 +65,7 @@ from app.models.logistica import Logistica
 from app.models.transporte import Transporte
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
+from app.models.etiqueta_envio_logistica_historial import EtiquetaEnvioLogisticaHistorial
 from app.models.operador import Operador
 from app.models.operador_config_tab import OperadorConfigTab
 from app.models.operador_actividad import OperadorActividad
@@ -313,6 +314,7 @@ __all__ = [
     "Transporte",
     "EtiquetaEnvio",
     "EtiquetaEnvioAudit",
+    "EtiquetaEnvioLogisticaHistorial",
     "Operador",
     "OperadorConfigTab",
     "OperadorActividad",
