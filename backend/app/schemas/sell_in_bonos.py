@@ -122,7 +122,20 @@ class SellInBonoPedidoOut(BaseModel):
     proveedor_nombre: Optional[str]
     numero_factura: Optional[str]
     fecha_factura: Optional[date]
-    unidades: int  # pending: received units; out of range: invoiced units (only the scope's)
+    unidades: int  # pending: received units; out of range / not applied: invoiced units (only the scope's)
+
+
+class SellInBonoSinAplicarOut(SellInBonoPedidoOut):
+    """An operation of the scope invoiced inside the range that produced no active purchase, and why."""
+
+    motivo: str  # the worker's queued error, "Sin líneas de ... en la factura", or "En cola"
+    intentos: Optional[int]  # the worker's attempts when its key is queued, else None
+    es_error: bool  # True when `motivo` is the worker's error, not a status
+
+
+class SellInBonoSinAplicarListOut(BaseModel):
+    total: int
+    items: list[SellInBonoSinAplicarOut]
 
 
 class SellInBonoAlcanzadasOut(BaseModel):
@@ -140,3 +153,4 @@ class SellInBonoAlcanceOut(BaseModel):
     alcanzadas: SellInBonoAlcanzadasOut
     pendientes: SellInBonoPedidosOut
     fuera_de_rango: SellInBonoPedidosOut
+    sin_aplicar: SellInBonoSinAplicarListOut

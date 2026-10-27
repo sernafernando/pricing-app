@@ -78,3 +78,10 @@
   border: var(--border-1) solid var(--cf-border-default);
   border-radius: var(--radius-md);
 }
+
+.motivo {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--tone-warning-fg);
+  overflow-wrap: anywhere;
+}

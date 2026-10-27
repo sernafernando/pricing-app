@@ -1,12 +1,15 @@
 """Router: what a brand bonus reaches (`GET /api/sell-in/bonos/{id}/alcance`), sell-in-sell-out T3c-4.
 
-The bonus panel shows three groups, each capped (`limite`) with its full count:
+The bonus panel shows four groups, each capped (`limite`) with its full count:
 
 - `alcanzadas`: the ACTIVE sell-in purchases the worker generated for the bonus;
 - `pendientes`: operations of the brand without a supplier invoice date yet
   (brand known from what was received, `pedido_compra_ingresos`);
 - `fuera_de_rango`: operations of the brand invoiced outside the bonus range
-  (brand known from the invoiced-lines snapshot).
+  (brand known from the invoiced-lines snapshot);
+- `sin_aplicar`: operations of the brand invoiced INSIDE the range with no active
+  generated purchase, with why (`motivo`): the worker's queued error, no brand line
+  in the invoice, or still queued.
 
 Cancelled/rejected operations never show. Only app tables are read.
 SQLite test database, like `test_sell_in_bonos.py`.
@@ -25,7 +28,7 @@ from app.models.pedido_compra_ingresos import PedidoCompraIngreso
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
-from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.models.sell_in import SellInBonoDirty, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
 
 BASE = "/api/sell-in/bonos"
 INICIO = datetime(2026, 9, 1, 15, 0, tzinfo=timezone.utc)
@@ -307,3 +310,131 @@ def test_an_invoice_bonus_panel_lists_only_its_own_operation(client, lector, mun
 
     assert [(i["pedido_id"], i["unidades"]) for i in data["fuera_de_rango"]["items"]] == [(suyo.id, 5)]
     assert data["pendientes"]["total"] == 0
+
+
+# --- sin_aplicar: invoiced inside the range, but no active generated purchase (T18 follow-up) ---------------
+
+
+def _encolar(db, tipo: str, ref: int, attempts: int = 0, last_error: str | None = None) -> None:
+    db.add(SellInBonoDirty(tipo=tipo, ref=ref, attempts=attempts, last_error=last_error))
+    db.flush()
+
+
+def _sin_aplicar(data) -> list[tuple]:
+    return [(i["pedido_id"], i["unidades"], i["motivo"], i["intentos"]) for i in data["sin_aplicar"]["items"]]
+
+
+def test_an_in_range_invoice_the_worker_parked_shows_with_its_error(client, lector, mundo, db):
+    # Prod case: pedido 278, invoiced inside the range with 21 brand lines, worker parked it after 5 failures.
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 22), numero_factura="A-0001-00000278")
+    mundo["facturado"](p, TP, 21)
+    mundo["facturado"](p, OTRA, 4)
+    _encolar(db, "pedido", p.id, attempts=5, last_error="value too long for type character varying(20)")
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert data["sin_aplicar"]["total"] == 1
+    assert data["sin_aplicar"]["items"] == [
+        {
+            "pedido_id": p.id,
+            "numero": p.numero,
+            "proveedor_nombre": "TP-Link Argentina",
+            "numero_factura": "A-0001-00000278",
+            "fecha_factura": "2026-10-22",
+            "unidades": 21,
+            "motivo": "value too long for type character varying(20)",
+            "intentos": 5,
+            "es_error": True,
+        }
+    ]
+    # It is in no other group.
+    assert data["alcanzadas"]["total"] == data["pendientes"]["total"] == data["fuera_de_rango"]["total"] == 0
+
+
+def test_only_operations_without_an_active_generated_purchase_show(client, lector, mundo):
+    aplicada = mundo["pedido"](fecha_factura=date(2026, 10, 3))
+    mundo["facturado"](aplicada, TP, 2)
+    mundo["generada"](aplicada, 2)
+    anulada = mundo["pedido"](fecha_factura=date(2026, 10, 4))
+    mundo["facturado"](anulada, TP, 3)
+    mundo["generada"](anulada, 3, estado="anulada")
+    cancelada = mundo["pedido"](fecha_factura=date(2026, 10, 5), estado="cancelado")
+    mundo["facturado"](cancelada, TP, 1)
+    otra_marca = mundo["pedido"](fecha_factura=date(2026, 10, 6))
+    mundo["facturado"](otra_marca, OTRA, 9)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert _sin_aplicar(data) == [(anulada.id, 3, "En cola", None)]
+
+
+def test_an_invoice_with_no_brand_lines_says_so(client, lector, mundo):
+    # Received brand units, invoice date in range, but the invoiced snapshot has no line of the brand.
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 10))
+    mundo["recibido"](p, TP, "12")
+    mundo["facturado"](p, OTRA, 5)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert _sin_aplicar(data) == [(p.id, 0, "Sin líneas de la marca en la factura", None)]
+
+
+def test_a_parked_bonus_key_explains_every_operation_and_the_error_is_capped(client, lector, mundo, db):
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 12))
+    mundo["facturado"](p, TP, 4)
+    error = "psycopg2.errors.StringDataRightTruncation:   value too long\nDETAIL:  " + "x" * 400
+    _encolar(db, "bono", mundo["bono"].id, attempts=5, last_error=error)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    [item] = data["sin_aplicar"]["items"]
+    assert item["intentos"] == 5
+    assert item["motivo"].startswith("psycopg2.errors.StringDataRightTruncation: value too long")
+    assert "\n" not in item["motivo"]
+    assert len(item["motivo"]) <= 200
+
+
+def test_a_queued_key_without_error_is_still_en_cola(client, lector, mundo, db):
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 12))
+    mundo["facturado"](p, TP, 4)
+    _encolar(db, "pedido", p.id)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert _sin_aplicar(data) == [(p.id, 4, "En cola", 0)]
+    assert data["sin_aplicar"]["items"][0]["es_error"] is False
+
+
+def test_a_category_bonus_names_the_category_when_the_invoice_has_none(client, lector, mundo, db):
+    db.get(ProductoERP, OTRA).categoria = "Switches"
+    _rescopear(db, mundo["bono"], alcance="categoria", categoria="Switches")
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 15))
+    mundo["recibido"](p, OTRA, "2")
+    mundo["facturado"](p, TP, 7)
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert _sin_aplicar(data) == [(p.id, 0, "Sin líneas de la categoría en la factura", None)]
+
+
+def test_a_bonus_error_wins_over_an_operation_key_queued_without_error(client, lector, mundo, db):
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 12))
+    mundo["facturado"](p, TP, 4)
+    _encolar(db, "pedido", p.id)
+    _encolar(db, "bono", mundo["bono"].id, attempts=3, last_error="bonus failed")
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert _sin_aplicar(data) == [(p.id, 4, "bonus failed", 3)]
+    assert data["sin_aplicar"]["items"][0]["es_error"] is True
+
+
+def test_a_cancelled_bonus_has_nothing_left_to_apply(client, lector, mundo, db):
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 12))
+    mundo["facturado"](p, TP, 4)
+    mundo["bono"].estado = "anulada"
+    db.commit()
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert data["sin_aplicar"] == {"total": 0, "items": []}

@@ -279,6 +279,34 @@ export const ALCANCE = {
       { pedido_id: 1650, numero: 'OC-2026-01650', proveedor_nombre: 'TP-Link Argentina', numero_factura: null, fecha_factura: '2026-08-28', unidades: 15 },
     ],
   },
+  sin_aplicar: {
+    total: 2,
+    items: [
+      {
+        pedido_id: 278,
+        numero: 'OC-2026-00278',
+        proveedor_nombre: 'TP-Link Argentina',
+        numero_factura: 'A-0001-00000278',
+        fecha_factura: '2026-10-22',
+        unidades: 21,
+        motivo: 'value too long for type character varying(20)',
+        intentos: 5,
+        es_error: true,
+      },
+      {
+        pedido_id: 1901,
+        numero: 'OC-2026-01901',
+        proveedor_nombre: 'Global Tech',
+        numero_factura: 'A-0007-00012240',
+        fecha_factura: '2026-10-15',
+        unidades: 0,
+        motivo: 'Sin líneas de la marca en la factura',
+        // Attempts alone do not make it an error: only `es_error` does.
+        intentos: 2,
+        es_error: false,
+      },
+    ],
+  },
 };
 
 export const ALCANCE_VACIO = {
@@ -286,6 +314,7 @@ export const ALCANCE_VACIO = {
   alcanzadas: { total: 0, items: [] },
   pendientes: { total: 0, items: [] },
   fuera_de_rango: { total: 0, items: [] },
+  sin_aplicar: { total: 0, items: [] },
 };
 
 /** A sell in the worker generated for `BONO` (only the bonus changes or voids it). */
