@@ -102,10 +102,11 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 ## Pricing shell (started)
 
 - Route: `/para-ganar` (`productos.ver`)
-- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — empty queue + detail layout, status filter chips stubbed
+- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — queue + detail, status filter chips stubbed
+- API: `GET /api/para-ganar/cola` — active MLAs from sandbox (precio, catálogo, par sync por `inventory_id`)
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`
 
 ## Suggested next step
 
-Iterate the shell with real list/detail UX, then wire criteria + suggestion lifecycle + apply path against the local 20-product sandbox.
+Wire criteria + suggestion lifecycle + apply path against the local 20-product sandbox.
