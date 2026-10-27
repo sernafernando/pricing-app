@@ -91,3 +91,22 @@ def test_several_rows_in_one_flush_store_the_currency_as_text(Session):
             TipoMoneda.USD,
             TipoMoneda.ARS,
         ]
+
+
+def test_a_product_without_currency_stores_the_ars_default(Session):
+    with Session() as db:
+        db.add(ProductoERP(item_id=1))
+        db.commit()
+    with Session() as db:
+        assert db.execute(text("SELECT moneda_costo FROM productos_erp")).scalar_one() == "ARS"
+
+
+def test_filtering_by_currency_works_on_the_text_column(Session):
+    with Session() as db:
+        db.add_all([ProductoERP(item_id=1, moneda_costo=TipoMoneda.USD), ProductoERP(item_id=2)])
+        db.commit()
+    with Session() as db:
+        usd = db.query(ProductoERP.item_id).filter(ProductoERP.moneda_costo == TipoMoneda.USD).all()
+        ars = db.query(ProductoERP.item_id).filter(ProductoERP.moneda_costo.in_([TipoMoneda.ARS])).all()
+    assert usd == [(1,)]
+    assert ars == [(2,)]
