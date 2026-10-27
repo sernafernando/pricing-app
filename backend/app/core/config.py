@@ -4,6 +4,17 @@ from typing import List, Literal, Optional
 
 from app.core.ads_formulas import ADS_FORMULA_NAMES, DEFAULT_ADS_FORMULA
 
+FRESHNESS_TARGET_DEFAULTS = {
+    "items": 120,
+    "prices": 300,
+    "sale_price": 300,
+    "promotions": 300,
+    "competition": 300,
+    "description": 21600,
+    "family": 86400,
+    "visits": 90000,
+}
+
 # Environments where testing affordances (docs, testing-only endpoints) are
 # allowed. CI runs ENVIRONMENT=testing (.github/workflows/ci.yml), local dev
 # runs ENVIRONMENT=development (backend/.env). Production is never in here.
@@ -232,6 +243,10 @@ class Settings(BaseSettings):
             "replenishment": 86400,
         }
     )
+    # ml-sync-pipeline S5: seconds a notified change may stay unapplied once due (past its minimum age) before
+    # the owner gets a WhatsApp. Visits are swept once a day (design D17), so theirs is the age of the check.
+    # An env value that names only some resources keeps the default of the others.
+    ML_PUB_FRESHNESS_TARGET_SECONDS: dict = Field(default_factory=lambda: dict(FRESHNESS_TARGET_DEFAULTS))
     ML_PUB_SCAN_STATUSES: List[str] = Field(
         default_factory=lambda: ["closed", "paused", "under_review", "inactive", "pending", "active"]
     )
@@ -412,6 +427,18 @@ class Settings(BaseSettings):
         if not value or any(status not in SCAN_STATUS_NAMES for status in value):
             raise ValueError(f"ML_PUB_SCAN_STATUSES must be a non-empty list of {', '.join(SCAN_STATUS_NAMES)}")
         return value
+
+    @field_validator("ML_PUB_FRESHNESS_TARGET_SECONDS")
+    @classmethod
+    def _freshness_targets_keep_the_defaults(cls, value: dict) -> dict:
+        merged = {**FRESHNESS_TARGET_DEFAULTS, **value}
+        if any(name not in FRESHNESS_TARGET_DEFAULTS for name in value) or any(
+            not isinstance(seconds, int) or isinstance(seconds, bool) or seconds <= 0 for seconds in merged.values()
+        ):
+            raise ValueError(
+                f"ML_PUB_FRESHNESS_TARGET_SECONDS takes positive seconds for {sorted(FRESHNESS_TARGET_DEFAULTS)}"
+            )
+        return merged
 
     @field_validator("ML_PUB_SWEEP_STATUSES")
     @classmethod
