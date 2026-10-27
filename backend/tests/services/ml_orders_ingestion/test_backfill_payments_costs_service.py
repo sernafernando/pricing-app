@@ -845,12 +845,8 @@ class TestOnlyAnActualFetchCountsAsAnAttempt:
         raise ValueError("boom")
 
     def _cost_sync_attempts(self, db) -> dict:
-        rows = (
-            db.query(MlOpsDivergence.field, MlOpsDivergence.ml_value)
-            .filter(MlOpsDivergence.kind == service._COST_SYNC_DIVERGENCE_KIND)
-            .all()
-        )
-        return {field: ml_value for field, ml_value in rows}
+        rows = db.query(MlShipmentOps.shipment_id, MlShipmentOps.cost_sync_attempts).all()
+        return {shipment_id: attempts for shipment_id, attempts in rows if attempts}
 
     def test_a_shipment_the_budget_never_reached_is_not_charged_an_attempt(self, db, monkeypatch) -> None:
         db.add(MlShipmentOps(shipment_id=700, order_id=1))
@@ -865,7 +861,9 @@ class TestOnlyAnActualFetchCountsAsAnAttempt:
         attempts = self._cost_sync_attempts(db)
         # 700 is read first and spends the only fetch; 701 is never
         # reached, so it must carry no attempt at all.
-        assert attempts == {service._cost_sync_field(700): "1"}
+        assert attempts == {700: 1}
+        # The counter lives on the shipment; the legacy divergence table is no longer written.
+        assert db.query(MlOpsDivergence).count() == 0
 
     def test_a_starved_shipment_never_gives_up(self, db, monkeypatch) -> None:
         """The whole point: run it far more times than the attempt limit
@@ -884,24 +882,26 @@ class TestOnlyAnActualFetchCountsAsAnAttempt:
         # out of the way does the budget ever reach 701 -- which is the
         # point: 701 is never charged for the runs it did not take part
         # in, so it cannot be abandoned unasked.
-        assert 700 in service._gave_up_shipment_ids(db)
-        assert 701 not in service._gave_up_shipment_ids(db)
+        assert self._cost_sync_attempts(db)[700] == service.MAX_COST_SYNC_ATTEMPTS
+        assert service._shipments_needing_costs(10) == [701]
 
     def test_the_attempt_counter_is_clamped_at_the_limit(self, db) -> None:
-        """`_gave_up_shipment_ids` filters on ONE exact
+        """The candidate query filters on ONE exact
         stored value in SQL, which only holds if the counter stops growing
         at the limit. Driven straight through `_record_cost_sync_attempt`
         on purpose: via `run_backfill` a shipment leaves the candidate set
         the moment it gives up, so the overflow this guards against is
         unreachable from there and a test going through it would pass
         whether the clamp existed or not."""
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
         for _ in range(service.MAX_COST_SYNC_ATTEMPTS + 3):
             attempts = service._record_cost_sync_attempt(db, 700)
         db.commit()
 
         assert attempts == service.MAX_COST_SYNC_ATTEMPTS
-        assert self._cost_sync_attempts(db) == {service._cost_sync_field(700): str(service.MAX_COST_SYNC_ATTEMPTS)}
-        assert 700 in service._gave_up_shipment_ids(db)
+        assert self._cost_sync_attempts(db) == {700: service.MAX_COST_SYNC_ATTEMPTS}
+        assert service._shipments_needing_costs(10) == []
 
 
 class TestARefetchThatRaisesDoesNotTakeTheRunDown:
@@ -1092,9 +1092,10 @@ class TestASuccessClearsTheGiveUpStreak:
         monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._fails)
         for _ in range(2):
             service.run_backfill(limit=10)
-        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service._cost_sync_field(700)).count() == 1
+        assert db.query(MlShipmentOps.cost_sync_attempts).filter_by(shipment_id=700).scalar() == 2
 
         monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=_shipment_costs(400, 0)))
         service.run_backfill(limit=10)
 
-        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service._cost_sync_field(700)).count() == 0
+        assert db.query(MlShipmentOps.cost_sync_attempts).filter_by(shipment_id=700).scalar() == 0
+        assert db.query(MlOpsDivergence).count() == 0

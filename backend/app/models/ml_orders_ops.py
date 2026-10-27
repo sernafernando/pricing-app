@@ -10,9 +10,9 @@ Design decisions (see design doc, obs #1823):
 - `ml_order_items_ops` carries ZERO cost columns; a later change joins ERP
   cost onto `(seller_sku, item_id)` from a separate table/view.
 - `ml_ops_divergence` is legacy: the divergences board and its alarm
-  writers are gone; only the cost-sync give-up counters and the
-  `activity_unresolved` debts still use it, until they move and the table
-  is dropped.
+  writers are gone and the cost-sync give-up counters moved to
+  `ml_shipments_ops.cost_sync_attempts`; only the `activity_unresolved`
+  debts still use it, until they move and the table is dropped.
 """
 
 from __future__ import annotations
@@ -282,6 +282,12 @@ class MlShipmentOps(Base):
     # being 0, nobody has to remember to go looking.
     raw_costs = Column(JSONB, nullable=True)
 
+    # Consecutive payments/costs backfill runs that fetched this shipment's
+    # costs without settling them. Clamped at `MAX_COST_SYNC_ATTEMPTS`
+    # (backfill_payments_costs_service): at the cap the shipment stops being
+    # a candidate; a run that settles it resets it to 0.
+    cost_sync_attempts = Column(SmallInteger, nullable=False, default=0, server_default="0")
+
 
 class MlOperationLink(Base):
     """Link from a claim/question/message to its ML order.
@@ -372,14 +378,6 @@ class MlOpsSyncCursor(Base):
     activity_cursor = Column(Text, nullable=True)
 
 
-# Cost-sync give-up counters (the payments/costs backfill). They reuse the
-# generic `unknown` kind: the CHECK constraint on `kind` has no dedicated
-# value and adding one is a migration of its own.
-COST_SYNC_KIND = "unknown"
-COST_SYNC_FIELD_PREFIX = "cost_sync:"
-COST_SYNC_SENTINEL_ORDER_ID = 0
-
-
 class MlOrdersOpsCuarentena(Base):
     """One row per ML order whose write failed (`UpsertOutcome.WRITE_ERROR`
     in `ingestion_service.upsert_order`), keyed on `order_id`.
@@ -405,12 +403,13 @@ class MlOrdersOpsCuarentena(Base):
 
 
 class MlOpsDivergence(Base):
-    """LEGACY table, kept until its last two writers move (then dropped).
+    """LEGACY table, kept until its last writer moves (then dropped).
 
-    Still written by: the payments/costs backfill's cost-sync give-up
-    counters (`COST_SYNC_*`) and the activity receiver's
-    `activity_unresolved` debts. The divergences board, its endpoints, the
-    detector and every alarm writer are gone.
+    Still written by: the activity receiver's `activity_unresolved` debts.
+    The divergences board, its endpoints, the detector and every alarm
+    writer are gone; the cost-sync give-up counters it used to hold (rows
+    `order_id=0`, `field='cost_sync:<shipment_id>'`) moved to
+    `ml_shipments_ops.cost_sync_attempts`.
     """
 
     __tablename__ = "ml_ops_divergence"
