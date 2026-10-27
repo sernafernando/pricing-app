@@ -259,6 +259,12 @@ class Settings(BaseSettings):
     ML_PUB_NOT_APPLICABLE_RECHECK_DAYS: int = Field(default=30, ge=1)
 
     # Mapbox Geocoding API
+    # WhatsApp to the owner (app/services/wabot_client.py). wabot sends a message without a recipient to the
+    # users' group, so nothing is sent until WABOT_OWNER_TO is set.
+    WABOT_URL: str = "http://192.168.1.232:3000"
+    WABOT_TOKEN: Optional[str] = None
+    WABOT_OWNER_TO: Optional[str] = None
+
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
 
     # Redis (for SSE pub/sub fan-out)

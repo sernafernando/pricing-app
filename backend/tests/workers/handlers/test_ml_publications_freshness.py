@@ -1,15 +1,16 @@
 """ml-sync-pipeline T5 (S5): how late the store is on what ML told it changed, per data class, and the queue lag
-per lane.
+per lane; past the target the owner gets a WhatsApp.
 
 A resource is late when a notification asked for it, it was not fetched since, and it has been due (the
 notification, or its last check plus its minimum age, whichever is later) for longer than its target.
 
-Postgres only. Measuring makes no ML call.
+Postgres only. The handler measures; nothing here may reach ML.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import List
 
 import pytest
 from sqlalchemy import text
@@ -18,9 +19,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.services.ml_publications import freshness, settings_store
 from app.services.ml_publications.ml_http import MlHttpClient
+from app.workers import registry
 from app.workers.context import WorkerContext
+from app.workers.handlers import ml_publications as handlers
 
 pytestmark = pytest.mark.postgres
+
+HANDLER_NAME = "ml_publications.freshness"
 
 
 def context() -> WorkerContext:
@@ -44,6 +49,18 @@ def env(mlpub_pg, monkeypatch):
     monkeypatch.setattr(MlHttpClient, "get", no_ml)
     settings_store.set_setting("bundle_resources", ["core", "prices", "promotions", "competition"], "test")
     return mlpub_pg
+
+
+@pytest.fixture()
+def sent(monkeypatch) -> List[str]:
+    messages: List[str] = []
+
+    def send(message: str) -> str:
+        messages.append(message)
+        return "sent"
+
+    monkeypatch.setattr(handlers.wabot_client, "send_to_owner", send)
+    return messages
 
 
 def run(engine, statement: str, **params) -> None:
@@ -175,3 +192,49 @@ class TestQueueLag:
         lanes = {lane["lane"]: lane for lane in measure(env)["lanes"]}
         assert lanes[2]["waiting"] == 1
         assert lanes[1]["waiting"] == 0
+
+
+class TestTheHandler:
+    def test_it_is_a_one_minute_tick_of_worker_ml(self) -> None:
+        assert handlers.freshness.name == HANDLER_NAME
+        assert handlers.freshness.interval == timedelta(minutes=1)
+        assert handlers.freshness.channels == ()
+        assert handlers.freshness in registry.ML_PUBLICATIONS_REGISTRY
+
+    def test_it_alerts_once_while_late_and_once_when_back(self, env, sent) -> None:
+        put_item(env, "MLA1", checked=ago(30))
+        notify(env, "MLA1", received=ago(7))
+
+        first = handlers.freshness.run(context())
+        handlers.freshness.run(context())
+
+        assert first.success is True
+        assert len(sent) == 1
+        assert "estado de la publicación" in sent[0]
+        assert "1 publicación" in sent[0]
+
+        run(env, "DELETE FROM ml_pub_refresh_queue")
+        handlers.freshness.run(context())
+        handlers.freshness.run(context())
+
+        assert len(sent) == 2
+        assert "al día" in sent[1]
+
+    def test_an_unsent_alert_is_retried_on_the_next_tick(self, env, monkeypatch) -> None:
+        put_item(env, "MLA1", checked=ago(30))
+        notify(env, "MLA1", received=ago(7))
+        outcomes = iter(["not_configured", "sent"])
+        tries: List[str] = []
+
+        def send(message: str) -> str:
+            tries.append(message)
+            return next(outcomes)
+
+        monkeypatch.setattr(handlers.wabot_client, "send_to_owner", send)
+
+        result = handlers.freshness.run(context())
+        assert result.detail["alert"] == "not_configured"
+        handlers.freshness.run(context())
+        handlers.freshness.run(context())
+
+        assert len(tries) == 2

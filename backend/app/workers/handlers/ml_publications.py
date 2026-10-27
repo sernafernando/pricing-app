@@ -23,6 +23,8 @@ from sqlalchemy import text
 
 from app.core import database
 from app.core.config import settings
+from app.services import wabot_client
+from app.services.ml_publications import freshness as freshness_core
 from app.services.ml_publications import intake as intake_core
 from app.services.ml_publications import (
     bundle,
@@ -1221,10 +1223,45 @@ class VerifyHandler:
         return detail
 
 
+FRESHNESS_HANDLER = "ml_publications.freshness"
+
+
+class FreshnessHandler:
+    """`ml_publications.freshness` (ml-sync-pipeline S5): every minute, how late the store is on what ML told it
+    changed, per resource, and the queue lag per lane, kept in its detail for the status report.
+
+    A resource that becomes late sends the owner ONE WhatsApp; it is not repeated while the resource stays late,
+    and one more says when everything is back. An alert wabot did not take is tried again on the next tick.
+    It makes no ML call and holds no pacer.
+    """
+
+    name = FRESHNESS_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(minutes=1)
+    run_at_local: Optional[time] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        with database.get_background_db() as db:
+            report = freshness_core.measure(db)
+        late = freshness_core.late_resources(report)
+        alerted: List[str] = _read_detail(self.name).get("alerted") or []
+        alert = None
+        if set(late) - set(alerted):
+            alert = wabot_client.send_to_owner(freshness_core.late_message(report))
+        elif alerted and not late:
+            alert = wabot_client.send_to_owner(freshness_core.BACK_MESSAGE)
+        if alert == "sent" or (alert is None and not late):
+            alerted = late
+        detail = {**report, "alerted": alerted, "alert": alert, "at": _utcnow().isoformat()}
+        _persist_detail(self.name, detail)
+        return JobResult(success=True, detail=detail)
+
+
 refresh = RefreshHandler()
 intake = IntakeHandler()
 relink = RelinkHandler()
 scan = ScanHandler(pacer=refresh.pacer)  # one in-process ML budget for every call the store makes
 missed_feeds = MissedFeedsHandler(pacer=refresh.pacer)
 sweep = SweepHandler()
+freshness = FreshnessHandler()
 verify = VerifyHandler(pacer=refresh.pacer)
