@@ -56,6 +56,7 @@ const AportesAdsML = lazy(() => import('./pages/AportesAdsML'));
 const ApiDocs = lazy(() => import('./pages/ApiDocs'));
 const SellIn = lazy(() => import('./pages/SellIn'));
 const PublicacionesML = lazy(() => import('./pages/PublicacionesML'));
+const ParaGanarAdvisor = lazy(() => import('./pages/ParaGanarAdvisor'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
 const Traza = lazy(() => import('./pages/Traza'));
 const FreeShippingAlerts = lazy(() => import('./pages/FreeShippingAlerts'));
@@ -117,6 +118,8 @@ const protectedRoutes = [
   { path: '/productos', component: Productos, permiso: 'productos.ver' },
   { path: '/tienda', component: Tienda, permiso: 'productos.ver_tienda' },
   { path: '/precios-listas', component: PreciosListas, permiso: 'productos.ver' },
+  // PARA GANAR advisor shell (WIP) — productos.ver until dedicated permiso exists.
+  { path: '/para-ganar', component: ParaGanarAdvisor, permiso: 'productos.ver' },
   { path: '/sell-in', component: SellIn, permiso: 'sell_in.ver' },
   { path: '/ultimos-cambios', component: UltimosCambios, permiso: 'productos.ver_auditoria' },
   // No permiso: visible to any logged-in user (see AppLayout's outer auth

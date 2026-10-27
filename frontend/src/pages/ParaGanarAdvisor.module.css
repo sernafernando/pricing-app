@@ -1,0 +1,131 @@
+.page {
+  padding: var(--spacing-lg);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.headerIcon {
+  color: var(--cf-accent-blue);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--cf-text-tertiary);
+  margin: 2px 0 0 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.chip {
+  appearance: none;
+  border: 1px solid var(--cf-border-subtle);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-secondary);
+  font-size: 12px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.chipActive {
+  border-color: var(--cf-accent-blue);
+  background: color-mix(in srgb, var(--cf-accent-blue) 16%, transparent);
+  color: var(--cf-text-primary);
+  opacity: 1;
+}
+
+.toolbarHint {
+  font-size: 12px;
+  color: var(--cf-text-tertiary);
+  margin-left: var(--spacing-xs);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+  gap: var(--spacing-md);
+  min-height: 420px;
+}
+
+.queue,
+.detail {
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+}
+
+.panelTitle {
+  font-size: 12px;
+  font-weight: var(--font-semibold, 600);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.emptyState {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--font-semibold, 600);
+  color: var(--cf-text-primary);
+}
+
+.emptyBody {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cf-text-secondary);
+  max-width: 36em;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}

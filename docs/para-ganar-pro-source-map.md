@@ -99,6 +99,13 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ---
 
+## Pricing shell (started)
+
+- Route: `/para-ganar` (`productos.ver`)
+- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — empty queue + detail layout, status filter chips stubbed
+- Nav: Sidebar → Productos → PARA GANAR (badge WIP)
+- Catalog: `frontend/src/registry/screenCatalog.js`
+
 ## Suggested next step
 
-Write a short **Pricing advisor spec** (screen + criteria + suggestion lifecycle + apply path) using this map as intent, then a vertical slice on `feat/promo-local-refresh-mirror` (or a dedicated `feat/para-ganar-advisor` branch) against the local 20-product sandbox.
+Iterate the shell with real list/detail UX, then wire criteria + suggestion lifecycle + apply path against the local 20-product sandbox.

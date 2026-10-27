@@ -82,6 +82,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Productos', path: '/productos', permiso: 'productos.ver' },
         { label: 'Tienda', path: '/tienda', permiso: 'productos.ver_tienda' },
         { label: 'Precios por Lista', path: '/precios-listas', permiso: 'productos.ver' },
+        { label: 'PARA GANAR', path: '/para-ganar', permiso: 'productos.ver', badge: 'WIP' },
         { label: 'Banlist MLAs', path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
         { label: 'Items sin MLA', path: '/items-sin-mla', permiso: 'admin.ver_items_sin_mla' },
         { label: 'Prearmadas disponibles', path: '/prearmadas-disponibles', permiso: 'produccion.ver_prearmadas_stats' },

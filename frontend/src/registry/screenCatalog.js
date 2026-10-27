@@ -30,6 +30,7 @@ export const SCREENS = [
   { path: '/productos', label: 'Productos', section: 'Productos', permisos: ['productos.ver'], scope: 'permiso' },
   { path: '/tienda', label: 'Tienda', section: 'Productos', permisos: ['productos.ver_tienda'], scope: 'permiso' },
   { path: '/precios-listas', label: 'Precios por Lista', section: 'Productos', permisos: ['productos.ver'], scope: 'permiso' },
+  { path: '/para-ganar', label: 'PARA GANAR', section: 'Productos', permisos: ['productos.ver'], scope: 'permiso' },
   { path: '/mla-banlist', label: 'Banlist MLAs', section: 'Productos', permisos: ['admin.gestionar_mla_banlist'], scope: 'permiso' },
   { path: '/items-sin-mla', label: 'Items sin MLA', section: 'Productos', permisos: ['admin.ver_items_sin_mla'], scope: 'permiso' },
   { path: '/prearmadas-disponibles', label: 'Prearmadas disponibles', section: 'Productos', permisos: ['produccion.ver_prearmadas_stats'], scope: 'permiso' },
