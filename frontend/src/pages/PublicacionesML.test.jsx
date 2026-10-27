@@ -1696,6 +1696,34 @@ describe('keyboard shortcuts', () => {
   });
 });
 
+describe('bulk actions and filters from the keyboard (S9b)', () => {
+  it('Ctrl+K opens Calcular Web Transf. and Ctrl+Shift+P opens Calcular PVP over the filtered products', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' });
+    await user.keyboard('{Control>}k{/Control}');
+    expect(await screen.findByRole('heading', { name: /Calcular Precios Web Transferencia/ })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: /Calcular Precios Web Transferencia/ })).not.toBeInTheDocument(),
+    );
+    await user.keyboard('{Control>}{Shift>}P{/Shift}{/Control}');
+    expect(await screen.findByRole('heading', { name: /Calcular Precios PVP/ })).toBeInTheDocument();
+  });
+
+  it('Alt+M, Alt+S and Alt+P open the Marca, Subcategoría and PM filters', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.keyboard('{Alt>}m{/Alt}');
+    expect(await screen.findByLabelText('TP,LINK')).toBeInTheDocument();
+    await user.keyboard('{Alt>}p{/Alt}');
+    await waitFor(() => expect(screen.queryByLabelText('TP,LINK')).not.toBeInTheDocument());
+    expect(await screen.findByLabelText('Ana')).toBeInTheDocument();
+    await user.keyboard('{Alt>}s{/Alt}');
+    await waitFor(() => expect(screen.queryByLabelText('Ana')).not.toBeInTheDocument());
+  });
+});
+
 describe('keyboard export', () => {
   it('Ctrl+E while an export runs starts no second one and is not left to the browser', async () => {
     let finish;

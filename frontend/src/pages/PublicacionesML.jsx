@@ -443,8 +443,14 @@ export default function PublicacionesML() {
     setFilters({ equipo: next });
     showToast(`Capa: ${next ? teams.find((equipo) => String(equipo.id) === next).nombre : 'Global'}`, 'info');
   };
+  // Ctrl+K / Ctrl+Shift+P ask BulkActions for a modal; `at` makes each press a new request.
+  const [bulkRequest, setBulkRequest] = useState(null);
+  const filterCardRef = useRef(null);
+  const openFilter = (name) => filterCardRef.current?.querySelector(`[data-filter="${name}"]`)?.click();
   usePublicacionesMLKeyboard({
     searchRef,
+    onBulkAction: (key) => setBulkRequest({ key, at: performance.now() }),
+    onOpenFilter: openFilter,
     onPaintRow: paintRow,
     onCycleLayer: cycleLayer,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
@@ -512,6 +518,7 @@ export default function PublicacionesML() {
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
+            openRequest={bulkRequest}
           />
           <BulkStatusActions filters={filters} canSeeMargin={canSeeMargin} onDone={reloadList} />
           <ColumnPicker table={pickerTable} />
@@ -549,7 +556,7 @@ export default function PublicacionesML() {
         />
       )}
 
-      <section className={styles.filterCard} aria-label="Filtros">
+      <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
           <div className={styles.searchSlot}>
             <SearchInput
