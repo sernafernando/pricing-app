@@ -167,6 +167,24 @@ describe('VistaPorMarca', () => {
     expect(screen.getByRole('button', { name: /^Agregar a/ })).toHaveTextContent('Agregar a 0 categorías');
   });
 
+  it('names the rejected pairs when the PUT refuses some of them', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockRejectedValue({
+      response: {
+        status: 403,
+        data: { detail: { mensaje: 'Pares fuera de tu scope', pares_rechazados: [{ marca: 'LG', categoria: 'Televisores' }] } },
+      },
+    });
+    renderVista();
+    await user.click(screen.getByLabelText('Seleccionar Televisores'));
+    await user.selectOptions(screen.getByLabelText('Agregar como sub-PM'), '6');
+    await user.click(screen.getByRole('button', { name: /^Agregar a/ }));
+
+    expect(
+      await screen.findByText('Pares fuera de tu scope No se aplicó ningún cambio. Rechazados: LG / Televisores.'),
+    ).toBeInTheDocument();
+  });
+
   it('says nothing was applied when the PUT is rejected', async () => {
     const user = userEvent.setup();
     marcasPmAPI.asignarSubPMsBulk.mockRejectedValue({

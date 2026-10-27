@@ -3,15 +3,9 @@ import { Search } from 'lucide-react';
 import { marcasPmAPI } from '../../services/api';
 import { ModalAlert } from '../ModalTesla';
 import { parKey } from '../parKey';
+import { extraerError } from '../../pages/misSubPMsHelpers';
 import lista from './UsuariosLista.module.css';
 import styles from './VistaPorMarca.module.css';
-
-function mensajeError(err, fallback) {
-  const detail = err?.response?.data?.detail;
-  if (typeof detail === 'string' && detail) return detail;
-  if (detail && typeof detail === 'object' && detail.mensaje) return detail.mensaje;
-  return fallback;
-}
 
 /**
  * VistaPorMarca — "Por marca / par" tab of the Sub-PMs screen.
@@ -115,7 +109,11 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
       onCambio([id]);
     } catch (err) {
       console.error('Error al agregar el sub-PM', err);
-      setAlerta({ tipo: 'error', texto: `${mensajeError(err, 'Error al agregar el sub-PM')} No se aplicó ningún cambio.` });
+      const { texto, rechazados } = extraerError(err, 'Error al agregar el sub-PM');
+      const detalle = rechazados.length
+        ? ` Rechazados: ${rechazados.map((p) => `${p.marca} / ${p.categoria}`).join(', ')}.`
+        : '';
+      setAlerta({ tipo: 'error', texto: `${texto} No se aplicó ningún cambio.${detalle}` });
     } finally {
       setOcupado(false);
     }
