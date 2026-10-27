@@ -61,6 +61,7 @@ from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
+    colors,
     detail,
     events_view,
     export,
@@ -238,6 +239,10 @@ class LastEventOut(BaseModel):
 
 class ItemRowOut(BaseModel):
     item_id: str
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (view/colors.py).
+    color_marcado: Optional[str] = None
+    color_hint_global: Optional[str] = None
+    color_hint_equipo_inicial: Optional[str] = None
     title: Optional[str] = None
     thumbnail: Optional[str] = None
     permalink: Optional[str] = None
@@ -563,6 +568,10 @@ class GroupNodeOut(BaseModel):
     only on the nodes they describe."""
 
     kind: str
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (view/colors.py).
+    color_marcado: Optional[str] = None
+    color_hint_global: Optional[str] = None
+    color_hint_equipo_inicial: Optional[str] = None
     key: str
     label: str
     count: int
@@ -598,6 +607,10 @@ class ProductRowOut(BaseModel):
     publications') needs `ml_metricas.ver`; null when none of its publications has Métricas figures."""
 
     key: str
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (view/colors.py).
+    color_marcado: Optional[str] = None
+    color_hint_global: Optional[str] = None
+    color_hint_equipo_inicial: Optional[str] = None
     product_item_id: Optional[int] = None
     codigo: Optional[str] = None
     descripcion: str
@@ -879,6 +892,7 @@ def get_items(
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
     facets: bool = False,
+    equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
     db: Session = Depends(get_view_db),
     # The application session, for the permission check. In production it IS `db` (FastAPI caches `get_db`
     # within a request); it is its own parameter so the permission never rides on the store-tables test seam,
@@ -886,8 +900,9 @@ def get_items(
     auth_db: Session = Depends(get_db),
     status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
 ) -> dict[str, Any]:
-    """One page of publications (one row per MLA) with the honest-state block."""
+    """One page of publications (one row per MLA) with the honest-state block, each with its product's row color."""
     timer = Timer("items")
+    layer = colors.resolve_layer(auth_db, user, equipo_id)  # first: a team the user is not in is a 403
     can_see_margin, can_see_sales, sort = ask.can_see_margin, ask.can_see_sales, ask.sort
     ads_status = ask.ads_status
     try:
@@ -916,6 +931,8 @@ def get_items(
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    with timer.stage("colors"):
+        colors.attach_colors(auth_db, layer, page.items, lambda item: (item.get("link") or {}).get("producto_item_id"))
     with timer.stage("status"):
         data_state = status_provider()
     response.headers["Server-Timing"] = timer.server_timing()
@@ -976,6 +993,7 @@ def get_groups(
     restar_publicidad: Optional[bool] = Query(None, description="node markup after Ads cost (ver_ganancia)"),
     ads_desde: Optional[str] = Query(None, description="first day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
     ads_hasta: Optional[str] = Query(None, description="last day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
+    equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
     db: Session = Depends(get_view_db),
     auth_db: Session = Depends(get_db),  # the permission check and the pricing tables (see `get_items`)
     ads_provider: AdsCostProvider = Depends(get_ads_provider),
@@ -984,6 +1002,7 @@ def get_groups(
     follow the same filters as `/items` (the store included), and each node's `params` select its publications there.
     With `ml_metricas.ver_ganancia`, also each node's `negative_count` and `markup_min`/`markup_max` (no average)."""
     timer = Timer("groups")
+    layer = colors.resolve_layer(auth_db, user, equipo_id)  # a team the user is not in is a 403
     can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
     if not can_see_margin and restar_publicidad:
         raise api_error(
@@ -1013,6 +1032,10 @@ def get_groups(
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    nodes = [_node_out(node) for node in page.nodes]
+    # Only a product node is painted: its product's color (the other levels group several products).
+    product_nodes = [node for node in nodes if node["kind"] == groups.KIND_PRODUCT]
+    colors.attach_colors(auth_db, layer, product_nodes, lambda node: node.get("producto_item_id"))
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(level=page.level, rows=len(page.nodes), total=page.total)
     body: dict[str, Any] = {
@@ -1020,7 +1043,7 @@ def get_groups(
         "levels": levels,
         "level": page.level,
         "path": keys,
-        "nodes": [_node_out(node) for node in page.nodes],
+        "nodes": nodes,
         "total": page.total,
         "limit": limit,
         "offset": offset,
@@ -1109,10 +1132,14 @@ def get_products(
     ask: ProductsAsk = Depends(products_ask),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
     db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the color layer and its colors (see `get_items`)
 ) -> dict[str, Any]:
-    """The Producto view: one page of product rows over the MLAs the filters select, with Métricas ML's figures."""
+    """The Producto view: one page of product rows over the MLAs the filters select, with Métricas ML's figures
+    and each product's row color."""
     timer = Timer("products")
+    layer = colors.resolve_layer(auth_db, user, equipo_id)  # a team the user is not in is a 403
     can_see_margin, can_see_sales, sort_name, sort_dir = (
         ask.can_see_margin,
         ask.can_see_sales,
@@ -1135,11 +1162,13 @@ def get_products(
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(rows=len(page.rows), total=page.total)
+    rows = [
+        _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
+        for row in page.rows
+    ]
+    colors.attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
     return {
-        "rows": [
-            _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
-            for row in page.rows
-        ],
+        "rows": rows,
         "total": page.total,
         "mla_count": page.mla_count,
         "limit": limit,

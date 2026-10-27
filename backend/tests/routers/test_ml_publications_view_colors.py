@@ -1,0 +1,134 @@
+"""S8: Productos' row colors (and their team layers) on Publicaciones ML's rows.
+
+A color belongs to the PRODUCT, per layer (`producto_color`, the `ml` slot, docs/color-teams-frontend-contract.md):
+a publication row carries its linked product's, a Producto-view row and a product node of the tree carry their own.
+`equipo_id` picks the layer exactly as `GET /productos` does (omitted = the global one; another team needs
+membership, else 403). The fields appear only when they have a value, so a list without colors is unchanged:
+`color_marcado` (the active layer), `color_hint_global` (the global one, for a row the team has not painted) and
+`color_hint_equipo_inicial` (the team's initial, on a team layer).
+"""
+
+# ruff: noqa: F811 -- the imported fixtures are used by name
+
+from __future__ import annotations
+
+import pytest
+
+from app.models.equipo import Equipo, EquipoMiembro, ProductoColor
+from app.models.producto import ProductoERP
+from tests.routers.test_ml_publications_links import grant
+from tests.routers.test_ml_publications_view import VER, seed_rows
+from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
+from tests.routers.test_ml_publications_view_presence import fill
+from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.services.ml_publications.view.test_groups_postgres import seed_catalog
+
+pytestmark = pytest.mark.postgres
+
+ITEMS_URL = "/api/ml-publications/view/items"
+PRODUCTS_URL = "/api/ml-publications/view/products"
+GROUPS_URL = "/api/ml-publications/view/groups"
+COLOR_KEYS = ("color_marcado", "color_hint_global", "color_hint_equipo_inicial")
+
+
+@pytest.fixture()
+def layers(db, admin_user) -> dict[str, int]:
+    """Global: 77 rojo, 78 azul, 70 amarillo. Team "Ventas" (the admin is a member): 77 verde."""
+    global_id = db.query(Equipo).filter(Equipo.es_global.is_(True)).one().id
+    # The colors live in the application's tables, next to its catalog (the view's store is another database here).
+    db.add_all(
+        ProductoERP(item_id=item_id, codigo=f"C{item_id}", descripcion=f"P{item_id}") for item_id in (70, 77, 78)
+    )
+    team = Equipo(nombre="Ventas", es_global=False)
+    other = Equipo(nombre="Compras", es_global=False)
+    db.add_all([team, other])
+    db.flush()
+    db.add(EquipoMiembro(equipo_id=team.id, usuario_id=admin_user.id, rol="admin"))
+    for equipo_id, item_id, color in ((global_id, 77, "rojo"), (global_id, 78, "azul"), (global_id, 70, "amarillo")):
+        db.add(ProductoColor(equipo_id=equipo_id, item_id=item_id, color_ml=color))
+    db.add(ProductoColor(equipo_id=team.id, item_id=77, color_ml="verde", color_tienda="rojo"))
+    db.flush()
+    return {"global": global_id, "team": team.id, "other": other.id}
+
+
+@pytest.fixture()
+def reader(client, db, rol_admin, admin_auth_headers):
+    grant(db, rol_admin, VER)
+    return admin_auth_headers
+
+
+def colors(row: dict) -> dict:
+    return {key: row[key] for key in COLOR_KEYS if key in row}
+
+
+def items(client, headers, **params) -> dict[str, dict]:
+    response = client.get(ITEMS_URL, headers=headers, params=params)
+    assert response.status_code == 200, response.text
+    return {row["item_id"]: colors(row) for row in response.json()["items"]}
+
+
+def products(client, headers, **params) -> dict[str, dict]:
+    response = client.get(PRODUCTS_URL, headers=headers, params=params)
+    assert response.status_code == 200, response.text
+    return {row["key"]: colors(row) for row in response.json()["rows"]}
+
+
+class TestPublicationRows:
+    def test_the_global_layer_paints_each_publication_with_its_product_color(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        assert items(client, reader) == {
+            "MLA1": {"color_marcado": "rojo", "color_hint_global": "rojo"},
+            "MLA2": {"color_marcado": "azul", "color_hint_global": "azul"},
+            "MLA3": {},  # no product, no color
+        }
+
+    def test_a_team_layer_shows_the_team_color_the_global_hint_and_the_team_initial(
+        self, client, pg, reader, layers
+    ) -> None:
+        seed_rows(pg, fill)
+        assert items(client, reader, equipo_id=layers["team"]) == {
+            "MLA1": {"color_marcado": "verde", "color_hint_global": "rojo", "color_hint_equipo_inicial": "V"},
+            "MLA2": {"color_hint_global": "azul", "color_hint_equipo_inicial": "V"},
+            "MLA3": {"color_hint_equipo_inicial": "V"},
+        }
+
+    def test_the_global_layer_asked_by_id_is_the_default(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        assert items(client, reader, equipo_id=layers["global"]) == items(client, reader)
+
+    def test_a_team_the_user_is_not_in_is_a_403(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        response = client.get(ITEMS_URL, headers=reader, params={"equipo_id": layers["other"]})
+        assert response.status_code == 403
+
+    def test_without_any_color_the_rows_are_unchanged(self, client, pg, reader) -> None:
+        seed_rows(pg, fill)
+        assert items(client, reader) == {"MLA1": {}, "MLA2": {}, "MLA3": {}}
+
+
+class TestProductRows:
+    def test_each_product_row_carries_its_color_and_the_no_product_row_none(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        assert products(client, reader, equipo_id=layers["team"]) == {
+            "77": {"color_marcado": "verde", "color_hint_global": "rojo", "color_hint_equipo_inicial": "V"},
+            "78": {"color_hint_global": "azul", "color_hint_equipo_inicial": "V"},
+            "0": {"color_hint_equipo_inicial": "V"},  # the "Sin producto" row: no color, the layer still says whose
+        }
+
+    def test_a_team_the_user_is_not_in_is_a_403(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        assert client.get(PRODUCTS_URL, headers=reader, params={"equipo_id": layers["other"]}).status_code == 403
+
+
+class TestTreeNodes:
+    def test_a_product_node_carries_its_color_and_the_other_levels_none(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, seed_catalog)
+        root = client.get(GROUPS_URL, headers=reader).json()
+        assert all(colors(node) == {} for node in root["nodes"])  # brands are not painted
+        body = client.get(GROUPS_URL, headers=reader, params={"path": "TP-LINK,REDES,10"}).json()
+        node = next(n for n in body["nodes"] if n["key"] == "70")
+        assert colors(node) == {"color_marcado": "amarillo", "color_hint_global": "amarillo"}
+
+    def test_a_team_the_user_is_not_in_is_a_403(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, seed_catalog)
+        assert client.get(GROUPS_URL, headers=reader, params={"equipo_id": layers["other"]}).status_code == 403
