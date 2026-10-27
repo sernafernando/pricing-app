@@ -25,8 +25,9 @@ Four groups, each capped at `limite` rows with its full count:
 
 Cancelled or rejected operations never show (`bonos.ESTADOS_EXCLUIDOS`; a
 corrected operation is cancelled). The brand match is exact on
-`productos_erp.marca`, like the reconcile. Read-only, two queries per group,
-none per row. ERP independence (owner, 2026-10-17): only app tables, never `tb_*`.
+`productos_erp.marca`, like the reconcile. Read-only, two queries per group
+(three for `sin_aplicar`: rows, count, and one for the queue), none per row.
+ERP independence (owner, 2026-10-17): only app tables, never `tb_*`.
 """
 
 from __future__ import annotations
@@ -158,13 +159,19 @@ def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limi
         item = _pedido(row)
         # The operation's own key first: it is the more specific failure.
         clave = en_cola.get(("pedido", row.id)) or del_bono
-        if clave is not None and clave.last_error:
+        es_error = clave is not None and bool(clave.last_error)
+        if es_error:
             motivo = _error_legible(clave.last_error)
         elif item["unidades"] == 0:
             motivo = sin_lineas
         else:
             motivo = MOTIVO_EN_COLA
-        return {**item, "motivo": motivo, "intentos": clave.attempts if clave is not None else None}
+        return {
+            **item,
+            "motivo": motivo,
+            "intentos": clave.attempts if clave is not None else None,
+            "es_error": es_error,
+        }
 
     return {"total": query.order_by(None).count(), "items": [fila(row) for row in filas]}
 

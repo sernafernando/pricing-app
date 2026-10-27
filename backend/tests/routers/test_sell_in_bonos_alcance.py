@@ -344,6 +344,7 @@ def test_an_in_range_invoice_the_worker_parked_shows_with_its_error(client, lect
             "unidades": 21,
             "motivo": "value too long for type character varying(20)",
             "intentos": 5,
+            "es_error": True,
         }
     ]
     # It is in no other group.
@@ -401,6 +402,7 @@ def test_a_queued_key_without_error_is_still_en_cola(client, lector, mundo, db):
     data = _alcance(client, lector, mundo["bono"].id)
 
     assert _sin_aplicar(data) == [(p.id, 4, "En cola", 0)]
+    assert data["sin_aplicar"]["items"][0]["es_error"] is False
 
 
 def test_a_category_bonus_names_the_category_when_the_invoice_has_none(client, lector, mundo, db):

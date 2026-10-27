@@ -130,6 +130,7 @@ class SellInBonoSinAplicarOut(SellInBonoPedidoOut):
 
     motivo: str  # the worker's queued error, "Sin líneas de ... en la factura", or "En cola"
     intentos: Optional[int]  # the worker's attempts when its key is queued, else None
+    es_error: bool  # True when `motivo` is the worker's error, not a status
 
 
 class SellInBonoSinAplicarListOut(BaseModel):

@@ -37,8 +37,8 @@ const SIN_GRUPO = { total: 0, items: [] };
  * attempts only after it failed (re-queueing resets attempts and error
  * together), so attempts mean the reason is that error.
  */
-function motivo({ motivo: texto, intentos }) {
-  if (intentos > 0) return `Error al aplicar: ${texto} (${formatEntero(intentos)} ${intentos === 1 ? 'intento' : 'intentos'})`;
+function motivo({ motivo: texto, intentos, es_error: esError }) {
+  if (esError) return `Error al aplicar: ${texto} (${formatEntero(intentos)} ${intentos === 1 ? 'intento' : 'intentos'})`;
   return texto;
 }
 

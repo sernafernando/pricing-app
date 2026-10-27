@@ -291,6 +291,7 @@ export const ALCANCE = {
         unidades: 21,
         motivo: 'value too long for type character varying(20)',
         intentos: 5,
+        es_error: true,
       },
       {
         pedido_id: 1901,
@@ -300,7 +301,9 @@ export const ALCANCE = {
         fecha_factura: '2026-10-15',
         unidades: 0,
         motivo: 'Sin líneas de la marca en la factura',
-        intentos: null,
+        // Attempts alone do not make it an error: only `es_error` does.
+        intentos: 2,
+        es_error: false,
       },
     ],
   },
